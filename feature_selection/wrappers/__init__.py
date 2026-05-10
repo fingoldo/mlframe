@@ -24,6 +24,7 @@ from ._helpers import (
     get_actual_features_ranking,
     knockoff_importance,
     make_gaussian_knockoffs,
+    select_features_fdr,
     select_appropriate_feature_importances,
     split_into_train_test,
     store_averaged_cv_scores,
@@ -44,4 +45,5 @@ __all__ = [
     "suppress_irritating_3rdparty_warnings",
     "make_gaussian_knockoffs",
     "knockoff_importance",
+    "select_features_fdr",
 ]

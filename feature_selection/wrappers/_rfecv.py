@@ -319,6 +319,64 @@ class RFECV(BaseEstimator, TransformerMixin):
             if verbose:
                 logger.info("Using %s fraction of the training dataset.", frac)
 
+        # P1-F25 (audit): max_refits semantics. ``0`` was silently ignored
+        # by the legacy ``if max_refits and nsteps >= max_refits`` check
+        # (because 0 is falsy). Reject explicitly.
+        if max_refits is not None and max_refits < 1:
+            raise ValueError(
+                f"max_refits must be >= 1 (or None for unlimited); got {max_refits}. "
+                f"To run zero iterations, just don't call fit()."
+            )
+
+        # P1-F27 (audit): cv=1 is degenerate (no train/test split possible).
+        if isinstance(cv, int) and cv < 2:
+            raise ValueError(
+                f"cv must be >= 2 (or a CV splitter object); got cv={cv}. "
+                f"k-fold CV requires at least 2 splits."
+            )
+
+        # P1-F31/F32 (audit): stability selection guards.
+        if stability_selection:
+            if not (0.0 < stability_threshold <= 1.0):
+                raise ValueError(
+                    f"stability_threshold must be in (0, 1]; got {stability_threshold}."
+                )
+            if stability_n_bootstrap < 10 and verbose:
+                logger.warning(
+                    "RFECV: stability_n_bootstrap=%d is below the recommended "
+                    "minimum of 10. Bootstrap voting is statistically meaningful "
+                    "only with B >= 10; expect noisy / unstable selection.",
+                    stability_n_bootstrap,
+                )
+            if stability_n_bootstrap < 1:
+                raise ValueError(
+                    f"stability_n_bootstrap must be >= 1; got {stability_n_bootstrap}."
+                )
+
+        # P1-F29 (audit): feature_groups validation - warn on missing names.
+        if feature_groups:
+            for _gname, _gmembers in feature_groups.items():
+                if not _gmembers:
+                    if verbose:
+                        logger.warning(
+                            "RFECV: feature_groups[%r] is empty; this group "
+                            "will have no effect on selection.", _gname,
+                        )
+
+        # P1-C18b (audit symmetry): leakage_action validation.
+        if leakage_action not in ("warn", "exclude", "raise"):
+            raise ValueError(
+                f"leakage_action must be 'warn', 'exclude', or 'raise'; "
+                f"got {leakage_action!r}."
+            )
+
+        # P1-N3b (audit symmetry): n_features_selection_rule validation.
+        if n_features_selection_rule not in ("auto", "argmax", "one_se_min", "one_se_max"):
+            raise ValueError(
+                f"n_features_selection_rule must be 'auto', 'argmax', "
+                f"'one_se_min', or 'one_se_max'; got {n_features_selection_rule!r}."
+            )
+
         # assert isinstance(estimator, (BaseEstimator,))
 
         # save params
@@ -451,6 +509,39 @@ class RFECV(BaseEstimator, TransformerMixin):
                     )
                 X = X.drop(columns=degenerate)
 
+        # P0-B6 (audit): detect duplicate columns. After zero-variance filter,
+        # check for exact-duplicate numeric columns and drop all but one per
+        # equivalence class. Without this, RFECV's voting splits the
+        # importance of a duplicated feature across all copies, biasing
+        # selection toward isolated noise features whose FI isn't diluted.
+        # Detection: hash each column's values to bytes; group by hash.
+        if isinstance(X, pd.DataFrame) and X.shape[1] > 1:
+            try:
+                _hashes = {}
+                _to_drop = []
+                for _col in X.select_dtypes(include="number").columns:
+                    _arr = X[_col].values
+                    # Use bytes hash for exact equality. NaN-tolerant via
+                    # nan_to_num replacement before hashing.
+                    _key = np.nan_to_num(_arr, nan=-1.234e308).tobytes()
+                    if _key in _hashes:
+                        _to_drop.append(_col)
+                    else:
+                        _hashes[_key] = _col
+                if _to_drop:
+                    if getattr(self, "verbose", 0):
+                        logger.info(
+                            "RFECV: dropping %d duplicate column(s) (exact-equal "
+                            "to another column already kept) before fit: %s. "
+                            "Pass them via ``feature_groups`` if you want "
+                            "all-or-nothing group decisions.",
+                            len(_to_drop), _to_drop,
+                        )
+                    X = X.drop(columns=_to_drop)
+            except (TypeError, ValueError):
+                # Non-hashable dtype - skip dedup; selector can deal with it.
+                pass
+
         # PR-4 tactical: must_exclude. Drop named columns at fit entry so
         # they never enter the optimiser's universe.
         if self.must_exclude and isinstance(X, pd.DataFrame):
@@ -580,7 +671,19 @@ class RFECV(BaseEstimator, TransformerMixin):
         use_fi_ranking = self.use_fi_ranking
         importance_getter = self.importance_getter
         random_state = self.random_state
-        self._rng = np.random.default_rng(random_state)
+        # P0-G33 (audit): when random_state is None, derive a stable seed
+        # from the signature so that re-fits on the SAME data are
+        # deterministic. This catches the common reproducibility bug where
+        # users debug an issue and re-fit RFECV without realising self._rng
+        # was reseeded from system entropy. With this fix, calling .fit(X,y)
+        # twice on the same X,y always yields identical support_ even when
+        # random_state is left at its default None.
+        if random_state is None:
+            # Hash the signature tuple; trim to 32-bit unsigned for numpy.
+            _seed = abs(hash(signature)) % (2 ** 32)
+            self._rng = np.random.default_rng(_seed)
+        else:
+            self._rng = np.random.default_rng(random_state)
         leave_progressbars = self.leave_progressbars
         verbose = self.verbose
         show_plot = self.show_plot

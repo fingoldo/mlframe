@@ -246,12 +246,11 @@ class TestK4_PlateauRule:
         )
 
     def test_unknown_rule_raises(self):
-        X, y = make_classification(n_samples=100, n_features=4, n_informative=2, random_state=0)
-        Xdf = pd.DataFrame(X, columns=list("abcd"))
-        rfecv = RFECV(
-            estimator=LogisticRegression(max_iter=200, random_state=0),
-            cv=2, max_refits=2, verbose=0,
-            n_features_selection_rule="bogus_rule",
-        )
-        with pytest.raises(ValueError, match="not supported"):
-            rfecv.fit(Xdf, y)
+        # PR-6: validation moved to __init__ (eager) instead of select_optimal_nfeatures_
+        # so a bad config aborts at construction time, not after a long fit.
+        with pytest.raises(ValueError, match="n_features_selection_rule"):
+            RFECV(
+                estimator=LogisticRegression(max_iter=200, random_state=0),
+                cv=2, max_refits=2, verbose=0,
+                n_features_selection_rule="bogus_rule",
+            )

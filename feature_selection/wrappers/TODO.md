@@ -71,7 +71,40 @@ For truly high-card-bias-free FI, use:
 
 But it is NOT a replacement for permutation/knockoffs on high-card data.
 
-### 3. Knockoffs (Barber & Candès 2015) - DONE in PR-5
+### 3. Knockoffs (Barber & Candès 2015) - DONE in PR-5/PR-6/PR-7
+
+PR-5 / PR-6 / PR-7 status:
+- `make_gaussian_knockoffs` - equicorrelated Gaussian knockoffs (PR-5)
+- `knockoff_importance` - W-statistic per feature (PR-5)
+- `select_features_fdr(W, q)` - Barber-Candes FDR-controlled selection (PR-7)
+
+DEFERRED enhancements:
+
+**SDP-optimised s** (Barber-Candes' "SDP knockoffs"). Currently `s` is set
+equicorrelated (`s_j = s for all j`, `s = min(2*lam_min(Sigma), 1)`). The
+SDP-based optimal `s_j` per feature gives tighter knockoffs (each X_tilde_j
+is closer to "independent of X_j given X_{-j}" vs the equicorrelated
+ceiling). Cost: requires `cvxpy` dependency. Implementation:
+```python
+def make_sdp_gaussian_knockoffs(X, ...):
+    import cvxpy as cp
+    Sigma = corr(X)
+    s = cp.Variable(p, nonneg=True)
+    objective = cp.Maximize(cp.sum(s))
+    constraints = [s <= 1, 2*Sigma - cp.diag(s) >> 0]
+    cp.Problem(objective, constraints).solve()
+    return _construct_knockoffs(X, Sigma, s.value)
+```
+
+**Model-X knockoffs** (Candes, Fan, Janson, Lv 2018). Drops the Gaussian
+assumption. Uses any conditional distribution estimator (autoencoder,
+deep learning model) for `P(X_j | X_{-j})`. Library: `knockpy`. Useful
+when X is non-Gaussian (e.g. heavy-tailed, mixed types). Implementation
+would be a thin wrapper around `knockpy.KnockoffSampler`.
+
+**Inferred-Sigma fallback** for n < p: when n is too small to reliably
+estimate `Sigma` (rule of thumb: n < 5p), use shrinkage covariance
+(`sklearn.covariance.LedoitWolf`) instead of empirical correlation.
 
 `mlframe.feature_selection.wrappers.make_gaussian_knockoffs` and
 `knockoff_importance` now provide equicorrelated Gaussian knockoffs +

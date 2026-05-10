@@ -166,6 +166,49 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
     return X_tilde
 
 
+def select_features_fdr(W: dict, q: float = 0.1) -> list:
+    """Barber-Candes FDR-controlled feature selection from a knockoff W
+    statistic dict.
+
+    Picks features with W_j >= tau, where
+        tau = min{t > 0 : (1 + #{j: W_j <= -t}) / max(1, #{j: W_j >= t}) <= q}
+    The probability that a noise feature is in the selected set is bounded
+    by q (Barber & Candes 2015, Theorem 1). Returns [] if no threshold
+    achieves the target FDR (typical on small n / weak signal).
+
+    Parameters
+    ----------
+    W : dict
+        Mapping feature_name -> W_j statistic (output of
+        ``knockoff_importance``).
+    q : float
+        Target FDR in (0, 1). Lower = more conservative selection.
+
+    Returns
+    -------
+    list of feature names with W_j >= tau, sorted by W_j desc.
+    """
+    if not W:
+        return []
+    if not (0.0 < q < 1.0):
+        raise ValueError(f"q must be in (0, 1); got {q}")
+    abs_W = np.array([abs(v) for v in W.values()])
+    candidates = sorted(set(abs_W[abs_W > 0]))
+    tau = float("inf")
+    for t in candidates:
+        n_neg = sum(1 for v in W.values() if v <= -t)
+        n_pos = sum(1 for v in W.values() if v >= t)
+        ratio = (1 + n_neg) / max(1, n_pos)
+        if ratio <= q:
+            tau = t
+            break
+    if not np.isfinite(tau):
+        return []
+    selected = [(n, v) for n, v in W.items() if v >= tau]
+    selected.sort(key=lambda kv: kv[1], reverse=True)
+    return [n for n, _ in selected]
+
+
 def knockoff_importance(model_factory, X, y, current_features=None, random_state=None,
                         importance_getter: str = "auto") -> dict:
     """Compute knockoff-based importance: W_j = imp(X_j) - imp(X_tilde_j).
