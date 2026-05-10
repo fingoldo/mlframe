@@ -401,8 +401,111 @@ def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict
 
 
 # ----------------------------------------------------------------------------
-# Feature-importance dispatch (F38 + Phase 4 N6)
+# Feature-importance dispatch (F38 + Phase 4 N6 + Phase 7 conditional perm)
 # ----------------------------------------------------------------------------
+
+def _conditional_permutation_importance(
+    model,
+    X: Union[pd.DataFrame, np.ndarray],
+    y: Union[pd.Series, np.ndarray],
+    n_repeats: int = 5,
+    max_depth: int = 5,
+    random_state: int = 0,
+) -> np.ndarray:
+    """Strobl, Boulesteix, Zeileis, Hothorn 2008 conditional permutation importance.
+
+    Vanilla permutation (Breiman 2001) shuffles X_j independently of X_{-j},
+    creating out-of-distribution combinations on correlated feature sets and
+    inflating measured importance. This conditional variant fits a shallow
+    decision tree X_{-j} -> X_j, then permutes X_j WITHIN each leaf — which
+    preserves P(X_j | X_{-j}) and removes the correlation-induced bias.
+
+    Cost: ~2-3x vanilla permutation (per-feature shallow tree fit + n_repeats
+    leaf-grouped shuffles).
+
+    Returns
+    -------
+    importances : ndarray of shape (p,)
+        Per-feature mean score loss (baseline - permuted). Higher = more important.
+    """
+    from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
+
+    is_dataframe = isinstance(X, pd.DataFrame)
+    if is_dataframe:
+        X_arr = X.to_numpy()
+        cols = X.columns
+        idx = X.index
+    else:
+        X_arr = np.asarray(X)
+        cols = None
+        idx = None
+
+    if X_arr.ndim != 2:
+        raise ValueError(f"conditional_permutation expects 2D X, got shape {X_arr.shape}")
+
+    n, p = X_arr.shape
+    rng = np.random.default_rng(random_state)
+    baseline = float(model.score(X, y))
+    importances = np.zeros(p, dtype=float)
+
+    def _is_discrete(col: np.ndarray) -> bool:
+        # Integer dtype OR <=10 unique non-null values is a sensible proxy.
+        if np.issubdtype(col.dtype, np.integer):
+            return True
+        try:
+            mask = ~np.isnan(col.astype(float, copy=False))
+            uniq = np.unique(col[mask])
+        except (TypeError, ValueError):
+            uniq = np.unique(col)
+        return uniq.size <= 10
+
+    for j in range(p):
+        Xj = X_arr[:, j]
+        Xnotj = np.delete(X_arr, j, axis=1)
+
+        if Xnotj.shape[1] == 0:
+            # Single-feature case: no conditioning set, fall back to vanilla shuffle.
+            score_losses = []
+            for _ in range(n_repeats):
+                X_perm = X_arr.copy()
+                X_perm[:, j] = rng.permutation(X_arr[:, j])
+                X_for_score = (
+                    pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
+                )
+                score_losses.append(baseline - float(model.score(X_for_score, y)))
+            importances[j] = float(np.mean(score_losses))
+            continue
+
+        if _is_discrete(Xj):
+            tree = DecisionTreeClassifier(max_depth=max_depth, random_state=random_state)
+        else:
+            tree = DecisionTreeRegressor(max_depth=max_depth, random_state=random_state)
+
+        try:
+            tree.fit(Xnotj, Xj)
+            leaves = tree.apply(Xnotj)
+        except (ValueError, TypeError):
+            # Conditioning fit failed (constant Xj, all-NaN row, etc.); skip.
+            importances[j] = 0.0
+            continue
+
+        score_losses = []
+        for _ in range(n_repeats):
+            X_perm = X_arr.copy()
+            for leaf_id in np.unique(leaves):
+                in_leaf = np.where(leaves == leaf_id)[0]
+                if in_leaf.size <= 1:
+                    continue
+                shuffled_positions = rng.permutation(in_leaf)
+                X_perm[in_leaf, j] = X_arr[shuffled_positions, j]
+            X_for_score = (
+                pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
+            )
+            score_losses.append(baseline - float(model.score(X_for_score, y)))
+        importances[j] = float(np.mean(score_losses))
+
+    return importances
+
 
 def get_feature_importances(
     model: object,
@@ -418,6 +521,9 @@ def get_feature_importances(
         - 'auto': inspect model's attributes (feature_importances_ -> coef_)
         - 'feature_importances_' / 'coef_' / any other attr name
         - 'permutation' (Phase 4 N6): sklearn.inspection.permutation_importance
+        - 'conditional_permutation' (Phase 7, Strobl 2008): permute X_j WITHIN
+          leaves of a shallow tree X_{-j} -> X_j; preserves P(X_j | X_{-j}) so
+          correlated-feature pairs no longer inflate each other's importance.
         - 'shap' (Phase 4 N6): shap.Explainer mean-abs values
         - Callable: importance_getter(model, data, reference_data, target)
     """
@@ -436,6 +542,18 @@ def get_feature_importances(
                 n_jobs=1,
             )
             res = pi.importances_mean
+        elif importance_getter == "conditional_permutation":
+            if target is None:
+                raise ValueError(
+                    "importance_getter='conditional_permutation' requires target (y_test) "
+                    "to score against. Pass target= explicitly."
+                )
+            res = _conditional_permutation_importance(
+                model, data, target,
+                n_repeats=5,
+                max_depth=5,
+                random_state=0,
+            )
         elif importance_getter == "shap":
             try:
                 import shap as _shap

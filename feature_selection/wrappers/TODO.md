@@ -26,22 +26,22 @@ to the top-K it returns, then proceed with the regular RFECV loop.
 Cost: O(p²) for mRMR vs O(p × iter) for backward elimination. Net win when
 p ≥ 5000.
 
-### 2. Conditional Permutation Importance (Strobl et al. 2008)
+### 2. Conditional Permutation Importance (Strobl et al. 2008) — DONE in PR-12
 
-Vanilla `importance_getter='permutation'` (added in PR-3 N6) breaks on
-correlated features: shuffling X_j independently while X_k stays creates
-out-of-distribution combinations the model never saw, inflating measured
-importance.
+`importance_getter='conditional_permutation'` is now wired through the
+existing `get_feature_importances` dispatch alongside `'permutation'`.
+For each feature j, a shallow `DecisionTreeClassifier`/`Regressor` is fit
+on `X_{-j} -> X_j` (classifier if `X_j` has <=10 unique values or is
+integer-typed, else regressor), then `X_j` is permuted WITHIN each leaf,
+preserving `P(X_j | X_{-j})`. Default `n_repeats=5`, `max_depth=5`.
 
-Conditional fix: for each feature j, fit a shallow tree X_{-j} -> X_j (or
-classification if discrete), then permute X_j WITHIN each leaf of that tree.
-Preserves P(X_j | X_{-j}).
+Tested in `test_wrappers_phase4_n3_n6.py::TestPhase7_ConditionalPermutationImportance`
+(8 tests: shape contract, correlated-pair structural claim, ndarray /
+DataFrame inputs, regression, single-feature edge case, constant-feature
+edge case, end-to-end via RFECV).
 
-Cost: 2-3x vanilla permutation (~90 min on n=1M, p=10k vs ~30 min for vanilla).
-Worth it on highly-collinear feature sets.
-
-Add as `importance_getter='conditional_permutation'`. Implementation: use
-sklearn DecisionTreeRegressor / DecisionTreeClassifier per feature.
+Cost: ~2-3x vanilla permutation (per-feature shallow tree fit + leaf-grouped
+shuffles).
 
 ### 2b. SHAP IS biased toward high-cardinality features (correction to PR-3 doc)
 
@@ -193,3 +193,40 @@ estimator and read coefficients per group. Alternative to the simpler
 
 O(p × full_fit_time) - infeasible on p ≥ 1000. Useful only as a ground-truth
 oracle when bench-marking other importance methods.
+
+## PR-12 status
+
+PR-12 closed three high-priority items:
+
+1. **Conditional Permutation Importance (TODO #2)** — wired through
+   `importance_getter='conditional_permutation'`; see updated #2 above.
+
+2. **Resume-from-checkpoint (new)** — `RFECV(checkpoint_path=...)` pickles
+   the outer-loop mutable state (counters, evaluated_scores_*, optimizer,
+   best-so-far) atomically (tmpfile + os.replace) after every iter. A
+   fit() that finds a matching-signature checkpoint at the path resumes
+   from saved nsteps instead of restarting at 0. Long runs (10k feat *
+   100 iter) are no longer unrecoverable on crash. The fitted_estimators
+   dict is intentionally NOT persisted (would dominate file size on CB
+   / RF ensembles); it is rebuilt on demand by the final voting / refit
+   path. Tested in `test_wrappers_checkpoint.py` (12 tests covering
+   opt-in, save shape, signature match / mismatch, version mismatch,
+   corrupt file, atomic-write integrity, no stale tempfiles, end-to-end
+   resume).
+
+3. **cProfile pass on post-refactor code** — re-ran
+   `_benchmarks/profile_rfecv.py` after the Phase 3 module split (the
+   prior profile referenced the now-deleted monolithic `wrappers.py`).
+   Outcome: **no actionable @njit / numba candidate remains.** Fresh
+   profile_*.txt files saved to `_benchmarks/_results/` show that on
+   the medium (n=600, p=80) and large (n=1000, p=200) configurations
+   80%+ of wall-clock is inside the user's estimator (`core.py:_train`
+   at ~73-81%, native compiled C++ for CatBoost; sklearn's compiled
+   scipy lbfgsb path for LR). The previous big offender
+   (`get_actual_features_ranking` at 5.1s on monolithic baseline) has
+   collapsed to 0.118s thanks to the lazy-Leaderboard fix in PR-3.
+   `clean_ram` (`gc.collect`) at ~8.5% is already gated to every 5th
+   iter; further gating trades latency for memory pressure on long runs
+   and was rejected per `feedback_no_tradeoff_optimizations`. Conclusion
+   recorded here per `feedback_perf_measure_first` so the same flag
+   isn't re-raised in future audits.

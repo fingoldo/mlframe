@@ -184,8 +184,60 @@ RFECV validates the inputs at fit entry to prevent silent corruption:
 - Column drift between fit and transform → `RuntimeError`
 - Target leakage (Pearson > threshold) → `'warn'` / `'exclude'` / `'raise'` per `leakage_action`
 
+## Conditional Permutation Importance (Strobl et al. 2008)
+
+Vanilla `importance_getter='permutation'` is unbiased for high-cardinality
+features but breaks on correlated feature pairs: shuffling X_j alone while
+X_k stays at its training value creates out-of-distribution joint values
+the model never saw, inflating measured importance.
+
+`importance_getter='conditional_permutation'` fits a shallow tree
+`X_{-j} -> X_j` for each feature, then permutes X_j WITHIN each leaf.
+This preserves `P(X_j | X_{-j})` so the (X_j, X_{-j}) joint stays in
+the model's training support.
+
+```python
+RFECV(
+    estimator=RandomForestClassifier(n_estimators=200, random_state=0),
+    cv=5,
+    importance_getter='conditional_permutation',  # vs 'permutation'
+).fit(X, y)
+```
+
+Cost: ~2-3x vanilla permutation. Worth it on highly-collinear feature sets.
+With perfectly redundant features (`X_2 == X_1`), CPI conservatively returns
+~0 for both — the conditioning tree predicts `X_2` perfectly from `X_1`,
+so within-leaf shuffles are no-ops.
+
+## Resume from checkpoint
+
+Long runs (10k features × 100 iters) used to be unrecoverable on crash.
+Pass `checkpoint_path=path` and RFECV pickles its outer-loop state after
+every iter atomically (tempfile + `os.replace`). A subsequent `fit()` on
+matching `(X.shape, y.shape, columns)` signature picks up where it left off:
+
+```python
+rfecv = RFECV(
+    estimator=CatBoostClassifier(iterations=500, verbose=0),
+    cv=5,
+    max_refits=100,
+    checkpoint_path='/scratch/rfecv_run42.pkl',  # NEW
+).fit(X, y)
+# crash at iter 47 — checkpoint contains state through iter 47
+# next fit() resumes from iter 47, not iter 0:
+rfecv = RFECV(..., checkpoint_path='/scratch/rfecv_run42.pkl').fit(X, y)
+```
+
+Signature-mismatched checkpoints (different shape or columns) are silently
+ignored and the file is overwritten with the new run's state. Corrupt /
+truncated / version-mismatched files trigger a warning and a fresh start.
+Fitted estimators (`fitted_estimators` dict) are NOT persisted — they
+would dominate file size on CB/RF ensembles and are re-fit on demand by
+the final voting / refit path.
+
 ## See also
 
 - `feature_selection/wrappers/TODO.md` — deferred ML improvements
 - `feature_selection/_benchmarks/bench_pr4_methods.py --large` — full bench
+- `feature_selection/_benchmarks/profile_rfecv.py` — cProfile hotspot scan
 - `tests/feature_selection/test_wrappers_*.py` — comprehensive test suite

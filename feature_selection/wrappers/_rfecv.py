@@ -310,6 +310,17 @@ class RFECV(BaseEstimator, TransformerMixin):
         # native multi-threading, and parallel folds is the layer where
         # joblib lives.
         estimators: Union[Sequence, None] = None,
+        # Phase 7: resume-from-checkpoint. When set, RFECV pickles its
+        # outer-loop state (evaluated_scores_*, optimizer, counters,
+        # best-so-far) to ``checkpoint_path`` after every iter; on a
+        # subsequent fit() with a matching (X.shape, y.shape, columns)
+        # signature the loop resumes where it left off instead of
+        # restarting from iter 0. Long runs (10k feat * 100 iter) are
+        # otherwise unrecoverable on crash. The fitted-estimators dict is
+        # NOT persisted (would dominate the file size on CB / RF
+        # ensembles). Atomic write: tmpfile + os.replace, so a crash
+        # mid-write cannot corrupt the previous checkpoint.
+        checkpoint_path: Union[str, None] = None,
     ):
 
         # checks
@@ -384,6 +395,79 @@ class RFECV(BaseEstimator, TransformerMixin):
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
         self.signature = None
+
+    # ------------------------------------------------------------------------
+    # Phase 7: resume-from-checkpoint
+    # ------------------------------------------------------------------------
+    # Schema version of the on-disk checkpoint dict. Bump on any breaking
+    # change to the keys saved by _save_checkpoint; _load_checkpoint refuses
+    # mismatched versions and starts fresh (with a warning).
+    _CHECKPOINT_VERSION = 1
+
+    def _save_checkpoint(self, state: dict) -> None:
+        """Atomically dump RFECV outer-loop state to ``self.checkpoint_path``.
+
+        Atomicity: write to a sibling tempfile then ``os.replace`` it onto
+        the target path. ``os.replace`` is atomic on POSIX and on Windows
+        (Python >=3.3), so a crash mid-write cannot corrupt the prior
+        checkpoint.
+        """
+        import os
+        import pickle
+        import tempfile
+
+        path = self.checkpoint_path
+        if not path:
+            return
+        dir_name = os.path.dirname(os.path.abspath(path)) or "."
+        os.makedirs(dir_name, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".rfecv_ckpt_", dir=dir_name)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                pickle.dump(state, fh, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+
+    def _load_checkpoint(self) -> Union[dict, None]:
+        """Return the checkpoint dict iff present, version-compatible, and
+        signature-matching the current self.signature; otherwise return None.
+
+        On any pickle error (truncated file, missing class, etc.) log a
+        warning and return None so the caller starts fresh.
+        """
+        import os
+        import pickle
+
+        path = self.checkpoint_path
+        if not path or not os.path.exists(path):
+            return None
+        try:
+            with open(path, "rb") as fh:
+                state = pickle.load(fh)
+        except (pickle.PickleError, EOFError, AttributeError, TypeError, ValueError) as exc:
+            logger.warning(
+                "RFECV: checkpoint at %s could not be loaded (%s); starting from scratch.",
+                path, exc,
+            )
+            return None
+        if not isinstance(state, dict):
+            logger.warning(
+                "RFECV: checkpoint at %s is not a dict (got %s); starting from scratch.",
+                path, type(state).__name__,
+            )
+            return None
+        if state.get("version") != self._CHECKPOINT_VERSION:
+            logger.warning(
+                "RFECV: checkpoint at %s has version %s but expected %s; starting from scratch.",
+                path, state.get("version"), self._CHECKPOINT_VERSION,
+            )
+            return None
+        return state
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
 
@@ -1067,6 +1151,45 @@ class RFECV(BaseEstimator, TransformerMixin):
         # -inf is the only safe initial value for an argmax-style accumulator.
         best_score = -np.inf
 
+        # Phase 7: resume-from-checkpoint. Restore mutable outer-loop state
+        # iff the checkpoint signature matches the current (X.shape, y.shape,
+        # columns_key). The signature mismatch path silently starts fresh so
+        # users can keep the same checkpoint_path across experiments without
+        # cross-contamination.
+        if self.checkpoint_path is not None:
+            _state = self._load_checkpoint()
+            if _state is not None and _state.get("signature") == signature:
+                nsteps = int(_state.get("nsteps", 0))
+                evaluated_scores_mean = dict(_state.get("evaluated_scores_mean", {}))
+                evaluated_scores_std = dict(_state.get("evaluated_scores_std", {}))
+                feature_importances = dict(_state.get("feature_importances", {}))
+                selected_features_per_nfeatures = dict(_state.get("selected_features_per_nfeatures", {}))
+                prev_score = _state.get("prev_score", prev_score)
+                prev_nfeatures = _state.get("prev_nfeatures", prev_nfeatures)
+                n_noimproving_iters = int(_state.get("n_noimproving_iters", 0))
+                best_nfeatures = int(_state.get("best_nfeatures", 0))
+                best_iter = int(_state.get("best_iter", 0))
+                best_score = _state.get("best_score", -np.inf)
+                dummy_scores = list(_state.get("dummy_scores", []))
+                # MBHOptimizer carries its own evaluation history; restore if
+                # present and current top_predictors_search_method is MBH.
+                _saved_optimizer = _state.get("optimizer")
+                if _saved_optimizer is not None and Optimizer is not None:
+                    Optimizer = _saved_optimizer
+                if verbose:
+                    logger.info(
+                        "RFECV: resumed from checkpoint at %s (nsteps=%d, best_score=%s).",
+                        self.checkpoint_path, nsteps,
+                        f"{best_score:.4f}" if np.isfinite(best_score) else str(best_score),
+                    )
+            elif _state is not None:
+                if verbose:
+                    logger.info(
+                        "RFECV: checkpoint at %s does not match current "
+                        "(X, y, columns) signature; starting from scratch.",
+                        self.checkpoint_path,
+                    )
+
         while nsteps < len(original_features):
 
             # ----------------------------------------------------------------------------------------------------------------------------
@@ -1507,6 +1630,37 @@ class RFECV(BaseEstimator, TransformerMixin):
             # ----------------------------------------------------------------------------------------------------------------------------
 
             nsteps += 1
+
+            # Phase 7: persist outer-loop state so a crash mid-run is
+            # recoverable. fitted_estimators is intentionally NOT pickled
+            # (CB / RF ensembles dominate the file size); they will be
+            # re-fit on resume when needed by the final voting / refit
+            # path. Save errors are logged but do not abort the fit.
+            if self.checkpoint_path is not None:
+                try:
+                    self._save_checkpoint({
+                        "version": self._CHECKPOINT_VERSION,
+                        "signature": signature,
+                        "nsteps": nsteps,
+                        "evaluated_scores_mean": dict(evaluated_scores_mean),
+                        "evaluated_scores_std": dict(evaluated_scores_std),
+                        "feature_importances": dict(feature_importances),
+                        "selected_features_per_nfeatures": dict(selected_features_per_nfeatures),
+                        "prev_score": prev_score,
+                        "prev_nfeatures": prev_nfeatures,
+                        "n_noimproving_iters": n_noimproving_iters,
+                        "best_nfeatures": best_nfeatures,
+                        "best_iter": best_iter,
+                        "best_score": best_score,
+                        "dummy_scores": list(dummy_scores),
+                        "optimizer": Optimizer,
+                    })
+                except Exception as _ckpt_exc:
+                    if verbose:
+                        logger.warning(
+                            "RFECV: checkpoint save at nsteps=%d failed: %s",
+                            nsteps, _ckpt_exc,
+                        )
 
             if len(evaluated_scores_mean) == 2:
                 # F41 followup: the comment used to claim "0 features & all features",

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-05-10 — RFECV PR-12: Conditional Permutation Importance + resume-from-checkpoint + post-refactor profile pass
+
+Three high-priority items from `feature_selection/wrappers/TODO.md` closed. None of the changes alter default behaviour; both new features are opt-in.
+
+### Added
+
+- **`importance_getter='conditional_permutation'`** (Strobl, Boulesteix, Zeileis, Hothorn 2008). Vanilla permutation breaks on correlated feature pairs by creating out-of-distribution joint values; CPI fits a shallow `DecisionTreeClassifier`/`Regressor` on `X_{-j} -> X_j` for each feature j, then permutes `X_j` WITHIN each leaf. Preserves `P(X_j | X_{-j})`. Cost ~2-3x vanilla permutation. Wired through the existing `get_feature_importances` dispatch so it works as a string getter and plugs into the standard RFECV path. With perfectly redundant features (`X_2 == X_1`) CPI conservatively returns ~0 for both.
+- **`RFECV(checkpoint_path=...)`** — outer-loop state (counters, `evaluated_scores_*`, optimizer, best-so-far) is pickled to the path after every iter via atomic write (tempfile + `os.replace`). A subsequent `fit()` on matching `(X.shape, y.shape, columns)` signature resumes from saved nsteps; signature mismatch / corrupt file / version mismatch silently start fresh with a warning. `fitted_estimators` dict is intentionally NOT persisted (CB / RF ensembles dominate file size); they get re-fit on demand. Long runs (10k feat × 100 iter) are no longer unrecoverable on crash.
+
+### Performance
+
+- **Re-ran `_benchmarks/profile_rfecv.py` on the Phase 3 split code** (the prior profile referenced the now-deleted monolithic `wrappers.py`). Fresh outputs in `_benchmarks/_results/profile_*.txt`. Conclusion: **no actionable @njit / numba candidate remains.** On medium (n=600, p=80) and large (n=1000, p=200) configurations, 80%+ of wall-clock is inside the user's estimator (CatBoost `_train` at ~73-81%, sklearn LR's compiled scipy lbfgsb path). The previous big offender (`get_actual_features_ranking` at 5.1s on monolithic baseline) collapsed to 0.118s thanks to the lazy-Leaderboard fix in PR-3. `clean_ram` (`gc.collect`) at ~8.5% is already gated to every 5th iter; further gating trades latency for memory pressure on long runs and was rejected per `feedback_no_tradeoff_optimizations`. Documented in `wrappers/TODO.md` so the same flag isn't re-raised in future audits.
+
+### Tests
+
+- `test_wrappers_phase4_n3_n6.py::TestPhase7_ConditionalPermutationImportance` — 8 tests: shape contract, correlated-pair structural claim (driver dominates noise; correlated near-copy doesn't exceed driver), ndarray + DataFrame inputs, regression target, single-feature edge case, constant-feature edge case, end-to-end via RFECV.
+- `test_wrappers_checkpoint.py` — 12 tests: opt-in default (no file IO when `checkpoint_path=None`), save schema (required keys present, fitted_estimators excluded), load paths (signature match resumes; mismatch / corrupt / version-mismatch start fresh), atomicity (no tempfile leak on success or failure; existing valid checkpoint not corrupted by a failed save), end-to-end resume produces valid sklearn-style outputs.
+
 ## 2026-05-10 — Composite-target hotfix part 2: raw-y baseline gate + default `screening="hybrid"`
 
 Discovered while diagnosing why the production TVT run produced poor RMSE on `TVT__diff__X` and `TVT__diff__Y` composites: a deeper issue beyond just `TVT_prev` being filtered out. Even if discovery had picked the right base, the screening pipeline itself had no safeguard against composites that pass `mi_gain > eps` but actually make the target HARDER for the model to predict (e.g. subtracting a spatial coordinate that has only global trend with `y` but no structural residual signal). MI-gain is a proxy; the actual prediction objective is OOF RMSE on the y-scale.

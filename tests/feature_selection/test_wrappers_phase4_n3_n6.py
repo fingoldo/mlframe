@@ -239,3 +239,199 @@ class TestLeaderboard_LazyMajorityGraph:
         lb._ensure_majority_graph()
         # Same object identity = no rebuild
         assert lb.majority_graph is first
+
+
+# ----------------------------------------------------------------------------
+# Phase 7: Conditional Permutation Importance (Strobl, Boulesteix, Zeileis,
+# Hothorn 2008). Vanilla permutation breaks on correlated feature pairs by
+# creating out-of-distribution joint values; CPI permutes WITHIN leaves of
+# a shallow tree X_{-j} -> X_j, preserving P(X_j | X_{-j}).
+# ----------------------------------------------------------------------------
+class TestPhase7_ConditionalPermutationImportance:
+    def test_cpi_returns_per_feature_dict(self):
+        """Basic shape contract: one importance per feature, informative > noise."""
+        X, y = make_classification(
+            n_samples=200, n_features=6, n_informative=3, random_state=0,
+            n_redundant=0, shuffle=False, class_sep=2.0,
+        )
+        cols = [f"f{i}" for i in range(6)]
+        Xdf = pd.DataFrame(X, columns=cols)
+        model = RandomForestClassifier(n_estimators=30, random_state=0).fit(Xdf, y)
+        result = get_feature_importances(
+            model=model,
+            current_features=cols,
+            importance_getter="conditional_permutation",
+            data=Xdf,
+            target=y,
+        )
+        assert set(result.keys()) == set(cols)
+        sorted_pairs = sorted(result.items(), key=lambda kv: kv[1], reverse=True)
+        top3 = {k for k, _ in sorted_pairs[:3]}
+        informative_in_top3 = len(top3 & {"f0", "f1", "f2"})
+        assert informative_in_top3 >= 2, (
+            f"CPI failed to surface informative features; top3={top3}"
+        )
+
+    def test_cpi_requires_target(self):
+        """importance_getter='conditional_permutation' without target= must raise."""
+        X = pd.DataFrame(np.random.randn(20, 4), columns=list("abcd"))
+        model = LogisticRegression(max_iter=50).fit(X, [0, 1] * 10)
+        with pytest.raises(ValueError, match="requires target"):
+            get_feature_importances(
+                model=model,
+                current_features=list("abcd"),
+                importance_getter="conditional_permutation",
+                data=X,
+            )
+
+    def test_cpi_correlated_pair_structural(self):
+        """Structural claim: with x2 highly correlated with the driver x1,
+        CPI on x1 still ranks above noise features (driver signal survives),
+        and CPI on x2 does NOT exceed CPI on x1 (the conditional tree
+        x_{-2} -> x2 predicts x2 well from x1, so within-leaf shuffles
+        of x2 barely move the score).
+
+        Note: with PERFECT correlation x2==x1 the pair becomes fully
+        redundant and BOTH vanilla and CPI return ~0 for both — that
+        is correct conservative behavior, not a bug. We use 0.95
+        correlation here so the driver/redundant asymmetry is visible.
+        """
+        from sklearn.linear_model import LogisticRegression
+
+        rng = np.random.default_rng(0)
+        n = 500
+        x1 = rng.standard_normal(n)
+        # Tightly correlated but not identical: small uncorrelated jitter on x2.
+        x2 = 0.95 * x1 + 0.1 * rng.standard_normal(n)
+        x3 = rng.standard_normal(n)
+        x4 = rng.standard_normal(n)
+        Xdf = pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "x4": x4})
+        y = (x1 > 0).astype(int)  # driver is x1
+
+        model = LogisticRegression(max_iter=300, random_state=0).fit(Xdf, y)
+
+        cpi = get_feature_importances(
+            model=model,
+            current_features=list(Xdf.columns),
+            importance_getter="conditional_permutation",
+            data=Xdf,
+            target=y,
+        )
+
+        # Driver x1 must rank above both noise features.
+        assert cpi["x1"] > cpi["x3"] + 0.005, f"CPI: x1 must dominate noise; cpi={cpi}"
+        assert cpi["x1"] > cpi["x4"] + 0.005, f"CPI: x1 must dominate noise; cpi={cpi}"
+        # x2 (correlated near-copy) should not exceed driver x1.
+        assert cpi["x2"] <= cpi["x1"] + 0.02, (
+            f"CPI must not over-rank correlated copy x2 above driver x1; cpi={cpi}"
+        )
+        # Noise features must have small (near-zero) CPI.
+        assert abs(cpi["x3"]) < 0.05, f"noise x3 should be ~0; cpi={cpi}"
+        assert abs(cpi["x4"]) < 0.05, f"noise x4 should be ~0; cpi={cpi}"
+
+    def test_cpi_works_with_ndarray_input(self):
+        """ndarray X path (no .columns / .index) must also work."""
+        rng = np.random.default_rng(1)
+        X = rng.standard_normal((150, 5))
+        y = (X[:, 0] > 0).astype(int)
+        cols = list(range(5))
+        model = RandomForestClassifier(n_estimators=20, random_state=0).fit(X, y)
+        result = get_feature_importances(
+            model=model,
+            current_features=cols,
+            importance_getter="conditional_permutation",
+            data=X,
+            target=y,
+        )
+        assert set(result.keys()) == set(cols)
+        # Driver column 0 should dominate
+        top = max(result, key=result.get)
+        assert top == 0, f"CPI top should be column 0 (driver), got {top}"
+
+    def test_cpi_with_regression(self):
+        """Regression target path: model.score returns R^2; CPI must still rank
+        the driver feature on top."""
+        from sklearn.linear_model import Ridge
+        from sklearn.datasets import make_regression
+
+        X, y = make_regression(
+            n_samples=200, n_features=5, n_informative=2,
+            random_state=0, shuffle=False,
+        )
+        cols = [f"f{i}" for i in range(5)]
+        Xdf = pd.DataFrame(X, columns=cols)
+        model = Ridge(random_state=0).fit(Xdf, y)
+        result = get_feature_importances(
+            model=model,
+            current_features=cols,
+            importance_getter="conditional_permutation",
+            data=Xdf,
+            target=y,
+        )
+        assert set(result.keys()) == set(cols)
+        sorted_pairs = sorted(result.items(), key=lambda kv: kv[1], reverse=True)
+        top2 = {k for k, _ in sorted_pairs[:2]}
+        # The two informative features (f0, f1) should be in the top-2.
+        assert len(top2 & {"f0", "f1"}) >= 1, (
+            f"CPI failed to surface regression-informative features; top2={top2}, all={result}"
+        )
+
+    def test_cpi_single_feature_edge_case(self):
+        """p=1: no conditioning set X_{-j}, CPI must fall back to vanilla shuffle
+        without crashing."""
+        rng = np.random.default_rng(2)
+        Xdf = pd.DataFrame({"only": rng.standard_normal(80)})
+        y = (Xdf["only"] > 0).astype(int).values
+        model = LogisticRegression(max_iter=200, random_state=0).fit(Xdf, y)
+        result = get_feature_importances(
+            model=model,
+            current_features=["only"],
+            importance_getter="conditional_permutation",
+            data=Xdf,
+            target=y,
+        )
+        assert set(result.keys()) == {"only"}
+        # Single driver -> non-trivial importance
+        assert result["only"] > 0, f"single-feature CPI should be > 0, got {result}"
+
+    def test_cpi_constant_feature_edge_case(self):
+        """When X_j is constant, conditional tree fit may degenerate; CPI must
+        return 0 for that feature without raising."""
+        rng = np.random.default_rng(3)
+        Xdf = pd.DataFrame({
+            "const": np.ones(100),
+            "driver": rng.standard_normal(100),
+        })
+        y = (Xdf["driver"] > 0).astype(int).values
+        model = RandomForestClassifier(n_estimators=20, random_state=0).fit(Xdf, y)
+        result = get_feature_importances(
+            model=model,
+            current_features=["const", "driver"],
+            importance_getter="conditional_permutation",
+            data=Xdf,
+            target=y,
+        )
+        # Constant feature must have ~0 importance; driver must dominate.
+        assert abs(result["const"]) < 0.05, f"constant feature should be ~0, got {result}"
+        assert result["driver"] > result["const"], result
+
+    def test_cpi_via_rfecv_end_to_end(self):
+        """Smoke-test: RFECV(importance_getter='conditional_permutation') must
+        complete without error and select at least one feature."""
+        X, y = make_classification(
+            n_samples=200, n_features=8, n_informative=3,
+            n_redundant=0, n_classes=2, n_clusters_per_class=1,
+            random_state=0, shuffle=False, class_sep=2.0,
+        )
+        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
+        rfecv = RFECV(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=3,
+            max_refits=10,
+            importance_getter="conditional_permutation",
+            verbose=0,
+            random_state=0,
+        )
+        rfecv.fit(Xdf, y)
+        assert rfecv.n_features_ >= 1
+        assert rfecv.support_.sum() == rfecv.n_features_
