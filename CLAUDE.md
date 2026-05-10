@@ -181,6 +181,106 @@ wrappers, and new pipeline integration points. It does NOT apply to
 trivial helper additions or pure refactors that don't change the
 hot path.
 
+## Every new ML trick gets a `biz_value` synthetic test (CRITICAL)
+
+Every ML feature, parameter, optimizer, or basis added to the project
+must come with a synthetic-data test that QUANTITATIVELY asserts the
+trick's measurable win. If a future code change silently breaks the
+trick -- regressed optimizer, removed parameter, basis disabled, MI
+estimator broken -- the test catches it by **failing the win**, not
+just by interface or shape checks.
+
+This is non-negotiable for any new ML feature past trivial helpers.
+
+### The pattern
+
+1. **Find a synthetic where the trick should clearly win**
+   - For an optimizer: a target where the search space has a known
+     canonical optimum the trick should reach faster / better.
+   - For a basis: a target whose structure matches the basis's
+     natural domain (Fourier -> periodic, RBF -> bumps,
+     Sigmoid -> thresholds, Pade -> ratios).
+   - For a parameter / kwarg: a target that ONLY produces the
+     measurable improvement when the parameter is enabled.
+   - For a diagnostic (e.g. nested-CV): a target where the
+     diagnostic must produce a known verdict.
+
+2. **Pin a quantitative threshold based on the measured value**
+   - Run the trick once during development. Note the measured win
+     (e.g. "Fourier MI 0.67 vs Chebyshev 0.53 = 1.27x").
+   - Set the assertion floor 5-15% below the measured value to
+     absorb measurement noise without losing detection of regressions.
+   - **Bad**: `assert res is not None`. Catches nothing if the
+     basis silently outputs garbage.
+   - **Bad**: `assert res.mi > 0`. Same.
+   - **Good**: `assert res.mi >= 0.55, "XOR MI should be >=0.55"`.
+   - **Good**: `assert speedup >= 5.0`. Captures a real perf win.
+
+3. **Test alongside the closest baseline**
+   - For an optimizer: the previous default optimizer.
+   - For a basis: the same target with a different basis.
+   - For a kwarg: the same call with the kwarg disabled.
+   - The DELTA matters more than the absolute number.
+
+4. **Fast: each test < 5s wall**
+   - Use n=2000 max for synthetics.
+   - Use n_trials=30-40 (enough for the optimizer to converge on
+     the canonical target -- not a full production run).
+   - Pre-warm numba in module-level fixture if needed.
+
+### Concrete examples (all in `test_pair_fe_biz_value.py`)
+
+```python
+def test_biz_cma_es_at_least_5x_faster_than_optuna():
+    """Floor 5x; measured 27x. Catches CMA-ES regression."""
+    ...
+
+def test_biz_fourier_wins_on_periodic_target():
+    """Fourier mi/Chebyshev mi >= 1.20x on sin target.
+    Measured 1.27x; 5% margin."""
+    ...
+
+def test_biz_multimode_beats_single_mode():
+    """Multi-mode AUC >= single-mode + 0.02 on multimode target.
+    Measured 0.9993 vs 0.9677 = 0.0316 delta."""
+    ...
+
+def test_biz_triplet_beats_pair_on_3way_xor():
+    """Floor 10x; measured 110x.
+    A real regression in triplet support drops the ratio to ~1x."""
+    ...
+
+def test_biz_honest_baselines_reject_redundant_polynomial_xor():
+    """``use_trivial_baseline=True`` MUST reject Hermite poly on
+    XOR (where trivial mul wins). Catches regressions in the
+    honest-baseline gate."""
+    ...
+```
+
+### When this rule does NOT apply
+
+- Pure refactors that don't change algorithmic behaviour.
+- Trivial helpers (sort key, formatter).
+- Bug fixes for crashes (a regression test on the crash itself
+  is sufficient).
+- Documentation-only changes.
+
+For everything else -- new optimizer, new basis, new diagnostic,
+new kwarg that affects behaviour -- the biz_value test is required
+PR gate. CI failure on a `test_biz_*` is treated as a real regression,
+NOT a flaky test (margins are wide enough that noise doesn't trip them).
+
+### Naming convention
+
+`test_biz_<feature>_<action>_on_<target>`. Examples:
+- `test_biz_cma_es_at_least_5x_faster_than_optuna`
+- `test_biz_fourier_wins_on_periodic_target`
+- `test_biz_nested_cv_validator_catches_leakage`
+
+`test_biz_*` files live alongside the regular tests for the same
+feature (`tests/<package>/test_<thing>_biz_value.py`) so they run as
+part of the normal test suite.
+
 ## Numerical-kernel acceleration ladder + size-aware dispatch
 
 For numerical hot kernels (polynomial eval, MI estimation, distance
