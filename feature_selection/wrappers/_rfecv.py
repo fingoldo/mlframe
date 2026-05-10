@@ -186,7 +186,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
     def __init__(
         self,
-        estimator: BaseEstimator,
+        estimator: Union[BaseEstimator, None] = None,
         fit_params: dict = None,
         max_nfeatures: int = None,
         mean_perf_weight: float = 1.0,
@@ -249,6 +249,50 @@ class RFECV(BaseEstimator, TransformerMixin):
         # clone (if force_parallel=True).
         n_jobs: int = 1,
         force_parallel: bool = False,
+        # PR-4 tactical: must_exclude is the symmetric counterpart of
+        # must_include. Features named here are dropped at fit entry so
+        # they never enter the optimiser's universe and cannot end up in
+        # support_. Use case: known target-leak columns (IDs, timestamps,
+        # post-hoc enrichments) that the operator wants to guarantee
+        # excluded from the model.
+        must_exclude: Union[Sequence, None] = None,
+        # PR-4 tactical: target-leakage early warning. At fit entry,
+        # check Pearson correlation between each numeric feature and y;
+        # log a WARNING for any feature with |corr| >= threshold (default
+        # 0.95). This catches the most common leak (post-hoc enrichments,
+        # ID columns that encode the target) before the model sees the
+        # leaked column. Set None to disable.
+        leakage_corr_threshold: Union[float, None] = 0.95,
+        # PR-4 tactical: feature_groups for one-hot expansions or other
+        # logically-grouped column sets. Maps group_name -> list of column
+        # names. RFECV's support_ then reflects an all-or-nothing decision
+        # at the group level: either all members in, or all members out.
+        # Resolves the docstring's "5 collinear copies" problem at
+        # configuration level when the operator knows the groups.
+        feature_groups: Union[dict, None] = None,
+        # PR-4: Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
+        # When True, replaces the MBH+CV-fold-voting search with bootstrap
+        # subsampling: B replicates of the data (n/2 sample, no replacement),
+        # fit estimator on each, count how often each feature appears in
+        # the top-K importance ranks. Feature is selected if appearance
+        # frequency >= stability_threshold. Provable error control on
+        # family-wise error rate. Strongly preferred over CV-fold voting
+        # on small n / high p problems (more robust, less variance).
+        stability_selection: bool = False,
+        stability_n_bootstrap: int = 50,
+        stability_threshold: float = 0.6,
+        stability_top_k: Union[int, None] = None,  # default n_features // 4
+        # PR-4 multi-estimator voting. Accept list of BaseEstimators; on
+        # each CV fold fit ALL of them, gather FI from each, aggregate via
+        # the existing voting layer (Leaderboard treats each per-estimator
+        # FI run as a separate column). Robust to single-estimator FI bias
+        # (LR favours scale, RF favours high-cardinality, CB favours
+        # continuous). Supersedes ``estimator`` when set. Estimators must
+        # all be of the same type-family (classifier or regressor).
+        # Critical: do NOT parallelise across estimators - they each use
+        # native multi-threading, and parallel folds is the layer where
+        # joblib lives.
+        estimators: Union[Sequence, None] = None,
     ):
 
         # checks
@@ -335,6 +379,58 @@ class RFECV(BaseEstimator, TransformerMixin):
                     )
                 X = X.drop(columns=degenerate)
 
+        # PR-4 tactical: must_exclude. Drop named columns at fit entry so
+        # they never enter the optimiser's universe.
+        if self.must_exclude and isinstance(X, pd.DataFrame):
+            _drop = [c for c in self.must_exclude if c in X.columns]
+            if _drop:
+                if getattr(self, "verbose", 0):
+                    logger.info(
+                        "RFECV: must_exclude drops %d column(s) at fit entry: %s",
+                        len(_drop), _drop,
+                    )
+                X = X.drop(columns=_drop)
+            _missing = [c for c in self.must_exclude if c not in (list(X.columns) + _drop)]
+            # Note: missing names are silently ignored (the column is already
+            # absent so the exclusion goal is satisfied).
+
+        # PR-4 tactical: target-leakage early warning. Pearson correlation
+        # between each numeric feature and y; flag any with |corr| above
+        # threshold. Common leak shapes: ID columns that encode the target,
+        # post-hoc enrichments, target-encoded categoricals computed on the
+        # full set instead of train-only.
+        if self.leakage_corr_threshold is not None and isinstance(X, pd.DataFrame) and X.shape[0] >= 30:
+            try:
+                _y_arr = np.asarray(y, dtype=float).ravel()
+                if _y_arr.size == X.shape[0] and not np.all(np.isnan(_y_arr)):
+                    _y_std = float(np.nanstd(_y_arr))
+                    if _y_std > 1e-12:
+                        _suspicious = []
+                        for _c in X.select_dtypes(include="number").columns:
+                            _x_arr = np.asarray(X[_c].values, dtype=float)
+                            _mask = np.isfinite(_x_arr) & np.isfinite(_y_arr)
+                            if _mask.sum() < 10:
+                                continue
+                            _x_std = float(np.nanstd(_x_arr[_mask]))
+                            if _x_std < 1e-12:
+                                continue
+                            _corr = float(np.corrcoef(_x_arr[_mask], _y_arr[_mask])[0, 1])
+                            if abs(_corr) >= float(self.leakage_corr_threshold):
+                                _suspicious.append((_c, round(_corr, 4)))
+                        if _suspicious:
+                            logger.warning(
+                                "RFECV: %d feature(s) have |Pearson(X, y)| >= %.2f, "
+                                "which often indicates target leakage (ID columns, "
+                                "post-hoc enrichments, target-encoded categoricals "
+                                "computed on the full set). Inspect: %s. To suppress, "
+                                "pass ``leakage_corr_threshold=None`` or list these "
+                                "in ``must_exclude``.",
+                                len(_suspicious), self.leakage_corr_threshold,
+                                _suspicious[:20],
+                            )
+            except (TypeError, ValueError):
+                pass
+
         # ----------------------------------------------------------------------------------------------------------------------------
         # Compute inputs/outputs signature
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -357,11 +453,32 @@ class RFECV(BaseEstimator, TransformerMixin):
                     logger.info("Skipping retraining on the same inputs signature %s", signature)
                 return self
 
+        # PR-4 stability selection branch: use bootstrap voting instead of
+        # the MBH+CV-fold-voting search. Returns early after stability
+        # selection sets support_ / n_features_ / cv_results_-shim /
+        # feature_names_in_ etc.
+        if self.stability_selection:
+            return self._fit_stability_selection(X=X, y=y, signature=signature)
+
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
         # ---------------------------------------------------------------------------------------------------------------
 
-        estimator = self.estimator
+        # PR-4 multi-estimator: ``estimators`` (list) supersedes the singular
+        # ``estimator``. We always work with a list internally; singular
+        # path is len-1 list. Score per fold = mean across estimators;
+        # FI runs stored under separate keys so the voting layer treats
+        # each estimator's importance as an independent "run".
+        estimators_list = list(self.estimators) if self.estimators else (
+            [self.estimator] if self.estimator is not None else []
+        )
+        if not estimators_list:
+            raise ValueError("RFECV requires either estimator= or estimators=.")
+        # ``estimator`` retained for legacy code paths inside fit() that need
+        # a single object for type-dispatch (CV stratification, scoring,
+        # importance_getter resolution). Use the first estimator as the
+        # representative for those decisions.
+        estimator = estimators_list[0]
         fit_params = copy.copy(self.fit_params) if self.fit_params else {}
         max_runtime_mins = self.max_runtime_mins
         max_refits = self.max_refits
@@ -933,32 +1050,70 @@ class RFECV(BaseEstimator, TransformerMixin):
                     # legal. Return None to skip the fold cleanly (matches
                     # the function's documented "or None on skip" contract).
                     return None
-                ctx = suppress_stdout_stderr() if model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
-                with ctx:
-                    fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
+                # PR-4 multi-estimator: fit ALL estimators (singular case is
+                # len-1 list, handled by the same loop). Score per fold = mean
+                # across estimators; FI runs stored under separate keys
+                # ("{N}_{fold}" for singular, "{N}_{fold}_e{idx}" for multi)
+                # so the voting layer treats each estimator's importances as
+                # an independent run.
+                _est_scores = []
+                _est_fi_runs = []  # list of (key, fi_dict)
+                for _est_idx, _est_proto in enumerate(estimators_list):
+                    if _est_idx == 0:
+                        # First estimator already cloned + text_processing
+                        # tuned above as ``fitted_estimator``.
+                        _fitted = fitted_estimator
+                    else:
+                        _fitted = clone(_est_proto)
+                        # Apply CB text_processing if applicable for THIS clone.
+                        if val_cv and has_early_stopping_support(estimator_type):
+                            _temp_text_feats = _filtered_fit_params.get("text_features") or []
+                            if _temp_text_feats and "CatBoost" in type(_fitted).__name__:
+                                _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
+                                _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
+                                if _tp is not None and hasattr(_fitted, "set_params"):
+                                    try:
+                                        _fitted.set_params(text_processing=_tp)
+                                    except Exception:
+                                        pass
 
-                score = scoring(fitted_estimator, X_test, y_test)
-                scores.append(score)
-                # Phase 4 N5: FI is computed on the actual fit_features (which
-                # includes must_include); we only persist the importances for
-                # the optimiser-searchable features so voting / ranking remain
-                # over the same universe the optimiser explores.
-                fi_full = get_feature_importances(
-                    model=fitted_estimator, current_features=fit_features,
-                    data=X_test, reference_data=X_val, target=y_test,
-                    importance_getter=importance_getter,
-                )
-                if must_include_resolved:
-                    must_set = set(must_include_resolved)
-                    fi = {k: v for k, v in fi_full.items() if k not in must_set}
+                    _model_type_name = type(_fitted).__name__
+                    _ctx = suppress_stdout_stderr() if _model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
+                    with _ctx:
+                        _fitted.fit(X=X_train, y=y_train, **temp_fit_params)
+                    _score = scoring(_fitted, X_test, y_test)
+                    _est_scores.append(_score)
+
+                    # Phase 4 N5: FI is computed on the actual fit_features.
+                    _fi_full = get_feature_importances(
+                        model=_fitted, current_features=fit_features,
+                        data=X_test, reference_data=X_val, target=y_test,
+                        importance_getter=importance_getter,
+                    )
+                    if must_include_resolved:
+                        must_set = set(must_include_resolved)
+                        _fi = {k: v for k, v in _fi_full.items() if k not in must_set}
+                    else:
+                        _fi = _fi_full
+
+                    _est_suffix = f"_e{_est_idx}" if len(estimators_list) > 1 else ""
+                    _key = f"{len(current_features)}_{nfold}{_est_suffix}"
+                    _est_fi_runs.append((_key, _fi))
+                    if keep_estimators:
+                        fitted_estimators[_key] = _fitted
+
+                # Aggregate fold score (mean across estimators).
+                if _est_scores:
+                    score = float(np.nanmean(_est_scores)) if any(not np.isnan(s) for s in _est_scores) else float("nan")
                 else:
-                    fi = fi_full
-
-                key = f"{len(current_features)}_{nfold}"
-                feature_importances[key] = fi
-
-                if keep_estimators:
-                    fitted_estimators[key] = fitted_estimator
+                    score = float("nan")
+                scores.append(score)
+                # Persist every estimator's FI run.
+                for _k, _fi in _est_fi_runs:
+                    feature_importances[_k] = _fi
+                # Convenience alias for downstream code that referred to ``key``
+                # in the prior single-estimator path; uses the first entry.
+                key = _est_fi_runs[0][0] if _est_fi_runs else f"{len(current_features)}_{nfold}"
 
                 if 0 not in evaluated_scores_mean:
 
@@ -1159,6 +1314,40 @@ class RFECV(BaseEstimator, TransformerMixin):
                 self.support_ = np.asarray(merged)
             self.n_features_ = int(np.sum(self.support_)) if isinstance(self.support_[0], (bool, np.bool_)) else len(self.support_)
 
+        # PR-4 tactical: feature_groups - all-or-nothing decision per group.
+        # If ANY member of group G is in support_, ALL members of G are added;
+        # if NONE, all stay out. Resolves the "5 collinear copies" docstring
+        # caveat at config level when the operator knows the group structure
+        # (e.g. one-hot expansions, correlated clusters).
+        if self.feature_groups and hasattr(self, "support_") and len(self.support_) > 0:
+            # Convert support_ to bool-mask form for uniform handling
+            if isinstance(self.support_[0], (bool, np.bool_)):
+                support_mask = np.asarray(self.support_, dtype=bool)
+            else:
+                support_mask = np.zeros(len(self.feature_names_in_), dtype=bool)
+                for i in self.support_:
+                    support_mask[i] = True
+            _name_to_idx = {n: i for i, n in enumerate(self.feature_names_in_)}
+            _expanded = 0
+            for _group_name, _members in self.feature_groups.items():
+                _idx = [_name_to_idx[m] for m in _members if m in _name_to_idx]
+                if not _idx:
+                    continue
+                _any_selected = any(support_mask[i] for i in _idx)
+                if _any_selected:
+                    for i in _idx:
+                        if not support_mask[i]:
+                            _expanded += 1
+                            support_mask[i] = True
+            if _expanded > 0:
+                if verbose:
+                    logger.info(
+                        "RFECV: feature_groups expanded support_ by %d column(s) "
+                        "for all-or-nothing group decisions.", _expanded,
+                    )
+                self.support_ = support_mask
+                self.n_features_ = int(support_mask.sum())
+
         self.signature = signature
 
         # Cache resolved column list so transform() avoids per-call reconstruction.
@@ -1170,6 +1359,139 @@ class RFECV(BaseEstimator, TransformerMixin):
             else:
                 self._selected_cols_cache = [self.feature_names_in_[i] for i in support]
 
+        return self
+
+    def _fit_stability_selection(self, X, y, signature):
+        """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
+
+        Bootstrap-based feature selection. For each of B bootstrap subsamples
+        (n/2, no replacement), fit the estimator(s) and record which features
+        appeared in the top-K by importance. A feature is finally selected
+        if its appearance frequency >= ``stability_threshold`` (typically
+        0.6-0.9). Provable error control: E[V] <= q^2 / ((2*pi - 1) * p),
+        where q is the average number of selected features per bootstrap
+        and pi is the threshold.
+
+        Particularly robust on small-n / high-p problems where per-fold CV
+        voting is dominated by sampling noise. Multi-estimator support: if
+        ``self.estimators`` is set, FI is averaged across them inside each
+        bootstrap.
+        """
+        estimators_list = list(self.estimators) if self.estimators else [self.estimator]
+        importance_getter = self.importance_getter or "auto"
+        rng = np.random.default_rng(self.random_state)
+        is_df = isinstance(X, pd.DataFrame)
+        n_samples = X.shape[0]
+        n_features = X.shape[1]
+        feature_names = X.columns.tolist() if is_df else [str(i) for i in range(n_features)]
+
+        top_k = self.stability_top_k
+        if top_k is None:
+            # Default: top quartile - generous enough that informative
+            # features clearly above the noise floor will hit threshold.
+            top_k = max(1, n_features // 4)
+        top_k = min(int(top_k), n_features)
+
+        # Subsample size: n/2, the standard Meinshausen-Buhlmann choice.
+        sub_size = max(2, n_samples // 2)
+        selection_counts = np.zeros(n_features, dtype=int)
+        all_per_bootstrap_freqs = []  # for diagnostics
+
+        if self.verbose:
+            logger.info(
+                "stability_selection: B=%d bootstraps, sub_size=%d (of %d), "
+                "top_k=%d (of %d), threshold=%.2f, estimators=%d",
+                self.stability_n_bootstrap, sub_size, n_samples,
+                top_k, n_features, self.stability_threshold, len(estimators_list),
+            )
+
+        for b in range(int(self.stability_n_bootstrap)):
+            idx = rng.choice(n_samples, size=sub_size, replace=False)
+            if is_df:
+                X_sub = X.iloc[idx]
+            else:
+                X_sub = X[idx]
+            y_arr = np.asarray(y)
+            y_sub = y_arr[idx]
+
+            # Aggregate FI across estimators within this bootstrap (mean rank).
+            per_feature_score_sum = np.zeros(n_features, dtype=float)
+            for est in estimators_list:
+                est_clone = clone(est)
+                try:
+                    est_clone.fit(X_sub, y_sub)
+                except Exception as exc:
+                    if self.verbose:
+                        logger.warning(
+                            "stability_selection: bootstrap %d, %s.fit failed: %s. "
+                            "Skipping this estimator for this bootstrap.",
+                            b, type(est_clone).__name__, exc,
+                        )
+                    continue
+                try:
+                    fi_dict = get_feature_importances(
+                        model=est_clone, current_features=feature_names,
+                        data=X_sub, target=y_sub,
+                        importance_getter=importance_getter,
+                    )
+                except Exception as exc:
+                    if self.verbose:
+                        logger.warning(
+                            "stability_selection: bootstrap %d, get_feature_importances failed: %s.",
+                            b, exc,
+                        )
+                    continue
+                # Convert to numpy array aligned with feature_names
+                fi_arr = np.array([float(fi_dict.get(n, 0.0)) for n in feature_names])
+                fi_arr = np.where(np.isnan(fi_arr), 0.0, fi_arr)
+                per_feature_score_sum += fi_arr
+
+            # Top-K from this bootstrap (across-estimator mean importance)
+            if per_feature_score_sum.sum() <= 0:
+                continue
+            top_idx = np.argsort(per_feature_score_sum)[::-1][:top_k]
+            selection_counts[top_idx] += 1
+
+        selection_freq = selection_counts / max(1, int(self.stability_n_bootstrap))
+        support_mask = selection_freq >= float(self.stability_threshold)
+
+        # Apply must_include: pinned features always in support_.
+        must_include_resolved = list(self.must_include) if self.must_include else []
+        if must_include_resolved:
+            for c in must_include_resolved:
+                if c in feature_names:
+                    support_mask[feature_names.index(c)] = True
+
+        # Public state: same shape as the regular path so transform/
+        # get_feature_names_out / selection_stability_ all work.
+        self.feature_names_in_ = list(feature_names)
+        self.n_features_in_ = n_features
+        self.support_ = support_mask
+        self.n_features_ = int(support_mask.sum())
+        self.estimators_ = {}
+        self.feature_importances_ = {}
+        self.selected_features_ = {}
+        self.cv_results_ = {
+            "nfeatures": [self.n_features_],
+            "cv_mean_perf": [float(selection_freq[support_mask].mean()) if support_mask.any() else 0.0],
+            "cv_std_perf": [0.0],
+        }
+        # Surface the per-feature stability frequencies for inspection /
+        # downstream weighting. Aligned with feature_names_in_.
+        self.stability_selection_freq_ = selection_freq
+
+        # Cache resolved column list so transform() avoids per-call rebuild.
+        self._selected_cols_cache = [c for c, s in zip(feature_names, support_mask) if s]
+        self.signature = signature
+
+        if self.verbose:
+            logger.info(
+                "stability_selection: selected %d / %d features at threshold=%.2f. "
+                "Top-10 by frequency: %s",
+                self.n_features_, n_features, self.stability_threshold,
+                [(feature_names[i], round(float(selection_freq[i]), 3))
+                 for i in np.argsort(selection_freq)[::-1][:10]],
+            )
         return self
 
     def select_optimal_nfeatures_(
@@ -1411,6 +1733,46 @@ class RFECV(BaseEstimator, TransformerMixin):
         if len(eligible) == 0:
             return int(nf[best_idx])
         return int(eligible.min())
+
+    def n_features_bootstrap_ci_(self, n_bootstrap: int = 200, ci: float = 0.9,
+                                  random_state: Union[int, None] = None) -> tuple:
+        """Parametric bootstrap CI on the optimal n_features_.
+
+        Draws B bootstrap replicates of the cv_results_ score curve by sampling
+        each (mean, std) pair as Normal(mean, std), recomputes argmax over the
+        non-zero N values for each replicate, returns (low_pct, n_features_,
+        high_pct) where the percentiles bracket ``ci`` mass of the bootstrap
+        distribution.
+
+        Use this to gauge whether n_features_=N is meaningfully different from
+        N+5 or N-5 - if the CI is wide the operator should be cautious about
+        the exact N choice. PARAMETRIC bootstrap (no raw per-fold scores
+        retained), so it under-estimates true uncertainty when fold scores are
+        non-Normal.
+        """
+        if not hasattr(self, "cv_results_") or not self.cv_results_.get("nfeatures"):
+            n = getattr(self, "n_features_", 0)
+            return (n, n, n)
+        nfeatures = np.asarray(self.cv_results_["nfeatures"], dtype=int)
+        means = np.asarray(self.cv_results_["cv_mean_perf"], dtype=float)
+        stds = np.asarray(self.cv_results_["cv_std_perf"], dtype=float)
+        nonzero = nfeatures > 0
+        if not nonzero.any():
+            n = getattr(self, "n_features_", 0)
+            return (n, n, n)
+        nf, m, s = nfeatures[nonzero], means[nonzero], stds[nonzero]
+        rng = np.random.default_rng(random_state)
+        choices = []
+        for _ in range(int(n_bootstrap)):
+            sampled = rng.normal(loc=m, scale=np.maximum(s, 1e-12))
+            best_idx = int(np.argmax(sampled))
+            choices.append(int(nf[best_idx]))
+        choices_arr = np.asarray(choices)
+        alpha = (1.0 - float(ci)) / 2.0
+        low = int(np.percentile(choices_arr, 100.0 * alpha))
+        high = int(np.percentile(choices_arr, 100.0 * (1.0 - alpha)))
+        n = getattr(self, "n_features_", int(np.median(choices_arr)))
+        return (low, int(n), high)
 
     def transform(self, X, y=None):
         # 2026-04-28: when ``X`` arrives as a polars DataFrame (callers

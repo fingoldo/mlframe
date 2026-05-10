@@ -1,5 +1,146 @@
 # Changelog
 
+## 2026-05-10 — RFECV PR-4: Stability Selection + Multi-estimator voting + 5 tactical fixes
+
+PR-4 of the RFECV rework. Lands every substantive ML improvement surfaced in user discussion of FI bias and alternative selection algorithms.
+
+### Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B)
+
+New params on RFECV: ``stability_selection: bool = False``,
+``stability_n_bootstrap: int = 50``, ``stability_threshold: float = 0.6``,
+``stability_top_k: int | None = None``.
+
+When ``stability_selection=True``, RFECV bypasses the MBH+CV-fold-voting search and uses bootstrap-based selection: B replicates of (X, y) at n/2 size (no replacement, the standard M-B choice), fit the estimator(s) on each, count which features land in the top-K by importance. A feature is selected iff its appearance frequency >= ``stability_threshold``. Provable error control on family-wise error rate: E[V] <= q^2 / ((2*pi - 1) * p).
+
+Surfaces ``self.stability_selection_freq_`` (numpy array aligned with ``feature_names_in_``) for downstream inspection / weighting.
+
+### Multi-estimator voting in MBH path
+
+New param ``estimators: list[BaseEstimator] = None``. When provided, supersedes the singular ``estimator``. On each CV fold, ALL estimators are fit; FI runs are stored under separate keys (``"{N}_{fold}_e{idx}"``) so the voting layer (Leaderboard) treats each estimator's importances as an independent run. Score per fold = mean across estimators.
+
+Critical: **does NOT parallelise across estimators** — they each use native multi-threading, parallel folds is the layer where joblib lives (Phase 4 N3). This avoids core oversubscription.
+
+Works in both the regular MBH path AND the stability_selection path. Combined ("stability + multi") is the strongest combo on synthetic.
+
+### Bench results (n=600, p=40, 8 informative, class_sep=2.0, 3 seeds)
+
+| Method | n_sel | recall | fit_seconds | stability_jaccard |
+|---|---|---|---|---|
+| baseline RFECV (LR) | 20.0 | 0.96 | 5.55 | 0.39 |
+| stability_selection (LR) | 8.3 | 0.88 | **0.31** | 0.57 |
+| multi_estimator (LR + RF) | 2.0 | 0.25 | 4.97 | 0.11 |
+| **stability + multi (LR + RF)** | **8.7** | **0.92** | 1.90 | **0.63** |
+
+Headline takeaways: **stability_selection is 18x faster than baseline RFECV with comparable recall and 1.5x higher selection stability across seeds**. The combined "stability + multi" path beats every other config on stability while staying parsimonious. The multi_estimator MBH path on its own collapses to a 2-feature optimum (RF dominates the score-aggregation, MBH gets stuck at a local maximum) — a documented caveat that stability_selection sidesteps by using bootstrap voting directly.
+
+Bench script at ``mlframe/feature_selection/_benchmarks/bench_pr4_methods.py``.
+
+### Tactical fixes
+
+1. **Coefficient z-scoring** for the linear ``coef_`` path. Pre-fix ``np.abs(coef_)`` ignored feature scale: a feature with std=100 had a coef 100x smaller than a same-effect feature with std=1, biasing selection toward small-variance features. Now multiplies by per-feature std (computed from the test fold's data) so importance reflects effect on y per *standardised* unit of X. Falls back gracefully if data is non-numeric.
+2. **`must_exclude`** parameter — symmetric counterpart to `must_include`. Features named here are dropped at fit entry and never enter the optimiser's universe. Use case: known target-leak columns (IDs, timestamps, post-hoc enrichments).
+3. **Target-leakage detection** — at fit entry, Pearson correlation between each numeric feature and y; flags features with |corr| >= ``leakage_corr_threshold`` (default 0.95) via WARNING log. Catches the most common leak (post-hoc enrichments, ID columns that encode the target). Set ``leakage_corr_threshold=None`` to disable.
+4. **`feature_groups`** parameter — dict mapping group_name -> list of column names. RFECV's final ``support_`` enforces all-or-nothing at the group level: if ANY member is selected, ALL members are added; if NONE, all stay out. Resolves the docstring's "5 collinear copies" caveat at config level when the operator knows the group structure (e.g. one-hot expansions).
+5. **Bootstrap CI on best `n_features_`** — new method ``n_features_bootstrap_ci_(n_bootstrap=200, ci=0.9, random_state=None)``. Parametric bootstrap: samples (mean, std) pairs from cv_results_, recomputes argmax over n_features per replicate, returns ``(low_pct, n_features_, high_pct)``. Tells the operator whether n_features_=N is statistically distinguishable from N+5.
+
+### Other
+
+- Made ``estimator`` argument Optional (defaults to None) so ``estimators=`` alone is sufficient.
+- New ``TODO.md`` in ``feature_selection/wrappers/`` listing 8 deferred ML improvements with cost analysis (mRMR pre-screening, conditional permutation, knockoffs, truncated SFFS, Boruta, group LASSO, drop-column importance).
+
+### Tests
+
+- New ``test_wrappers_pr4.py`` — 14 tests covering all 8 features (T1: z-scoring; T2: must_exclude with both happy-path and missing-column tolerance; T3: leakage detection both signal and silence; T4: feature_groups all-or-nothing; T5: bootstrap CI return shape; T6: stability_selection 3 tests including freq attribute and threshold-strictness monotonicity; T7: multi-estimator 3 tests including FI-run-count, recall, takes-precedence; T8: combined stability + multi).
+- Full ``mlframe/tests/feature_selection/`` suite: **239 passed in 344s**, zero regressions.
+
+### Deferred (future ML improvements; documented in ``feature_selection/wrappers/TODO.md``)
+
+- mRMR pre-screening (``prescreen='mrmr'`` + ``prescreen_top_k`` for p >> n problems; mlframe.feature_selection.filters.mrmr already exists)
+- Conditional permutation importance (Strobl et al. 2008) — fixes vanilla permutation's correlated-feature bias
+- Knockoffs (Barber & Candès 2015) — bias-free importance with FDR control
+- Truncated SFFS — swap-after-each-iter limited to top-5 dropped/selected
+- Boruta integration via ``importance_getter='boruta'``
+- Group LASSO via external estimator (``celer``, ``groupyr``)
+
+## 2026-05-10 — Pre-training Dummy-baseline report (operator alarm system)
+
+New module `mlframe.training.dummy_baselines` — sit-alongside `BaselineDiagnostics`, answers "is the task even hard?" via a per-target table of trivial reference predictors. Wired into `train_mlframe_models_suite` (after `BaselineDiagnostics` block) and `train_mlframe_ranker_suite` (before model loop).
+
+### Operator contract (3 guarantees)
+
+1. **Default INFO output ≤ 2-4 lines per target.** Verdict line + optional plot path + optional bootstrap CI. Full table demoted to DEBUG.
+2. **Suite-end summary block** — cross-target verdict table with `(strongest_dummy, dummy_metric, best_model, model_metric, lift_x, verdict)` rows; a `HEALTH: N/N` line; canonical UPPERCASE WARN tokens grep-able from logs.
+3. **4 canonical WARN tokens** with suggested next steps:
+   - `[DUMMY_BASELINES] WARN BEST_MODEL_BELOW_DUMMY` — model lift < 1.5× → "investigate label encoding, target leak, train/test contamination."
+   - `[DUMMY_BASELINES] WARN ALL_BASELINES_BELOW_RANDOM` — every binary baseline AUC < 0.5 → "check `target_label_encoder` direction; check sign of cost_function."
+   - `[DUMMY_BASELINES] WARN TS_BEATS_TREES` — TS naive beats best model on val → "verify `val_placement='forward'`; check for leaked-from-future feature columns."
+   - `[DUMMY_BASELINES] WARN PARTIAL_FAILURE` — per-baseline failures occurred (NaN rows).
+
+### Per-target catalog
+
+- **REGRESSION / QUANTILE**: `mean`, `median`, `quantile_p25`, `quantile_p75`, `per_group_mean` (with cardinality cap + coverage gate + entity-overlap diagnostic). When timestamps monotonic across train/val/test: `naive_last` (suppressed when `n_val > inferred_period`), `naive_lag7`, `naive_lag30`, `seasonal_naive_pP` (P from ACF on first-differenced y, peak filter `2 ≤ P ≤ n_train//4`), `rolling_mean_w7`, `rolling_mean_w30` (only when ACF peak ≥ W), `linear_extrap`. **Multi-output (D4)**: K-row per-output strongest-pick block + cross-output normalized strongest-pick (mean of `RMSE / std(y_train_per_target)`).
+- **BINARY**: `prior`, `most_frequent`, `all_zeros`, `all_ones`, `uniform`, `stratified` (n_repeats=20 deterministic seeds), `per_group_prior`. Headline metric = `log_loss` (constant baselines all collapse to AUC=0.5 by construction; D5).
+- **MULTICLASS**: `prior`, `most_frequent`, `uniform`. Headline = `log_loss`.
+- **MULTILABEL**: `all_zero`, `all_one`, `per_label_prior`, `per_label_most_frequent`. Columns named explicitly (`val_log_loss_macro`, `val_log_loss_micro`); headline = macro log-loss.
+- **LTR**: `random_within_query` (n_repeats=10 deterministic seeds), `identity_input_order`, `mean_relevance`, `most_recent_first` (when timestamps present). Headline = `NDCG@10`. Group sanity gate hard-fails on misaligned `group_ids` length.
+
+### Defenses (21 — D1–D21)
+
+- **D1**: per-cell metric isolation (each cell in its own try/except → NaN row + `failed=True` flag).
+- **D2**: strongest-pick non-degeneracy gate + paired-bootstrap robustness vs runner-up; ties (P<0.7) annotated `(TIE)` and overlay plot suppressed.
+- **D3**: LTR group sanity (length asserts + cardinality + mega-group cap).
+- **D4**: multi-output regression dispatcher.
+- **D5**: log_loss as headline classification metric.
+- **D6**: suite-end summary integration with auto-WARN triggers.
+- **D7**: per-target `phase("dummy_baselines:{target_type}")` qualifier for `[wall-share]` telemetry.
+- **D8**: object-dtype target gate.
+- **D9**: all-NaN val/test column suppression with `n_*_finite` header.
+- **D10**: `n_ref < 10` sample-noise gate.
+- **D11**: slugified plot paths.
+- **D12**: plot suppressed when `<2` baselines have finite primary metric.
+- **D13**: per-target deterministic random_state (`config.random_state + hash(target_name)`).
+- **D14**: `schema_version="1.0"` on serialized `metadata["dummy_baselines"]`.
+- **D15**: NaN→None scrub for `json.dumps()` round-trip.
+- **D16**: bootstrap CI (1000 resamples) on the strongest baseline when `min(n_val, n_test) < 2000`.
+- **D17**: `statsmodels` deferred import inside `_detect_acf_periods` — non-TS baselines unaffected by import failure.
+- **D18**: per-target plot uniqueness via `_setup_model_directories` upstream.
+- **D19**: quantile α=0.5 ↔ regression `median` self-consistency note in row labels.
+- **D20**: sklearn ≥ 1.0 module-load assertion (for `mean_pinball_loss`).
+- **D21**: `_baseline_inputs_hash` recipe in module docstring for sweep-orchestrator memoization.
+
+### TS detection (round-3 audit hardening)
+
+- ACF computed on first-differenced `y_train` (round-3 C#6) — removes trend without STL fit cost. Stratified contiguous-window sampling for `n_train > 50_000`.
+- Step inference via `np.diff(np.unique(timestamps)).median()` (round-3 A#4) so duplicate timestamps don't divide-by-zero. Mixed-tz normalization.
+- Step rejection gates: `len(unique(ts)) < max(10, 1% * n)` → "mostly-duplicate, likely event-style"; `n_train < 30 or n_val < 1 or n_test < 1` → skip.
+- TS baselines activate ONLY when timestamps are temporally-monotonic across train/val/test (`train.max ≤ val.min ≤ test.min`). Interleaved splits → INFO log + skip.
+- ACF peak filter `2 ≤ P ≤ n_train // 4` (round-3 A#17) — guards against negative-index wraparound silently producing bogus baselines.
+
+### Wiring + config
+
+- New `mlframe.training.configs.DummyBaselinesConfig` (14 tunables: enabled, apply_to_target_types, ts_extra_periods, cardinality cap, coverage gate, n_repeats for stratified/random_within_query, paired-bootstrap n_resamples, strongest-pick beat-runner-up threshold, bootstrap CI threshold + n_resamples, best-model min lift, per-target random seed).
+- New `train_mlframe_models_suite(..., dummy_baselines_config=DummyBaselinesConfig())` parameter; default-on. Set `enabled=False` or shrink `apply_to_target_types` to opt out per-target-type.
+- Same parameter on `train_mlframe_ranker_suite(...)`.
+- `mlframe.training.evaluation._canonical_multilabel_y(targets)` helper extracted (used by both the existing report path and the new dummy-baselines module).
+
+### Tests
+
+`mlframe/tests/training/test_dummy_baselines.py` — 50 tests covering: per-target dispatcher, headline-log-loss for classification, per-group leakage gates, TS detection, strongest-pick robustness, JSON serialization, polars/pandas/dtype variants, multi-output regression, bootstrap CI, statsmodels-uninstalled fallback, suite-end summary + WARN tokens, all-NaN val column suppression, TS prediction rules, n_repeats variance, polars `List(Int8)` multilabel coercion. All passing.
+
+### Profiling
+
+`mlframe/training/_profile_dummy_baselines.py` — cProfile harness, multiple shapes. End-to-end smoke `mlframe/training/_smoke_dummy_baselines_e2e.py` exercises the full integration.
+
+Wall time: ~1s/target on 1M-row × 1-target. Extrapolated 5M-row × 5-target ≈ 25s — inside the 30-120s plan budget. cProfile attribution overhead inflates apparent pandas/sklearn-internal hotspots ~10-13× vs standalone wall-time microbench; documented in profile-harness docstring so future re-runs don't re-flag.
+
+### File map
+
+- New: `mlframe/training/dummy_baselines.py` (~2050 LOC: 6 dispatchers + 21 defenses + bootstrap CI + multi-output dispatcher + suite-end summary)
+- New: `mlframe/training/_profile_dummy_baselines.py`, `mlframe/training/_smoke_dummy_baselines_e2e.py`
+- New: `mlframe/tests/training/test_dummy_baselines.py` (50 tests)
+- Modified: `mlframe/training/configs.py` (DummyBaselinesConfig), `mlframe/training/evaluation.py` (extracted `_canonical_multilabel_y`), `mlframe/training/core.py` (per-target call + suite-end summary + best-model metric extractor), `mlframe/training/ranker_suite.py` (per-LTR-target call)
+- CLAUDE.md: new section "Profile every new feature with cProfile + optimize hotspots (CRITICAL)" — codifies the profile + optimization pass as part of the feature-completion checklist.
+
 ## 2026-05-10 — RFECV: PR-3 — module split + parallel CV + permutation/SHAP + lazy Leaderboard + modal-window fix
 
 PR-3 of the RFECV rework. Closes the multi-PR sequence (PR-1: bug fixes; PR-2: hygiene + Phase 4 stability/CI/get_feature_names_out/must_include + cProfile clean_ram gating). This commit lands every remaining deferred item.

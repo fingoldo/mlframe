@@ -264,8 +264,35 @@ def get_feature_importances(
                 getter_attr = importance_getter
             res = getattr(model, getter_attr)
             if getter_attr == "coef_":
+                # Multi-class: collapse class axis FIRST (sum |coef_| across
+                # classes per feature) before scale-correction.
                 res = np.abs(res)
-            if res.ndim > 1:
+                if res.ndim > 1:
+                    res = res.sum(axis=0)
+                # Tactical fix: z-score correction. coef_ is scale-dependent:
+                # if X_j has 100x larger std than X_k, |coef_j| will be ~100x
+                # smaller for the same effect on y. The prior np.abs(coef_)
+                # alone biased selection toward small-variance features.
+                # Multiply by feature std so the resulting "importance" is
+                # the magnitude of effect on y per *standardised* unit of X.
+                # data is X_test in the call site; if absent (callable path),
+                # fall back to unscaled |coef_|.
+                if data is not None:
+                    try:
+                        if hasattr(data, "values"):
+                            _Xarr = data.values
+                        else:
+                            _Xarr = np.asarray(data)
+                        _stds = np.nanstd(_Xarr, axis=0)
+                        # Avoid blow-up on near-constant cols (stds ~ 0)
+                        _stds = np.where(_stds > 1e-12, _stds, 1.0)
+                        if len(_stds) == len(res):
+                            res = res * _stds
+                    except (TypeError, ValueError):
+                        # Non-numeric data (object cols, mixed pl frames) -
+                        # skip scaling, keep raw |coef_|
+                        pass
+            elif res.ndim > 1:
                 res = res.sum(axis=0)
     else:
         try:
