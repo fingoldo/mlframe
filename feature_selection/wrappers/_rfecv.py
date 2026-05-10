@@ -661,7 +661,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if _y_arr.size == X.shape[0] and not np.all(np.isnan(_y_arr)):
                     _y_std = float(np.nanstd(_y_arr))
                     if _y_std > 1e-12:
-                        for _c in X.select_dtypes(include="number").columns:
+                        # P1-B14 (audit): use is_numeric_dtype instead of
+                        # select_dtypes(include="number") so pandas nullable
+                        # extension dtypes (Int8/Int16/Float64/...) and
+                        # boolean dtypes also enter the leakage scan.
+                        # select_dtypes silently skips them.
+                        from pandas.api.types import is_numeric_dtype, is_bool_dtype
+                        _numeric_cols = [c for c in X.columns
+                                         if is_numeric_dtype(X[c]) or is_bool_dtype(X[c])]
+                        for _c in _numeric_cols:
                             _x_arr = np.asarray(X[_c].values, dtype=float)
                             _mask = np.isfinite(_x_arr) & np.isfinite(_y_arr)
                             if _mask.sum() < 10:

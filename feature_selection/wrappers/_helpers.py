@@ -139,13 +139,30 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
     # This is the standard cheap choice. lambda_min(Sigma) sets the cap.
     eigvals = np.linalg.eigvalsh(Sigma)
     lam_min = float(max(eigvals[0], 1e-8))
+    # P1-B7 (audit): when Sigma is near-singular (e.g. anti-correlated pairs
+    # X_j = -X_k or 100% collinear copies), lam_min ~ 1e-8 -> s_val ~ 2e-8
+    # -> X_tilde becomes ~ X (self-corr ~ 1, useless as knockoff).
+    # Detect this case and warn so the user knows knockoffs won't help here.
+    if lam_min < 1e-4:
+        logger.warning(
+            "make_gaussian_knockoffs: input correlation matrix has "
+            "lambda_min=%.2e (near-singular); knockoffs will be near-copies "
+            "of original features (self-corr ~ 1) and W statistics ~ 0. "
+            "Reduce collinearity (drop duplicates / use feature_groups) "
+            "or use stability_selection instead.",
+            lam_min,
+        )
     s_val = min(2.0 * lam_min, 1.0) * 0.99  # 0.99 buffer for numerical PSD
     s = np.full(p, s_val)
 
     # Knockoff construction:
     #   X_tilde = X_std (I - Sigma^{-1} diag(s)) + Z C^T
     # where C C^T = 2 diag(s) - diag(s) Sigma^{-1} diag(s) (must be PSD)
-    Sigma_inv = np.linalg.inv(Sigma)
+    # Use pseudo-inverse for safety on near-singular Sigma (B7 audit).
+    try:
+        Sigma_inv = np.linalg.inv(Sigma)
+    except np.linalg.LinAlgError:
+        Sigma_inv = np.linalg.pinv(Sigma)
     diag_s = np.diag(s)
     A = np.eye(p) - Sigma_inv @ diag_s
 

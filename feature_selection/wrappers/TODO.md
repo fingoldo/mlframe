@@ -78,13 +78,22 @@ PR-5 / PR-6 / PR-7 status:
 - `knockoff_importance` - W-statistic per feature (PR-5)
 - `select_features_fdr(W, q)` - Barber-Candes FDR-controlled selection (PR-7)
 
-DEFERRED enhancements:
+DEFERRED enhancements (RECOMMEND SKIP unless specific need surfaces):
 
-**SDP-optimised s** (Barber-Candes' "SDP knockoffs"). Currently `s` is set
-equicorrelated (`s_j = s for all j`, `s = min(2*lam_min(Sigma), 1)`). The
-SDP-based optimal `s_j` per feature gives tighter knockoffs (each X_tilde_j
-is closer to "independent of X_j given X_{-j}" vs the equicorrelated
-ceiling). Cost: requires `cvxpy` dependency. Implementation:
+**SDP-optimised s** (Barber-Candes' "SDP knockoffs"). RECOMMENDATION: SKIP.
+
+- Power gain over equicorrelated: 5-15% (Barber-Candes 2015 Table 2)
+- Cost: hard dependency on `cvxpy` (~50MB transitive deps)
+- On the project's bench (n=8000, p=200) equicorrelated already gives
+  knockoffs(LR, BC q=0.5) recall=0.86 in 0.54s
+- Marginal gain not worth dependency cost when stability+multi sits at
+  recall=0.86 too. If a future workload genuinely needs the extra power,
+  re-evaluate.
+
+Currently `s` is set equicorrelated (`s_j = s for all j`,
+`s = min(2*lam_min(Sigma), 1)`). The SDP-based optimal `s_j` per feature
+gives tighter knockoffs (each X_tilde_j is closer to "independent of X_j
+given X_{-j}" vs the equicorrelated ceiling). Implementation if needed:
 ```python
 def make_sdp_gaussian_knockoffs(X, ...):
     import cvxpy as cp
@@ -96,11 +105,20 @@ def make_sdp_gaussian_knockoffs(X, ...):
     return _construct_knockoffs(X, Sigma, s.value)
 ```
 
-**Model-X knockoffs** (Candes, Fan, Janson, Lv 2018). Drops the Gaussian
-assumption. Uses any conditional distribution estimator (autoencoder,
-deep learning model) for `P(X_j | X_{-j})`. Library: `knockpy`. Useful
-when X is non-Gaussian (e.g. heavy-tailed, mixed types). Implementation
-would be a thin wrapper around `knockpy.KnockoffSampler`.
+**Model-X knockoffs** (Candes, Fan, Janson, Lv 2018). RECOMMENDATION: SKIP.
+
+- Useful when X is sharply non-Gaussian (heavy-tailed, mixed types). On
+  standard tabular numeric+categorical with z-score normalisation,
+  Gaussian knockoffs hold up well in practice.
+- Cost: hard dependency on `knockpy` -> torch + lightning + huge stack.
+  Not worth bringing into core mlframe.
+- Workaround for users who genuinely need Model-X: import `knockpy`
+  separately, build `X_tilde` via `knockpy.KnockoffSampler`, pass to
+  `knockoff_importance(...)` via the existing `model_factory` path
+  (works without code changes).
+
+Drops the Gaussian assumption. Uses any conditional distribution
+estimator for `P(X_j | X_{-j})`.
 
 **Inferred-Sigma fallback** for n < p: when n is too small to reliably
 estimate `Sigma` (rule of thumb: n < 5p), use shrinkage covariance
@@ -152,6 +170,22 @@ For users with explicit group structure (one-hot expansions, correlated
 clusters), accept a `groupyr.GroupLasso` or `celer.GroupLasso` as the
 estimator and read coefficients per group. Alternative to the simpler
 `feature_groups` dict already implemented in PR-4.
+
+## P1/P2 audit findings still deferred
+
+### B8: mixed-scale columns
+**Status**: implicitly handled. The `coef_` z-scoring fix (PR-4 tactical) already corrects scale-dependent importance for linear models. Tree-based estimators are scale-invariant. No additional fix required; documented as "z-scoring active by default".
+
+### H36: MRMR mixed-dtype NaN policy
+**Status**: documented. MRMR's silent ffill+bfill (mrmr.py:471-473) is intentional for the FE-screen pass and tested by the existing MRMR test suite. If a user wants strict NaN handling, they can pre-impute with sklearn's `SimpleImputer` upstream. No core change needed.
+
+### Other deferred (P2 cosmetic)
+- **A4**: multi-output y with all columns identical - potential 3x weighting bug in MRMR's loop. Test gap, not a real-world issue.
+- **B30**: polars int materialisation perf - micro-optimization in split_into_train_test polars branch. Skip until profile shows it.
+- **F2**: `prev_score = -np.inf` init - already correct (PR-1 F21 fix).
+- **F35**: `selected_features_per_nfeatures` keyed by length only - PR-1 F35 fix gates writes on score improvement. Re-keyed approach was over-engineered.
+- **E24**: stochastic scoring - documented as "scoring must be deterministic" in USAGE.md. No code knob.
+- **B30 polars int materialisation**: skip per perf-measure-first rule.
 
 ## Low priority (cost-prohibitive on typical workloads)
 
