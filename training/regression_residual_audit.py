@@ -56,10 +56,26 @@ math is O(n log n) at worst (sort for AD, sort for Spearman); sampling
 to 50k makes the audit sub-second for any practical N. Plot uses its
 own (smaller) sample independently."""
 
-SKEW_MODERATE: float = 0.5
-SKEW_HIGH: float = 1.0
-EXCESS_KURT_HEAVY: float = 3.0   # > 3 -> heavier-than-Normal tails
-EXCESS_KURT_EXTREME: float = 10.0  # > 10 -> outlier contamination
+SKEW_MODERATE: float = 0.3   # 2026-05-11: tightened from 0.5 -> 0.3
+SKEW_HIGH: float = 0.8       # 2026-05-11: tightened from 1.0 -> 0.8
+# 2026-05-11: thresholds significantly tightened after a user-reported
+# case where the audit verdict said "Gaussian (well-behaved)" for a
+# histogram with excess_kurt=+2.40 -- the threshold was set at the
+# LAPLACE excess kurt level (3.0), so anything Logistic-like or peakier
+# but not quite Laplace got labeled Gaussian. Reference excess kurtosis:
+#   Normal:           0
+#   Logistic:         1.2 (only slightly peakier than Normal)
+#   Laplace:          3.0 (sharp peak + heavy tails -- clearly non-N)
+#   Student-t(df=5):  ~6
+#   Contaminated:     10+
+# With kurt=+2.40 the residual is between Logistic and Laplace -- the
+# histogram VISIBLY shows a sharp peak at 0 with thin shoulders. That
+# is NOT well-behaved Gaussian; calling it so is profanation, the user
+# was right to flag.
+EXCESS_KURT_NEAR_GAUSSIAN: float = 0.5  # < 0.5 -> truly Normal-like
+EXCESS_KURT_MILD: float = 1.5            # 0.5-1.5 -> mild leptokurtosis
+EXCESS_KURT_HEAVY: float = 1.5           # > 1.5 -> heavy tails (was 3.0!)
+EXCESS_KURT_EXTREME: float = 10.0        # > 10 -> outlier contamination
 HETERO_SPEARMAN_THRESHOLD: float = 0.30
 """|Spearman corr(|residuals|, y_hat)| above this -> heteroscedasticity
 is real, not noise. 0.30 is a moderate effect; 0.50+ is strong."""
@@ -194,11 +210,44 @@ def _diagnose(
 
     if excess_kurt > EXCESS_KURT_HEAVY:
         rationale.append(
-            f"heavier-than-Normal tails: excess kurt={excess_kurt:+.2f} (> {EXCESS_KURT_HEAVY}); "
-            f"{pct_outliers_3sigma*100:.1f}% of |resid|>3sigma. Consistent with Laplace "
-            f"(excess kurt = 3) or moderate Student-t (df > 4)."
+            f"heavy-tailed / leptokurtic: excess kurt={excess_kurt:+.2f} (> {EXCESS_KURT_HEAVY}); "
+            f"{pct_outliers_3sigma*100:.1f}% of |resid|>3sigma (Normal expects 0.27%). "
+            f"Sharp peak at 0 with heavier-than-Normal tails. Consistent with "
+            f"Laplace (excess kurt ~ 3.0) or Student-t (df 4-10)."
         )
         return "Laplace / Student-t", "MAE (Laplace-MLE) or Huber as a compromise", rationale
+
+    # 2026-05-11: intermediate verdict for mildly leptokurtic residuals
+    # (excess_kurt in [0.5, 1.5]). Previously these silently passed
+    # as "Gaussian (well-behaved)" -- the user flagged this on a
+    # histogram with kurt=+2.40 that visibly showed a sharp peak at 0.
+    # Now we honestly label them as "Near-Gaussian (mildly peaky)" and
+    # still suggest MSE because the deviation is small enough not to
+    # warrant changing the loss -- but the verdict label no longer
+    # claims a clean Normal.
+    if excess_kurt > EXCESS_KURT_NEAR_GAUSSIAN:
+        # Mild leptokurtosis -- not Gaussian, but MSE still OK.
+        rationale.append(
+            f"mildly leptokurtic: excess kurt={excess_kurt:+.2f} "
+            f"(> {EXCESS_KURT_NEAR_GAUSSIAN}, but < {EXCESS_KURT_HEAVY}); residual "
+            f"distribution has a noticeable peak at 0 but tails are not so heavy "
+            f"that MSE breaks down. {pct_outliers_3sigma*100:.1f}% of |resid|>3sigma. "
+            f"Reference: Logistic (~1.2), Laplace (~3.0). "
+            "MSE is still appropriate; Huber would only marginally improve."
+        )
+        return "Near-Gaussian (mildly peaky)", "MSE (default) - mild leptokurtosis is tolerable; Huber an option if outliers concern you", rationale
+
+    if excess_kurt < -EXCESS_KURT_NEAR_GAUSSIAN:
+        # Platykurtic (flat distribution, lighter-than-Normal tails).
+        # Rare in practice; usually indicates uniform-ish residuals or
+        # bounded targets (saturating predictions). Still ~symmetric
+        # so MSE works.
+        rationale.append(
+            f"platykurtic: excess kurt={excess_kurt:+.2f} "
+            f"(< {-EXCESS_KURT_NEAR_GAUSSIAN}); residuals are flatter than Normal. "
+            f"Often signals a bounded / saturating target. MSE still OK."
+        )
+        return "Near-Gaussian (platykurtic)", "MSE (default) - mild tail-thinning is tolerable", rationale
 
     # Mild asymmetry without nonneg constraint - flag but Gaussian still ok.
     if abs_skew >= SKEW_MODERATE:
@@ -207,8 +256,12 @@ def _diagnose(
             "if the target has a natural non-negativity constraint."
         )
 
+    # True Gaussian verdict reserved for tight near-Normal:
+    # |skew| < 0.3 AND |excess_kurt| < 0.5 AND |hetero| < 0.3.
     rationale.append(
-        f"residuals look ~Gaussian: |skew|={abs_skew:.2f}, excess kurt={excess_kurt:+.2f}, "
+        f"residuals look ~Gaussian: |skew|={abs_skew:.2f} (< {SKEW_MODERATE}), "
+        f"excess kurt={excess_kurt:+.2f} (within "
+        f"+/-{EXCESS_KURT_NEAR_GAUSSIAN}), "
         f"|hetero|={abs_hetero:.2f}. Default MSE / MAE losses are appropriate."
     )
     return "Gaussian (well-behaved)", "MSE (default) - diagnostics support the standard regression assumption", rationale

@@ -50,6 +50,51 @@ def test_gaussian_well_behaved():
     assert abs(audit.excess_kurt) < 1.0
 
 
+def test_mild_leptokurtosis_not_called_gaussian():
+    """2026-05-11 regression: user-reported case where residuals
+    showed ``excess_kurt=+2.40`` and the audit verdict said
+    ``Gaussian (well-behaved)``. Visually the histogram was sharply
+    peaked at 0 -- nothing close to Normal. With the threshold
+    lowered from 3.0 to 1.5 (still allowing logistic-like residuals
+    through), mildly leptokurtic distributions are now flagged
+    honestly as ``Near-Gaussian (mildly peaky)`` or
+    ``Laplace / Student-t`` depending on severity. The user's
+    specific kurt=+2.4 sits in the heavy-tails bucket.
+    """
+    rng = np.random.default_rng(0)
+    n = 5_000
+    y_pred = rng.uniform(-3, 3, size=n)
+    # Mixture: 70% tight (sigma=0.3) + 30% loose (sigma=2.0) -> sharp
+    # peak at 0 with thicker shoulders. Mimics the production case
+    # where 0.6% of residuals exceeded 3 sigma and kurt was around 2-3.
+    component = rng.choice([0, 1], size=n, p=[0.7, 0.3])
+    y_true = y_pred + np.where(
+        component == 0,
+        rng.normal(0, 0.3, size=n),
+        rng.normal(0, 2.0, size=n),
+    )
+    audit = audit_residuals(y_true, y_pred)
+    # Sanity: the fixture indeed produces moderate leptokurtosis.
+    assert audit.excess_kurt > 1.0, (
+        f"fixture too weak: kurt={audit.excess_kurt:+.2f}; "
+        "needs > 1 to test the bug"
+    )
+    # The contract: anything with excess_kurt > 1.5 must NOT be called
+    # plain Gaussian.
+    assert audit.hypothesis != "Gaussian (well-behaved)", (
+        f"regression: residuals with excess_kurt={audit.excess_kurt:+.2f} "
+        f"called Gaussian; this was the production profanation user "
+        f"reported on 2026-05-11."
+    )
+    # Verdict label should indicate non-Gaussian (one of the documented
+    # heavy-tails / peaky verdicts).
+    assert audit.hypothesis in {
+        "Laplace / Student-t",
+        "Near-Gaussian (mildly peaky)",
+        "Contaminated / outliers",
+    }, f"unexpected hypothesis: {audit.hypothesis!r}"
+
+
 def test_laplace_heavy_tails():
     """Symmetric but heavy-tailed → Laplace / Student-t → MAE/Huber."""
     rng = np.random.default_rng(0)

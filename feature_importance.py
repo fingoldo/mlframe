@@ -52,6 +52,48 @@ def show_shap_beeswarm_plot(model: object, df: pd.DataFrame, **kwargs):
     shap.plots.beeswarm(shap_values, **kwargs)
 
 
+def _format_top_fi_for_log(
+    sorted_df: pd.DataFrame,
+    top_n: int,
+    kind: str,
+    width: int = 110,
+) -> str:
+    """Build a compact one-paragraph string of the top-N feature
+    importances suitable for ``logger.info``. Format:
+
+      [FI top-N] <kind>: feat_a=0.342, feat_b=0.198, ... (N=15, sum=...)
+
+    Truncates feature names to keep the line within ``width`` chars.
+    """
+    head = sorted_df.head(top_n)
+    if head.empty:
+        return f"[FI top-{top_n}] {kind}: (no features)"
+    items = [
+        f"{str(name)[:40]}={fi:+.4g}"
+        for name, fi in zip(head.index, head["fi"].values)
+    ]
+    total_n = len(sorted_df)
+    sum_top = float(head["fi"].sum())
+    sum_all = float(sorted_df["fi"].sum())
+    share = (sum_top / sum_all * 100.0) if sum_all > 0 else 0.0
+    parts = [f"[FI top-{len(items)}] {kind}:"]
+    line = parts[-1]
+    for item in items:
+        candidate = (line + " " + item) if line.endswith(":") \
+            else (line + ", " + item)
+        if len(candidate) > width:
+            parts.append("  " + item)
+            line = parts[-1]
+        else:
+            parts[-1] = candidate
+            line = parts[-1]
+    parts.append(
+        f"  (N_total={total_n}, top_sum={sum_top:.4g}, "
+        f"share={share:.1f}%)"
+    )
+    return "\n".join(parts)
+
+
 def plot_feature_importance(
     feature_importances: np.ndarray,
     columns: Sequence,
@@ -61,8 +103,37 @@ def plot_feature_importance(
     positive_fi_only: bool = False,
     show_plots: bool = True,
     plot_file: str = "",
+    log_top_n: int = 20,
+    log_fi: bool = True,
 ):
+    """Plot + log top-N feature importances.
 
+    Parameters
+    ----------
+    feature_importances : np.ndarray
+        Per-feature importance scores aligned to ``columns``.
+    columns : Sequence
+        Feature names; ``len(columns)`` may be 0 (uses integer index).
+    kind : str
+        Display label (e.g. ``"XGBRegressor TVT"``). Goes into the
+        plot title AND the text log line.
+    n : int, default 20
+        Number of bars to plot. Top-N positive AND bottom-N negative
+        (when ``positive_fi_only=False`` and the minimum FI is < 0).
+    log_top_n : int, default 20
+        Number of features included in the text-format log line. Set
+        to 0 to disable text logging entirely.
+    log_fi : bool, default True
+        Master switch for the text log line. Set False to suppress
+        even when ``log_top_n > 0`` (e.g. when the caller already
+        logs FI via a different path).
+
+    Returns
+    -------
+    pd.DataFrame
+        Sorted (descending) FI as a DataFrame with one column ``fi``,
+        indexed by feature name.
+    """
     sorted_idx = np.argsort(feature_importances)
     if len(columns) == 0:
         columns = np.arange(len(feature_importances))
@@ -70,6 +141,22 @@ def plot_feature_importance(
     df = pd.Series(data=feature_importances[sorted_idx], index=sorted_columns, name="fi").to_frame().sort_values(by="fi", ascending=False)
     if positive_fi_only:
         df = df[df.fi > 0.0]
+
+    # 2026-05-11: text-log of top-N FI (default ON). Emitted via
+    # ``logger.info`` BEFORE the rendering branch so the log line
+    # appears even when no plot is produced (e.g. headless / CI runs
+    # where the figure short-circuit fires). Suppress with
+    # ``log_fi=False`` or ``log_top_n=0``.
+    if log_fi and log_top_n > 0 and not df.empty:
+        try:
+            logger.info(_format_top_fi_for_log(
+                sorted_df=df, top_n=log_top_n, kind=kind,
+            ))
+        except Exception as _log_err:
+            logger.debug(
+                "FI text-log formatting failed for kind=%r: %s",
+                kind, _log_err,
+            )
 
     # 2026-05-09: short-circuit when nothing consumes the plot. Same
     # rule as ``mlframe.metrics.show_calibration_plot``: in a script /
@@ -108,8 +195,35 @@ def plot_feature_importance(
             ax.set_title(f"{kind} BOTTOM feature importances")
 
         if show_plots:
-            plt.ion()
-            plt.show()
+            # 2026-05-11: prefer explicit ``IPython.display.display(fig)``
+            # when running inside a Jupyter / IPython kernel. This is
+            # robust to the matplotlib backend being Agg (the global
+            # mlframe pipeline may have set it for the on-disk rendering
+            # path); ``plt.show()`` on Agg prints the "non-GUI backend"
+            # warning and renders nothing. ``display(fig)`` works
+            # regardless of backend because it hands the figure to the
+            # kernel's display-data channel and the inline backend
+            # renders it as a PNG payload.
+            try:
+                # ``__IPYTHON__`` is defined only inside an IPython /
+                # Jupyter kernel (not in bare python or in a script
+                # that happened to import IPython transitively).
+                _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+            except NameError:
+                _in_kernel = False
+            if _in_kernel:
+                try:
+                    from IPython.display import display as _ipy_display
+                    for _fig in figs:
+                        _ipy_display(_fig)
+                except Exception:
+                    # Fall back to plt.show on any import / display
+                    # error; the warning is acceptable here.
+                    plt.ion()
+                    plt.show()
+            else:
+                plt.ion()
+                plt.show()
         # Close ALL figs (top + bottom) unless inside an IPython /
         # Jupyter kernel where the inline display already rendered
         # them. Previously only the last-assigned fig was closed in

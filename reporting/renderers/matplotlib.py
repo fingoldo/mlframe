@@ -22,8 +22,17 @@ class MatplotlibRenderer:
     backend = "matplotlib"
 
     def render(self, spec: FigureSpec) -> Any:
-        import matplotlib
-        matplotlib.use("Agg", force=False)  # honor pre-set backend; default to Agg for save-only
+        # 2026-05-11: REMOVED ``matplotlib.use("Agg", force=False)``
+        # here. The renderer creates its own ``FigureCanvasAgg(fig)``
+        # explicitly below, so the global-backend mutation is
+        # redundant -- AND it broke inline FI display in Jupyter
+        # because once Agg is locked in globally, downstream
+        # ``plt.show()`` calls in feature_importance.py print
+        # "Matplotlib is currently using agg, which is a non-GUI
+        # backend, so cannot show the figure." Per the
+        # CLAUDE.md rule, the renderer must NOT pollute global state
+        # to make its own save path easier when downstream consumers
+        # rely on that state for inline rendering.
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_agg import FigureCanvasAgg
 
