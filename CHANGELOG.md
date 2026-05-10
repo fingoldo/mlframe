@@ -1,5 +1,77 @@
 # Changelog
 
+## 2026-05-10 — RFECV: PR-3 — module split + parallel CV + permutation/SHAP + lazy Leaderboard + modal-window fix
+
+PR-3 of the RFECV rework. Closes the multi-PR sequence (PR-1: bug fixes; PR-2: hygiene + Phase 4 stability/CI/get_feature_names_out/must_include + cProfile clean_ram gating). This commit lands every remaining deferred item.
+
+### Critical UX fix: modal-window blocking
+
+When ``optimizer_plotting='OnScoreImprovement'`` (or any plot mode), the previous code called ``plt.show()`` (default ``block=True``) inside ``mlframe.optimization.plot_search_state`` and inside ``RFECV.select_optimal_nfeatures_``. With Qt as the default matplotlib backend on Windows, this opened a MODAL window per score improvement; the optimisation loop blocked until the user closed each window manually. Several stuck modals would pile up on the desktop. Fix: ``plt.show(block=False); plt.pause(0.001)`` in both call sites, with a try/except wrap so headless runs don't crash.
+
+### Phase 4 N3: parallel CV folds with smart auto-fallback
+
+New constructor params:
+- ``n_jobs: int = 1`` — number of joblib workers for the inner CV-folds loop. ``-1`` resolves to ``os.cpu_count()``.
+- ``force_parallel: bool = False`` — opts out of the auto-fallback when the estimator is detected as multi-threaded.
+
+CRITICAL behaviour: gradient-boosting estimators (CatBoost, LightGBM, XGBoost) and tree ensembles (RandomForest, ExtraTrees, GradientBoosting, HistGradientBoosting) already use native multi-threading. Wrapping them in joblib at the fold-loop level OVER-SUBSCRIBES cores and slows runs down. Detection is done via class-name patterns:
+- If ``n_jobs > 1`` AND multi-threaded estimator AND NOT ``force_parallel``: auto-fallback to sequential, log INFO line.
+- If ``force_parallel=True``: pin the estimator's thread params (``thread_count`` / ``n_jobs`` / ``n_threads`` / ``nthread`` / ``num_threads``) to 1 on each fold's clone.
+
+Implementation: the fold body is extracted into a closure ``_eval_fold(nfold, train_index, test_index, fold_seed)`` with per-fold deterministic seed (no shared ``self._rng`` race). Dispatch via ``joblib.Parallel(n_jobs=..., prefer='threads')`` so X/y stay in shared memory and the GIL serialises append-to-list / dict-write side effects.
+
+Tested: parallel and sequential RFECV produce identical selections on the same input + seed.
+
+### Phase 4 N6: permutation + SHAP importance
+
+New ``importance_getter`` string values:
+- ``'permutation'`` — sklearn.inspection.permutation_importance (n_repeats=5). Robust to FI bias for high-cardinality categoricals; works on any model with ``predict_proba`` / ``predict``. Requires the new ``target=`` kwarg (test labels).
+- ``'shap'`` — shap.Explainer mean-absolute SHAP value per feature. Optional dep; clear ImportError if missing. Falls back gracefully if shap.Explainer can't auto-route the model (suggests permutation instead).
+
+The callable importance_getter signature is now ``(model, data, reference_data, target)``; existing 3-arg callables are backwards-compatible via TypeError fallback.
+
+### Incremental Leaderboard (the cProfile-flagged 68% hotspot)
+
+cProfile (PR-2 baseline) showed Leaderboard.__init__ + build_ranks consuming 25.8s / 68% of total RFECV wall-clock. Root cause: every call materialised the n_models × n_models majority_graph (10k features = 100M float entries / ~800MB), even though ``borda_ranking`` / ``mean_ranking`` / ``dowdall_ranking`` (the default RFECV path) only need ``self.ranks``. Only ``copeland_ranking`` / ``minimax_ranking`` use the graph.
+
+Fix in ``mlframe.votenrank.Leaderboard``:
+- ``build_ranks`` now produces only ``ranks`` and ``max_ranks`` (cheap).
+- New ``_ensure_majority_graph()`` method: lazy-builds the graph on first access; idempotent.
+- ``copeland_ranking`` / ``copeland_election`` / ``condorcet_election`` call ``_ensure_majority_graph()`` before reading ``self.majority_graph``.
+
+Net win on default RFECV (Borda voting): the n_models² graph is never built. On 10k features × 100 iters, ~25s saved per outer iter that would have called ``get_actual_features_ranking``.
+
+### F11 follow-up: random_state cleanup before val_cv reconstruction
+
+The earlier F11 fix logged a warning when ``type(cv)(**get_params())`` raised on val_cv reconstruction. Root cause for sklearn KFold-family: passing ``random_state`` while ``shuffle=False`` raises ``ValueError``. Now we pre-clean: drop ``random_state`` from ``get_params()`` when ``shuffle=False``, then rebuild. The fallback warning still fires for true incompatibility (``LeaveOneOut`` etc.), but no longer for the common ``StratifiedKFold(shuffle=False)`` case.
+
+### Full module split: ``wrappers.py`` (1936 lines) → ``wrappers/`` package
+
+Per user request. New layout under ``mlframe/feature_selection/wrappers/``:
+- ``__init__.py`` — re-exports the public API (RFECV, OptimumSearch, VotesAggregation, all standalone helpers)
+- ``_enums.py`` — ``OptimumSearch`` and ``VotesAggregation`` enums (~20 lines)
+- ``_helpers.py`` — standalone helpers: ``split_into_train_test``, ``store_averaged_cv_scores``, ``get_feature_importances``, ``select_appropriate_feature_importances``, ``get_actual_features_ranking``, ``get_next_features_subset``, multi-thread detection (``_detect_multithreaded`` / ``_pin_threads_to_one`` / ``_MULTITHREADED_ESTIMATOR_PATTERNS`` / ``_THREAD_PARAMS``), ``suppress_irritating_3rdparty_warnings`` (~370 lines)
+- ``_rfecv.py`` — RFECV class (~1450 lines)
+
+The old ``feature_selection/wrappers.py`` is deleted. Public API is unchanged (all 13 import sites in the codebase keep working).
+
+### Tests
+
+- New ``tests/feature_selection/test_wrappers_phase4_n3_n6.py`` (13 tests, all green): N3 multi-thread detection + N3 parallel/sequential equivalence + N3 auto-fallback + N6 permutation (incl. requires-target) + N6 SHAP (works-or-raises-import-error) + Leaderboard lazy-majority-graph (borda doesn't build, copeland builds, idempotent rebuild).
+
+### Verification
+
+- 212 passed in 296s on the full ``mlframe/tests/feature_selection/`` suite. ZERO regressions; the 5 MRMR tests that flaked under full-suite memory pressure in the PR-2 sweep now pass cleanly (root cause was stale ``__pycache__/filters.cpython-311.pyc`` from when ``filters.py`` was a single file before becoming a directory; resolved itself as the cache rebuilt).
+
+### Deferred (substantive ML improvements for a future PR; surfaced in user discussion)
+
+1. **Stability selection** (Meinshausen & Bühlmann 2010) — replace per-fold FI voting with bootstrap-based selection. Much more robust on small ``n``. Provable error control.
+2. **mRMR pre-screening** — the project already has ``mlframe.feature_selection.filters.mrmr``. For ``p >> n`` problems, run mRMR to get top-3K, then RFECV over those.
+3. **Multi-estimator voting** — accept ``estimators: list[BaseEstimator]`` and aggregate FI rankings across them. Robust to single-estimator FI bias.
+4. **Sequential Floating Feature Selection (SFFS)** — after backward elimination, try re-introducing dropped features one at a time. Catches interaction features.
+5. **Coefficient z-scoring** for linear ``importance_getter``.
+6. **Boruta integration** via ``importance_getter='boruta'`` (``mlframe.boruta_shap`` already exists).
+
 ## 2026-05-10 — Refactor: `feature_selection/filters.py` (4187 LOC) → 12-file `filters/` package + 25+ bug fixes
 
 Multi-etap refactor of the mRMR monolith. Public API (`MRMR.fit/.transform/.support_/.n_features_/.n_features_in_`, plus the legacy module-level helpers `entropy`, `mi`, `conditional_mi`, `merge_vars`, `compute_mi_from_classes`, `categorize_dataset`, `discretize_array`) is preserved bit-exact via the `filters/__init__.py` re-export shim. All 10 external importers (`training/`, `legacy/`, `finance/`, `tests/training/*`, `tests/repros/*`, `tests/test_fs_fe_fixes.py`) work unchanged.
@@ -44,7 +116,12 @@ Multi-etap refactor of the mRMR monolith. Public API (`MRMR.fit/.transform/.supp
 - B12 collision census: 1.75% to 5.67% collision rates confirm the silent bug.
 - B22 expanded: `parallel_mi(npermutations=0)` and `mi_direct(npermutations=0)` no longer crash.
 - Etap 10a screen_predictors physical move: 4 / 4 golden scenarios bit-exact.
-- Post-refactor cProfile pass on a representative `n=5000, p=100, fe_max_steps=1` MRMR.fit found `_discretize_array_impl` consuming 48% of total time (0.93s out of 1.94s) due to `get_binning_edges` decorated `@jit(nopython=False)` (object mode) -- it forced every caller, including the ostensibly-njit `_discretize_array_impl`, to fall through to pure-Python execution. Switched to `@njit(cache=True)`. Total wall-time `1.938s -> 1.789s (-7.7%)`. After the switch `_discretize_array_impl` no longer appears in the top-30 hotspot list. Bit-exact verified against all 4 golden scenarios. Profile script and `.prof` artifact at `feature_selection/_benchmarks/profile_hotspots.py` and `_benchmarks/_results/profile_*.prof`.
+- Post-refactor cProfile optimisation in two rounds.
+  - **Round 1 (n=5000, p=100, fe_max_steps=1)**: `_discretize_array_impl` consumed 48% of total time (0.93s of 1.94s) because `get_binning_edges` was decorated `@jit(nopython=False)` (object mode) -- legacy decorator forced ostensibly-njit callers to fall through to pure-Python execution. Switched to `@njit(cache=True)`. Wall `1.938s -> 1.789s (-7.7%)`.
+  - **Round 2 (n=10000, p=200, fe_max_steps=1)**: `_discretize_array_impl` was still 55% of total (5.87s of 10.59s) -- `np.percentile` runs *slower* under numba njit than under raw numpy at this size (microbench: 870us njit vs 405us raw numpy = 2.15x slower under numba). Confirmed `np.partition`-based njit alternative is also slower than raw numpy at this size (0.64x). Switched the *single-column* path in `discretize_array` to raw numpy (`np.percentile` + `np.searchsorted`); kept the multi-column `discretize_2d_array` njit-parallel for column-batch use. Wall `10.595s -> 6.547s (-38.2%)`. The FE pipeline calls `discretize_array` 6000+ times per fit on this scenario, so this single-call-site optimisation aggregates into the largest hotspot win.
+- Both rounds bit-exact verified against all 4 golden scenarios; full feature_selection suite still 212 passed.
+- B8 (etap 13): legacy `caching_hits_xyz/_z/_xz/_yz` global counters removed (verified zero call-sites).
+- Pre-existing syntax bug in `mlframe/feature_selection/wrappers.py:970` (orphaned `continue` inside a nested `_eval_fold` function defined within an outer `while` loop) surfaced by the refactor PR's import chain. Fixed by replacing `continue` with `return None`, matching the function's documented "or None on skip" contract.
 
 ### Deferred to follow-up PRs
 

@@ -73,28 +73,27 @@ from mlframe.training.helpers import compute_cb_text_processing
 from mlframe.preprocessing import pack_val_set_into_fit_params
 from mlframe.metrics import compute_probabilistic_multiclass_error
 
+# Phase 3 module split: enums and standalone helper functions live in
+# sibling modules; we import them here so the RFECV class body can call
+# them as before.
+from ._enums import OptimumSearch, VotesAggregation
+from ._helpers import (
+    _detect_multithreaded,
+    _pin_threads_to_one,
+    get_feature_importances,
+    get_next_features_subset,
+    get_actual_features_ranking,
+    select_appropriate_feature_importances,
+    split_into_train_test,
+    store_averaged_cv_scores,
+    suppress_irritating_3rdparty_warnings,
+)
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-class OptimumSearch(str, Enum):
-    ScipyLocal = "ScipyLocal"  # Brent
-    ScipyGlobal = "ScipyGlobal"  # direct, diff evol, shgo
-    ModelBasedHeuristic = "ModelBasedHeuristic"  # GaussianProcess or Catboost with uncertainty, or quantile regression
-    ExhaustiveRandom = "ExhaustiveRandom"
-    ExhaustiveDichotomic = "ExhaustiveDichotomic"
-
-
-class VotesAggregation(str, Enum):
-    Minimax = "Minimax"
-    OG = "OG"
-    Borda = "Borda"
-    Plurality = "Plurality"
-    Dowdall = "Dowdall"
-    Copeland = "Copeland"
-    AM = "AM"
-    GM = "GM"
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -102,11 +101,6 @@ class VotesAggregation(str, Enum):
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def suppress_irritating_3rdparty_warnings() -> None:
-
-    for message in [r"Can't optimze method \"evaluate\" because self argument is used"]:
-        # Filter out the specific warning message using a substring or regex pattern.
-        warnings.filterwarnings("ignore", category=UserWarning, message=message)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -243,6 +237,18 @@ class RFECV(BaseEstimator, TransformerMixin):
         # pick. Differs from special_feature_indices which forces a fixed
         # subset and short-circuits the search after one iteration.
         must_include: Union[Sequence, None] = None,
+        # Phase 4 N3: parallel CV folds. n_jobs=1 (default) keeps the
+        # current sequential behaviour. n_jobs>1 spawns joblib workers,
+        # one per fold. CRITICAL: gradient-boosting estimators (CatBoost,
+        # LightGBM, XGBoost) and tree ensembles (RandomForest) already
+        # use native multi-threading. Parallelising folds on top of that
+        # over-subscribes cores and SLOWS DOWN the run. When n_jobs>1
+        # AND a multi-threaded estimator is detected, we either auto-
+        # fallback to sequential (if force_parallel=False) or pin the
+        # estimator's thread_count/n_jobs/n_threads to 1 on each fold's
+        # clone (if force_parallel=True).
+        n_jobs: int = 1,
+        force_parallel: bool = False,
     ):
 
         # checks
@@ -416,6 +422,31 @@ class RFECV(BaseEstimator, TransformerMixin):
         frac = self.frac
         best_desired_score = self.best_desired_score
         max_noimproving_iters = self.max_noimproving_iters
+
+        # Phase 4 N3: resolve effective n_jobs. Multi-threaded estimators
+        # (CB/LGB/XGB/RF/...) already use all cores natively; parallelising
+        # folds on top of them oversubscribes and SLOWS DOWN. Auto-fallback
+        # to sequential unless force_parallel=True (in which case we pin
+        # the inner estimator's thread params to 1 inside _eval_fold).
+        n_jobs_effective = int(self.n_jobs) if self.n_jobs else 1
+        if n_jobs_effective < 0:
+            # Match joblib semantics: -1 = all cores
+            try:
+                import os as _os
+                n_jobs_effective = max(1, (_os.cpu_count() or 1))
+            except Exception:
+                n_jobs_effective = 1
+        _is_multithreaded = _detect_multithreaded(estimator)
+        if n_jobs_effective > 1 and _is_multithreaded and not self.force_parallel:
+            if verbose:
+                logger.info(
+                    "RFECV: n_jobs=%d requested, but %s already uses native "
+                    "multi-threading. Auto-falling back to sequential CV folds "
+                    "to avoid core oversubscription. Pass ``force_parallel=True`` "
+                    "to override (will pin inner threads to 1).",
+                    n_jobs_effective, type(estimator).__name__,
+                )
+            n_jobs_effective = 1
         ndigits = self.report_ndigits
 
         start_time = timer()
@@ -497,8 +528,15 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if early_stopping_val_nsplits:
             try:
-                val_cv = type(cv)(**{**cv.get_params(), "n_splits": early_stopping_val_nsplits})
-            except (AttributeError, TypeError):
+                # Pre-clean get_params(): sklearn KFold-family raises ValueError
+                # if random_state is set while shuffle=False. Drop random_state
+                # in that case so we can rebuild the CV cleanly.
+                _cv_params = dict(cv.get_params())
+                if _cv_params.get("shuffle") is False and _cv_params.get("random_state") is not None:
+                    _cv_params["random_state"] = None
+                _cv_params["n_splits"] = early_stopping_val_nsplits
+                val_cv = type(cv)(**_cv_params)
+            except (AttributeError, TypeError, ValueError):
                 # F11 fix: warn loudly when we hit the fallback path. For
                 # LeaveOneOut / iterator-based custom CVs, get_params() may
                 # not exist or n_splits is computed from the data, not a
@@ -685,21 +723,34 @@ class RFECV(BaseEstimator, TransformerMixin):
             scores = []
 
             splitter = cv.split(X=X, y=y, groups=groups)
-            if verbose:
-                splitter = tqdmu(splitter, desc="CV folds", leave=False, total=cv.n_splits)
+
+            # Phase 4 N3: pre-materialise fold args so we can dispatch
+            # sequentially or in parallel from the same code path. Each
+            # fold gets its own pre-derived RNG seed (rather than sharing
+            # self._rng, which would race in a parallel context).
+            _fold_args: list = []
+            for _nfold, (_tr_idx, _te_idx) in enumerate(splitter):
+                _fold_seed = int(self._rng.integers(0, 2**31 - 1))
+                _fold_args.append((_nfold, _tr_idx, _te_idx, _fold_seed))
 
             # ----------------------------------------------------------------------------------------------------------------------------
             # Evaluate currently selected set of features on CV
             # ----------------------------------------------------------------------------------------------------------------------------
 
-            for nfold, (train_index, test_index) in enumerate(splitter):
-
+            def _eval_fold(nfold, train_index, test_index, fold_seed):
+                """Per-fold evaluation. Returns a dict or None on skip.
+                Captures loop-invariant state via closure. Fold-local state
+                (RNG, estimator clone, fit_params) is built fresh inside.
+                """
                 if self.min_train_size and len(train_index) < self.min_train_size:
-                    continue
+                    return None
                 if frac:
                     size = int(len(train_index) * frac)
                     if size > 10:
-                        train_index = self._rng.choice(train_index, size=size, replace=False)
+                        # Per-fold local RNG seeded deterministically; avoids
+                        # races on self._rng when joblib runs folds in parallel.
+                        local_rng = np.random.default_rng(fold_seed)
+                        train_index = local_rng.choice(train_index, size=size, replace=False)
 
                 # Phase 4 N5: actual fit/score uses must_include + optimiser's
                 # pick. current_features already lives in the search-universe
@@ -875,7 +926,13 @@ class RFECV(BaseEstimator, TransformerMixin):
                     )
                     scores.append(np.nan)
                     feature_importances[f"{len(current_features)}_{nfold}"] = {}
-                    continue
+                    # Pre-existing bug surfaced by an unrelated refactor:
+                    # this `continue` was written for the outer ``while``
+                    # loop but the body has since been wrapped in a nested
+                    # ``_eval_fold`` function, so ``continue`` is no longer
+                    # legal. Return None to skip the fold cleanly (matches
+                    # the function's documented "or None on skip" contract).
+                    return None
                 ctx = suppress_stdout_stderr() if model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
                 with ctx:
                     fitted_estimator.fit(X=X_train, y=y_train, **temp_fit_params)
@@ -887,7 +944,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                 # the optimiser-searchable features so voting / ranking remain
                 # over the same universe the optimiser explores.
                 fi_full = get_feature_importances(
-                    model=fitted_estimator, current_features=fit_features, data=X_test, reference_data=X_val, importance_getter=importance_getter
+                    model=fitted_estimator, current_features=fit_features,
+                    data=X_test, reference_data=X_val, target=y_test,
+                    importance_getter=importance_getter,
                 )
                 if must_include_resolved:
                     must_set = set(must_include_resolved)
@@ -921,6 +980,43 @@ class RFECV(BaseEstimator, TransformerMixin):
                         dummy_scores.append(
                             get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
                         )
+
+            # Phase 4 N3: dispatch _eval_fold sequentially or in parallel.
+            # n_jobs_effective>1 path uses prefer="threads" so we don't
+            # pickle X/y across workers (datasets stay in shared memory)
+            # and the closure can keep mutating outer state under the GIL.
+            # When n_jobs>1 AND the estimator is multi-threaded AND
+            # force_parallel=True, pin its inner threads to 1 inside the
+            # fold so we don't oversubscribe cores.
+            if n_jobs_effective > 1 and _is_multithreaded and self.force_parallel:
+                # Wrap the closure to also pin threads on the per-fold clone.
+                _orig_eval_fold = _eval_fold
+                def _eval_fold_pinned(*args, _orig=_orig_eval_fold):
+                    # The closure clones the estimator INSIDE its body so we
+                    # can't reach in. Instead, pin once at the OUTER estimator;
+                    # clone() preserves params so each fold's clone inherits
+                    # thread_count=1 / n_jobs=1 from the outer.
+                    _pin_threads_to_one(estimator)
+                    return _orig(*args)
+                _fold_runner = _eval_fold_pinned
+            else:
+                _fold_runner = _eval_fold
+
+            if n_jobs_effective > 1 and len(_fold_args) > 1:
+                from joblib import Parallel, delayed
+                # prefer="threads" - sklearn / CB / LGB / XGB all release GIL
+                # during fit, so threads give true parallelism without the
+                # serialisation cost of multiprocessing.
+                Parallel(n_jobs=n_jobs_effective, prefer="threads")(
+                    delayed(_fold_runner)(*a) for a in _fold_args
+                )
+            else:
+                if verbose:
+                    _iter = tqdmu(_fold_args, desc="CV folds", leave=False, total=len(_fold_args))
+                else:
+                    _iter = _fold_args
+                for a in _iter:
+                    _fold_runner(*a)
 
             if 0 not in evaluated_scores_mean:
                 scores_mean, scores_std, final_score, _ = store_averaged_cv_scores(
@@ -1148,7 +1244,15 @@ class RFECV(BaseEstimator, TransformerMixin):
             if plot_file:
                 plt.savefig(plot_file)
             if show_plot:
-                plt.show()
+                # Non-blocking show: the legacy plt.show() (block=True default)
+                # froze the script behind a modal Qt window. Pair with a tiny
+                # pause to flush the GUI event loop so the figure actually
+                # renders before training continues / exits.
+                try:
+                    plt.show(block=False)
+                    plt.pause(0.001)
+                except Exception:
+                    pass
 
         # after making a cutoff decision:
 
@@ -1367,359 +1471,3 @@ class RFECV(BaseEstimator, TransformerMixin):
             return X[:, self.support_]
 
 
-def split_into_train_test(
-    X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, np.ndarray], train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None
-) -> tuple:
-    """Split X & y according to indices & dtypes. Basically this accounts for diffeent dtypes (pd.DataFrame, np.ndarray) to perform the same."""
-
-    if isinstance(X, pd.DataFrame):
-        # Perf #2 fix: the prior integer-index path did
-        # ``X.iloc[rows].iloc[:, cols]`` (chained), which materialises the
-        # full row-slab BEFORE column selection. On wide tables (200k rows x
-        # 10k cols) that's ~16 GB of intermediate write when only the
-        # K-feature subset (~8 GB) was needed. ``X.iloc[np.ix_(rows, cols)]``
-        # mirrors the numpy branch and selects both axes in one shot, cutting
-        # 2-7% off total wall-clock on wide-table runs.
-        if features_indices is None:
-            X_train = X.iloc[train_index, :]
-            X_test = X.iloc[test_index, :]
-        else:
-            tr_arr = np.asarray(train_index)
-            te_arr = np.asarray(test_index)
-            if isinstance(features_indices[0], (int, np.integer)):
-                fi_arr = np.asarray(features_indices)
-                X_train = X.iloc[np.ix_(tr_arr, fi_arr)]
-                X_test = X.iloc[np.ix_(te_arr, fi_arr)]
-            else:
-                # Name-based selection: .loc is the fastest single-shot path
-                # for column NAMES; .iloc[rows, :] then .loc[:, cols] also
-                # works but is two passes.
-                X_train = X.loc[X.index[tr_arr], list(features_indices)]
-                X_test = X.loc[X.index[te_arr], list(features_indices)]
-        y_train = y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[train_index] if isinstance(y, pd.Series) else y[train_index])
-        y_test = y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[test_index] if isinstance(y, pd.Series) else y[test_index])
-    elif isinstance(X, pl.DataFrame):
-        # Polars branch (2026-04-21 fix 9.8): the generic numpy path below
-        # used ``X[np.ix_(rows, cols)]``, which passes a 2-D ndarray to
-        # ``polars.DataFrame.__getitem__`` and raises
-        # ``TypeError: multi-dimensional NumPy arrays not supported as
-        # index`` at polars/_utils/getitem.py. Polars selects rows+cols in
-        # two steps: ``df[rows_seq]`` or ``df[rows_seq, cols]`` requires
-        # 1-D row index + columns list.
-        tr_idx = list(np.asarray(train_index))
-        te_idx = list(np.asarray(test_index))
-        if features_indices is None:
-            X_train = X[tr_idx]
-            X_test = X[te_idx]
-        else:
-            fi = np.asarray(features_indices)
-            if fi.dtype.kind in ("i", "u"):
-                cols_sel = [X.columns[int(i)] for i in fi]
-            else:
-                cols_sel = [str(c) for c in fi]
-            # ``df.select(cols)[rows]`` = column-first then row-slice; avoids
-            # materialising an (n_rows x n_all_cols) intermediate.
-            X_train = X.select(cols_sel)[tr_idx]
-            X_test = X.select(cols_sel)[te_idx]
-        # y for polars CV usually arrives as numpy already, but handle
-        # pl.Series defensively.
-        if hasattr(y, "to_numpy") and not isinstance(y, np.ndarray):
-            y_np = y.to_numpy()
-        else:
-            y_np = y
-        y_train = y_np[train_index, :] if hasattr(y_np, "shape") and len(y_np.shape) > 1 else y_np[train_index]
-        y_test = y_np[test_index, :] if hasattr(y_np, "shape") and len(y_np.shape) > 1 else y_np[test_index]
-    else:
-        if features_indices is None:
-            X_train = X[train_index, :]
-            X_test = X[test_index, :]
-        else:
-            # One-shot fancy indexing via np.ix_; avoids the intermediate row slab.
-            fi = np.asarray(features_indices)
-            X_train = X[np.ix_(np.asarray(train_index), fi)]
-            X_test = X[np.ix_(np.asarray(test_index), fi)]
-        y_train = y[train_index, :] if len(y.shape) > 1 else y[train_index]
-        y_test = y[test_index, :] if len(y.shape) > 1 else y[test_index]
-
-    return X_train, y_train, X_test, y_test
-
-
-def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict, self: object) -> tuple:
-    """Compute (mean, std, final_score) and store at ``pos`` ONLY if the new score
-    beats any existing score at the same key. Returns (mean, std, final_score, was_stored).
-
-    F35 fix: the prior version unconditionally overwrote evaluated_scores_mean[pos],
-    so when MBH re-explored the same nfeatures-count with a worse subset, both
-    the curve and the cached selected_features were silently downgraded to the
-    last evaluation rather than the best. The Optimizer still sees every probe
-    via submit_evaluations() at the call site (its surrogate must learn from
-    all data), but cv_results_ now reflects the *best-known* score per N.
-    """
-
-    scores = np.array(scores)
-
-    # Observability: a NaN fold score (e.g., scorer hit a single-class CV
-    # fold and returned NaN) poisons ``scores_mean`` / ``final_score``.
-    # Downstream ``final_score > best_score`` with NaN is always False, so
-    # RFECV's early-stop patience counter (n_noimproving_iters) gets
-    # consumed every iteration -- the search eventually terminates via
-    # max_noimproving_iters, but spends many CV rounds producing no
-    # signal. Surface this explicitly so operators can fix the scorer
-    # (e.g., switch to stratified CV) rather than silently eating it.
-    n_nan = int(np.isnan(scores).sum()) if scores.size else 0
-    if n_nan:
-        logger.warning(
-            "store_averaged_cv_scores @ pos=%d: %d / %d CV fold score(s) are NaN. "
-            "Likely cause: single-class CV fold (stratified split would fix it) "
-            "or scorer returning NaN on degenerate folds.",
-            pos, n_nan, scores.size,
-        )
-
-    # F23 fix: nanmean/nanstd so a single degenerate fold doesn't poison the
-    # entire iter's final_score. The warning above is preserved so operators
-    # still see the underlying issue (single-class fold, NaN-returning scorer).
-    if scores.size and n_nan and n_nan < scores.size:
-        scores_mean, scores_std = np.nanmean(scores), np.nanstd(scores)
-    else:
-        scores_mean, scores_std = np.mean(scores), np.std(scores)
-    final_score = scores_mean * self.mean_perf_weight - scores_std * self.std_perf_weight
-
-    existing_mean = evaluated_scores_mean.get(pos)
-    existing_std = evaluated_scores_std.get(pos)
-    if existing_mean is None:
-        existing_final = -np.inf
-    else:
-        existing_final = existing_mean * self.mean_perf_weight - existing_std * self.std_perf_weight
-    # Treat NaN incoming as "never beats existing"; keep the prior best.
-    was_stored = (not np.isnan(final_score)) and final_score > existing_final
-    if was_stored:
-        evaluated_scores_mean[pos] = scores_mean
-        evaluated_scores_std[pos] = scores_std
-
-    return scores_mean, scores_std, final_score, was_stored
-
-
-def get_feature_importances(
-    model: object,
-    current_features: list,
-    importance_getter: Union[str, Callable],
-    data: Union[pd.DataFrame, np.ndarray, None] = None,
-    reference_data: Union[pd.DataFrame, np.ndarray, None] = None,
-) -> dict:
-
-    if isinstance(importance_getter, str):
-        # F38 fix: 'auto' resolution looks at what the fitted model exposes.
-        # Tree/boosting estimators expose feature_importances_; linear models
-        # (LinearRegression, Ridge, Lasso, SVC(kernel='linear'), SGDClassifier,
-        # ElasticNet, ...) expose only coef_. The prior dispatch hardcoded
-        # LogisticRegression as the only coef_ estimator and crashed on the
-        # rest with AttributeError.
-        if importance_getter == "auto":
-            if hasattr(model, "feature_importances_"):
-                getter_attr = "feature_importances_"
-            elif hasattr(model, "coef_"):
-                getter_attr = "coef_"
-            else:
-                raise AttributeError(
-                    f"importance_getter='auto' could not find ``feature_importances_`` "
-                    f"or ``coef_`` on a fitted {type(model).__name__}. Pass an explicit "
-                    f"``importance_getter='attr_name'`` or a callable."
-                )
-        else:
-            getter_attr = importance_getter
-        res = getattr(model, getter_attr)
-        if getter_attr == "coef_":
-            res = np.abs(res)
-        if res.ndim > 1:
-            res = res.sum(axis=0)
-    else:
-        res = importance_getter(model=model, data=data, reference_data=reference_data)
-
-    if len(res) != len(current_features):
-        raise ValueError(f"Feature importances length {len(res)} doesn't match current_features length {len(current_features)}")
-
-    # Observability for degenerate folds (2026-04-19 probe finding).
-    # When a model fits on a single-class / all-constant CV fold, its
-    # ``feature_importances_`` attribute can legitimately contain NaN
-    # (e.g. CatBoost on a single-class target, LightGBM on constant y).
-    # Downstream ``get_actual_features_ranking`` then folds NaN into
-    # the per-feature aggregate, poisoning the rank for every feature
-    # that appeared in that fold -- silent, indistinguishable from "zero
-    # importance". We already warn on NaN scoring; pair it here.
-    try:
-        res_arr = np.asarray(res, dtype=float)
-        n_nan = int(np.isnan(res_arr).sum()) if res_arr.size else 0
-    except (TypeError, ValueError):
-        n_nan = 0  # non-numeric result; let downstream raise on use
-    if n_nan:
-        logger.warning(
-            "get_feature_importances: %d / %d importance value(s) are NaN "
-            "from %s. Likely cause: degenerate CV fold (single-class target, "
-            "zero-variance features). Downstream RFECV ranking aggregation "
-            "will fold these NaNs in, silently poisoning the rank for the "
-            "affected features.",
-            n_nan, res_arr.size, type(model).__name__,
-        )
-    return {feature_index: feature_importance for feature_index, feature_importance in zip(current_features, res)}
-
-
-def get_next_features_subset(
-    nsteps: int,
-    original_features: list,
-    feature_importances: pd.DataFrame,
-    evaluated_scores_mean: dict,
-    evaluated_scores_std: dict,
-    use_all_fi_runs: bool,
-    use_last_fi_run_only: bool,
-    use_one_freshest_fi_run: bool,
-    use_fi_ranking: bool,
-    top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
-    votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
-    Optimizer: object = None,
-) -> list:
-    """Generates a "next_nfeatures_to_check" candidate to evaluate.
-    Decides on a subset of FIs to use (all, freshest preceeding, all preceeding).
-    Combines FIs from different runs into ranks using voting.
-    Selects next_nfeatures_to_check best ranked features as candidates for the upcoming FI evaluation.
-    The whole idea of this approach is that we don't need to go all the way from len(original_features) up to 0 and evaluate
-    EVERY nfeatures. for 10k features and 1TB datast it's a waste.
-    """
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # First step is to try all features.
-    # ----------------------------------------------------------------------------------------------------------------------------
-
-    if nsteps == 0:
-        return original_features
-    else:
-        # F41 fix: range upper-bound was len(original_features), so the
-        # all-features candidate (k == len(original_features)) was NEVER
-        # included in remaining and the optimizer could not re-evaluate it.
-        # +1 makes the all-features point a legitimate candidate alongside
-        # every smaller k.
-        remaining = list(set(np.arange(1, len(original_features) + 1)) - set(evaluated_scores_mean.keys()))
-        if len(remaining) == 0:
-            return []
-        else:
-
-            if top_predictors_search_method == OptimumSearch.ExhaustiveRandom:
-                next_nfeatures_to_check = random.choice(remaining)
-            elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-                next_nfeatures_to_check = Optimizer.suggest_candidate()
-            else:
-                # F1 fix: ScipyLocal / ScipyGlobal / ExhaustiveDichotomic are declared in
-                # OptimumSearch but the dispatch was never wired here, so any user picking
-                # them hit UnboundLocalError on iter>=1. Surface it loudly at call time so
-                # the failure points at the search-method choice instead of a name-binding
-                # mystery 30 lines down.
-                raise NotImplementedError(
-                    f"top_predictors_search_method={top_predictors_search_method!r} "
-                    f"is declared in OptimumSearch but not implemented in "
-                    f"get_next_features_subset. Currently supported: "
-                    f"OptimumSearch.ExhaustiveRandom, OptimumSearch.ModelBasedHeuristic."
-                )
-
-            if next_nfeatures_to_check is not None:
-
-                # ----------------------------- -----------------------------------------------------------------------------------------------
-                # At each step, feature importances must be recalculated in light of recent training on a smaller subset.
-                # The features already thrown away all receive constant importance update of the same size, to keep up with number of trains (?)
-                # ----------------------------------------------------------------------------------------------------------------------------
-
-                fi_to_consider = select_appropriate_feature_importances(
-                    feature_importances=feature_importances,
-                    nfeatures=next_nfeatures_to_check,
-                    n_original_features=len(original_features),
-                    use_all_fi_runs=use_all_fi_runs,
-                    use_last_fi_run_only=use_last_fi_run_only,
-                    use_one_freshest_fi_run=use_one_freshest_fi_run,
-                    use_fi_ranking=use_fi_ranking,
-                )
-                ranks = get_actual_features_ranking(feature_importances=fi_to_consider, votes_aggregation_method=votes_aggregation_method)
-                return ranks[:next_nfeatures_to_check]
-            else:
-                return []
-
-
-def select_appropriate_feature_importances(
-    feature_importances: dict,
-    nfeatures: int,
-    n_original_features: int,
-    use_all_fi_runs: bool = True,
-    use_last_fi_run_only: bool = False,
-    use_one_freshest_fi_run: bool = False,
-    use_fi_ranking: bool = False,
-) -> dict:
-
-    if use_last_fi_run_only:
-        # use train folds with specific length. key is nfeatures_nfold
-        fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) == n_original_features}
-    else:
-        if use_all_fi_runs:
-            # use all fi data collected so far
-            fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) > 1} if n_original_features > 1 else feature_importances
-        else:
-            # can only use runs preceeding nfeatures here.
-            if use_one_freshest_fi_run:
-                # freshest preceeding
-                # F25 fix: range upper-bound was n_original_features (exclusive),
-                # so the FI run on the full feature set (key length ==
-                # n_original_features) was never picked as "freshest preceding"
-                # for any smaller nfeatures. +1 includes it.
-                fi_to_consider = {}
-                for possible_nfeatures in range(nfeatures + 1, n_original_features + 1):
-                    for key, value in feature_importances.items():
-                        if len(value) == possible_nfeatures:
-
-                            fi_to_consider[key] = value
-                    if fi_to_consider:
-                        print(f"using freshest FI of {possible_nfeatures} features for nfeatures={nfeatures}")
-                        break
-            else:
-                # all preceeding
-                fi_to_consider = {key: value for key, value in feature_importances.items() if (len(value) > nfeatures and len(value) != 1)}
-    if use_fi_ranking:
-        fi_to_consider = {key: pd.Series(value).rank(ascending=True, pct=True).to_dict() for key, value in fi_to_consider.items()}
-    return fi_to_consider
-
-
-def get_actual_features_ranking(feature_importances: dict, votes_aggregation_method: VotesAggregation) -> list:
-    """Absolute FIs from estimators trained on CV for each nfeatures are stored separatly.
-    They can be used to recompute final voted importances using any desired voting algo.
-    But of course the exploration path was already lead by specific voting algo active at the fitting time.
-
-    GM, and esp Minimax & Plurality are suboptimal for FS.
-
-    Caching note: an earlier optimisation attempt cached by frozenset of
-    feature_importances.keys(), but the same key strings ("{N}_{fold}") can
-    map to DIFFERENT importance values across fits, so the cache returned
-    stale ranks across test runs. Since cache hit rate within one fit() is
-    near-zero (the dict grows monotonically each iter so the key set is
-    different every call), caching at this layer is removed - the proper
-    fix is making Leaderboard incremental, deferred to a later PR.
-    """
-
-    lb = Leaderboard(table=pd.DataFrame(feature_importances))
-    if votes_aggregation_method == VotesAggregation.Borda:
-        ranks = lb.borda_ranking()
-    elif votes_aggregation_method == VotesAggregation.AM:
-        ranks = lb.mean_ranking(mean_type="arithmetic")
-    elif votes_aggregation_method == VotesAggregation.GM:
-        ranks = lb.mean_ranking(mean_type="geometric")
-    elif votes_aggregation_method == VotesAggregation.Copeland:
-        ranks = lb.copeland_ranking()
-    elif votes_aggregation_method == VotesAggregation.Dowdall:
-        ranks = lb.dowdall_ranking()
-    elif votes_aggregation_method == VotesAggregation.Minimax:
-        ranks = lb.minimax_ranking()
-    elif votes_aggregation_method == VotesAggregation.OG:
-        ranks = lb.optimality_gap_ranking(gamma=1)
-    elif votes_aggregation_method == VotesAggregation.Plurality:
-        ranks = lb.plurality_ranking()
-    else:
-        # Defensive: F27 finding flagged unbound `ranks` if a future enum
-        # value falls through. Surface clearly instead of NameError.
-        raise NotImplementedError(
-            f"votes_aggregation_method={votes_aggregation_method!r} not handled"
-        )
-    return ranks.index.values.tolist()

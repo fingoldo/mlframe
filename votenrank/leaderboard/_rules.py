@@ -89,6 +89,7 @@ def dowdall_election(self):
 
 
 def condorcet_election(self):
+    self._ensure_majority_graph()
     return self.majority_graph.index[(self.majority_graph == 1).all(axis=1)].tolist()
 
 
@@ -106,6 +107,7 @@ def baldwin_election(self):
 
 
 def copeland_ranking(self, slice_type: str = "lower_with_ties"):
+    self._ensure_majority_graph()
     if slice_type == "lower_with_ties":
         return (self.majority_graph.sum(axis=1) - 1).sort_values(ascending=False)
     elif slice_type == "difference":

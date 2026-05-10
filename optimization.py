@@ -810,5 +810,17 @@ def plot_search_state(
     # plt.title(f"Iteration #{nsteps}, mode={mode} {additional_info}")
     axMain.set_title(f"Iteration #{nsteps}, mode={mode} {additional_info}, best={best_evaluation:.6f}@{best_candidate:_}")
     axMain.legend(loc=legend_location)
-    plt.show()
+    # Non-blocking show: ``plt.show()`` (default block=True) made the Qt
+    # window MODAL, freezing the optimisation loop until the user closed
+    # every figure manually. RFECV with optimizer_plotting='OnScoreImprovement'
+    # spawns a window per score improvement -> dozens of stuck modals on
+    # the desktop. block=False renders the window non-modally; the
+    # plt.pause() flush gives the GUI event loop a tick to draw.
+    try:
+        plt.show(block=False)
+        plt.pause(0.001)
+    except Exception:
+        # Headless / Agg backend: show is a no-op, pause may not work
+        # without a backend. Failure here must NEVER block training.
+        pass
     plt.close(fig)

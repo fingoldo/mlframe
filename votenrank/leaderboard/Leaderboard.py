@@ -58,11 +58,32 @@ class Leaderboard:
         self.build_ranks()
 
     def build_ranks(self):
+        # Perf split (2026-05-10): the prior single-step build_ranks ALWAYS
+        # materialised the n_models x n_models majority_graph, which is the
+        # dominant cost on wide tables (10k features = 100M entries / ~800MB
+        # at float64, recomputed per Leaderboard rebuild). The majority_graph
+        # is only consumed by copeland_ranking() / minimax_ranking() / their
+        # election variants. The default RFECV path uses borda_ranking() /
+        # mean_ranking() / dowdall_ranking() which need only self.ranks.
+        # Lazy-build the graph in _ensure_majority_graph() called from the
+        # graph-using methods.
         self.table = self.table.reindex(self.table.index)
 
         self.ranks = self.table.rank(method="min", ascending=False)
         self.max_ranks = self.table.rank(method="max", ascending=False)
 
+        self.is_partial = self.table.isna().values.sum() > 0
+
+        if not self.is_partial:
+            self.ranks = self.ranks.astype(int)
+            self.max_ranks = self.max_ranks.astype(int)
+
+    def _ensure_majority_graph(self):
+        """Lazy-construct the n_models x n_models majority graph. Idempotent
+        once self.majority_graph is non-None for the current ranks state.
+        Reset by build_ranks() (which sets self.majority_graph = None)."""
+        if self.majority_graph is not None:
+            return
         wins = {
             model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1)
             > ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
@@ -79,12 +100,6 @@ class Leaderboard:
             + 0.5 * pd.DataFrame(ties).transpose()
             + np.eye(self.n_models) * 0.5
         )
-
-        self.is_partial = self.table.isna().values.sum() > 0
-
-        if not self.is_partial:
-            self.ranks = self.ranks.astype(int)
-            self.max_ranks = self.max_ranks.astype(int)
 
     def elect_all(self, use_methods: List[str] = None, drop_mean=False):
         result = []
