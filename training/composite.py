@@ -735,8 +735,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # blows the host out of memory. Caller is responsible for
         # ensuring the frame type is acceptable to the inner estimator
         # (mlframe strategies handle this at the suite level).
-        t_hat = self.estimator_.predict(X)
-        t_hat = np.asarray(t_hat).reshape(-1).astype(np.float64)
+        t_hat = np.asarray(self.estimator_.predict(X), dtype=np.float64).reshape(-1)
 
         # Apply inverse only on valid rows; fill the rest with fallback.
         if domain_ok.all():
@@ -1697,7 +1696,11 @@ class CompositeCrossTargetEnsemble:
         per_component = []
         for model, name in zip(self.component_models, self.component_names):
             try:
-                pred = np.asarray(model.predict(X)).reshape(-1).astype(np.float64)
+                # Fold the dtype cast into the asarray call so we don't
+                # allocate twice on the predict hot path. ``copy=False``
+                # is the asarray default; the dtype kwarg lets us skip
+                # a separate ``.astype()`` round-trip.
+                pred = np.asarray(model.predict(X), dtype=np.float64).reshape(-1)
             except Exception as exc:
                 logger.warning(
                     "[CompositeCrossTargetEnsemble] component '%s' predict failed: "
@@ -2544,15 +2547,30 @@ class CompositeTargetDiscovery:
             if not families:
                 families = ["lightgbm"]
 
-        # Per-spec CV-RMSE per family.
+        # Per-spec CV-RMSE per family. When K specs share a base
+        # (the typical case: auto-base picks one TVT_prev-style
+        # dominant feature, all K transforms operate on it), the
+        # per-base ``x_remaining`` matrix and ``base_screen`` array
+        # are recomputable from the same inputs. Cache them by base
+        # to avoid K redundant builds (each ~50 ndarray copies on a
+        # 200K-row sample).
         per_family_scores: Dict[str, List[float]] = {f: [] for f in families}
+        _per_base_cache: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
         for spec in kept_specs:
-            base_screen = (
-                _extract_column_array(df, spec.base_column)[train_idx_screen]
-            )
-            x_remaining = [c for c in usable_features if c != spec.base_column]
-            x_matrix = self._build_feature_matrix(df, x_remaining,
-                                                  train_idx_screen)
+            cached = _per_base_cache.get(spec.base_column)
+            if cached is None:
+                base_screen = (
+                    _extract_column_array(df, spec.base_column)[train_idx_screen]
+                )
+                x_remaining = [
+                    c for c in usable_features if c != spec.base_column
+                ]
+                x_matrix = self._build_feature_matrix(
+                    df, x_remaining, train_idx_screen,
+                )
+                _per_base_cache[spec.base_column] = (base_screen, x_matrix)
+            else:
+                base_screen, x_matrix = cached
             transform = get_transform(spec.transform_name)
             for family in families:
                 rmse = _tiny_cv_rmse_y_scale(

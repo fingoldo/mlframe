@@ -64,6 +64,35 @@ PR-1 of a multi-stage rework. Five parallel audit agents (logical bugs / ineffic
 - **Phase 3**: split `wrappers.py` (1348 lines, 660-line `fit` method, 4 star-imports) into a `wrappers/` package: `_rfecv.py`, `_splitting.py`, `_scoring.py`, `_importance.py`, `_voting.py`, `_candidate_search.py`, `_config.py`, `_enums.py`. Collapse `use_all_fi_runs` / `use_last_fi_run_only` / `use_one_freshest_fi_run` / `use_fi_ranking` (4 booleans for one enum) into `FIAggregationStrategy`. Drop `from typing import *` and three other star imports. Replace `get_parent_func_args() / store_params_in_object()` magic with explicit attribute assignment so static analysis sees `self.*`.
 - **Phase 4**: top-6 ROI extensions identified by the functionality-extensions agent: stability metrics (`self.stability_`), CI on best `n_features_` via 1-SE rule, parallel CV folds (`joblib.Parallel(n_jobs=...)`), `get_feature_names_out()` sklearn-1.x protocol, `must_include` hybrid (current `special_feature_indices` forces a single subset and breaks the search loop after one iter), permutation/SHAP `importance_getter`.
 
+## 2026-05-10 — Composite-target: profiling + hotspot optimisations
+
+cProfile pass on the composite pipeline (n=3000 TVT-style, screening=hybrid, OOF on). Hotspot ranking on the y-scale predict + train-time path:
+
+| function | calls | cumulative time | type |
+|---|---|---|---|
+| `_mi_to_target` (sklearn `mutual_info_regression`) | 6 | 1.14 s | external |
+| `_tiny_cv_rmse_y_scale` (LightGBM fit per fold) | 4 × 3 fold | 0.44 s | external |
+| `compute_oof_holdout_predictions` (re-fit clone per component) | 1 | 0.24 s | external |
+| `CompositeCrossTargetEnsemble.predict` | 9 | 0.05 s | internal |
+| `CompositeTargetEstimator.predict` | 1 | 0.02 s | internal |
+| Everything else under `mlframe.*` | n/a | < 0.01 s each | internal |
+
+**Verdict:** ~80% of cumulative time sits in external library calls (sklearn kNN MI + LightGBM training). The pure-Python overhead in our code is barely visible. Algorithmic changes (e.g. switching to bin-based MI, parallelising fold-level CV) would be the next-level optimisation lever; none of those are pure code-cleanup wins, so we leave the algorithm unchanged for this PR.
+
+### Optimisations applied (the easy wins from the profile)
+
+- **Per-base `x_matrix` cache in Phase B** (`_tiny_model_rerank`). When K specs share a base column (the typical TVT-style case where auto-base picks one dominant feature and all K transforms operate on it), the per-base feature matrix and base-screen array are now built once per base and reused across the K transforms. Saves K-1 redundant feature-matrix copies on each discovery run.
+- **Folded dtype cast into `np.asarray`** in two predict hot paths (`CompositeCrossTargetEnsemble.predict`, `CompositeTargetEstimator.predict`). Previously the code did `np.asarray(...).reshape(-1).astype(np.float64)`, allocating twice; now `np.asarray(..., dtype=np.float64).reshape(-1)`, allocating once. Microseconds per call but accumulates across batch predict (e.g. 1000 rows × K=4 components × 4 conversions = 16 000 saved allocations per batch).
+
+### What was NOT optimised, with a justification log
+
+- **External-library cumulative time** (`mutual_info_regression`, `LightGBM.fit`): out of scope. Switching MI estimators would change the discovery-quality tradeoff (Kraskov vs bin-based); parallelising LightGBM CV folds would conflict with LightGBM's own intra-fit thread pool.
+- **Train-prediction caching across the y-scale-metrics block and the cross-target ensemble RMSE block in `core.py`**: noted as a follow-up. The integration block currently runs `wrapper.predict(filtered_train_df)` once for y-scale RMSE storage and again for ensemble weighting. A shared cache keyed by entry id would save K predict calls per target. Skipped here because the cache dictionary lives in a deep nested block of the per-target loop and would need its own scope discipline; revisit when refactoring `core.py:5037-5180` for readability.
+
+### Added
+
+- **`mlframe/benchmarks/composite_profile.py`**: cProfile-driven profiling script that bypasses `train_mlframe_models_suite` (which transitively imports the in-flux `feature_selection.filters`) and runs the composite-target pipeline directly: discovery -> per-spec training -> wrap -> ensemble -> predict. Prints per-phase wall times + the top-N hotspots in `mlframe.*` sorted by cumulative time. Runnable as `python -m mlframe.benchmarks.composite_profile [--n 3000] [--top 30] [--oof]`. Used to drive future optimisation rounds.
+
 ## 2026-05-10 — Composite-target polish: auto-skip / multi-target guards / determinism / latency
 
 Polish round. Smart defaults + explicit skip metadata + reproducibility helpers + production inference latency knob.
