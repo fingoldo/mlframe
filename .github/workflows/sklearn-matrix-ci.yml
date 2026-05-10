@@ -1,0 +1,179 @@
+# Sklearn-version matrix CI for composite-target tests
+#
+# Runs the composite-target test suite against multiple pinned sklearn
+# versions in parallel. Catches delegate-property breakage on
+# CompositeTargetEstimator wrappers (feature_importances_,
+# feature_names_in_, n_features_in_, get_booster, booster_) when
+# sklearn renames attributes or changes validation behaviour across
+# versions.
+#
+# Rationale (R10 plan #46):
+# - sklearn 1.3 -> 1.4: introduced __sklearn_tags__ API
+# - sklearn 1.5 -> 1.6: validation changes affected wrapper delegation
+# - sklearn 1.7 / 1.8: deprecations for LogisticRegression(penalty=...)
+#   and KBinsDiscretizer(quantile_method) (already handled in
+#   pytest.ini filterwarnings)
+# - sklearn 1.9: KBinsDiscretizer default change
+#
+# Without this matrix, breakage shows up as silent failure on user
+# prod boxes running an older sklearn while the dev box ships with
+# the latest.
+#
+# Targeted scope (NOT the full suite). We focus on tests that exercise
+# the wrapper / delegation / sklearn-API surface:
+#  - test_composite.py             -- transform registry + round-trip
+#  - test_composite_polish.py      -- sklearn.clone() compatibility
+#  - test_composite_polish_round2.py -- runtime_stats callback + sample_weight
+#  - test_composite_provenance.py  -- frozen-spec attributes
+#  - test_composite_perf.py        -- determinism flag + parallel CV
+#  - test_composite_business_value_locks.py -- value-locking assertions
+#  - test_composite_discovery.py   -- discovery internals
+#  - test_composite_gate_and_edges.py -- gate logic
+#  - test_composite_ensemble.py    -- CompositeCrossTargetEnsemble
+#  - test_composite_x_feature_selection.py -- RFECV / MRMR x composite
+#
+# We DO NOT run test_composite_integration.py here because it exercises
+# the full train_mlframe_models_suite (slow, lots of orthogonal moving
+# parts). Integration is covered by a separate workflow.
+
+name: sklearn-matrix composite tests
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "training/composite.py"
+      - "training/composite_diagnostics.py"
+      - "training/configs.py"
+      - "training/baseline_diagnostics.py"
+      - "tests/training/test_composite*.py"
+      - "requirements.txt"
+      - ".github/workflows/sklearn-matrix-ci.yml"
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "training/composite.py"
+      - "training/composite_diagnostics.py"
+      - "training/configs.py"
+      - "training/baseline_diagnostics.py"
+      - "tests/training/test_composite*.py"
+      - "requirements.txt"
+      - ".github/workflows/sklearn-matrix-ci.yml"
+  workflow_dispatch:  # manual trigger from GH Actions UI
+
+# Cancel superseded runs on the same PR/branch to save compute.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: sklearn ${{ matrix.sklearn-version }} on py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      # Don't fail-fast: we want to see ALL version failures in one
+      # PR, not just the first.
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+        # Cover the sklearn versions actively used in the wild:
+        # 1.6 = LTS-era; 1.7 = mainstream; 1.8 = current; 1.9 = next.
+        # Using exact pins to make breakage attributable.
+        sklearn-version:
+          - "1.6.1"  # validation changes; LightGBM 4.5+ polars edge
+          - "1.7.2"  # current most-installed across user base
+          - "1.8.0"  # tested locally (also user's dev env)
+          - "1.9.0rc1"  # preview: catch breakage early
+
+    steps:
+      - name: Checkout
+        # Check out the repo into a subdirectory named ``mlframe`` so
+        # ``from mlframe.training.X import Y`` resolves cleanly when
+        # pytest runs from the workspace root (matches the user's
+        # local layout where the repo lives at ``.../mlframe/`` under
+        # a parent directory that's already in PYTHONPATH).
+        uses: actions/checkout@v4
+        with:
+          path: mlframe
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install scientific stack
+        # Minimal install for composite tests: numpy / pandas / scipy /
+        # polars (frame variants), lightgbm (default screening model),
+        # pydantic (configs), dill (wrapper serialization), matplotlib
+        # (plot helpers), pytest + pytest-cov. NO catboost / xgboost /
+        # numba here -- composite-target itself doesn't need them; the
+        # integration tests that DO use them run in a separate workflow.
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            "numpy" \
+            "pandas" \
+            "scipy" \
+            "polars" \
+            "pyarrow" \
+            "lightgbm" \
+            "pydantic>=2" \
+            "dill" \
+            "matplotlib" \
+            "joblib" \
+            "psutil" \
+            "pyutilz>=1.0.0" \
+            "tqdm" \
+            "pytest>=7.0" \
+            "pytest-cov" \
+            "pytest-timeout" \
+            "hypothesis"
+
+      - name: Pin scikit-learn to ${{ matrix.sklearn-version }}
+        # Must happen AFTER the base install so we override whatever
+        # transitive deps pulled in.
+        run: pip install --force-reinstall "scikit-learn==${{ matrix.sklearn-version }}"
+
+      - name: Show installed versions
+        run: |
+          python -c "import sklearn; print('sklearn', sklearn.__version__)"
+          python -c "import lightgbm; print('lightgbm', lightgbm.__version__)"
+          python -c "import pydantic; print('pydantic', pydantic.__version__)"
+          python -c "import numpy; print('numpy', numpy.__version__)"
+
+      - name: Composite-target test sweep
+        # ``--no-cov`` because pytest-cov on Windows occasionally fails
+        # with PermissionError on the .coverage file lock (per project
+        # memory `feedback_pytest_no_cov`); Linux CI doesn't hit it but
+        # we keep the flag for consistency with the dev workflow.
+        # ``--noconftest -p no:randomly`` matches the dev-side runs so
+        # the bisect path is unambiguous when a matrix cell fails.
+        # ``--timeout=120`` per-test prevents a single hang from
+        # eating the whole 30-min job budget.
+        #
+        # Working dir = workspace root; pytest discovers the mlframe
+        # package via the parent-path layout established by the
+        # ``path: mlframe`` checkout above. We pass test paths
+        # relative to that subdir.
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest \
+            mlframe/tests/training/test_composite.py \
+            mlframe/tests/training/test_composite_polish.py \
+            mlframe/tests/training/test_composite_polish_round2.py \
+            mlframe/tests/training/test_composite_provenance.py \
+            mlframe/tests/training/test_composite_perf.py \
+            mlframe/tests/training/test_composite_business_value_locks.py \
+            mlframe/tests/training/test_composite_discovery.py \
+            mlframe/tests/training/test_composite_gate_and_edges.py \
+            mlframe/tests/training/test_composite_ensemble.py \
+            mlframe/tests/training/test_composite_x_feature_selection.py \
+            --no-cov \
+            --noconftest \
+            -p no:randomly \
+            --timeout=120 \
+            --rootdir=. \
+            -v
