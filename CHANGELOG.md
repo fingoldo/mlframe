@@ -1,5 +1,84 @@
 # Changelog
 
+## 2026-05-10 — Composite-target R10c: ensemble default 'oof_weighted' -> 'nnls_stack' (wide shootout) + lock-in tests + business-value demo + RFECV/MRMR integration
+
+Closes the R10b cross-target ensemble default with broader evidence + provides a regression net for every R10b feature.
+
+### Project rule added: "Accuracy / performance over legacy / compat / deps"
+
+User feedback: "меньше заботься о legacy/compatibility/dependencies, больше о точности/производительности". Saved as user-memory `feedback_accuracy_perf_over_legacy.md` (loaded across all Claude sessions) AND as a new section in `mlframe/CLAUDE.md`. Rules: default knobs flip when a new path measurably wins (no feature-flag gating); extra optional deps OK if faster/more accurate; tighten test assertions to the new path's stronger guarantee; don't ship "validated on this fixture" defaults -- do the wider benchmark NOW.
+
+### Wide ensemble-strategy shootout
+
+`mlframe/benchmarks/composite_ensemble_shootout.py`: 11 ensemble strategies × 6 representative scenarios × 3 seeds = 18 (scenario × seed) trials.
+
+Scenarios: two_decorrelated_bases, three_lag_variants (redundant lag set), heteroscedastic_logratio, mixed_regimes (50/50 additive + multiplicative), noisy_borderline (1 real + 3 noise bases), distribution_shift (base distribution train→test).
+
+Aggregate results (mean improvement % vs `best_single_by_train`, sorted):
+
+| Rank | Strategy             | Mean imp% | Median imp% | Wins   |
+|-----:|----------------------|----------:|------------:|--------|
+|    1 | **nnls_stack**       |   **+1.24** |       +0.08 | **13/18** |
+|    2 | best_single_by_train |     +0.00 |       +0.00 | 0/18 (baseline) |
+|    3 | bma_softmax          |     -0.60 |       -0.22 | 6/18   |
+|    4 | inverse_variance     |     -1.61 |       -1.52 | 6/18   |
+|    5 | linear_stack_ridge   |     -1.71 |       -0.10 | 7/18   |
+|    6 | inverse_rmse         |     -7.17 |       -4.03 | 4/18   |
+|    7 | stacked_gbdt         |    -12.44 |       -6.04 | 5/18   |
+|    8 | **oof_weighted**     |   **-18.42** |       -8.79 | 4/18   |
+|    9 | median               |    -19.07 |       -2.34 | 5/18   |
+|   10 | trimmed_mean         |    -19.07 |       -2.34 | 5/18   |
+|   11 | mean                 |    -23.20 |       -8.87 | 4/18   |
+
+NNLS is the only strategy with positive mean improvement. Previous R10b default `oof_weighted` is -18.42% mean -- worse than just picking `best_single_by_train` (the simplest baseline).
+
+### Default flip
+
+`CompositeTargetDiscoveryConfig.cross_target_ensemble_strategy: "oof_weighted" -> "nnls_stack"`. Per the new "Accuracy / performance over legacy" rule, the suboptimal default is replaced. Users who relied on `oof_weighted` explicitly can pin it.
+
+### Lock-in tests for every R10b improvement
+
+`tests/training/test_composite_business_value_locks.py`: 10 regression tests asserting the demonstrated value of each R10b improvement on its specific synthetic fixture. Bounds set 30% loose to absorb LightGBM/sklearn jitter; tight enough to fail on real regressions.
+
+| Lock test | Threshold |
+|---|---|
+| `TestLockRegimeGate` | per-bin gate rejects logratio that global gate accepts |
+| `TestLockPermutationNull` | false-positive reduction >= 50% on pure noise |
+| `TestLockWrapperAware` | y-clip bounds outlier predictions to within 100x train_y_max |
+| `TestLockEnsembleNNLS` | NNLS within 1.5% of best_single |
+| `TestLockTimeIndexDemoter` | monotone-with-row base demoted, replaced by structural feature |
+| `TestLockMedianSeeds` | std reduction >= 30% |
+| `TestLockMeanMI` | sum aggregation 5x with 10x duplicates; mean within ±10% |
+| `TestLockWilcoxonGate` | false-positive reduction >= 30% on borderline noise |
+| `TestLockAlphaDrift` | z >= 5 on alpha-jump 0.5 -> 1.5 fixture |
+| `TestLockMINullDistinguishesNoiseFromSignal` | noise gain ~ 0, signal gain >= 0.10 |
+
+All 10/10 pass.
+
+### Business-value demo
+
+`mlframe/benchmarks/composite_business_value_demo.py`: per-feature OFF-vs-ON synthetic experiments with one-line verdicts. After the fixture refinements:
+
+| Feature | OFF -> ON delta |
+|---|---|
+| #1 regime gate | OFF kept wrong logratio; ON rejected via per-bin gate -> raw fallback |
+| #2 permutation-MI null | OFF 15/15 false-positives; ON 2/15 (87% reduction) |
+| #4 wrapper-aware | composite RMSE 256 -> 4 with y-clip on outlier base (62x catastrophic-failure protection) |
+| #5 cross-target ensemble | NNLS +1.06%; mean -23.7%; oof_weighted -12.6% (motivated R10c default flip) |
+| #7 time-index/spatial demoter | OFF picked monotone trap; ON picked real structural feature |
+| #8 variance-stabilising weights | OFF 1.382, ON 1.374 (+0.6%) |
+| #10 median-of-seeds | std reduction 47.8% |
+| stat #1 mean-MI | 10x feature duplicates: sum 10x artifact, mean 1.00x invariant |
+| stat #4 Wilcoxon | threshold accepts 15/15 borderline noise; Wilcoxon 7/15 (53% reduction) |
+| stat #6 alpha-drift | z=12.31 detected on synthetic alpha-jump |
+| stat #8 own-njit + null | noise gain ~0, signal gain +0.35 (clear separation) |
+
+### Integration tests with feature selectors
+
+`tests/training/test_composite_x_feature_selection.py`: 10 tests verifying CompositeTargetDiscovery interoperates cleanly with RFECV (regression + binary classification) and MRMR (with feature engineering and without).
+
+All 10/10 pass. Three subsystems compose cleanly without API drift.
+
 ## 2026-05-10 — RFECV PR-14: adaptive MBH surrogate -- 4-5x speedup on tiny problems
 
 Closes the perf gap surfaced by the PR-13 h2h bench: `reg_easy ridge` was 20x slower than sklearn (4.4s vs 0.22s); `clf_easy logreg` was 10x slower (5.1s vs 0.52s). Profile attributed 76-78% of wall-clock to the MBH internal CatBoost surrogate fit -- not the user's model fit, not CV bookkeeping, not voting. CatBoost has a fixed ~500ms per-call overhead from Python<->C++ marshalling, independent of `iterations` (verified: trimming `iterations=150` -> `iterations=20` recovered only ~16%; floor is the FFI cost).
