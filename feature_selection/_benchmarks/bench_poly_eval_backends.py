@@ -180,6 +180,140 @@ except ImportError:
     cp = None
 
 
+# Backend 6: numba.cuda.jit (Python-as-CUDA, no inline C++)
+try:
+    from numba import cuda as numba_cuda
+    _NUMBA_CUDA_AVAILABLE = numba_cuda.is_available()
+except (ImportError, Exception):
+    _NUMBA_CUDA_AVAILABLE = False
+    numba_cuda = None
+
+
+if _NUMBA_CUDA_AVAILABLE:
+    @numba_cuda.jit
+    def _hermeval_numba_cuda_kernel(x, c, nc, n, out):
+        i = numba_cuda.grid(1)
+        if i >= n:
+            return
+        xi = x[i]
+        if nc == 0:
+            out[i] = 0.0
+            return
+        if nc == 1:
+            out[i] = c[0]
+            return
+        p_prev = 1.0
+        p_curr = xi
+        s = c[0] + c[1] * p_curr
+        for k in range(2, nc):
+            p_next = xi * p_curr - (k - 1) * p_prev
+            s += c[k] * p_next
+            p_prev = p_curr
+            p_curr = p_next
+        out[i] = s
+
+    @numba_cuda.jit
+    def _legval_numba_cuda_kernel(x, c, nc, n, out):
+        i = numba_cuda.grid(1)
+        if i >= n:
+            return
+        xi = x[i]
+        if nc == 0:
+            out[i] = 0.0
+            return
+        if nc == 1:
+            out[i] = c[0]
+            return
+        p_prev = 1.0
+        p_curr = xi
+        s = c[0] + c[1] * p_curr
+        for k in range(2, nc):
+            inv_k = 1.0 / k
+            p_next = ((2 * k - 1) * xi * p_curr - (k - 1) * p_prev) * inv_k
+            s += c[k] * p_next
+            p_prev = p_curr
+            p_curr = p_next
+        out[i] = s
+
+    @numba_cuda.jit
+    def _chebval_numba_cuda_kernel(x, c, nc, n, out):
+        i = numba_cuda.grid(1)
+        if i >= n:
+            return
+        xi = x[i]
+        if nc == 0:
+            out[i] = 0.0
+            return
+        if nc == 1:
+            out[i] = c[0]
+            return
+        p_prev = 1.0
+        p_curr = xi
+        s = c[0] + c[1] * p_curr
+        for k in range(2, nc):
+            p_next = 2.0 * xi * p_curr - p_prev
+            s += c[k] * p_next
+            p_prev = p_curr
+            p_curr = p_next
+        out[i] = s
+
+    @numba_cuda.jit
+    def _lagval_numba_cuda_kernel(x, c, nc, n, out):
+        i = numba_cuda.grid(1)
+        if i >= n:
+            return
+        xi = x[i]
+        if nc == 0:
+            out[i] = 0.0
+            return
+        if nc == 1:
+            out[i] = c[0]
+            return
+        p_prev = 1.0
+        p_curr = 1.0 - xi
+        s = c[0] + c[1] * p_curr
+        for k in range(2, nc):
+            inv_k = 1.0 / k
+            p_next = ((2 * k - 1 - xi) * p_curr - (k - 1) * p_prev) * inv_k
+            s += c[k] * p_next
+            p_prev = p_curr
+            p_curr = p_next
+        out[i] = s
+
+    def _hermeval_numba_cuda(x_gpu, c_gpu):
+        n = x_gpu.shape[0]
+        out = cp.empty(n, dtype=cp.float64)
+        block = 256
+        grid = (n + block - 1) // block
+        # numba.cuda kernels accept cupy arrays directly via __cuda_array_interface__
+        _hermeval_numba_cuda_kernel[grid, block](x_gpu, c_gpu, c_gpu.shape[0], n, out)
+        return out
+
+    def _legval_numba_cuda(x_gpu, c_gpu):
+        n = x_gpu.shape[0]
+        out = cp.empty(n, dtype=cp.float64)
+        block = 256
+        grid = (n + block - 1) // block
+        _legval_numba_cuda_kernel[grid, block](x_gpu, c_gpu, c_gpu.shape[0], n, out)
+        return out
+
+    def _chebval_numba_cuda(x_gpu, c_gpu):
+        n = x_gpu.shape[0]
+        out = cp.empty(n, dtype=cp.float64)
+        block = 256
+        grid = (n + block - 1) // block
+        _chebval_numba_cuda_kernel[grid, block](x_gpu, c_gpu, c_gpu.shape[0], n, out)
+        return out
+
+    def _lagval_numba_cuda(x_gpu, c_gpu):
+        n = x_gpu.shape[0]
+        out = cp.empty(n, dtype=cp.float64)
+        block = 256
+        grid = (n + block - 1) // block
+        _lagval_numba_cuda_kernel[grid, block](x_gpu, c_gpu, c_gpu.shape[0], n, out)
+        return out
+
+
 if _CUPY_AVAILABLE:
     # Element-wise: vectorized cupy operations, leverages cuBLAS-style fusion
     def _hermeval_cupy(x_gpu, c_gpu):
@@ -457,6 +591,11 @@ def main():
         "chebyshev": [("cupy", _chebval_cupy), ("cuda_kernel", _chebval_cuda)],
         "laguerre": [("cupy", _lagval_cupy), ("cuda_kernel", _lagval_cuda)],
     }
+    if _NUMBA_CUDA_AVAILABLE:
+        cupy_backends["hermite"].append(("numba_cuda", _hermeval_numba_cuda))
+        cupy_backends["legendre"].append(("numba_cuda", _legval_numba_cuda))
+        cupy_backends["chebyshev"].append(("numba_cuda", _chebval_numba_cuda))
+        cupy_backends["laguerre"].append(("numba_cuda", _lagval_numba_cuda))
 
     sizes = [500, 2000, 10_000, 100_000, 1_000_000]
     coef_lengths = [3, 5]  # degree 2 and degree 4
@@ -504,15 +643,15 @@ def main():
     # Final dispatcher recommendation
     print("\n  === Recommended dispatch table (microseconds, lower is better) ===")
     print(f"  {'n':>10s}  {'degree':>6s}  {'numpy':>8s}  {'njit':>8s}  {'njit_par':>9s}  "
-          f"{'cupy':>8s}  {'cuda_ker':>9s}  {'WINNER':>10s}")
+          f"{'cupy':>8s}  {'cuda_ker':>9s}  {'numb_cuda':>9s}  {'WINNER':>11s}")
     for row in results:
         cells = []
-        for k in ("numpy", "njit", "njit_par", "cupy", "cuda_kernel"):
+        for k in ("numpy", "njit", "njit_par", "cupy", "cuda_kernel", "numba_cuda"):
             v = row["backends"].get(k)
             cells.append(f"{v:8.1f}" if v else "       -")
         winner = min(row["backends"].items(), key=lambda kv: kv[1])[0]
         print(f"  {row['n']:>10d}  {row['nc'] - 1:>6d}  " +
-              "  ".join(cells) + f"  {winner:>10s}")
+              "  ".join(cells) + f"  {winner:>11s}")
 
 
 if __name__ == "__main__":

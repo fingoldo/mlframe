@@ -207,17 +207,28 @@ optimized" — verify with a microbench across `n` first.
    Sweet spot: when each element's work is large enough to amortise
    the spawn (e.g. higher-degree polynomials, MI batches).
 4. **CUDA (cupy or RawKernel)** — wins for n >= 500k once
-   host->device transfer is amortised. Two flavours:
+   host->device transfer is amortised. Three flavours, ranked by
+   measured throughput on this repo's reference hardware:
+   - **`cp.RawKernel`** (custom CUDA C++ inline) -- **WINNER**. One
+     thread per output element with state in registers. Compiled by
+     NVCC at first call (~30ms), launches in ~30us thereafter.
+     Worth the LOC.
    - **cupy elementwise** (drop-in `import cupy as cp` rewrite of
      numpy code): simplest, but allocates intermediate arrays per
-     operation. Often 2-3x slower than a custom RawKernel.
-   - **`cp.RawKernel`** (custom CUDA C++ inline): one thread per
-     output element with state in registers. ~10x faster than cupy
-     elementwise for recurrence kernels. Worth the LOC.
-   - **`numba.cuda.jit`** is also valid but rarely beats cupy
-     RawKernel and adds compile latency on first call. Prefer cupy
-     RawKernel for new kernels unless the function must be callable
-     from inside another `numba.cuda.jit` function.
+     operation. **2-3x slower** than RawKernel for recurrence
+     kernels. Use only when the work is genuinely elementwise (no
+     temporaries) -- then it ties RawKernel.
+   - **`numba.cuda.jit`** -- empirically the LOSER of the three on
+     this hardware. Same kernel logic compiled by numba's PTX backend
+     ran **6-10x slower than cupy RawKernel** in the polynomial-eval
+     bench (1700us per launch baseline at all n<=100k vs ~50us for
+     cupy RawKernel; numba's per-call dispatch overhead dominates).
+     The Python-as-CUDA syntax is more ergonomic, but the runtime
+     cost is real. **Prefer cupy RawKernel for new kernels.** Only
+     reach for `numba.cuda.jit` if the kernel must be called from
+     inside another `numba.cuda.jit` device function (no FFI between
+     numba.cuda and cupy device functions). See bench:
+     `feature_selection/_benchmarks/bench_poly_eval_backends.py`.
 
 ### Pre-implementation rule: BENCH first, dispatch second
 
