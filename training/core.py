@@ -5091,6 +5091,14 @@ def train_mlframe_models_suite(
     # ALREADY-fitted inner model + the spec's fitted_params and adds
     # the inverse / clip / fallback machinery on top.
     composite_specs_by_target_type = metadata.get("composite_target_specs", {}) or {}
+    # Train-prediction cache shared across the y-scale-metrics block
+    # (post-wrap) and the cross-target-ensemble RMSE block. Key is
+    # ``id(model)`` of the wrapped / raw component; value is the
+    # y-scale prediction array on ``filtered_train_df``. The y-scale-
+    # metrics block fills it; the ensemble block reads from it before
+    # falling back to a fresh predict call. Saves K predict calls per
+    # target on the LightGBM/XGB hot path.
+    _train_pred_cache: Dict[int, np.ndarray] = {}
     if composite_specs_by_target_type:
         from .composite import CompositeTargetEstimator as _CTE
         for _tt_w, _by_name in (models or {}).items():
@@ -5197,8 +5205,15 @@ def train_mlframe_models_suite(
                         try:
                             _y_split = _y_arr_metric[_split_idx]
                             _y_pred = np.asarray(
-                                _wrapper_for_score.predict(_split_df)
-                            ).reshape(-1).astype(np.float64)
+                                _wrapper_for_score.predict(_split_df),
+                                dtype=np.float64,
+                            ).reshape(-1)
+                            # Cache the train prediction for the
+                            # cross-target ensemble RMSE block to
+                            # avoid a second predict call on the same
+                            # data.
+                            if _split_name == "train":
+                                _train_pred_cache[id(_wrapper_for_score)] = _y_pred
                             _diff = _y_pred - _y_split.astype(np.float64)
                             _finite = np.isfinite(_diff)
                             if _finite.sum() == 0:
@@ -5281,9 +5296,18 @@ def train_mlframe_models_suite(
                     _y_train_for_rmse = np.asarray(_y_full_for_rmse)[filtered_train_idx]
                     for _comp, _name in zip(_components, _component_names):
                         try:
-                            _pred = np.asarray(_comp.predict(filtered_train_df)).reshape(-1)
-                            _diff = (_pred.astype(np.float64)
-                                     - _y_train_for_rmse.astype(np.float64))
+                            # Reuse the train prediction cached during
+                            # the y-scale-metrics block above; skip
+                            # the predict call when the wrapper /
+                            # raw inner is already in cache.
+                            _pred = _train_pred_cache.get(id(_comp))
+                            if _pred is None:
+                                _pred = np.asarray(
+                                    _comp.predict(filtered_train_df),
+                                    dtype=np.float64,
+                                ).reshape(-1)
+                                _train_pred_cache[id(_comp)] = _pred
+                            _diff = _pred - _y_train_for_rmse.astype(np.float64)
                             _component_train_rmses.append(
                                 float(np.sqrt(np.mean(_diff * _diff)))
                             )
@@ -5428,9 +5452,15 @@ def train_mlframe_models_suite(
                                 )
                             _pred_matrix_cols = []
                             for _comp, _name in zip(_oof_components, _oof_names):
-                                _pred = np.asarray(
-                                    _comp.predict(filtered_train_df)
-                                ).reshape(-1).astype(np.float64)
+                                # Reuse cached train prediction
+                                # from the y-scale-metrics block.
+                                _pred = _train_pred_cache.get(id(_comp))
+                                if _pred is None:
+                                    _pred = np.asarray(
+                                        _comp.predict(filtered_train_df),
+                                        dtype=np.float64,
+                                    ).reshape(-1)
+                                    _train_pred_cache[id(_comp)] = _pred
                                 _pred_matrix_cols.append(_pred)
                             _pred_matrix = np.column_stack(_pred_matrix_cols)
                         if _ce_strategy == "linear_stack":

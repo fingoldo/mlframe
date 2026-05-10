@@ -64,6 +64,86 @@ PR-1 of a multi-stage rework. Five parallel audit agents (logical bugs / ineffic
 - **Phase 3**: split `wrappers.py` (1348 lines, 660-line `fit` method, 4 star-imports) into a `wrappers/` package: `_rfecv.py`, `_splitting.py`, `_scoring.py`, `_importance.py`, `_voting.py`, `_candidate_search.py`, `_config.py`, `_enums.py`. Collapse `use_all_fi_runs` / `use_last_fi_run_only` / `use_one_freshest_fi_run` / `use_fi_ranking` (4 booleans for one enum) into `FIAggregationStrategy`. Drop `from typing import *` and three other star imports. Replace `get_parent_func_args() / store_params_in_object()` magic with explicit attribute assignment so static analysis sees `self.*`.
 - **Phase 4**: top-6 ROI extensions identified by the functionality-extensions agent: stability metrics (`self.stability_`), CI on best `n_features_` via 1-SE rule, parallel CV folds (`joblib.Parallel(n_jobs=...)`), `get_feature_names_out()` sklearn-1.x protocol, `must_include` hybrid (current `special_feature_indices` forces a single subset and breaks the search loop after one iter), permutation/SHAP `importance_getter`.
 
+## 2026-05-10 — Composite-target: algorithmic optimisations (5.7x discovery speedup)
+
+Follow-up to the cProfile pass. The previous round handled the
+"easy wins" (per-base cache + dtype-fold). This round closes the
+deferred algorithmic items, with measured speedups end-to-end.
+
+### Optimisations applied
+
+1. **Bin-based MI estimator** (`mi_estimator="bin"`, opt-in). Adds
+   ``_mi_pair_bin`` -- quantile-binning estimator that discretises
+   both axes into ``mi_nbins`` bins (default 16) and computes
+   ``MI = sum p(i,j) log(p(i,j) / (px(i) * py(j)))``. Default
+   estimator stays ``"knn"`` (sklearn Kraskov) for backward compat.
+   - Microbenchmark on n=5000, k=10: kNN 487 ms vs bin 13 ms = **38x
+     faster**.
+   - Wired into both the per-base MI screening loop and the
+     auto-base ranking pass.
+   - Tradeoff: biased low on heavy-tail distributions (the equal-mass
+     bins concentrate rare-tail values). For TVT-style near-Gaussian
+     targets the bias is small enough that kNN and bin pick the same
+     top base; tested via ``test_bin_and_knn_pick_same_top_base``.
+2. **Parallel CV folds** in ``_tiny_cv_rmse_y_scale`` (config field
+   ``tiny_model_n_jobs``, default 1). When > 1, folds run via
+   ``joblib.Parallel(backend="threading")`` and each LightGBM fit
+   gets ``n_jobs=1`` to avoid CPU oversubscription. Threading
+   backend keeps numpy data shared across folds (no pickle cost).
+3. **Train-prediction cache** in ``core.py``. The y-scale-metrics
+   block (post-wrap, computes train RMSE per entry) and the
+   cross-target ensemble block (computes per-component train RMSE
+   for ``oof_weighted`` / linear_stack matrix) now share a single
+   ``_train_pred_cache`` keyed by ``id(model)``. Saves K predict
+   calls per target on the LightGBM/XGB hot path.
+
+### End-to-end speedup
+
+On n=3000 TVT-style synthetic, hybrid screening, all 4 transforms,
+median over 3 runs::
+
+    baseline (knn + serial CV):              1447 ms
+    optimised (bin + parallel CV n_jobs=3):  252 ms
+    speedup: 5.7x
+
+The full mlframe-tests-only regression (155 composite tests) dropped
+from 73 s to 60 s on the same run, ~18% faster end-to-end through
+the cache hits during integration test fixtures.
+
+### Added
+
+- **``CompositeTargetDiscoveryConfig.mi_estimator``**: ``"knn"`` |
+  ``"bin"``.
+- **``CompositeTargetDiscoveryConfig.mi_nbins``**: bin count when
+  ``mi_estimator == "bin"``. Default 16.
+- **``CompositeTargetDiscoveryConfig.tiny_model_n_jobs``**:
+  thread-pool size for CV folds in Phase B. Default 1 (serial).
+- **``mlframe.training.composite._mi_pair_bin``**: public-helper
+  bin-based MI between two 1-D arrays. Reusable outside the
+  discovery pipeline if a caller wants the fast estimator
+  standalone.
+- ``mlframe/tests/training/test_composite_perf.py`` -- 12 tests:
+  bin-MI properties (independent inputs ~ 0, correlated inputs
+  substantial, tiny / NaN / constant edge cases), bin-vs-knn timing
+  sanity (bin >= 3x faster), config validators, discovery with bin
+  estimator finds dominant base, parallel CV folds run without
+  crash, bin and knn agree on top base on TVT-style data.
+
+### What's still future work
+
+- **GPU-side optimisations**: composite mode + GPU adds K extra GPU
+  fits which can amplify non-determinism. The R3.29 warning is in
+  place; an actual deterministic-mode toggle on the inner estimators
+  is a larger config-surface change.
+- **Numba-JIT `_mi_pair_bin`**: the bin estimator already runs at
+  13 ms on n=5000 in pure numpy; numba would shave that to ~2 ms.
+  Not worth the dep cost yet; revisit if discovery becomes the
+  observed bottleneck on production-scale data.
+
+### Cumulative test count
+
+165 / 165 across the full composite suite (60 s on a cold cache).
+
 ## 2026-05-10 — Composite-target: profiling + hotspot optimisations
 
 cProfile pass on the composite pipeline (n=3000 TVT-style, screening=hybrid, OOF on). Hotspot ranking on the y-scale predict + train-time path:

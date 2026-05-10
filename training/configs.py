@@ -1814,6 +1814,14 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     eps_mi_gain: float = 0.01  # Drop candidates with mi_gain <= eps.
     mi_n_neighbors: int = 3  # sklearn mutual_info_regression k.
 
+    # MI estimator. "knn" uses the Kraskov estimator (sklearn default,
+    # accurate but slow on n>10k); "bin" uses a quantile-binning
+    # estimator (5-10x faster, biased low on heavy-tail). Default
+    # "knn" for accuracy; flip to "bin" when MI screening is the
+    # bottleneck and y / features are near-Gaussian.
+    mi_estimator: str = "knn"
+    mi_nbins: int = 16  # Bin count when ``mi_estimator == "bin"``.
+
     # Phase B: tiny-model rerank. After MI screening narrows to top-K,
     # train a tiny model (LightGBM or per-family) per surviving
     # candidate and re-rank by CV-RMSE measured on the y-scale (after
@@ -1826,6 +1834,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     tiny_model_cv_folds: int = 3
     tiny_model_sample_n: int = 20_000  # rows used per tiny-model fit
     top_m_after_tiny: int = 3  # final top-M after Phase B re-rank
+    tiny_model_n_jobs: int = 1  # >1 = parallelise CV folds via joblib
 
     # Per-family screening: instead of one tiny LightGBM, train a
     # tiny model of each family in the user's ``mlframe_models``
@@ -1848,6 +1857,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         valid = {"mi", "tiny_model", "hybrid"}
         if v_lower not in valid:
             raise ValueError(f"screening must be one of {valid}, got '{v}'")
+        return v_lower
+
+    @field_validator("mi_estimator", mode="before")
+    @classmethod
+    def _normalise_mi_estimator(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"knn", "bin"}
+        if v_lower not in valid:
+            raise ValueError(f"mi_estimator must be one of {valid}, got '{v}'")
         return v_lower
 
     @field_validator("tiny_screening_models", mode="before")
@@ -2030,6 +2048,100 @@ class BaselineDiagnosticsConfig(BaseConfig):
     # ablation Δ% computation. Auto-derived from target_type at runtime.
     apply_to_target_types: Tuple[str, ...] = ("regression", "binary_classification")
 
+    random_state: int = DEFAULT_RANDOM_SEED
+
+
+class DummyBaselinesConfig(BaseConfig):
+    """Configuration for the pre-training Dummy-baseline report.
+
+    Runs once per (target_type, target_name) AFTER ``BaselineDiagnostics``
+    and BEFORE the per-model training loop. Computes a tabular comparison
+    of trivial / dummy baselines (mean / median / prior / per_group_mean
+    / TS-naive / seasonal-naive / ...) on val + test, picks the strongest
+    by a target-type-specific primary metric, and emits one overlay plot
+    for the strongest baseline only.
+
+    Sit-alongside relationship with ``BaselineDiagnosticsConfig``: that
+    class answers "is the target predictable from these features at
+    all?" (LightGBM quick fit + feature ablation); this class answers
+    "is the task even hard?" (vs trivial reference predictors).
+
+    Operator contract (per plan v3):
+    - Default INFO output: ≤ 2 lines per target (verdict + plot path);
+      full table demoted to DEBUG.
+    - Suite-end summary block with cross-target verdict table.
+    - Four canonical UPPERCASE WARN tokens for grep-able alerts:
+      ``BEST_MODEL_BELOW_DUMMY``, ``ALL_BASELINES_BELOW_RANDOM``,
+      ``TS_BEATS_TREES``, ``PARTIAL_FAILURE``.
+    """
+
+    enabled: bool = True
+
+    # Per-target-type opt-out. Default: every supported target type
+    # gets baselines. Operator can disable for specific types via
+    # ``apply_to_target_types - {"learning_to_rank"}`` etc.
+    apply_to_target_types: FrozenSet[str] = frozenset({
+        "regression", "binary_classification", "multiclass_classification",
+        "multilabel_classification", "learning_to_rank", "quantile_regression",
+    })
+
+    # Time-series baseline knobs (only fire when ``ts_field`` is set on
+    # the FTE AND the train/val/test split is temporally monotonic).
+    # ``ts_extra_periods`` lets the user inject domain-known seasonal
+    # periods (e.g. 17-day biological cycles, 90-day quarterly cycles)
+    # that the auto-step-size + ACF detector would miss.
+    ts_extra_periods: Tuple[int, ...] = ()
+
+    # Per-group baseline (per_group_mean / per_group_prior) leakage
+    # defenses (round-3 audit D1).
+    # - ``per_group_max_cardinality_ratio``: skip the baseline if the
+    #   chosen categorical's unique-count > (n_train * this ratio).
+    #   Default 0.5 catches row-id-like keys (user_id, transaction_id,
+    #   hash) that would silently produce perfect-prediction oracles.
+    # - ``per_group_min_val_coverage_pct``: exclude per_group_* from
+    #   strongest-pick eligibility if val coverage of the chosen cat
+    #   falls below this. Below 50%, the metric is dominated by
+    #   unseen-category fallback (= train_y.mean()) and not by the
+    #   group-conditioning effect.
+    # - ``per_group_high_overlap_threshold``: if more than this fraction
+    #   of val rows have a group with ≥5 train labels, log the
+    #   row-label annotation "(high entity overlap — measures
+    #   re-appearance, not generalization)".
+    per_group_max_cardinality_ratio: float = 0.5
+    per_group_min_val_coverage_pct: float = 50.0
+    per_group_high_overlap_threshold: float = 0.5
+
+    # n_repeats for stochastic baselines (round-3 audit C#2, C#5).
+    # Single-realization variance dominates the AUC / NDCG estimate at
+    # small n_val; reporting mean ± std across deterministic seeds
+    # gives the operator a noise-floor anchor.
+    stratified_n_repeats: int = 20
+    random_within_query_n_repeats: int = 10
+
+    # Strongest-pick robustness gate (round-3 D2).
+    # Paired bootstrap on the strongest-vs-runner-up baseline pair;
+    # if P(strongest beats runner-up) falls below this, annotate the
+    # log line as "(TIE)" and suppress the overlay plot.
+    paired_bootstrap_n_resamples: int = 1000
+    strongest_min_beat_runner_up_prob: float = 0.7
+
+    # Bootstrap CI on the strongest baseline's primary metric, fired
+    # only when ``min(n_val, n_test) < bootstrap_ci_threshold`` (point
+    # estimate is accurate to <1% above this threshold; CI suppressed
+    # to keep output uncluttered).
+    bootstrap_ci_threshold: int = 2000
+    bootstrap_ci_n_resamples: int = 1000
+
+    # Auto-WARN trigger: model lift below this multiplier vs strongest
+    # dummy baseline → ``BEST_MODEL_BELOW_DUMMY`` warning emitted in
+    # the suite-end summary. 1.5x is the canonical "your model isn't
+    # better than random" Kaggle threshold; can be tightened or
+    # loosened per deployment.
+    best_model_min_lift: float = 1.5
+
+    # Random seed for stochastic baselines + bootstrap (combined with
+    # per-target hash internally to ensure independence across
+    # targets — round-3 D13).
     random_state: int = DEFAULT_RANDOM_SEED
 
 
