@@ -2338,6 +2338,29 @@ def train_mlframe_models_suite(
             save_charts, _plot_dir, _is_interactive_logp,
             "ACTIVE (renders skipped, no consumer)" if _short_circuit_active else "INACTIVE",
         )
+        # 2026-05-10 perf advisory: warn on the kaleido bottleneck combo
+        # (large dataset + plotly[png] default + save_charts on). Profiled
+        # impact: 76s extra wall-time on a single 1M-row regression x lgb
+        # run (4 chart-emitting points x ~12-15s/kaleido reload).
+        # Multi-model x val+test x ensembles can balloon this to minutes.
+        try:
+            _po = getattr(reporting_config, "plot_outputs", "") or ""
+        except NameError:
+            _po = ""
+        if (
+            save_charts and "plotly" in _po and "png" in _po
+        ):
+            logger.warning(
+                "[reporting] plot_outputs=%r emits PNG via kaleido, which "
+                "spawns ~12-15s per chart on Chromium reload (Win/Linux). "
+                "On large datasets (n>=1M, multi-model x val+test x "
+                "ensembles) this can dominate wall-time by minutes. For "
+                "fast runs use plot_outputs='matplotlib[png]' (10-20x "
+                "faster, no Chromium overhead) or 'plotly[html]' (HTML-"
+                "only, no kaleido at all -- HTML is interactive in jupyter "
+                "and shareable as a file).",
+                _po,
+            )
     outlier_detector = outlier_detection_config.detector
     od_val_set = outlier_detection_config.apply_to_val
     use_mrmr_fs = feature_selection_config.use_mrmr_fs
