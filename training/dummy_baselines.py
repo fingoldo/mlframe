@@ -267,7 +267,136 @@ if _NUMBA_AVAILABLE:
             out[i] = sae / n
         return out
 
+    @njit(parallel=True, fastmath=True, cache=False)
+    def _numba_paired_bootstrap_logloss_binary(y_int, p1, p2, n_resamples, seed):
+        """Binary cross-entropy paired bootstrap.
+
+        ``y_int`` is (N,) int64 in {0, 1}; ``p1`` / ``p2`` are (N,)
+        probability of class 1 (float64). Eps-clipping mirrors
+        sklearn's ``log_loss`` (eps=1e-15). Returns ``log_loss(p1) -
+        log_loss(p2)`` per resample. Numba kernel is ~30x faster than
+        the sklearn loop (sklearn's log_loss does input validation +
+        label_binarize per call; the inner-loop is the same arithmetic).
+        """
+        n = len(y_int)
+        eps = 1e-15
+        out = np.empty(n_resamples, dtype=np.float64)
+        for i in prange(n_resamples):
+            state = np.uint64(seed) ^ np.uint64(i) * np.uint64(2862933555777941757) + np.uint64(3037000493)
+            ll1 = 0.0
+            ll2 = 0.0
+            for k in range(n):
+                state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+                idx = int(state >> np.uint64(33)) % n
+                yi = y_int[idx]
+                # Predictor 1
+                pi1 = p1[idx]
+                if pi1 < eps:
+                    pi1 = eps
+                elif pi1 > 1.0 - eps:
+                    pi1 = 1.0 - eps
+                if yi == 1:
+                    ll1 -= np.log(pi1)
+                else:
+                    ll1 -= np.log(1.0 - pi1)
+                # Predictor 2
+                pi2 = p2[idx]
+                if pi2 < eps:
+                    pi2 = eps
+                elif pi2 > 1.0 - eps:
+                    pi2 = 1.0 - eps
+                if yi == 1:
+                    ll2 -= np.log(pi2)
+                else:
+                    ll2 -= np.log(1.0 - pi2)
+            out[i] = ll1 / n - ll2 / n
+        return out
+
+    @njit(parallel=True, fastmath=True, cache=False)
+    def _numba_bootstrap_logloss_binary_samples(y_int, p, n_resamples, seed):
+        """Bootstrap CI samples for binary log-loss on a single predictor."""
+        n = len(y_int)
+        eps = 1e-15
+        out = np.empty(n_resamples, dtype=np.float64)
+        for i in prange(n_resamples):
+            state = np.uint64(seed) ^ np.uint64(i) * np.uint64(2862933555777941757) + np.uint64(3037000493)
+            ll = 0.0
+            for k in range(n):
+                state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+                idx = int(state >> np.uint64(33)) % n
+                yi = y_int[idx]
+                pi = p[idx]
+                if pi < eps:
+                    pi = eps
+                elif pi > 1.0 - eps:
+                    pi = 1.0 - eps
+                if yi == 1:
+                    ll -= np.log(pi)
+                else:
+                    ll -= np.log(1.0 - pi)
+            out[i] = ll / n
+        return out
+
 logger = logging.getLogger(__name__)
+
+
+def _warmup_numba_kernels(verbose: bool = False) -> None:
+    """Trigger numba JIT compilation of all dummy_baselines kernels.
+
+    Pre-warms ``_numba_macro_log_loss``, ``_numba_micro_log_loss``,
+    ``_numba_within_group_descending_rank``, and the four bootstrap
+    kernels (RMSE/MAE × paired/CI) plus the two log-loss kernels by
+    invoking each on a 100-row synthetic input. Subsequent first real
+    calls skip the 6-10s JIT cold-start that would otherwise dominate
+    the multi_output_regression first-target wall time.
+
+    Idempotent: numba caches compilations process-wide, so calling
+    this multiple times is essentially free after the first.
+
+    Cost: ~2-5 seconds on the first call (one-time JIT compilation per
+    kernel). Subsequent calls are <10ms. Returns silently on numba
+    unavailable; logs at DEBUG by default (set ``verbose=True`` for
+    INFO).
+    """
+    if not _NUMBA_AVAILABLE:
+        return
+    import time as _time
+    log = logger.info if verbose else logger.debug
+    t0 = _time.time()
+    try:
+        rng = np.random.default_rng(0)
+        # Multilabel kernels
+        y_ml = np.zeros((100, 3), dtype=np.int64)
+        y_ml[:50, 0] = 1
+        y_ml[:30, 1] = 1
+        y_ml[:70, 2] = 1
+        p_ml = rng.uniform(0.1, 0.9, (100, 3)).astype(np.float64)
+        _numba_macro_log_loss(y_ml, p_ml, 100, 3)
+        _numba_micro_log_loss(y_ml, p_ml, 100, 3)
+        # Within-group rank
+        gids = np.array([0, 0, 1, 1, 1, 2] * 17, dtype=np.int64)[:100]
+        _numba_within_group_descending_rank(gids)
+        # Bootstrap kernels
+        y = rng.normal(size=100).astype(np.float64)
+        p1 = (y + rng.normal(0, 0.5, 100)).astype(np.float64)
+        p2 = (y + rng.normal(0, 0.7, 100)).astype(np.float64)
+        _numba_paired_bootstrap_rmse(y, p1, p2, 50, 7)
+        _numba_paired_bootstrap_mae(y, p1, p2, 50, 7)
+        _numba_bootstrap_rmse_samples(y, p1, 50, 7)
+        _numba_bootstrap_mae_samples(y, p1, 50, 7)
+        # Binary log-loss kernels
+        y_b = (y > 0).astype(np.int64)
+        prob1 = np.clip((y + 0.5) * 0.3, 0.05, 0.95).astype(np.float64)
+        prob2 = np.clip((y + 0.3) * 0.4, 0.05, 0.95).astype(np.float64)
+        _numba_paired_bootstrap_logloss_binary(y_b, prob1, prob2, 50, 7)
+        _numba_bootstrap_logloss_binary_samples(y_b, prob1, 50, 7)
+        log("[dummy-baselines] numba kernels pre-warmed in %.2fs", _time.time() - t0)
+    except Exception as e:
+        logger.debug(
+            "[dummy-baselines] numba pre-warmup failed (%s: %s); "
+            "first real call will JIT-compile lazily",
+            type(e).__name__, e,
+        )
 
 # ---------------------------------------------------------------------
 # Public API surface
@@ -1234,6 +1363,9 @@ def compute_dummy_baselines(
     group_ids_train: Any = None,
     group_ids_val: Any = None,
     group_ids_test: Any = None,
+    doc_ids_train: Any = None,
+    doc_ids_val: Any = None,
+    doc_ids_test: Any = None,
     cat_features: Optional[Sequence[str]] = None,
     target_label_encoder: Any = None,
     quantile_alphas: Optional[Sequence[float]] = None,
@@ -1355,6 +1487,9 @@ def compute_dummy_baselines(
             group_ids_train, group_ids_val, group_ids_test,
             ts_train, ts_val, ts_test,
             config,
+            doc_ids_train=doc_ids_train,
+            doc_ids_val=doc_ids_val,
+            doc_ids_test=doc_ids_test,
         )
     else:
         return _empty_report(
@@ -1628,10 +1763,21 @@ def _compute_ltr_baselines(
     ts_val: Optional[np.ndarray],
     ts_test: Optional[np.ndarray],
     config: Any,
+    doc_ids_train: Any = None,
+    doc_ids_val: Any = None,
+    doc_ids_test: Any = None,
 ) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Any]]:
-    """LTR: random_within_query / identity_input_order / mean_relevance / most_recent_first.
+    """LTR: random_within_query / identity_input_order / mean_relevance /
+    most_recent_first / popularity.
 
     Group sanity gate (D3) applied before any baseline runs.
+
+    The ``popularity`` baseline activates only when ``doc_ids_*`` are
+    supplied (caller has a per-row document identifier outside the
+    feature space — this is a strict superset of mlframe's default LTR
+    API which only carries ``group_ids`` = qid). Popularity score for
+    val/test row = log(1 + count(doc_id in train)). Unseen docs get
+    score = 0 (cold-start cells get the smallest possible score).
     """
     val_preds: Dict[str, np.ndarray] = {}
     test_preds: Dict[str, np.ndarray] = {}
@@ -1711,6 +1857,48 @@ def _compute_ltr_baselines(
     if ts_val is not None and ts_test is not None:
         val_preds["most_recent_first (ts)"] = ts_val.astype(np.float64)
         test_preds["most_recent_first (ts)"] = ts_test.astype(np.float64)
+
+    # popularity: per-doc train-frequency. Activates only when
+    # doc_ids_* are supplied (FTE protocol extension; mlframe's default
+    # LTR carries only group_ids = qid). Score = log(1 + count_train).
+    # Unseen docs at val/test get 0 (cold-start cells rank lowest).
+    if doc_ids_train is not None and doc_ids_val is not None and doc_ids_test is not None:
+        try:
+            d_train = np.asarray(doc_ids_train)
+            d_val = np.asarray(doc_ids_val)
+            d_test = np.asarray(doc_ids_test)
+            if (
+                len(d_train) == len(train_y)
+                and len(d_val) == n_val
+                and len(d_test) == n_test
+            ):
+                # Coerce non-numeric doc IDs to a hashable string form
+                # so pd.Series.value_counts handles them uniformly.
+                if d_train.dtype.kind not in ("i", "u", "f"):
+                    d_train_s = pd.Series([str(x) for x in d_train])
+                    d_val_s = pd.Series([str(x) for x in d_val])
+                    d_test_s = pd.Series([str(x) for x in d_test])
+                else:
+                    d_train_s = pd.Series(d_train)
+                    d_val_s = pd.Series(d_val)
+                    d_test_s = pd.Series(d_test)
+                pop_counts = d_train_s.value_counts()
+                # Score = log(1 + count); unseen → 0
+                val_pop = d_val_s.map(pop_counts).fillna(0).astype(np.float64).to_numpy()
+                test_pop = d_test_s.map(pop_counts).fillna(0).astype(np.float64).to_numpy()
+                val_preds["popularity"] = np.log1p(val_pop)
+                test_preds["popularity"] = np.log1p(test_pop)
+                # Diagnostics
+                val_unseen_pct = float(np.mean(val_pop == 0) * 100)
+                test_unseen_pct = float(np.mean(test_pop == 0) * 100)
+                extras["popularity_diagnostics"] = {
+                    "n_unique_docs_train": int(len(pop_counts)),
+                    "val_cold_start_pct": val_unseen_pct,
+                    "test_cold_start_pct": test_unseen_pct,
+                }
+        except Exception as _pop_err:
+            # Non-fatal: popularity is one of N LTR baselines.
+            extras["popularity_skip_reason"] = str(_pop_err)
 
     return val_preds, test_preds, extras
 
@@ -2202,28 +2390,55 @@ def _paired_bootstrap_vs_runner_up(
     if n < 10:
         return None
 
-    # Numba-accelerated paths for RMSE / MAE — ~30-50× faster than the
-    # Python loop with sklearn metric inside (measured: 1100ms → 30ms
-    # on n=1500, 1000 resamples). Falls back to sklearn loop for
-    # log_loss + when numba unavailable.
+    # Numba-accelerated paths for RMSE / MAE / binary log-loss — ~30-340×
+    # faster than the Python loop with sklearn metric inside (measured:
+    # 1100ms → 3.4ms on n=1500, 1000 resamples for RMSE). Falls back to
+    # sklearn loop for log_loss with non-binary preds, multilabel macro
+    # log-loss (no numba kernel — cost > value at the n<2000 gate), and
+    # when numba unavailable.
     deltas = None
     if _NUMBA_AVAILABLE:
         try:
-            y_arr = np.ascontiguousarray(y_ref, dtype=np.float64)
-            p1_arr = np.ascontiguousarray(p1, dtype=np.float64)
-            p2_arr = np.ascontiguousarray(p2, dtype=np.float64)
             if "RMSE" in primary_metric:
+                y_arr = np.ascontiguousarray(y_ref, dtype=np.float64)
+                p1_arr = np.ascontiguousarray(p1, dtype=np.float64)
+                p2_arr = np.ascontiguousarray(p2, dtype=np.float64)
                 deltas = _numba_paired_bootstrap_rmse(
                     y_arr, p1_arr, p2_arr, int(n_resamples), int(seed),
                 )
                 if not minimize:
                     deltas = -deltas
             elif "MAE" in primary_metric:
+                y_arr = np.ascontiguousarray(y_ref, dtype=np.float64)
+                p1_arr = np.ascontiguousarray(p1, dtype=np.float64)
+                p2_arr = np.ascontiguousarray(p2, dtype=np.float64)
                 deltas = _numba_paired_bootstrap_mae(
                     y_arr, p1_arr, p2_arr, int(n_resamples), int(seed),
                 )
                 if not minimize:
                     deltas = -deltas
+            elif "log_loss" in primary_metric and "macro" not in primary_metric:
+                # Binary-only log-loss kernel: requires 1D y in {0,1} and
+                # 1D probs in [0,1]. For 2D-prob multiclass the predictions
+                # are (N, K) softmax, not directly compatible with the
+                # binary kernel — fall through to sklearn for those cases.
+                y_arr_1d = np.ascontiguousarray(y_ref).ravel()
+                p1_arr = np.asarray(p1)
+                p2_arr = np.asarray(p2)
+                # Detect binary 1D case: targets in {0, 1} and probs are 1D
+                if (
+                    p1_arr.ndim == 1 and p2_arr.ndim == 1
+                    and y_arr_1d.dtype.kind in "iu"
+                    and len(np.unique(y_arr_1d)) <= 2
+                ):
+                    y_int = np.ascontiguousarray(y_arr_1d, dtype=np.int64)
+                    p1_f = np.ascontiguousarray(p1_arr, dtype=np.float64)
+                    p2_f = np.ascontiguousarray(p2_arr, dtype=np.float64)
+                    deltas = _numba_paired_bootstrap_logloss_binary(
+                        y_int, p1_f, p2_f, int(n_resamples), int(seed),
+                    )
+                    if not minimize:
+                        deltas = -deltas
         except Exception:
             deltas = None  # fall through to sklearn loop
 
@@ -2305,8 +2520,9 @@ def _bootstrap_ci_for_strongest(
         if n < 10:
             return None
 
-        # Numba-accelerated path for RMSE / MAE (~30-50× faster than
-        # the sklearn-per-call loop on n=1500 × 1000 resamples).
+        # Numba-accelerated path for RMSE / MAE / binary log-loss
+        # (~30-340× faster than the sklearn-per-call loop on n=1500
+        # × 1000 resamples).
         if _NUMBA_AVAILABLE and y.ndim == 1 and p.ndim == 1:
             try:
                 y_arr = np.ascontiguousarray(y, dtype=np.float64)
@@ -2326,6 +2542,30 @@ def _bootstrap_ci_for_strongest(
                         y_arr, p_arr, int(n_resamples), int(seed),
                     )
                     point = float(np.mean(np.abs(y_arr - p_arr)))
+                    if not np.isfinite(point):
+                        return None
+                    lo = float(np.percentile(samples, 2.5))
+                    hi = float(np.percentile(samples, 97.5))
+                    return (lo, point, hi)
+                if (
+                    "log_loss" in primary_metric
+                    and "macro" not in primary_metric
+                    and y.dtype.kind in "iu"
+                    and len(np.unique(y)) <= 2
+                ):
+                    # Binary 1D-prob case: matches the binary log-loss
+                    # numba kernel signature.
+                    y_int = np.ascontiguousarray(y, dtype=np.int64)
+                    samples = _numba_bootstrap_logloss_binary_samples(
+                        y_int, p_arr, int(n_resamples), int(seed),
+                    )
+                    # Point estimate via the same eps-clipped formula
+                    # the kernel uses (matches sklearn's eps=1e-15).
+                    eps = 1e-15
+                    p_clip = np.clip(p_arr, eps, 1.0 - eps)
+                    point = float(np.mean(
+                        -np.where(y_int == 1, np.log(p_clip), np.log(1.0 - p_clip))
+                    ))
                     if not np.isfinite(point):
                         return None
                     lo = float(np.percentile(samples, 2.5))

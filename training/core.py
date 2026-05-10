@@ -1027,6 +1027,7 @@ from .configs import (
     BaselineDiagnosticsConfig,
     CompositeTargetDiscoveryConfig,
     DummyBaselinesConfig,
+    QuantileRegressionConfig,
 )
 from .preprocessing import (
     load_and_prepare_dataframe,
@@ -1990,6 +1991,15 @@ def train_mlframe_models_suite(
     # for the strongest baseline only. Default ON; opt-out individual
     # target_types via ``DummyBaselinesConfig.apply_to_target_types``.
     dummy_baselines_config: Optional[Union["DummyBaselinesConfig", Dict]] = None,
+    # 2026-05-10: quantile-regression knobs (alphas / crossing-fix / etc).
+    # Consumed by:
+    # - ``compute_dummy_baselines`` per-α empirical-quantile dispatcher
+    #   when ``target_type == quantile_regression`` (auto-picks
+    #   ``alphas`` from this config so the operator doesn't have to
+    #   restate them per call).
+    # - Future per-strategy wiring for native multi-quantile fits
+    #   (CB MultiQuantile, XGB ``quantile_alpha``, LGB scalar wrapper).
+    quantile_regression_config: Optional[Union["QuantileRegressionConfig", Dict]] = None,
     # 2026-05-10: opt-IN auto-discovery of composite-target transforms
     # (``T = f(y, base)``) for regression targets. When enabled, runs
     # MI-gain ranking after baseline_diagnostics and adds the discovered
@@ -2269,6 +2279,19 @@ def train_mlframe_models_suite(
     dummy_baselines_config = _ensure_config(
         dummy_baselines_config, DummyBaselinesConfig, {}
     )
+    quantile_regression_config = _ensure_config(
+        quantile_regression_config, QuantileRegressionConfig, {}
+    )
+    # 2026-05-10: pre-warm dummy_baselines numba kernels so the first
+    # multi_output_regression call doesn't pay the 6-10s JIT cold-start.
+    # Cost: one-time ~2-5s on first suite invocation per process; cached
+    # afterwards. No-op when numba unavailable or dummy_baselines disabled.
+    if dummy_baselines_config.enabled:
+        try:
+            from .dummy_baselines import _warmup_numba_kernels
+            _warmup_numba_kernels()
+        except Exception:
+            pass
     composite_target_discovery_config = _ensure_config(
         composite_target_discovery_config, CompositeTargetDiscoveryConfig, {}
     )
@@ -4233,6 +4256,17 @@ def train_mlframe_models_suite(
                                     "[dummy-baselines] failed to re-attach dropped high-card cat cols (%s); per_group_mean may be missing",
                                     _aug_err,
                                 )
+                        # Auto-pick quantile_alphas from QuantileRegressionConfig
+                        # so the operator doesn't have to restate them per call.
+                        # Only fires when target_type matches; for non-quantile
+                        # targets the kwarg is ignored by compute_dummy_baselines.
+                        _q_alphas = None
+                        if str(target_type) == "quantile_regression":
+                            _q_alphas = list(getattr(
+                                quantile_regression_config, "alphas", ()
+                            ) or ())
+                            if not _q_alphas:
+                                _q_alphas = None
                         with phase(f"dummy_baselines:{str(target_type)}", target=cur_target_name):
                             _db_report = compute_dummy_baselines(
                                 target_type=str(target_type),
@@ -4247,6 +4281,7 @@ def train_mlframe_models_suite(
                                 timestamps_val=_ts_val,
                                 timestamps_test=_ts_test,
                                 cat_features=_dummy_cat_features,
+                                quantile_alphas=_q_alphas,
                                 config=dummy_baselines_config,
                                 plot_file_prefix=(plot_file or ""),
                             )

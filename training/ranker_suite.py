@@ -409,6 +409,19 @@ def train_mlframe_ranker_suite(
         from mlframe.training.phases import phase as _phase_ctx
         _db_cfg = dummy_baselines_config or DummyBaselinesConfig()
         if _db_cfg.enabled and "learning_to_rank" in _db_cfg.apply_to_target_types:
+            # Optional: pull per-row doc_ids for the popularity baseline
+            # when the FTE has a ``doc_field`` set (extends the LTR
+            # protocol beyond just ``group_field`` = qid).
+            _doc_field = getattr(features_and_targets_extractor, "doc_field", None)
+            _doc_tr = _doc_va = _doc_te = None
+            if _doc_field and isinstance(df_features, pd.DataFrame) and _doc_field in df_features.columns:
+                try:
+                    _doc_full = np.asarray(df_features[_doc_field])
+                    _doc_tr = _doc_full[train_idx]
+                    _doc_va = _doc_full[val_idx]
+                    _doc_te = _doc_full[test_idx]
+                except Exception:
+                    _doc_tr = _doc_va = _doc_te = None
             with _phase_ctx("dummy_baselines:learning_to_rank", target=target_name):
                 _db_report = compute_dummy_baselines(
                     target_type="learning_to_rank",
@@ -416,6 +429,7 @@ def train_mlframe_ranker_suite(
                     train_X=X_tr, val_X=X_va, test_X=X_te,
                     train_y=y_tr, val_y=y_va, test_y=y_te,
                     group_ids_train=g_tr, group_ids_val=g_va, group_ids_test=g_te,
+                    doc_ids_train=_doc_tr, doc_ids_val=_doc_va, doc_ids_test=_doc_te,
                     config=_db_cfg,
                     plot_file_prefix=(plot_file or ""),
                 )

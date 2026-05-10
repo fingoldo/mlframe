@@ -1212,6 +1212,173 @@ class TestNumbaBootstrapKernelsEquivalence:
         # p1 better → delta = MAE(p1) - MAE(p2) < 0 in vast majority
         assert np.mean(deltas < 0) > 0.95
 
+    def test_paired_bootstrap_logloss_binary_directional(self):
+        """Binary log-loss paired-bootstrap kernel produces finite
+        deltas with correct directional sign on a clear-winner case."""
+        from mlframe.training.dummy_baselines import (
+            _NUMBA_AVAILABLE, _numba_paired_bootstrap_logloss_binary,
+        )
+        if not _NUMBA_AVAILABLE:
+            pytest.skip("numba not available")
+        rng = np.random.default_rng(0)
+        n = 500
+        # True labels
+        y = rng.integers(0, 2, n).astype(np.int64)
+        # p1 well-calibrated; p2 noisier
+        p1 = np.clip(0.9 * y + 0.05 + rng.normal(0, 0.05, n), 0.01, 0.99).astype(np.float64)
+        p2 = np.clip(0.6 * y + 0.2 + rng.normal(0, 0.15, n), 0.01, 0.99).astype(np.float64)
+        deltas = _numba_paired_bootstrap_logloss_binary(y, p1, p2, 1000, 7)
+        assert np.isfinite(deltas).all()
+        # p1 better → log-loss(p1) < log-loss(p2) → delta < 0
+        assert np.mean(deltas < 0) > 0.95
+
+    def test_bootstrap_logloss_binary_samples_match_population(self):
+        """Bootstrap-CI binary log-loss kernel mean ≈ population log-loss."""
+        from mlframe.training.dummy_baselines import (
+            _NUMBA_AVAILABLE, _numba_bootstrap_logloss_binary_samples,
+        )
+        if not _NUMBA_AVAILABLE:
+            pytest.skip("numba not available")
+        rng = np.random.default_rng(0)
+        n = 500
+        y = rng.integers(0, 2, n).astype(np.int64)
+        p = np.clip(0.7 * y + 0.15 + rng.normal(0, 0.1, n), 0.01, 0.99).astype(np.float64)
+        samples = _numba_bootstrap_logloss_binary_samples(y, p, 1000, 7)
+        # Population log-loss (eps-clipped to match kernel)
+        eps = 1e-15
+        p_clip = np.clip(p, eps, 1 - eps)
+        pop_ll = float(np.mean(-np.where(y == 1, np.log(p_clip), np.log(1 - p_clip))))
+        assert abs(float(np.mean(samples)) - pop_ll) / pop_ll < 0.05
+
+
+class TestNumbaJITWarmup:
+    """JIT warmup compiles all kernels eagerly so the first
+    multi_output_regression call doesn't pay the 6-10s cold-start cost."""
+
+    def test_warmup_is_idempotent_and_returns_silently(self):
+        from mlframe.training.dummy_baselines import _warmup_numba_kernels
+        # First call may JIT-compile (~2-5s); second call is cached and fast.
+        _warmup_numba_kernels()
+        import time
+        t0 = time.perf_counter()
+        _warmup_numba_kernels()
+        elapsed = time.perf_counter() - t0
+        # Second call is bounded — kernel invocation overhead only.
+        assert elapsed < 0.5, f"warmup not cached (took {elapsed:.2f}s on second call)"
+
+    def test_warmup_no_op_when_numba_unavailable(self, monkeypatch):
+        """When numba is missing, warmup returns silently (no crash)."""
+        from mlframe.training import dummy_baselines as db
+        # Simulate numba missing
+        monkeypatch.setattr(db, "_NUMBA_AVAILABLE", False)
+        # Must not raise; must not log anything noisy.
+        db._warmup_numba_kernels()
+
+
+class TestLTRPopularityBaseline:
+    """LTR popularity baseline activates only when ``doc_ids_*`` are
+    supplied (FTE protocol extension; standard LTR carries only
+    ``group_ids`` = qid)."""
+
+    def test_popularity_emitted_when_doc_ids_provided(self, ltr_data, cfg):
+        rng = np.random.default_rng(0)
+        n_tr, n_va, n_te = (
+            len(ltr_data["train_y"]), len(ltr_data["val_y"]), len(ltr_data["test_y"]),
+        )
+        # Synthesize doc_ids: small alphabet so train sees most docs (low cold-start)
+        n_unique_docs = 50
+        doc_tr = np.array([f"doc_{i % n_unique_docs:04d}" for i in range(n_tr)], dtype=object)
+        doc_va = np.array([f"doc_{i % n_unique_docs:04d}" for i in range(n_va)], dtype=object)
+        doc_te = np.array([f"doc_{i % n_unique_docs:04d}" for i in range(n_te)], dtype=object)
+        d = dict(
+            ltr_data,
+            doc_ids_train=doc_tr,
+            doc_ids_val=doc_va,
+            doc_ids_test=doc_te,
+        )
+        rep = compute_dummy_baselines(config=cfg, **d)
+        # popularity should be in the table.
+        assert "popularity" in rep.table.index, (
+            f"popularity baseline missing; got {list(rep.table.index)}"
+        )
+        # Diagnostics surfaced on extras.
+        assert "popularity_diagnostics" in rep.extras
+        diag = rep.extras["popularity_diagnostics"]
+        assert "n_unique_docs_train" in diag
+        assert "val_cold_start_pct" in diag
+        # With our synthetic data, cold-start is 0% (val/test docs all in train).
+        assert diag["val_cold_start_pct"] == 0.0
+
+    def test_popularity_absent_when_doc_ids_missing(self, ltr_data, cfg):
+        """Without doc_ids_*, popularity baseline is silently skipped."""
+        rep = compute_dummy_baselines(config=cfg, **ltr_data)
+        assert "popularity" not in rep.table.index
+        assert "popularity_diagnostics" not in rep.extras
+
+    def test_popularity_handles_cold_start_docs(self, ltr_data, cfg):
+        """Val/test docs not seen in train → score = 0 (cold-start).
+        Diagnostic surfaces cold_start_pct."""
+        rng = np.random.default_rng(0)
+        n_tr, n_va, n_te = (
+            len(ltr_data["train_y"]), len(ltr_data["val_y"]), len(ltr_data["test_y"]),
+        )
+        # Train docs disjoint from val/test → 100% cold start
+        doc_tr = np.array([f"train_{i}" for i in range(n_tr)], dtype=object)
+        doc_va = np.array([f"val_{i}" for i in range(n_va)], dtype=object)
+        doc_te = np.array([f"test_{i}" for i in range(n_te)], dtype=object)
+        d = dict(
+            ltr_data,
+            doc_ids_train=doc_tr, doc_ids_val=doc_va, doc_ids_test=doc_te,
+        )
+        rep = compute_dummy_baselines(config=cfg, **d)
+        if "popularity" in rep.table.index:
+            diag = rep.extras["popularity_diagnostics"]
+            assert diag["val_cold_start_pct"] == 100.0
+            assert diag["test_cold_start_pct"] == 100.0
+
+
+class TestQuantileAlphasAutoPickup:
+    """``train_mlframe_models_suite`` pulls ``quantile_alphas`` from
+    ``QuantileRegressionConfig.alphas`` so the operator doesn't restate
+    them per call. End-to-end via direct compute_dummy_baselines call
+    using the same alphas list."""
+
+    def test_quantile_alphas_consumed_when_provided(self, cfg):
+        """Verify the per-α dispatcher fires when alphas is provided
+        (mirrors the suite-level auto-pickup behavior)."""
+        rng = np.random.default_rng(0)
+        n = 500
+        y = rng.normal(0, 1, n)
+        rep = compute_dummy_baselines(
+            target_type="quantile_regression", target_name="q",
+            train_y=y, val_y=y[:100], test_y=y[100:200],
+            train_X=pd.DataFrame({"x": rng.normal(size=n)}),
+            val_X=pd.DataFrame({"x": rng.normal(size=100)}),
+            test_X=pd.DataFrame({"x": rng.normal(size=100)}),
+            quantile_alphas=[0.1, 0.5, 0.9],
+            config=cfg,
+        )
+        assert rep.primary_metric == "val_pinball_mean"
+        # Check alphas surfaced in extras
+        assert rep.extras.get("quantile_alphas") == [0.1, 0.5, 0.9]
+
+    def test_quantile_falls_back_to_regression_path_when_no_alphas(self, cfg):
+        """Without quantile_alphas, quantile_regression target still
+        runs through the regression dispatcher (RMSE/MAE)."""
+        rng = np.random.default_rng(0)
+        n = 500
+        y = rng.normal(0, 1, n)
+        rep = compute_dummy_baselines(
+            target_type="quantile_regression", target_name="q",
+            train_y=y, val_y=y[:100], test_y=y[100:200],
+            train_X=pd.DataFrame({"x": rng.normal(size=n)}),
+            val_X=pd.DataFrame({"x": rng.normal(size=100)}),
+            test_X=pd.DataFrame({"x": rng.normal(size=100)}),
+            config=cfg,
+        )
+        # No quantile_alphas → regression path → val_RMSE primary metric
+        assert rep.primary_metric == "val_RMSE"
+
 
 # ---------------------------------------------------------------------
 # Auto-dropped high-card cat re-attachment for per_group_mean
