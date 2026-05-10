@@ -359,6 +359,9 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
         CompositeTargetDiscovery, get_transform,
     )
     from lightgbm import LGBMRegressor
+    from mlframe.training.composite import (
+        CompositeCrossTargetEnsemble, CompositeTargetEstimator,
+    )
     cfg = _disc_with_kwargs(
         transforms=["diff", "linear_residual"],
         top_m_after_tiny=4,
@@ -368,19 +371,23 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
     disc.fit(df, target_col="y",
              feature_cols=["base_a", "base_b", "x1"],
              train_idx=train_idx)
-    y_test = df["y"].to_numpy()[test_idx]
-    per_spec_preds = []
+    y_train_arr = df["y"].to_numpy()[train_idx]
+    y_test_arr = df["y"].to_numpy()[test_idx]
     all_features = ["base_a", "base_b", "x1"]
+    train_preds_per_spec: List[np.ndarray] = []
+    test_preds_per_spec: List[np.ndarray] = []
+    component_models: List[Any] = []
+    component_names: List[str] = []
+    component_train_rmse: List[float] = []
     for spec in disc.specs_:
         t = get_transform(spec.transform_name)
         b_tr = df[spec.base_column].to_numpy()[train_idx]
         b_te = df[spec.base_column].to_numpy()[test_idx]
-        valid = t.domain_check(df["y"].to_numpy()[train_idx], b_tr)
+        valid = t.domain_check(y_train_arr, b_tr)
         if valid.sum() < 50:
             continue
         t_tr = t.forward(
-            df["y"].to_numpy()[train_idx][valid], b_tr[valid],
-            spec.fitted_params,
+            y_train_arr[valid], b_tr[valid], spec.fitted_params,
         )
         x_cols = [c for c in all_features if c != spec.base_column]
         m = LGBMRegressor(
@@ -388,35 +395,162 @@ def feature_5_ensemble_default(seed: int = 0) -> Dict:
             random_state=seed, verbosity=-1,
         )
         m.fit(df[x_cols].to_numpy()[train_idx][valid], t_tr)
-        t_hat = m.predict(df[x_cols].to_numpy()[test_idx])
-        y_hat = t.inverse(t_hat, b_te, spec.fitted_params)
-        per_spec_preds.append(y_hat)
-    if not per_spec_preds:
+        # Train predictions (for RMSE-based weighting).
+        t_hat_tr = m.predict(df[x_cols].to_numpy()[train_idx])
+        y_hat_tr = t.inverse(t_hat_tr, b_tr, spec.fitted_params)
+        train_preds_per_spec.append(y_hat_tr)
+        # Test predictions.
+        t_hat_te = m.predict(df[x_cols].to_numpy()[test_idx])
+        y_hat_te = t.inverse(t_hat_te, b_te, spec.fitted_params)
+        test_preds_per_spec.append(y_hat_te)
+        # Wrap so the ensemble can call .predict() uniformly.
+        wrapper = CompositeTargetEstimator.from_fitted_inner(
+            fitted_inner=m, transform_name=spec.transform_name,
+            base_column=spec.base_column,
+            transform_fitted_params=spec.fitted_params,
+            y_train=y_train_arr,
+        )
+        component_models.append(wrapper)
+        component_names.append(spec.name)
+        component_train_rmse.append(float(np.sqrt(mean_squared_error(
+            y_train_arr, y_hat_tr,
+        ))))
+    if not test_preds_per_spec:
         return {
             "feature": "#5 cross-target ensemble default",
-            "scenario": "two specs equally good",
+            "scenario": "two specs",
             "metric": "test RMSE",
             "verdict": "no specs survived",
         }
     rmses = [
-        float(np.sqrt(mean_squared_error(y_test, p)))
-        for p in per_spec_preds
+        float(np.sqrt(mean_squared_error(y_test_arr, p)))
+        for p in test_preds_per_spec
     ]
-    best_single = min(rmses)
-    ensemble_pred = np.mean(per_spec_preds, axis=0)
-    ensemble_rmse = float(np.sqrt(mean_squared_error(
-        y_test, ensemble_pred)))
+    best_single_rmse = float(min(rmses))
+    # Comprehensive ensemble shootout: 8 strategies. Each takes the
+    # train_preds matrix to learn weights, evaluates on the test
+    # predictions matrix.
+    train_mat = np.column_stack(train_preds_per_spec)
+    test_mat = np.column_stack(test_preds_per_spec)
+    naive_rmse = float(np.sqrt(mean_squared_error(
+        y_train_arr, np.full_like(y_train_arr, y_train_arr.mean()),
+    )))
+    strategies: Dict[str, np.ndarray] = {}
+
+    # 1. Mean ensemble (uniform weights).
+    strategies["mean"] = test_mat @ np.full(
+        test_mat.shape[1], 1.0 / test_mat.shape[1],
+    )
+
+    # 2. Median ensemble (robust to per-component outliers).
+    strategies["median"] = np.median(test_mat, axis=1)
+
+    # 3. Trimmed mean (drop high/low extreme per row).
+    if test_mat.shape[1] >= 3:
+        sorted_preds = np.sort(test_mat, axis=1)
+        strategies["trimmed_mean"] = np.mean(
+            sorted_preds[:, 1:-1], axis=1,
+        )
+    else:
+        strategies["trimmed_mean"] = test_mat.mean(axis=1)
+
+    # 4. Inverse-RMSE weighting (simple, no baseline).
+    inv_rmse = 1.0 / np.maximum(
+        np.array(component_train_rmse), 1e-9,
+    )
+    inv_rmse = inv_rmse / inv_rmse.sum()
+    strategies["inverse_rmse"] = test_mat @ inv_rmse
+
+    # 5. Inverse-variance weighting (per-component squared error).
+    train_errs_sq = (train_mat - y_train_arr.reshape(-1, 1)) ** 2
+    var_per_spec = np.maximum(train_errs_sq.mean(axis=0), 1e-9)
+    inv_var = 1.0 / var_per_spec
+    inv_var = inv_var / inv_var.sum()
+    strategies["inverse_variance"] = test_mat @ inv_var
+
+    # 6. Softmax over -RMSE (Bayesian-Model-Averaging-style).
+    bma_logits = -np.array(component_train_rmse) / max(
+        float(np.std(component_train_rmse)), 1e-9
+    )
+    bma_w = np.exp(bma_logits - bma_logits.max())
+    bma_w = bma_w / bma_w.sum()
+    strategies["bma_softmax"] = test_mat @ bma_w
+
+    # 7. oof_weighted (R10b default; gain-over-naive).
+    oof_w_ens = CompositeCrossTargetEnsemble.from_train_metrics(
+        component_models=component_models,
+        component_names=component_names,
+        component_train_rmse=component_train_rmse,
+        baseline_train_rmse=naive_rmse,
+    )
+    if hasattr(oof_w_ens, "weights"):
+        strategies["oof_weighted"] = test_mat @ oof_w_ens.weights
+    else:
+        # Single best fallback fired.
+        strategies["oof_weighted"] = test_preds_per_spec[
+            int(np.argmin(component_train_rmse))
+        ]
+
+    # 8. linear_stack (Ridge regression on train predictions).
+    try:
+        lin_ens = CompositeCrossTargetEnsemble.from_linear_stack(
+            component_models=component_models,
+            component_names=component_names,
+            component_predictions=train_mat,
+            y_train=y_train_arr,
+            ridge_alpha=1.0,
+        )
+        strategies["linear_stack_ridge"] = test_mat @ lin_ens.weights
+    except Exception:
+        strategies["linear_stack_ridge"] = test_mat.mean(axis=1)
+
+    # 9. NNLS stack (constrained least squares, non-negative).
+    nnls_ens = CompositeCrossTargetEnsemble.from_nnls_stack(
+        component_models=component_models,
+        component_names=component_names,
+        component_predictions=train_mat,
+        y_train=y_train_arr,
+    )
+    strategies["nnls_stack"] = test_mat @ nnls_ens.weights
+
+    # 10. Stacked GBDT (LightGBM trained on per-component predictions
+    # to predict y_train; the most flexible meta-learner).
+    meta = LGBMRegressor(
+        n_estimators=80, num_leaves=8, learning_rate=0.1,
+        random_state=seed, verbosity=-1,
+    )
+    meta.fit(train_mat, y_train_arr)
+    strategies["stacked_gbdt"] = meta.predict(test_mat)
+
+    # 11. Best-single (sanity baseline; pick by train RMSE).
+    best_idx = int(np.argmin(component_train_rmse))
+    strategies["best_single_by_train"] = test_preds_per_spec[best_idx]
+
+    # Compute test RMSE per strategy + improvement vs best_single_test.
+    rmses_by_strategy = {
+        name: float(np.sqrt(mean_squared_error(y_test_arr, p)))
+        for name, p in strategies.items()
+    }
+    sorted_strategies = sorted(rmses_by_strategy.items(),
+                                key=lambda t: t[1])
+    winner_name, winner_rmse = sorted_strategies[0]
     return {
-        "feature": "#5 ensemble default",
-        "scenario": "two specs (diff + linear_residual) equally good",
-        "metric": "test RMSE",
-        "best_single": best_single,
-        "ensemble_mean": ensemble_rmse,
-        "n_specs": len(per_spec_preds),
+        "feature": "#5 cross-target ensemble strategy shootout (10 algos)",
+        "scenario": "two specs from two bases (decorrelated errors)",
+        "metric": "test RMSE per strategy",
+        "best_single_rmse": best_single_rmse,
+        "n_specs": len(test_preds_per_spec),
+        "rmses_by_strategy": rmses_by_strategy,
+        "winner": winner_name,
+        "winner_rmse": winner_rmse,
         "verdict": (
-            f"best_single {best_single:.4f} vs mean-ensemble "
-            f"{ensemble_rmse:.4f}: "
-            f"{'ensemble +' + format((best_single - ensemble_rmse)/best_single*100, '.1f') + '%' if ensemble_rmse < best_single else 'no ensemble win'}"
+            f"best_single={best_single_rmse:.4f}; "
+            "ranked: "
+            + ", ".join(
+                f"{n}={r:.4f}({(best_single_rmse - r)/best_single_rmse*100:+.1f}%)"
+                for n, r in sorted_strategies[:5]
+            )
+            + f"; WINNER: {winner_name}"
         ),
     }
 
