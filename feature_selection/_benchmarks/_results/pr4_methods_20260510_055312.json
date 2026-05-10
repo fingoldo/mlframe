@@ -1,0 +1,325 @@
+{
+  "generated_at": "2026-05-10T02:53:12.523427Z",
+  "rows": [
+    {
+      "method": "baseline",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 20,
+      "informative_recall": 0.875,
+      "fit_seconds": 3.78775940000196,
+      "selected_idx": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        12,
+        13,
+        17,
+        19,
+        23,
+        26,
+        28,
+        31,
+        32,
+        36,
+        37
+      ]
+    },
+    {
+      "method": "baseline",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 15,
+      "informative_recall": 1.0,
+      "fit_seconds": 3.101616300002206,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        16,
+        23,
+        24,
+        29,
+        35
+      ]
+    },
+    {
+      "method": "baseline",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 27,
+      "informative_recall": 1.0,
+      "fit_seconds": 7.345918999999412,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        12,
+        14,
+        15,
+        17,
+        21,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        30,
+        33,
+        34,
+        35,
+        37,
+        39
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.28419279999798164,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        9,
+        12
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.3760876000014832,
+      "selected_idx": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        16,
+        19
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 7,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.2877193000022089,
+      "selected_idx": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 2,
+      "informative_recall": 0.25,
+      "fit_seconds": 8.177891799990903,
+      "selected_idx": [
+        1,
+        4
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 8,
+      "informative_recall": 1.0,
+      "fit_seconds": 8.144945399995777,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 2,
+      "informative_recall": 0.25,
+      "fit_seconds": 4.95853889999853,
+      "selected_idx": [
+        2,
+        4
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 1.6169323999929475,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        9,
+        12
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 1.7898115000134567,
+      "selected_idx": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        16,
+        19
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 8,
+      "informative_recall": 1.0,
+      "fit_seconds": 1.7096874999988358,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "method": "knockoffs_lr",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 0,
+      "informative_recall": 0.0,
+      "fit_seconds": 0.014394800004083663,
+      "selected_idx": []
+    },
+    {
+      "method": "knockoffs_lr",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 0,
+      "informative_recall": 0.0,
+      "fit_seconds": 0.023866000003181398,
+      "selected_idx": []
+    },
+    {
+      "method": "knockoffs_lr",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 5,
+      "informative_recall": 0.625,
+      "fit_seconds": 0.014077299987548031,
+      "selected_idx": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "summary": [
+    {
+      "method": "baseline",
+      "n_sel_mean": 20.667,
+      "recall_mean": 0.958,
+      "recall_std": 0.072,
+      "fit_seconds_mean": 4.745,
+      "stability_jaccard": 0.40808080808080804
+    },
+    {
+      "method": "knockoffs_lr",
+      "n_sel_mean": 1.667,
+      "recall_mean": 0.208,
+      "recall_std": 0.361,
+      "fit_seconds_mean": 0.017,
+      "stability_jaccard": NaN
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "n_sel_mean": 4.0,
+      "recall_mean": 0.5,
+      "recall_std": 0.433,
+      "fit_seconds_mean": 7.094,
+      "stability_jaccard": 0.27777777777777773
+    },
+    {
+      "method": "stability_plus_multi",
+      "n_sel_mean": 8.667,
+      "recall_mean": 0.917,
+      "recall_std": 0.072,
+      "fit_seconds_mean": 1.705,
+      "stability_jaccard": 0.6333333333333333
+    },
+    {
+      "method": "stability_selection_lr",
+      "n_sel_mean": 8.333,
+      "recall_mean": 0.875,
+      "recall_std": 0.0,
+      "fit_seconds_mean": 0.316,
+      "stability_jaccard": 0.5666666666666668
+    }
+  ]
+}

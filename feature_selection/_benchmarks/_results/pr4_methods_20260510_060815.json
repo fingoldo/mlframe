@@ -1,0 +1,345 @@
+{
+  "generated_at": "2026-05-10T03:08:15.481737Z",
+  "rows": [
+    {
+      "method": "baseline",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 2,
+      "informative_recall": 0.25,
+      "fit_seconds": 10.096557600001688,
+      "selected_idx": [
+        1,
+        4
+      ]
+    },
+    {
+      "method": "baseline",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 13,
+      "informative_recall": 1.0,
+      "fit_seconds": 8.901487299997825,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        16,
+        23,
+        24,
+        29
+      ]
+    },
+    {
+      "method": "baseline",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 2,
+      "informative_recall": 0.25,
+      "fit_seconds": 8.505730199991376,
+      "selected_idx": [
+        2,
+        4
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.28115390001039486,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        9,
+        12
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.3588253000052646,
+      "selected_idx": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        16,
+        19
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 7,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.2589619000063976,
+      "selected_idx": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 25,
+      "informative_recall": 1.0,
+      "fit_seconds": 10.135708200003137,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        17,
+        19,
+        24,
+        25,
+        26,
+        28,
+        30,
+        31,
+        32,
+        36,
+        39
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 10,
+      "informative_recall": 1.0,
+      "fit_seconds": 5.951146999999764,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        16,
+        29
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 10,
+      "informative_recall": 1.0,
+      "fit_seconds": 10.942819899995811,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        14,
+        23
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 1.7343870000040624,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        9,
+        12
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 2.071347599994624,
+      "selected_idx": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        16,
+        19
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 8,
+      "informative_recall": 1.0,
+      "fit_seconds": 1.7168341999931727,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "method": "knockoffs_lr",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 20,
+      "informative_recall": 0.75,
+      "fit_seconds": 0.0163790000078734,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        4,
+        6,
+        7,
+        10,
+        12,
+        13,
+        16,
+        21,
+        24,
+        26,
+        27,
+        28,
+        30,
+        31,
+        32,
+        35,
+        39
+      ]
+    },
+    {
+      "method": "knockoffs_lr",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 10,
+      "informative_recall": 0.5,
+      "fit_seconds": 0.0328289000026416,
+      "selected_idx": [
+        1,
+        3,
+        5,
+        7,
+        19,
+        21,
+        29,
+        32,
+        35,
+        37
+      ]
+    },
+    {
+      "method": "knockoffs_lr",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 5,
+      "informative_recall": 0.625,
+      "fit_seconds": 0.016007699989131652,
+      "selected_idx": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "summary": [
+    {
+      "method": "baseline",
+      "n_sel_mean": 5.667,
+      "recall_mean": 0.5,
+      "recall_std": 0.433,
+      "fit_seconds_mean": 9.168,
+      "stability_jaccard": 0.21367521367521367
+    },
+    {
+      "method": "knockoffs_lr",
+      "n_sel_mean": 11.667,
+      "recall_mean": 0.625,
+      "recall_std": 0.125,
+      "fit_seconds_mean": 0.022,
+      "stability_jaccard": NaN
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "n_sel_mean": 15.0,
+      "recall_mean": 1.0,
+      "recall_std": 0.0,
+      "fit_seconds_mean": 9.01,
+      "stability_jaccard": 0.419753086419753
+    },
+    {
+      "method": "stability_plus_multi",
+      "n_sel_mean": 8.667,
+      "recall_mean": 0.917,
+      "recall_std": 0.072,
+      "fit_seconds_mean": 1.841,
+      "stability_jaccard": 0.6333333333333333
+    },
+    {
+      "method": "stability_selection_lr",
+      "n_sel_mean": 8.333,
+      "recall_mean": 0.875,
+      "recall_std": 0.0,
+      "fit_seconds_mean": 0.3,
+      "stability_jaccard": 0.5666666666666668
+    }
+  ]
+}

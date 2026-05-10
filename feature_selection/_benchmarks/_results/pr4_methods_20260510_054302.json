@@ -1,0 +1,257 @@
+{
+  "generated_at": "2026-05-10T02:43:02.385086Z",
+  "rows": [
+    {
+      "method": "baseline",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 20,
+      "informative_recall": 0.875,
+      "fit_seconds": 4.040838100001565,
+      "selected_idx": [
+        0,
+        1,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        12,
+        13,
+        17,
+        19,
+        23,
+        26,
+        28,
+        31,
+        32,
+        36,
+        37
+      ]
+    },
+    {
+      "method": "baseline",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 15,
+      "informative_recall": 1.0,
+      "fit_seconds": 2.993109499991988,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        16,
+        23,
+        24,
+        29,
+        35
+      ]
+    },
+    {
+      "method": "baseline",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 2,
+      "informative_recall": 0.25,
+      "fit_seconds": 2.565109399991343,
+      "selected_idx": [
+        2,
+        4
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.27709109999705106,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        9,
+        12
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.41613630000210833,
+      "selected_idx": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        16,
+        19
+      ]
+    },
+    {
+      "method": "stability_selection_lr",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 7,
+      "informative_recall": 0.875,
+      "fit_seconds": 0.3097466000035638,
+      "selected_idx": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 2,
+      "informative_recall": 0.25,
+      "fit_seconds": 4.076804900003481,
+      "selected_idx": [
+        1,
+        4
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 6,
+      "informative_recall": 0.75,
+      "fit_seconds": 3.4978776999923866,
+      "selected_idx": [
+        0,
+        1,
+        3,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 2,
+      "informative_recall": 0.25,
+      "fit_seconds": 4.429095900006359,
+      "selected_idx": [
+        2,
+        4
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 0,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 2.256592899997486,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        9,
+        12
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 1,
+      "n_features_total": 40,
+      "n_features_selected": 9,
+      "informative_recall": 0.875,
+      "fit_seconds": 1.9904368999996223,
+      "selected_idx": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        16,
+        19
+      ]
+    },
+    {
+      "method": "stability_plus_multi",
+      "seed": 2,
+      "n_features_total": 40,
+      "n_features_selected": 8,
+      "informative_recall": 1.0,
+      "fit_seconds": 1.811426100000972,
+      "selected_idx": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    }
+  ],
+  "summary": [
+    {
+      "method": "baseline",
+      "n_sel_mean": 12.333,
+      "recall_mean": 0.708,
+      "recall_std": 0.402,
+      "fit_seconds_mean": 3.2,
+      "stability_jaccard": 0.19365079365079366
+    },
+    {
+      "method": "multi_estimator_lr_rf",
+      "n_sel_mean": 3.333,
+      "recall_mean": 0.417,
+      "recall_std": 0.289,
+      "fit_seconds_mean": 4.001,
+      "stability_jaccard": 0.15873015873015872
+    },
+    {
+      "method": "stability_plus_multi",
+      "n_sel_mean": 8.667,
+      "recall_mean": 0.917,
+      "recall_std": 0.072,
+      "fit_seconds_mean": 2.019,
+      "stability_jaccard": 0.6333333333333333
+    },
+    {
+      "method": "stability_selection_lr",
+      "n_sel_mean": 8.333,
+      "recall_mean": 0.875,
+      "recall_std": 0.0,
+      "fit_seconds_mean": 0.334,
+      "stability_jaccard": 0.5666666666666668
+    }
+  ]
+}

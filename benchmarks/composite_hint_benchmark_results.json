@@ -1,0 +1,32 @@
+[
+  {
+    "scenario": "lag_dominant_with_spatial_distractors",
+    "raw_rmse": 0.1583045227978377,
+    "no_hint_rmse": 0.15653563098917758,
+    "with_hint_rmse": 0.15653563098917758,
+    "improvement_pct": 0.0,
+    "base_correct_no_hint": 5,
+    "base_correct_with_hint": 5,
+    "n_reps": 5
+  },
+  {
+    "scenario": "multibase_with_distractor",
+    "raw_rmse": 0.10370168710791852,
+    "no_hint_rmse": 0.05182157768349678,
+    "with_hint_rmse": 0.05182157768349678,
+    "improvement_pct": 0.0,
+    "base_correct_no_hint": 5,
+    "base_correct_with_hint": 5,
+    "n_reps": 5
+  },
+  {
+    "scenario": "heavy_tail_unstable_mi",
+    "raw_rmse": 8.345080147610261,
+    "no_hint_rmse": 8.324543437172618,
+    "with_hint_rmse": 8.3314970799055,
+    "improvement_pct": -0.08353182111862596,
+    "base_correct_no_hint": 2,
+    "base_correct_with_hint": 3,
+    "n_reps": 5
+  }
+]
