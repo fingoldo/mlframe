@@ -253,3 +253,9 @@ class CatFEState:
     """Names of columns where ``nbins[i] > sqrt(n) * 2`` -- refused per
     SM8 / F8. The list is informational; the actual refusal raises
     ``ValueError`` at fit time."""
+
+    lineage: dict = field(default_factory=dict)
+    """``{engineered_col_idx_in_augmented_data: frozenset(parent_idx_in_data)}``.
+    Used by ``screen_predictors`` to skip redundant k-way candidates
+    that combine an engineered column with one of its own parents
+    (B6 / T1 plumbing target)."""

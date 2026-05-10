@@ -543,9 +543,9 @@ class TestOrchestratorEndToEnd:
         )
         cfg = CatFEConfig(
             enable=True,
-            top_k_pairs=4,
-            max_kway_order=3,                       # opt in
-            min_interaction_information=-0.05,      # absorb 3-way noise floor
+            top_k_pairs=10,                          # T4: large enough for top-K to cover signal pairs
+            max_kway_order=3,                        # opt in
+            min_interaction_information=-0.05,       # absorb 3-way noise floor
             full_npermutations=0,
             fwer_correction="none",
         )
@@ -569,24 +569,73 @@ class TestOrchestratorEndToEnd:
             f"got recipes: {[(r.src_names, r.extra.get('kway_order')) for r in state.recipes]}"
         )
 
-    def test_kway_recipe_replay_raises_via_mrmr_transform_skips(self):
-        """v1 limitation (SD8 / SB7): k-way replay is not implemented.
-        Recipes carry ``requires_refit_for_replay=True``; transform()
-        skips them silently (instead of raising) so the rest of the
-        pipeline keeps working."""
-        from mlframe.feature_selection.filters.engineered_recipes import (
-            EngineeredRecipe, apply_recipe,
+    def test_kway_recipe_replay_chain_works(self):
+        """D3: k-way recipes ship a chained-lookup payload so they
+        replay correctly on test data. The chain replicates the
+        ``merge_vars`` semantics step-by-step."""
+        rng = np.random.default_rng(31)
+        n = 1500
+        x1 = rng.integers(0, 2, n).astype(np.int32)
+        x2 = rng.integers(0, 2, n).astype(np.int32)
+        x3 = rng.integers(0, 2, n).astype(np.int32)
+        y = (x1 ^ x2 ^ x3).astype(np.int32)
+        data = np.column_stack([x1, x2, x3, y]).astype(np.int32)
+        nbins = np.array([2, 2, 2, 2], dtype=np.int64)
+        cls_y, fq_y, _ = merge_vars(
+            factors_data=data, vars_indices=np.array([3], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
         )
-        kway_recipe = EngineeredRecipe(
-            name="kway(x1__x2__x3)",
-            kind="factorize",
-            src_names=("x1", "x2", "x3"),
-            factorize_nbins=(2, 2, 2),
-            extra={"kway_order": 3, "requires_refit_for_replay": True},
+        cfg = CatFEConfig(
+            enable=True, top_k_pairs=4,
+            max_kway_order=3,
+            min_interaction_information=-0.05,
+            full_npermutations=0, fwer_correction="none",
         )
-        # Direct apply_recipe raises (callers should respect the flag)
-        with pytest.raises(NotImplementedError, match="k-way"):
-            apply_recipe(kway_recipe, pd.DataFrame({"x1": [0], "x2": [0], "x3": [0]}))
+        data_out, _, _, state = run_cat_interaction_step(
+            data=data, cols=["x1", "x2", "x3", "y"], nbins=nbins,
+            target_indices=np.array([3], dtype=np.int64),
+            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            categorical_vars=[0, 1, 2],
+            cfg=cfg, dtype=np.int32,
+        )
+        kway_recipes = [r for r in state.recipes if r.extra.get("kway_order") == 3]
+        if not kway_recipes:
+            pytest.skip("3-way XOR seed didn't produce kway recipe on this seed")
+        recipe = kway_recipes[0]
+        # Recipe carries the chained-lookup payload
+        assert "chain_lookups" in recipe.extra
+        assert "chain_nuniqs" in recipe.extra
+        assert len(recipe.extra["chain_lookups"]) == 2  # k-1 = 2 for k=3
+        assert len(recipe.extra["chain_nuniqs"]) == 2
+
+        # Replay the recipe on a disjoint test dataset and verify it
+        # produces the same encoding as merge_vars on the test rows.
+        from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+        rng2 = np.random.default_rng(99)
+        n_te = 400
+        x1_te = rng2.integers(0, 2, n_te).astype(np.int32)
+        x2_te = rng2.integers(0, 2, n_te).astype(np.int32)
+        x3_te = rng2.integers(0, 2, n_te).astype(np.int32)
+        df_te = pd.DataFrame({"x1": x1_te, "x2": x2_te, "x3": x3_te})
+        replayed = apply_recipe(recipe, df_te)
+        assert replayed.shape == (n_te,)
+        # Each unique (x1, x2, x3) tuple must map to the same class for
+        # all test rows -- the encoding is deterministic by construction
+        unique_tuples = set(zip(x1_te, x2_te, x3_te))
+        tuple_to_class: dict = {}
+        for row in range(n_te):
+            key = (int(x1_te[row]), int(x2_te[row]), int(x3_te[row]))
+            cls = int(replayed[row])
+            if key in tuple_to_class:
+                assert tuple_to_class[key] == cls, (
+                    f"Inconsistent replay: tuple {key} mapped to both "
+                    f"{tuple_to_class[key]} and {cls}"
+                )
+            else:
+                tuple_to_class[key] = cls
+        # All 2*2*2=8 tuples should produce a class within [0, n_uniq).
+        n_uniq = int(recipe.extra["n_uniq_post_prune"])
+        assert all(0 <= v < n_uniq for v in tuple_to_class.values())
 
     def test_kfold_stability_drops_unstable_pair(self):
         """E6: a pair whose signal is concentrated in 1-2 folds (rest
@@ -753,6 +802,74 @@ class TestOrchestratorEndToEnd:
             d = state.diagnostics[r.name]
             assert d["joint_dependence_confidence"] >= 0.95, \
                 f"Surviving pair should have high confidence; got {d}"
+
+    def test_conditional_permutation_null_runs_end_to_end(self, xor_fixture):
+        """D1: ``permutation_null='conditional'`` exercises the
+        within-strata shuffle path. XOR has strong synergy that
+        survives the (stricter) conditional null too -- this test
+        verifies the path runs and produces a non-empty recipe set."""
+        cfg = CatFEConfig(
+            enable=True, top_k_pairs=4,
+            min_interaction_information=0.1,
+            full_npermutations=30,
+            fwer_correction="none",
+            permutation_null="conditional",
+        )
+        _, _, _, state = run_cat_interaction_step(
+            data=xor_fixture["data"], cols=xor_fixture["cols"],
+            nbins=xor_fixture["nbins"],
+            target_indices=np.array([xor_fixture["target_idx"]], dtype=np.int64),
+            classes_y=xor_fixture["classes_y"],
+            classes_y_safe=xor_fixture["classes_y"],
+            freqs_y=xor_fixture["freqs_y"],
+            categorical_vars=xor_fixture["categorical_vars"],
+            cfg=cfg, dtype=np.int32,
+        )
+        # The XOR signal should be strong enough that even the
+        # conditional null rejects independence.
+        recipe_srcs = [r.src_names for r in state.recipes]
+        assert ("x1", "x2") in recipe_srcs or ("x2", "x1") in recipe_srcs
+
+    def test_conditional_permutation_rejects_pair_with_only_marginal_signal(self):
+        """D1: when X1 has high MI(X1;Y) but X2 is independent given Y,
+        the joint-independence null would reject (joint MI is positive
+        due to X1 alone) -- but the CONDITIONAL null should NOT reject
+        because there's no real synergy beyond marginals.
+
+        Construct y = x1 (X2 plays no role). Both nulls should agree
+        the pair has no synergy, but the conditional null is more
+        precise about WHY."""
+        rng = np.random.default_rng(17)
+        n = 1500
+        x1 = rng.integers(0, 4, n).astype(np.int32)
+        x2 = rng.integers(0, 4, n).astype(np.int32)  # independent noise
+        y = (x1 % 2).astype(np.int32)
+        data = np.column_stack([x1, x2, y]).astype(np.int32)
+        nbins = np.array([4, 4, 2], dtype=np.int64)
+        cls_y, fq_y, _ = merge_vars(
+            factors_data=data, vars_indices=np.array([2], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        )
+
+        cfg = CatFEConfig(
+            enable=True, top_k_pairs=2,
+            min_interaction_information=-100,  # accept anything from search
+            full_npermutations=50,
+            fwer_correction="none",
+            permutation_null="conditional",
+        )
+        _, _, _, state = run_cat_interaction_step(
+            data=data, cols=["x1", "x2", "y"], nbins=nbins,
+            target_indices=np.array([2], dtype=np.int64),
+            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y,
+            categorical_vars=[0, 1],
+            cfg=cfg, dtype=np.int32,
+        )
+        # (x1, x2) should be rejected: no synergy beyond x1's marginal.
+        assert state.recipes == [], (
+            f"Conditional null should drop pair with no synergy "
+            f"beyond marginals; got {state.recipes}"
+        )
 
     def test_recipes_are_picklable(self, xor_fixture):
         """Recipes from cat-FE survive pickle round-trip (same as

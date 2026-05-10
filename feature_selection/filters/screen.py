@@ -210,6 +210,15 @@ def screen_predictors(
     parallel_kwargs: dict = None,
     stop_file: str = None,
     use_simple_mode: bool = True,
+    # B6 (cat-FE): ``engineered_lineage`` -- mapping
+    # ``{engineered_col_idx: frozenset(parent_indices)}``. When set,
+    # the candidate enumeration in screen.py skips k-way candidates
+    # that combine an engineered column with one of its own parents
+    # (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the
+    # engineered col already contains orig_i's information). Passed
+    # through ``should_skip_candidate`` from ``evaluate_candidates``.
+    # Default ``None`` preserves legacy behaviour bit-exact.
+    engineered_lineage: dict = None,
 ) -> float:
     """Finds best predictors for the target.
 
@@ -518,6 +527,7 @@ def screen_predictors(
                         expected_gains=expected_gains,
                         selected_vars=selected_vars,
                         selected_interactions_vars=selected_interactions_vars,
+                        engineered_lineage=engineered_lineage,
                     )
                     if skip:
                         continue

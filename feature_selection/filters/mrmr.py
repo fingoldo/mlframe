@@ -663,6 +663,16 @@ class MRMR(BaseEstimator, TransformerMixin):
                     ndigits=self.ndigits,
                     parallel_kwargs=self.parallel_kwargs,
                     stop_file=self.stop_file,
+                    # T1: engineered_lineage from cat-FE step (or None when
+                    # cat-FE didn't run / produced no engineered cols). Screen
+                    # uses it to skip redundant (orig_parent, engineered_col)
+                    # k-way candidates.
+                    engineered_lineage=(
+                        self._cat_fe_state_.lineage
+                        if getattr(self, "_cat_fe_state_", None) is not None
+                        and self._cat_fe_state_.lineage
+                        else None
+                    ),
                 )
             )
 
@@ -1453,21 +1463,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         # never engage FE.
         from .engineered_recipes import apply_recipe
 
-        # k-way (k > 2) cat-FE recipes are diagnostic-only at v1: they
-        # surface synergistic groups via _cat_fe_state_.diagnostics but
-        # don't yet have a replay path. Filter them out here so transform
-        # doesn't raise -- users who need replay should set
-        # cat_fe_config.max_kway_order=2.
+        # D3: k-way recipes now ship a chained-lookup payload (extras
+        # ``chain_lookups`` / ``chain_nuniqs``) so they replay on test
+        # data alongside pair recipes. The only filter is the legacy
+        # ``requires_refit_for_replay`` flag retained for OLD pickles
+        # that pre-date D3 (no chain payload).
         replayable = [
             r for r in recipes
-            if not r.extra.get("requires_refit_for_replay")
+            if r.extra.get("chain_lookups") is not None
+            or not r.extra.get("requires_refit_for_replay")
         ]
         if len(replayable) < len(recipes) and self.verbose:
             logger.info(
-                "MRMR.transform: skipping %d k-way (order>2) engineered "
-                "feature(s) -- replay not implemented for k>2 in v1. "
-                "Set CatFEConfig(max_kway_order=2) if you need them in "
-                "transform output.",
+                "MRMR.transform: skipping %d legacy k-way recipe(s) "
+                "without chained-lookup payload (pre-D3 pickle). Re-fit "
+                "to materialise the chain.",
                 len(recipes) - len(replayable),
             )
         if not replayable:

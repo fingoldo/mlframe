@@ -268,30 +268,36 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
 
 def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """Cat-FE replay: look up each test row's ``(a, b)`` tuple in the
-    fit-time lookup table and emit the post-prune class.
+    """Cat-FE replay: look up each test row's ``(a, b)`` tuple (or k-way
+    chain) in the fit-time lookup table(s) and emit the post-prune class.
 
-    The lookup table maps ``a_value + b_value * nbins_a`` (the
-    pre-prune code) to the post-prune class produced by
-    ``merge_vars`` at fit time. Test-time values that fall outside
-    ``[0, nbins_a)`` / ``[0, nbins_b)`` are clipped (any test value
-    above the fit-time max is treated as the max). Test-time
-    combinations whose pre-prune code never appeared in training
-    are resolved per ``recipe.unknown_strategy`` (already baked into
-    the lookup at fit time, except for ``"raise"`` which keeps -1
-    sentinels and surfaces here).
+    For pairs (k=2): single lookup table maps ``a_value + b_value *
+    nbins_a`` to post-prune class.
+
+    For k > 2: D3 chained-lookup approach. ``recipe.extra['chain_lookups']``
+    is a list of (k-1) pair lookup tables; each step combines the running
+    intermediate class with the next column's value using the
+    ``chain_nuniqs`` multiplier from the previous step.
+
+    Test-time values outside ``[0, nbins_i)`` are clipped to ``nbins_i - 1``.
+    Combinations whose pre-prune code never appeared in training are
+    resolved per ``recipe.unknown_strategy`` (already baked into each
+    lookup at fit time, except for ``"raise"`` which keeps -1 sentinels
+    and surfaces here).
     """
-    # K-way (k > 2) recipes don't yet ship a lookup table -- transform()
-    # replay needs a chained-merge_vars approach that's deferred to a
-    # future PR. Surface a clear error instead of silently producing
-    # wrong codes.
+    # K-way (k > 2) chained replay if the recipe carries the chain.
+    if recipe.extra.get("chain_lookups"):
+        return _apply_factorize_kway(recipe, X)
+
+    # Legacy v1 stub: k-way recipes without chained lookups. Should not
+    # appear after D3 lands, but kept as a defensive branch for old
+    # pickled recipes.
     if recipe.extra.get("requires_refit_for_replay"):
         raise NotImplementedError(
-            f"factorize recipe '{recipe.name}' is a k-way (order "
-            f"{recipe.extra.get('kway_order', '?')}) engineered feature. "
-            f"transform() replay for k > 2 is not implemented in v1 -- "
-            f"pair recipes (order=2) replay fine. Disable k-way at fit "
-            f"time via CatFEConfig(max_kway_order=2) if you need replay."
+            f"factorize recipe '{recipe.name}' is a legacy k-way recipe "
+            f"(order {recipe.extra.get('kway_order', '?')}) lacking a "
+            f"chained-lookup payload. Re-fit MRMR to materialise the "
+            f"chained-lookup version for replay."
         )
     if len(recipe.src_names) != 2 or len(recipe.factorize_nbins) != 2:
         raise ValueError(
@@ -339,6 +345,59 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             f"silently."
         )
     return out
+
+
+def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """K-way replay via the chained-lookup payload.
+
+    Each ``chain_lookups[step]`` is a flat int64 table indexed by
+    ``running_intermediate + col_value * running_nuniq``. We walk
+    through all (k-1) steps, refreshing ``running_intermediate`` and
+    ``running_nuniq`` from each step's output.
+
+    Per-column test values are clipped to ``[0, factorize_nbins[i])`` so
+    a higher-than-fit-time category doesn't index past the lookup buffer.
+    Unseen combinations are resolved per ``recipe.unknown_strategy``
+    (already encoded in the lookups at fit time, except ``"raise"``
+    which leaves -1 sentinels and surfaces here).
+    """
+    src_names = recipe.src_names
+    nbins_tuple = recipe.factorize_nbins
+    chain_lookups: list = recipe.extra["chain_lookups"]
+    chain_nuniqs: list = recipe.extra["chain_nuniqs"]
+    k = len(src_names)
+    if len(chain_lookups) != k - 1 or len(chain_nuniqs) != k - 1:
+        raise ValueError(
+            f"k-way recipe '{recipe.name}' chain payload size mismatch: "
+            f"k={k}, chain_lookups={len(chain_lookups)}, "
+            f"chain_nuniqs={len(chain_nuniqs)} (expected {k-1} each)."
+        )
+
+    # Step 1: build running from first two columns
+    vals_0 = _extract_column(X, src_names[0]).astype(np.int64, copy=False)
+    vals_1 = _extract_column(X, src_names[1]).astype(np.int64, copy=False)
+    vals_0 = np.clip(vals_0, 0, int(nbins_tuple[0]) - 1)
+    vals_1 = np.clip(vals_1, 0, int(nbins_tuple[1]) - 1)
+    pre_prune = vals_0 + vals_1 * int(nbins_tuple[0])
+    running = chain_lookups[0][pre_prune]
+    running_nuniq = chain_nuniqs[0]
+
+    # Steps 2..k-1: chain forward
+    for step in range(2, k):
+        vals_next = _extract_column(X, src_names[step]).astype(np.int64, copy=False)
+        vals_next = np.clip(vals_next, 0, int(nbins_tuple[step]) - 1)
+        pre_prune = running + vals_next * running_nuniq
+        running = chain_lookups[step - 1][pre_prune]
+        running_nuniq = chain_nuniqs[step - 1]
+
+    if recipe.unknown_strategy == "raise" and (running < 0).any():
+        n_unseen = int((running < 0).sum())
+        raise ValueError(
+            f"k-way factorize recipe '{recipe.name}': {n_unseen} row(s) "
+            f"have combinations not seen during fit. Set "
+            f"unknown_strategy='clip' or 'sentinel' to handle silently."
+        )
+    return running
 
 
 def build_unary_binary_recipe(

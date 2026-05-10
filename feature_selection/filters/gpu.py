@@ -140,6 +140,55 @@ def init_kernels() -> None:
     """,
         "compute_joint_hist_batched_cuda",
     )
+    # T5: multi-pair batched joint histogram kernel. Processes B pairs per
+    # launch via 3D grid (blocks along rows, blocks along pairs). Each
+    # (pair, row) thread atomically adds into the pair-local joint hist.
+    #
+    # Inputs:
+    # - factors_data_T: (n_cols, n) row-major int32 -- transposed for
+    #   coalesced reads when iterating over rows of a column.
+    # - pairs_a, pairs_b: (n_pairs,) column indices into factors_data_T
+    # - nbins_a, nbins_b: (n_pairs,) per-pair cardinalities
+    # - joint_offsets: (n_pairs + 1,) prefix-sum into joint_counts_flat
+    # - joint_counts_flat: (sum(nbins_a*nbins_b),) flat output buffer
+    # - n_rows, n_pairs: grid dims
+    module.compute_joint_hist_multi_pair_cuda = cp.RawKernel(
+        r"""
+    extern "C" __global__
+    void compute_joint_hist_multi_pair_cuda(
+        const int *factors_data_T,    // (n_cols, n)
+        const int *classes_y,          // (n,)  -- already merged target
+        const int *pairs_a,            // (n_pairs,)
+        const int *pairs_b,            // (n_pairs,)
+        const int *nbins_a,            // (n_pairs,)
+        const int *joint_offsets,      // (n_pairs + 1,) prefix sum into joint_counts_flat
+        int *joint_counts_flat,        // sum(nbins_a[p]*nbins_b[p]*nbins_y)
+        int n_rows,
+        int n_pairs,
+        int nbins_y
+    ) {
+        int row = blockIdx.x * blockDim.x + threadIdx.x;
+        int pid = blockIdx.y;
+        if (pid >= n_pairs) return;
+        if (row >= n_rows) return;
+
+        int col_a = pairs_a[pid];
+        int col_b = pairs_b[pid];
+        int nba = nbins_a[pid];
+        int va = factors_data_T[col_a * n_rows + row];
+        int vb = factors_data_T[col_b * n_rows + row];
+        int cy = classes_y[row];
+        // Merged (a, b) code = va + vb * nba. Joint cell = merged * nbins_y + cy.
+        int merged = va + vb * nba;
+        atomicAdd(
+            &joint_counts_flat[joint_offsets[pid] + merged * nbins_y + cy],
+            1
+        );
+    }
+    """,
+        "compute_joint_hist_multi_pair_cuda",
+    )
+
     module.compute_mi_from_classes_cuda = cp.RawKernel(
         r"""
     extern "C" __global__
@@ -164,6 +213,9 @@ def init_kernels() -> None:
     """,
         "compute_mi_from_classes_cuda",
     )
+
+
+compute_joint_hist_multi_pair_cuda: Any = None
 
 
 def _ensure_kernels_inited() -> None:
@@ -425,16 +477,22 @@ def mi_direct_gpu_batched_pairs(
     on GPU. Returns a 1-D ``float64`` array of joint MIs aligned with
     the input order.
 
+    T5: true kernel-level batching via 3D grid. One launch processes
+    ALL pairs in parallel using ``compute_joint_hist_multi_pair_cuda``.
+    Joint MI per pair then computed on CPU (cheap relative to histogram
+    aggregation). Cuts the per-pair kernel-launch overhead (~30us) to
+    zero -- at n_pairs=4950 that's ~150ms saved over the naive
+    per-pair loop.
+
     Pre-conditions:
     - CuPy installed and a GPU is available.
-    - ``classes_y`` / ``freqs_y`` are precomputed by the caller -- the
-      shim does NOT re-merge the target per pair.
+    - ``classes_y`` / ``freqs_y`` are precomputed by the caller.
 
     Falls back to a clear error if CuPy is missing -- callers must
     check ``backend`` resolution before calling.
     """
     try:
-        import cupy as cp  # noqa: F401
+        import cupy as cp
     except ImportError as e:
         raise RuntimeError(
             "mi_direct_gpu_batched_pairs requires CuPy; install via "
@@ -444,25 +502,88 @@ def mi_direct_gpu_batched_pairs(
 
     _ensure_kernels_inited()
     n_pairs = len(pairs_a)
-    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
+    n_rows = factors_data.shape[0]
+    if n_pairs == 0:
+        return np.zeros(0, dtype=np.float64)
 
-    # Loop pair-by-pair, reusing the single-pair primitive. Each call
-    # re-uses ``_GPU_POOL`` so persistent device buffers cut the H2D
-    # cost on classes_y / freqs_y to ~zero after the first pair.
-    for k in range(n_pairs):
-        i = int(pairs_a[k]); j = int(pairs_b[k])
-        # Compute joint MI WITHOUT permutations -- just the point
-        # estimate. ``mi_direct_gpu`` with ``npermutations=0`` does
-        # exactly this (returns ``original_mi`` and ``confidence=0``).
-        mi_joint, _ = mi_direct_gpu(
-            factors_data=factors_data,
-            x=np.array([i, j], dtype=np.int64),
-            y=None,
-            factors_nbins=factors_nbins,
-            npermutations=0,
-            dtype=dtype,
-            classes_y=classes_y,
-            freqs_y=freqs_y,
+    # Pre-compute per-pair joint cardinalities ((nbins_a * nbins_b) cells
+    # for the MERGED dim) + prefix sum offsets. Each pair's joint table
+    # has shape (merged_size, nbins_y), flattened row-major.
+    nbins_a = factors_nbins[pairs_a].astype(np.int32)
+    nbins_b = factors_nbins[pairs_b].astype(np.int32)
+    nbins_y = int(np.asarray(freqs_y).shape[0])
+    pair_merged_sizes = nbins_a.astype(np.int64) * nbins_b.astype(np.int64)
+    pair_joint_sizes = pair_merged_sizes * nbins_y
+    joint_offsets = np.zeros(n_pairs + 1, dtype=np.int32)
+    joint_offsets[1:] = np.cumsum(pair_joint_sizes).astype(np.int32)
+    total_cells = int(joint_offsets[-1])
+
+    # Bound the GPU memory: total_cells ints. At total_cells = 1e7 that's
+    # 40 MB; at 1e8 that's 400 MB. Caller should constrain via
+    # max_combined_nbins to keep total in bounds.
+    if total_cells * 4 > 4 * 1024 * 1024 * 1024:  # > 4 GB
+        raise MemoryError(
+            f"mi_direct_gpu_batched_pairs: total joint cells {total_cells} "
+            f"would require {total_cells*4/2**30:.1f} GB on GPU. Tighten "
+            f"max_combined_nbins or run on CPU."
         )
-        joint_mi_out[k] = mi_joint
+
+    # Transposed factors_data for coalesced reads
+    factors_data_T = np.ascontiguousarray(factors_data.T.astype(np.int32))
+    factors_data_T_gpu = cp.asarray(factors_data_T)
+    classes_y_gpu = cp.asarray(np.asarray(classes_y).astype(np.int32))
+    pairs_a_gpu = cp.asarray(pairs_a.astype(np.int32))
+    pairs_b_gpu = cp.asarray(pairs_b.astype(np.int32))
+    nbins_a_gpu = cp.asarray(nbins_a)
+    joint_offsets_gpu = cp.asarray(joint_offsets)
+    joint_counts_flat = cp.zeros(total_cells, dtype=cp.int32)
+
+    block_size = min(GPU_MAX_BLOCK_SIZE, 256)
+    grid_x = (n_rows + block_size - 1) // block_size
+
+    # T5: SINGLE kernel launch processes all pairs via 3D grid (rows along X,
+    # pairs along Y). Per-pair launch overhead amortised to zero.
+    compute_joint_hist_multi_pair_cuda(
+        (grid_x, n_pairs),
+        (block_size,),
+        (
+            factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
+            nbins_a_gpu, joint_offsets_gpu,
+            joint_counts_flat, n_rows, n_pairs, nbins_y,
+        ),
+    )
+    joint_counts_host = cp.asnumpy(joint_counts_flat)
+
+    # Compute MI per pair from joint counts in numpy. For each pair:
+    #   joint shape = (merged_size, nbins_y), counts.
+    #   marginal_merged = joint.sum(axis=1)
+    #   marginal_y      = joint.sum(axis=0)
+    #   total           = n_rows
+    #   MI = sum over non-zero cells of (jc/n) * log(jc*n / (marg_m * marg_y))
+    n_total = float(n_rows)
+    joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
+    for k in range(n_pairs):
+        off = int(joint_offsets[k])
+        merged_size = int(pair_merged_sizes[k])
+        joint_2d = joint_counts_host[off : off + merged_size * nbins_y].reshape(
+            merged_size, nbins_y
+        )
+        marg_m = joint_2d.sum(axis=1)
+        marg_y = joint_2d.sum(axis=0)
+        # MI in nats
+        mi = 0.0
+        for m in range(merged_size):
+            mm = marg_m[m]
+            if mm == 0:
+                continue
+            for y in range(nbins_y):
+                jc = joint_2d[m, y]
+                if jc == 0:
+                    continue
+                my = marg_y[y]
+                if my == 0:
+                    continue
+                jf = jc / n_total
+                mi += jf * np.log(jc * n_total / (mm * my))
+        joint_mi_out[k] = mi
     return joint_mi_out

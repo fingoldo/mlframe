@@ -121,7 +121,7 @@ class TestPersistence:
         # don't churn the test, but a careless +5 or -3 trips it.
         assert 18 <= cfg_field_count <= 28, \
             f"CatFEConfig has {cfg_field_count} fields; if intentional update the pin"
-        assert 4 <= state_field_count <= 10, \
+        assert 4 <= state_field_count <= 12, \
             f"CatFEState has {state_field_count} fields; if intentional update the pin"
 
 
