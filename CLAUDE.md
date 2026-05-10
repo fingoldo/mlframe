@@ -142,6 +142,45 @@ write-path bug). On a 100 GB polars frame this would have OOM'd the
 host. Removed; the test suite now demonstrates the in-suite pattern
 (caller does the conversion at the boundary if the inner needs it).
 
+## Profile every new feature with cProfile + optimize hotspots (CRITICAL)
+
+Each new feature added to mlframe must be profiled and its hotspots
+optimized before being declared done. This is non-negotiable: features
+without an explicit profile pass accumulate latent overhead that only
+surfaces as a regression on prod. The standard pipeline:
+
+1. **Write a cProfile harness** for the feature (small-shape + production-
+   shape inputs). Save it inside the feature's package — never to
+   `D:/Temp` or `/tmp` — so any maintainer can rerun. See
+   `mlframe/training/_profile_dummy_baselines.py` as template.
+2. **Sort by cumulative time, top 20-30**. The list is the optimization
+   plan.
+3. **Optimize hotspots where it materially helps**, considering:
+   - `numba.njit` (typed JIT for numpy-heavy hot loops)
+   - `numba.njit(parallel=True)` + `numba.prange` (multi-core scaling)
+   - `numba.cuda.jit` (GPU kernels for very heavy elementwise / reduction
+     workloads)
+   - `cupy` (drop-in numpy on GPU — often the simplest GPU path when the
+     work IS already vectorized numpy)
+   - Vectorize loops; replace `apply` with `to_numpy() + ufunc`; cache
+     repeated computations; bound input size for unbounded passes (e.g.
+     ACF tail-cap pattern in `dummy_baselines._detect_acf_periods`).
+4. **Calibrate against cProfile attribution overhead.** cProfile inflates
+   pandas/sklearn deep-stack call timings ~10-13× vs standalone wall-
+   time microbench. If cProfile flags a hotspot but a wall-time
+   microbench on the same function shows <1ms, it's attribution noise
+   — document this in the profile harness docstring so future re-runs
+   don't re-flag.
+5. **Document `no actionable speedup`** when the conclusion is "no
+   optimization needed" — same docstring location. Future maintainers
+   should see the trail and not redo the analysis.
+
+This rule applies to: new training stages, new metric paths, new
+diagnostic passes, new pre-/post-processing transforms, new model
+wrappers, and new pipeline integration points. It does NOT apply to
+trivial helper additions or pure refactors that don't change the
+hot path.
+
 ## Open work items
 
 (Nothing tracked here currently. Polars support for MRMR — both the

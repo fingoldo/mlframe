@@ -102,6 +102,7 @@ def train_mlframe_ranker_suite(
     plot_outputs: Optional[str] = None,
     ltr_panels: Optional[str] = None,
     mlp_kwargs: Optional[Dict[str, Any]] = None,
+    dummy_baselines_config=None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Train a suite of native rankers + (optionally) ensemble them.
 
@@ -397,6 +398,38 @@ def train_mlframe_ranker_suite(
         for col in X_tr.columns:
             if isinstance(X_tr[col].dtype, pd.CategoricalDtype) or X_tr[col].dtype == object:
                 cat_features.append(col)
+
+    # 2026-05-10: dummy / trivial-baseline floor for LTR (random_within_query
+    # / identity_input_order / mean_relevance). One verdict line at INFO,
+    # full table at DEBUG. Wrapped in try/except — failure must never
+    # block training.
+    try:
+        from mlframe.training.configs import DummyBaselinesConfig
+        from mlframe.training.dummy_baselines import compute_dummy_baselines
+        from mlframe.training.phases import phase as _phase_ctx
+        _db_cfg = dummy_baselines_config or DummyBaselinesConfig()
+        if _db_cfg.enabled and "learning_to_rank" in _db_cfg.apply_to_target_types:
+            with _phase_ctx("dummy_baselines:learning_to_rank", target=target_name):
+                _db_report = compute_dummy_baselines(
+                    target_type="learning_to_rank",
+                    target_name=target_name,
+                    train_X=X_tr, val_X=X_va, test_X=X_te,
+                    train_y=y_tr, val_y=y_va, test_y=y_te,
+                    group_ids_train=g_tr, group_ids_val=g_va, group_ids_test=g_te,
+                    config=_db_cfg,
+                    plot_file_prefix=(plot_file or ""),
+                )
+            logger.info(_db_report.format_text())
+            logger.debug(
+                "[dummy-baselines] target='%s' full table:\n%s",
+                target_name, _db_report.table.to_string(),
+            )
+    except Exception as _db_err:
+        logger.warning(
+            "[DUMMY_BASELINES] FAILED target='%s' (learning_to_rank): %s. "
+            "Training continues without baseline floor.",
+            target_name, _db_err,
+        )
 
     for flavor in selected:
         strategy = _strategy_for_model(flavor)

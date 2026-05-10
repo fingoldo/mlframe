@@ -1,5 +1,120 @@
 # Changelog
 
+## 2026-05-10 — Dummy-baseline addendum: capability gaps + numba acceleration + CB+ICE clone fix
+
+Follow-up to the dummy-baseline report shipped earlier today. Closes the four real
+capability gaps from plan v3, applies a numba optimization pass per the new project
+rule, and fixes an unrelated CatBoost+ICE clone bug surfaced by the regression run.
+
+### Capability gaps closed
+
+1. **Paired-bootstrap robustness vs runner-up + Δ_metric verdict line (D2)**
+   `_paired_bootstrap_vs_runner_up` runs a 1000-resample paired bootstrap on
+   (strongest, runner-up) over the same resample-indices and surfaces in the verdict line:
+   ```
+   [DUMMY_BASELINES] target='ts' strongest=seasonal_naive_p14 (ts) val_RMSE=0.6008 (n_baselines=9, ...)
+   [DUMMY_BASELINES] target='ts' Delta_RMSE vs runner-up (seasonal_naive_p7 (ts)) = -0.1367 [95% bootstrap CI: -0.2329, -0.0477]; beats runner-up in 100% of resamples
+   ```
+   Gated on the same `n < bootstrap_ci_threshold` cutoff as D16 — at large n the
+   point-estimate signal-to-noise is high enough that paired bootstrap is just
+   expensive ceremony. **TIE annotation** fires when
+   `P(strongest beats runner-up) < strongest_min_beat_runner_up_prob` (default 0.7);
+   verdict line is suffixed `(beats runner-up in {pct}% of resamples - TIE, treat as noise)`
+   and the overlay plot is suppressed.
+
+2. **Quantile per-α empirical baselines (catalog completion)**
+   New `_compute_quantile_baselines` dispatcher: when caller passes
+   `quantile_alphas=[0.1, 0.5, 0.9]`, emits per-α baselines with predictions
+   shape `(N, K)` where K=len(alphas):
+   - `quantile_alpha_{a:.3f}` per α — constant prediction = empirical α-th
+     percentile of train_y (clamped to `[1e-3, 1-1e-3]` for boundary; round-3 A#9).
+   - `quantile_alpha_0.500 (=median by construction)` — D19 self-consistency annotation.
+   - `median_for_all` — single `np.median(train_y)` broadcast across all α.
+   - `multi_quantile_empirical` — the "right" baseline: the j-th α-th percentile in the j-th column.
+   Headline metric `val_pinball_mean` aggregates over non-boundary α (round-3 C#7);
+   per-α `val_pinball@{a:.3f}` columns retained for full table inspection.
+   `extras["quantile_n_eff_val"]` exposes effective-sample-size per α so operators
+   see when boundary-α metrics are dominated by 1-3 extreme rows.
+
+3. **Numba optimization pass (per the new mlframe rule)**
+   `_numba_macro_log_loss(y_int, p, n, K)` (parallel + fastmath, prange over K)
+   replaces the per-label sklearn `log_loss` loop in the multilabel path:
+   - Microbench: **57x faster** (249ms → 4.4ms on n=10⁵, K=10).
+   - End-to-end: **14x faster** on multilabel n=10⁵, K=10 (605ms → 42ms wall time).
+   Plus `_numba_micro_log_loss` for pooled binary and `_numba_within_group_descending_rank`
+   for LTR `identity_input_order`. Numba is an optional dep with graceful fallback to
+   the original sklearn path on import failure.
+
+   `_per_group_predict` got a dtype-aware fast path: numeric/boolean cat columns
+   skip the `astype(str).fillna()` coercion and use the raw values as groupby key
+   directly (microbench: **13x faster** on n=10⁶, int32 cat — 519ms → 40ms).
+   String/categorical/datetime columns still go through the safe stringify path
+   (round-3 A#13 NaN-handling preserved).
+
+   **Combined wall-time**: 1M-row regression dispatcher 0.75s → 0.15s (5x).
+
+4. **End-to-end smoke + integration bug fix**
+   `_smoke_dummy_baselines_e2e.py` exercises the full integration. Found and fixed
+   a real bug: `target_label_encoder` was undefined in `core.py`'s regression path
+   (only set inside the classification branch); dropped from the dummy_baselines
+   call site (the encoder is optional and only consulted by classification scoring).
+
+### CatBoost+ICE eval_metric clone bug — root cause + fix
+
+`mlframe.metrics.ICE` (a custom probabilistic-prediction-error metric used as
+CatBoost's `eval_metric`) interacted with sklearn's `clone()` in a way that
+broke RFECV (`test_rfecv_pipeline_runs_for_each_model_family`,
+`test_mrmr_and_rfecv_stack_runs`).
+
+**Root cause**: `CatBoostClassifier.__init__` deep-copies its `eval_metric`
+internally; subsequent `cb.get_params(deep=False)['eval_metric']` returns a
+DIFFERENT instance than what was passed in. Each call returns yet another
+distinct copy. `sklearn.base._clone_parametrized` then verifies
+`new_obj.get_params()[name] is param` after cloning all params — and this
+assertion fails for CB+ICE because CB destroys identity at every `__init__`
+boundary, raising:
+```
+RuntimeError: Cannot clone object CatBoostClassifier(...eval_metric=<ICE>...),
+as the constructor either does not set or modifies parameter eval_metric
+```
+
+**Failed approaches** (with documented rationale in the source):
+- `ICE.__sklearn_clone__` returning self — fixes the sklearn-side identity but
+  not CatBoost's internal deepcopy on `__init__`.
+- `ICE.__deepcopy__` returning self — fixes RFECV but breaks
+  `save_mlframe_models_suite` because retaining CB-internal numba JIT
+  references (`_cpu_jit_method_wrap.<locals>.new_method`) across the pre-pickle
+  `copy.deepcopy(model)` call leaks unpicklable cyfunctions to dill.
+
+**Working fix**: install `__sklearn_clone__` directly on `CatBoostClassifier` /
+`CatBoostRegressor` via a one-time monkey-patch at `mlframe.metrics` module
+load. The patch reuses the same `eval_metric` instance for the cloned
+estimator (skipping CB's internal deep-copy by setting after construction)
+and bypasses sklearn's parametric identity check entirely. ICE itself
+retains default deepcopy/pickle behaviour so save/load is unaffected.
+
+### Tests + verification
+
+- `test_dummy_baselines.py`: **59 tests** (was 40 yesterday — added 19 covering
+  paired-bootstrap, TIE annotation, quantile per-α, polars `List(Float32)`,
+  slugify on unicode targets, sklearn version assertion, `n<10` sample-noise
+  gate, numba kernel sanity).
+- Final regression on dummy_baselines + adjacent + suite_coverage_gaps +
+  temporal_audit: **240 passed / 1 skipped (CatBoost-GPU) / 0 failures** in 15min.
+
+### File map (this addendum)
+
+- Modified: `mlframe/training/dummy_baselines.py` (paired-bootstrap helper +
+  TIE annotation + verdict-line Δ surface; multi-output detection at entry;
+  numba kernels for macro/micro log-loss + within-group rank; dtype-aware
+  `_col_to_groupkey`; quantile per-α dispatcher + pinball-loss metrics path;
+  paired-bootstrap n-gate)
+- Modified: `mlframe/metrics.py` (ICE.__sklearn_clone__ + CatBoost
+  `__sklearn_clone__` monkey-patch installer)
+- Modified: `mlframe/training/core.py` (dropped undefined
+  `target_label_encoder` from dummy_baselines call site)
+- Modified: `mlframe/tests/training/test_dummy_baselines.py` (+19 tests)
+
 ## 2026-05-10 — RFECV PR-5: Gaussian Knockoffs + multi-estimator min-aggregation fix + SHAP bias correction
 
 ### Gaussian Knockoffs (Barber & Candes 2015)

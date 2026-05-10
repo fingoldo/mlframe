@@ -2841,6 +2841,22 @@ class ICE:
     def is_max_optimal(self):
         return self.higher_is_better
 
+    def __sklearn_clone__(self):
+        """Identity clone for sklearn's ``clone()`` (sklearn >= 1.3).
+
+        ICE has no fit-state worth re-initialising on clone; sharing the
+        same instance is harmless. Returning ``self`` here is necessary
+        but not sufficient for the CB+ICE clone bind: ``CatBoost``'s
+        ``__init__`` always deep-copies ``eval_metric`` internally, so
+        the sklearn clone assertion (``new_obj.get_params()[name] is
+        param``) still trips. The ``__sklearn_clone__`` patch installed
+        below on ``CatBoostClassifier`` / ``CatBoostRegressor`` closes
+        that gap by returning a CB instance with explicit identity-shared
+        ``eval_metric`` instead of going through the parametric-check
+        path.
+        """
+        return self
+
     def evaluate(self, approxes, target, weight):
         output_weight = 1  # weight is not used
 
@@ -2884,6 +2900,68 @@ class ICE:
 
     def get_final_error(self, error, weight):
         return error
+
+
+# -----------------------------------------------------------------------------
+# CatBoost compat: ``__sklearn_clone__`` patch for CB+ICE eval_metric clone bug
+# -----------------------------------------------------------------------------
+# CatBoost's ``__init__`` deep-copies its ``eval_metric`` argument
+# internally, then ``get_params(deep=False)`` returns the deep-copied
+# instance. ``sklearn.base.clone()``'s parametric path verifies that
+# ``new_object.get_params()[name] is param`` for every parameter — and
+# this fails for CB+ICE because ``param`` (post-clone-of-ICE) is the
+# original ICE while ``new_object.get_params()['eval_metric']`` is a CB-
+# internal deep copy. Identity is destroyed by CB, not by ICE.
+#
+# Touching ICE.__deepcopy__ to return self DID restore identity for CB's
+# internal copy but BROKE pickle: sharing ICE across the pre-pickle
+# ``copy.deepcopy(model)`` retains a CatBoost-internal numba JIT
+# cyfunction reference (``_cpu_jit_method_wrap.<locals>.new_method``)
+# that dill cannot serialize.
+#
+# The clean fix lives at the CB level: install ``__sklearn_clone__`` on
+# ``CatBoostClassifier`` / ``CatBoostRegressor`` that reuses the same
+# ``eval_metric`` instance for the cloned estimator, bypassing
+# ``_clone_parametrized``'s identity check entirely. ICE retains its
+# default deepcopy/pickle behaviour, so save/load is unaffected.
+def _install_catboost_sklearn_clone_patch() -> None:
+    try:
+        from catboost import CatBoostClassifier, CatBoostRegressor
+    except ImportError:
+        return
+
+    def _cb_sklearn_clone(self):
+        # Reuse the SAME eval_metric instance to bypass CB's internal
+        # deep-copy of eval_metric on __init__ that breaks identity.
+        params = self.get_params(deep=False)
+        eval_metric = getattr(self, "_init_params", {}).get("eval_metric")
+        if eval_metric is None:
+            eval_metric = params.get("eval_metric")
+        cls = type(self)
+        # Strip eval_metric from params before re-init so we can attach
+        # the original instance after construction (CB's __init__ would
+        # deep-copy it otherwise).
+        params_no_em = {k: v for k, v in params.items() if k != "eval_metric"}
+        new = cls(**params_no_em)
+        if eval_metric is not None:
+            # Re-attach by direct assignment — CB stores eval_metric in
+            # ``_init_params`` and the public param map.
+            try:
+                new._init_params["eval_metric"] = eval_metric
+            except (AttributeError, KeyError):
+                pass
+            try:
+                new.set_params(eval_metric=eval_metric)
+            except Exception:
+                pass
+        return new
+
+    for cls in (CatBoostClassifier, CatBoostRegressor):
+        if not hasattr(cls, "__sklearn_clone__"):
+            cls.__sklearn_clone__ = _cb_sklearn_clone
+
+
+_install_catboost_sklearn_clone_patch()
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

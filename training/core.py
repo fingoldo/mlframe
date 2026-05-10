@@ -952,6 +952,7 @@ from .configs import (
     ConfidenceAnalysisConfig,
     BaselineDiagnosticsConfig,
     CompositeTargetDiscoveryConfig,
+    DummyBaselinesConfig,
 )
 from .preprocessing import (
     load_and_prepare_dataframe,
@@ -1907,6 +1908,14 @@ def train_mlframe_models_suite(
     # consumed by future composite-target discovery. Default ON; set
     # ``BaselineDiagnosticsConfig(enabled=False)`` to skip.
     baseline_diagnostics_config: Optional[Union["BaselineDiagnosticsConfig", Dict]] = None,
+    # 2026-05-10: opt-out trivial-baseline floor diagnostic. Sit-alongside
+    # BaselineDiagnostics — answers "is the task even hard?" via a per-
+    # target table of dummy/naive baselines (mean / median / prior /
+    # most_frequent / per_group / TS-naive when timestamps monotonic / LTR
+    # random_within_query / multilabel per-label-prior). Verdict line + plot
+    # for the strongest baseline only. Default ON; opt-out individual
+    # target_types via ``DummyBaselinesConfig.apply_to_target_types``.
+    dummy_baselines_config: Optional[Union["DummyBaselinesConfig", Dict]] = None,
     # 2026-05-10: opt-IN auto-discovery of composite-target transforms
     # (``T = f(y, base)``) for regression targets. When enabled, runs
     # MI-gain ranking after baseline_diagnostics and adds the discovered
@@ -2168,6 +2177,9 @@ def train_mlframe_models_suite(
     confidence_analysis_config = _ensure_config(confidence_analysis_config, ConfidenceAnalysisConfig, {})
     baseline_diagnostics_config = _ensure_config(
         baseline_diagnostics_config, BaselineDiagnosticsConfig, {}
+    )
+    dummy_baselines_config = _ensure_config(
+        dummy_baselines_config, DummyBaselinesConfig, {}
     )
     composite_target_discovery_config = _ensure_config(
         composite_target_discovery_config, CompositeTargetDiscoveryConfig, {}
@@ -3944,6 +3956,66 @@ def train_mlframe_models_suite(
                         cur_target_name, target_type, _bd_err,
                     )
 
+                # 2026-05-10: dummy / trivial-baseline floor (sit-alongside
+                # BaselineDiagnostics). One verdict line at INFO, full table
+                # at DEBUG; per-strongest overlay plot. Wrapped in try/except
+                # — failure to compute the floor must never block training.
+                # D7: phase qualifier per-target_type for [wall-share]
+                # debuggability.
+                try:
+                    if dummy_baselines_config.enabled and (
+                        str(target_type) in dummy_baselines_config.apply_to_target_types
+                    ):
+                        from .dummy_baselines import compute_dummy_baselines
+
+                        _ts_train = (
+                            timestamps[filtered_train_idx]
+                            if timestamps is not None and filtered_train_idx is not None
+                            else None
+                        )
+                        _ts_val = (
+                            timestamps[filtered_val_idx]
+                            if timestamps is not None and filtered_val_idx is not None
+                            else None
+                        )
+                        _ts_test = (
+                            timestamps[test_idx]
+                            if timestamps is not None and test_idx is not None
+                            else None
+                        )
+                        with phase(f"dummy_baselines:{str(target_type)}", target=cur_target_name):
+                            _db_report = compute_dummy_baselines(
+                                target_type=str(target_type),
+                                target_name=cur_target_name,
+                                train_X=filtered_train_df,
+                                val_X=filtered_val_df,
+                                test_X=test_df_pd,
+                                train_y=current_train_target,
+                                val_y=current_val_target,
+                                test_y=current_test_target,
+                                timestamps_train=_ts_train,
+                                timestamps_val=_ts_val,
+                                timestamps_test=_ts_test,
+                                cat_features=cat_features,
+                                config=dummy_baselines_config,
+                                plot_file_prefix=(plot_file or ""),
+                            )
+                        logger.info(_db_report.format_text())
+                        logger.debug(
+                            "[dummy-baselines] target='%s' full table:\n%s",
+                            cur_target_name, _db_report.table.to_string(),
+                        )
+                        metadata.setdefault("dummy_baselines", {}) \
+                            .setdefault(str(target_type), {})[cur_target_name] = _db_report.to_dict()
+                except Exception as _db_err:
+                    logger.warning(
+                        "[DUMMY_BASELINES] FAILED target='%s' (%s): %s. "
+                        "Training continues without baseline floor.",
+                        cur_target_name, target_type, _db_err,
+                    )
+                    metadata.setdefault("dummy_baselines_failures", {}) \
+                        .setdefault(str(target_type), {})[cur_target_name] = str(_db_err)
+
                 # Look up the precomputed temporal audit (built ONCE
                 # for all targets above the loop via the batch API).
                 _audit = _all_target_audits.get(target_type, {}).get(cur_target_name)
@@ -5589,6 +5661,67 @@ def train_mlframe_models_suite(
                     _orig_tname, _ce_strategy, len(_components),
                     _tt_e, _ens_key,
                 )
+
+    # 2026-05-10: suite-end dummy-baselines summary (D6) — cross-target
+    # verdict block + canonical UPPERCASE WARN tokens.
+    try:
+        if metadata.get("dummy_baselines"):
+            from .dummy_baselines import format_suite_end_summary
+            # Build {(target_type, target_name): {primary_metric: best_val,
+            # "model_name": ...}} from the trained models. The model
+            # metrics dict is keyed by metric NAME (e.g. "RMSE"); the
+            # dummy primary_metric is split-prefixed (e.g. "val_RMSE").
+            # Strip the "val_" prefix and look up via _entry_metric.
+            _best_metrics: Dict[Tuple[str, str], Dict[str, Any]] = {}
+            for _tt, _by_name in metadata.get("dummy_baselines", {}).items():
+                for _tname, _rep_dict in _by_name.items():
+                    _pm = _rep_dict.get("primary_metric")
+                    if not _pm or not _pm.startswith("val_"):
+                        continue
+                    _metric_name = _pm[len("val_"):]  # "val_RMSE" -> "RMSE"
+                    _model_list = models.get(_tt, {}).get(_tname, [])
+                    if not _model_list:
+                        continue
+                    # Pick best model by primary metric. Minimize for
+                    # RMSE/MAE/log_loss/pinball; maximize for everything
+                    # else (NDCG / AUC).
+                    _is_minimize = (
+                        "RMSE" in _metric_name or "MAE" in _metric_name
+                        or "log_loss" in _metric_name or "pinball" in _metric_name
+                    )
+                    _best_val: Optional[float] = None
+                    _best_name = "-"
+                    for _m in _model_list:
+                        _v = _entry_metric(_m, "val", _metric_name)
+                        if not np.isfinite(_v):
+                            continue
+                        if (
+                            _best_val is None
+                            or (_is_minimize and _v < _best_val)
+                            or (not _is_minimize and _v > _best_val)
+                        ):
+                            _best_val = _v
+                            _best_name = getattr(_m, "model_name", None) or type(
+                                getattr(_m, "model", _m)
+                            ).__name__
+                    if _best_val is not None:
+                        _best_metrics[(str(_tt), str(_tname))] = {
+                            _pm: _best_val,
+                            "model_name": _best_name,
+                        }
+            _summary_text = format_suite_end_summary(
+                dummy_baselines_metadata=metadata.get("dummy_baselines", {}),
+                failures_metadata=metadata.get("dummy_baselines_failures", {}),
+                best_model_metrics_by_target=_best_metrics if _best_metrics else None,
+                min_lift=dummy_baselines_config.best_model_min_lift,
+            )
+            if _summary_text:
+                logger.info(_summary_text)
+    except Exception as _db_summary_err:
+        logger.warning(
+            "[DUMMY_BASELINES] suite-end summary failed: %s",
+            _db_summary_err,
+        )
 
     return dict(models), metadata
 

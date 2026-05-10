@@ -99,6 +99,53 @@ from mlframe.training.phases import phase
 logger = logging.getLogger(__name__)
 
 
+def _canonical_multilabel_y(targets) -> np.ndarray:
+    """Coerce a multilabel-shaped target to a clean ``(N, K) ndarray``.
+
+    Accepts the three shapes the suite encounters in production:
+    1. ``np.ndarray`` 2-D ``(N, K)`` — passed through.
+    2. ``pd.DataFrame`` — ``.values``.
+    3. ``np.ndarray`` 1-D ``object`` dtype where each cell is a
+       length-K array-like (the polars ``pl.List(pl.Int8)`` /
+       ``pl.List(pl.Float32)`` -> pandas object roundtrip). Stacked
+       to 2-D via ``np.stack``.
+    Otherwise returns ``np.asarray(targets)`` unchanged (1-D / scalar
+    / unhandled — caller decides).
+
+    For float-typed cells (``pl.List(pl.Float32)`` source), the
+    output is cast to ``int64`` via ``>= 0.5`` threshold (round-3
+    audit A#22): downstream metrics expect ``{0, 1}`` indicators.
+
+    Extracted from the inline canonicalization at evaluation.py
+    (Session 2026-04-28) so ``mlframe.training.dummy_baselines`` and
+    other consumers share one path.
+    """
+    if isinstance(targets, pd.DataFrame):
+        targets_arr = targets.values
+    elif isinstance(targets, np.ndarray):
+        targets_arr = targets
+    else:
+        targets_arr = np.asarray(targets)
+
+    if targets_arr.dtype == object and targets_arr.ndim == 1 and targets_arr.shape[0] > 0:
+        first = targets_arr[0]
+        if hasattr(first, "shape") or (
+            hasattr(first, "__len__") and not isinstance(first, (str, bytes))
+        ):
+            try:
+                targets_arr = np.stack([np.asarray(c) for c in targets_arr], axis=0)
+            except Exception:
+                # Unstackable (jagged / mixed shape) — leave as-is so the
+                # caller's exception path surfaces the underlying issue.
+                return targets_arr
+
+    # Coerce float-indicator multilabel to int via threshold (round-3 A#22).
+    if targets_arr.ndim == 2 and targets_arr.dtype.kind == "f":
+        targets_arr = (targets_arr >= 0.5).astype(np.int64)
+
+    return targets_arr
+
+
 def report_model_perf(
     targets: Union[np.ndarray, pd.Series],
     columns: Sequence[str],
@@ -830,17 +877,11 @@ def report_probabilistic_model_perf(
     # ``pl.List(pl.Int8)`` -> pandas object roundtrip), stack to 2-D so
     # ``targets_arr[:, class_id]`` works in the multilabel branch.
     # Surfaced 3-way fuzz c0000 / c0008 (cb / multilabel target).
-    targets_arr = np.asarray(targets) if not isinstance(targets, np.ndarray) else targets
-    if targets_arr.dtype == object and targets_arr.ndim == 1 and targets_arr.shape[0] > 0:
-        _first = targets_arr[0]
-        if hasattr(_first, "shape") or (
-            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-        ):
-            try:
-                targets_arr = np.stack([np.asarray(c) for c in targets_arr], axis=0)
-                targets = targets_arr  # rebind so downstream uses the stacked form
-            except Exception:
-                pass
+    # 2026-05-10: extracted to ``_canonical_multilabel_y`` helper so the
+    # new ``mlframe.training.dummy_baselines`` module can reuse the same
+    # canonicalization logic without duplication.
+    targets_arr = _canonical_multilabel_y(targets)
+    targets = targets_arr  # rebind so downstream uses the stacked form
     is_multilabel = targets_arr.ndim == 2
 
     integral_error = custom_ice_metric(y_true=targets, y_score=probs) if custom_ice_metric else 0.0
