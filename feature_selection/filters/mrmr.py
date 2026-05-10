@@ -596,336 +596,49 @@ class MRMR(BaseEstimator, TransformerMixin):
             if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
                 break
 
-            # Feature engineering part here
-
-            if verbose:
-                logger.info("MRMR+ selected %d out of %d features before the Feature Engineering step.", len(selected_vars), self.n_features_in_)
-
-            if len(selected_vars) == 0:
-                if self.fe_fallback_to_all:
-                    # B15 legacy path (opt-in via fe_fallback_to_all=True).
-                    logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
-                    selected_vars = np.array([cols.index(col) for col in cols if col not in target_names])
-                else:
-                    # B15 new default: skip FE on empty screen. Running FE
-                    # on every feature when screening rejected all of them
-                    # historically just amplified noise -- the operator
-                    # asked for a knob, this is the safer default.
-                    logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
-                    break
-
-            if verbose >= 2:
-                logger.info("Computing prospective FE pairs...")
-
-            if self.fe_ntop_features:
-                numeric_vars_to_consider = selected_vars[: self.fe_ntop_features]
-            else:
-                numeric_vars_to_consider = selected_vars
-
-            numeric_vars_to_consider = set(numeric_vars_to_consider) - set(categorical_vars)
-
-            # B2 (post-plan): honor factors_to_use / factors_names_to_use
-            # in the FE step too. Previously the legacy ``# !TODO! handle
-            # factors_to_use etc`` comment punted this; engineered features
-            # were generated from selected pairs even when the caller had
-            # restricted the candidate set. Now we intersect the FE pool
-            # with the user's restriction, matching the screening step's
-            # contract.
-            if self.factors_to_use is not None:
-                numeric_vars_to_consider = numeric_vars_to_consider & set(self.factors_to_use)
-            if self.factors_names_to_use is not None:
-                allowed = {cols.index(n) for n in self.factors_names_to_use if n in cols}
-                numeric_vars_to_consider = numeric_vars_to_consider & allowed
-
-            all_pairs = list(combinations(numeric_vars_to_consider, 2))
-
-            if verbose:
-                logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", len(all_pairs))
-
-            if len(numeric_vars_to_consider) < 50:
-                compute_pairs_mis(
-                    all_pairs=tqdmu(all_pairs, desc="getting pairs MIs", leave=False, mininterval=5),
-                    data=data,
-                    target_indices=target_indices,
-                    nbins=nbins,
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-                    fe_npermutations=fe_npermutations,
-                    cached_confident_MIs=cached_confident_MIs,
-                    cached_MIs=cached_MIs,
-                    fe_min_pair_mi=fe_min_pair_mi,
-                    fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-                )
-            else:
-
-                dicts = parallel_run(
-                    [
-                        delayed(compute_pairs_mis)(
-                            all_pairs=chunk,
-                            data=data,
-                            target_indices=target_indices,
-                            nbins=nbins,
-                            classes_y=classes_y,
-                            classes_y_safe=classes_y_safe,
-                            freqs_y=freqs_y,
-                            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
-                            fe_npermutations=fe_npermutations,
-                            cached_confident_MIs=cached_confident_MIs,
-                            cached_MIs=cached_MIs,
-                            fe_min_pair_mi=fe_min_pair_mi,
-                            fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-                        )
-                        for chunk in split_list_into_chunks(all_pairs, len(all_pairs) // (n_jobs * prefetch_factor))
-                    ],
-                    n_jobs=n_jobs,
-                    **parallel_kwargs,
-                )
-                for next_dict in dicts:
-                    cached_MIs.update(next_dict)
-
-            # ---------------------------------------------------------------------------------------------------------------
-            # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
-            # ---------------------------------------------------------------------------------------------------------------
-
-            vars_usage_counter = defaultdict(int)
-            prospective_pairs = {}
-            for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
-                if len(raw_vars_pair) == 2:
-                    if raw_vars_pair in checked_pairs:
-                        continue
-                    if raw_vars_pair[0] in numeric_vars_to_consider and raw_vars_pair[1] in numeric_vars_to_consider:
-                        ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
-                        if pair_mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
-                            uplift = pair_mi / ind_elems_mi_sum
-                            if verbose >= 2:
-                                logger.info(
-                                    f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {ind_elems_mi_sum:.4f}->{pair_mi:.4f}, rat={uplift:.2f}"
-                                )
-                            prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
-                            for var in raw_vars_pair:
-                                vars_usage_counter[var] += 1
-
-            # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
-            # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
-            prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
-
-            if fe_smart_polynom_iters:
-
-                # ---------------------------------------------------------------------------------------------------------------
-                # We search for best unary & binary transforms using Hermit polinomials & Optuna!
-                # Degrees kep reasonable small as a form of regularization.
-                # In theory (esp if inputs are normalized), Hermit polynomials can approximate any functional form, therefore replacing our
-                # random experimenting with arbitrary functions (that was pretty limited anyways).
-                # ---------------------------------------------------------------------------------------------------------------
-
-                import optuna
-                from optuna.samplers import TPESampler
-
-                optuna.logging.set_verbosity(optuna.logging.WARNING)
-
-                def get_best_polynom_mi(coef_a, coef_b, vals_a, vals_b) -> float:
-
-                    transformed_var_a = hermval(vals_a, c=coef_a)
-                    transformed_var_b = hermval(vals_b, c=coef_b)
-
-                    best_mi = -1
-                    best_config = None
-
-                    for bin_func_name, bin_func in binary_transformations.items():
-
-                        final_transformed_vals = bin_func(transformed_var_a, transformed_var_b)
-
-                        discretized_transformed_values = discretize_array(
-                            arr=final_transformed_vals, n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
-                        )
-                        fe_mi, fe_conf = mi_direct(
-                            discretized_transformed_values.reshape(-1, 1),
-                            x=np.array([0], dtype=np.int64),
-                            y=None,
-                            factors_nbins=np.array([self.quantization_nbins], dtype=np.int64),
-                            classes_y=classes_y,
-                            classes_y_safe=classes_y_safe,
-                            freqs_y=freqs_y,
-                            min_nonzero_confidence=fe_min_nonzero_confidence,
-                            npermutations=fe_npermutations,
-                        )
-
-                        if fe_mi > best_mi:
-                            best_mi = fe_mi
-                            best_config = bin_func_name
-
-                    return best_mi
-
-                for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
-                    if _is_polars_input:
-                        # Polars: int column indexing returns a Series;
-                        # .to_numpy() is zero-copy for Arrow-backed numerics.
-                        vals_a = X[:, raw_vars_pair[0]].to_numpy()
-                        vals_b = X[:, raw_vars_pair[1]].to_numpy()
-                    else:
-                        vals_a = X.iloc[:, raw_vars_pair[0]].values
-                        vals_b = X.iloc[:, raw_vars_pair[1]].values
-
-                    for _ in range(fe_smart_polynom_iters):
-
-                        length_a = np.random.randint(fe_min_polynom_degree, fe_max_polynom_degree)
-                        length_b = np.random.randint(fe_min_polynom_degree, fe_max_polynom_degree)
-
-                        # Define an objective function to be minimized.
-                        def objective(trial):
-
-                            coef_a = np.empty(shape=length_a, dtype=np.float32)
-                            for i in range(length_a):
-                                coef_a[i] = trial.suggest_float(f"a_{i}", fe_min_polynom_coeff, fe_max_polynom_coeff)
-
-                            coef_b = np.empty(shape=length_b, dtype=np.float32)
-                            for i in range(length_b):
-                                coef_b[i] = trial.suggest_float(f"b_{i}", fe_min_polynom_coeff, fe_max_polynom_coeff)
-
-                            res = get_best_polynom_mi(coef_a=coef_a, coef_b=coef_b, vals_a=vals_a, vals_b=vals_b)
-
-                            return res
-
-                        study = optuna.create_study(direction="maximize", sampler=TPESampler(multivariate=True))  # Create a new study.
-                        study.optimize(objective, n_trials=fe_smart_polynom_optimization_steps)  # Invoke optimization of the objective function.
-
-                        print(f"Best MI: {study.best_trial.value:.4f}, pair_mi={pair_mi:.4f}")
-                        print(f"Best hyperparameters: {study.best_params}")
-            else:
-                original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
-                if verbose >= 1:
-                    logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
-                if len(X) < 50_000 or len(prospective_pairs) < 2:
-                    prospective_additions = check_prospective_fe_pairs(
-                        prospective_pairs,
-                        X,
-                        unary_transformations,
-                        binary_transformations,
-                        classes_y,
-                        classes_y_safe,
-                        freqs_y,
-                        num_fs_steps,
-                        cols,
-                        original_cols,
-                        fe_max_steps,
-                        fe_npermutations,
-                        fe_max_pair_features,
-                        fe_print_best_mis_only,
-                        fe_min_nonzero_confidence,
-                        fe_min_engineered_mi_prevalence,
-                        fe_good_to_best_feature_mi_threshold,
-                        fe_max_external_validation_factors,
-                        numeric_vars_to_consider,
-                        self.quantization_nbins,
-                        self.quantization_method,
-                        self.quantization_dtype,
-                        times_spent,
-                        verbose,
-                    )
-                else:
-
-                    prospective_additions = {}
-                    desired_nitems = max(1, len(prospective_pairs) // (n_jobs * prefetch_factor))
-
-                    jobs_list = []
-
-                    nitems = 0
-                    cur_dict = {}
-                    for key, value in prospective_pairs.items():
-                        nitems += 1
-                        cur_dict[key] = value
-                        if nitems >= desired_nitems:
-                            jobs_list.append(cur_dict)
-                            nitems = 0
-                            cur_dict = {}
-                    if cur_dict:
-                        jobs_list.append(cur_dict)
-
-                    if verbose:
-                        logger.info(
-                            f"Using {desired_nitems:_} items per thread for checking {len(prospective_pairs):_} prospective_pairs with gain>{fe_min_pair_mi_prevalence:.2f}."
-                        )
-
-                    dicts = parallel_run(
-                        [
-                            delayed(check_prospective_fe_pairs)(
-                                chunk,
-                                X,
-                                unary_transformations,
-                                binary_transformations,
-                                classes_y,
-                                classes_y_safe,
-                                freqs_y,
-                                num_fs_steps,
-                                cols,
-                                original_cols,
-                                fe_max_steps,
-                                fe_npermutations,
-                                fe_max_pair_features,
-                                fe_print_best_mis_only,
-                                fe_min_nonzero_confidence,
-                                fe_min_engineered_mi_prevalence,
-                                fe_good_to_best_feature_mi_threshold,
-                                fe_max_external_validation_factors,
-                                numeric_vars_to_consider,
-                                self.quantization_nbins,
-                                self.quantization_method,
-                                self.quantization_dtype,
-                                times_spent,
-                                verbose,
-                            )
-                            for chunk in jobs_list
-                        ],
-                        # max_nbytes=0,
-                        n_jobs=n_jobs,
-                        **parallel_kwargs,
-                    )
-                    for next_dict in dicts:
-                        prospective_additions.update(next_dict)
-
-                for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins, messages) in prospective_additions.items():
-                    if this_pair_features:
-                        engineered_features.update(this_pair_features)
-                        if verbose:
-                            for mes in messages:
-                                logger.info(mes)
-                            # logger.info(f"Features {new_cols} are recommended to use as new features!")
-                        if fe_max_steps > 1:
-                            new_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=self.quantization_dtype)
-                            for j in range(len(this_pair_features)):
-                                new_vals[:, j] = discretize_array(
-                                    arr=transformed_vals[:, j],
-                                    n_bins=self.quantization_nbins,
-                                    method=self.quantization_method,
-                                    dtype=self.quantization_dtype,
-                                )
-                            data = np.append(data, new_vals, axis=1)
-                            nbins = nbins + new_nbins
-                            cols = cols + new_cols
-                            if _is_polars_input:
-                                # Polars is immutable -- accumulate new cols
-                                # via with_columns (returns a new frame
-                                # sharing buffers with X). Caller's original
-                                # frame is never mutated.
-                                _series_to_add = [
-                                    pl.Series(col, transformed_vals[:, j])
-                                    for j, col in enumerate(new_cols)
-                                ]
-                                X = X.with_columns(_series_to_add)
-                            else:
-                                for col in new_cols:
-                                    X[col] = transformed_vals[:, j]
-
-                        n_recommended_features += len(this_pair_features)
-
-                    # !TODO!  handle factors_to_use etc
-                    """
-                    factors_names_to_use=self.factors_names_to_use,
-                    factors_to_use=self.factors_to_use,                    
-                        """
-                    checked_pairs.add(raw_vars_pair)
+            # Feature engineering iteration -- delegated to ``_run_fe_step``
+            # so the FE controller is callable / testable / experiment-
+            # friendly outside of the screening loop. Returns the updated
+            # state tuple plus ``n_recommended_features``; if zero, the
+            # outer loop breaks (no further FE worth attempting).
+            fe_result = self._run_fe_step(
+                data=data, cols=cols, nbins=nbins, X=X,
+                target_names=target_names, target_indices=target_indices,
+                selected_vars=selected_vars,
+                categorical_vars=categorical_vars,
+                classes_y=classes_y, classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs,
+                unary_transformations=unary_transformations,
+                binary_transformations=binary_transformations,
+                engineered_features=engineered_features,
+                checked_pairs=checked_pairs,
+                times_spent=times_spent,
+                num_fs_steps=num_fs_steps,
+                n_jobs=n_jobs, prefetch_factor=prefetch_factor,
+                parallel_kwargs=parallel_kwargs,
+                _is_polars_input=_is_polars_input,
+                verbose=verbose,
+                fe_max_steps=fe_max_steps,
+                fe_npermutations=fe_npermutations,
+                fe_max_pair_features=fe_max_pair_features,
+                fe_print_best_mis_only=fe_print_best_mis_only,
+                fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
+                fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
+                fe_max_external_validation_factors=fe_max_external_validation_factors,
+                fe_min_pair_mi=fe_min_pair_mi,
+                fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+                fe_smart_polynom_iters=fe_smart_polynom_iters,
+                fe_smart_polynom_optimization_steps=fe_smart_polynom_optimization_steps,
+                fe_min_polynom_degree=fe_min_polynom_degree,
+                fe_max_polynom_degree=fe_max_polynom_degree,
+                fe_min_polynom_coeff=fe_min_polynom_coeff,
+                fe_max_polynom_coeff=fe_max_polynom_coeff,
+            )
+            if fe_result is None:
+                break  # B15 skip / empty screening + fe_fallback_to_all=False
+            data, cols, nbins, X, selected_vars, n_recommended_features = fe_result
 
             if n_recommended_features == 0:
                 break
@@ -1084,6 +797,398 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         self.signature = signature
         return self
+
+
+    def _run_fe_step(
+        self,
+        *,
+        # Mutable state from MRMR.fit (returned updated as tuple).
+        data, cols, nbins, X,
+        target_names, target_indices,
+        selected_vars, categorical_vars,
+        classes_y, classes_y_safe, freqs_y,
+        cached_MIs, cached_confident_MIs,
+        unary_transformations, binary_transformations,
+        engineered_features, checked_pairs,
+        times_spent,
+        num_fs_steps,
+        # Service.
+        n_jobs, prefetch_factor, parallel_kwargs,
+        _is_polars_input, verbose,
+        # FE config (frozen per fit).
+        fe_max_steps, fe_npermutations, fe_max_pair_features,
+        fe_print_best_mis_only, fe_min_nonzero_confidence,
+        fe_min_engineered_mi_prevalence,
+        fe_good_to_best_feature_mi_threshold,
+        fe_max_external_validation_factors,
+        fe_min_pair_mi, fe_min_pair_mi_prevalence,
+        fe_smart_polynom_iters, fe_smart_polynom_optimization_steps,
+        fe_min_polynom_degree, fe_max_polynom_degree,
+        fe_min_polynom_coeff, fe_max_polynom_coeff,
+    ):
+        """One Feature Engineering iteration.
+
+        Extracted from ``MRMR.fit`` for testability + experimentation
+        with alternative FE strategies. Honour the same logic / defaults
+        as the legacy in-line block so the post-extract golden tests
+        stay bit-exact.
+
+        Returns ``None`` if the FE step should not run at all (B15
+        empty-screen + ``fe_fallback_to_all=False``); otherwise a tuple
+        ``(data, cols, nbins, X, selected_vars, n_recommended_features)``
+        with the updated state. ``n_recommended_features == 0`` signals
+        the outer loop to stop iterating.
+        """
+        if verbose:
+            logger.info("MRMR+ selected %d out of %d features before the Feature Engineering step.", len(selected_vars), self.n_features_in_)
+
+        if len(selected_vars) == 0:
+            if self.fe_fallback_to_all:
+                logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
+                selected_vars = np.array([cols.index(col) for col in cols if col not in target_names])
+            else:
+                logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
+                return None
+
+        n_recommended_features = 0
+        if verbose >= 2:
+            logger.info("Computing prospective FE pairs...")
+
+        if self.fe_ntop_features:
+            numeric_vars_to_consider = selected_vars[: self.fe_ntop_features]
+        else:
+            numeric_vars_to_consider = selected_vars
+
+        numeric_vars_to_consider = set(numeric_vars_to_consider) - set(categorical_vars)
+
+        # B2 (post-plan): honor factors_to_use / factors_names_to_use
+        # in the FE step too. Previously the legacy ``# !TODO! handle
+        # factors_to_use etc`` comment punted this; engineered features
+        # were generated from selected pairs even when the caller had
+        # restricted the candidate set. Now we intersect the FE pool
+        # with the user's restriction, matching the screening step's
+        # contract.
+        if self.factors_to_use is not None:
+            numeric_vars_to_consider = numeric_vars_to_consider & set(self.factors_to_use)
+        if self.factors_names_to_use is not None:
+            allowed = {cols.index(n) for n in self.factors_names_to_use if n in cols}
+            numeric_vars_to_consider = numeric_vars_to_consider & allowed
+
+        all_pairs = list(combinations(numeric_vars_to_consider, 2))
+
+        if verbose:
+            logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", len(all_pairs))
+
+        if len(numeric_vars_to_consider) < 50:
+            compute_pairs_mis(
+                all_pairs=tqdmu(all_pairs, desc="getting pairs MIs", leave=False, mininterval=5),
+                data=data,
+                target_indices=target_indices,
+                nbins=nbins,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                fe_npermutations=fe_npermutations,
+                cached_confident_MIs=cached_confident_MIs,
+                cached_MIs=cached_MIs,
+                fe_min_pair_mi=fe_min_pair_mi,
+                fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+            )
+        else:
+
+            dicts = parallel_run(
+                [
+                    delayed(compute_pairs_mis)(
+                        all_pairs=chunk,
+                        data=data,
+                        target_indices=target_indices,
+                        nbins=nbins,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                        fe_npermutations=fe_npermutations,
+                        cached_confident_MIs=cached_confident_MIs,
+                        cached_MIs=cached_MIs,
+                        fe_min_pair_mi=fe_min_pair_mi,
+                        fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+                    )
+                    for chunk in split_list_into_chunks(all_pairs, len(all_pairs) // (n_jobs * prefetch_factor))
+                ],
+                n_jobs=n_jobs,
+                **parallel_kwargs,
+            )
+            for next_dict in dicts:
+                cached_MIs.update(next_dict)
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
+        # ---------------------------------------------------------------------------------------------------------------
+
+        vars_usage_counter = defaultdict(int)
+        prospective_pairs = {}
+        for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
+            if len(raw_vars_pair) == 2:
+                if raw_vars_pair in checked_pairs:
+                    continue
+                if raw_vars_pair[0] in numeric_vars_to_consider and raw_vars_pair[1] in numeric_vars_to_consider:
+                    ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
+                    if pair_mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
+                        uplift = pair_mi / ind_elems_mi_sum
+                        if verbose >= 2:
+                            logger.info(
+                                f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {ind_elems_mi_sum:.4f}->{pair_mi:.4f}, rat={uplift:.2f}"
+                            )
+                        prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
+                        for var in raw_vars_pair:
+                            vars_usage_counter[var] += 1
+
+        # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
+        # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
+        prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
+
+        if fe_smart_polynom_iters:
+
+            # ---------------------------------------------------------------------------------------------------------------
+            # We search for best unary & binary transforms using Hermit polinomials & Optuna!
+            # Degrees kep reasonable small as a form of regularization.
+            # In theory (esp if inputs are normalized), Hermit polynomials can approximate any functional form, therefore replacing our
+            # random experimenting with arbitrary functions (that was pretty limited anyways).
+            # ---------------------------------------------------------------------------------------------------------------
+
+            import optuna
+            from optuna.samplers import TPESampler
+
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+            def get_best_polynom_mi(coef_a, coef_b, vals_a, vals_b) -> float:
+
+                transformed_var_a = hermval(vals_a, c=coef_a)
+                transformed_var_b = hermval(vals_b, c=coef_b)
+
+                best_mi = -1
+                best_config = None
+
+                for bin_func_name, bin_func in binary_transformations.items():
+
+                    final_transformed_vals = bin_func(transformed_var_a, transformed_var_b)
+
+                    discretized_transformed_values = discretize_array(
+                        arr=final_transformed_vals, n_bins=self.quantization_nbins, method=self.quantization_method, dtype=self.quantization_dtype
+                    )
+                    fe_mi, fe_conf = mi_direct(
+                        discretized_transformed_values.reshape(-1, 1),
+                        x=np.array([0], dtype=np.int64),
+                        y=None,
+                        factors_nbins=np.array([self.quantization_nbins], dtype=np.int64),
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        min_nonzero_confidence=fe_min_nonzero_confidence,
+                        npermutations=fe_npermutations,
+                    )
+
+                    if fe_mi > best_mi:
+                        best_mi = fe_mi
+                        best_config = bin_func_name
+
+                return best_mi
+
+            for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
+                if _is_polars_input:
+                    # Polars: int column indexing returns a Series;
+                    # .to_numpy() is zero-copy for Arrow-backed numerics.
+                    vals_a = X[:, raw_vars_pair[0]].to_numpy()
+                    vals_b = X[:, raw_vars_pair[1]].to_numpy()
+                else:
+                    vals_a = X.iloc[:, raw_vars_pair[0]].values
+                    vals_b = X.iloc[:, raw_vars_pair[1]].values
+
+                for _ in range(fe_smart_polynom_iters):
+
+                    length_a = np.random.randint(fe_min_polynom_degree, fe_max_polynom_degree)
+                    length_b = np.random.randint(fe_min_polynom_degree, fe_max_polynom_degree)
+
+                    # Define an objective function to be minimized.
+                    def objective(trial):
+
+                        coef_a = np.empty(shape=length_a, dtype=np.float32)
+                        for i in range(length_a):
+                            coef_a[i] = trial.suggest_float(f"a_{i}", fe_min_polynom_coeff, fe_max_polynom_coeff)
+
+                        coef_b = np.empty(shape=length_b, dtype=np.float32)
+                        for i in range(length_b):
+                            coef_b[i] = trial.suggest_float(f"b_{i}", fe_min_polynom_coeff, fe_max_polynom_coeff)
+
+                        res = get_best_polynom_mi(coef_a=coef_a, coef_b=coef_b, vals_a=vals_a, vals_b=vals_b)
+
+                        return res
+
+                    study = optuna.create_study(direction="maximize", sampler=TPESampler(multivariate=True))  # Create a new study.
+                    study.optimize(objective, n_trials=fe_smart_polynom_optimization_steps)  # Invoke optimization of the objective function.
+
+                    print(f"Best MI: {study.best_trial.value:.4f}, pair_mi={pair_mi:.4f}")
+                    print(f"Best hyperparameters: {study.best_params}")
+        else:
+            original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
+            if verbose >= 1:
+                logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
+            if len(X) < 50_000 or len(prospective_pairs) < 2:
+                prospective_additions = check_prospective_fe_pairs(
+                    prospective_pairs,
+                    X,
+                    unary_transformations,
+                    binary_transformations,
+                    classes_y,
+                    classes_y_safe,
+                    freqs_y,
+                    num_fs_steps,
+                    cols,
+                    original_cols,
+                    fe_max_steps,
+                    fe_npermutations,
+                    fe_max_pair_features,
+                    fe_print_best_mis_only,
+                    fe_min_nonzero_confidence,
+                    fe_min_engineered_mi_prevalence,
+                    fe_good_to_best_feature_mi_threshold,
+                    fe_max_external_validation_factors,
+                    numeric_vars_to_consider,
+                    self.quantization_nbins,
+                    self.quantization_method,
+                    self.quantization_dtype,
+                    times_spent,
+                    verbose,
+                )
+            else:
+
+                prospective_additions = {}
+                desired_nitems = max(1, len(prospective_pairs) // (n_jobs * prefetch_factor))
+
+                jobs_list = []
+
+                nitems = 0
+                cur_dict = {}
+                for key, value in prospective_pairs.items():
+                    nitems += 1
+                    cur_dict[key] = value
+                    if nitems >= desired_nitems:
+                        jobs_list.append(cur_dict)
+                        nitems = 0
+                        cur_dict = {}
+                if cur_dict:
+                    jobs_list.append(cur_dict)
+
+                if verbose:
+                    logger.info(
+                        f"Using {desired_nitems:_} items per thread for checking {len(prospective_pairs):_} prospective_pairs with gain>{fe_min_pair_mi_prevalence:.2f}."
+                    )
+
+                dicts = parallel_run(
+                    [
+                        delayed(check_prospective_fe_pairs)(
+                            chunk,
+                            X,
+                            unary_transformations,
+                            binary_transformations,
+                            classes_y,
+                            classes_y_safe,
+                            freqs_y,
+                            num_fs_steps,
+                            cols,
+                            original_cols,
+                            fe_max_steps,
+                            fe_npermutations,
+                            fe_max_pair_features,
+                            fe_print_best_mis_only,
+                            fe_min_nonzero_confidence,
+                            fe_min_engineered_mi_prevalence,
+                            fe_good_to_best_feature_mi_threshold,
+                            fe_max_external_validation_factors,
+                            numeric_vars_to_consider,
+                            self.quantization_nbins,
+                            self.quantization_method,
+                            self.quantization_dtype,
+                            times_spent,
+                            verbose,
+                        )
+                        for chunk in jobs_list
+                    ],
+                    # max_nbytes=0,
+                    n_jobs=n_jobs,
+                    **parallel_kwargs,
+                )
+                for next_dict in dicts:
+                    prospective_additions.update(next_dict)
+
+            for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins, messages) in prospective_additions.items():
+                if this_pair_features:
+                    engineered_features.update(this_pair_features)
+                    if verbose:
+                        for mes in messages:
+                            logger.info(mes)
+                        # logger.info(f"Features {new_cols} are recommended to use as new features!")
+                    if fe_max_steps > 1:
+                        new_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=self.quantization_dtype)
+                        for j in range(len(this_pair_features)):
+                            new_vals[:, j] = discretize_array(
+                                arr=transformed_vals[:, j],
+                                n_bins=self.quantization_nbins,
+                                method=self.quantization_method,
+                                dtype=self.quantization_dtype,
+                            )
+                        data = np.append(data, new_vals, axis=1)
+                        nbins = nbins + new_nbins
+                        cols = cols + new_cols
+                        if _is_polars_input:
+                            # Polars is immutable -- accumulate new cols
+                            # via with_columns (returns a new frame
+                            # sharing buffers with X). Caller's original
+                            # frame is never mutated.
+                            _series_to_add = [
+                                pl.Series(col, transformed_vals[:, j])
+                                for j, col in enumerate(new_cols)
+                            ]
+                            X = X.with_columns(_series_to_add)
+                        else:
+                            for col in new_cols:
+                                X[col] = transformed_vals[:, j]
+
+                    n_recommended_features += len(this_pair_features)
+
+                # !TODO!  handle factors_to_use etc
+                """
+                factors_names_to_use=self.factors_names_to_use,
+                factors_to_use=self.factors_to_use,                    
+                    """
+                checked_pairs.add(raw_vars_pair)
+
+
+        return data, cols, nbins, X, selected_vars, n_recommended_features
+
+
+    def get_feature_names_out(self, input_features=None):
+        """sklearn-1.x transformer protocol. Returns the names of selected
+        features as an ndarray of str, matching transform() output cols.
+        Symmetric with RFECV.get_feature_names_out (added PR-10 audit
+        finding from test_selectors_shared.py)."""
+        if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
+            from sklearn.exceptions import NotFittedError
+            raise NotFittedError(
+                "This MRMR instance is not fitted yet. Call 'fit' before "
+                "using 'get_feature_names_out'."
+            )
+        support = self.support_
+        if len(support) == 0:
+            return np.array([], dtype=object)
+        # MRMR's support_ is integer indices into feature_names_in_
+        if isinstance(support[0], (bool, np.bool_)):
+            return np.asarray(
+                [n for n, s in zip(self.feature_names_in_, support) if s],
+                dtype=object,
+            )
+        return np.asarray([self.feature_names_in_[i] for i in support], dtype=object)
 
     def transform(self, X, y=None):
         # P0-G34 (audit): unfitted -> NotFittedError, sklearn-canonical.
