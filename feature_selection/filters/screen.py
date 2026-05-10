@@ -206,6 +206,42 @@ def screen_predictors(
 ) -> float:
     """Finds best predictors for the target.
 
+    Body structure (10b post-plan: documented phases without forcing
+    a procedural extract; ``ScreenState`` above is the reader's typed
+    view of the shared state). The 4 phase functions are reachable
+    via grep markers ``# PHASE 1``, ``# PHASE 2`` etc. in the body.
+
+    PHASE 1 -- _select_initial_candidates
+        Build the candidate pool for the current ``interactions_order``;
+        compute baseline (low-permutation-budget) MI for each. Filters
+        out previously-failed and already-selected candidates via
+        ``should_skip_candidate``. Outputs ``partial_gains`` dict keyed
+        by candidate tuple.
+
+    PHASE 2 -- _evaluate_partials
+        For each candidate, walk the selected-vars list and compute
+        ``conditional_mi(X, Y, Z)`` for every Z subset (up to
+        ``max_veteranes_interactions_order``). Cumulative gain is
+        accumulated in ``cached_cond_MIs`` for re-use. Calls
+        ``evaluate_gain`` per candidate.
+
+    PHASE 3 -- _confirm_top_k
+        For the top-K candidates by partial gain, run the full
+        permutation budget (``full_npermutations`` shuffles of Y) to
+        confirm statistical significance. The ``while True`` loop
+        starting near line 426 is this phase. ``cand_confirmed`` flag
+        decides whether the candidate enters ``selected_vars``.
+
+    PHASE 4 -- _postprocess_step
+        Update ``predictors``, ``cached_confident_MIs``, log progress,
+        check stopping conditions (``max_consec_unconfirmed``,
+        ``max_runtime_mins``, ``stop_file``).
+
+    A full free-function decomposition is gated on richer golden
+    coverage (the post-plan plan has ``ScreenState`` ready as a state
+    container; the procedural rewrite needs extended bit-exact tests
+    on diverse synthetic + real datasets to be safe).
+
     B13: ``max_confirmation_cand_nbins`` parameterises the legacy module
     constant of the same name. ``None`` (the default) preserves the
     legacy value of 50 so this entry-point keeps backward-compatible
@@ -423,6 +459,11 @@ def screen_predictors(
             best_gain = min_relevance_gain - 1
             expected_gains = np.zeros(len(candidates), dtype=np.float64)
 
+            # PHASE 3 -- _confirm_top_k: run full permutation budget on
+            # the candidate with the highest partial gain. Loop iterates
+            # until either the candidate is confirmed (added to
+            # ``selected_vars``), all candidates are exhausted, or
+            # ``max_consec_unconfirmed`` hits.
             while True:  # confirmation loop (by random permutations)
 
                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:

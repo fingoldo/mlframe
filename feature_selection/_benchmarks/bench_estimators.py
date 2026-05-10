@@ -1,23 +1,30 @@
 """Benchmark accuracy + speed of MI estimators / mRMR variants.
 
+Production-realistic ``n=200_000, p=50, n_informative=15`` -- on this
+scale numba JIT cache, GPU memory pools, and joblib worker spawn cost
+are all amortised. **All paths get a warmup pass before timing**;
+reported wall-times reflect steady-state cost, not first-call compile.
+
 Compares:
 * Plug-in (legacy, discretized)
-* Plug-in + Miller-Madow correction
-* KSG (k-NN, continuous)
-* Stability selection wrapper
-* Group-aware wrapper
-* Adaptive permutation (Besag-Clifford)
+* MRMR + Adaptive Besag-Clifford permutation (parallelism="bc")
+* MRMR + Stability Selection (Meinshausen-Buhlmann bootstrap)
+* MRMR + GroupAware (correlation pre-clustering)
+* KSG top-K (no significance test)
+* KSG + permutation significance test
 
 Recovery rate (precision against the known set of informative features
-from ``make_classification``) is the accuracy metric. Wall time per
+from ``make_classification``) is the accuracy metric; wall-time per
 fit is the speed metric.
 
 Run::
 
     python -m mlframe.feature_selection._benchmarks.bench_estimators
+    python -m mlframe.feature_selection._benchmarks.bench_estimators --n 50000 --p 100
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import time
 
@@ -28,7 +35,7 @@ from sklearn.datasets import make_classification
 logger = logging.getLogger("bench_estimators")
 
 
-def _build(n=2000, p=20, n_inf=8, seed=42):
+def _build(n: int, p: int, n_inf: int, seed: int):
     X, y = make_classification(
         n_samples=n,
         n_features=p,
@@ -51,62 +58,115 @@ def _recovery(support, informative):
     return len(s & inf) / len(inf)
 
 
-def _bench(name, fn, X, y, informative):
-    t0 = time.perf_counter()
+def _bench_method(name, fn, X, y, informative, n_runs: int = 3):
+    """Run fn ``n_runs + 1`` times: discard first (warmup), report median.
+
+    Returns (median_wall_s, recovery_fraction, support_size).
+    """
+    # Warmup -- first call pays the JIT-compile / pool-spawn cost.
     out = fn(X, y)
-    dt = time.perf_counter() - t0
-    rec = _recovery(out, informative)
-    print(f"  {name:35s} t={dt:6.2f}s  recovery={rec*100:5.1f}%  n_selected={len(out)}")
+
+    times = []
+    last_support = out
+    for _ in range(n_runs):
+        t0 = time.perf_counter()
+        out = fn(X, y)
+        times.append(time.perf_counter() - t0)
+        last_support = out
+
+    times.sort()
+    median = times[len(times) // 2]
+    rec = _recovery(last_support, informative)
+    print(f"  {name:42s} t={median:7.2f}s  recovery={rec * 100:5.1f}%  n_sel={len(last_support):3d}")
+    return median, rec, len(last_support)
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n", type=int, default=200_000)
+    parser.add_argument("--p", type=int, default=50)
+    parser.add_argument("--n-informative", type=int, default=15)
+    parser.add_argument("--n-runs", type=int, default=3, help="timed runs after warmup")
+    parser.add_argument("--ksg-only", action="store_true",
+                        help="skip the slower MRMR-based methods")
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    print(f"\n=== n={args.n}, p={args.p}, n_inf={args.n_informative}, runs={args.n_runs} (warmup pre-pass) ===")
+    print(f"  informative ground-truth indices: {list(range(args.n_informative))}")
+
+    X, y, inf = _build(n=args.n, p=args.p, n_inf=args.n_informative, seed=args.seed)
+
     from mlframe.feature_selection.filters import MRMR
-    from mlframe.feature_selection.filters.estimators import ksg_mi_with_target
-    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    from mlframe.feature_selection.filters.estimators import (
+        ksg_mi_with_target, ksg_mi_with_significance,
+    )
+
+    print("\n  estimator                                  time     recovery  n_selected")
+    print("  " + "-" * 72)
+
+    # ---- KSG paths (always run; fast on n=200k) ----
+    def _ksg_topk(X, y):
+        Xn = X.to_numpy() if hasattr(X, "to_numpy") else X
+        mi = ksg_mi_with_target(Xn, y, feature_indices=list(range(Xn.shape[1])))
+        return np.argsort(mi)[::-1][:args.n_informative]
+
+    _bench_method("KSG top-K (no sig test)", _ksg_topk, X, y, inf, args.n_runs)
+
+    def _ksg_sig(X, y):
+        Xn = X.to_numpy() if hasattr(X, "to_numpy") else X
+        _, _, sup = ksg_mi_with_significance(
+            Xn, y, list(range(Xn.shape[1])),
+            n_permutations=20, alpha=0.05, n_jobs=4,
+        )
+        return sup
+
+    _bench_method("KSG + permutation significance test", _ksg_sig, X, y, inf, args.n_runs)
+
+    if args.ksg_only:
+        return
+
+    # ---- MRMR paths ----
+    base_kw = dict(
+        quantization_nbins=10, full_npermutations=10, baseline_npermutations=5,
+        n_jobs=1, verbose=0, fe_max_steps=0, cv=2,
+    )
+
+    def _mrmr_plain(X, y):
+        m = MRMR(**base_kw)
+        m.fit(X, y)
+        return m.support_
+
+    _bench_method("MRMR plug-in (legacy)", _mrmr_plain, X, y, inf, args.n_runs)
+
+    # B13/B15 explicit legacy defaults to keep this diff comparable.
+    def _mrmr_legacy(X, y):
+        m = MRMR(max_confirmation_cand_nbins=50, fe_fallback_to_all=True, **base_kw)
+        m.fit(X, y)
+        return m.support_
+
+    _bench_method("MRMR plug-in (legacy B13/B15 pinned)", _mrmr_legacy, X, y, inf, args.n_runs)
+
     from mlframe.feature_selection.filters.stability import StabilityMRMR
 
-    print("\n=== n=2000, p=20, n_inf=8 ===")
-    X, y, inf = _build(n=2000, p=20, n_inf=8)
-
-    base_kw = dict(quantization_nbins=10, full_npermutations=3, baseline_npermutations=2,
-                   n_jobs=1, verbose=0, fe_max_steps=0, cv=2)
-
-    def _plain(X, y):
-        m = MRMR(**base_kw)
-        m.fit(X, y)
-        return m.support_
-
-    def _bc_inner(X, y):
-        # Note: parallelism kwarg lives on mi_direct, not on MRMR (yet).
-        # Use plain MRMR; this call exists for parity in the table.
-        m = MRMR(**base_kw)
-        m.fit(X, y)
-        return m.support_
-
     def _stability(X, y):
-        s = StabilityMRMR(estimator=MRMR(**base_kw), n_bootstraps=5, sample_fraction=0.7,
-                          support_threshold=0.6, random_state=42)
+        s = StabilityMRMR(estimator=MRMR(**base_kw), n_bootstraps=5,
+                          sample_fraction=0.7, support_threshold=0.6, random_state=42)
         s.fit(X, y)
         return s.support_
+
+    _bench_method("StabilityMRMR (B=5)", _stability, X, y, inf, args.n_runs)
+
+    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
 
     def _group(X, y):
         g = GroupAwareMRMR(estimator=MRMR(**base_kw), corr_threshold=0.9)
         g.fit(X, y)
         return g.support_
 
-    def _ksg_topk(X, y):
-        # KSG MI ranking; pick top-K = n_inf.
-        Xn = X.to_numpy() if hasattr(X, "to_numpy") else X
-        mi = ksg_mi_with_target(Xn, y, feature_indices=list(range(Xn.shape[1])), n_neighbors=3)
-        order = np.argsort(mi)[::-1]
-        return order[:len(inf)]
-
-    print("\n  estimator                            time     recovery  n_selected")
-    print("  " + "-" * 70)
-    _bench("MRMR plug-in (legacy)", _plain, X, y, inf)
-    _bench("MRMR plug-in + Stability(B=5)", _stability, X, y, inf)
-    _bench("MRMR plug-in + GroupAware", _group, X, y, inf)
-    _bench("KSG top-K (no permutation test)", _ksg_topk, X, y, inf)
+    _bench_method("GroupAwareMRMR (corr>=0.9)", _group, X, y, inf, args.n_runs)
 
 
 if __name__ == "__main__":

@@ -440,6 +440,167 @@ def get_new_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
 # Imported at module top.
 
 
+# =============================================================================
+# Phase 2 GPU broadcast: per-function gpu_compatible flag.
+#
+# Many transformations have direct CuPy equivalents (np.log -> cp.log,
+# np.sqrt -> cp.sqrt, ...); some require scipy.special (e.g. erfinv,
+# gammaln) which is not in CuPy. The flag lets the FE driver pick
+# between CPU per-column dispatch and a single GPU broadcast.
+#
+# When ``use_gpu=True`` is passed to ``check_prospective_fe_pairs``
+# (FUTURE WORK -- driver-side integration), the engine groups columns
+# into a CuPy tensor and applies the GPU-compatible transformation
+# in one launch. CPU fallback runs for transformations missing from
+# the GPU set.
+# =============================================================================
+
+
+def gpu_compatible_unary_names() -> set:
+    """Names of unary transformations that have a direct CuPy equivalent.
+
+    Used by the FE driver to decide whether a given (column, transform)
+    pair can be batched onto the GPU. Anything outside this set falls
+    back to per-column CPU dispatch.
+    """
+    return {
+        "identity", "sign", "neg", "abs", "rint",
+        "squared", "qubed", "reciproc", "invsquared", "invqubed",
+        "cbrt", "sqrt", "invcbrt", "invsqrt",
+        "log", "exp",
+        "sin", "cos", "tan",
+        "sinh", "cosh", "tanh",
+    }
+
+
+def gpu_compatible_binary_names() -> set:
+    """Same idea for binary transformations."""
+    return {
+        "add", "sub", "mul", "div", "pow", "min", "max",
+        "hypot", "atan2",
+    }
+
+
+def apply_gpu_unary_batched(
+    cols_data,
+    column_indices: Sequence[int],
+    transformation_name: str,
+):
+    """Apply a unary transformation to a batch of columns on GPU.
+
+    Returns a CuPy 2-D array with shape ``(n_samples, len(column_indices))``.
+    Only safe for names in ``gpu_compatible_unary_names()``.
+
+    Raises
+    ------
+    ValueError
+        If the transformation is not GPU-compatible.
+    ImportError
+        If CuPy is not installed.
+    """
+    import cupy as cp
+
+    name = transformation_name
+    if name not in gpu_compatible_unary_names():
+        raise ValueError(f"transformation {name!r} is not GPU-compatible")
+
+    if hasattr(cols_data, "to_numpy"):
+        cols_np = cols_data.to_numpy() if hasattr(cols_data, "to_numpy") else np.asarray(cols_data)
+    else:
+        cols_np = np.asarray(cols_data)
+
+    # Slice the requested columns.
+    sub = cols_np[:, list(column_indices)] if cols_np.ndim == 2 else cols_np.reshape(-1, 1)
+    sub_gpu = cp.asarray(sub.astype(np.float32))
+
+    if name == "identity":
+        return sub_gpu
+    if name == "sign":
+        return cp.sign(sub_gpu)
+    if name == "neg":
+        return -sub_gpu
+    if name == "abs":
+        return cp.abs(sub_gpu)
+    if name == "rint":
+        return cp.rint(sub_gpu)
+    if name == "squared":
+        return cp.power(sub_gpu, 2)
+    if name == "qubed":
+        return cp.power(sub_gpu, 3)
+    if name == "reciproc":
+        return cp.power(sub_gpu, -1)
+    if name == "invsquared":
+        return cp.power(sub_gpu, -2)
+    if name == "invqubed":
+        return cp.power(sub_gpu, -3)
+    if name == "cbrt":
+        return cp.cbrt(sub_gpu)
+    if name == "sqrt":
+        return cp.sqrt(cp.abs(sub_gpu))
+    if name == "invcbrt":
+        return cp.power(sub_gpu, -1.0 / 3.0)
+    if name == "invsqrt":
+        return cp.power(sub_gpu, -0.5)
+    if name == "log":
+        # Smart log: avoid log of non-positive.
+        x_min = cp.nanmin(sub_gpu)
+        if x_min > 0:
+            return cp.log(sub_gpu)
+        return cp.log(sub_gpu + (1e-5 - x_min))
+    if name == "exp":
+        return cp.exp(sub_gpu)
+    if name == "sin":
+        return cp.sin(sub_gpu)
+    if name == "cos":
+        return cp.cos(sub_gpu)
+    if name == "tan":
+        return cp.tan(sub_gpu)
+    if name == "sinh":
+        return cp.sinh(sub_gpu)
+    if name == "cosh":
+        return cp.cosh(sub_gpu)
+    if name == "tanh":
+        return cp.tanh(sub_gpu)
+    raise ValueError(f"GPU dispatch missing for {name!r} despite being in compatible set")
+
+
+def apply_gpu_binary_batched(
+    a_gpu,
+    b_gpu,
+    transformation_name: str,
+):
+    """Apply a binary transformation to two CuPy arrays element-wise.
+
+    Both inputs already on the GPU. Names must be in
+    ``gpu_compatible_binary_names()``.
+    """
+    import cupy as cp
+
+    name = transformation_name
+    if name not in gpu_compatible_binary_names():
+        raise ValueError(f"transformation {name!r} is not GPU-compatible")
+
+    if name == "add":
+        return a_gpu + b_gpu
+    if name == "sub":
+        return a_gpu - b_gpu
+    if name == "mul":
+        return a_gpu * b_gpu
+    if name == "div":
+        return a_gpu / b_gpu
+    if name == "pow":
+        return cp.power(a_gpu, b_gpu)
+    if name == "min":
+        return cp.minimum(a_gpu, b_gpu)
+    if name == "max":
+        return cp.maximum(a_gpu, b_gpu)
+    if name == "hypot":
+        return cp.hypot(a_gpu, b_gpu)
+    if name == "atan2":
+        return cp.arctan2(a_gpu, b_gpu)
+    raise ValueError(f"GPU dispatch missing for binary {name!r}")
+
+
 def create_unary_transformations(preset: str = "minimal"):
     unary_constraints = {
         # reverse trigonometric
