@@ -8,9 +8,13 @@ from mlframe.training.configs import ReportingConfig
 
 
 class TestPlotOutputsValidation:
-    def test_default_is_plotly_html_png(self):
+    def test_default_is_plotly_html_plus_matplotlib_png(self):
+        # 2026-05-10: default flipped from "plotly[html,png]" because the
+        # PNG-via-plotly path goes through kaleido (Chromium page.reload()
+        # ~12-15 s per figure). New default keeps interactive HTML
+        # (plotly) + matplotlib PNG (10-20x faster, no Chromium).
         cfg = ReportingConfig()
-        assert cfg.plot_outputs == "plotly[html,png]"
+        assert cfg.plot_outputs == "plotly[html] + matplotlib[png]"
 
     def test_matplotlib_only_accepted(self):
         cfg = ReportingConfig(plot_outputs="matplotlib[png]")

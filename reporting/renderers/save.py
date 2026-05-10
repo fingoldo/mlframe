@@ -130,7 +130,29 @@ def render_and_save(
     )
     handles: Dict[str, Any] = {}
 
-    for backend, fmts in output.backends:
+    # 2026-05-11: parallelize render+save across backends when >1 backend
+    # is requested. Each backend builds its OWN renderer instance + fig
+    # from the (read-only / frozen) FigureSpec, so there's no shared
+    # mutable state. matplotlib's Agg backend is thread-safe at the
+    # ``FigureCanvasAgg`` level (the renderer uses its own canvas, not
+    # pyplot's global state machine); plotly's ``write_html`` builds an
+    # in-memory string and writes -- also thread-safe per-Figure.
+    # Both release the GIL during the heavy C-level work
+    # (Agg rasterization for PNG, JSON serialization for HTML), so a
+    # ThreadPoolExecutor with one worker per backend produces real
+    # wall-clock parallelism.
+    #
+    # On c0089 (regression + MRMR, 1M rows, default plot_outputs =
+    # "plotly[html] + matplotlib[png]"):
+    #   sequential: matplotlib 618 ms + plotly 218 ms = 836 ms / call
+    #   parallel  : max(618, 218) = ~618 ms / call
+    # 34 plot_residual_diagnostics calls -> ~7 s saved on the combo.
+    #
+    # ``interactive`` show() and matplotlib's plt.close() stay on the
+    # MAIN thread after the parallel block resolves -- pyplot's state
+    # machine + Jupyter's display hooks aren't thread-friendly.
+
+    def _do_backend(backend: str, fmts) -> "Tuple[str, Any]":
         renderer = get_renderer(backend)
         fig = renderer.render(spec)
         for fmt in fmts:
@@ -139,19 +161,29 @@ def render_and_save(
             else:
                 path = f"{base_path}.{fmt}"
             renderer.save(fig, path, fmt)
-        # Inline display for interactive sessions. Done BEFORE the
-        # matplotlib close-on-release path below so plt.close() doesn't
-        # destroy the figure mid-display. plotly's fig.show() in
-        # IPython routes through plotly.io.renderers (default
-        # 'notebook' inside Jupyter, 'browser' from REPL); matplotlib's
-        # show() is also IPython-aware.
+        return backend, fig
+
+    if len(output.backends) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        # max_workers = backend count; each task = one render+save pipeline.
+        with ThreadPoolExecutor(max_workers=len(output.backends)) as _ex:
+            _futures = [
+                _ex.submit(_do_backend, backend, fmts)
+                for backend, fmts in output.backends
+            ]
+            _results = [f.result() for f in _futures]
+    else:
+        # Single-backend path: skip the thread pool overhead.
+        _results = [_do_backend(backend, fmts) for backend, fmts in output.backends]
+
+    # Main-thread post-processing: interactive show + cleanup. Both touch
+    # pyplot / Jupyter display hooks that are NOT thread-safe.
+    for backend, fig in _results:
         if interactive:
             try:
+                renderer = get_renderer(backend)
                 renderer.show(fig)
             except Exception as e:
-                # Non-fatal: save already completed. Log once per backend
-                # so the user knows inline display failed but the on-disk
-                # artifact is still there.
                 logger.debug(
                     "render_and_save: %s renderer.show() failed (%s: %s); "
                     "on-disk save unaffected", backend, type(e).__name__, e,
@@ -159,9 +191,6 @@ def render_and_save(
         if keep_handles:
             handles[backend] = fig
         elif backend == "matplotlib" and not interactive:
-            # Close matplotlib figs explicitly to release memory.
-            # Skip when interactive — Jupyter inline backend keeps a
-            # reference for the cell render; closing here would erase it.
             try:
                 import matplotlib.pyplot as plt
                 plt.close(fig)

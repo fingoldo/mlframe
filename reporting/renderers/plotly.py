@@ -120,8 +120,17 @@ def _restart_kaleido_server() -> bool:
     """Stop + restart the kaleido sync server. Used after a JS error
     poisons the async task chain so subsequent calls don't deadlock.
     Idempotent / no-op when the server isn't started.
+
+    2026-05-11: a successful restart clears the persistent-failure
+    counter AND the burned flag. The counter exists to catch
+    "this process's kaleido is fundamentally broken" -- a clean
+    restart proves otherwise. Without this, prior failures
+    accumulated across two unrelated callsites (e.g. two separate
+    test_kaleido_recovery tests) would cross the burned threshold
+    and force HTML fallback forever.
     """
     global _KALEIDO_SERVER_STARTED
+    global _KALEIDO_PERSISTENT_FAIL_COUNT, _KALEIDO_PERSISTENT_BURNED
     try:
         import kaleido
     except ImportError:
@@ -132,7 +141,14 @@ def _restart_kaleido_server() -> bool:
         except Exception:
             pass
         _KALEIDO_SERVER_STARTED = False
-    return _ensure_kaleido_server_started()
+    started = _ensure_kaleido_server_started()
+    if started:
+        # Successful restart: the persistent path is now usable again.
+        # Clear cumulative-failure state so callers don't keep burning
+        # after a recoverable hiccup.
+        _KALEIDO_PERSISTENT_FAIL_COUNT = 0
+        _KALEIDO_PERSISTENT_BURNED = False
+    return started
 
 
 def _ensure_kaleido_server_started() -> bool:
@@ -311,6 +327,20 @@ class PlotlyRenderer:
             # persistent path on failures within ONE process -- once
             # any call fails, every later call goes oneshot directly.
             persistent_failed = _is_kaleido_persistent_burned()
+            # ``server_hung`` distinguishes "persistent server is dead /
+            # hung" (timeout — skip oneshot retry, go straight to HTML
+            # because plotly's oneshot would re-enter the same dead queue)
+            # from "single persistent call raised an exception" (the
+            # server is probably still alive; oneshot retry may succeed).
+            # Pre-2026-05-11 the code treated both the same and went to
+            # HTML on any persistent failure, which surfaced as the
+            # test_kaleido_persistent_failure_falls_back_to_oneshot
+            # regression — the test injects a synthetic exception into
+            # ``write_fig_sync`` (not a hang), so the oneshot retry SHOULD
+            # produce a PNG. Now: exception -> restart server -> oneshot;
+            # timeout -> HTML directly.
+            server_hung = False
+            burned_now = False
             if not persistent_failed and _ensure_kaleido_server_started():
                 import kaleido as _kal
                 import threading
@@ -329,6 +359,7 @@ class PlotlyRenderer:
                 th.join(timeout=_KALEIDO_PERSISTENT_TIMEOUT_S)
                 if th.is_alive():
                     persistent_failed = True
+                    server_hung = True
                     burned_now = _record_kaleido_persistent_failure()
                     logger.warning(
                         "kaleido persistent write_fig_sync(%s) did not "
@@ -350,18 +381,33 @@ class PlotlyRenderer:
                         "; persistent path BURNED" if burned_now else
                         " (will retry up to threshold)",
                     )
+                    # 2026-05-11: server is likely still alive but its async
+                    # task chain may be poisoned -- restart it so the
+                    # oneshot retry below uses a clean queue. Best-effort;
+                    # if restart hangs we'll fall through to the HTML
+                    # fallback anyway via the burned-or-hung gate below.
+                    try:
+                        _restart_kaleido_server()
+                    except Exception:
+                        pass
                 else:
                     return  # success
 
-            # 2026-05-08 v3: when the persistent path burns, ``fig.write_image``
-            # ALSO routes through plotly's wrapper which talks to the SAME
-            # broken kaleido sync server. Verified empirically: c0031 v4
-            # hung past 30 minutes despite the persistent timeout firing
-            # because the oneshot fallback re-entered the same dead queue.
-            # When burned, write HTML directly -- it's a different code
-            # path (write_html doesn't touch kaleido), so it always works.
-            # Lose the static PNG/SVG/PDF artifact but unblock the suite.
-            if persistent_failed:
+            # 2026-05-08 v3: when the persistent server is HUNG or BURNED,
+            # ``fig.write_image`` routes through plotly's wrapper which
+            # talks to the SAME broken kaleido sync server. Verified
+            # empirically: c0031 v4 hung past 30 minutes because the
+            # oneshot fallback re-entered the same dead queue. In those
+            # cases write HTML directly -- a different code path
+            # (write_html doesn't touch kaleido) that always works.
+            #
+            # 2026-05-11 split: a single ``write_fig_sync`` exception is
+            # NOT proof that the server is dead; after restarting the
+            # sync server (see ``_restart_kaleido_server`` call above),
+            # the oneshot retry can succeed. Only go straight to HTML
+            # when the server is genuinely hung (timeout) or has crossed
+            # the burned threshold.
+            if persistent_failed and (server_hung or burned_now or _is_kaleido_persistent_burned()):
                 from os.path import splitext
                 root, _ = splitext(path)
                 try:
