@@ -3367,23 +3367,20 @@ def train_mlframe_models_suite(
         # version drift between save time and load time.
         from .composite import env_signature as _env_sig, detect_gpu_in_use as _detect_gpu
         metadata["composite_target_env_signature"] = _env_sig()
-        # GPU non-determinism warning. Composite mode trains K extra
-        # models; on GPU each model can produce slightly different
-        # predictions across runs even with random_state fixed, and
-        # the K-fold amplification surfaces as ensemble weight drift.
-        # Emit a single info-level note so operators see the risk
-        # without spamming on every per-target call.
+        # R10c bug #6 fix: GPU warning is now DEFERRED until after
+        # discovery completes, so it only fires when ``K > 0`` (i.e.
+        # composite specs were actually shipped). The pre-fix path
+        # printed the warning unconditionally at the start of
+        # discovery, causing false alarms in production runs where
+        # discovery later returned 0 specs (no K-fold amplification
+        # to amplify). The GPU family list is captured here for use
+        # in the post-discovery emit. The actual ``logger.warning``
+        # call lives further down, after the per-target discovery
+        # loop, gated on ``len(kept_spec_total) > 0``.
         _gpu_families = _detect_gpu(mlframe_models or [])
-        if _gpu_families:
-            logger.warning(
-                "[CompositeTargetDiscovery] composite mode + GPU training "
-                "detected (%s). GPU non-determinism is amplified by K composite "
-                "fits; ensemble weights may drift across runs even with "
-                "random_state fixed. Set deterministic=True / "
-                "single_precision_histogram=True / force_row_wise=True on the "
-                "inner estimators if reproducibility matters.",
-                ", ".join(_gpu_families),
-            )
+        # Initialise the "total composite specs shipped" counter so
+        # we can decide at end-of-loop whether the warning is warranted.
+        _kept_spec_total: int = 0
     # Skip target types that aren't in scope for composite-target
     # discovery. We mark them explicitly on the failures map so
     # callers can tell "we considered this and chose not to" apart
@@ -3602,6 +3599,16 @@ def train_mlframe_models_suite(
                         e["feature"] for e in _ablation_sorted[:_hint_top_k]
                         if e.get("feature")
                     ]
+                    # R10c bug #5: also pass per-hint ablation strength
+                    # (delta_pct) so the discovery can adapt the cap
+                    # to hint strength. Strong hints (>= threshold)
+                    # take all top_k slots; weak hints fall back to
+                    # the half-slot cap.
+                    _hint_strengths = [
+                        float(e.get("delta_pct", 0.0))
+                        for e in _ablation_sorted[:_hint_top_k]
+                        if e.get("feature")
+                    ]
                     if _hint_cols:
                         try:
                             # Pydantic v2: model_copy is the preferred
@@ -3613,8 +3620,10 @@ def train_mlframe_models_suite(
                             )
                             logger.info(
                                 "[CompositeTargetDiscovery] target='%s' hint "
-                                "from BaselineDiagnostics ablation top-%d: %s",
+                                "from BaselineDiagnostics ablation top-%d: "
+                                "%s (max delta%%=%.1f)",
                                 _tname_disc, len(_hint_cols), _hint_cols,
+                                max(_hint_strengths) if _hint_strengths else 0.0,
                             )
                         except Exception as _clone_err:
                             logger.info(
@@ -3622,8 +3631,16 @@ def train_mlframe_models_suite(
                                 "for target='%s' (%s); proceeding with MI-only.",
                                 _tname_disc, _clone_err,
                             )
+                else:
+                    _hint_strengths = None
                 try:
-                    _disc = CompositeTargetDiscovery(_disc_cfg).fit(
+                    _disc_instance = CompositeTargetDiscovery(_disc_cfg)
+                    # Plumb per-hint strength into the discovery instance
+                    # so ``_auto_base`` can decide whether to apply the
+                    # full hint (strong) or cap at half-slots (weak).
+                    if _use_hint and _diag is not None and _hint_strengths:
+                        _disc_instance._hint_strengths_pct = _hint_strengths
+                    _disc = _disc_instance.fit(
                         df=_disc_df,
                         target_col=_tname_disc,
                         feature_cols=_disc_feature_cols,
@@ -3712,6 +3729,20 @@ def train_mlframe_models_suite(
                 "target_by_type. They will be trained alongside raw targets in the "
                 "per-target loop.", n_specs_total,
             )
+            # R10c bug #6 fix: emit the GPU non-determinism warning
+            # ONLY when composite specs actually shipped (K > 0).
+            if _gpu_families:
+                logger.warning(
+                    "[CompositeTargetDiscovery] composite mode + GPU "
+                    "training detected (%s) AND %d composite spec(s) "
+                    "shipped. GPU non-determinism is amplified by the "
+                    "K=%d extra fits; ensemble weights may drift across "
+                    "runs even with random_state fixed. Set "
+                    "deterministic=True / single_precision_histogram=True "
+                    "/ force_row_wise=True on the inner estimators if "
+                    "reproducibility matters.",
+                    ", ".join(_gpu_families), n_specs_total, n_specs_total,
+                )
 
     # ------------------------------------------------------------------
     # Round-11c fill: Polars Categorical cat_features with null values
@@ -5638,6 +5669,42 @@ def train_mlframe_models_suite(
             and _ce_strategy != "off"
             and composite_specs_by_target_type):
         from .composite import CompositeCrossTargetEnsemble as _CrossEns
+
+        # R10c bug #4 fix: cross-target ensemble must call
+        # ``inner.predict`` on input that has already been transformed
+        # by the inner's ``pre_pipeline`` (SimpleImputer + StandardScaler
+        # for linear models, identity for tree models). Without this,
+        # LinearRegression / Ridge components blow up on raw frames
+        # with NaN because the imputer never ran. Wrap each raw
+        # component in a thin pipeline-aware shim that applies the
+        # entry's pre_pipeline before delegating to the model.
+        # Composite-target components (wrapped via
+        # ``CompositeTargetEstimator``) handle this internally and
+        # don't need the shim.
+        class _PrePipelinePredictShim:
+            __slots__ = ("_model", "_pre_pipeline", "_name")
+
+            def __init__(self, model, pre_pipeline, name):
+                self._model = model
+                self._pre_pipeline = pre_pipeline
+                self._name = name
+
+            def predict(self, X):
+                X_in = X
+                if self._pre_pipeline is not None:
+                    try:
+                        X_in = self._pre_pipeline.transform(X)
+                    except Exception:
+                        # Some pipelines reject pandas vs polars
+                        # mismatches at the boundary; fall through to
+                        # the inner predict which will raise a more
+                        # descriptive error.
+                        X_in = X
+                return self._model.predict(X_in)
+
+            def __repr__(self):
+                return f"_PrePipelinePredictShim({self._name})"
+
         for _tt_e, _tt_specs in composite_specs_by_target_type.items():
             if not _tt_specs:
                 continue
@@ -5652,8 +5719,15 @@ def train_mlframe_models_suite(
                     _inner = getattr(_entry, "model", None) or _entry
                     if not hasattr(_inner, "predict"):
                         continue
-                    _components.append(_inner)
-                    _component_names.append(f"raw#{_i}")
+                    # Raw components: apply entry's pre_pipeline before
+                    # predict. ``model_obj.pre_pipeline`` may be None for
+                    # tree models (no preprocessing needed).
+                    _pp = getattr(_entry, "pre_pipeline", None)
+                    _name = f"raw#{_i}"
+                    _components.append(
+                        _PrePipelinePredictShim(_inner, _pp, _name)
+                    )
+                    _component_names.append(_name)
                 for _spec in _spec_list:
                     _composite_entries = (models or {}).get(_tt_e, {}).get(
                         _spec["name"], []
@@ -5662,8 +5736,16 @@ def train_mlframe_models_suite(
                         _inner = getattr(_entry, "model", None) or _entry
                         if not hasattr(_inner, "predict"):
                             continue
-                        _components.append(_inner)
-                        _component_names.append(f"{_spec['name']}#{_i}")
+                        # Composite entries: CompositeTargetEstimator
+                        # wrappers already manage their own transform;
+                        # pre_pipeline (if any) is the OUTER frame-prep
+                        # that should also be applied. Same shim.
+                        _pp = getattr(_entry, "pre_pipeline", None)
+                        _name = f"{_spec['name']}#{_i}"
+                        _components.append(
+                            _PrePipelinePredictShim(_inner, _pp, _name)
+                        )
+                        _component_names.append(_name)
                 if len(_components) < 2:
                     logger.info(
                         "[CompositeCrossTargetEnsemble] target='%s': only %d "

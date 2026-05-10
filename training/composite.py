@@ -3695,27 +3695,54 @@ class CompositeTargetDiscovery:
                 len(hint_dropped), hint_dropped[:5],
             )
         top_k = self.config.auto_base_top_k
-        # 2026-05-10: cap hint contribution to ~half the top_k slots so
-        # MI-ranked candidates always get evaluated alongside the
-        # ablation-leaders. The pre-fix early-return when
-        # ``len(hint_kept) >= top_k`` produced ZERO composite specs in
-        # the wild for autoregressive targets (e.g. TVT with TVT_prev as
-        # the dominant feature: TVT__diff__TVT_prev is essentially the
-        # first-difference of an auto-correlated series → low MI vs raw
-        # features → no candidate cleared mi_gain > 0.01 → 0 specs).
-        # Hybrid hint+MI guarantees that at least one MI-leader gets
-        # tried even when the hint dominates the ablation ranking.
-        # Cap = max(1, top_k // 2): with top_k=3 → at most 1 hint + 2 MI;
-        # with top_k=5 → at most 2 hint + 3 MI; etc.
-        hint_cap = max(1, top_k // 2)
-        if len(hint_kept) > hint_cap:
+        # R10c bug #5 fix: adaptive hint cap. Previous fixed cap of
+        # ``max(1, top_k // 2)`` was too aggressive when BD ablation
+        # confidently identified the dominant base (e.g. delta% > 100%
+        # for the top-1 feature on production TVT). Now: if the user
+        # supplied a hint AND we have ablation strengths in metadata,
+        # check the strength signal. Strong hint (top-1 delta_pct >
+        # ``hint_strength_threshold_pct``, default 50%) -> use FULL
+        # hint (no cap). Weak/absent strength info -> fall back to the
+        # half-slot cap so MI-leaders still get evaluated.
+        #
+        # Rationale: BD ablation directly measures "drop feature -> RMSE
+        # delta%" which is a high-quality signal. When it screams +501%
+        # for TVT_prev (real production case), trust it; don't dilute
+        # with MI-leaders that may be lower-quality features.
+        strong_hint_threshold = float(getattr(
+            self.config, "hint_strength_threshold_pct", 50.0,
+        ))
+        # Strength info is plumbed via the suite-level hint precompute
+        # at core.py and stored on the discovery instance for this fit.
+        # Absent = treat as unknown strength -> use half-slot cap.
+        hint_strengths = getattr(self, "_hint_strengths_pct", None)
+        is_strong_hint = (
+            hint_strengths is not None
+            and len(hint_strengths) > 0
+            and max(hint_strengths[:len(hint_kept)]) >= strong_hint_threshold
+        )
+        if is_strong_hint:
+            # Full hint -- no cap. Log so it's auditable.
             logger.info(
-                "[CompositeTargetDiscovery] auto-base capping hint contribution "
-                "to %d/%d slots (was %d hint candidates) so MI-leaders also get "
-                "evaluated; full hint list preserved as feature ordering source.",
-                hint_cap, top_k, len(hint_kept),
+                "[CompositeTargetDiscovery] auto-base using FULL hint "
+                "(%d candidates, max ablation delta%% = %.1f%% >= %.1f%% "
+                "threshold; trusting BD over MI ranking).",
+                len(hint_kept), max(hint_strengths[:len(hint_kept)]),
+                strong_hint_threshold,
             )
-            hint_kept = hint_kept[:hint_cap]
+            hint_cap = top_k  # effectively no cap
+        else:
+            hint_cap = max(1, top_k // 2)
+            if len(hint_kept) > hint_cap:
+                logger.info(
+                    "[CompositeTargetDiscovery] auto-base capping hint "
+                    "contribution to %d/%d slots (was %d hint candidates; "
+                    "strength signal weak or absent) so MI-leaders also "
+                    "get evaluated; full hint list preserved as feature "
+                    "ordering source.",
+                    hint_cap, top_k, len(hint_kept),
+                )
+                hint_kept = hint_kept[:hint_cap]
 
         sample_idx = _sample_indices(
             train_idx.size, self.config.mi_sample_n, self.config.random_state,
@@ -3761,7 +3788,13 @@ class CompositeTargetDiscovery:
             # equivalent: |corr(argsort(argsort(x)), arange(n))|.
             n_screen = int(finite.sum())
             row_idx = np.arange(n_screen, dtype=np.float64)
+            # R10c bug #2 extension: hint features are IMMUNE from
+            # the time-index demoter too. BD ablation already proved
+            # they predict y; demoting silently is wrong.
+            time_hint_protected = set(hint_kept) if hint_kept else set()
             for j, col_name in enumerate(usable_features):
+                if col_name in time_hint_protected:
+                    continue
                 col_finite = x_matrix[finite, j]
                 col_ranks = np.argsort(np.argsort(col_finite)).astype(np.float64)
                 # Pearson on rank vs row-index = Spearman(x, time).
@@ -3777,9 +3810,23 @@ class CompositeTargetDiscovery:
                 )
         if getattr(self.config, "auto_base_demote_spatial_coords", True) \
                 and len(usable_features) >= 3 and finite.sum() >= 50:
-            # Spatial-coord block: find features that pairwise-correlate
-            # with >=2 OTHER features at |corr| > 0.5. The X/Y/Z block
-            # in the production failure mode hits this exactly.
+            # R10c bug #1 fix: spatial-coord block detector tightened
+            # after a production geological-data run demoted 17
+            # features (entire feature set). Previously: ``>=2 cross-
+            # correlations |corr|>0.5`` -- fires on any moderately-
+            # correlated feature group.
+            #
+            # Tightened criteria for "spatial-coord block":
+            #   1. Block size 3 <= K <= 6 (X/Y/Z triplet up to a
+            #      5-coord positional spec; anything larger is a
+            #      feature GROUP, not spatial coords).
+            #   2. EVERY pair within the block has |corr| > 0.75
+            #      (not 0.5 -- geological features routinely correlate
+            #      at 0.5-0.7 from physics, not from being coords).
+            #   3. Mean within-block |corr| > 0.80 (catches X/Y/Z
+            #      typical corr range while rejecting lower-corr
+            #      industrial feature groups).
+            # All three must hold; otherwise the group is preserved.
             X_screen = x_matrix[finite]
             n_feats = X_screen.shape[1]
             corr_matrix = np.zeros((n_feats, n_feats))
@@ -3788,20 +3835,50 @@ class CompositeTargetDiscovery:
                     c = abs(_safe_corr(X_screen[:, j], X_screen[:, k]))
                     corr_matrix[j, k] = c
                     corr_matrix[k, j] = c
+            spatial_demoted: List[str] = []
+            # For each feature j, find its "tight neighbourhood":
+            # features k where |corr(j, k)| > 0.75. If that
+            # neighbourhood (including j) is size 3-6 AND has mean
+            # within-pair corr > 0.80, demote ALL members.
             for j, col_name in enumerate(usable_features):
-                connected = int((corr_matrix[j] > 0.5).sum())
-                if connected >= 2:
-                    demote_set.add(col_name)
-            spatial_added = [c for c in sorted(demote_set)
-                             if c not in demote_set or True]
-            # Distinguish spatial-only additions from time-index
-            # additions in the log.
-            if spatial_added:
+                tight_neighbours = np.where(corr_matrix[j] > 0.75)[0]
+                if not (2 <= len(tight_neighbours) <= 5):
+                    continue
+                block_idx = np.r_[j, tight_neighbours]
+                block_idx = np.unique(block_idx)
+                if not (3 <= len(block_idx) <= 6):
+                    continue
+                # Mean within-block pairwise corr.
+                sub = corr_matrix[np.ix_(block_idx, block_idx)]
+                upper = sub[np.triu_indices_from(sub, k=1)]
+                if upper.size == 0:
+                    continue
+                if float(upper.mean()) < 0.80:
+                    continue
+                # Also require EVERY pair > 0.75 (no weak edge in the
+                # cluster).
+                if float(upper.min()) < 0.75:
+                    continue
+                # Cluster qualifies -- demote every member EXCEPT
+                # those on the hint list (BD ablation already proved
+                # they predict y; demoting them silently is the same
+                # production bug pattern as the dedup-vs-hint race).
+                hint_protected = set(hint_kept) if hint_kept else set()
+                for k in block_idx:
+                    name_k = usable_features[k]
+                    if name_k in hint_protected:
+                        continue
+                    if name_k not in demote_set:
+                        demote_set.add(name_k)
+                        spatial_demoted.append(name_k)
+            if spatial_demoted:
                 logger.info(
                     "[CompositeTargetDiscovery] auto-base detected "
-                    "spatial-coord block of %d feature(s) (each "
-                    ">=2 cross-correlations |corr|>0.5). Demoted.",
-                    len(spatial_added),
+                    "spatial-coord block of %d feature(s) (tight "
+                    "cluster, |pair-corr| > 0.75, mean > 0.80, size "
+                    "3-6): %s. Demoted in MI ranking.",
+                    len(spatial_demoted),
+                    sorted(spatial_demoted)[:8],
                 )
 
         # R10b improvement #2: permutation-MI null filter. Catches
@@ -3924,14 +4001,29 @@ class CompositeTargetDiscovery:
             kept_ranked: List[Tuple[float, str]] = []
             kept_arrays: Dict[str, np.ndarray] = {}
             dedup_dropped: List[Tuple[str, str, float]] = []
+            # R10c bug #2 fix: hint features are IMMUNE from dedup.
+            # Otherwise on geological data with high feature
+            # cross-correlation (e.g. Z ~ TVT_prev at |corr|=0.974),
+            # the lower-MI hint candidate gets dropped against a
+            # higher-MI non-hint one, then later re-injected by the
+            # hint-merge step with a poisoned score from the demoter.
+            # Hint features were chosen by the upstream BD ablation
+            # specifically because they predict y; their relevance is
+            # already established and shouldn't be filtered by
+            # raw-feature redundancy.
+            hint_set = set(hint_kept)
             for mi_score, col in ranked:
                 col_arr = x_matrix[finite, usable_features.index(col)]
                 drop_due_to: Optional[Tuple[str, float]] = None
-                for kept_col, kept_arr in kept_arrays.items():
-                    pair_corr = abs(_safe_corr(col_arr, kept_arr))
-                    if pair_corr >= dedup_threshold:
-                        drop_due_to = (kept_col, float(pair_corr))
-                        break
+                if col in hint_set:
+                    # Hint features always pass dedup.
+                    pass
+                else:
+                    for kept_col, kept_arr in kept_arrays.items():
+                        pair_corr = abs(_safe_corr(col_arr, kept_arr))
+                        if pair_corr >= dedup_threshold:
+                            drop_due_to = (kept_col, float(pair_corr))
+                            break
                 if drop_due_to is None:
                     kept_ranked.append((mi_score, col))
                     kept_arrays[col] = col_arr

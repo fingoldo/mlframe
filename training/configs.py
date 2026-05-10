@@ -1842,7 +1842,26 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # 4M-row datasets; mi_sample_n=None uses full train.
     mi_sample_n: Optional[int] = 200_000
     top_k_after_mi: int = 8
-    eps_mi_gain: float = 0.01  # Drop candidates with mi_gain <= eps.
+    # Pre-filter threshold for ``mi_gain = MI(T, X_no_base) - MI(y, X_no_base)``.
+    # Default lowered from +0.01 -> -0.5 on 2026-05-11 (R10c bug #3)
+    # after a production TVT regression run discovered 0 specs despite
+    # BaselineDiagnostics ablation correctly identifying ``TVT_prev``
+    # as the dominant feature. Root cause: pure-lag composite
+    # ``T = y - y_prev = noise`` has ``MI(T, X_no_base) ~ 0`` while
+    # ``MI(y, X_no_base) > 0``, so ``mi_gain`` is structurally
+    # NEGATIVE for the correct composite -- a sign of a clean lag fit,
+    # not a sign the composite is useless. The MI-gain pre-filter
+    # was rejecting LEGITIMATE compositions.
+    #
+    # The actual "is this composite predictively useful" decision is
+    # made downstream by the raw-y baseline gate (Phase B; compares
+    # tiny CV-RMSE of composite vs raw-y on the same screening folds).
+    # With ``eps_mi_gain=-0.5`` the pre-filter only drops composites
+    # whose mi_gain is MUCH worse than raw -- typical "transform broke
+    # the target" cases (logratio on negative y, ratio on near-zero
+    # base). Pure-lag composites pass through to the raw-y gate where
+    # they are correctly evaluated.
+    eps_mi_gain: float = -0.5
     mi_n_neighbors: int = 3  # sklearn mutual_info_regression k.
 
     # MI estimator. "knn" uses the Kraskov estimator (sklearn default,
@@ -2199,6 +2218,14 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # caching reuses it).
     use_baseline_diagnostics_hint: bool = True
     baseline_diagnostics_hint_top_k: int = 3
+
+    # R10c bug #5: hint-strength threshold for the adaptive hint cap.
+    # When the top hint feature has BaselineDiagnostics ablation
+    # ``delta_pct >= hint_strength_threshold_pct``, ``_auto_base``
+    # uses the FULL hint list (no cap) instead of capping at
+    # ``max(1, top_k // 2)``. Set to a high value (e.g. 1000) to
+    # effectively disable the strong-hint shortcut.
+    hint_strength_threshold_pct: float = 50.0
 
     # Cross-base correlation dedup (R10b improvement #9). After
     # auto-base ranking, drop a candidate base if its absolute Pearson

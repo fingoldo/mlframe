@@ -1,5 +1,133 @@
 # Changelog
 
+## 2026-05-11 — Composite-target R10c bug-fix round 2: 6 production bugs found in TVT regression run
+
+A user-supplied production log from `train_mlframe_models_suite(..., composite_target_discovery_config=...)` on TVT regression (5M rows, 26 features) exposed six bugs across the composite-target pipeline. Despite R10b correctly identifying `TVT_prev` as the dominant feature via BaselineDiagnostics ablation (delta% = +501%), discovery produced **0 specs** and the cross-target ensemble **failed to build**. Root-cause analysis surfaced six distinct defects, all now fixed with unit + biz-value tests.
+
+### Bugs fixed
+
+**Bug #3 (CRITICAL, root cause of 0 specs)**: `eps_mi_gain=0.01` default rejected legitimate pure-lag composites.
+
+Pure-lag composite `T = y - y_prev = noise` has `MI(T, X_no_base) ~ 0` while `MI(y, X_no_base) > 0` (the raw target has more structure than its residual), so `mi_gain` is structurally NEGATIVE for the correct composite. The pre-filter at `+0.01` was rejecting LEGITIMATE compositions. Default lowered to **`-0.5`** -- the raw-y baseline gate (Phase B, tiny CV-RMSE) is the proper "is this useful" filter; the MI-gain pre-filter only catches "transform broke the target" cases (logratio on negative y, etc.).
+
+**Bug #4 (CRITICAL, ensemble couldn't build)**: Cross-target ensemble didn't apply per-component `pre_pipeline` before `predict`.
+
+LinearRegression / Ridge components blew up with `"Input X contains NaN. LinearRegression does not accept missing values"` because the SimpleImputer + StandardScaler pre_pipeline (trained at the suite level for these models) was bypassed at ensemble-predict time. Fix: introduced `_PrePipelinePredictShim` inside `core.py`'s ensemble construction that wraps each entry in a `pre_pipeline.transform(X)` -> `model.predict(X)` chain. Composite-target components (already wrapped via `CompositeTargetEstimator`) get the same shim treatment for consistency.
+
+**Bug #1 (CRITICAL, false-positive demotion)**: Spatial-coord demoter triggered on geological feature groups (17 features demoted in the production run).
+
+Pre-fix: any feature with `>=2 cross-correlations > 0.5` was tagged as "spatial coord" and demoted. Geological features (depth, gamma-ray, lithology indicators) routinely pairwise-correlate at 0.5-0.7 from physics, NOT from being coordinates. Tightened criteria: block size `3 <= K <= 6`, every pair `|corr| > 0.75`, mean within-block `|corr| > 0.80`. Catches X/Y/Z triplets (typical pairwise corr 0.85-0.95) while rejecting industrial feature groups.
+
+**Bug #2 (CRITICAL, hint-vs-dedup race)**: Hint features supplied by BaselineDiagnostics ablation were not immune from dedup / spatial demoter / time-index demoter.
+
+In the production run, `Z ~ TVT_prev (|corr|=0.974)` triggered dedup; the lower-MI hint feature got dropped, then later re-injected with a poisoned demoter score (`-1e6`). BD ablation directly measures "drop feature -> RMSE delta%"; when it identifies a feature as dominant, downstream redundancy filters silently dropping it is wrong. Fix: hint features marked as protected -- bypass dedup and both demoters.
+
+**Bug #5 (HIGH, hint suppression)**: Hint capping at `max(1, top_k // 2)` was too aggressive when BD ablation strongly identified the dominant base.
+
+Pre-fix: hint always capped at half-slots regardless of strength. Production case had BD identify `TVT_prev` with `delta% = +501%` (extreme dominance) but cap dropped it to 1/3 of slots. Adaptive cap: when BD ablation top-1 `delta_pct >= hint_strength_threshold_pct` (default 50%), use FULL hint list (no cap). Per-hint strengths plumbed through from `core.py` discovery integration. Falls back to half-slot cap for weak / absent strength signal.
+
+**Bug #6 (LOW, cosmetic)**: GPU non-determinism warning fired even when discovery later returned 0 specs (no K-fold amplification to amplify).
+
+Pre-fix: warning emitted at the start of discovery, unconditionally on GPU detection. Production run printed the warning despite ultimately shipping 0 composite specs. Fix: warning deferred to post-loop, gated on `n_specs_total > 0`. Same wording, just conditional emission.
+
+### Tests
+
+`tests/training/test_composite_r10c_bug_fixes.py`: 13 tests across 6 classes, one per bug (each class has at least one **unit** test for the specific code-path contract and at least one **biz_value** test for the user-visible outcome).
+
+| Bug | Unit test | Biz-value test |
+|---|---|---|
+| #3 | `eps_mi_gain` default == -0.5 | pure-lag AR(1) yields specs |
+| #4 | shim-style predict on NaN-X with imputer works | linear + tree ensemble builds together |
+| #1 | moderate-corr (~0.55) group NOT demoted | tight (>0.85) spatial triplet still demoted |
+| #2 | hint survives dedup vs higher-MI partner | hint survives spatial demotion in tight cluster |
+| #5 | strong hint (delta=200%) bypasses cap | weak hint (delta=10%) keeps half-cap |
+| #5 | no strength info -> half-cap fallback | n/a |
+| #6 | n/a (lock wording stable) | no-spec scenario doesn't emit warning |
+
+All 13/13 pass. Full composite suite: **234/234 tests pass** (221 previously + 13 new).
+
+### Sanity sweep
+
+S1-S16 benchmark run (1 rep, n=4000) post-fix: no regressions. Pure-lag scenarios that previously got 0 specs now produce composite specs.
+
+## 2026-05-11 — MRMR cat-FE: default flipped to ENABLED + Tier-1-4 closeout
+
+### Default flip (BREAKING for users relying on `cat_fe_config=None`)
+
+Per `mlframe/CLAUDE.md` "Accuracy / performance over legacy / compat / deps": cat-FE shows measurable wins (XOR biz_value test, 0 regressions in 527 tests) so the default is flipped from disabled to enabled.
+
+```python
+# Before 2026-05-11:
+MRMR()                  # cat-FE OFF (legacy)
+MRMR(cat_fe_config=CatFEConfig(enable=True))  # cat-FE ON
+
+# After 2026-05-11:
+MRMR()                                         # cat-FE ON (default conservative config)
+MRMR(cat_fe_config=CatFEConfig(enable=False))  # cat-FE OFF (explicit legacy opt-in)
+MRMR(cat_fe_config=None)                       # cat-FE ON (None means "use default")
+```
+
+`CatFEConfig` defaults retuned for the on-by-default path:
+- `enable=True` (was `False`)
+- `top_k_pairs=32` (was `64`) -- conservative memory
+- `full_npermutations=50` (was `100`) -- cheaper perm budget
+- `fwer_correction="none"` (was `"westfall_young"`) -- with 50 perms, BH/WY on 28+ pair families mathematically can't reject; users wanting strict FWER bump perms to 500-1000 AND set the correction explicitly
+
+### Deferred items closed (commit `53309cc`)
+
+**D1: Conditional permutation null** (`permutation_null="conditional"`) -- shuffle X2 within strata of Y preserves P(X2|Y), testing the proper synergy null (H0: X1 ⊥ X2 | Y) rather than joint independence. Reference: Beerenwinkel et al. 2007.
+
+**D2: Full Westfall-Young max-II tracking** -- per shuffle, computes II for ALL search-phase pairs, tracks max-II distribution. Naturally accounts for inter-pair correlation. Auto-activates when memory budget permits (m × n × 4 < 500 MB); falls back to Bonferroni-on-survivors otherwise.
+
+**D3: K-way replay in `transform()`** via chained pairwise lookups. `_build_kway_chained_lookup` builds (k-1) pair lookup tables at fit time; `_apply_factorize_kway` walks them sequentially on test data. K-way recipes now production-grade -- no `requires_refit_for_replay=True` limitation.
+
+### Tech debt closed (commit `53309cc`)
+
+**T1: engineered_lineage plumbing** through MRMR.fit → screen_predictors → evaluate_candidates → should_skip_candidate. cat-FE orchestrator builds `{eng_idx: frozenset(parent_idxs)}` in `CatFEState.lineage`; screen.py now correctly suppresses redundant `(orig_i, kway(orig_i, orig_j))` k-way candidates.
+
+**T2: Permutation parallelization** -- new `_count_nfailed_joint_indep_prange` runs the joint-independence permutation loop across numba threads (per-thread classes_y copy, per-thread LCG seed). Reproducible per `base_seed`.
+
+**T3: MM re-rank entropy hoist** -- H(Y), H(X_i), H(X_i,Y) cached outside the per-pair loop. Cuts per-pair cost from 5 merge_vars + 6 entropy to 2 merge_vars + 2 entropy.
+
+**T4: K-way greedy hybrid seed** -- Phase 1 seeds from top-K only (O(top_k × N) merge_vars), Phase 2 (all pairs, quadratic) only fires when Phase 1 produced zero results.
+
+**T5: Real kernel-level GPU batching** -- new `compute_joint_hist_multi_pair_cuda` RawKernel processes ALL pairs in ONE launch via 3D grid (rows × pairs). Single launch vs per-pair kernel launch saves O(n_pairs × 30us) overhead.
+
+**T6: cProfile-driven hotspot optimization** of `_pair_search_kernel_njit`. Replaced per-pair `merge_vars` (allocates fresh classes/freqs per pair) with direct joint histogram build (thread-local buffer, no per-pair allocation). **Measured 2.4x speedup at n=100k, n_cat=50 (1.12s → 0.46s)**; 1.3x at the n=100k, n_cat=100 extreme.
+
+### Tier 1-4 closeout (this commit)
+
+Tier 1 (small, quick wins):
+- CHANGELOG entry for the cat-FE second wave + this entry
+- CatFEConfig `__post_init__` validation (range checks, type coercion)
+- `fast_subset` / `--fast` mode pytest marker
+- Hypothesis property tests for MI bounds (Cover-Thomas Thm 2.6.4)
+
+Tier 2 (production needs):
+- Sample weight plumbing through `merge_vars` + cat_interactions
+- Bootstrap CIs on II (F1 from brainstorm v3)
+- NaN handling in `transform()` apply_recipe
+
+Tier 3 (DX / ML rigor):
+- Target encoding emit (E2.1) -- CV-aware OOF target-mean
+- Sklearn Pipeline / GridSearchCV integration tests
+- Tutorial notebook on a small categorical dataset
+- Kaggle real-world bench DEFERRED to README TODO
+
+Tier 4 (advanced features):
+- Bandit-style permutation budget allocation (UCB1)
+- Coordinate-ascent refinement after greedy k-way
+- Group-aware permutation for clustered data
+- Streaming / incremental fit cache
+- Bayesian KT smoothing alternative to MM
+- MM auto-gate threshold analytically derived
+- Bigger 3D GPU kernel with on-device MI computation
+- Conditional permutation null with full permutation strategies
+
+Per `mlframe/CLAUDE.md` "Every new feature: unit + biz_value tests + cProfile-driven optimization" (new rule landed in this changeset): each feature ships with unit tests + biz_value quantitative-win test + cProfile pass.
+
+---
+
 ## 2026-05-10 — MRMR cat-FE: categorical feature interaction generator + recipe-replay contract
 
 ### Summary
