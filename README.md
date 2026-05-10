@@ -448,11 +448,65 @@ Each meta-test exposes two whitelists at file scope:
 - `_KNOWN_INDIRECT_CONSUMERS` (or analogue) — fields/symbols consumed via routes a static grep can't see (`getattr(cfg, name)` loops, MCP wiring, etc.). Each entry MUST cite the consumer file:line. Keep short — every entry is technical debt that can mask future drift.
 - `_USER_DEFERRED_DEAD` (or analogue) — fields/helpers the maintainer has surfaced and explicitly chose to defer cleanup on. Drain to zero over time. When wiring or deleting one of these, remove the corresponding line.
 
-## Testing approach: reactive + proactive
+## Testing approach: reactive + proactive + biz_val
 
 Every non-trivial bug fixed in mlframe should land with two kinds of tests,
 not just one. They catch different classes of regressions and together
 approximate "this bug cannot come back nor spawn a sibling nearby".
+
+Beyond bug-driven testing, every new ML feature / parameter / tunable
+gets a **biz_val test** — a synthetic-data assertion that the feature's
+*measurable advantage* holds. See the dedicated section below.
+
+### biz_val tests — "the feature must keep delivering its measurable win"
+
+Reactive and proactive tests catch crashes, NaNs, contract violations.
+They do not catch the third class of regressions: the silent quality
+loss. If someone disables a kwarg by accident, swaps the default
+optimizer, or breaks a basis function, the existing tests pass — the
+code still runs — but the feature has lost the very win it was added
+for. **biz_val tests assert that win, quantitatively.**
+
+The pattern:
+1. **Find synthetic data where the feature should clearly outperform
+   its closest baseline.** For a new optimizer: a target with a known
+   canonical optimum it should reach faster. For a new basis: a target
+   whose structure matches the basis's natural domain (Fourier ↔
+   periodic, RBF ↔ bumps, Sigmoid ↔ thresholds, etc.). For a kwarg:
+   a target where ON / OFF produces a measurable delta.
+2. **Pin a quantitative threshold a few percent below the measured win.**
+   - Bad: `assert res is not None`  — catches nothing if the basis
+     silently emits zeros.
+   - Bad: `assert res.mi > 0`        — same.
+   - Good: `assert res.mi >= 0.55`   — XOR MI floor, real regression
+     drops it sharply.
+   - Good: `assert speedup >= 5.0`   — captures a real perf win.
+3. **Test alongside the closest baseline.** Optimizer wins are tested
+   against the previous default optimizer. Basis wins are tested
+   against the next-best basis on the same synthetic. Kwarg wins are
+   tested by running the same call with the kwarg disabled. The
+   *delta* matters more than the absolute number.
+4. **Fast: < 5 s per test.** Use `n=2000` synthetics, `n_trials=30-40`
+   (enough to converge on the canonical case, not a full prod run).
+
+Files follow the convention `tests/<подпакет>/test_biz_val_<подпакет>_<класс>.py`,
+test functions named `test_biz_val_<class>_<parameter>_<scenario>`. One
+file per class (or tightly-related family); each parameter / feature
+gets its own test inside.
+
+Concrete biz_val files in this repo:
+
+| File | Coverage |
+|---|---|
+| `tests/feature_selection/test_biz_val_filters_hermite_fe.py` | Polynomial-pair FE: CMA-ES vs Optuna, plug-in vs KSG, njit poly, Fourier / Sigmoid / Pade basis wins, multi-mode AUC, auto-unary uplift, triplet vs pair, honest baselines, basis routing, symmetry detection, nested-CV leakage check (15 tests) |
+| `tests/feature_selection/test_biz_val_filters_mrmr.py` | MRMR: 3-way XOR recovery via `interactions_max_order`, `quantization_nbins` granularity wins, `min_relevance_gain` stops at noise, threading parallel determinism, polynomial-FE pair recovery (5 tests) |
+| `tests/feature_selection/test_biz_val_wrappers_rfecv.py` | RFECV: `n_features_selection_rule='one_se_min'` picks fewer features, `stability_selection` recovers signal, `must_include` keeps forced features, `importance_getter='conditional_permutation'` handles correlated clusters, `checkpoint_path` resume parity (5 tests) |
+
+For the full rule set (margins, when-not-to-apply exceptions, naming
+sub-conventions), see the corresponding section in
+[CLAUDE.md](CLAUDE.md#every-new-ml-trick-gets-a-biz_value-synthetic-test-critical).
+
+
 
 ### Reactive sensors — "don't break what's already fixed"
 

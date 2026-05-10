@@ -272,10 +272,40 @@ NOT a flaky test (margins are wide enough that noise doesn't trip them).
 
 ### Naming convention
 
-`test_biz_<feature>_<action>_on_<target>`. Examples:
-- `test_biz_cma_es_at_least_5x_faster_than_optuna`
-- `test_biz_fourier_wins_on_periodic_target`
-- `test_biz_nested_cv_validator_catches_leakage`
+**File**: ``test_biz_val_<подпакет>_<класс_или_семейство>.py``. One
+file per CLASS (or tightly-related function family), placed under
+``tests/<подпакет>/``. Files contain the full set of biz_val tests
+for that class's parameters / features.
+
+**Test function**: ``test_biz_val_<class>_<parameter>_<scenario>``.
+
+Examples (canonical, ship with this convention):
+
+| File | Tests inside |
+|---|---|
+| ``tests/feature_selection/test_biz_val_filters_hermite_fe.py`` | optimise_hermite_pair param wins (CMA-ES, plug-in MI, basis choice, multi-mode, honest baseline) |
+| ``tests/feature_selection/test_biz_val_filters_mrmr.py`` | MRMR param wins (interactions_max_order, quantization_nbins, min_relevance_gain, n_workers, fe_smart_polynom) |
+| ``tests/feature_selection/test_biz_val_wrappers_rfecv.py`` | RFECV param wins (n_features_selection_rule, stability_selection, must_include, conditional_permutation, checkpoint resume) |
+| ``tests/training/test_biz_val_composite_discovery.py`` | CompositeTargetDiscovery (screening, mi_estimator, transform selection) -- TODO |
+| ``tests/training/test_biz_val_dummy_baselines.py`` | DummyBaselines (BEST_MODEL_BELOW_DUMMY, per-baseline-method dominance) -- TODO |
+
+**Why per-class, not per-parameter**: a per-parameter file pattern
+(``test_biz_val_<подпакет>_<класс>_<param>.py``) was considered but
+creates 50+ files for a class with 5+ tunable parameters and
+inflates test-discovery time. Per-class with parameter-scoped test
+functions is the right granularity:
+- 1 file per class -> ~10 files total across mlframe
+- 3-7 tests per file -> ~50 biz_val tests total
+- ~30s wall per file -> full biz_val sweep < 5 min
+
+**Coexistence with legacy ``test_bizvalue_*.py``**: pre-2026-05-10
+files (``test_bizvalue_feature_selection.py``,
+``test_bizvalue_imbalance_grid.py``,
+``test_bizvalue_outliers_earlystop.py``) use the legacy single-token
+``bizvalue`` naming. Keep them as-is (they have established history);
+new biz_val tests go in the ``test_biz_val_*`` files following the
+convention above. A future cleanup pass can rename the legacy files,
+but is not required.
 
 `test_biz_*` files live alongside the regular tests for the same
 feature (`tests/<package>/test_<thing>_biz_value.py`) so they run as
@@ -470,6 +500,54 @@ results.
 
 This rule pairs with the user's general-memory entry
 `feedback_accuracy_perf_over_legacy.md`.
+
+## Multi-agent review: every finding gets explicit disposition (CRITICAL)
+
+When a plan / PR / refactor goes through multi-agent adversarial review
+(critique agents covering correctness, performance, edge cases, statistical
+rigor, maintenance, etc.) and the agents return N findings -- whether
+that's 14, 58, 122, or any other count -- the integration step MUST
+address EVERY single finding with an explicit disposition row, NOT just
+top-N / "highest-leverage" / P0-P1 subset.
+
+**Why:** silently filtering to a subset is the common failure mode that
+causes 6-month-later bug reports and reviewer rework. Lower-severity
+findings (doc-rot, edge-case nulls, niche statistical caveats,
+pathological inputs) are exactly what cumulative trust hinges on.
+
+**The disposition buckets:**
+
+- **RESOLVED** — fix in this plan / PR.
+- **FUTURE** — explicit out-of-scope with a reason; tracked for next
+  iteration.
+- **DOC** — caveat in docs / docstring / README / CHANGELOG, no
+  architectural change.
+- **REJECTED** — anti-recommendation with a stated reason (e.g. "hash
+  encoding destroys MI by collisions; rejected because plan's whole
+  premise is integer factorization").
+
+NEVER use "ignored", "low priority", "deferred without ticket", or any
+silent omission. Every ID gets a row.
+
+**Mechanics:**
+
+- Produce a single audit table mapping every finding ID to its
+  disposition. Re-emit the full table on every review round (round 1:
+  N findings; round 2: N+M; round 3: ...) so the running total is
+  always visible.
+- Surface deduplication explicitly when the same finding appears from
+  two angles (e.g. "I2 ≡ S3 — wrong-null permutation issue, raised by
+  both IT-rigor and statistical-adversarial agents"). Don't silently
+  drop the duplicate; mark it.
+- Every "found by adversarial review" mlframe PR description includes
+  the cumulative finding count and disposition rollup
+  (`X RESOLVED / Y DOC / Z FUTURE / W REJECTED`).
+
+This rule mirrors the user-level memory `feedback_use_all_agent_findings`
+and pairs with the existing `feedback_show_all_agent_findings`,
+`feedback_no_premature_closure`, `feedback_summarize_before_fixing`
+rules. CI failure on a missing disposition table for a multi-agent-
+reviewed PR is a real regression, not a process nit.
 
 ## Open work items
 
