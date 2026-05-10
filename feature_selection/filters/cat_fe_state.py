@@ -418,3 +418,9 @@ class CatFEState:
     Used by ``screen_predictors`` to skip redundant k-way candidates
     that combine an engineered column with one of its own parents
     (B6 / T1 plumbing target)."""
+
+    streaming_cache_out: dict = field(default_factory=dict)
+    """Tier 4.4: snapshot of per-column signatures + marginal MIs
+    after the current fit. ``MRMR.fit`` reads this and stores it on
+    ``self._cat_fe_cache_`` for use by the NEXT ``fit()`` call.
+    Empty when ``enable_streaming_cache=False``."""

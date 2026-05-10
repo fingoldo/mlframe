@@ -358,6 +358,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             # None)`` consistent with no-op behaviour.
             "cat_fe_config": None,
             "_cat_fe_state_": None,
+            "_cat_fe_cache_": None,  # Tier 4.4 streaming cache; None on legacy pickles
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
@@ -596,6 +597,8 @@ class MRMR(BaseEstimator, TransformerMixin):
             )
             _classes_y_safe = _classes_y.copy()
 
+            # Tier 4.4: pull cached cat-FE state from prior fit (if any)
+            _prev_cache = getattr(self, "_cat_fe_cache_", None)
             data, cols, nbins, cat_fe_state = run_cat_interaction_step(
                 data=data, cols=cols, nbins=nbins,
                 target_indices=target_indices,
@@ -603,9 +606,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                 freqs_y=_freqs_y,
                 categorical_vars=categorical_vars,
                 cfg=cat_fe_cfg,
+                streaming_cache=_prev_cache,
                 dtype=dtype, verbose=verbose,
             )
             self._cat_fe_state_ = cat_fe_state
+            # Persist cache for next fit() call
+            if cat_fe_state.streaming_cache_out:
+                self._cat_fe_cache_ = cat_fe_state.streaming_cache_out
             # Cat-FE recipes feed into the same engineered_recipes dict that
             # numeric FE populates -- the fit-end splitter copies any recipe
             # whose engineered name shows up in selected_vars_names into

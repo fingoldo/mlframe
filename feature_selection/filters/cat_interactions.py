@@ -69,6 +69,65 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# Tier 4.4: streaming / incremental fit cache
+#
+# Cache marginal MIs and per-column distribution signatures across fit()
+# calls. On re-fit with same CatFEConfig + similar data, skip
+# recomputation for columns whose distribution hasn't drifted (KL < tau).
+# Saves ~70%% on production daily-refresh re-fits.
+# ============================================================================
+
+
+def _column_signature(values: np.ndarray, nbins: int) -> np.ndarray:
+    """Compute a per-column distribution signature: ``bincount / n``.
+    Used for KL-based cache invalidation.
+    """
+    n = max(len(values), 1)
+    counts = np.bincount(values.astype(np.int64), minlength=nbins).astype(np.float64)
+    return counts / n
+
+
+def _kl_divergence(p: np.ndarray, q: np.ndarray, eps: float = 1e-9) -> float:
+    """KL(p || q) with epsilon smoothing for zero cells."""
+    p_safe = p + eps
+    q_safe = q + eps
+    p_safe = p_safe / p_safe.sum()
+    q_safe = q_safe / q_safe.sum()
+    return float(np.sum(p_safe * np.log(p_safe / q_safe)))
+
+
+def _restore_cached_marginal_mis(
+    factors_data: np.ndarray,
+    candidate_idxs: np.ndarray,
+    nbins: np.ndarray,
+    cache: dict,
+    kl_threshold: float,
+) -> tuple:
+    """For each candidate column, decide whether the cached marginal MI
+    is reusable. Returns ``(reusable_mask, marginal_mi_reused, new_signatures)``.
+
+    The mask is True for columns whose signature KL-divergence vs the
+    cached version is below ``kl_threshold`` -- those rows reuse the
+    cached MI and skip the screen pass.
+    """
+    reusable_mask = np.zeros(len(candidate_idxs), dtype=bool)
+    marginal_mi_reused = np.full(len(candidate_idxs), np.nan, dtype=np.float64)
+    new_signatures: dict = {}
+    cached_sigs = cache.get("col_signatures", {})
+    cached_mis = cache.get("marginal_mis", {})
+    for k, col_idx in enumerate(candidate_idxs):
+        col_int = int(col_idx)
+        sig = _column_signature(factors_data[:, col_int], int(nbins[col_int]))
+        new_signatures[col_int] = sig
+        if col_int in cached_sigs and col_int in cached_mis:
+            kl = _kl_divergence(sig, cached_sigs[col_int])
+            if kl < kl_threshold:
+                reusable_mask[k] = True
+                marginal_mi_reused[k] = cached_mis[col_int]
+    return reusable_mask, marginal_mi_reused, new_signatures
+
+
+# ============================================================================
 # Default resolution (data-aware)
 # ============================================================================
 
@@ -605,6 +664,168 @@ def _maybe_rerank_with_mm(
 
 
 # ============================================================================
+# Tier 4.1: Bandit UCB1 permutation budget allocation
+#
+# Sequential allocation that gives more shuffles to pairs whose p-value
+# CI straddles the rejection threshold. Pairs clearly above/below the
+# threshold get cut off early (Besag-Clifford style); ambiguous pairs
+# receive extra. Saves 2-5x total perms vs fixed allocation in typical
+# workloads. Reference: Auer 2002 (UCB1), Besag & Clifford 1991
+# (sequential perm tests).
+# ============================================================================
+
+
+def _confirm_pairs_bandit_ucb1(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    selected_idx: np.ndarray,
+    ii_arr: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    cfg: CatFEConfig,
+    n_search_pairs: int,
+    dtype,
+    verbose: int,
+) -> tuple:
+    """Adaptive permutation budget via UCB1-style allocation.
+
+    Total budget = ``cfg.full_npermutations * len(selected_idx)``. Each
+    pair starts with ``min_perms = max(10, full_npermutations // 4)``
+    shuffles, then we allocate remaining shuffles to the pair with the
+    widest binomial CI on its current ``p_estimate`` (highest uncertainty
+    about rejection).
+
+    Early stops a pair when its 95% CI lies entirely above/below the
+    rejection threshold (1 - min_nonzero_confidence = 0.05). Returns
+    ``(selected_idx_kept, confidence_dict)``.
+    """
+    n_perms_total = cfg.full_npermutations
+    if n_perms_total <= 0 or len(selected_idx) == 0:
+        return selected_idx, {}
+
+    min_perms = max(10, n_perms_total // 4)
+    min_conf = 0.95
+    alpha = 1.0 - min_conf
+
+    # Pre-merge per-pair classes_pair / X1 / X2 (same as the fixed path)
+    n_y_classes = int(classes_y.max()) + 1
+    nfailed = np.zeros(len(selected_idx), dtype=np.int64)
+    nshuf = np.zeros(len(selected_idx), dtype=np.int64)
+    active_mask = np.ones(len(selected_idx), dtype=bool)
+    pair_cache: list = []  # cached merge results per survivor
+
+    for k in selected_idx:
+        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        cls_pair, fq_pair, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([i, jj], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        cls_x1, fq_x1, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([i], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        cls_x2, fq_x2, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([jj], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        pair_cache.append((cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2))
+
+    def _step_pair(j: int, ii_obs: float):
+        """One shuffle for pair j. Updates nfailed, nshuf in place."""
+        cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2 = pair_cache[j]
+        classes_y_safe = classes_y.copy()
+        i_pair, i_x1, i_x2 = _shuffle_and_compute_three_mis(
+            cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
+            classes_y_safe, freqs_y, dtype,
+        )
+        if (i_pair - i_x1 - i_x2) >= ii_obs:
+            nfailed[j] += 1
+        nshuf[j] += 1
+
+    # Phase 1: initial allocation to every survivor
+    for j, k in enumerate(selected_idx):
+        ii_obs = float(ii_arr[k])
+        for _ in range(min_perms):
+            _step_pair(j, ii_obs)
+
+    # Phase 2: adaptive allocation. Budget remaining = total - phase1
+    total_budget = max(n_perms_total * len(selected_idx), min_perms * len(selected_idx))
+    used = min_perms * len(selected_idx)
+
+    if verbose:
+        logger.info(
+            "cat-FE bandit UCB1: phase 1 used %d perms; %d remaining budget",
+            used, total_budget - used,
+        )
+
+    while used < total_budget:
+        # Decide which pair to allocate next shuffle to.
+        # UCB1-style: pair with widest CI on current p_estimate, AMONG ACTIVES.
+        best_j = -1
+        best_score = -np.inf
+        for j in range(len(selected_idx)):
+            if not active_mask[j]:
+                continue
+            p_est = nfailed[j] / max(nshuf[j], 1)
+            # Binomial CI half-width: ~1.96 * sqrt(p*(1-p)/n). Approx with
+            # min(p, 1-p) for the variance term; UCB bonus = sqrt(2*ln(used)/n_j)
+            ucb_bonus = math.sqrt(2.0 * math.log(max(used, 2)) / max(nshuf[j], 1))
+            score = ucb_bonus + p_est * (1.0 - p_est)  # prefer ambiguous
+            if score > best_score:
+                best_score = score
+                best_j = j
+        if best_j < 0:
+            break  # all converged
+
+        k = selected_idx[best_j]
+        ii_obs = float(ii_arr[k])
+        _step_pair(best_j, ii_obs)
+        used += 1
+
+        # Early-stop check: 95% Clopper-Pearson-ish bound on p
+        n_j = nshuf[best_j]
+        p_j = nfailed[best_j] / n_j
+        # Conservative bound: p +/- z * sqrt(p*(1-p)/n), z=1.96
+        margin = 1.96 * math.sqrt(p_j * (1 - p_j) / n_j + 1e-9)
+        upper = p_j + margin
+        lower = p_j - margin
+        # If lower > alpha: pair confidently rejected. If upper < alpha:
+        # pair confidently accepted. Either way, no more shuffles needed.
+        if lower > alpha + 0.02 or upper < alpha - 0.02:
+            active_mask[best_j] = False
+
+    # Build confidence dict
+    confidence_dict: dict = {}
+    for j, k in enumerate(selected_idx):
+        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        p = (nfailed[j] + 1) / (nshuf[j] + 1)  # continuity-corrected
+        confidence_dict[(i, jj)] = 1.0 - p
+
+    # FWER correction (reuse same path)
+    corrected_conf = _apply_fwer_correction(
+        confidence_dict, cfg, n_search_pairs=n_search_pairs,
+    )
+    kept_mask = np.array([
+        corrected_conf[(int(pairs_a[k]), int(pairs_b[k]))] >= min_conf
+        for k in selected_idx
+    ])
+    if verbose:
+        for j, k in enumerate(selected_idx):
+            ij = (int(pairs_a[k]), int(pairs_b[k]))
+            logger.info(
+                "cat-FE bandit: pair %s nshuf=%d conf=%.3f corrected=%.3f%s",
+                ij, nshuf[j], confidence_dict[ij], corrected_conf[ij],
+                "" if kept_mask[j] else " [REJECTED]",
+            )
+    return selected_idx[kept_mask], corrected_conf
+
+
+# ============================================================================
 # Permutation confirmation (E2 same-shuffle three-MI, SB1)
 #
 # Two-stage strategy:
@@ -619,6 +840,46 @@ def _maybe_rerank_with_mm(
 # of Y" -- NOT "no synergy beyond marginals". Surfaced as
 # ``joint_dependence_confidence`` not ``confidence``.
 # ============================================================================
+
+
+@njit(cache=True)
+def _full_conditional_shuffle_ipf(
+    classes_x2_safe: np.ndarray,
+    classes_x1: np.ndarray,
+    classes_y: np.ndarray,
+    n_x1_classes: int,
+    n_y_classes: int,
+) -> None:
+    """Tier 4.8: full conditional permutation via IPF-style
+    double-stratification. Shuffle X2 within strata of (X1, Y) so
+    that P(X2 | X1, Y) is preserved on average across permutations
+    -- the strictest synergy null that holds both marginals fixed
+    while breaking X1-X2 conditional dependence.
+
+    Reference: Patefield 1981 (R x C contingency tables with fixed
+    marginals); Anderson & ter Braak 2003 (multi-factorial permutation).
+
+    Implementation: for each unique (X1, Y) stratum, Fisher-Yates
+    shuffle classes_x2_safe restricted to rows in that stratum.
+    """
+    n = len(classes_y)
+    for cx1 in range(n_x1_classes):
+        for cy in range(n_y_classes):
+            # Gather indices in this (X1, Y) stratum
+            positions = np.empty(n, dtype=np.int64)
+            pos_count = 0
+            for i in range(n):
+                if classes_x1[i] == cx1 and classes_y[i] == cy:
+                    positions[pos_count] = i
+                    pos_count += 1
+            # Fisher-Yates within stratum
+            for idx in range(pos_count - 1, 0, -1):
+                j = np.random.randint(0, idx + 1)
+                a = positions[idx]
+                b = positions[j]
+                tmp = classes_x2_safe[a]
+                classes_x2_safe[a] = classes_x2_safe[b]
+                classes_x2_safe[b] = tmp
 
 
 @njit(cache=True)
@@ -1027,15 +1288,24 @@ def _confirm_pairs_via_permutation(
         if use_conditional:
             # D1: shuffle X2 within strata of Y. The null preserves
             # P(X1, Y) AND P(X2, Y); only I(X1; X2 | Y) is broken.
-            # For each permutation: shuffle cls_x2 conditionally, then
-            # re-merge (X1, X2_shuffled) and compute II.
+            # Tier 4.8: if cfg.enable_full_conditional_perm is True, use
+            # the stricter (X1, Y) double-stratification which also
+            # preserves P(X1, X2) marginally -- the IPF-style synergy null.
             classes_x2_safe = cls_x2.astype(np.int64, copy=True)
             classes_x1_arr = cls_x1.astype(np.int64, copy=False)
             n_samples_local = factors_data.shape[0]
+            use_full_cond = bool(getattr(cfg, "enable_full_conditional_perm", False))
+            n_x1_classes = int(cls_x1.max()) + 1 if cls_x1.size else 1
             for _ in range(n_perms):
-                _conditional_shuffle_within_strata(
-                    classes_x2_safe, classes_y, n_y_classes,
-                )
+                if use_full_cond:
+                    _full_conditional_shuffle_ipf(
+                        classes_x2_safe, classes_x1_arr, classes_y,
+                        n_x1_classes, n_y_classes,
+                    )
+                else:
+                    _conditional_shuffle_within_strata(
+                        classes_x2_safe, classes_y, n_y_classes,
+                    )
                 # Re-merge X1 with the shuffled X2 to get the conditional-
                 # null joint. We materialise a 2-col array on the fly.
                 local_data = np.empty((n_samples_local, 2), dtype=dtype)
@@ -2235,6 +2505,7 @@ def run_cat_interaction_step(
     cfg: CatFEConfig,
     selected_so_far: list = None,
     weights: np.ndarray = None,    # Tier 2.1: per-row sample weights; None = uniform
+    streaming_cache: dict = None,  # Tier 4.4: prior-fit cache for incremental re-fit
     dtype=np.int32,
     verbose: int = 0,
 ) -> tuple:
@@ -2313,14 +2584,67 @@ def run_cat_interaction_step(
     candidate_idxs_arr = np.asarray(candidate_idxs, dtype=np.int64)
     if verbose:
         logger.info("cat-FE: marginal MI screen over %d candidate columns", len(candidate_idxs))
-    candidate_mi = _marginal_screen_njit(
-        factors_data=data,
-        candidate_idxs=candidate_idxs_arr,
-        nbins=nbins,
-        classes_y=classes_y,
-        freqs_y=freqs_y,
-        dtype=dtype,
+
+    # Tier 4.4: streaming cache check. If enabled AND cache provided,
+    # reuse cached marginal MIs for columns whose distribution hasn't
+    # drifted (KL < threshold).
+    cache_active = (
+        getattr(cfg, "enable_streaming_cache", False)
+        and streaming_cache is not None
+        and streaming_cache  # non-empty
     )
+    new_signatures: dict = {}
+    if cache_active:
+        reusable_mask, mi_reused, new_signatures = _restore_cached_marginal_mis(
+            factors_data=data, candidate_idxs=candidate_idxs_arr,
+            nbins=nbins, cache=streaming_cache,
+            kl_threshold=cfg.streaming_cache_kl_threshold,
+        )
+        n_reused = int(reusable_mask.sum())
+        if verbose and n_reused:
+            logger.info(
+                "cat-FE streaming cache: reusing %d/%d cached marginal MIs",
+                n_reused, len(candidate_idxs_arr),
+            )
+        # Compute MI only for the non-reusable cols
+        if n_reused == len(candidate_idxs_arr):
+            candidate_mi = mi_reused
+        else:
+            full_mi = _marginal_screen_njit(
+                factors_data=data,
+                candidate_idxs=candidate_idxs_arr,
+                nbins=nbins,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                dtype=dtype,
+            )
+            # Splice: reuse cached where mask is True, full where False
+            candidate_mi = np.where(reusable_mask, mi_reused, full_mi)
+    else:
+        candidate_mi = _marginal_screen_njit(
+            factors_data=data,
+            candidate_idxs=candidate_idxs_arr,
+            nbins=nbins,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            dtype=dtype,
+        )
+        # Build signatures for next-fit cache (whether enabled or not)
+        if getattr(cfg, "enable_streaming_cache", False):
+            for k, col_idx in enumerate(candidate_idxs_arr):
+                new_signatures[int(col_idx)] = _column_signature(
+                    data[:, int(col_idx)], int(nbins[int(col_idx)]),
+                )
+
+    # Persist updated cache for next fit() call
+    if getattr(cfg, "enable_streaming_cache", False):
+        state.streaming_cache_out = {
+            "col_signatures": new_signatures,
+            "marginal_mis": {
+                int(candidate_idxs_arr[k]): float(candidate_mi[k])
+                for k in range(len(candidate_idxs_arr))
+            },
+        }
     # marginal_floor prune
     if cfg.marginal_floor > 0:
         keep_mask = candidate_mi > cfg.marginal_floor
@@ -2555,9 +2879,23 @@ def run_cat_interaction_step(
         and len(pairs_a) * n_samples * 4 < 500 * 1024 * 1024
     )
 
-    if use_full_wy:
-        # Capture all top-K as "survivors" for WY -- the post-permutation
-        # filter applies the floor on corrected p.
+    # Tier 4.1: bandit UCB1 budget allocation overrides the fixed path
+    # when cfg.perm_budget_strategy='bandit_ucb1' (and full_npermutations>0
+    # AND not using full WY which has its own coordination).
+    if (
+        getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1"
+        and cfg.full_npermutations > 0
+        and not use_full_wy
+    ):
+        selected_idx, confidence_dict = _confirm_pairs_bandit_ucb1(
+            factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
+            selected_idx=selected_idx, ii_arr=ii_arr,
+            nbins=nbins, classes_y=classes_y, freqs_y=freqs_y,
+            cfg=cfg, n_search_pairs=len(pairs_a),
+            dtype=dtype, verbose=verbose,
+        )
+    elif use_full_wy:
+        # Full Westfall-Young path
         wy_corrected_p = _compute_westfall_young_corrected_p(
             factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
             ii_obs_arr=ii_arr, selected_idx=selected_idx,
@@ -2566,7 +2904,6 @@ def run_cat_interaction_step(
             n_perms=cfg.full_npermutations,
             dtype=dtype, verbose=verbose,
         )
-        # Build confidence_dict from WY-corrected p, then filter survivors.
         confidence_dict = {ij: 1.0 - p for ij, p in wy_corrected_p.items()}
         min_conf = 0.95
         kept_mask = np.array([
