@@ -3374,12 +3374,20 @@ def train_mlframe_models_suite(
                             "reason": "multilabel target unsupported (R3.18 future PR)",
                         }]
                     continue  # multilabel: skip with explicit metadata
-                # Auto-skip on baseline-optimal recommendation. The
-                # per-target BaselineDiagnostics runs INSIDE the
-                # per-target loop further down, so on the first pass
-                # the metadata key isn't populated yet. Run a lightweight
-                # inline diagnostic here when auto-skip is enabled.
-                if _auto_skip:
+                # Auto-skip on baseline-optimal recommendation AND/OR
+                # ablation hint for auto-base ranking. The per-target
+                # BaselineDiagnostics runs INSIDE the per-target loop
+                # further down, so on the first pass the metadata key
+                # isn't populated yet. Run a lightweight inline
+                # diagnostic here when EITHER signal is enabled. The
+                # result is cached in metadata so the per-target loop
+                # reuses it (saves the duplicate ~30-60s ablation cost).
+                _use_hint = bool(getattr(
+                    composite_target_discovery_config,
+                    "use_baseline_diagnostics_hint", False,
+                ))
+                _diag = None
+                if _auto_skip or _use_hint:
                     _diag = (
                         _existing_diags.get(str(_tt_disc), {}).get(_tname_disc)
                     )
@@ -3401,14 +3409,18 @@ def train_mlframe_models_suite(
                                 cat_features=cat_features,
                             )
                             _diag = _diag_report.to_dict()
+                            # Cache for per-target loop reuse.
+                            metadata.setdefault("baseline_diagnostics", {}) \
+                                .setdefault(str(_tt_disc), {})[_tname_disc] = _diag
                         except Exception as _bd_err:
                             logger.info(
-                                "[CompositeTargetDiscovery] auto-skip "
+                                "[CompositeTargetDiscovery] inline "
                                 "diagnostic precompute failed for '%s': %s; "
-                                "discovery proceeds normally.",
+                                "discovery proceeds without auto-skip / hint.",
                                 _tname_disc, _bd_err,
                             )
                             _diag = None
+                if _auto_skip:
                     if (_diag is not None
                             and _diag.get("composite_recommendation") == "unlikely_to_help"):
                         logger.info(
@@ -3444,8 +3456,48 @@ def train_mlframe_models_suite(
                     _disc_df = filtered_train_df.with_columns(
                         pl.Series(_tname_disc, _y_train_aligned)
                     )
+                # If hint is enabled and BD ran, derive a per-target
+                # config copy with ``dominant_features_hint`` populated
+                # from ablation top-K. ``_diag`` may be None when hint
+                # was disabled or BD failed -- fall through to the
+                # caller-provided config without modification.
+                _disc_cfg = composite_target_discovery_config
+                if _use_hint and _diag is not None:
+                    _hint_top_k = max(1, int(getattr(
+                        composite_target_discovery_config,
+                        "baseline_diagnostics_hint_top_k", 3,
+                    )))
+                    _ablation = _diag.get("ablation", []) or []
+                    _ablation_sorted = sorted(
+                        _ablation,
+                        key=lambda e: -float(e.get("delta_pct", 0.0)),
+                    )
+                    _hint_cols = [
+                        e["feature"] for e in _ablation_sorted[:_hint_top_k]
+                        if e.get("feature")
+                    ]
+                    if _hint_cols:
+                        try:
+                            # Pydantic v2: model_copy is the preferred
+                            # cloning API. Falls back silently if
+                            # the user-supplied config doesn't expose
+                            # the method (defensive belt-and-braces).
+                            _disc_cfg = composite_target_discovery_config.model_copy(
+                                update={"dominant_features_hint": _hint_cols},
+                            )
+                            logger.info(
+                                "[CompositeTargetDiscovery] target='%s' hint "
+                                "from BaselineDiagnostics ablation top-%d: %s",
+                                _tname_disc, len(_hint_cols), _hint_cols,
+                            )
+                        except Exception as _clone_err:
+                            logger.info(
+                                "[CompositeTargetDiscovery] hint clone failed "
+                                "for target='%s' (%s); proceeding with MI-only.",
+                                _tname_disc, _clone_err,
+                            )
                 try:
-                    _disc = CompositeTargetDiscovery(composite_target_discovery_config).fit(
+                    _disc = CompositeTargetDiscovery(_disc_cfg).fit(
                         df=_disc_df,
                         target_col=_tname_disc,
                         feature_cols=_disc_feature_cols,
@@ -4017,7 +4069,22 @@ def train_mlframe_models_suite(
                 # gate its expensive screening loops on the
                 # ``composite_recommendation`` flag.
                 try:
-                    if baseline_diagnostics_config.enabled and (
+                    # Reuse the inline BaselineDiagnostics result if
+                    # composite-discovery already computed one for this
+                    # (target_type, target_name). Saves the ~30-60s
+                    # ablation cost when both subsystems are enabled.
+                    _existing_bd = (
+                        metadata.get("baseline_diagnostics", {})
+                        .get(str(target_type), {})
+                        .get(cur_target_name)
+                    )
+                    if _existing_bd is not None:
+                        logger.info(
+                            "[BaselineDiagnostics] target='%s' reusing cached "
+                            "diagnostic from composite-discovery precompute "
+                            "(saved ~30-60s).", cur_target_name,
+                        )
+                    elif baseline_diagnostics_config.enabled and (
                         str(target_type) in baseline_diagnostics_config.apply_to_target_types
                     ):
                         _bd = BaselineDiagnostics(baseline_diagnostics_config)
