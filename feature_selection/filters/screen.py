@@ -83,6 +83,13 @@ from .evaluation import (
 logger = logging.getLogger(__name__)
 
 
+def _pool_warmup_noop(i):
+    """Top-level no-op for joblib worker pool warmup. Must be a
+    module-level function (not a closure) so cloudpickle can serialise
+    it for transmission to the worker process."""
+    return i
+
+
 # =============================================================================
 # 10b (post-plan, partial): ScreenState dataclass as documentation aid.
 #
@@ -392,17 +399,47 @@ def screen_predictors(
         freqs_y_safe = None
 
     if n_workers and n_workers > 1:
-        #    global classes_y_memmap
-        #    classes_y_memmap = mem_map_array(obj=classes_y, file_name="classes_y", mmap_mode="r")
         if verbose >= 2:
-            logger.info("Starting parallel pool...")
+            logger.info("Starting parallel pool with n_workers=%d", n_workers)
 
-        from loky import set_loky_pickler
+        # Threading backend wins on this workload: the worker
+        # function ``evaluate_candidates`` ultimately calls njit
+        # (``compute_mi_from_classes``, ``shuffle_arr``,
+        # ``parallel_mi``) which release the GIL. So threading gives
+        # near-process-pool speedup with ZERO IPC / pickle / memmap
+        # overhead.
+        #
+        # Switching off loky's process-pool default also fixes the
+        # Windows-only mem-mapping bug where joblib's resource
+        # tracker raises ``KeyError`` on shutdown: pickle of large
+        # numpy arrays (factors_data, cached_MIs values) auto-memmaps
+        # via loky, and the tracker registry desyncs across
+        # screen-iteration boundaries when the pool is re-called with
+        # the same Parallel object. Threading skips the pickle step
+        # entirely.
+        #
+        # Override via ``parallel_kwargs={"backend": "loky"}`` if the
+        # caller specifically wants process-isolation (rare on this
+        # workload).
+        pk = dict(parallel_kwargs)
+        pk.setdefault("backend", "threading")
+        # Disable joblib's auto-memmap for whatever backend the user
+        # picked: large factors_data arrays should stay in shared
+        # process memory, not be redundantly serialized to disk.
+        pk.setdefault("max_nbytes", None)
 
-        set_loky_pickler("cloudpickle")
+        if pk.get("backend") == "loky":
+            try:
+                from loky import set_loky_pickler
+                set_loky_pickler("cloudpickle")
+            except ImportError:
+                pass
 
-        workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
-        workers_pool(delayed(test)(i) for i in range(n_workers))
+        workers_pool = Parallel(n_jobs=n_workers, **pk)
+        # Pool warmup: spawn workers eagerly via a no-op call so the
+        # spawn cost is paid before the screening loop starts. Avoids
+        # an "expensive first iteration" pattern in the inner loop.
+        workers_pool(delayed(_pool_warmup_noop)(i) for i in range(n_workers))
     else:
         workers_pool = None
 
