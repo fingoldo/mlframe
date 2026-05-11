@@ -80,6 +80,11 @@ def main():
                    help="MRMR k-way interaction depth (default 1 = 1-way). "
                         "Set to 2 / 3 to enable pair / triplet discovery. "
                         "Only applied when the combo has use_mrmr_fs=True.")
+    p.add_argument("--mrmr-fe-max-steps", type=int, default=None,
+                   help="MRMR numeric-FE chain depth (default = MRMR default). "
+                        "Set to 2 / 3 to enable multi-step FE -- each step "
+                        "appends discovered features and refits. Only applied "
+                        "when the combo has use_mrmr_fs=True.")
     args = p.parse_args()
 
     print("Pre-warming numba JIT cache...", flush=True)
@@ -128,8 +133,19 @@ def main():
                 feature_selection_config=FeatureSelectionConfig(
                     use_mrmr_fs=combo.use_mrmr_fs,
                     mrmr_kwargs=(
-                        {"interactions_max_order": args.mrmr_interactions_max_order}
-                        if combo.use_mrmr_fs and args.mrmr_interactions_max_order > 1
+                        {
+                            k: v for k, v in {
+                                "interactions_max_order": (
+                                    args.mrmr_interactions_max_order
+                                    if args.mrmr_interactions_max_order > 1 else None
+                                ),
+                                "fe_max_steps": args.mrmr_fe_max_steps,
+                            }.items() if v is not None
+                        }
+                        if combo.use_mrmr_fs and (
+                            args.mrmr_interactions_max_order > 1
+                            or args.mrmr_fe_max_steps is not None
+                        )
                         else None
                     ),
                 ),
