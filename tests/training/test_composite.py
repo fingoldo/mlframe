@@ -90,6 +90,7 @@ class TestRegistry:
             "linear_residual_grouped",
             "quantile_residual",
             "monotonic_residual",
+            "ewma_residual", "rolling_quantile_ratio", "frac_diff",
         ])
 
     def test_list_transforms_filters_by_tag(self) -> None:

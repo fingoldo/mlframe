@@ -1048,6 +1048,224 @@ def _monotonic_residual_domain(
 
 
 # ----------------------------------------------------------------------
+# ewma_residual (R10c brainstorm #5a; exponentially-weighted moving average residual).
+#
+# T = y - EWMA_k(base), where EWMA_k(x_i) = (1 - alpha) * EWMA_k(x_{i-1}) + alpha * x_i with alpha = 2 / (k + 1) (standard half-life convention). Time-ordered: rows are assumed to be in chronological order (caller responsible). Inverse: y_hat = T_hat + EWMA_k(base), reusing the SAME EWMA recursion at predict time.
+#
+# Use case: lag-1 ``TVT_prev`` captures only one autoregressive horizon. EWMA(k=3..21) captures slow drift / regime persistence beyond a single lag. Adds transform diversity to the cross-target ensemble which NNLS exploits.
+#
+# Sequence contract: ``base`` must be in chronological order at both fit and predict. The transform DOES NOT receive a time-column kwarg; the caller (or wrapper-level orchestration) is responsible for ensuring row order matches time order. Out-of-order data produces a valid EWMA but with semantics the caller did not intend.
+# ----------------------------------------------------------------------
+
+_EWMA_RESIDUAL_DEFAULT_K: int = 7  # half-life-like span; alpha = 2 / (k + 1) ~= 0.25
+_FRAC_DIFF_DEFAULT_D: float = 0.5  # Lopez de Prado standard order
+_FRAC_DIFF_DEFAULT_LAGS: int = 30  # maximum weight tail used in the truncated series
+
+
+def _ewma_residual_fit(
+    y: np.ndarray, base: np.ndarray, k: int = _EWMA_RESIDUAL_DEFAULT_K,
+) -> Dict[str, Any]:
+    """Fit stores only the EWMA half-life span ``k``. The EWMA itself is re-computed at forward / inverse time -- this keeps the fitted params JSON-serialisable and stateless (the alternative of storing the full N-row EWMA trace would bloat metadata and break predict-on-new-data). The first-row anchor is the train-base mean: ``ewma[0] = mean(base_train)``."""
+    k = max(1, int(k))
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(base_f)
+    anchor = float(np.mean(base_f[finite])) if finite.any() else 0.0
+    return {"k": k, "anchor": anchor}
+
+
+def _ewma_compute(base: np.ndarray, k: int, anchor: float) -> np.ndarray:
+    """Exponentially-weighted moving average using ``alpha = 2 / (k + 1)``. Non-finite base values inherit the previous EWMA state (carry-forward), which keeps the recursion well-defined on rows the upstream domain check did not yet flag."""
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    alpha = 2.0 / (k + 1)
+    out = np.empty(base_f.size, dtype=np.float64)
+    state = anchor
+    for i in range(base_f.size):
+        x = base_f[i]
+        if np.isfinite(x):
+            state = (1.0 - alpha) * state + alpha * x
+        out[i] = state
+    return out
+
+
+def _ewma_residual_forward(
+    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    return np.asarray(y, dtype=np.float64) - _ewma_compute(
+        base, int(params["k"]), float(params["anchor"]),
+    )
+
+
+def _ewma_residual_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    return np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
+        base, int(params["k"]), float(params["anchor"]),
+    )
+
+
+def _ewma_residual_domain(
+    y: Optional[np.ndarray], base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+
+
+# ----------------------------------------------------------------------
+# rolling_quantile_ratio (R10c brainstorm #5b).
+#
+# T = y / max(RollingQ50_k(base), eps), where RollingQ50_k is the centred rolling median of ``base`` over a window of ``k`` rows. Inverse: y_hat = T_hat * RollingQ50_k(base). For the first ``k-1`` rows the window is left-truncated, falling back to the median of available rows.
+#
+# Use case: multiplicative DGP where the local-median of base sets the y-scale. Logratio captures global multiplicative structure but not local windowing. ``rolling_quantile_ratio`` is the localised version.
+# ----------------------------------------------------------------------
+
+_ROLLING_QUANTILE_DEFAULT_K: int = 7
+
+
+def _rolling_quantile_ratio_fit(
+    y: np.ndarray, base: np.ndarray, k: int = _ROLLING_QUANTILE_DEFAULT_K,
+) -> Dict[str, Any]:
+    """Stores the window span ``k`` and an eps floor derived from train base scale to keep division safe at predict time on near-zero rolling medians."""
+    k = max(1, int(k))
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(base_f) & (base_f != 0)
+    scale = float(np.median(np.abs(base_f[finite]))) if finite.any() else 1.0
+    eps = max(scale * 1e-6, 1e-12)
+    return {"k": k, "eps": eps}
+
+
+def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
+    """Centred rolling median with truncation at boundaries. O(n*k log k) which is acceptable for k in 3..21; not optimised for very large windows."""
+    n = arr.size
+    half = k // 2
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        window = arr[lo:hi]
+        finite = np.isfinite(window)
+        if finite.any():
+            out[i] = float(np.median(window[finite]))
+        else:
+            out[i] = arr[i] if np.isfinite(arr[i]) else 0.0
+    return out
+
+
+def _rolling_quantile_ratio_forward(
+    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    k = int(params["k"])
+    eps = float(params["eps"])
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    roll_med = _rolling_median(base_f, k)
+    safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
+    return np.asarray(y, dtype=np.float64) / safe
+
+
+def _rolling_quantile_ratio_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    k = int(params["k"])
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    roll_med = _rolling_median(base_f, k)
+    return np.asarray(t_hat, dtype=np.float64) * roll_med
+
+
+def _rolling_quantile_ratio_domain(
+    y: Optional[np.ndarray], base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+
+
+# ----------------------------------------------------------------------
+# frac_diff (R10c brainstorm #5c; fractional differencing, Lopez de Prado).
+#
+# T = (1 - L)^d y where L is the lag operator and ``d`` is a fractional order in (0, 1). The expansion truncates to ``lags`` terms with weight w_k = -w_{k-1} * (d - k + 1) / k starting at w_0 = 1. Inverse: y_hat = T_hat + (sum_{k=1}^{lags} w_k * y_{i-k}) using the SAME weight series.
+#
+# Preserves long-memory while making the target stationary -- proven win in finance / queue-length regimes. The inverse re-uses the past y values to reconstruct the level. Note: this is a UNARY-y transform (``base`` is unused but accepted for signature uniformity).
+# ----------------------------------------------------------------------
+
+
+def _frac_diff_weights(d: float, lags: int) -> np.ndarray:
+    """Truncated weight series for (1 - L)^d expansion."""
+    lags = max(1, int(lags))
+    w = np.empty(lags + 1, dtype=np.float64)
+    w[0] = 1.0
+    for k in range(1, lags + 1):
+        w[k] = -w[k - 1] * (d - k + 1) / k
+    return w
+
+
+def _frac_diff_fit(
+    y: np.ndarray, base: np.ndarray,
+    d: float = _FRAC_DIFF_DEFAULT_D, lags: int = _FRAC_DIFF_DEFAULT_LAGS,
+) -> Dict[str, Any]:
+    """Store fractional order ``d``, lag truncation ``lags``, and the train-y mean used as a pre-window anchor (rows whose lag history is shorter than ``lags`` need a fallback value for the missing past terms)."""
+    d = float(d)
+    lags = max(1, int(lags))
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(y_f)
+    anchor = float(np.mean(y_f[finite])) if finite.any() else 0.0
+    return {"d": d, "lags": lags, "anchor": anchor, "weights": _frac_diff_weights(d, lags).tolist()}
+
+
+def _frac_diff_forward(
+    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    """T_i = sum_{k=0}^{lags} w_k * y_{i-k}, padding y_{i-k} with the train anchor for k > i."""
+    lags = int(params["lags"])
+    weights = np.asarray(params["weights"], dtype=np.float64)
+    anchor = float(params["anchor"])
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    n = y_f.size
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        s = 0.0
+        for k_idx in range(min(i + 1, lags + 1)):
+            s += weights[k_idx] * y_f[i - k_idx]
+        # Pad missing past terms with the anchor (mean of train y).
+        for k_idx in range(i + 1, lags + 1):
+            s += weights[k_idx] * anchor
+        out[i] = s
+    return out
+
+
+def _frac_diff_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction. Past y values are unknown at predict, so we ITERATIVELY reconstruct them: y_0 from T_0 + lag-anchors, y_1 from T_1 + y_0 + lag-anchors, etc."""
+    lags = int(params["lags"])
+    weights = np.asarray(params["weights"], dtype=np.float64)
+    anchor = float(params["anchor"])
+    t_f = np.asarray(t_hat, dtype=np.float64).reshape(-1)
+    n = t_f.size
+    out = np.empty(n, dtype=np.float64)
+    for i in range(n):
+        lag_sum = 0.0
+        for k_idx in range(1, min(i + 1, lags + 1)):
+            lag_sum += weights[k_idx] * out[i - k_idx]
+        for k_idx in range(i + 1, lags + 1):
+            lag_sum += weights[k_idx] * anchor
+        out[i] = (t_f[i] - lag_sum) / weights[0]
+    return out
+
+
+def _frac_diff_domain(
+    y: Optional[np.ndarray], base: np.ndarray,
+) -> np.ndarray:
+    """Frac-diff is y-only but the contract accepts a base for signature uniformity. Domain: finite y; finite base (when provided)."""
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    base_ok = np.isfinite(base_f)
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+
+
+# ----------------------------------------------------------------------
 # Registry and lookup
 # ----------------------------------------------------------------------
 
@@ -1146,6 +1364,39 @@ _TRANSFORMS_REGISTRY: Dict[str, Transform] = {
         domain_check=_monotonic_residual_domain,
         description=(
             "T = y - g(base) where g is a monotone PCHIP spline fitted on quantile-knot medians. Generalises linear_residual to capture saturating / sigmoidal monotonic relationships that an OLS line leaves in the residual; PCHIP is monotone-preserving and the per-knot y-values are forced monotone (cumulative max/min along the Spearman-correlation orientation) so the interpolant is globally monotone. Out-of-range base values at predict clip to edge knot values (no PCHIP extrapolation)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "ewma_residual": Transform(
+        name="ewma_residual",
+        forward=_ewma_residual_forward,
+        inverse=_ewma_residual_inverse,
+        fit=_ewma_residual_fit,
+        domain_check=_ewma_residual_domain,
+        description=(
+            "Time-ordered exponentially-weighted moving-average residual: T = y - EWMA_k(base) with alpha = 2/(k+1). Captures slow drift / regime persistence beyond a single lag. Caller is responsible for chronological row order at fit and predict; non-finite base values carry the previous EWMA state forward."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "rolling_quantile_ratio": Transform(
+        name="rolling_quantile_ratio",
+        forward=_rolling_quantile_ratio_forward,
+        inverse=_rolling_quantile_ratio_inverse,
+        fit=_rolling_quantile_ratio_fit,
+        domain_check=_rolling_quantile_ratio_domain,
+        description=(
+            "Localised multiplicative residual: T = y / RollingMedian_k(base), with a centred window of ``k`` rows and an eps floor derived from train base scale to keep division safe at near-zero rolling medians. Inverse: y_hat = T_hat * RollingMedian_k(base). Like logratio but tracks the LOCAL base level instead of the global scale -- useful when y scales with a windowed median of base rather than the instantaneous value."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "frac_diff": Transform(
+        name="frac_diff",
+        forward=_frac_diff_forward,
+        inverse=_frac_diff_inverse,
+        fit=_frac_diff_fit,
+        domain_check=_frac_diff_domain,
+        description=(
+            "Lopez de Prado fractional differencing: T_i = sum_k w_k * y_{i-k} with w_k = -w_{k-1} * (d - k + 1) / k truncated at ``lags`` terms. Preserves long-memory while making the target stationary. Inverse iteratively reconstructs y from T + the previously-reconstructed past terms. Pre-window padding uses the train-y mean."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
