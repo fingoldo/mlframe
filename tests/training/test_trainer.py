@@ -1011,3 +1011,71 @@ class TestValidateTargetValues:
         target = np.array([1.0, np.nan])
         with pytest.raises(ValueError, match="val target"):
             _validate_target_values(target, "val")
+
+
+class TestPassthroughEmptyFrameGuard:
+    """Wave 20 regression: when a sklearn feature selector inside
+    pre_pipeline returns ``(N, 0)`` (e.g. MRMR confirms 0 predictors),
+    the downstream SimpleImputer / scaler / sklearn pandas-container
+    wrap raise ``ValueError: need at least one array to concatenate``
+    (or ``... or dtype is required``). ``_passthrough_cols_fit_transform``
+    must catch that and surface an empty DataFrame so the suite-level
+    ``train_df.shape[1] == 0`` guard at trainer.py:4515 can short-circuit
+    training cleanly.
+
+    Surfaced by Wave 15 MRMR fuzz axis ``mrmr_interactions_max_order_cfg=3
+    + mrmr_fe_max_steps_cfg=2`` on c0008 -- MRMR confirmed 0 predictors
+    out of {20, 190, 1140} candidates and the downstream pipeline crashed.
+    """
+
+    def test_pandas_empty_frame_catch_returns_empty(self):
+        from mlframe.training.trainer import _passthrough_cols_fit_transform
+
+        df = pd.DataFrame(
+            {"a": np.arange(10), "b": np.arange(10) * 0.5}
+        )
+
+        def _raise_concat(x, y=None):
+            raise ValueError("need at least one array to concatenate")
+
+        out = _passthrough_cols_fit_transform(_raise_concat, df, fit=True, target=None)
+        assert hasattr(out, "shape")
+        assert out.shape == (10, 0)
+
+    def test_pandas_empty_dtype_catch_returns_empty(self):
+        from mlframe.training.trainer import _passthrough_cols_fit_transform
+
+        df = pd.DataFrame({"a": np.arange(10)})
+
+        def _raise_dtype(x, y=None):
+            raise ValueError("at least one array or dtype is required")
+
+        out = _passthrough_cols_fit_transform(_raise_dtype, df, fit=True, target=None)
+        assert hasattr(out, "shape")
+        assert out.shape == (10, 0)
+
+    def test_polars_empty_catch_returns_polars_empty(self):
+        from mlframe.training.trainer import _passthrough_cols_fit_transform
+
+        df = pl.DataFrame({"a": np.arange(10), "b": np.arange(10) * 0.5})
+
+        def _raise_concat(x, y=None):
+            raise ValueError("need at least one array to concatenate")
+
+        out = _passthrough_cols_fit_transform(_raise_concat, df, fit=True, target=None)
+        # Polars cannot represent a (N, 0) frame (drops rows when all
+        # columns drop, returns (0, 0)). What matters for the suite's
+        # downstream 0-feature guard is ``shape[1] == 0``.
+        assert isinstance(out, pl.DataFrame)
+        assert out.shape[1] == 0
+
+    def test_unrelated_valueerror_propagates(self):
+        from mlframe.training.trainer import _passthrough_cols_fit_transform
+
+        df = pd.DataFrame({"a": np.arange(10)})
+
+        def _raise_other(x, y=None):
+            raise ValueError("something completely different")
+
+        with pytest.raises(ValueError, match="something completely different"):
+            _passthrough_cols_fit_transform(_raise_other, df, fit=True, target=None)

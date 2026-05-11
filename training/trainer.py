@@ -1310,11 +1310,42 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     pd.DataFrame from the reduced-input column names so passthrough_cols re-attach
     and downstream models take the native-pandas fastpath.
     """
+    # 2026-05-11 Wave 20: convert sklearn/polars "empty output" errors into
+    # an empty-frame return so the downstream ``train_df.shape[1] == 0``
+    # guard at trainer.py:4515 fires cleanly. Triggered by MRMR / RFECV
+    # confirming 0 predictors: ``fit_transform`` returns ``(N, 0)`` which
+    # crashes in either:
+    #   - SimpleImputer / scaler: ``ValueError: need at least one array
+    #     or dtype is required`` (numpy.find_common_type on empty list).
+    #   - sklearn's pandas-container wrap of a polars ``(N, 0)`` frame:
+    #     ``ValueError: need at least one array to concatenate``
+    #     (polars.to_numpy -> vstack on empty list).
+    # Surfaced by Wave 15 MRMR fuzz axes (c0008 with interactions_max_order=3
+    # + fe_max_steps=2 confirming 0 predictors).
+    def _run_and_empty_check(_fn, _arg, _target_arg):
+        try:
+            return _fn(_arg, _target_arg) if fit else _fn(_arg)
+        except ValueError as _exc:
+            _m = str(_exc)
+            if (
+                "need at least one array to concatenate" in _m
+                or "at least one array or dtype is required" in _m
+            ):
+                # Empty output (0 features); return an empty DataFrame of
+                # matching shape so the suite's downstream 0-feature guard
+                # catches it.
+                if isinstance(_arg, pl.DataFrame):
+                    return _arg.select([])
+                if hasattr(_arg, "iloc"):
+                    return _arg.iloc[:, :0]
+                return np.empty((len(_arg), 0))
+            raise
+
     if not passthrough_cols or df is None or not hasattr(df, "columns"):
-        return fn(df, target) if fit else fn(df)
+        return _run_and_empty_check(fn, df, target)
     present = [c for c in passthrough_cols if c in df.columns]
     if not present:
-        return fn(df, target) if fit else fn(df)
+        return _run_and_empty_check(fn, df, target)
     is_polars = isinstance(df, pl.DataFrame)
     if is_polars:
         held = df.select(present)
@@ -1557,54 +1588,10 @@ def _apply_pre_pipeline_transforms(
                 # multilabel targets to "any positive label" for the encoder fit
                 # only -- actual model still trains on the full (N, K) target.
                 _enc_target = _multilabel_target_to_1d_for_supervised_encoders(train_target)
-                # 2026-05-11 Wave 20: defensive 0-feature detection. When the
-                # base pipeline is a feature selector (MRMR / RFECV) that
-                # confirms 0 predictors, ``fit_transform`` produces an
-                # ``(N, 0)`` frame and the downstream SimpleImputer / scaler
-                # raise ``ValueError: need at least one array to concatenate``
-                # from inside ``np.find_common_type([])``. The post-pipeline
-                # guard at trainer.py:4515 catches the ``shape[1] == 0`` case
-                # but only runs AFTER ``_apply_pre_pipeline_transforms``
-                # returns -- so the raise inside the pipeline bypasses it.
-                # Surfaced by Wave 15 MRMR fuzz axes (c0008 with
-                # ``interactions_max_order=3``, fe_max_steps=2): MRMR found
-                # 0 confirmed predictors and the downstream pipeline crashed.
-                try:
-                    train_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.fit_transform, train_df,
-                        passthrough_cols=selector_passthrough_cols, fit=True, target=_enc_target,
-                    )
-                except ValueError as _exc:
-                    _msg = str(_exc)
-                    if (
-                        "need at least one array to concatenate" in _msg
-                        or "at least one array or dtype is required" in _msg
-                    ):
-                        if verbose:
-                            logger.warning(
-                                "pre_pipeline produced 0 features (feature selector "
-                                "confirmed nothing); skipping further preprocessing. "
-                                "Downstream 0-feature guard will short-circuit training."
-                            )
-                        # Return an empty DataFrame matching the input row count
-                        # so the downstream ``train_df.shape[1] == 0`` guard
-                        # fires cleanly.
-                        if isinstance(train_df, pl.DataFrame):
-                            train_df = train_df.select([])
-                        elif isinstance(train_df, pd.DataFrame):
-                            train_df = train_df.iloc[:, :0]
-                        else:
-                            train_df = np.empty((len(train_df), 0))
-                        # Skip val transform too: pipeline is unusable.
-                        if val_df is not None:
-                            if isinstance(val_df, pl.DataFrame):
-                                val_df = val_df.select([])
-                            elif isinstance(val_df, pd.DataFrame):
-                                val_df = val_df.iloc[:, :0]
-                            else:
-                                val_df = np.empty((len(val_df), 0))
-                        return train_df, val_df
-                    raise
+                train_df = _passthrough_cols_fit_transform(
+                    pre_pipeline.fit_transform, train_df,
+                    passthrough_cols=selector_passthrough_cols, fit=True, target=_enc_target,
+                )
                 if verbose:
                     log_ram_usage()
                 if val_df is not None:
