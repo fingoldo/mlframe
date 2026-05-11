@@ -829,10 +829,24 @@ def _process_single_ensemble_method(
     from mlframe.training import train_and_evaluate_model
     from mlframe.training.trainer import _build_configs_from_params
 
+    # 2026-05-13 (bug fix): val_preds / test_preds may be ``None`` when the
+    # corresponding split metric computation was disabled at suite level
+    # (``ReportingConfig.compute_valset_metrics=False`` /
+    # ``compute_testset_metrics=False``). Pre-fix the bare
+    # ``el.val_preds.reshape(-1, 1)`` raised AttributeError on the first
+    # ``None``-valued member. Mirrors the existing train-side guard at
+    # the bottom of this function (line ~870). When NO members have val
+    # preds, the ensemble call gets an empty tuple; downstream
+    # ``ensemble_probabilistic_predictions`` already returns
+    # ``(None, None, None)`` for that case (line ~438).
     if not is_regression:
-        predictions = (el.val_probs for el in level_models_and_predictions)
+        _val_preds = [el.val_probs for el in level_models_and_predictions
+                      if el.val_probs is not None]
+        predictions = iter(_val_preds)
     else:
-        predictions = (el.val_preds.reshape(-1, 1) for el in level_models_and_predictions)
+        _val_preds = [el.val_preds for el in level_models_and_predictions
+                      if el.val_preds is not None]
+        predictions = (p.reshape(-1, 1) for p in _val_preds)
 
     val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
         *predictions,
@@ -847,10 +861,15 @@ def _process_single_ensemble_method(
         verbose=verbose,
     )
 
+    # 2026-05-13: same ``None``-guard for test_preds / test_probs.
     if not is_regression:
-        predictions = (el.test_probs for el in level_models_and_predictions)
+        _test_preds = [el.test_probs for el in level_models_and_predictions
+                       if el.test_probs is not None]
+        predictions = iter(_test_preds)
     else:
-        predictions = (el.test_preds.reshape(-1, 1) for el in level_models_and_predictions)
+        _test_preds = [el.test_preds for el in level_models_and_predictions
+                       if el.test_preds is not None]
+        predictions = (p.reshape(-1, 1) for p in _test_preds)
 
     test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
         *predictions,
