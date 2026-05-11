@@ -371,6 +371,99 @@ def test_biz_val_rfecv_use_last_fi_run_only_ignores_history():
     assert 1 <= len(_support_indices(sel)) <= df.shape[1]
 
 
+@pytest.mark.parametrize("seed", [1, 7, 42, 123])
+def test_biz_val_rfecv_random_state_reproducibility(seed):
+    """``random_state=<seed>`` must produce identical support_ across
+    two independent fits. Catches regressions where internal sampling
+    drifts beyond random_state's control."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=seed)
+    df, _ys = as_df(X, y)
+    common = dict(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=20),
+        cv=3, max_refits=4, verbose=0,
+        max_noimproving_iters=2, random_state=seed,
+    )
+    sel_a = RFECV(**common)
+    sel_b = RFECV(**common)
+    sel_a.fit(df, y)
+    sel_b.fit(df, y)
+    assert _support_indices(sel_a) == _support_indices(sel_b), (
+        f"random_state={seed} must produce identical support_; got "
+        f"a={_support_indices(sel_a)}, b={_support_indices(sel_b)}"
+    )
+
+
+@pytest.mark.parametrize("cv_folds", [2, 3, 5])
+def test_biz_val_rfecv_cv_folds_robust_to_value(cv_folds):
+    """RFECV with different CV fold counts must complete and produce
+    valid support. Parametrize over {2, 3, 5}."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=20),
+        cv=cv_folds, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("smooth_perf", [0, 1, 3])
+def test_biz_val_rfecv_smooth_perf_parametrize_completes(smooth_perf):
+    """``smooth_perf`` (rolling-mean window over CV iterations)
+    parametrized over {0=off, 1, 3}. Each must complete cleanly."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=20),
+        cv=3, max_refits=4, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        smooth_perf=smooth_perf,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("nofeatures_dummy", [True, False])
+def test_biz_val_rfecv_nofeatures_dummy_scoring_completes(nofeatures_dummy):
+    """``nofeatures_dummy_scoring`` toggles whether the all-features
+    baseline scores against a dummy. Both modes must complete."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=20),
+        cv=3, max_refits=4, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        nofeatures_dummy_scoring=nofeatures_dummy,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
 def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     """RFECV with ``checkpoint_path`` must (a) write a resume file
     that allows a subsequent identical fit to pick up where it left

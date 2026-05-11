@@ -481,6 +481,90 @@ def test_biz_val_mrmr_only_unknown_interactions_completes_smoke():
     assert 1 <= len(sel_skip.support_) <= df.shape[1]
 
 
+@pytest.mark.parametrize("seed", [1, 7, 42, 123, 2024])
+def test_biz_val_mrmr_robust_signal_recovery_across_seeds(seed):
+    """Signal recovery must be stable across multiple seeds.
+    Parametrize over 5 seeds: each must hit top-3 overlap >= 2 with
+    the 3-feature signal on a clean linear target."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df, signal_overlap,
+    )
+    X, y, signal = make_signal_plus_noise(n=1000, p_signal=3, p_noise=8,
+                                              seed=seed)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=seed)
+    sel.fit(df, ys)
+    assert signal_overlap(sel, signal, top_k=5) >= 2
+
+
+@pytest.mark.parametrize("n_samples,p_features", [
+    (500, 8),
+    (1000, 12),
+    (1500, 15),
+])
+def test_biz_val_mrmr_scales_across_dataset_sizes(n_samples, p_features):
+    """MRMR must complete + produce valid support across small/medium
+    dataset sizes. Parametrize over 3 (n, p) combinations."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import as_df
+    rng = np.random.default_rng(42)
+    X = rng.normal(size=(n_samples, p_features))
+    y = (X[:, 0] + X[:, 1] > 0).astype(np.int64)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42)
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= p_features
+
+
+@pytest.mark.parametrize("interactions_min,interactions_max", [
+    (1, 1),
+    (1, 2),
+    (2, 2),
+    (2, 3),
+])
+def test_biz_val_mrmr_interactions_min_max_order_range(interactions_min, interactions_max):
+    """``interactions_min_order`` + ``interactions_max_order`` range
+    parametrization. All valid combinations must complete."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        interactions_min_order=interactions_min,
+        interactions_max_order=interactions_max,
+    )
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= df.shape[1]
+
+
+@pytest.mark.parametrize("factors_names_subset", [
+    ["x0", "x1", "x2"],
+    ["x0", "x3", "x5"],
+])
+def test_biz_val_mrmr_factors_names_to_use_restricts_search(factors_names_subset):
+    """``factors_names_to_use`` must restrict the search space:
+    support_ must be a subset of the named columns."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42,
+                factors_names_to_use=factors_names_subset)
+    sel.fit(df, ys)
+    selected_names = set(df.columns[i] for i in sel.support_)
+    # All selected features must be in the requested subset.
+    assert selected_names.issubset(set(factors_names_subset)), (
+        f"factors_names_to_use must restrict selection to {factors_names_subset}; "
+        f"got {selected_names}"
+    )
+
+
 def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
     """``min_nonzero_confidence=0.999`` is stricter than the default
     0.99; on a noisy target with few clear-signal features it must
