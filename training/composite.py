@@ -911,6 +911,143 @@ def _quantile_residual_domain(
 
 
 # ----------------------------------------------------------------------
+# monotonic_residual (R10c brainstorm round-2 extension A; non-parametric monotonic-spline residual).
+#
+# T = y - g(base), where g is a monotonic PCHIP interpolant fitted to per-knot median(y) on quantile-based knots of base. Generalises linear_residual to capture saturating / sigmoidal / convex-concave relationships that the linear OLS leaves in the residual.
+#
+# Use case (TVT-style well-log): if TVT ~= a*TVT_prev grows linearly at low values but plateaus at high values, linear_residual leaves a wedge of curvature in T. Monotonic-spline residual sucks up the curvature so the inner model sees a near-iid T.
+#
+# PCHIP (Piecewise Cubic Hermite Interpolating Polynomial; scipy) is monotone-preserving by construction -- the interpolant between two adjacent knots is monotone if the knot values are monotone. We force per-knot y-values to be monotone (cumulative max or cumulative min depending on the train-data slope) so the spline g is monotone overall. This regularises the fit against noise-driven non-monotonicities at small per-knot sample sizes.
+# ----------------------------------------------------------------------
+
+_MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS: int = 12
+_MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N: int = 30
+
+
+def _monotonic_residual_fit(
+    y: np.ndarray, base: np.ndarray,
+    n_knots: int = _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
+    min_knot_n: int = _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N,
+) -> Dict[str, Any]:
+    """Fit a monotone PCHIP spline g(base) via per-quantile-knot medians and orient by the sign of the global Spearman correlation between y and base. Stores the knot x/y arrays + the global y mean as a fallback. Domain at predict time: base values outside [knots_x[0], knots_x[-1]] are clipped to the edge knots (PCHIP extrapolation is not safe -- it can run off to +/- inf rapidly)."""
+    n_knots = max(3, int(n_knots))
+    min_knot_n = max(2, int(min_knot_n))
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(y_f) & np.isfinite(base_f)
+    if finite.sum() < n_knots * 2:
+        y_med = float(np.median(y_f[finite])) if finite.any() else 0.0
+        return {
+            "knots_x": np.array([0.0, 1.0], dtype=np.float64),
+            "knots_y": np.array([y_med, y_med], dtype=np.float64),
+            "y_train_mean": y_med,
+            "monotone_direction": 0,
+            "n_knots_effective": 2,
+        }
+    y_clean = y_f[finite]
+    base_clean = base_f[finite]
+    # Knot x positions on quantile cuts of base (NOT linearly-spaced — uneven base distributions benefit from quantile placement).
+    qs = np.linspace(0.0, 1.0, n_knots)
+    knots_x = np.quantile(base_clean, qs)
+    # Deduplicate ties (many identical base values collapse to fewer knots).
+    knots_x = np.unique(knots_x)
+    if knots_x.size < 3:
+        y_med = float(np.median(y_clean))
+        return {
+            "knots_x": np.array([base_clean.min(), base_clean.max()], dtype=np.float64),
+            "knots_y": np.array([y_med, y_med], dtype=np.float64),
+            "y_train_mean": y_med,
+            "monotone_direction": 0,
+            "n_knots_effective": 2,
+        }
+    # Per-knot y values: median(y) for rows assigned to each knot's quantile slab.
+    n_eff = knots_x.size
+    knots_y = np.empty(n_eff, dtype=np.float64)
+    y_global_med = float(np.median(y_clean))
+    # Slab boundaries: midpoints between adjacent knots (left/right edges extend to +/-inf so every row maps to a slab).
+    slab_edges = np.empty(n_eff + 1, dtype=np.float64)
+    slab_edges[0] = -np.inf
+    slab_edges[-1] = np.inf
+    slab_edges[1:-1] = 0.5 * (knots_x[:-1] + knots_x[1:])
+    slab_idx = np.clip(np.searchsorted(slab_edges[1:-1], base_clean, side="right"), 0, n_eff - 1)
+    for k in range(n_eff):
+        mask = slab_idx == k
+        n_in_slab = int(mask.sum())
+        if n_in_slab < min_knot_n:
+            knots_y[k] = y_global_med
+        else:
+            knots_y[k] = float(np.median(y_clean[mask]))
+    # Orient monotonicity by Spearman correlation between y and base; tie -> increasing (arbitrary but stable).
+    if y_clean.size >= 3 and base_clean.size >= 3:
+        # np.corrcoef on ranks ~ Spearman; avoids scipy dep.
+        from scipy.stats import spearmanr  # lazy import
+        try:
+            rho, _ = spearmanr(base_clean, y_clean)
+            direction = 1 if (rho is None or not np.isfinite(rho) or rho >= 0) else -1
+        except Exception:
+            direction = 1
+    else:
+        direction = 1
+    # Enforce monotonicity by cumulative max / min over knots in the orientation direction. This protects against per-knot median noise creating local non-monotonicities the PCHIP would otherwise honour (PCHIP is monotone PER SEGMENT but only if the knot values are monotone overall).
+    if direction == 1:
+        knots_y = np.maximum.accumulate(knots_y)
+    else:
+        knots_y = np.minimum.accumulate(knots_y)
+    return {
+        "knots_x": knots_x,
+        "knots_y": knots_y,
+        "y_train_mean": float(np.mean(y_clean)),
+        "monotone_direction": direction,
+        "n_knots_effective": int(n_eff),
+    }
+
+
+def _monotonic_residual_g(base: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+    """Evaluate the monotone PCHIP interpolant at the requested base values. Out-of-range values clip to the edge knot value (NOT extrapolated)."""
+    knots_x = np.asarray(params["knots_x"], dtype=np.float64)
+    knots_y = np.asarray(params["knots_y"], dtype=np.float64)
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    if knots_x.size < 2:
+        return np.full(base_f.shape, float(params.get("y_train_mean", 0.0)), dtype=np.float64)
+    if knots_x.size == 2:
+        # Degenerate: linear interpolation between the two anchor knots; out-of-range clamps to edge value.
+        clipped = np.clip(base_f, knots_x[0], knots_x[-1])
+        slope = (knots_y[-1] - knots_y[0]) / max(knots_x[-1] - knots_x[0], 1e-12)
+        return knots_y[0] + slope * (clipped - knots_x[0])
+    from scipy.interpolate import PchipInterpolator  # lazy
+    interp = PchipInterpolator(knots_x, knots_y, extrapolate=False)
+    # extrapolate=False yields NaN outside [x[0], x[-1]]; fill those with the edge knot values to keep predict-time well-defined.
+    out = interp(base_f)
+    if np.any(~np.isfinite(out)):
+        low_mask = base_f < knots_x[0]
+        high_mask = base_f > knots_x[-1]
+        out[low_mask] = knots_y[0]
+        out[high_mask] = knots_y[-1]
+    return out
+
+
+def _monotonic_residual_forward(
+    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    return np.asarray(y, dtype=np.float64) - _monotonic_residual_g(base, params)
+
+
+def _monotonic_residual_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    return np.asarray(t_hat, dtype=np.float64) + _monotonic_residual_g(base, params)
+
+
+def _monotonic_residual_domain(
+    y: Optional[np.ndarray], base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+
+
+# ----------------------------------------------------------------------
 # Registry and lookup
 # ----------------------------------------------------------------------
 
@@ -998,6 +1135,17 @@ _TRANSFORMS_REGISTRY: Dict[str, Transform] = {
         domain_check=_quantile_residual_domain,
         description=(
             "Non-parametric heteroscedasticity-aware residual: T = (y - median_bin(y)) / IQR_bin(y) with ``n_bins`` quantile bins of ``base``. Inverse y_hat = T_hat * IQR_bin + median_bin. Under-populated bins (< min_bin_n train rows) and constant-y bins fall back to the global median(y) / IQR(y); out-of-range base values at predict map to the edge bin (no separate OOR bucket)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "monotonic_residual": Transform(
+        name="monotonic_residual",
+        forward=_monotonic_residual_forward,
+        inverse=_monotonic_residual_inverse,
+        fit=_monotonic_residual_fit,
+        domain_check=_monotonic_residual_domain,
+        description=(
+            "T = y - g(base) where g is a monotone PCHIP spline fitted on quantile-knot medians. Generalises linear_residual to capture saturating / sigmoidal monotonic relationships that an OLS line leaves in the residual; PCHIP is monotone-preserving and the per-knot y-values are forced monotone (cumulative max/min along the Spearman-correlation orientation) so the interpolant is globally monotone. Out-of-range base values at predict clip to edge knot values (no PCHIP extrapolation)."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
