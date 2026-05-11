@@ -352,6 +352,16 @@ def prewarm_numba_cache():
                 shap.utils.transformers.is_transformers_lm = lambda model: False
             except Exception:
                 pass
+        # 2026-05-11 Wave 19d: ``mlframe.training.neural`` cold-imports in
+        # 17 s on top of the lightning prewarm (the neural package brings
+        # in extra modules for callbacks, dataset wrappers, etc.). The
+        # suite reaches it via ``configure_training_params`` only when
+        # MLP / recurrent is in the model list, so the cost stays lazy
+        # for non-NN combos.
+        try:
+            import mlframe.training.neural  # noqa: F401
+        except Exception:
+            pass
     except Exception:
         pass
 
