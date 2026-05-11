@@ -56,6 +56,7 @@ from .utils import (  # noqa: F401
     _compute_fairness_subgroups,
     _should_skip_catboost_metamodel,
     _create_initial_metadata,
+    _defensive_copy_and_expand_multilabel_regression,
     _initialize_training_defaults,
     _finalize_and_save_metadata,
     _maybe_dispatch_to_ltr_ranker_suite,

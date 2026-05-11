@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-05-12 (continued) — Phase 5c-j: defensive-copy + multilabel-expand (main.py crosses under 4000 LOC)
+
+10. **`_defensive_copy_and_expand_multilabel_regression`** (~45 LOC body):
+    two responsibilities -- (a) defensive shallow-copy of the outer
+    ``target_by_type`` + per-type inner dicts so composite-discovery's
+    additions don't mutate the FTE-cached value across suite invocations,
+    (b) R3.18 multilabel expansion of 2-D regression targets `(n, K)` into
+    K independent 1-D sub-targets named ``{target}_out{j}``. Caller can
+    opt out via `multilabel_strategy="skip"`. Records expansion in
+    `metadata["multilabel_target_expansion"]`.
+
+`main.py` LOC: 4033 → 3998 (−35). **Crossed under 4000 LOC.** 435 composite
++ 65 focused regression all pass. Cumulative Phase 5 reduction:
+7131 → 3998 = **−44%**.
+
+---
+
 ## 2026-05-12 (continued) — Phase 5c-i: composite-discovery prologue extraction
 
 9. **`_init_composite_discovery_metadata`** (~60 LOC body): the composite-target

@@ -112,6 +112,68 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
 
 
+def _defensive_copy_and_expand_multilabel_regression(
+    *,
+    target_by_type,
+    composite_target_discovery_config,
+    metadata,
+):
+    """Defensive copy of ``target_by_type`` + multilabel-target expansion.
+
+    Two responsibilities:
+
+    1. **Defensive shallow copy** of the outer dict + per-type inner dicts so
+       composite-discovery's downstream additions to
+       ``target_by_type[REGRESSION]`` don't mutate the FTE-cached value (FTE
+       can be shared across suite invocations).
+
+    2. **R3.18 multilabel expansion** (per-target strategy). 2-D regression
+       targets of shape ``(n, K)`` get expanded into K independent 1-D
+       targets named ``{target}_out{j}``. Caller can opt out via
+       ``multilabel_strategy="skip"`` to preserve the legacy "skip with
+       metadata note" behaviour. Records the expansion in
+       ``metadata["multilabel_target_expansion"]``.
+
+    Returns
+    -------
+    new_target_by_type: dict
+        Defensive copy with multilabel sub-targets substituted in.
+    """
+    new_target_by_type = {
+        tt: dict(named) if isinstance(named, dict) else named
+        for tt, named in target_by_type.items()
+    }
+    ml_strategy = str(getattr(
+        composite_target_discovery_config,
+        "multilabel_strategy", "per_target",
+    ))
+    if ml_strategy == "per_target":
+        expanded = dict(new_target_by_type[TargetTypes.REGRESSION])
+        ml_expanded_map: Dict[str, List[str]] = {}
+        for _tn, _tv in list(new_target_by_type[TargetTypes.REGRESSION].items()):
+            _arr = np.asarray(_tv)
+            if _arr.ndim == 2 and _arr.shape[1] >= 1:
+                sub_names = []
+                for _j in range(_arr.shape[1]):
+                    _sub_name = f"{_tn}_out{_j}"
+                    expanded[_sub_name] = _arr[:, _j]
+                    sub_names.append(_sub_name)
+                expanded.pop(_tn, None)
+                ml_expanded_map[_tn] = sub_names
+                logger.info(
+                    "[CompositeTargetDiscovery] R3.18: multilabel "
+                    "target '%s' (shape=%s) expanded into %d 1-D "
+                    "sub-targets: %s",
+                    _tn, _arr.shape, _arr.shape[1], sub_names,
+                )
+        new_target_by_type[TargetTypes.REGRESSION] = expanded
+        if ml_expanded_map:
+            metadata.setdefault("multilabel_target_expansion", {})[
+                str(TargetTypes.REGRESSION)
+            ] = ml_expanded_map
+    return new_target_by_type
+
+
 def _init_composite_discovery_metadata(
     *,
     composite_target_discovery_config,
