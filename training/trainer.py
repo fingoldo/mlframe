@@ -4779,6 +4779,24 @@ def train_and_evaluate_model(
             )
 
             if not just_evaluate:
+                # 2026-05-13 (user request): nest Lightning checkpoints +
+                # CSV logger output under the per-model directory
+                # (``{dirname(model_file_name)}/{basename_no_ext}/``) so
+                # different (target, model, schema_hash) combos don't
+                # collide in a shared project-root ``logs/`` folder.
+                # Only applies to TTR-wrapped Lightning regressors --
+                # tree models ignore this attribute. Set on the inner
+                # regressor (under TTR's ``.regressor``) when present,
+                # falling back to the model itself for direct Lightning
+                # regressors.
+                try:
+                    if model_file_name:
+                        _ckpt_dir = os.path.splitext(model_file_name)[0]
+                        _inner = getattr(model, "regressor", model)
+                        if hasattr(_inner, "trainer_params"):
+                            _inner.checkpoint_dir_override = _ckpt_dir
+                except Exception:
+                    pass
                 model, best_iter = _train_model_with_fallback(
                     model=model,
                     model_obj=model_obj,
@@ -5101,6 +5119,23 @@ def _configure_mlp_params(
             "``pip install mlframe[neural]`` or omit ``mlp`` from mlframe_models."
         )
     # 2026-05-11 (user feedback): default architecture trimmed. Previous (nlayers=20, ratio=1.5) generated a 14-layer monster like 100->66->44->29->19->13->8->5->3->2->1->1->1 -- absurd funnel that collapses representational capacity to 1 neuron by mid-network. New defaults: nlayers=4 + ratio=2.0 -> 128->64->32->16->1, a classic shallow tabular MLP. Caller can still override via mlp_kwargs["network_params"] when a different topology is needed.
+    #
+    # 2026-05-13 (TVT-failure root cause): defaults switched to ZERO dropout +
+    # NO batchnorm. The previous defaults (``dropout_prob=0.15`` +
+    # ``inputs_dropout_prob=0.002`` + ``use_batchnorm=True``) catastrophically
+    # killed the MLP on near-linear targets like TVT (y ~= 0.95 * TVT_prev +
+    # tiny residual), where linear regression is the MLE estimator and the
+    # MLP's job is to match it. Four hidden layers of dropout=0.15 means
+    # ~52% of the signal (0.85^4) is destroyed on every forward pass; the
+    # network simply cannot find the strong linear mapping. Production
+    # symptom: 2-hour MLP run on 4M-row TVT collapsed predictions to a
+    # narrow band [11k, 11.7k] around the mean, R2=0.33 vs linear R2=0.85.
+    #
+    # New defaults: dropout=0 + batchnorm=False. Tabular regression with
+    # strong linear / additive signal does NOT benefit from dropout (none
+    # of the big tabular libs -- CB / XGB / LGB -- use it either). Users
+    # whose dataset is truly noise-dominated can opt in via
+    # ``mlp_kwargs["network_params"]["dropout_prob"]=0.15``.
     mlp_network_params = dict(
         nlayers=4,
         first_layer_num_neurons=128,
@@ -5109,9 +5144,9 @@ def _configure_mlp_params(
         consec_layers_neurons_ratio=2.0,
         activation_function=torch.nn.LeakyReLU,
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
-        dropout_prob=0.15,
-        inputs_dropout_prob=0.002,
-        use_batchnorm=True,
+        dropout_prob=0.0,
+        inputs_dropout_prob=0.0,
+        use_batchnorm=False,
     )
     if mlp_kwargs:
         mlp_network_params.update(mlp_kwargs.get("network_params", {}))

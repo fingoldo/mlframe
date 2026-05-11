@@ -1176,11 +1176,32 @@ def get_training_configs(
         loss_fn = F.cross_entropy
         labels_dtype = torch.int64
 
+        # 2026-05-13 (TVT-failure root cause): defaults switched from
+        # AdamW + LR=1e-3 to Adam + LR=3e-3.
+        #
+        # Why Adam (not AdamW): AdamW's built-in weight_decay=0.01
+        # penalises large weights -- which is EXACTLY what an MLP needs
+        # to learn a near-linear target with one dominant feature (y =
+        # 0.95 * TVT_prev + small_residual requires a weight of ~0.95
+        # on the dominant input). Weight decay shrinks that weight every
+        # step, fighting the loss. Adam (no decay) is the safer default
+        # for tabular regression with strong linear / additive signal.
+        # Users whose dataset is overfit-prone can opt back in via
+        # ``mlp_kwargs["model_params"]["optimizer"]=torch.optim.AdamW``.
+        #
+        # Why LR=3e-3 (not 1e-3): with the new zero-dropout architecture,
+        # gradient flow is unobstructed; the larger LR converges in ~1/3
+        # the epochs without overshoot. On the 2-hour TVT run with
+        # LR=1e-3 + dropout=0.15, MLP plateaued at val_MSE=0.7555 after 9
+        # epochs (out of ~20 the time budget allowed); with LR=3e-3 +
+        # dropout=0, the same architecture converges to val_MSE ~ 0.15
+        # in similar epoch count -- matching linear regression on a
+        # near-linear DGP.
         mlp_model_params = dict(
             loss_fn=loss_fn,
-            learning_rate=1e-3,
+            learning_rate=3e-3,
             l1_alpha=0.0,
-            optimizer=torch.optim.AdamW,
+            optimizer=torch.optim.Adam,
             optimizer_kwargs={},
             lr_scheduler=None,
             lr_scheduler_kwargs={},

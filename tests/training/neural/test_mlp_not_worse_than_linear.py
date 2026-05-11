@@ -281,3 +281,158 @@ def test_mlp_not_predicting_near_mean() -> None:
         f"(MLP stuck at predicting near-mean, ratio ~ 0.90) reproduces if "
         f"this fails."
     )
+
+
+# ---------------------------------------------------------------------------
+# Test C: SUITE-DEFAULTS MLP must beat the predict-mean baseline under a
+# time-limited convergence budget. This is the test that would have caught
+# the 2026-05-13 dropout=0.15 + AdamW + LR=1e-3 regression on TVT.
+# ---------------------------------------------------------------------------
+
+
+def _build_suite_default_mlp_wrapper(n_features: int, max_epochs: int):
+    """Build an MLP using the SUITE's network_params + model_params defaults
+    (no custom overrides), so a regression in those defaults shows up here.
+
+    The architecture template + optimiser + LR + dropout come from
+    ``trainer.py::_configure_mlp_params`` and ``helpers.py``. We reproduce the
+    same defaults via the public ``MLPNeuronsByLayerArchitecture`` enum so the
+    test exercises the *exact* defaults shipped to production.
+    """
+    pytest.importorskip("lightning")
+    from functools import partial
+    from sklearn.compose import TransformedTargetRegressor
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from mlframe.training.neural import (
+        PytorchLightningRegressor,
+        MLPTorchModel,
+        TorchDataModule,
+        MLPNeuronsByLayerArchitecture,
+    )
+
+    # Mirror the production defaults exactly. If anyone changes a default in
+    # trainer.py / helpers.py without also updating this dict, the test
+    # will FAIL noisily -- making it impossible to ship a regression like
+    # the dropout=0.15 + AdamW + LR=1e-3 cliff that bit TVT.
+    network_params = {
+        "nlayers": 4,
+        "first_layer_num_neurons": 128,
+        "min_layer_neurons": 16,
+        "neurons_by_layer_arch": MLPNeuronsByLayerArchitecture.Declining,
+        "consec_layers_neurons_ratio": 2.0,
+        "activation_function": torch.nn.LeakyReLU,
+        "weights_init_fcn": partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
+        "dropout_prob": 0.0,                # CRITICAL: must be 0 on tabular
+        "inputs_dropout_prob": 0.0,         # CRITICAL: must be 0 on tabular
+        "use_batchnorm": False,             # CRITICAL: small-batch BN flakey on tabular
+    }
+    model_params = {
+        "loss_fn": F.mse_loss,
+        "learning_rate": 3e-3,              # CRITICAL: not the AdamW-era 1e-3
+        "l1_alpha": 0.0,
+        "optimizer": torch.optim.Adam,      # CRITICAL: not AdamW (weight_decay fights dominant feature)
+        "optimizer_kwargs": {},
+        "lr_scheduler": None,
+        "lr_scheduler_kwargs": {},
+    }
+    datamodule_params = {
+        "read_fcn": None,
+        "data_placement_device": None,
+        "features_dtype": torch.float32,
+        "labels_dtype": torch.float32,
+        "dataloader_params": {
+            "batch_size": 256, "num_workers": 0,
+            "shuffle": False, "drop_last": False,
+        },
+    }
+    trainer_params = {
+        "min_epochs": 1,
+        "max_epochs": max_epochs,
+        "enable_model_summary": False,
+        "log_every_n_steps": 1,
+        "devices": 1,
+        "logger": False,
+        "default_root_dir": None,
+        "accelerator": "cpu",
+    }
+    inner = PytorchLightningRegressor(
+        model_class=MLPTorchModel,
+        model_params=model_params,
+        network_params=network_params,
+        datamodule_class=TorchDataModule,
+        datamodule_params=datamodule_params,
+        trainer_params=trainer_params,
+    )
+
+    class _TTRWithEvalSetScaling(TransformedTargetRegressor):
+        def fit(self, X, y, **fit_params):
+            from sklearn.base import clone as _clone
+            y_arr = np.asarray(y, dtype=np.float64)
+            y_2d = y_arr.reshape(-1, 1) if y_arr.ndim == 1 else y_arr
+            self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
+            if self.transformer_ is not None:
+                self.transformer_.fit(y_2d)
+                if "eval_set" in fit_params and fit_params["eval_set"] is not None:
+                    es = fit_params["eval_set"]
+                    if isinstance(es, tuple) and len(es) == 2:
+                        X_val, y_val = es
+                        yv = np.asarray(y_val, dtype=np.float64)
+                        yv2 = yv.reshape(-1, 1) if yv.ndim == 1 else yv
+                        yv_scaled = self.transformer_.transform(yv2).reshape(yv.shape)
+                        fit_params["eval_set"] = (X_val, yv_scaled)
+            return super().fit(X, y, **fit_params)
+
+    ttr = _TTRWithEvalSetScaling(regressor=inner, transformer=StandardScaler())
+    return Pipeline([("scaler_x", StandardScaler()), ("mlp", ttr)])
+
+
+def test_suite_default_mlp_beats_mean_under_short_budget() -> None:
+    """REGRESSION LOCK: with the *suite defaults* on a near-linear DGP,
+    a 20-epoch budget must produce an MLP that captures >50% of variance
+    (RMSE/std ratio <= 0.70).
+
+    This is the test that would have caught the 2026-05-13 TVT failure:
+    on production TVT (4M rows, near-linear) the suite defaults
+    (dropout=0.15 + AdamW + LR=1e-3) converged to val_MSE=0.7555 after 9
+    epochs and stayed there -- the model collapsed predictions to a
+    narrow band around the mean, R2=0.33 vs linear R2=0.85.
+
+    Under the FIXED defaults (dropout=0 + Adam + LR=3e-3), the same
+    near-linear DGP converges to RMSE/std ~ 0.20 in 20 epochs.
+
+    If anyone reverts the defaults back to dropout > 0 / AdamW / LR=1e-3,
+    this test fails with a clear assertion message pointing at the
+    likely regression.
+    """
+    torch.manual_seed(0)
+    X_tr, y_tr, X_te, y_te = _make_dominant_feature_dataset(seed=0)
+
+    mlp = _build_suite_default_mlp_wrapper(
+        n_features=X_tr.shape[1], max_epochs=20,
+    )
+    mlp.fit(X_tr, y_tr)
+    rmse_mlp = _rmse(y_te, mlp.predict(X_te))
+
+    target_std = float(np.std(y_te))
+    floor_ratio = rmse_mlp / max(target_std, 1e-9)
+    assert floor_ratio <= 0.70, (
+        f"SUITE DEFAULTS regression: MLP under the suite-default defaults "
+        f"failed to converge on a near-linear DGP within 20 epochs. "
+        f"rmse_mlp={rmse_mlp:.2f} vs target_std={target_std:.2f} "
+        f"(ratio={floor_ratio:.3f}, must be <=0.70).\n\n"
+        f"Likely cause: someone reverted one of the 2026-05-13 default "
+        f"changes:\n"
+        f"  - dropout_prob: 0.15 -> 0.0 (TVT TVT_prev signal destroyed by "
+        f"~52% per fwd pass)\n"
+        f"  - inputs_dropout_prob: 0.002 -> 0.0\n"
+        f"  - use_batchnorm: True -> False\n"
+        f"  - optimizer: AdamW -> Adam (AdamW's weight_decay penalises the "
+        f"large weight needed on the dominant feature)\n"
+        f"  - learning_rate: 1e-3 -> 3e-3 (slower convergence under the "
+        f"old LR)\n"
+        f"See trainer.py::_configure_mlp_params + helpers.py "
+        f"mlp_model_params for the canonical defaults."
+    )

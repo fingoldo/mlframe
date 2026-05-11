@@ -293,10 +293,40 @@ class PytorchLightningEstimator(BaseEstimator):
         else:
             monitor_metric = "train_loss"
 
+        # 2026-05-13 (user request): nest checkpoints + lightning_logs under
+        # a unique per-fit subdir so concurrent / sequential fits don't dump
+        # into a shared project-root ``logs/`` folder and resolve different
+        # runs only by the (unsafe) ``model-val_MSE=0.7555.ckpt`` filename
+        # collision via Lightning's version counter.
+        #
+        # Path resolution (in order of preference):
+        #   1. ``self.checkpoint_dir_override`` -- public attribute the
+        #      suite sets to a target-nested path (eg
+        #      ``data/models/{target}/{exp}/regression/{tgt}/{model_file_basename}/``).
+        #      Honoured verbatim.
+        #   2. Auto-derived ``{default_root_dir}/_run_{id(self)}_{ts}`` --
+        #      unique sub-dir under the root; fully isolates concurrent
+        #      runs even when no caller plumbing.
+        # ``CSVLogger`` save_dir resolved the same way -- mirror nesting so
+        # the on-disk layout stays uniform per fit.
+        _ckpt_root = getattr(self, "checkpoint_dir_override", None)
+        if _ckpt_root is None:
+            import time as _time
+            _default_root = (
+                self.trainer_params.get("default_root_dir") or "logs"
+            )
+            _ckpt_root = os.path.join(
+                _default_root,
+                f"_run_{id(self)}_{int(_time.time())}",
+            )
+        os.makedirs(_ckpt_root, exist_ok=True)
+
         checkpointing = BestEpochModelCheckpoint(
             monitor=monitor_metric,
-            dirpath=self.trainer_params["default_root_dir"],
-            filename=f"model-{{{monitor_metric}:.4f}}",
+            dirpath=_ckpt_root,
+            # Filename no longer needs the ``model-`` prefix -- the
+            # enclosing dir already identifies the model uniquely.
+            filename=f"{{{monitor_metric}:.4f}}",
             enable_version_counter=True,
             save_last=False,
             save_top_k=1,
@@ -309,10 +339,12 @@ class PytorchLightningEstimator(BaseEstimator):
             logger.info("No validation data - training without validation")
             trainer_params.update({"num_sanity_val_steps": 0, "limit_val_batches": 0})
 
-        # Set default logger for LearningRateMonitor compatibility
-        # Use CSVLogger instead of TensorBoardLogger to avoid TensorFlow dependency
+        # Set default logger for LearningRateMonitor compatibility.
+        # CSV logs land in the SAME per-fit subdir as the checkpoint so the
+        # entire run's artifacts (ckpt + metrics + LR-monitor csvs) are
+        # co-located under one path; trivially diffable / archivable.
         if "logger" not in trainer_params:
-            trainer_params["logger"] = CSVLogger(save_dir="lightning_logs", name="")
+            trainer_params["logger"] = CSVLogger(save_dir=_ckpt_root, name="")
 
         # Build callbacks list
         callbacks = [
