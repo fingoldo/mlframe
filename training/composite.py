@@ -5455,10 +5455,14 @@ class CompositeTargetDiscovery:
         # only the first effect, so both halves use the same feature
         # set: X without the base column.
 
+        # OPEN-1 integration (2026-05-12): stash the per-candidate base arrays so the multi-base forward-stepwise extension (run after kept_specs is finalised) can pick from the SAME pool of MI-ranked bases that the single-base discovery considered. Keyed by column name; values are train-row-restricted ndarrays.
+        self._auto_base_pool: Dict[str, np.ndarray] = {}
+
         # Score each (base, transform).
         candidates: List[Dict[str, Any]] = []
         for base in base_candidates:
             base_train = _extract_column_array(df, base)[train_idx]
+            self._auto_base_pool[base] = base_train
             base_screen = base_train[sample_idx]
             x_remaining = [c for c in usable_features if c != base]
             if not x_remaining:
@@ -5805,6 +5809,70 @@ class CompositeTargetDiscovery:
             if mode == "raise":
                 raise RuntimeError(msg)
             logger.warning(msg + f" (fail_on_no_gain={mode!r})")
+
+        # OPEN-1 integration (2026-05-12): multi-base forward-stepwise auto-promotion of linear_residual specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, look at each kept ``linear_residual`` spec and try greedily adding more bases from the auto-base candidate pool. When the marginal RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 0.02 = 2%), upgrade the spec to ``linear_residual_multi`` with the expanded base list. Measure-first benchmark in ``benchmarks/composite_multi_base_benchmark.py`` validates: geo-mean gain 83% on positive scenarios, no-harm on negative scenarios -> auto-promote=True. Gated by ``self.config.multi_base_enabled``; opt-out via config.
+        if (kept_specs
+                and getattr(self.config, "multi_base_enabled", False)
+                and getattr(self, "_auto_base_pool", None)):
+            _multi_max_k = int(getattr(self.config, "multi_base_max_k", 3))
+            _multi_min_gain = float(getattr(self.config, "multi_base_min_marginal_rmse_gain", 0.02))
+            _upgraded_specs: List[CompositeSpec] = []
+            for _spec in kept_specs:
+                if _spec.transform_name != "linear_residual":
+                    _upgraded_specs.append(_spec)
+                    continue
+                # Build candidate pool: the auto-base candidates (top-K MI-ranked bases) PLUS the spec's own seed base.
+                _pool_cols = list(self._auto_base_pool.keys())
+                if _spec.base_column not in _pool_cols:
+                    _pool_cols.append(_spec.base_column)
+                # Materialise arrays once (the pool stores arrays).
+                _pool_arrays = {c: self._auto_base_pool.get(c) for c in _pool_cols if self._auto_base_pool.get(c) is not None}
+                if _spec.base_column not in _pool_arrays:
+                    _pool_arrays[_spec.base_column] = _extract_column_array(df, _spec.base_column)[train_idx]
+                _y_train_local = y_full[train_idx] if y_full is not None else _extract_column_array(df, target_col)[train_idx]
+                try:
+                    _kept_bases, _fwd_diag = forward_stepwise_multi_base(
+                        _y_train_local, _pool_arrays,
+                        seed_bases=[_spec.base_column],
+                        max_k=_multi_max_k,
+                        min_marginal_rmse_gain=_multi_min_gain,
+                    )
+                except Exception as _multi_err:
+                    logger.warning(
+                        "[CompositeTargetDiscovery] multi-base forward-stepwise failed on spec=%s: %s. Keeping single-base spec.",
+                        _spec.name, _multi_err,
+                    )
+                    _upgraded_specs.append(_spec)
+                    continue
+                if len(_kept_bases) <= 1:
+                    # No additional bases survived the gate; keep the original single-base spec.
+                    _upgraded_specs.append(_spec)
+                    continue
+                # Upgrade: fit the linear_residual_multi joint OLS on the kept base set and stamp a NEW spec with extra_base_columns populated.
+                _base_matrix = np.column_stack([_pool_arrays[n] for n in _kept_bases])
+                _multi_params = _linear_residual_multi_fit(_y_train_local, _base_matrix)
+                _new_name = f"{target_col}__linear_residual_multi__{'+'.join(_kept_bases)}"
+                _upgraded_spec = CompositeSpec(
+                    name=_new_name,
+                    target_col=target_col,
+                    transform_name="linear_residual_multi",
+                    base_column=_kept_bases[0],
+                    fitted_params=_multi_params,
+                    mi_gain=_spec.mi_gain,
+                    mi_y=_spec.mi_y,
+                    mi_t=_spec.mi_t,
+                    valid_domain_frac=_spec.valid_domain_frac,
+                    n_train_rows=_spec.n_train_rows,
+                    extra_base_columns=tuple(_kept_bases[1:]),
+                )
+                _upgraded_specs.append(_upgraded_spec)
+                _accepted_steps = [d for d in _fwd_diag if d.get("accepted")]
+                logger.info(
+                    "[CompositeTargetDiscovery.multi_base] upgraded spec='%s' -> '%s' with %d base(s); accepted_steps=%s",
+                    _spec.name, _new_name, len(_kept_bases),
+                    [(d["candidate_added"], f"{d['marginal_gain'] * 100:.1f}%") for d in _accepted_steps],
+                )
+            kept_specs = _upgraded_specs
 
         elapsed = timer() - t0
         logger.info(

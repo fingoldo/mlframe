@@ -1860,6 +1860,13 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         ]
     )
 
+    # OPEN-1 integration (2026-05-12): multi-base forward-stepwise auto-promotion of kept ``linear_residual`` specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, Discovery picks each kept linear_residual spec and tries greedily ADDING bases from the auto-base candidate pool. When the marginal CV-RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 2%), the spec is upgraded to ``linear_residual_multi`` with the expanded base list.
+    #
+    # Default ON: measure-first benchmark (``benchmarks/composite_multi_base_benchmark.py``) confirms geo-mean gain 83% on positive scenarios (S2: y = b1+b2+eps, S3: y = b1+b2+b3+eps) AND no-harm on negative scenarios (S1: single dominant b1 + noise candidates; S4: collinear b1+b1_dup pool). Decision rule met. Opt-out by setting ``multi_base_enabled=False`` if production data violates the benchmark's assumptions (highly correlated candidate pool, very small n_train, etc.).
+    multi_base_enabled: bool = True
+    multi_base_max_k: int = 3
+    multi_base_min_marginal_rmse_gain: float = 0.02
+
     # MI screening. Sample to keep the diagnostic under one minute on
     # 4M-row datasets; mi_sample_n=None uses full train.
     mi_sample_n: Optional[int] = 200_000
