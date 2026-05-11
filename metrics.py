@@ -265,6 +265,23 @@ def prewarm_numba_cache():
     # make parallel val/test metric evaluation secretly sequential.
     _assert_numba_nogil_active()
 
+    # 2026-05-11: also warm feature_selection numba kernels. Without
+    # this, the first MRMR.fit call pays ~60s of cumulative JIT
+    # compile (verified on 1M-row regression+MRMR c0089 profile).
+    # Hooked here so any caller of ``prewarm_numba_cache`` (incl. the
+    # profile harness in profiling/profile_one_combo.py) gets BOTH
+    # metrics AND FS kernels warmed in one shot. Lazy import keeps
+    # this module's import cost unchanged.
+    try:
+        from mlframe.feature_selection.filters._prewarm import (
+            prewarm_fs_numba_cache,
+        )
+        prewarm_fs_numba_cache()
+    except Exception:
+        # Non-fatal: FS kernels will JIT-compile on first real call
+        # (current behaviour). Caller bears the cold-start cost then.
+        pass
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # CatBoost logits to probabilities conversion
