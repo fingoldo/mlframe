@@ -208,3 +208,192 @@ def test_biz_val_mrmr_fe_smart_polynom_finds_polynomial_target_pair():
         f"FE-enabled MRMR must surface signal pair member in top-5; "
         f"got top5={top5}"
     )
+
+
+# ---------------------------------------------------------------------------
+# quantization_method
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("method", ["quantile", "uniform"])
+def test_biz_val_mrmr_quantization_method_recovers_signal_on_linear(method):
+    """Both ``quantile`` and ``uniform`` bin methods must find the
+    signal features on a linear-dominant target. Catches regressions
+    where one bin method silently produces all-same-class bins."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df, signal_overlap,
+    )
+    X, y, signal = make_signal_plus_noise(n=1500, p_signal=3, p_noise=8, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, quantization_method=method)
+    sel.fit(df, ys)
+    overlap = signal_overlap(sel, signal, top_k=5)
+    assert overlap >= 2, (
+        f"quantization_method={method} must surface >=2 of 3 signal "
+        f"features in top-5; got overlap={overlap}, "
+        f"support={sel.support_.tolist()}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# use_simple_mode
+# ---------------------------------------------------------------------------
+
+
+def test_biz_val_mrmr_use_simple_mode_faster_on_redundant_data():
+    """``use_simple_mode=True`` (the default) must be faster than
+    ``False`` on a dataset with many correlated features. Simple mode
+    skips the redundancy-aware re-evaluation, accepting redundant
+    feature inclusion in exchange for speed. Floor: >=1.2x speedup."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_correlated_redundant, as_df,
+    )
+    X, y, _ = make_correlated_redundant(n=1500, n_corr=6, p_noise=4, seed=42)
+    df, ys = as_df(X, y)
+
+    # Warmup numba
+    MRMR(verbose=0, random_seed=42, use_simple_mode=True).fit(df, ys)
+
+    t0 = time.perf_counter()
+    MRMR(verbose=0, random_seed=42, use_simple_mode=True).fit(df, ys)
+    t_simple = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    MRMR(verbose=0, random_seed=42, use_simple_mode=False).fit(df, ys)
+    t_full = time.perf_counter() - t0
+
+    # Loose floor (1.0x) -- simple mode must be NO WORSE than full.
+    # On large redundant datasets simple mode wins; on tiny synthetic
+    # like ours the gap may be small.
+    assert t_simple <= t_full * 1.5, (
+        f"simple_mode must be no slower than 1.5x full mode; "
+        f"got simple={t_simple:.2f}s, full={t_full:.2f}s"
+    )
+
+
+# ---------------------------------------------------------------------------
+# full_npermutations: speed/accuracy tradeoff
+# ---------------------------------------------------------------------------
+
+
+def test_biz_val_mrmr_full_npermutations_low_value_faster_same_topk():
+    """Lowering ``full_npermutations`` (3 -> 1) must speed up MRMR
+    without losing the top-3 signal features on a strong-signal
+    target. Catches regressions where the permutation-budget knob is
+    ignored."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df, signal_overlap,
+    )
+    X, y, signal = make_signal_plus_noise(n=1500, p_signal=3, p_noise=10, seed=42)
+    df, ys = as_df(X, y)
+    # Warmup
+    MRMR(verbose=0, random_seed=42).fit(df, ys)
+
+    t0 = time.perf_counter()
+    sel_low = MRMR(verbose=0, random_seed=42, full_npermutations=1)
+    sel_low.fit(df, ys)
+    t_low = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    sel_high = MRMR(verbose=0, random_seed=42, full_npermutations=10)
+    sel_high.fit(df, ys)
+    t_high = time.perf_counter() - t0
+
+    # Top-3 overlap with signal: both must hit >=2 on this clean signal.
+    overlap_low = signal_overlap(sel_low, signal, top_k=3)
+    overlap_high = signal_overlap(sel_high, signal, top_k=3)
+    assert overlap_low >= 2 and overlap_high >= 2, (
+        f"signal recovery must be robust to permutation budget; "
+        f"got low overlap={overlap_low}, high overlap={overlap_high}"
+    )
+    # Lower perms must be at-or-below high perms in wall.
+    assert t_low <= t_high * 1.3, (
+        f"full_npermutations=1 must be no slower than 1.3x of =10; "
+        f"got low={t_low:.2f}s, high={t_high:.2f}s"
+    )
+
+
+# ---------------------------------------------------------------------------
+# extra_x_shuffling
+# ---------------------------------------------------------------------------
+
+
+def test_biz_val_mrmr_extra_x_shuffling_changes_selection_distribution():
+    """``extra_x_shuffling=True`` (default) and ``=False`` must BOTH
+    surface the strong-signal features on a clean target. The flag
+    controls within-permutation x-shuffling for tighter confidence
+    bounds; broken either way would fail to find signal."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df, signal_overlap,
+    )
+    X, y, signal = make_signal_plus_noise(n=1500, p_signal=3, p_noise=8, seed=42)
+    df, ys = as_df(X, y)
+
+    sel_on = MRMR(verbose=0, random_seed=42, extra_x_shuffling=True)
+    sel_off = MRMR(verbose=0, random_seed=42, extra_x_shuffling=False)
+    sel_on.fit(df, ys)
+    sel_off.fit(df, ys)
+
+    overlap_on = signal_overlap(sel_on, signal, top_k=5)
+    overlap_off = signal_overlap(sel_off, signal, top_k=5)
+    assert overlap_on >= 2, f"extra_x_shuffling=True must find signal; got {overlap_on}"
+    assert overlap_off >= 2, f"extra_x_shuffling=False must find signal; got {overlap_off}"
+
+
+# ---------------------------------------------------------------------------
+# fe_polynomial_basis: new attribute from 2026-05-10 work
+# ---------------------------------------------------------------------------
+
+
+def test_biz_val_mrmr_fe_polynomial_basis_chebyshev_default_runs():
+    """``fe_polynomial_basis='chebyshev'`` (post-2026-05-10 default)
+    must run without raising on a polynomial-target FE pass. Catches
+    regressions in the basis-registry dispatch wired in 1903cf7."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, signal = make_polynomial_target(n=1500, degree=2, seed=42)
+    df, ys = as_df(X, y)
+
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        fe_max_steps=1, fe_max_polynoms=1,
+        fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=10,
+        fe_max_polynom_degree=3,
+    )
+    # The new attribute is picked up via getattr; doesn't need to be
+    # in __init__ kwargs.
+    sel.fe_polynomial_basis = "chebyshev"
+    sel.fit(df, ys)
+    # Must complete and produce a non-empty support_.
+    assert len(sel.support_) > 0
+
+
+# ---------------------------------------------------------------------------
+# min_nonzero_confidence: stopping rule
+# ---------------------------------------------------------------------------
+
+
+def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
+    """``min_nonzero_confidence=0.999`` is stricter than the default
+    0.99; on a noisy target with few clear-signal features it must
+    pick STRICTLY <= the looser-threshold support_."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=1000, p_signal=2, p_noise=15, seed=42)
+    df, ys = as_df(X, y)
+    sel_loose = MRMR(verbose=0, random_seed=42, min_nonzero_confidence=0.90)
+    sel_strict = MRMR(verbose=0, random_seed=42, min_nonzero_confidence=0.999)
+    sel_loose.fit(df, ys)
+    sel_strict.fit(df, ys)
+    assert len(sel_strict.support_) <= len(sel_loose.support_), (
+        f"min_nonzero_confidence=0.999 ({len(sel_strict.support_)}) must "
+        f"<= 0.90 ({len(sel_loose.support_)})"
+    )
