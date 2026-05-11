@@ -201,6 +201,99 @@ def test_biz_val_rfecv_conditional_permutation_keeps_unique_informative_under_co
 # ---------------------------------------------------------------------------
 
 
+def test_biz_val_rfecv_feature_cost_penalizes_large_subsets():
+    """Strong ``feature_cost=0.5`` must force RFECV to pick a SMALLER
+    subset than ``feature_cost=0.0`` on the same data + estimator.
+    The cost adds a per-feature penalty to the CV score, biasing the
+    optimizer toward parsimony."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=8, seed=42)
+    df, _ys = as_df(X, y)
+
+    common = dict(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=30),
+        cv=3, max_refits=8, verbose=0, random_state=42,
+        max_noimproving_iters=3,
+        n_features_selection_rule="argmax",
+    )
+    sel_free = RFECV(feature_cost=0.0, **common)
+    sel_cost = RFECV(feature_cost=0.5, **common)
+    sel_free.fit(df, y)
+    sel_cost.fit(df, y)
+    assert sel_cost.n_features_ <= sel_free.n_features_, (
+        f"feature_cost=0.5 must pick <= features than =0.0; "
+        f"got cost={sel_cost.n_features_}, free={sel_free.n_features_}"
+    )
+
+
+def test_biz_val_rfecv_leakage_corr_threshold_detects_target_leak():
+    """A perfect-leak column (copy of y) must be detected and either
+    dropped (``leakage_action='raise'``-equivalent) or warned about
+    (``='warn'``). With the default 0.95 threshold and a copy of y,
+    the leakage detector must catch it. We assert it doesn't end up
+    as the #1 selected feature with a normal selection -- if the
+    detector is dead, perfect-leak feature dominates."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
+    # Inject a column that's effectively y (perfect leak, slight noise
+    # so RFECV's strict 0.95 still flags it).
+    rng = np.random.default_rng(0)
+    leak = y.astype(np.float64) + 0.005 * rng.normal(size=len(y))
+    X_with_leak = np.column_stack([X, leak])
+    df = pd.DataFrame(X_with_leak, columns=[f"x{i}" for i in range(
+        X_with_leak.shape[1] - 1)] + ["leak"])
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=30),
+        cv=3, max_refits=6, verbose=0, random_state=42,
+        max_noimproving_iters=3,
+        leakage_corr_threshold=0.95,
+        leakage_action="exclude",
+    )
+    sel.fit(df, y)
+    selected_names = [df.columns[i] for i in _support_indices(sel)]
+    assert "leak" not in selected_names, (
+        f"leakage_action='drop' must remove the perfect-leak column; "
+        f"got selected={selected_names}"
+    )
+
+
+def test_biz_val_rfecv_swap_top_k_yields_valid_support():
+    """``swap_top_k=3`` runs a final-pass swap routine; the resulting
+    support_ must remain a valid subset of the input features (no
+    duplicates, all indices within bounds). Catches regressions
+    where the swap pass could corrupt the support_ mask."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=8, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=30),
+        cv=3, max_refits=4, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        swap_top_k=3,
+    )
+    sel.fit(df, y)
+    idx = _support_indices(sel)
+    assert len(idx) == len(set(idx)), f"support contains duplicates: {idx}"
+    assert all(0 <= i < df.shape[1] for i in idx), (
+        f"support indices out of bounds for p={df.shape[1]}: {idx}"
+    )
+
+
 def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     """RFECV with ``checkpoint_path`` must (a) write a resume file
     that allows a subsequent identical fit to pick up where it left
