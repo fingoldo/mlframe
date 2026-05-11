@@ -298,6 +298,36 @@ def prewarm_numba_cache():
         # Non-fatal: kernels will JIT lazily on first real call.
         pass
 
+    # 2026-05-11 Wave 19: prewarm-import the heavy neural-net stack.
+    # ``mlframe.lightninglib`` / ``mlframe.training.neural`` pulls in
+    # PyTorch Lightning (lightning.fabric, pytorch_lightning, etc.) which
+    # is a 275 s cold-import on Windows (verified 2026-05-11 on c0082
+    # MLP-only regression: ``configure_training_params`` cumtime 275.77 s
+    # of which ~260 s is ``lightning.fabric.__init__``). The cost lands
+    # INSIDE the suite call (in ``select_target`` -> ``get_training_configs``)
+    # because the import is deferred until ``mlp`` is in the model list.
+    # Pre-importing here shifts that cost out of the user-visible suite
+    # timer. Cheaply skipped via try/except for users who don't have
+    # lightning installed (or don't want to pay the 275 s prewarm).
+    #
+    # Triggered ONLY when lightning is already discoverable; otherwise
+    # the import attempt would itself be a 5-10 s "ModuleNotFoundError"
+    # walk through sys.path. Use ``importlib.util.find_spec`` for the
+    # cheap availability check.
+    try:
+        import importlib.util as _ilu
+        if _ilu.find_spec("lightning") is not None:
+            try:
+                import lightning.fabric  # noqa: F401 - import-for-side-effects
+            except Exception:
+                pass
+            try:
+                import mlframe.lightninglib  # noqa: F401
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # 2026-05-11 Wave 18: warm cupy GPU AUC kernels.
     # ``compute_batch_aucs`` dispatches to ``gpu_multiple_roc_auc_scores``
     # / ``gpu_multiple_pr_auc_scores`` when N>=100k AND M>=5. cupy compiles
