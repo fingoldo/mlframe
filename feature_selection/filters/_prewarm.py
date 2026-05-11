@@ -56,6 +56,25 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         )
         from .info_theory import compute_mi_from_classes
         from .discretization import discretize_2d_array, discretize_array
+        # 2026-05-11 Wave 17: screening-path permutation kernels.
+        # ``mi_direct`` (called once per candidate during screening) dispatches
+        # to either ``parallel_mi_prange`` (parallel=True) or ``parallel_mi``
+        # (sequential joblib worker) depending on caller. Both pay full
+        # JIT-compile cost on first call (~17s on c0121 profile, dominating
+        # MRMR.fit's wall time). Pre-warming shifts that out of the
+        # user-visible timer.
+        from .permutation import parallel_mi_prange, parallel_mi
+        # 2026-05-11 Wave 17b: info-theory primitives used by screen.py.
+        # ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` /
+        # ``entropy_miller_madow`` each pay 1-3s JIT compile on first
+        # call; ``screen_predictors`` calls them tens of times per fit.
+        # Wave 17a covered permutation kernels (~1.5s saved on c0121);
+        # the remaining ~16s of JIT compile attributed via
+        # ``screen_predictors`` lives in these primitives.
+        from .info_theory import (
+            merge_vars, entropy, entropy_miller_madow, mi, conditional_mi,
+        )
+        from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
     except ImportError:
         return
     except Exception:
@@ -147,15 +166,165 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     except Exception:
         pass
 
-    # Discretisation kernels.
-    cont = rng.normal(size=(n, 2)).astype(np.float64)
+    # Info-theory primitives (Wave 17b). ``screen_predictors`` calls
+    # ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` /
+    # ``entropy_miller_madow`` for every candidate; the first call from
+    # a fresh process eats ~5-8s of JIT compile (verified on c0121).
+    # ``arr2str`` / ``count_cand_nbins`` / ``unpack_and_sort`` are
+    # called from inside ``conditional_mi`` so they must compile too.
     try:
-        _ = discretize_2d_array(cont, n_bins=4, method="quantile")
+        # Realistic factors_data: 4 ordinal columns × n rows, dtype int32
+        # to match the screening path's dtype.
+        _factors = np.column_stack([
+            classes_x1, classes_x2, classes_x1, classes_x2,
+        ]).astype(np.int32)
+        _nbins_4 = np.array([K_x, K_x, K_x, K_x], dtype=np.int64)
+        # merge_vars on 2 vars
+        _idx2 = np.array([0, 1], dtype=np.int64)
+        _ = merge_vars(
+            factors_data=_factors, vars_indices=_idx2, var_is_nominal=None,
+            factors_nbins=_nbins_4, dtype=dtype,
+        )
     except Exception:
         pass
     try:
-        _ = discretize_array(cont[:, 0], n_bins=4, method="quantile")
+        _f10 = np.array([0.5, 0.3, 0.2], dtype=np.float64)
+        _ = entropy(freqs=_f10)
     except Exception:
+        pass
+    try:
+        _f10 = np.array([0.5, 0.3, 0.2], dtype=np.float64)
+        _ = entropy_miller_madow(freqs=_f10, n_samples=10)
+    except Exception:
+        pass
+    try:
+        _idxx = np.array([0], dtype=np.int64)
+        _idxy = np.array([1], dtype=np.int64)
+        _ = mi(_factors, _idxx, _idxy, _nbins_4, False, dtype)
+    except Exception:
+        pass
+    try:
+        _idxz = np.array([2], dtype=np.int64)
+        _var_is_nom = np.zeros(4, dtype=np.bool_)
+        _ = conditional_mi(
+            _factors, _idxx, _idxy, _idxz, _var_is_nom, _nbins_4,
+            -1.0, -1.0, -1.0, -1.0, None, False, False, dtype,
+        )
+    except Exception:
+        pass
+    try:
+        _ = arr2str(_idx2)
+    except Exception:
+        pass
+    try:
+        _ = count_cand_nbins(_idx2, _nbins_4)
+    except Exception:
+        pass
+    try:
+        _ = unpack_and_sort(_idxx, _idxy)
+    except Exception:
+        pass
+
+    # Screening permutation kernels (Wave 17). ``mi_direct`` calls one
+    # of these per candidate during MRMR screening; first call on a
+    # fresh process eats the entire ~17s JIT-compile budget. Prewarm
+    # both the prange variant AND the joblib-worker variant so neither
+    # caller path pays the cost during a real fit.
+    try:
+        _ = parallel_mi_prange(
+            classes_x=classes_pair, freqs_x=freqs_pair,
+            classes_y=classes_y, freqs_y=freqs_y,
+            npermutations=2, original_mi=0.0,
+            base_seed=np.uint64(7), dtype=dtype,
+        )
+    except Exception:
+        pass
+    try:
+        _ = parallel_mi(
+            classes_x=classes_pair, freqs_x=freqs_pair,
+            classes_y=classes_y, freqs_y=freqs_y,
+            npermutations=2, original_mi=0.0, max_failed=10, dtype=dtype,
+        )
+    except Exception:
+        pass
+
+    # Discretisation kernels. Cover the dominant production dtype combos:
+    # int8 (default + cat-FE path) and int16 (categorize_dataset default
+    # for the screening path on c0121-like regression combos). Each
+    # dtype is a SEPARATE numba compilation (~9s of cold JIT compile,
+    # surfaced 2026-05-11 on c0121 profile: 9.25s attributed to
+    # ``categorize_dataset -> discretize_2d_array`` first call).
+    # Wave 17c: explicitly pass ``min_values=None, max_values=None``
+    # to match the categorize_dataset call signature exactly -- without
+    # this, numba's per-signature cache misses and the kernel recompiles
+    # on first real use.
+    cont = rng.normal(size=(n, 2)).astype(np.float64)
+    for _disc_dtype in (np.int8, np.int16):
+        try:
+            _ = discretize_2d_array(
+                arr=cont, n_bins=4, method="quantile", min_ncats=50,
+                min_values=None, max_values=None, dtype=_disc_dtype,
+            )
+        except Exception:
+            pass
+        try:
+            _ = discretize_array(
+                arr=cont[:, 0], n_bins=4, method="quantile",
+                min_value=None, max_value=None, dtype=_disc_dtype,
+            )
+        except Exception:
+            pass
+    # Wave 17c: prewarm the inner-loop kernels directly. ``_discretize_array_impl``,
+    # ``quantize_search``, ``quantize_dig``, ``discretize_uniform`` each compile
+    # on first call from inside the prange body; prewarming the outer
+    # ``discretize_2d_array`` only triggers them via the parallel-fanout
+    # at runtime, which numba may not preserve in the disk cache cleanly.
+    try:
+        from .discretization import (
+            _discretize_array_impl, quantize_search, quantize_dig,
+            discretize_uniform, digitize, get_binning_edges,
+        )
+        _arr1d = cont[:, 0]
+        for _disc_dtype in (np.int8, np.int16):
+            try:
+                _ = _discretize_array_impl(
+                    arr=_arr1d, n_bins=4, method="quantile",
+                    min_value=None, max_value=None, dtype=_disc_dtype,
+                )
+            except Exception:
+                pass
+            try:
+                _ = discretize_uniform(
+                    arr=_arr1d, n_bins=4, min_value=None, max_value=None,
+                    dtype=_disc_dtype,
+                )
+            except Exception:
+                pass
+        _bins = np.linspace(_arr1d.min(), _arr1d.max(), 5)
+        try:
+            _ = quantize_search(_arr1d, _bins)
+        except Exception:
+            pass
+        try:
+            _ = quantize_dig(_arr1d, _bins)
+        except Exception:
+            pass
+        try:
+            _ = digitize(_arr1d, _bins, dtype=np.int32)
+        except Exception:
+            pass
+        # get_binning_edges with both "quantile" and "uniform" method
+        # branches -- numba compiles each branch separately because
+        # the unicode_type narrows under the if/elif.
+        for _method in ("quantile", "uniform"):
+            try:
+                _ = get_binning_edges(
+                    arr=_arr1d, n_bins=4, method=_method,
+                    min_value=None, max_value=None,
+                )
+            except Exception:
+                pass
+    except ImportError:
         pass
 
     _wall = time.perf_counter() - _t0
