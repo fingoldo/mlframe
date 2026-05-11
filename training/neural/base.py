@@ -15,6 +15,43 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# 2026-05-12 (user request): silence the trio of INFO bullets Lightning emits
+# on every trainer init -- "GPU available: True ... TPU/IPU/HPU available:
+# False ... LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]". With composite-target
+# discovery + multi-model suites, these emit 5+ lines per fit, drowning the
+# real signal in production logs. Useful messages from the same loggers --
+# ``Time limit reached``, ``Metric val_MSE improved``, ``Loading best model``
+# -- are PRESERVED via a substring filter rather than blanket WARNING bump.
+class _LightningRankZeroNoiseFilter(logging.Filter):
+    """Drop the device-availability bullets that Lightning emits on every
+    trainer init; let everything else through."""
+
+    _PATTERNS = (
+        "GPU available",
+        "TPU available",
+        "IPU available",
+        "HPU available",
+        "LOCAL_RANK:",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        msg = record.getMessage()
+        return not any(p in msg for p in self._PATTERNS)
+
+
+_LIGHTNING_NOISE_FILTER = _LightningRankZeroNoiseFilter()
+for _quiet_logger_name in (
+    "lightning.pytorch.utilities.rank_zero",
+    "lightning.pytorch.accelerators.cuda",
+):
+    _quiet_logger = logging.getLogger(_quiet_logger_name)
+    # Idempotent attach: skip if already filtered on a prior module import.
+    if not any(
+        isinstance(f, _LightningRankZeroNoiseFilter)
+        for f in _quiet_logger.filters
+    ):
+        _quiet_logger.addFilter(_LIGHTNING_NOISE_FILTER)
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -439,8 +476,52 @@ class PytorchLightningEstimator(BaseEstimator):
             logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
             datamodule = self.datamodule_class(**self.datamodule_params)
 
-        # Determine batch size for prediction (allow override for larger batches)
-        pred_batch_size = batch_size if batch_size is not None else self.datamodule_params.get("batch_size", 64)
+        # Determine batch size for prediction. Three layers of precedence:
+        #   1. ``batch_size`` arg explicitly passed to predict() -- always wins.
+        #   2. ``datamodule_params["predict_batch_size"]`` -- the suite-level
+        #      knob plumbed through ``train_mlframe_models_suite`` via
+        #      ``hyperparams_config.mlp_predict_batch_size``.
+        #   3. Adaptive resolver based on free memory + input width.
+        # The legacy ``datamodule_params["batch_size"]`` (train batch) is the
+        # last-resort fallback when the resolver fails.
+        #
+        # 2026-05-12: the legacy fallback was a hardcoded 64, which made
+        # 4M-row predict paths spend minutes on DataLoader overhead for
+        # microseconds of actual MLP compute. The adaptive resolver picks
+        # the biggest batch that fits 25% of free memory at the input width,
+        # clamped to ``[64, 16384]``.
+        if batch_size is not None:
+            pred_batch_size = int(batch_size)
+        else:
+            override = self.datamodule_params.get("predict_batch_size")
+            if override is not None:
+                pred_batch_size = max(1, int(override))
+            else:
+                try:
+                    from mlframe.training.mlp_runtime_defaults import (
+                        resolve_mlp_predict_batch_size,
+                    )
+                    # Probe input width when possible -- cheap on numpy / pandas
+                    # / polars. shape[1] is the standard width on all three.
+                    _n_features: Optional[int] = None
+                    try:
+                        if hasattr(X, "shape") and len(X.shape) >= 2:
+                            _n_features = int(X.shape[1])
+                        elif hasattr(X, "columns"):
+                            _n_features = int(len(X.columns))
+                    except Exception:
+                        _n_features = None
+                    pred_batch_size = resolve_mlp_predict_batch_size(
+                        n_features=_n_features,
+                        train_batch_size=self.datamodule_params.get("batch_size"),
+                    )
+                except Exception:
+                    # Resolver failed for any reason -- fall back to the
+                    # train-time batch size (still vastly better than 64 on
+                    # production setups).
+                    pred_batch_size = int(
+                        self.datamodule_params.get("batch_size", 1024)
+                    )
         logger.info("Using batch_size=%s for prediction", pred_batch_size)
 
         # Setup prediction dataset

@@ -1039,6 +1039,15 @@ class ModelHyperparamsConfig(BaseConfig):
     mlp_kwargs: Optional[Dict[str, Any]] = None
     ngb_kwargs: Optional[Dict[str, Any]] = None
 
+    # 2026-05-12: first-class predict-time MLP batch size. When None (default)
+    # the wrapper auto-adapts to free memory + input width via
+    # ``mlp_runtime_defaults.resolve_mlp_predict_batch_size`` -- replaces the
+    # legacy hardcoded 64 which made 4M-row predict paths spend minutes on
+    # DataLoader overhead. Set explicitly to an int to lock a specific batch
+    # (eg ``mlp_predict_batch_size=512`` on memory-constrained boxes with
+    # wide dataframes; ``8192`` on slim-row narrow-width predictions).
+    mlp_predict_batch_size: Optional[int] = None
+
 
 class TrainingBehaviorConfig(BaseConfig):
     """Training behavior flags and control settings.
@@ -1744,10 +1753,20 @@ class FeatureImportanceConfig(BaseConfig):
     ``mlframe.training.evaluation.plot_model_feature_importances``.
     """
 
-    num_factors: int = 40
+    # 2026-05-12: default 40 -> 10. Plots/log lines become readable on
+    # the common feature counts (10-50) without horizontal scroll, and
+    # the user can still bump it via FeatureImportanceConfig(num_factors=...)
+    # when they want a wider view.
+    num_factors: int = 10
     figsize: Tuple[int, int] = (15, 10)
     positive_fi_only: bool = False
     show_plots: bool = True
+    # 2026-05-12 (user request): cap zero-FI bars so the chart stays
+    # compact when most features were pruned by the model (eg an XGB on a
+    # residual target where ``TVT_prev=0.99`` and everything else is 0).
+    # Shows AT MOST this many bars with |FI| ~ 0 in the magnitude-ranked
+    # plot; non-zero bars always render in full.
+    max_zero_fi_to_plot: int = 4
 
 
 class OutputConfig(BaseConfig):

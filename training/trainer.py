@@ -1353,6 +1353,84 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     return out
 
 
+# 2026-05-12: ad-hoc cache for the pre-pipeline fit+transform across
+# sklearn-non-native models in the SAME per-target iteration. The TVT log
+# showed Linear -> MLP re-fitting an identical SimpleImputer + StandardScaler
+# (~46s + ~18s = 64s wasted re-doing the same arithmetic). Cache key carries:
+#   * id(train_df) and id(val_df) -- same per-target frames across models;
+#   * pipeline signature -- step class names + step.get_params(deep=False)
+#     so two models that build a structurally identical pipeline collide.
+# Bounded LRU (max 2 entries) keeps the memory footprint within 2 x the
+# size of one transformed train+val frame -- bounded even on huge data.
+from collections import OrderedDict as _OD
+import threading as _threading
+
+_PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
+_PRE_PIPELINE_CACHE: "_OD[tuple, tuple]" = _OD()
+_PRE_PIPELINE_CACHE_MAX: int = 2
+
+
+def _pipeline_signature_for_cache(pipeline) -> str:
+    """Stable signature for the pipeline structure + per-step shallow params.
+
+    Two structurally identical pipelines (same step classes, same per-step
+    kwargs) get the same string and hit the cache; any divergence (e.g. a
+    custom scaler with different ``with_mean``) misses. Failures inside
+    ``get_params`` (custom transformers without sklearn API) fall back to a
+    class-only signature -- a conservative "no cache" since the same class
+    might have different state.
+    """
+    if pipeline is None:
+        return "None"
+    parts = []
+    steps = getattr(pipeline, "steps", None)
+    if steps is None:
+        # Single transformer (not a Pipeline) -- include its repr.
+        return f"single:{type(pipeline).__name__}:{repr(pipeline)}"
+    for name, step in steps:
+        kls = type(step).__name__
+        try:
+            params = step.get_params(deep=False)
+            kw = ",".join(f"{k}={params[k]!r}" for k in sorted(params))
+        except Exception:
+            kw = "?"
+        parts.append(f"{name}:{kls}({kw})")
+    return "|".join(parts)
+
+
+def _pre_pipeline_cache_get(train_df, val_df, pipeline):
+    """LRU-touch lookup; returns ``(train_out, val_out)`` or ``None``."""
+    if train_df is None or pipeline is None:
+        return None
+    sig = _pipeline_signature_for_cache(pipeline)
+    key = (id(train_df), id(val_df) if val_df is not None else 0, sig)
+    with _PRE_PIPELINE_CACHE_LOCK:
+        if key in _PRE_PIPELINE_CACHE:
+            _PRE_PIPELINE_CACHE.move_to_end(key)
+            return _PRE_PIPELINE_CACHE[key]
+    return None
+
+
+def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out):
+    """Insert under LRU, evicting the oldest entry if over capacity."""
+    if train_df is None or pipeline is None:
+        return
+    sig = _pipeline_signature_for_cache(pipeline)
+    key = (id(train_df), id(val_df) if val_df is not None else 0, sig)
+    with _PRE_PIPELINE_CACHE_LOCK:
+        _PRE_PIPELINE_CACHE[key] = (train_out, val_out)
+        _PRE_PIPELINE_CACHE.move_to_end(key)
+        while len(_PRE_PIPELINE_CACHE) > _PRE_PIPELINE_CACHE_MAX:
+            _PRE_PIPELINE_CACHE.popitem(last=False)
+
+
+def _pre_pipeline_cache_clear() -> None:
+    """Manual eviction hook -- mainly for tests + edge cases where the
+    per-target loop wants to drop stale state explicitly."""
+    with _PRE_PIPELINE_CACHE_LOCK:
+        _PRE_PIPELINE_CACHE.clear()
+
+
 def _apply_pre_pipeline_transforms(
     model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, skip_preprocessing, use_cache, model_file_name, verbose,
     selector_passthrough_cols=None,
@@ -1373,6 +1451,39 @@ def _apply_pre_pipeline_transforms(
     """
     if model is not None and pre_pipeline:
         t0_pre = timer()
+        # 2026-05-12: structurally-identical-pipeline cache. When the
+        # PER-TARGET loop runs Linear then MLP back-to-back, both build
+        # ``SimpleImputer + StandardScaler``; without this short-circuit we
+        # re-fit the identical arithmetic on the same train_df (~46s linear
+        # + ~18s mlp on the 4M-row TVT log). Only fires on the fresh
+        # fit-transform path (the other branches are already cheap).
+        # Capture the INPUT frame identities BEFORE any rebind so the cache
+        # populate path keys on the original (caller-owned) df objects.
+        _train_df_in_id = id(train_df) if train_df is not None else 0
+        _val_df_in_id = id(val_df) if val_df is not None else 0
+        _cache_hit = _pre_pipeline_cache_get(train_df, val_df, pre_pipeline)
+        if (
+            _cache_hit is not None
+            and not skip_pre_pipeline_transform
+            and not skip_preprocessing
+            and not _is_fitted(pre_pipeline)
+        ):
+            train_df_cached, val_df_cached = _cache_hit
+            if verbose:
+                logger.info(
+                    "Reusing pre_pipeline fit-transform from cache "
+                    "(same train_df + structurally identical pipeline)."
+                )
+            shape_str = (
+                f"{train_df_cached.shape[0]:_}x{train_df_cached.shape[1]}"
+                if hasattr(train_df_cached, "shape") else ""
+            )
+            if verbose:
+                logger.info(
+                    "  pre_pipeline done (cached) -- train: %s, %.1fs",
+                    shape_str, timer() - t0_pre,
+                )
+            return train_df_cached, val_df_cached
         with phase("pre_pipeline_fit_transform"):
             if skip_pre_pipeline_transform:
                 if verbose:
@@ -1446,10 +1557,54 @@ def _apply_pre_pipeline_transforms(
                 # multilabel targets to "any positive label" for the encoder fit
                 # only -- actual model still trains on the full (N, K) target.
                 _enc_target = _multilabel_target_to_1d_for_supervised_encoders(train_target)
-                train_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.fit_transform, train_df,
-                    passthrough_cols=selector_passthrough_cols, fit=True, target=_enc_target,
-                )
+                # 2026-05-11 Wave 20: defensive 0-feature detection. When the
+                # base pipeline is a feature selector (MRMR / RFECV) that
+                # confirms 0 predictors, ``fit_transform`` produces an
+                # ``(N, 0)`` frame and the downstream SimpleImputer / scaler
+                # raise ``ValueError: need at least one array to concatenate``
+                # from inside ``np.find_common_type([])``. The post-pipeline
+                # guard at trainer.py:4515 catches the ``shape[1] == 0`` case
+                # but only runs AFTER ``_apply_pre_pipeline_transforms``
+                # returns -- so the raise inside the pipeline bypasses it.
+                # Surfaced by Wave 15 MRMR fuzz axes (c0008 with
+                # ``interactions_max_order=3``, fe_max_steps=2): MRMR found
+                # 0 confirmed predictors and the downstream pipeline crashed.
+                try:
+                    train_df = _passthrough_cols_fit_transform(
+                        pre_pipeline.fit_transform, train_df,
+                        passthrough_cols=selector_passthrough_cols, fit=True, target=_enc_target,
+                    )
+                except ValueError as _exc:
+                    _msg = str(_exc)
+                    if (
+                        "need at least one array to concatenate" in _msg
+                        or "at least one array or dtype is required" in _msg
+                    ):
+                        if verbose:
+                            logger.warning(
+                                "pre_pipeline produced 0 features (feature selector "
+                                "confirmed nothing); skipping further preprocessing. "
+                                "Downstream 0-feature guard will short-circuit training."
+                            )
+                        # Return an empty DataFrame matching the input row count
+                        # so the downstream ``train_df.shape[1] == 0`` guard
+                        # fires cleanly.
+                        if isinstance(train_df, pl.DataFrame):
+                            train_df = train_df.select([])
+                        elif isinstance(train_df, pd.DataFrame):
+                            train_df = train_df.iloc[:, :0]
+                        else:
+                            train_df = np.empty((len(train_df), 0))
+                        # Skip val transform too: pipeline is unusable.
+                        if val_df is not None:
+                            if isinstance(val_df, pl.DataFrame):
+                                val_df = val_df.select([])
+                            elif isinstance(val_df, pd.DataFrame):
+                                val_df = val_df.iloc[:, :0]
+                            else:
+                                val_df = np.empty((len(val_df), 0))
+                        return train_df, val_df
+                    raise
                 if verbose:
                     log_ram_usage()
                 if val_df is not None:
@@ -1466,6 +1621,31 @@ def _apply_pre_pipeline_transforms(
             if verbose:
                 shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
                 logger.info("  pre_pipeline done -- train: %s, %.1fs", shape_str, timer() - t0_pre)
+            # 2026-05-12: populate the LRU cache so the next sklearn-non-
+            # native model in this per-target iteration (typically MLP
+            # after Linear) gets a cache hit on the same train_df + the
+            # same structural pipeline. Guarded: only stash when we
+            # actually went through the fit-transform branch (the others
+            # didn't have anything new to cache anyway).
+            if (
+                not skip_pre_pipeline_transform
+                and not skip_preprocessing
+            ):
+                # Inline ``_pre_pipeline_cache_set`` to avoid recomputing
+                # the signature; reuse the entry-time IDs captured above.
+                try:
+                    _sig = _pipeline_signature_for_cache(pre_pipeline)
+                    _key = (_train_df_in_id, _val_df_in_id, _sig)
+                    with _PRE_PIPELINE_CACHE_LOCK:
+                        _PRE_PIPELINE_CACHE[_key] = (train_df, val_df)
+                        _PRE_PIPELINE_CACHE.move_to_end(_key)
+                        while len(_PRE_PIPELINE_CACHE) > _PRE_PIPELINE_CACHE_MAX:
+                            _PRE_PIPELINE_CACHE.popitem(last=False)
+                except Exception as _cache_err:
+                    logger.debug(
+                        "pre_pipeline cache populate skipped: %s",
+                        _cache_err,
+                    )
 
     return train_df, val_df
 
@@ -4374,6 +4554,7 @@ def train_and_evaluate_model(
         num_factors=fi_config.num_factors,
         positive_fi_only=fi_config.positive_fi_only,
         show_plots=fi_config.show_plots,
+        max_zero_fi_to_plot=getattr(fi_config, "max_zero_fi_to_plot", 4),
     )
     display_sample_size = reporting.display_sample_size
     show_feature_names = reporting.show_feature_names

@@ -1298,12 +1298,20 @@ def score_ensemble(
             max_std_relative = 0.0
 
     # I2 (2026-05-11): for regression, gate-out harmonic / geometric ensemble flavours when ANY member's predictions contain near-zero values or sign changes. Harmonic mean = N / sum(1/p) and geometric mean = exp(mean(log p)) both diverge / are undefined on signals that cross zero. Symptom seen in the prod log: ``EnsHARM ... RMSE=178.84 MaxError=55206`` and ``RMSE=1299.55 MaxError=920165`` on composite residuals which cluster around zero by construction.
+    #
+    # 2026-05-12 (user feedback): also gate-out QUAD (quadratic mean =
+    # sqrt(mean(p^2))) on sign-changing targets. Squaring loses the sign of
+    # the input by construction, so QUAD ALWAYS emits non-negative
+    # predictions -- catastrophic for a target spanning both signs (the
+    # prod chart for ``EnsQUAD ... TVT__monotonic_residual__Y`` showed
+    # R2=-9.97 with all predictions in [0, 2000] vs true values in
+    # [-2200, 500]). QUBE (cube root) is sign-preserving so it stays in.
     if is_regression and ensembling_methods:
         _has_zero_crossing = False
-        _harm_geo_in_methods = any(
-            m in ensembling_methods for m in ("harm", "geo")
+        _sign_sensitive_in_methods = any(
+            m in ensembling_methods for m in ("harm", "geo", "quad")
         )
-        if _harm_geo_in_methods:
+        if _sign_sensitive_in_methods:
             for _m in level_models_and_predictions:
                 for _attr in ("val_preds", "test_preds", "train_preds"):
                     _arr = getattr(_m, _attr, None)
@@ -1322,15 +1330,20 @@ def score_ensemble(
                     break
             if _has_zero_crossing:
                 _filtered_methods = [
-                    m for m in ensembling_methods if m not in ("harm", "geo")
+                    m for m in ensembling_methods
+                    if m not in ("harm", "geo", "quad")
                 ]
                 if verbose and len(_filtered_methods) != len(ensembling_methods):
+                    _dropped = [
+                        m for m in ensembling_methods if m not in _filtered_methods
+                    ]
                     logger.info(
-                        "[ensemble] gating out harm/geo flavours: member "
+                        "[ensemble] gating out %s flavour(s): member "
                         "predictions contain near-zero / sign-changing "
                         "values (e.g. composite residual targets). "
-                        "Harmonic = N/sum(1/p) and geometric = "
-                        "exp(mean(log p)) diverge on this domain.",
+                        "Harmonic / geometric diverge near zero; quadratic "
+                        "loses input sign (sqrt(mean(p^2)) >= 0 always).",
+                        "/".join(_dropped),
                     )
                 ensembling_methods = _filtered_methods
 

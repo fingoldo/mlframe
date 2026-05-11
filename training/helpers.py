@@ -699,6 +699,11 @@ def get_training_configs(
     xgb_kwargs: dict = None,
     mlp_kwargs: dict = None,
     ngb_kwargs: dict = None,
+    # 2026-05-12: first-class predict-time MLP batch override. When None
+    # (default) the wrapper auto-adapts to memory + input width. Plumbed in
+    # from ``ModelHyperparamsConfig.mlp_predict_batch_size`` so callers don't
+    # need to dig into ``mlp_kwargs["datamodule_params"]``.
+    mlp_predict_batch_size: Optional[int] = None,
     # ----------------------------------------------------------------------------------------------------------------------------
     # featureselectors
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -1110,6 +1115,18 @@ def get_training_configs(
         # disabling it pushes the same kernel selection cost onto
         # epoch 0 instead. Keeping the default preserves Lightning's
         # fail-fast on a broken val pipeline at no measurable cost.
+        # 2026-05-12: AMP precision is now auto-resolved on Ampere+ CUDA hosts
+        # (RTX 30/40, A100, H100) -> "bf16-mixed" for ~2x throughput on tabular
+        # MLPs. Falls back to "32-true" on older GPUs / CPU. The user override
+        # under mlp_kwargs["trainer_params"]["precision"] always wins.
+        from .mlp_runtime_defaults import resolve_mlp_precision_default
+        _user_precision = (
+            (mlp_kwargs or {}).get("trainer_params", {}).get("precision")
+        )
+        _resolved_precision = resolve_mlp_precision_default(
+            user_override=_user_precision,
+        )
+
         mlp_trainer_params: dict = dict(
             devices=1,  # Always use single device by default to avoid multi-GPU complexity
             # ------------------------------------------------------------------
@@ -1117,7 +1134,14 @@ def get_training_configs(
             # ------------------------------------------------------------------
             min_epochs=1,
             max_epochs=iterations,
-            max_time={"days": 0, "hours": 0, "minutes": 30},
+            # 2026-05-12: hard 30-min cap on a 4M-row TVT regression got the
+            # MLP stopped at ~6 epochs (RMSE 585 vs Linear 252). Default
+            # raised to 2h so a slow DataLoader path can still converge; the
+            # caller-side ``early_stopping_rounds`` (default 100 epochs of
+            # no val improvement) still terminates well before then on
+            # healthy training. Override via
+            # ``mlp_kwargs["trainer_params"]["max_time"]``.
+            max_time={"days": 0, "hours": 2, "minutes": 0},
             # ------------------------------------------------------------------
             # Intervals:
             # ------------------------------------------------------------------
@@ -1132,7 +1156,7 @@ def get_training_configs(
             # ------------------------------------------------------------------
             # Precision & accelerators:
             # ------------------------------------------------------------------
-            precision="32-true",
+            precision=_resolved_precision,
             num_nodes=1,
             # ------------------------------------------------------------------
             # Logging:
@@ -1164,15 +1188,32 @@ def get_training_configs(
         if mlp_kwargs:
             mlp_model_params.update(mlp_kwargs.get("model_params", {}))
 
+        # 2026-05-12: cross-platform-safe DataLoader defaults. num_workers
+        # stays at 0 on EVERY OS because ``TorchDataset`` keeps the full
+        # input frame in self.features. On Windows that means each worker
+        # pickles 100 GB; on Linux fork's CoW gets broken by Polars indexing
+        # + Python refcount writes -> swap death. pin_memory still defaults
+        # ON for CUDA hosts (no IPC landmine). User opts in to workers via
+        # ``mlp_kwargs["dataloader_params"]["num_workers"]`` once their
+        # specific dataset is verified to fit each worker's memory budget.
+        from .mlp_runtime_defaults import resolve_mlp_dataloader_defaults
+        _user_dataloader_overrides = (
+            (mlp_kwargs or {}).get("dataloader_params", {}) or {}
+        )
+        _resolved_dataloader_extras = resolve_mlp_dataloader_defaults(
+            user_overrides=_user_dataloader_overrides,
+        )
+
         mlp_dataloader_params = dict(
             sampler=None,
             batch_sampler=None,
-            num_workers=0,
+            num_workers=_resolved_dataloader_extras["num_workers"],
             drop_last=False,
             timeout=0,
             worker_init_fn=None,
-            prefetch_factor=None,
-            persistent_workers=False,
+            prefetch_factor=_resolved_dataloader_extras["prefetch_factor"],
+            persistent_workers=_resolved_dataloader_extras["persistent_workers"],
+            pin_memory=_resolved_dataloader_extras["pin_memory"],
             batch_size=1024,
             shuffle=False,
         )
@@ -1184,6 +1225,12 @@ def get_training_configs(
             features_dtype=torch.float32, labels_dtype=labels_dtype,
             dataloader_params=mlp_dataloader_params,
         )
+        # 2026-05-12: plumb the suite-level predict-batch-size knob through
+        # the datamodule -- the wrapper's _predict_raw consults this when no
+        # explicit batch_size is passed to .predict(). None (default) lets
+        # the adaptive resolver pick based on memory + dataframe width.
+        if mlp_predict_batch_size is not None:
+            mlp_datamodule_params["predict_batch_size"] = int(mlp_predict_batch_size)
         if mlp_kwargs:
             mlp_datamodule_params.update(mlp_kwargs.get("datamodule_params", {}))
 

@@ -1,5 +1,83 @@
 # Changelog
 
+## 2026-05-12 — TVT training-log triage: 13 fixes (MLP throughput, FI plot ergonomics, ensemble safety, plumbing knobs) + composite.py 7K-LOC -> 250-LOC split
+
+Triage of a TVT regression run on 4M rows (`TVT__monotonic_residual__Y`, `TVT__linear_residual__TVT_prev`) surfaced a cluster of UX + correctness defects across the MLP path, the FI plot, the dummy-baseline chart titles, the residual-audit gate, and the ensemble-flavour selection. Also split the 7K-LOC `mlframe/training/composite.py` into 14 focused modules.
+
+### MLP throughput defaults (`mlframe/training/mlp_runtime_defaults.py` -- new)
+
+- `num_workers=0` on **all OSes** (Windows AND POSIX). `TorchDataset` (`neural/data.py:62`) keeps the full Polars / pandas frame in `self.features`; multi-worker on big frames either pickles 100 GB per worker (Windows spawn) or breaks Arrow CoW on Python refcount writes + Polars row-indexing (Linux fork). Users opt in explicitly via `mlp_kwargs["dataloader_params"]["num_workers"]`.
+- `pin_memory=True` on CUDA hosts (no worker-pickling landmine).
+- `precision="bf16-mixed"` only on Ampere+ (CC major >= 8); older GPUs / CPU stay at `"32-true"`. User override always wins.
+- `max_time=2h` (was hard 30-min). The TVT run got MLP stopped at epoch ~6 (val_MSE=0.815, R²=0.18); early-stop still fires well before 2h on a healthy fit.
+- Predict batch_size: **adaptive on free GPU/CPU memory + dataframe width** (`resolve_mlp_predict_batch_size`). Recovers the 30K-features-on-tight-GPU case (clamps to ~2K batch) without the prior hardcoded-64 cliff (which made 4M-row predict spend minutes on DataLoader overhead). Plumbed through `ModelHyperparamsConfig.mlp_predict_batch_size`.
+
+### FI plot ergonomics (`feature_importance.py`, `training/evaluation.py`)
+
+- Default top-N reduced 25 → **10** (plot + log). Plumbed through `FeatureImportanceConfig.num_factors`.
+- Removed the "BOTTOM feature importances" duplicate chart that Linear models emitted on every run. Top-N now magnitude-ranked with signed bars + zero-reference axline in one chart.
+- New `FeatureImportanceConfig.max_zero_fi_to_plot` (default **4**) caps trailing zero-FI bars on tree models with one dominant feature (eg `TVT_prev=0.99` + 23 zeros), so the plot stays compact. eps for "is zero" scales with the maximum magnitude.
+
+### Pre-pipeline LRU cache (`training/trainer.py`)
+
+The TVT log showed Linear's `SimpleImputer + StandardScaler` fit (~46s) and MLP's identical fit (~18s) on the same 4M-row `train_df`. New `_pre_pipeline_cache` keys on `(id(train_df), id(val_df), pipeline-signature)` and short-circuits the second sklearn-non-native model's fit-transform when the signature matches. LRU-bounded at 2 entries to keep memory predictable.
+
+### DUMMY plot title + report_residual_audit semantics + one-line log metrics (`training/core.py`, `training/evaluation.py`)
+
+- DUMMY plot title now carries `target_name model_name cur_target_name MTTR=...` (or `MTRESID=...` for composite targets) -- previously the dummy scatter chart had no way to identify which target it belonged to.
+- `behavior_config.report_residual_audit=False` now **only** suppresses the multi-line audit verdict text in the log. The hist + residual-vs-pred chart panels stay populated (previously the flag killed both, leaving 2/3 of the chart empty).
+- Metrics in the log block collapse to ONE line (`MAE=... RMSE=... MaxError=... R2=...`) matching the chart title, instead of 4 separate `MAE: ...` lines.
+
+### Ensemble safety (`ensembling.py`)
+
+`EnsQUAD` (`sqrt(mean(p^2))`) joins HARM and GEO in the sign-sensitive gate. Squaring loses input sign by construction so QUAD always emits non-negative predictions -- catastrophic on residual targets that span both signs (TVT log: `EnsQUAD ... TVT__monotonic_residual__Y` got R²=-9.97 with all predictions in [0, 2000] vs true [-2200, 500]). QUBE (cube root, sign-preserving) stays in.
+
+### Lightning rank_zero noise filter (`training/neural/base.py`)
+
+Module-import-time `logging.Filter` drops the 5 INFO bullets Lightning emits on every trainer init (`GPU available`, `TPU available`, `IPU available`, `HPU available`, `LOCAL_RANK: ...`). With composite discovery + multi-target suites, these spammed 5+ lines per fit. Useful messages from the same loggers (`Time limit reached`, `Metric ... improved`, `Loading best model`) are preserved via the substring whitelist.
+
+### Cross-target ensemble: chart + log (`training/core.py`)
+
+After `models[type][_CT_ENSEMBLE__{target}]` is stored, the suite now runs the SAME `report_model_perf` pipeline that every per-target model goes through, emitting VAL + TEST scatter / residual charts + one-line metrics with title `CT_ENSEMBLE[strategy] {target} {model_name} {composite_target}`. Previously the ensemble entry was stored silently and users had no visual confirmation it was built. Wrapped in a broad try/except so a bad component shim doesn't abort the whole suite.
+
+### composite.py 7K-LOC -> 250-LOC re-export hub (Phase 1-4 splits)
+
+`mlframe/training/composite.py` went from 7119 LOC to 250 LOC. Pulled out into 13 focused modules behind a back-compat re-export shim:
+
+| Module | LOC | Surface |
+|---|---|---|
+| `composite_spec.py` | 49 | `CompositeSpec` dataclass (leaf, no peer deps) |
+| `composite_streaming.py` | 102 | streaming alpha refit |
+| `composite_interaction_bases.py` | 104 | interaction-base generator |
+| `composite_bayesian.py` | 111 | bayesian alpha fit |
+| `composite_feature_stacking.py` | 138 | composite predictions as features |
+| `composite_stacking.py` | 145 | stacking-aware gate |
+| `composite_forward_stepwise.py` | 147 | forward-stepwise multi-base |
+| `composite_cache.py` | 182 | discovery cache |
+| `composite_auto_detect.py` | 213 | time/group column auto-detect |
+| `composite_provenance.py` | 341 | `CompositeProvenance` + markdown report |
+| `composite_ensemble.py` | 657 | cross-target ensemble + OOF + seeds |
+| `composite_screening.py` | 911 | MI / tiny-model / sample-indices |
+| `composite_estimator.py` | 947 | `CompositeTargetEstimator` wrapper |
+| `composite_transforms.py` | 1375 | 11 transforms + registry |
+| `composite_discovery.py` | 1983 | `CompositeTargetDiscovery` class |
+
+3 latent bugs surfaced during the split (silent-NaN screening from a swallowed NameError on `_y_train_clip_bounds`, missing `import math` + `hashlib` in extracted modules, circular import composite.py ↔ composite_discovery.py via `CompositeSpec`) all fixed.
+
+### Tests
+
+| Suite | Tests | Status |
+|---|---|---|
+| `tests/training/test_mlp_runtime_defaults.py` | 28 | PASS |
+| `tests/test_fi_plot_defaults.py` | 14 | PASS |
+| `tests/training/test_pre_pipeline_cache.py` | 14 | PASS |
+| `tests/training/neural/test_mlp_not_worse_than_linear.py` | 2 | PASS |
+| `tests/training/test_auto_scaler_for_linear_and_mlp.py` (existing) | 7 | PASS |
+
+65/65 pass.
+
+---
+
 ## 2026-05-11 — Composite-target R10c bug-fix round 2: 6 production bugs found in TVT regression run
 
 A user-supplied production log from `train_mlframe_models_suite(..., composite_target_discovery_config=...)` on TVT regression (5M rows, 26 features) exposed six bugs across the composite-target pipeline. Despite R10b correctly identifying `TVT_prev` as the dominant feature via BaselineDiagnostics ablation (delta% = +501%), discovery produced **0 specs** and the cross-target ensemble **failed to build**. Root-cause analysis surfaced six distinct defects, all now fixed with unit + biz-value tests.

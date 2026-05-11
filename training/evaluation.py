@@ -520,10 +520,10 @@ def report_regression_model_perf(
         metrics.update(current_metrics)
 
     # Compute residual audit ONCE (used by both the chart and the print-report block; cheap thanks to internal sampling).
-    # 2026-05-11 (user request): honour ``behavior_config.report_residual_audit`` -- when False, neither compute nor render the audit. Read via the module-level override populated by ``train_mlframe_models_suite``; defaults to True for direct callers outside the suite (back-compat).
+    # 2026-05-12 (user clarification): ``behavior_config.report_residual_audit`` is a LOG-ONLY toggle. When False we MUST still compute the audit so the chart's hist + resid-vs-pred panels stay populated -- only the multi-line verdict text in the log is suppressed. Multi-output targets still skip the audit (no scalar residuals to fit a distribution to).
     _residual_audit = None
-    _audit_enabled = bool(_get_residual_audit_enabled())
-    if _audit_enabled and not (
+    _audit_log_enabled = bool(_get_residual_audit_enabled())
+    if not (
         (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
         or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
     ):
@@ -697,14 +697,27 @@ def report_regression_model_perf(
             "[CompositeTargetEstimator] log line)"
             if _is_t_scale_composite else ""
         )
+        # 2026-05-12 (user request): one-line metrics in the log block.
+        # Reuses the SAME ``metrics_str`` formula the chart title carries
+        # (``MAE=... RMSE=... MaxError=... R2=...`` separated by spaces) so
+        # the log line is immediately searchable / regex-friendly and the
+        # chart + log show the same string. Previous layout emitted 4
+        # separate ``MAE: ...`` lines, padding production logs needlessly.
+        _metrics_one_line = (
+            f"MAE={_fmt(MAE, report_ndigits)}"
+            f" RMSE={_fmt(RMSE, report_ndigits)}"
+            f" MaxError={_fmt(MaxError, report_ndigits)}"
+            f" R2={_fmt(R2, report_ndigits)}"
+        )
         _report_lines = [
             report_title + " " + model_name + _scale_note,
-            f"MAE: {_fmt(MAE, report_ndigits)}",
-            f"RMSE: {_fmt(RMSE, report_ndigits)}",
-            f"MaxError: {_fmt(MaxError, report_ndigits)}",
-            f"R2: {_fmt(R2, report_ndigits)}",
+            _metrics_one_line,
         ]
-        if _residual_audit is not None:
+        # 2026-05-12: residual-audit VERDICT TEXT is gated on the suite flag.
+        # The audit is still computed above (so the chart panels stay
+        # populated); only the multi-line text block here is suppressed when
+        # ``behavior_config.report_residual_audit=False``.
+        if _residual_audit is not None and _audit_log_enabled:
             from .regression_residual_audit import (
                 format_residual_audit_report as _fmt_residual_audit,
             )
@@ -1263,11 +1276,12 @@ def plot_model_feature_importances(
     model: Any,
     columns: Sequence[str],
     model_name: Optional[str] = None,
-    num_factors: int = 40,
+    num_factors: int = 10,
     figsize: Tuple[int, int] = DEFAULT_FI_FIGSIZE,
     positive_fi_only: bool = False,
     show_plots: bool = True,
     plot_file: str = "",
+    max_zero_fi_to_plot: int = 4,
 ) -> Optional[np.ndarray]:
     """
     Plot feature importances for a trained model.
@@ -1282,8 +1296,11 @@ def plot_model_feature_importances(
         Feature column names.
     model_name : str, optional
         Title for the plot.
-    num_factors : int, default=40
-        Maximum number of features to display.
+    num_factors : int, default=10
+        Maximum number of features to display. Reduced from 40 to 10
+        (2026-05-12) so plots stay scannable on common feature counts;
+        override via ``reporting_config.fi_top_n`` in
+        ``train_mlframe_models_suite``.
     figsize : tuple, default=(15, 10)
         Figure size for the plot.
     positive_fi_only : bool, default=False
@@ -1309,6 +1326,7 @@ def plot_model_feature_importances(
                 positive_fi_only=positive_fi_only,
                 n=num_factors,
                 show_plots=show_plots,
+                max_zero_fi_to_plot=max_zero_fi_to_plot,
             )
         except (ValueError, AttributeError, IndexError, TypeError) as e:
             logger.warning(f"Could not plot feature importances: {e}. Maybe data shape is changed within a pipeline?")

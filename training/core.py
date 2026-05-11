@@ -4378,8 +4378,42 @@ def train_mlframe_models_suite(
                                 _strongest_test_raw = _db_report.extras.get(
                                     "strongest_test_preds",
                                 )
+                                # 2026-05-12 (user request): mirror the real-
+                                # model title format so plots are not
+                                # anonymous. Real models hit
+                                # ``{ModelClass} {target_name} {model_name} {target_col} {MT*-tag}``
+                                # (see train_eval._build_chart_title);
+                                # the dummy gets the same suffix so the
+                                # operator can see which target / experiment
+                                # the scatter belongs to.
+                                from ._format import format_metric as _dummy_fmt
+                                _dummy_is_composite = (
+                                    "__linear_residual__" in cur_target_name
+                                    or "__linear_residual_multi__" in cur_target_name
+                                    or "__linear_residual_grouped__" in cur_target_name
+                                    or "__diff__" in cur_target_name
+                                    or "__ratio__" in cur_target_name
+                                    or "__logratio__" in cur_target_name
+                                )
+                                _dummy_mt_tag = (
+                                    "MTRESID" if _dummy_is_composite else "MTTR"
+                                )
+                                try:
+                                    if current_train_target is not None and len(current_train_target) > 0:
+                                        _dummy_mt_val = float(
+                                            np.asarray(current_train_target).mean()
+                                        )
+                                        _dummy_mt_suffix = (
+                                            f" {_dummy_mt_tag}={_dummy_fmt(_dummy_mt_val)}"
+                                        )
+                                    else:
+                                        _dummy_mt_suffix = ""
+                                except Exception:
+                                    _dummy_mt_suffix = ""
                                 _dummy_name = (
-                                    f"DummyBaseline:{_db_report.strongest}"
+                                    f"DummyBaseline:{_db_report.strongest} "
+                                    f"{target_name} {model_name} {cur_target_name}"
+                                    f"{_dummy_mt_suffix}"
                                 )
 
                                 def _split_preds_probs(arr):
@@ -6369,8 +6403,78 @@ def train_mlframe_models_suite(
                     _tt_e, _ens_key,
                 )
 
+                # 2026-05-12 (user request): route the cross-target ensemble
+                # through the SAME ``report_model_perf`` pipeline that every
+                # per-target model goes through. Previously the entry was
+                # stored with ``metrics={}`` and no chart / log lines were
+                # emitted, so users had no visual confirmation that the
+                # ensemble was even built. Each split (val + test) gets a
+                # scatter + residual chart + one-line metrics in the log,
+                # using the SAME look as the real models. Guarded with a
+                # broad try/except because an ensemble that has a
+                # component shim that doesn't accept the suite's frame
+                # shape would otherwise abort the whole suite.
+                try:
+                    from .evaluation import report_model_perf
+                    _ens_orig_y = target_by_type.get(_tt_e, {}).get(_orig_tname)
+                    if _ens_orig_y is not None:
+                        _ens_y_arr = np.asarray(_ens_orig_y)
+                        _ens_model_name = (
+                            f"CT_ENSEMBLE[{_ce_strategy}] {target_name} "
+                            f"{model_name} {_orig_tname}"
+                        )
+                        _ens_columns = (
+                            list(getattr(filtered_train_df, "columns", []) or [])
+                        )
+                        _ens_common = dict(
+                            columns=_ens_columns,
+                            df=None, model=None,
+                            model_name=_ens_model_name,
+                            plot_outputs=getattr(reporting_config, "plot_outputs", None),
+                            plot_dpi=getattr(reporting_config, "plot_dpi", None),
+                            show_fi=False,
+                            target_type=str(_tt_e),
+                        )
+                        for _split_name, _report_title, _split_idx, _split_df in (
+                            ("val", "VAL (CT_ENSEMBLE) ", filtered_val_idx, filtered_val_df),
+                            ("test", "TEST (CT_ENSEMBLE) ", test_idx, test_df_pd),
+                        ):
+                            if _split_idx is None or _split_df is None:
+                                continue
+                            try:
+                                _y_split = _ens_y_arr[_split_idx]
+                                _ens_preds = np.asarray(
+                                    _ensemble.predict(_split_df),
+                                    dtype=np.float64,
+                                ).reshape(-1)
+                                _common_split = dict(_ens_common)
+                                if plot_file:
+                                    _common_split["plot_file"] = (
+                                        f"{plot_file}_ct_ensemble_{_orig_tname}_{_split_name}"
+                                    )
+                                report_model_perf(
+                                    targets=_y_split,
+                                    preds=_ens_preds, probs=None,
+                                    report_title=_report_title,
+                                    **_common_split,
+                                )
+                            except Exception as _split_err:
+                                logger.warning(
+                                    "[CompositeCrossTargetEnsemble] target='%s' "
+                                    "split='%s' report_model_perf failed: %s. "
+                                    "Continuing without ensemble chart for this split.",
+                                    _orig_tname, _split_name, _split_err,
+                                )
+                except Exception as _ens_report_err:
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] target='%s' could not emit "
+                        "scatter / log charts: %s. The ensemble entry is still "
+                        "stored at models[%s][%s] for downstream consumers.",
+                        _orig_tname, _ens_report_err, _tt_e, _ens_key,
+                    )
+
     # 2026-05-10: suite-end dummy-baselines summary (D6) — cross-target
-    # verdict block + canonical UPPERCASE WARN tokens.
+    # verdict block — canonical UPPERCASE WARN tokens.
     try:
         if metadata.get("dummy_baselines"):
             from .dummy_baselines import format_suite_end_summary

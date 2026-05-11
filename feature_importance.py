@@ -94,17 +94,28 @@ def _format_top_fi_for_log(
     return "\n".join(parts)
 
 
+_FI_PLOT_DEFAULT_N: int = 10
+_FI_LOG_DEFAULT_TOP_N: int = 10
+# 2026-05-12 (user request): cap how many bars-with-FI~0 the chart shows.
+# Tree models on a residual target often pin 1-2 features near 1.0 and zero
+# everything else; rendering 23 invisible bars wastes vertical real-estate.
+# Show at most this many zero-magnitude features in the bar plot, dropped
+# from the bottom of the magnitude-sorted list.
+_FI_DEFAULT_MAX_ZERO: int = 4
+
+
 def plot_feature_importance(
     feature_importances: np.ndarray,
     columns: Sequence,
     kind: str,
-    n: int = 20,
+    n: int = _FI_PLOT_DEFAULT_N,
     figsize: tuple = (12, 6),
     positive_fi_only: bool = False,
     show_plots: bool = True,
     plot_file: str = "",
-    log_top_n: int = 20,
+    log_top_n: int = _FI_LOG_DEFAULT_TOP_N,
     log_fi: bool = True,
+    max_zero_fi_to_plot: int = _FI_DEFAULT_MAX_ZERO,
 ):
     """Plot + log top-N feature importances.
 
@@ -117,10 +128,13 @@ def plot_feature_importance(
     kind : str
         Display label (e.g. ``"XGBRegressor TVT"``). Goes into the
         plot title AND the text log line.
-    n : int, default 20
+    n : int, default 10
         Number of bars to plot. Top-N positive AND bottom-N negative
         (when ``positive_fi_only=False`` and the minimum FI is < 0).
-    log_top_n : int, default 20
+        Default reduced from 25 to 10 (2026-05-12) so plots/logs stay
+        scannable; raise via the ``reporting_config.fi_top_n`` knob in
+        ``train_mlframe_models_suite``.
+    log_top_n : int, default 10
         Number of features included in the text-format log line. Set
         to 0 to disable text logging entirely.
     log_fi : bool, default True
@@ -175,24 +189,49 @@ def plot_feature_importance(
             return df  # render-side skipped; the importance series is the data return
 
     if plot_file or show_plots:
+        # 2026-05-12 (user feedback): pick the top-N by ABSOLUTE magnitude in
+        # one chart with signed bars, instead of emitting a separate "BOTTOM
+        # feature importances" plot whenever the most-negative FI is < 0.
+        # On linear models with ~25 features and the old n=20 default, the
+        # TOP and BOTTOM views shared 15/20 features and looked like the
+        # same chart printed twice. Magnitude-ranked single-plot rendering
+        # solves both the duplication AND the title misnomer (a large
+        # negative coefficient is high-importance, not "bottom").
         figs = []
         fig_top = plt.figure(figsize=figsize)
         figs.append(fig_top)
         ax = plt.gca()  # visible=True
-        ax.barh(range(len(sorted_idx[-n:])), feature_importances[sorted_idx[-n:]], align="center")
-        ax.set(yticks=range(len(sorted_idx[-n:])), yticklabels=sorted_columns[-n:])
+        # Rank by |FI| descending. Use original signed values for the bar so
+        # negative coefficients show as left-bars.
+        _abs_order_full = np.argsort(np.abs(feature_importances))[::-1]
+        _picked = _abs_order_full[:n]
+        # 2026-05-12 (user request): drop excess zero-FI bars so the chart
+        # stays compact when most features got pruned by the model. ``eps``
+        # is scaled to the LARGEST magnitude so we don't accidentally drop
+        # legitimately small but nonzero importances (eg gain=1e-6 on a
+        # near-orthogonal feature). Keep at most ``max_zero_fi_to_plot`` of
+        # the zero-FI bars; if the head already exceeds ``n``, no zeros pass.
+        _abs_picked = np.abs(feature_importances[_picked])
+        if _abs_picked.size > 0:
+            _fi_eps = max(1e-12, float(_abs_picked.max()) * 1e-6)
+        else:
+            _fi_eps = 1e-12
+        _nonzero_mask = _abs_picked > _fi_eps
+        _nonzero_ids = _picked[_nonzero_mask]
+        _zero_ids = _picked[~_nonzero_mask][:max(0, int(max_zero_fi_to_plot))]
+        _abs_order = np.concatenate([_nonzero_ids, _zero_ids])
+        # Re-sort the picked subset by signed value so the bars stack
+        # cleanly (most-negative at the bottom, most-positive at the top).
+        _abs_order = _abs_order[np.argsort(feature_importances[_abs_order])]
+        _picked_fi = feature_importances[_abs_order]
+        _picked_cols = np.array(columns)[_abs_order]
+        ax.barh(range(len(_abs_order)), _picked_fi, align="center")
+        ax.set(yticks=range(len(_abs_order)), yticklabels=_picked_cols)
         ax.set_title(f"{kind} feature importances")
+        ax.axvline(0, color="k", linewidth=0.5)  # zero reference for signed FI
 
         if plot_file:
             fig_top.savefig(plot_file)
-
-        if not positive_fi_only and feature_importances[sorted_idx[0]] < 0:
-            fig_bot = plt.figure(figsize=figsize)
-            figs.append(fig_bot)
-            ax = plt.gca()  # visible=True
-            ax.barh(range(len(sorted_idx[:n])), feature_importances[sorted_idx[:n]], align="center")
-            ax.set(yticks=range(len(sorted_idx[:n])), yticklabels=sorted_columns[:n])
-            ax.set_title(f"{kind} BOTTOM feature importances")
 
         if show_plots:
             # 2026-05-11: prefer explicit ``IPython.display.display(fig)``
