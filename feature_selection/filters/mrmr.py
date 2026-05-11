@@ -146,15 +146,28 @@ def _content_array_signature(arr) -> tuple:
     strategy), so two calls with semantically-equal X have distinct
     ``id(X)`` but identical content.
 
-    Returns a tuple of (shape, dtype_str, sampled_values_bytes).
-    Samples a fixed set of positions (first, last, evenly-spaced
-    interior) -- enough to disambiguate distinct content with
-    overwhelming probability while staying O(constant) cost.
+    Returns a tuple of (shape, dtype_str, sampled_values_bytes,
+    col_names). Samples a fixed set of positions (first, last,
+    evenly-spaced interior) -- enough to disambiguate distinct
+    content with overwhelming probability while staying O(constant)
+    cost. Column names (when available) are included so two frames
+    with identical content but different column names produce
+    different cache keys -- otherwise a fit on ``df.rename(...)``
+    would replay the prior fit's ``feature_names_in_`` and downstream
+    ``transform()`` would mis-select by name.
 
     Falls back to ``id(arr)`` when content sampling fails (object
     arrays, non-numeric polars columns, etc).
     """
     try:
+        # Capture column names (DataFrames only) BEFORE unwrap so the
+        # signature distinguishes ``df`` vs ``df.rename(...)``.
+        col_names = None
+        if hasattr(arr, "columns"):
+            try:
+                col_names = tuple(str(c) for c in arr.columns)
+            except Exception:
+                col_names = None
         # Unwrap to numpy
         if hasattr(arr, "to_numpy"):
             try:
@@ -173,13 +186,13 @@ def _content_array_signature(arr) -> tuple:
         flat = np_arr.ravel()
         n = flat.size
         if n == 0:
-            return (shape, dtype_str, b"")
+            return (shape, dtype_str, b"", col_names)
         idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
         try:
             sampled = bytes(flat[idx].tobytes())
         except Exception:
             return ("uncached", id(arr))
-        return (shape, dtype_str, sampled)
+        return (shape, dtype_str, sampled, col_names)
     except Exception:
         return ("uncached", id(arr))
 
@@ -757,6 +770,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             # Tier 4.4: pull cached cat-FE state from prior fit (if any)
             _prev_cache = getattr(self, "_cat_fe_cache_", None)
+            _n_cols_before_cat_fe = data.shape[1]
             data, cols, nbins, cat_fe_state = run_cat_interaction_step(
                 data=data, cols=cols, nbins=nbins,
                 target_indices=target_indices,
@@ -768,6 +782,23 @@ class MRMR(BaseEstimator, TransformerMixin):
                 dtype=dtype, verbose=verbose,
             )
             self._cat_fe_state_ = cat_fe_state
+            # 2026-05-11: register engineered cat features as categorical_vars
+            # so the downstream numeric-FE step (``_run_fe_step``) excludes them
+            # from ``numeric_vars_to_consider``. Without this update, kway cat
+            # engineered cols at positions [old_n_cols .. new_n_cols-1] enter
+            # ``numeric_vars_to_consider``, get added to ``prospective_pairs``,
+            # then ``check_prospective_fe_pairs`` tries to read them from X (the
+            # original input frame which doesn't contain engineered cols) via
+            # ``original_cols[var]`` -- KeyError. Reproduced on c0089 (regression,
+            # 8 cat features, interactions_max_order=2). Engineered cat cols are
+            # appended at the END of ``data`` / ``cols`` by
+            # ``run_cat_interaction_step``; their positions are exactly
+            # ``[_n_cols_before_cat_fe .. data.shape[1] - 1]``.
+            _n_cat_fe_added = data.shape[1] - _n_cols_before_cat_fe
+            if _n_cat_fe_added > 0:
+                categorical_vars = list(categorical_vars) + list(
+                    range(_n_cols_before_cat_fe, data.shape[1])
+                )
             # Persist cache for next fit() call
             if cat_fe_state.streaming_cache_out:
                 self._cat_fe_cache_ = cat_fe_state.streaming_cache_out
@@ -1628,7 +1659,35 @@ class MRMR(BaseEstimator, TransformerMixin):
             return self._append_engineered(base_out, X, recipes)
         else:
             base_out = X[:, support]
-            return self._append_engineered(base_out, X, recipes)
+            out = self._append_engineered(base_out, X, recipes)
+            # 2026-05-11: when X is polars and sklearn's set_output(transform=
+            # "pandas") is configured on the enclosing Pipeline, sklearn's
+            # PandasAdapter.create_container calls ``pd.DataFrame(out, ...)``
+            # which (unlike polars' own ``.to_pandas()``) does not preserve
+            # Arrow-backed dtypes -- pl.Enum / pl.Categorical collapse to
+            # numpy object and pl.Float32 columns also turn object. Downstream
+            # the cat-encoder then sees object-dtype strings but its
+            # auto-detection of object cols stays correct, while pl.Float32
+            # numeric cols become object-of-strings ('1.23' as text) and HGB /
+            # XGB / SimpleImputer raise ``could not convert string to float:
+            # '__MISSING__'`` on the cat side or silently misinterpret the
+            # numeric side. Convert ourselves via polars' Arrow-preserving
+            # ``.to_pandas()`` whenever the consumer expects pandas; sklearn's
+            # adapter then sees a pandas frame and passes it through unchanged.
+            try:
+                from sklearn.utils._set_output import _get_output_config
+                _cfg = _get_output_config("transform", estimator=self)
+                _want_pandas = (_cfg.get("dense") or "default") == "pandas"
+            except Exception:
+                _want_pandas = False
+            if _want_pandas:
+                try:
+                    import polars as _pl
+                    if isinstance(out, _pl.DataFrame):
+                        out = out.to_pandas()
+                except ImportError:
+                    pass
+            return out
 
     def _append_engineered(self, base_out, X, recipes):
         """Append engineered-recipe columns onto ``base_out``.

@@ -370,5 +370,151 @@ class TestMRMRPermKernelGPU:
         assert _perm_kernel_dispatch_use_gpu(10_000_000, 100, "cpu") is False
 
 
+class TestMRMRWave14Regressions:
+    """Regression tests for Wave 14 bugs discovered profiling c0089 at
+    interactions_max_order=2/3. Both pre-fix failures:
+
+    A) ``KeyError: <int>`` in ``feature_engineering.py`` when cat-FE
+       generated engineered kway cols (e.g. ``kway(cat_2__cat_3)``)
+       were registered in ``cols`` / ``data`` but not appended to
+       the local ``categorical_vars`` list -- so the downstream
+       numeric-FE step (``_run_fe_step``) saw them as "numeric" and
+       tried to read them from X (the original DataFrame) via
+       ``original_cols[var]``. They weren't in X, so KeyError.
+
+    B) ``ValueError: could not convert string to float: '__MISSING__'``
+       at HGB/XGB/LGB fit-time when MRMR was inside a Pipeline with
+       ``set_output(transform="pandas")`` AND the input was polars.
+       sklearn's PandasAdapter does ``pd.DataFrame(polars_df, ...)``
+       which (unlike polars' Arrow-preserving ``.to_pandas()``)
+       collapses ``pl.Enum`` / ``pl.Categorical`` to numpy object AND
+       turns numeric pl.Float32 columns into object-of-strings.
+       Downstream encoders + models then choke on the mixed string /
+       string-numeric output.
+    """
+
+    def test_cat_fe_engineered_features_dont_crash_numeric_fe_step(self):
+        """Bug A regression. With cat-FE enabled (default) and
+        ``fe_max_steps >= 1``, the downstream numeric-FE step must NOT
+        crash on engineered kway cat features. Pre-fix this raised
+        ``KeyError: <engineered_col_position>`` because the engineered
+        cat indices weren't appended to ``categorical_vars`` after the
+        cat-FE step. The numeric-FE controller (``_run_fe_step``) then
+        included them in ``numeric_vars_to_consider`` and tried to look
+        them up in X via ``original_cols[var]`` -- not present.
+
+        Uses the exact c0089 fuzz-combo frame builder that originally
+        surfaced this bug -- a hand-rolled synthetic struggles to
+        reliably trigger cat-FE -> screening keep -> numeric-FE pair
+        in a single seed. The fuzz builder picks correlated cat
+        cardinalities and synergy-rich pair structure tuned to fire
+        the path consistently.
+        """
+        # Skip if test infra not on path (e.g. installed wheel run).
+        pytest.importorskip("tests.training._fuzz_combo")
+        from tests.training._fuzz_combo import (
+            build_frame_for_combo, enumerate_combos,
+        )
+        combos = enumerate_combos(target=150, master_seed=20260422)
+        matches = [c for c in combos if c.short_id() == "c0089_246583d5"]
+        if not matches:
+            pytest.skip("c0089_246583d5 not in current fuzz combo space")
+        combo = matches[0]
+        df_pl, _, _ = build_frame_for_combo(combo)
+        df_pd = df_pl.to_pandas()
+        # Mimic the suite's ``__MISSING__`` sentinel pass (core.py:3795)
+        # so cat cols carry the same boundary value that originally
+        # surfaced the bug downstream.
+        for col in df_pd.columns:
+            if col == "target_reg":
+                continue
+            if df_pd[col].dtype == object:
+                df_pd[col] = df_pd[col].fillna("__MISSING__").astype("category")
+        y = pd.Series(df_pd["target_reg"].values)
+        X = df_pd.drop(columns=["target_reg"])
+        mrmr = MRMR(
+            full_npermutations=5, baseline_npermutations=3,
+            interactions_max_order=2,
+            fe_max_steps=1,  # enables the numeric-FE step that crashed
+            verbose=0, n_jobs=1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # Pre-fix: raised ``KeyError: <int>`` from
+            # ``feature_engineering.py:131 X[:, original_cols[var]]``
+            # (deterministic on this combo).
+            # Post-fix: completes without error.
+            mrmr.fit(X, y)
+        assert mrmr.support_ is not None
+        # The fix is only meaningful when cat-FE actually produced
+        # engineered recipes. Assert non-zero so the test stays
+        # meaningful if the cat-FE algorithm changes.
+        assert mrmr._cat_fe_state_ is not None
+        assert len(mrmr._cat_fe_state_.recipes) >= 1, (
+            "cat-FE produced 0 engineered recipes on c0089 frame; "
+            "the bug path is gated on recipes existing. Test no "
+            "longer exercises the regression -- switch to a frame "
+            "that triggers cat-FE engineering."
+        )
+
+    def test_polars_input_with_pandas_output_preserves_dtypes(self):
+        """Bug B regression. When MRMR is configured with
+        ``set_output(transform='pandas')`` and the input is polars,
+        the output must preserve dtypes (not collapse everything to
+        ``object``). Pre-fix all columns -- INCLUDING numeric --
+        came out as object dtype because sklearn's PandasAdapter
+        does ``pd.DataFrame(polars_df)`` rather than polars'
+        Arrow-preserving ``.to_pandas()``.
+        """
+        pl = pytest.importorskip("polars")
+        from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+        rng = np.random.default_rng(0)
+        n = 400
+        enum_abc = pl.Enum(["A", "B", "C"])
+        # Build y first so we can give MRMR a strong-signal numeric to
+        # keep -- empty support_ would short-circuit the transform path
+        # before the dtype-preservation code runs, masking the bug.
+        y_arr = (rng.normal(size=n) > 0).astype(np.int8)
+        df = pl.DataFrame({
+            # Strong signal: y itself + a little noise.
+            "num_0": (y_arr.astype(np.float32) + rng.normal(scale=0.1, size=n).astype(np.float32)),
+            "num_1": rng.normal(size=n).astype(np.float32),
+            "cat_x": pl.Series(rng.choice(["A", "B", "C"], size=n)).cast(enum_abc),
+        })
+        y = pd.Series(y_arr)
+        mrmr = MRMR(
+            full_npermutations=3, baseline_npermutations=3,
+            fe_max_steps=0,
+            # Disable cat-FE to keep this test focused on the dtype-
+            # preservation contract (the cat-FE engineered-col fix is
+            # exercised by the other regression test above).
+            cat_fe_config=CatFEConfig(enable=False),
+            verbose=0, n_jobs=1,
+        )
+        mrmr.set_output(transform="pandas")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(df, y)
+            out = mrmr.transform(df)
+        assert isinstance(out, pd.DataFrame), \
+            f"Expected pandas DataFrame, got {type(out).__name__}"
+        # Pre-fix: every column came out object. Post-fix at least one
+        # column preserves a non-object dtype (the Arrow-preserving
+        # ``.to_pandas()`` path).
+        non_object = [c for c in out.columns if out[c].dtype != object]
+        assert non_object, (
+            f"All columns came out as object dtype -- the polars->pandas "
+            f"conversion is lossy. dtypes={dict(out.dtypes)}"
+        )
+        # Stronger: numeric columns that were pl.Float32 in the input
+        # must NOT come out as object.
+        for col in ("num_0", "num_1"):
+            if col in out.columns:
+                assert out[col].dtype != object, (
+                    f"Column {col!r} was pl.Float32 in input but is "
+                    f"object dtype in output -- conversion lost numeric dtype."
+                )
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short', '-x'])

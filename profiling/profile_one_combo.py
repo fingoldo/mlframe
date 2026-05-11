@@ -76,6 +76,10 @@ def main():
                         "150-combo space, useful for sampling fresh hotspots.")
     p.add_argument("--save-stats", type=str, default=None,
                    help="Optional path to write the .prof file (snakeviz-compatible).")
+    p.add_argument("--mrmr-interactions-max-order", type=int, default=1,
+                   help="MRMR k-way interaction depth (default 1 = 1-way). "
+                        "Set to 2 / 3 to enable pair / triplet discovery. "
+                        "Only applied when the combo has use_mrmr_fs=True.")
     args = p.parse_args()
 
     print("Pre-warming numba JIT cache...", flush=True)
@@ -119,8 +123,15 @@ def main():
                 # the script reported `mrmr=True` in the header but never
                 # passed it to the suite -- so MRMR didn't appear in the
                 # profile despite being in the combo definition.
+                # ``args.mrmr_interactions_max_order`` (default 1) lets
+                # users compare 1-way vs k-way interaction discovery cost.
                 feature_selection_config=FeatureSelectionConfig(
                     use_mrmr_fs=combo.use_mrmr_fs,
+                    mrmr_kwargs=(
+                        {"interactions_max_order": args.mrmr_interactions_max_order}
+                        if combo.use_mrmr_fs and args.mrmr_interactions_max_order > 1
+                        else None
+                    ),
                 ),
                 # Force CPU so CatBoost / XGBoost / LightGBM don't trip on
                 # missing CUDA in profiling environments. We're profiling
