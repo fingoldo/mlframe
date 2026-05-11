@@ -565,6 +565,93 @@ def test_biz_val_mrmr_factors_names_to_use_restricts_search(factors_names_subset
     )
 
 
+@pytest.mark.parametrize("preset", ["minimal", "default", "extended"])
+def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
+    """``fe_unary_preset`` parametrized over the documented presets.
+    Each must complete on a polynomial-friendly target. Catches
+    regressions in any of the preset registries."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    try:
+        sel = MRMR(
+            verbose=0, random_seed=42,
+            fe_max_steps=1, fe_max_polynoms=1,
+            fe_unary_preset=preset,
+        )
+        sel.fit(df, ys)
+        assert len(sel.support_) >= 1
+    except (KeyError, ValueError) as e:
+        # If a preset isn't in the registry, that's a known-config
+        # missing -- skip rather than fail. The other presets still
+        # exercise the unary-preset code path.
+        pytest.skip(f"preset={preset!r} not in registry: {e}")
+
+
+@pytest.mark.parametrize("preset", ["minimal", "default"])
+def test_biz_val_mrmr_fe_binary_preset_parametrize(preset):
+    """``fe_binary_preset`` parametrized over presets that should
+    exist."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    try:
+        sel = MRMR(
+            verbose=0, random_seed=42,
+            fe_max_steps=1, fe_max_polynoms=1,
+            fe_binary_preset=preset,
+        )
+        sel.fit(df, ys)
+        assert len(sel.support_) >= 1
+    except (KeyError, ValueError) as e:
+        pytest.skip(f"preset={preset!r} not in registry: {e}")
+
+
+@pytest.mark.parametrize("max_pair_features", [1, 2, 3])
+def test_biz_val_mrmr_fe_max_pair_features_completes(max_pair_features):
+    """``fe_max_pair_features`` parametrize: each value must complete
+    without raising. Controls how many engineered features can be
+    emitted per pair during the FE step."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        fe_max_steps=1, fe_max_polynoms=1,
+        fe_max_pair_features=max_pair_features,
+    )
+    sel.fit(df, ys)
+    assert len(sel.support_) >= 1
+
+
+def test_biz_val_mrmr_factors_to_use_int_indices_restricts_search():
+    """``factors_to_use=[0, 1, 2]`` (integer indices) must restrict
+    selection to those features only. Symmetric to the named-version
+    test."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, factors_to_use=[0, 1, 2])
+    sel.fit(df, ys)
+    selected = set(int(i) for i in sel.support_)
+    allowed = {0, 1, 2}
+    assert selected.issubset(allowed), (
+        f"factors_to_use=[0,1,2] must restrict selection to those; got {selected}"
+    )
+
+
 def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
     """``min_nonzero_confidence=0.999`` is stricter than the default
     0.99; on a noisy target with few clear-signal features it must

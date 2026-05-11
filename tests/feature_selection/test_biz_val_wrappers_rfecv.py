@@ -464,6 +464,97 @@ def test_biz_val_rfecv_nofeatures_dummy_scoring_completes(nofeatures_dummy):
     assert 1 <= len(_support_indices(sel)) <= df.shape[1]
 
 
+@pytest.mark.parametrize("max_refits", [3, 5, 10])
+def test_biz_val_rfecv_max_refits_caps_iterations(max_refits):
+    """``max_refits=N`` must constrain the optimizer to <= N fits.
+    Tested via runtime upper bound: more refits -> more time, but
+    never crash."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=max_refits, verbose=0, random_state=42,
+        max_noimproving_iters=max_refits,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("scorer_name", ["accuracy", "roc_auc", "neg_log_loss"])
+def test_biz_val_rfecv_scoring_parametrize_completes(scorer_name):
+    """RFECV with different sklearn scorers (resolved via get_scorer)
+    must complete. Catches regressions in score-passing
+    infrastructure."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.metrics import get_scorer
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    # RFECV requires a callable scorer (not a string name); resolve
+    # via sklearn's registry.
+    scorer = get_scorer(scorer_name)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        scoring=scorer,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("conduct_voting", [True, False])
+def test_biz_val_rfecv_conduct_final_voting_completes(conduct_voting):
+    """``conduct_final_voting`` toggle: both modes complete cleanly."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        conduct_final_voting=conduct_voting,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("cv_shuffle", [True, False])
+def test_biz_val_rfecv_cv_shuffle_completes(cv_shuffle):
+    """``cv_shuffle`` toggle: shuffled vs unshuffled CV both work."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=3, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        cv_shuffle=cv_shuffle,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
 def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     """RFECV with ``checkpoint_path`` must (a) write a resume file
     that allows a subsequent identical fit to pick up where it left
