@@ -1758,7 +1758,12 @@ class FeatureImportanceConfig(BaseConfig):
     # the user can still bump it via FeatureImportanceConfig(num_factors=...)
     # when they want a wider view.
     num_factors: int = 10
-    figsize: Tuple[int, int] = (15, 10)
+    # 2026-05-13 (user request): default figsize aligned with the
+    # 3-panel regression diagnostic chart (DEFAULT_FIGSIZE=(15, 5)) so
+    # the FI plot below it has the same visual footprint. Pre-fix it was
+    # (15, 10), making the FI chart twice as tall as the diagnostic
+    # above and creating a jarring size mismatch in the suite report.
+    figsize: Tuple[int, int] = (15, 5)
     positive_fi_only: bool = False
     show_plots: bool = True
     # 2026-05-12 (user request): cap zero-FI bars so the chart stays

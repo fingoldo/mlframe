@@ -29,7 +29,11 @@ DEFAULT_REPORT_NDIGITS = 2
 DEFAULT_CALIB_REPORT_NDIGITS = 2
 DEFAULT_NBINS = 10
 DEFAULT_FIGSIZE = (15, 5)
-DEFAULT_FI_FIGSIZE = (15, 10)
+# 2026-05-13 (user request): FI plot figsize unified with perf-chart figsize.
+# Pre-fix it was (15, 10) -- twice the height of the 3-panel regression
+# diagnostic above it. The FI chart now sits at the same height so the
+# suite report has a consistent visual rhythm.
+DEFAULT_FI_FIGSIZE = (15, 5)
 
 # Module-level cache for the plot-sample index. Hot report paths re-draw the same
 # scatter repeatedly with identical (len(preds), seed) -- caching the choice avoids

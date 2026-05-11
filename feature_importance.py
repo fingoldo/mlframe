@@ -103,13 +103,22 @@ _FI_LOG_DEFAULT_TOP_N: int = 10
 # from the bottom of the magnitude-sorted list.
 _FI_DEFAULT_MAX_ZERO: int = 4
 
+# 2026-05-13 (user request): default FI figsize unified with the
+# regression-diagnostic 3-panel chart (DEFAULT_FIGSIZE = (15, 5) in
+# evaluation.py). Hardcoding the same tuple here as the function default
+# so direct callers outside the suite (tests, notebooks) also get the
+# unified size out of the box. The suite layer passes
+# ``reporting_config.feature_importance_config.figsize`` explicitly anyway,
+# so this is purely the direct-caller default.
+_FI_DEFAULT_FIGSIZE: tuple = (15, 5)
+
 
 def plot_feature_importance(
     feature_importances: np.ndarray,
     columns: Sequence,
     kind: str,
     n: int = _FI_PLOT_DEFAULT_N,
-    figsize: tuple = (12, 6),
+    figsize: tuple = _FI_DEFAULT_FIGSIZE,
     positive_fi_only: bool = False,
     show_plots: bool = True,
     plot_file: str = "",
@@ -225,10 +234,22 @@ def plot_feature_importance(
         _abs_order = _abs_order[np.argsort(feature_importances[_abs_order])]
         _picked_fi = feature_importances[_abs_order]
         _picked_cols = np.array(columns)[_abs_order]
-        ax.barh(range(len(_abs_order)), _picked_fi, align="center")
+        # 2026-05-13 (user request): match the perf-chart aesthetic --
+        # translucent matplotlib-default blue bars + light-alpha grid +
+        # explicit zero reference line. Pre-fix the FI plot used solid
+        # opaque bars with no grid, visually clashing with the perf-chart
+        # diagnostic above it (alpha=0.3 dots + grid(alpha=0.3)).
+        ax.barh(
+            range(len(_abs_order)), _picked_fi,
+            align="center", alpha=0.7,
+            color="tab:blue", edgecolor="tab:blue",
+        )
         ax.set(yticks=range(len(_abs_order)), yticklabels=_picked_cols)
-        ax.set_title(f"{kind} feature importances")
-        ax.axvline(0, color="k", linewidth=0.5)  # zero reference for signed FI
+        ax.set_title(f"{kind} feature importances", fontsize=11)
+        ax.set_xlabel("Importance")
+        ax.axvline(0, color="k", linewidth=0.5, alpha=0.5)
+        ax.grid(True, axis="x", alpha=0.3)
+        ax.set_axisbelow(True)
 
         if plot_file:
             fig_top.savefig(plot_file)

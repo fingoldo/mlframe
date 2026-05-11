@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-05-13 — FI plot figsize + style unified with regression-diagnostic chart
+
+User reported the FI plot was visibly mismatched against the 3-panel
+regression-diagnostic chart above it: twice the height (`(15, 10)` vs
+`(15, 5)`), opaque blue bars vs the diagnostic's translucent dots, no
+grid, no consistent axis styling.
+
+Changes:
+- `evaluation.DEFAULT_FI_FIGSIZE` `(15, 10)` → `(15, 5)` (matches
+  `DEFAULT_FIGSIZE` for the perf-chart).
+- `FeatureImportanceConfig.figsize` `(15, 10)` → `(15, 5)`.
+- `feature_importance._FI_DEFAULT_FIGSIZE = (15, 5)` (direct-caller
+  default exposed as a module-level constant for tests + notebooks).
+- `plot_feature_importance` bars now render with `alpha=0.7` +
+  `color="tab:blue"` + `grid(True, axis="x", alpha=0.3)` +
+  `set_axisbelow(True)` + `axvline(0, alpha=0.5)` -- mirrors the
+  perf-chart's `alpha=0.3` dots + `grid(alpha=0.3)` styling.
+- Plumbed through `reporting_config.feature_importance_config.figsize`
+  (already wired -- the new default flows automatically; users can
+  still override per-run).
+
+Tests: 19/19 FI plot lock tests pass (5 new locks added:
+default-figsize-matches-perf-chart, config-default-figsize-matches,
+eval-module-constant-unified, plot-uses-grid+axvline, bars-are-alpha-0.7-tab:blue).
+9/9 composite-integration tests pass.
+
+---
+
 ## 2026-05-12 (continued) — Phase 5c-j: defensive-copy + multilabel-expand (main.py crosses under 4000 LOC)
 
 10. **`_defensive_copy_and_expand_multilabel_regression`** (~45 LOC body):

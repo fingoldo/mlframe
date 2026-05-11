@@ -185,3 +185,94 @@ class TestConfigPlumbing:
         dump = cfg.model_dump()
         assert dump["num_factors"] == 7
         assert dump["max_zero_fi_to_plot"] == 1
+
+
+class TestFigsizeUnification:
+    """Locks the 2026-05-13 FI plot figsize + style unification with the
+    3-panel regression-diagnostic chart. Pre-fix the FI plot defaulted to
+    (15, 10) -- twice the height of the diagnostic above it -- creating
+    a jarring size mismatch in the suite report."""
+
+    def test_fi_function_default_figsize_matches_perf_chart(self) -> None:
+        """``plot_feature_importance(figsize=...)`` default sits at the
+        same tuple the regression-diagnostic 3-panel chart uses."""
+        from mlframe.feature_importance import _FI_DEFAULT_FIGSIZE
+        from mlframe.training.evaluation import DEFAULT_FIGSIZE
+        assert _FI_DEFAULT_FIGSIZE == DEFAULT_FIGSIZE
+        assert _FI_DEFAULT_FIGSIZE == (15, 5)
+
+    def test_fi_config_default_figsize_matches_perf_chart(self) -> None:
+        """``FeatureImportanceConfig.figsize`` default sits at (15, 5)
+        too, matching the perf-chart figsize for consistent reports."""
+        from mlframe.training.evaluation import DEFAULT_FIGSIZE
+        cfg = FeatureImportanceConfig()
+        assert cfg.figsize == DEFAULT_FIGSIZE
+        assert cfg.figsize == (15, 5)
+
+    def test_fi_eval_module_default_figsize_unified(self) -> None:
+        """The module-level constant in evaluation.py
+        (``DEFAULT_FI_FIGSIZE``) matches the perf-chart figsize too."""
+        from mlframe.training.evaluation import (
+            DEFAULT_FI_FIGSIZE,
+            DEFAULT_FIGSIZE,
+        )
+        assert DEFAULT_FI_FIGSIZE == DEFAULT_FIGSIZE
+
+    def test_fi_plot_uses_grid_alpha_and_zero_line(self, captured_barh, monkeypatch) -> None:
+        """Bars render with the unified perf-chart styling: translucent
+        ``alpha=0.7`` blue, light grid, explicit zero reference line."""
+        # Spy on Axes.grid / axvline to confirm they fire.
+        import matplotlib
+        calls = {"grid": [], "axvline": []}
+        real_grid = matplotlib.axes.Axes.grid
+        real_axvline = matplotlib.axes.Axes.axvline
+
+        def _spy_grid(self, *args, **kwargs):
+            calls["grid"].append({"args": args, "kwargs": kwargs})
+            return real_grid(self, *args, **kwargs)
+
+        def _spy_axvline(self, *args, **kwargs):
+            calls["axvline"].append({"args": args, "kwargs": kwargs})
+            return real_axvline(self, *args, **kwargs)
+
+        monkeypatch.setattr(matplotlib.axes.Axes, "grid", _spy_grid)
+        monkeypatch.setattr(matplotlib.axes.Axes, "axvline", _spy_axvline)
+
+        _draw([1.0, 0.5, -0.3], list("abc"), n=3, max_zero_fi_to_plot=4)
+
+        # Grid was enabled on x-axis with alpha=0.3.
+        grid_kwargs = [c["kwargs"] for c in calls["grid"] if c["args"] and c["args"][0] is True]
+        assert grid_kwargs, "grid(True, ...) not called -- FI plot styling regressed"
+        assert any(k.get("alpha") == 0.3 for k in grid_kwargs), \
+            "grid alpha=0.3 missing -- perf-chart styling not matched"
+
+        # Zero reference line is present.
+        assert calls["axvline"], "axvline(0) missing -- zero reference not drawn"
+        assert any(c["args"][0] == 0 for c in calls["axvline"])
+
+    def test_fi_plot_bars_are_translucent_blue(self, captured_barh) -> None:
+        """``ax.barh`` is called with alpha + tab:blue color matching the
+        perf-chart palette (scatter uses alpha=0.3 dots, FI uses
+        alpha=0.7 bars -- both translucent against the same light
+        grid)."""
+        # Replace captured_barh's wrapper with one that captures kwargs too.
+        import matplotlib
+        # Re-spy barh ourselves to grab kwargs the fixture drops.
+        import pytest as _pytest
+        kwargs_captured = []
+        real_barh = matplotlib.axes.Axes.barh
+
+        def _spy_barh(self, *args, **kwargs):
+            kwargs_captured.append(kwargs)
+            return real_barh(self, *args, **kwargs)
+
+        # Use monkeypatch via a context manager.
+        from unittest.mock import patch
+        with patch.object(matplotlib.axes.Axes, "barh", _spy_barh):
+            _draw([1.0, 0.5, -0.3], list("abc"), n=3, max_zero_fi_to_plot=4)
+
+        assert kwargs_captured, "barh never called"
+        kw = kwargs_captured[0]
+        assert kw.get("alpha") == 0.7, f"FI bars must be alpha=0.7; got {kw.get('alpha')!r}"
+        assert kw.get("color") == "tab:blue", \
+            f"FI bars must be tab:blue; got {kw.get('color')!r}"
