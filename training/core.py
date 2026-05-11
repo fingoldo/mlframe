@@ -5839,6 +5839,19 @@ def train_mlframe_models_suite(
                                 _wrapper_for_score.predict(_split_df),
                                 dtype=np.float64,
                             ).reshape(-1)
+                            # F6 diagnostic (2026-05-11): suspicious RMSE_y values in the 05:03 TVT run (MLP-wrapped composite gave 0.49 on a target where init_score AR(1) baseline gives RMSE=11.12 -- impossibly good). Sample-log the first 3 (y_pred, y_true) pairs per split so the next run reveals whether the wrapper is returning y-scale predictions correctly OR there is a leakage / contract mismatch. Single line per entry x split keeps the spam bounded.
+                            if _split_idx is not None and len(_y_split) > 0:
+                                _n_dbg = min(3, len(_y_split))
+                                _pairs = ", ".join(
+                                    f"({_y_pred[_i]:.3f}, {_y_split[_i]:.3f})"
+                                    for _i in range(_n_dbg)
+                                )
+                                _outer_dbg = getattr(_entry, "model", None) or _entry
+                                _inner_dbg = getattr(_outer_dbg, "base_estimator", None) or getattr(_outer_dbg, "estimator_", None) or _outer_dbg
+                                logger.debug(
+                                    "[CompositeTargetEstimator.diag] inner=%s split=%s sample(y_hat, y_true) = %s",
+                                    type(_inner_dbg).__name__, _split_name, _pairs,
+                                )
                             # Cache the train prediction for the
                             # cross-target ensemble RMSE block to
                             # avoid a second predict call on the same
