@@ -46,6 +46,7 @@ from .utils import (  # noqa: F401
     _build_tier_dfs,
     _ensure_config,
     _apply_outlier_detection_global,
+    _init_composite_discovery_metadata,
     _setup_model_directories,
     _build_common_params_for_target,
     _build_pre_pipelines,

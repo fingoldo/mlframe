@@ -112,6 +112,71 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
 
 
+def _init_composite_discovery_metadata(
+    *,
+    composite_target_discovery_config,
+    target_by_type,
+    mlframe_models,
+    metadata,
+):
+    """Phase 4.6 (Composite-Target Discovery prologue).
+
+    Initialises the three composite-discovery metadata buckets
+    (``composite_target_specs``, ``composite_target_failures``,
+    ``composite_target_filter_drops``), snapshots the env signature when
+    discovery is enabled (so v2-loaded suites can detect package drift),
+    detects which model families are on GPU (for the deferred R10c bug-#6
+    warning that fires only when K > 0), and records skip-reasons for every
+    non-regression target type so callers can tell "considered & rejected"
+    apart from "never looked".
+
+    Mutates ``metadata`` in-place.
+
+    Returns
+    -------
+    (gpu_families, kept_spec_total):
+        ``gpu_families`` -- list of model families detected on GPU (empty
+        when discovery disabled); ``kept_spec_total`` -- always 0 here,
+        returned so the caller can keep the running counter as the
+        per-target discovery loop proceeds.
+    """
+    metadata["composite_target_specs"] = {}
+    metadata["composite_target_failures"] = {}
+    metadata["composite_target_filter_drops"] = {}
+
+    gpu_families: List[str] = []
+    if composite_target_discovery_config.enabled:
+        from ..composite import env_signature as _env_sig, detect_gpu_in_use as _detect_gpu
+        metadata["composite_target_env_signature"] = _env_sig()
+        gpu_families = _detect_gpu(mlframe_models or [])
+
+    # Skip-reasons for non-regression target types.
+    for _tt_skip, _named_skip in target_by_type.items():
+        if not isinstance(_named_skip, dict):
+            continue
+        if _tt_skip == TargetTypes.REGRESSION:
+            continue
+        reason = None
+        if _tt_skip == TargetTypes.LEARNING_TO_RANK:
+            reason = "ltr_unsupported_pairwise_breaks_with_residual"
+        elif _tt_skip == TargetTypes.MULTICLASS_CLASSIFICATION:
+            reason = "multiclass_unsupported_no_residual_semantics"
+        elif _tt_skip == TargetTypes.MULTILABEL_CLASSIFICATION:
+            reason = "multilabel_classification_unsupported"
+        elif _tt_skip == TargetTypes.QUANTILE_REGRESSION:
+            reason = "quantile_regression_unsupported_per_quantile_inverse_undefined"
+        elif _tt_skip == TargetTypes.BINARY_CLASSIFICATION:
+            reason = "binary_classification_unsupported_init_score_logit_offset"
+        if reason is not None:
+            for _tn_skip in _named_skip:
+                metadata["composite_target_failures"].setdefault(
+                    str(_tt_skip), {})[_tn_skip] = [{
+                        "name": _tn_skip, "kept": False, "rejected": True,
+                        "reason": reason,
+                    }]
+    return gpu_families, 0
+
+
 def _phase_global_outlier_detection(
     *,
     train_df_pd,

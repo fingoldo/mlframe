@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-05-12 (continued) — Phase 5c-i: composite-discovery prologue extraction
+
+9. **`_init_composite_discovery_metadata`** (~60 LOC body): the composite-target
+   discovery prologue -- initialises the three metadata buckets
+   (`composite_target_specs`, `composite_target_failures`,
+   `composite_target_filter_drops`), snapshots the env signature when
+   discovery is enabled (so v2-loaded suites can detect package drift),
+   detects GPU-resident model families for the deferred R10c-bug-#6 warning,
+   and records skip-reasons for every non-regression target type
+   (LTR / multiclass / multilabel / quantile / binary). Mutates `metadata`
+   in-place; returns `(gpu_families, kept_spec_total=0)` so the caller can
+   keep the running counter as the per-target loop proceeds.
+
+`main.py` LOC: 4075 → 4033 (−42). 435 composite + 65 focused regression
+all pass.
+
+---
+
 ## 2026-05-12 (continued) — Phase 5c-h: global outlier-detection helper
 
 8. **`_phase_global_outlier_detection`** (~60 LOC body): the once-before-loop

@@ -145,6 +145,7 @@ from .utils import (
     _filter_polars_cat_features_by_dtype,
     _finalize_and_save_metadata,
     _get_pipeline_components,
+    _init_composite_discovery_metadata,
     _initialize_training_defaults,
     _maybe_dispatch_to_ltr_ranker_suite,
     _log_cardinality_and_drift_snapshot,
@@ -804,57 +805,14 @@ def train_mlframe_models_suite(
     # calls; we MUST NOT mutate the FTE-returned target_by_type
     # in-place. Shallow copy the outer dict and the per-type inner dict
     # before adding entries.
-    metadata["composite_target_specs"] = {}
-    metadata["composite_target_failures"] = {}
-    metadata["composite_target_filter_drops"] = {}
-    if composite_target_discovery_config.enabled:
-        # Snapshot env once per discovery run; persists on metadata
-        # so a v2-loaded suite can detect numpy / sklearn / lgb / xgb
-        # version drift between save time and load time.
-        from ..composite import env_signature as _env_sig, detect_gpu_in_use as _detect_gpu
-        metadata["composite_target_env_signature"] = _env_sig()
-        # R10c bug #6 fix: GPU warning is now DEFERRED until after
-        # discovery completes, so it only fires when ``K > 0`` (i.e.
-        # composite specs were actually shipped). The pre-fix path
-        # printed the warning unconditionally at the start of
-        # discovery, causing false alarms in production runs where
-        # discovery later returned 0 specs (no K-fold amplification
-        # to amplify). The GPU family list is captured here for use
-        # in the post-discovery emit. The actual ``logger.warning``
-        # call lives further down, after the per-target discovery
-        # loop, gated on ``len(kept_spec_total) > 0``.
-        _gpu_families = _detect_gpu(mlframe_models or [])
-        # Initialise the "total composite specs shipped" counter so
-        # we can decide at end-of-loop whether the warning is warranted.
-        _kept_spec_total: int = 0
-    # Skip target types that aren't in scope for composite-target
-    # discovery. We mark them explicitly on the failures map so
-    # callers can tell "we considered this and chose not to" apart
-    # from "we never looked".
-    for _tt_skip, _named_skip in target_by_type.items():
-        if not isinstance(_named_skip, dict):
-            continue
-        if _tt_skip == TargetTypes.REGRESSION:
-            continue
-        # Per-target skip reasons keyed by target_type stringified key.
-        reason = None
-        if _tt_skip == TargetTypes.LEARNING_TO_RANK:
-            reason = "ltr_unsupported_pairwise_breaks_with_residual"
-        elif _tt_skip == TargetTypes.MULTICLASS_CLASSIFICATION:
-            reason = "multiclass_unsupported_no_residual_semantics"
-        elif _tt_skip == TargetTypes.MULTILABEL_CLASSIFICATION:
-            reason = "multilabel_classification_unsupported"
-        elif _tt_skip == TargetTypes.QUANTILE_REGRESSION:
-            reason = "quantile_regression_unsupported_per_quantile_inverse_undefined"
-        elif _tt_skip == TargetTypes.BINARY_CLASSIFICATION:
-            reason = "binary_classification_unsupported_init_score_logit_offset"
-        if reason is not None:
-            for _tn_skip in _named_skip:
-                metadata["composite_target_failures"].setdefault(
-                    str(_tt_skip), {})[_tn_skip] = [{
-                        "name": _tn_skip, "kept": False, "rejected": True,
-                        "reason": reason,
-                    }]
+    # 2026-05-12 (Phase 5c-i): composite-discovery metadata init + non-regression
+    # skip-reasons recording extracted into a helper.
+    _gpu_families, _kept_spec_total = _init_composite_discovery_metadata(
+        composite_target_discovery_config=composite_target_discovery_config,
+        target_by_type=target_by_type,
+        mlframe_models=mlframe_models,
+        metadata=metadata,
+    )
     if (composite_target_discovery_config.enabled
             and TargetTypes.REGRESSION in target_by_type):
         target_by_type = {
