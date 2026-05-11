@@ -325,6 +325,33 @@ def prewarm_numba_cache():
                 import mlframe.lightninglib  # noqa: F401
             except Exception:
                 pass
+        # 2026-05-11 Wave 19b: ``pytorch_lightning`` is a SEPARATE package
+        # from ``lightning`` (legacy alias kept for back-compat); cold
+        # import is 500 s on Windows for the currently-pinned version.
+        # ``mlframe.training.neural`` reaches it through transitive
+        # dependencies, so the deferred-import cost lands in the suite
+        # call alongside ``lightning.fabric``.
+        if _ilu.find_spec("pytorch_lightning") is not None:
+            try:
+                import pytorch_lightning  # noqa: F401
+            except Exception:
+                pass
+        # 2026-05-11 Wave 19c: ``shap`` cold import is 228 s on Windows
+        # (includes ``shap.utils.transformers`` walking the local
+        # transformers registry). The suite imports shap inside
+        # ``trainer.py`` when ``use_shap=True`` is in the config -- a
+        # lazy import that lands the 228 s cost inside the suite timer
+        # on first use. Pre-import when available so the cost amortises
+        # via prewarm.
+        if _ilu.find_spec("shap") is not None:
+            try:
+                import shap  # noqa: F401
+                import shap.utils.transformers  # noqa: F401
+                # Match the runtime monkeypatch so the prewarm leaves
+                # shap in the same state the suite expects.
+                shap.utils.transformers.is_transformers_lm = lambda model: False
+            except Exception:
+                pass
     except Exception:
         pass
 
