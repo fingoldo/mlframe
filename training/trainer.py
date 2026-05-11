@@ -4955,10 +4955,52 @@ def _configure_mlp_params(
         mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()
         mlp_general_params["datamodule_params"]["labels_dtype"] = torch.float32
         mlp_model = _reg_cls(network_params=mlp_network_params, **mlp_general_params)
-        # F1 fix (2026-05-11): wrap regression MLP in ``TransformedTargetRegressor`` so the target is auto-standardised at fit-time and inverse-scaled at predict-time. Without this, a kaiming-init network outputs ~0 at init and a target with mean=11500 takes many epochs to learn just the constant offset; the 2026-05-11 TVT run showed MLP predicting ~0 against target mean=11497 after 30 min of training (val_MSE=11559 ~= target_var). Sklearn TransformedTargetRegressor is the standard sklearn pattern; predictions returned from .predict() are on the ORIGINAL y-scale so downstream code is unchanged.
+        # F1 fix (2026-05-11): auto-standardise the regression target for MLP. A kaiming-init network outputs ~0 at init; on a target with mean=11500 the network takes many epochs to learn just the constant offset.
+        # F7 fix (2026-05-11): the initial F1 fix used sklearn's stock ``TransformedTargetRegressor`` which standardises ONLY the ``y`` arg of fit(), leaving ``eval_set=(X_val, y_val)`` unchanged. PyTorch-Lightning consumes ``eval_set`` for its val_dataloader and computes ``val_loss`` against RAW y_val while the model predicts on STANDARDISED scale -- train_loss=0.16 (std units) vs val_loss=1.3e+8 (raw units) gap observed in the 2026-05-12 run. New subclass intercepts ``eval_set`` in fit_kwargs and transforms its y component too, keeping train + val on the SAME scale so early-stop / val_MSE callbacks see meaningful numbers.
         from sklearn.compose import TransformedTargetRegressor
         from sklearn.preprocessing import StandardScaler
-        mlp_model = TransformedTargetRegressor(regressor=mlp_model, transformer=StandardScaler())
+
+        class _TTRWithEvalSetScaling(TransformedTargetRegressor):
+            """``TransformedTargetRegressor`` extension that ALSO standardises any ``eval_set`` / ``X_val`` + ``y_val`` arrays in fit_params. Required for inner estimators (PyTorch-Lightning MLP, LightGBM, etc.) that consume eval_set for their own val-loss / early-stopping. Without this, train sees standardised y and val sees raw y, making the early-stop metric nonsensical."""
+
+            def fit(self, X, y, **fit_params):
+                # Fit the transformer FIRST on y so we have the same scale to apply to eval_set's y_val. Mirrors what ``TransformedTargetRegressor.fit`` does internally (line 167 in sklearn 1.5+).
+                import numpy as _np
+                from sklearn.base import clone as _clone
+                y_arr = _np.asarray(y, dtype=_np.float64)
+                if y_arr.ndim == 1:
+                    y_arr_2d = y_arr.reshape(-1, 1)
+                else:
+                    y_arr_2d = y_arr
+                self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
+                if self.transformer_ is not None:
+                    self.transformer_.fit(y_arr_2d)
+                    # Intercept + transform eval_set's y_val before delegating.
+                    if "eval_set" in fit_params and fit_params["eval_set"] is not None:
+                        es = fit_params["eval_set"]
+                        # eval_set comes as ``(X_val, y_val)`` for MLP / LGB. For XGB / CB it's ``[(X_val, y_val), ...]``.
+                        if isinstance(es, tuple) and len(es) == 2:
+                            X_val, y_val = es
+                            y_val_arr = _np.asarray(y_val, dtype=_np.float64)
+                            y_val_2d = y_val_arr.reshape(-1, 1) if y_val_arr.ndim == 1 else y_val_arr
+                            y_val_scaled = self.transformer_.transform(y_val_2d).reshape(y_val_arr.shape)
+                            fit_params["eval_set"] = (X_val, y_val_scaled)
+                        elif isinstance(es, list):
+                            new_es = []
+                            for entry in es:
+                                if isinstance(entry, tuple) and len(entry) == 2:
+                                    X_v, y_v = entry
+                                    y_v_arr = _np.asarray(y_v, dtype=_np.float64)
+                                    y_v_2d = y_v_arr.reshape(-1, 1) if y_v_arr.ndim == 1 else y_v_arr
+                                    y_v_scaled = self.transformer_.transform(y_v_2d).reshape(y_v_arr.shape)
+                                    new_es.append((X_v, y_v_scaled))
+                                else:
+                                    new_es.append(entry)
+                            fit_params["eval_set"] = new_es
+                # Defer the actual fit to the parent (which will refit transformer + call regressor.fit).
+                return super().fit(X, y, **fit_params)
+
+        mlp_model = _TTRWithEvalSetScaling(regressor=mlp_model, transformer=StandardScaler())
     else:
         # 2026-05-07: target-type-aware loss / dtype / task_type for multi-*
         # classification. Strategy method returns the dispatch dict;
