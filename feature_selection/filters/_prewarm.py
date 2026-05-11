@@ -268,7 +268,12 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     # (verified on c0121 1M profile: 10.05s attributed to categorize_dataset
     # -> discretize_2d_array(F-contig)). Cover BOTH layouts.
     cont_f = np.asfortranarray(cont)  # F-contiguous variant
-    for _disc_dtype in (np.int8, np.int16):
+    # Wave 17e: int32 is MRMR's DEFAULT quantization_dtype (see
+    # ``MRMR.__init__: quantization_dtype: object = np.int32`` at mrmr.py:294)
+    # -- prewarming only int8/int16 left the default-config code path
+    # paying ~8s of JIT compile per fresh process (c0074 1M profile,
+    # surfaced 2026-05-11). int32 must be in the matrix.
+    for _disc_dtype in (np.int8, np.int16, np.int32):
         for _arr in (cont, cont_f):
             try:
                 _ = discretize_2d_array(
@@ -295,7 +300,7 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             discretize_uniform, digitize, get_binning_edges,
         )
         _arr1d = cont[:, 0]
-        for _disc_dtype in (np.int8, np.int16):
+        for _disc_dtype in (np.int8, np.int16, np.int32):
             try:
                 _ = _discretize_array_impl(
                     arr=_arr1d, n_bins=4, method="quantile",
