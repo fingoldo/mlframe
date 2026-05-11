@@ -1318,6 +1318,33 @@ def _confirm_pairs_via_permutation(
     n_perms = cfg.full_npermutations
     min_conf = 0.95  # SB4 default for cat-FE (separate from MRMR.min_nonzero_confidence)
 
+    # 2026-05-11 Tier 13b: optional subsample for the permutation null
+    # distribution. When ``cfg.permutation_subsample`` is an int < n,
+    # we draw a stable random subset ONCE (seed=base_seed) and pass
+    # the subsampled (classes_pair, classes_x1, classes_x2, classes_y)
+    # to the inner permutation kernel. ``ii_obs`` was computed earlier
+    # on the FULL frame so the test stays "subsampled-null vs full-
+    # data observed". Cost-vs-rigour trade-off documented on the
+    # config field.
+    _perm_subsample = getattr(cfg, "permutation_subsample", None)
+    if _perm_subsample is not None and _perm_subsample > 0 and n_samples > _perm_subsample:
+        _ss_rng = np.random.default_rng(int(_perm_subsample) ^ n_samples)
+        _ss_idx = _ss_rng.choice(n_samples, size=int(_perm_subsample), replace=False)
+        _ss_idx.sort()  # contiguous-friendly access for downstream indexing
+        _ss_classes_y = classes_y[_ss_idx]
+        _ss_n_y_classes_local = int(_ss_classes_y.max()) + 1 if _ss_classes_y.size else 1
+        _ss_freqs_y = np.bincount(_ss_classes_y, minlength=_ss_n_y_classes_local).astype(np.float64) / max(1, _ss_classes_y.size)
+        if verbose:
+            logger.info(
+                "cat-FE: permutation_subsample=%d active; perm kernels see "
+                "%d/%d rows (ii_obs still on full %d).",
+                _perm_subsample, _ss_idx.size, n_samples, n_samples,
+            )
+    else:
+        _ss_idx = None
+        _ss_classes_y = classes_y
+        _ss_freqs_y = freqs_y
+
     # Pre-merge classes for each survivor pair (and its marginals).
     # Memory: O(top_k * 3 * n) -- at top_k=64, n=1M, dtype=int32: ~768 MB worst case.
     # OK for top_k of order 100; user controls.
@@ -1437,9 +1464,22 @@ def _confirm_pairs_via_permutation(
             # T2: parallel via numba prange over permutations. Per-thread
             # local copy of Y so shuffles don't race. Seed derived from
             # j (survivor index) so re-runs are reproducible.
+            # 2026-05-11 Tier 13b: when permutation_subsample is set,
+            # the kernel runs against the subsampled (classes_x*,
+            # classes_y) arrays; ii_obs is unchanged.
+            if _ss_idx is not None:
+                _k_cls_pair = cls_pair[_ss_idx]
+                _k_cls_x1 = cls_x1[_ss_idx]
+                _k_cls_x2 = cls_x2[_ss_idx]
+                _k_fq_pair = np.bincount(_k_cls_pair, minlength=len(fq_pair)).astype(np.float64) / max(1, _k_cls_pair.size)
+                _k_fq_x1 = np.bincount(_k_cls_x1, minlength=len(fq_x1)).astype(np.float64) / max(1, _k_cls_x1.size)
+                _k_fq_x2 = np.bincount(_k_cls_x2, minlength=len(fq_x2)).astype(np.float64) / max(1, _k_cls_x2.size)
+            else:
+                _k_cls_pair, _k_cls_x1, _k_cls_x2 = cls_pair, cls_x1, cls_x2
+                _k_fq_pair, _k_fq_x1, _k_fq_x2 = fq_pair, fq_x1, fq_x2
             n_failed = _count_nfailed_joint_indep_prange(
-                cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
-                classes_y, freqs_y, ii_obs, n_perms,
+                _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1, _k_cls_x2, _k_fq_x2,
+                _ss_classes_y, _ss_freqs_y, ii_obs, n_perms,
                 base_seed=int(j) * 1000003 + 7, dtype=dtype,
             )
         # Continuity-corrected p-value: (n_failed + 1) / (n_perms + 1)

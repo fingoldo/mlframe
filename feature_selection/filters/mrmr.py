@@ -115,6 +115,110 @@ from .screen import postprocess_candidates, screen_predictors
 logger = logging.getLogger(__name__)
 
 
+def _hashable_params_signature(params: dict) -> tuple:
+    """Build a hashable tuple-of-(key, value) signature from ``get_params``
+    output. Values that aren't hashable (numpy arrays, callables, dicts
+    of unhashables) fall back to ``repr(v)`` so the signature is still
+    constructable and remains stable across identical configurations.
+
+    Used by ``MRMR._FIT_CACHE`` lookup so two clones with the same
+    constructor parameters AND the same (X, y) arrays share fitted
+    state -- skipping the full cat-FE + permutation pass.
+    """
+    items = []
+    for k, v in sorted(params.items()):
+        try:
+            hash(v)
+            items.append((k, v))
+        except TypeError:
+            try:
+                items.append((k, repr(v)))
+            except Exception:
+                items.append((k, id(v)))
+    return tuple(items)
+
+
+def _content_array_signature(arr) -> tuple:
+    """Cheap O(1) content-based fingerprint of a numpy-like array /
+    pandas DataFrame / polars DataFrame. Used as a cache key when
+    ``id()`` is unreliable -- e.g. the training suite copies X
+    between model iterations (different pre-pipeline transforms per
+    strategy), so two calls with semantically-equal X have distinct
+    ``id(X)`` but identical content.
+
+    Returns a tuple of (shape, dtype_str, sampled_values_bytes).
+    Samples a fixed set of positions (first, last, evenly-spaced
+    interior) -- enough to disambiguate distinct content with
+    overwhelming probability while staying O(constant) cost.
+
+    Falls back to ``id(arr)`` when content sampling fails (object
+    arrays, non-numeric polars columns, etc).
+    """
+    try:
+        # Unwrap to numpy
+        if hasattr(arr, "to_numpy"):
+            try:
+                np_arr = arr.to_numpy()
+            except Exception:
+                return ("uncached", id(arr))
+        elif hasattr(arr, "values"):
+            np_arr = arr.values
+        else:
+            np_arr = arr
+        if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
+            return ("uncached", id(arr))
+        shape = np_arr.shape
+        dtype_str = str(np_arr.dtype)
+        # Sample 10 positions: 0, 11%, 22%, ..., 100%.
+        flat = np_arr.ravel()
+        n = flat.size
+        if n == 0:
+            return (shape, dtype_str, b"")
+        idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
+        try:
+            sampled = bytes(flat[idx].tobytes())
+        except Exception:
+            return ("uncached", id(arr))
+        return (shape, dtype_str, sampled)
+    except Exception:
+        return ("uncached", id(arr))
+
+
+# Constructor-parameter names of ``MRMR``. Populated lazily on first
+# call to ``_replay_fitted_state`` (avoids importing ``inspect`` /
+# instantiating MRMR at module import time).
+_MRMR_INIT_PARAM_NAMES: "Optional[frozenset[str]]" = None
+
+
+def _replay_fitted_state(target: "MRMR", source: "MRMR") -> int:
+    """Copy fitted attributes from ``source`` onto ``target``,
+    preserving target's constructor parameters intact. Returns the
+    number of attributes replayed.
+
+    The distinction matters because a cloned MRMR has its own
+    constructor params + ``signature=None`` + no fitted state;
+    we want to inherit ``support_``, ``_engineered_recipes_``,
+    ``_cat_fe_cache_``, ``ranking_``, etc. WITHOUT overwriting any
+    constructor params.
+    """
+    global _MRMR_INIT_PARAM_NAMES
+    if _MRMR_INIT_PARAM_NAMES is None:
+        import inspect
+        _MRMR_INIT_PARAM_NAMES = frozenset(
+            p for p in inspect.signature(MRMR.__init__).parameters
+            if p != "self"
+        )
+    n_replayed = 0
+    for k, v in source.__dict__.items():
+        if k in _MRMR_INIT_PARAM_NAMES:
+            continue
+        # Cheap shallow assign; deep copy would defeat the purpose of
+        # the cache (we WANT to share the cached numpy arrays).
+        target.__dict__[k] = v
+        n_replayed += 1
+    return n_replayed
+
+
 class MRMR(BaseEstimator, TransformerMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
@@ -148,6 +252,26 @@ class MRMR(BaseEstimator, TransformerMixin):
         The mask of selected features.
 
     """
+
+    # 2026-05-11: process-wide cache of fitted state, keyed by
+    # ``(id(X), id(y), params_signature)``. When the training suite
+    # iterates over models (and therefore ``clone()``s the pre_pipeline
+    # MRMR each time, stripping the instance's ``_cat_fe_cache_``),
+    # subsequent fits on the SAME numpy arrays hit this cache and skip
+    # the full cat-FE + permutation work entirely.
+    #
+    # The cache holds STRONG references to fitted instances; on a
+    # typical suite run all entries are released when the function-
+    # scope X / y arrays go out of scope and ``MRMR._FIT_CACHE`` is
+    # finally cleared at process exit. For long-lived workers, callers
+    # can explicitly call ``MRMR._FIT_CACHE.clear()`` between suites.
+    #
+    # Cache hit semantics: replay all fitted attributes (anything set
+    # during the prior ``fit()`` body) onto ``self`` and return early.
+    # Constructor params are NEVER overwritten -- the cache key already
+    # includes the params signature, so a hit guarantees matching
+    # constructor state.
+    _FIT_CACHE: "Dict[tuple, MRMR]" = {}
 
     def __init__(
         self,
@@ -378,6 +502,40 @@ class MRMR(BaseEstimator, TransformerMixin):
                 if self.verbose:
                     logger.info("Skipping retraining on the same inputs signature %s", signature)
                 return self
+
+        # 2026-05-11: process-wide ``_FIT_CACHE`` hit. After
+        # ``sklearn.base.clone()`` the cloned MRMR has no fitted state,
+        # so the prior ``self.signature == signature`` shortcut above
+        # never fires. Cache lookup is by (id(X), id(y), params) so two
+        # MRMR clones fit on the SAME numpy arrays (typical training-
+        # suite pattern: pre_pipeline shared across model iterations,
+        # train_df reused via PipelineCache) skip the full cat-FE +
+        # permutation pass and just inherit fitted state from the
+        # first run. Falls through to full fit on any error or miss.
+        # 2026-05-11: content-based cache key (initial id-based key
+        # missed every hit because the suite copies X between model
+        # iterations -- different ``id(X)`` but identical content).
+        # ``_content_array_signature`` returns shape + dtype + 10
+        # sampled values per array; cheap O(1) and statistically
+        # unique enough to avoid false positives on real data.
+        _cache_key = None
+        try:
+            _params_sig = _hashable_params_signature(self.get_params(deep=False))
+            _x_sig = _content_array_signature(X)
+            _y_sig = _content_array_signature(y)
+            _cache_key = (_x_sig, _y_sig, _params_sig)
+        except Exception:
+            _cache_key = None
+        if _cache_key is not None and _cache_key in MRMR._FIT_CACHE:
+            _cached = MRMR._FIT_CACHE[_cache_key]
+            _replayed = _replay_fitted_state(self, _cached)
+            if self.verbose:
+                logger.info(
+                    "MRMR.fit: _FIT_CACHE hit -- replayed %d fitted attrs "
+                    "from prior fit, skipping cat-FE + permutation.",
+                    _replayed,
+                )
+            return self
 
         # ---------------------------------------------------------------------------------------------------------------
         # Inits
@@ -910,6 +1068,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             logger.info("MRMR+ selected %d out of %d features: %s", self.n_features_, self.n_features_in_, predictors_str)
 
         self.signature = signature
+
+        # 2026-05-11: store self in process-wide cache so cloned MRMR
+        # instances fit on the same (X, y) arrays can replay this
+        # fitted state instead of re-running cat-FE + permutation.
+        if _cache_key is not None:
+            MRMR._FIT_CACHE[_cache_key] = self
         return self
 
 

@@ -220,6 +220,31 @@ class CatFEConfig:
     """Two-sided alpha for bootstrap CI (default 0.10 -> 90% CI).
     Set to 0.05 for 95% CI."""
 
+    permutation_subsample: Optional[int] = None
+    """Tier 13b (2026-05-11): subsample size for permutation null
+    distribution computation. ``None`` (default) -- use the full N
+    rows in every shuffle iteration. ``int`` -- subsample to this
+    many rows BEFORE shuffling Y, for the permutation test ONLY.
+    ``ii_obs`` (the observed test statistic) is always computed on
+    the full N. This is a statistical / runtime trade-off:
+
+    * The permutation null distribution shifts toward higher
+      variance when computed on fewer samples (each shuffled MI is
+      noisier). For the confidence-against-null gate this is mostly
+      conservative -- noisier null -> wider tail -> fewer pairs
+      pass. False-negative rate goes up slightly; false-positive
+      rate stays bounded.
+    * The cost cuts roughly linearly with subsample / N. On a 1M-
+      row regression+MRMR profile (c0089), full-N permutation took
+      ~25 s in ``_count_nfailed_joint_indep_prange``; subsampled to
+      100k it drops to ~2.5 s.
+
+    Recommended usage: set to ~100_000 when ``n_rows >= 5e5`` and
+    runtime matters more than the last decimal of confidence
+    precision. Leave at ``None`` for batch-inference / model-card
+    flows where the permutation test is a publication-grade
+    statistic."""
+
     bootstrap_sample_frac: float = 0.632
     """Bootstrap subsample fraction. 0.632 is the canonical out-of-bag
     fraction (the expected fraction of unique rows in a bootstrap-

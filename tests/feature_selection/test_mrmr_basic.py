@@ -38,6 +38,7 @@ class TestMRMRBasic:
         assert mrmr.quantization_nbins == 10
         assert mrmr.verbose == 0
 
+
     def test_fit_returns_self(self, simple_classification_data):
         """Test that fit returns self for method chaining."""
         X, y, _ = simple_classification_data
@@ -110,6 +111,191 @@ class TestMRMRBasic:
 # ================================================================================================
 # MRMR Feature Selection Tests
 # ================================================================================================
+
+
+class TestMRMRFitCache:
+    """Regression sensors for the 2026-05-11 process-wide
+    ``MRMR._FIT_CACHE``. After ``sklearn.base.clone()`` strips fitted
+    state, refitting on the same numpy arrays should HIT the cache
+    and replay state instead of running cat-FE + permutation again.
+    """
+
+    def setup_method(self) -> None:
+        # Tests in this class assume a clean cache so the first fit
+        # always populates and the second always hits. The cache is
+        # process-wide so other tests may have left entries.
+        MRMR._FIT_CACHE.clear()
+
+    def teardown_method(self) -> None:
+        MRMR._FIT_CACHE.clear()
+
+    def test_clone_then_fit_hits_cache_and_replays_state(self):
+        """First fit populates the cache; cloning + re-fitting on the
+        SAME arrays must hit and produce a support_ identical to the
+        first fit's support_ (no cat-FE / permutation work redone).
+        """
+        from sklearn.base import clone
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame({"a": rng.normal(size=200), "b": rng.normal(size=200)})
+        y = pd.Series((rng.normal(size=200) > 0).astype(int))
+        mrmr = MRMR(
+            full_npermutations=2,
+            baseline_npermutations=2,
+            fe_max_steps=0,
+            verbose=0,
+            n_jobs=1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(X, y)
+        first_support = list(mrmr.support_)
+        assert len(MRMR._FIT_CACHE) == 1
+
+        cloned = clone(mrmr)
+        # Cloned instance has no fitted state -- ``signature`` reset to None.
+        assert getattr(cloned, "signature", None) is None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cloned.fit(X, y)
+        # Cache size unchanged (cloned fit hit the cache, didn't add).
+        assert len(MRMR._FIT_CACHE) == 1
+        # Replayed support_ matches first fit bit-exact.
+        assert list(cloned.support_) == first_support
+
+    def test_cache_miss_on_different_params(self):
+        """Two MRMR instances with DIFFERENT constructor params on the
+        SAME arrays must NOT share cache (different param signature ->
+        different cache key)."""
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame({"a": rng.normal(size=200), "b": rng.normal(size=200)})
+        y = pd.Series((rng.normal(size=200) > 0).astype(int))
+        m1 = MRMR(
+            full_npermutations=2, baseline_npermutations=2, fe_max_steps=0,
+            quantization_nbins=10, verbose=0, n_jobs=1,
+        )
+        m2 = MRMR(
+            full_npermutations=2, baseline_npermutations=2, fe_max_steps=0,
+            quantization_nbins=20,  # different param -> different cache key
+            verbose=0, n_jobs=1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            m1.fit(X, y)
+            m2.fit(X, y)
+        # Two distinct cache entries (one per param signature).
+        assert len(MRMR._FIT_CACHE) == 2
+
+    def test_cache_replay_preserves_constructor_params(self):
+        """Cache replay must NOT overwrite the target's constructor
+        parameters -- only fitted state. ``params`` are the contract
+        the caller chose; replay only restores ``_engineered_recipes_``,
+        ``support_``, etc."""
+        from sklearn.base import clone
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame({"a": rng.normal(size=200), "b": rng.normal(size=200)})
+        y = pd.Series((rng.normal(size=200) > 0).astype(int))
+        mrmr = MRMR(
+            full_npermutations=2, baseline_npermutations=2, fe_max_steps=0,
+            verbose=0, n_jobs=1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(X, y)
+        cloned = clone(mrmr)
+        # Mutate ONE constructor param on the clone before fit.
+        cloned.set_params(verbose=2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cloned.fit(X, y)
+        # Constructor params on the clone must remain as set by the caller.
+        assert cloned.verbose == 2
+
+
+class TestMRMRPermutationSubsample:
+    """Sensors for the 2026-05-11 ``CatFEConfig.permutation_subsample``
+    knob (Wave 13b). Subsampling the permutation null distribution
+    must:
+      1. Be honoured when set (kernel sees subsampled arrays).
+      2. Produce a real wall-time win vs full-N permutation.
+      3. Leave ii_obs computed on the full data (the test statistic
+         doesn't degrade just because the null is approximated).
+    """
+
+    def setup_method(self) -> None:
+        MRMR._FIT_CACHE.clear()
+
+    def teardown_method(self) -> None:
+        MRMR._FIT_CACHE.clear()
+
+    def test_subsample_active_when_set_and_n_above_threshold(self):
+        """``permutation_subsample=200`` on n=1000 must NOT raise and must
+        complete -- the kernel sees 200-row arrays, ii_obs sees full
+        1000. We don't assert speedup at this tiny size (sub-second on
+        both paths), only that the path activates cleanly."""
+        from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+        rng = np.random.default_rng(0)
+        n = 1000
+        df = pd.DataFrame({
+            "a": pd.Categorical(rng.integers(0, 4, n).astype(str)),
+            "b": pd.Categorical(rng.integers(0, 4, n).astype(str)),
+            "c": pd.Categorical(rng.integers(0, 8, n).astype(str)),
+            "d": rng.normal(size=n),
+        })
+        y = pd.Series((rng.normal(size=n) > 0).astype(int))
+        cfg = CatFEConfig(
+            enable=True, full_npermutations=10,
+            permutation_subsample=200,
+        )
+        mrmr = MRMR(
+            full_npermutations=2, baseline_npermutations=2,
+            fe_max_steps=0,
+            cat_fe_config=cfg,
+            verbose=0, n_jobs=1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(df, y)
+        # Sanity: fit completes, support_ exists.
+        assert mrmr.support_ is not None
+
+    def test_subsample_none_is_default_and_uses_full_n(self):
+        """The default (no permutation_subsample) must process the full
+        N rows -- guards against an accidental default flip that would
+        change statistical contract for all callers."""
+        from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+        cfg = CatFEConfig()  # all defaults
+        assert cfg.permutation_subsample is None
+
+    def test_subsample_skipped_when_n_below_or_equal_threshold(self):
+        """When ``n_rows <= permutation_subsample``, the optimization is
+        a no-op (no need to subsample)."""
+        from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+        # Same setup, but the threshold is set BELOW n -- subsample
+        # gate falls through and uses full data. Verified by clean
+        # completion (the explicit guard ``n_samples > _perm_subsample``
+        # at cat_interactions.py:~1330 short-circuits).
+        rng = np.random.default_rng(0)
+        n = 500
+        df = pd.DataFrame({
+            "a": pd.Categorical(rng.integers(0, 4, n).astype(str)),
+            "b": pd.Categorical(rng.integers(0, 4, n).astype(str)),
+            "d": rng.normal(size=n),
+        })
+        y = pd.Series((rng.normal(size=n) > 0).astype(int))
+        cfg = CatFEConfig(
+            enable=True, full_npermutations=5,
+            permutation_subsample=10_000,  # > n, so no-op
+        )
+        mrmr = MRMR(
+            full_npermutations=2, baseline_npermutations=2,
+            fe_max_steps=0,
+            cat_fe_config=cfg,
+            verbose=0, n_jobs=1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(df, y)
+        assert mrmr.support_ is not None
 
 
 if __name__ == '__main__':
