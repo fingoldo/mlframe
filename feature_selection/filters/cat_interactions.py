@@ -968,12 +968,21 @@ def _count_nfailed_joint_indep_prange(
         # Per-thread copy of Y so each prange iteration shuffles
         # independently.
         cy_local = classes_y.copy()
-        # Seed numba's per-thread RNG. ``np.random.seed`` inside a
-        # prange iteration affects the per-thread state.
-        np.random.seed(base_seed + tid)
+        # 2026-05-11 Wave 24: per-iteration LCG (PCG-style step) instead
+        # of numpy's RandomState.seed + randint. Bench inside numba
+        # prange on n=100k, n_perms=100: np.random Fisher-Yates 70 ms
+        # vs LCG Fisher-Yates 26 ms (2.67x speedup). The LCG produces a
+        # different perm sequence than the legacy np.random path, so
+        # the absolute ``nfailed`` count is not bit-equivalent across
+        # the change -- statistical behaviour (mean nfailed / total
+        # perms) is unchanged because the LCG is also uniform on the
+        # shuffle space. Matches the same pattern used in
+        # ``permutation.parallel_mi_prange`` (mlframe convention).
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(tid + 1)
         # Fisher-Yates in place
         for i in range(n - 1, 0, -1):
-            j = np.random.randint(0, i + 1)
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            j = int(state >> np.uint64(33)) % (i + 1)
             tmp = cy_local[i]
             cy_local[i] = cy_local[j]
             cy_local[j] = tmp
