@@ -112,6 +112,331 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
 
 
+def _phase_train_val_test_split(
+    *,
+    df,
+    target_by_type,
+    timestamps,
+    group_ids,
+    group_ids_raw,
+    artifacts,
+    sequences,
+    split_config,
+    behavior_config,
+    metadata,
+    data_dir,
+    models_dir,
+    target_name,
+    model_name,
+    df_size_mb,
+    verbose,
+):
+    """Phase 2 (Train/Val/Test Splitting) of ``train_mlframe_models_suite``.
+
+    Resolves auto-stratification + group-aware splitting flags from the
+    config + extractor side-channels, calls ``make_train_test_split``, saves
+    split artifacts to disk when ``data_dir`` is set, computes fairness
+    subgroups on the pre-split frame, materialises ``train/val/test`` splits
+    of the dataframe + sequences, frees the original df, refreshes the RSS
+    baseline.
+
+    Mutates ``metadata`` in-place with split sizes + train/val/test details.
+
+    Returns
+    -------
+    15-tuple:
+        train_idx, val_idx, test_idx,
+        train_details, val_details, test_details,
+        train_df, val_df, test_df,
+        fairness_subgroups, fairness_features,
+        train_sequences, val_sequences, test_sequences,
+        baseline_rss_mb_refreshed
+    """
+    if verbose:
+        log_phase("PHASE 2: Train/Val/Test Splitting")
+
+    t0_phase2 = timer()
+    if verbose:
+        logger.info(f"Making train_val_test split...")
+    # Auto-stratify by target for classification when no timestamps are
+    # available. Without this, the unstratified shuffle path can hand
+    # an unlucky val/test slice with zero minority-class rows for
+    # rare imbalance ratios (fuzz default-seed c0134, seed=99 c0040 --
+    # rare_1pct + binary class produces 50 positives out of 5000;
+    # random 400-row val_shuf can land all-class-0). Stratification
+    # preserves class proportions across train/val/test. Skipped when
+    # timestamps are present (the splitter prefers temporal ordering
+    # there) or for multitarget setups where picking ONE target as
+    # the stratify key is arbitrary.
+    _stratify_y = None
+    if timestamps is None and isinstance(target_by_type, dict):
+        _classification_targets = []
+        _has_multilabel = False
+        for _tt, _named in target_by_type.items():
+            _tt_name = getattr(_tt, "name", str(_tt)).upper()
+            if "MULTILABEL" in _tt_name:
+                _has_multilabel = True
+                break
+            if "CLASS" in _tt_name and isinstance(_named, dict):
+                for _tn, _tv in _named.items():
+                    if _tv is not None:
+                        _classification_targets.append(_tv)
+        # Multilabel stratification needs the optional ``iterative-
+        # stratification`` package. Skip it to avoid forcing the dep on
+        # users who don't have it (the ``MultilabelStratifiedShuffleSplit``
+        # branch raises ``ModuleNotFoundError`` deep in the splitter).
+        # Single-label classification (binary / multiclass) uses sklearn's
+        # built-in ``StratifiedShuffleSplit`` which is always available.
+        if _has_multilabel:
+            _stratify_y = None
+        elif len(_classification_targets) == 1:
+            try:
+                _arr = np.asarray(_classification_targets[0])
+                # Guard: only stratify when stratification is meaningful --
+                # all classes have at least 2 rows, otherwise sklearn's
+                # StratifiedShuffleSplit raises "least populated class has
+                # only 1 member". Also limit to 1-D targets -- 2-D would
+                # route to the multilabel splitter (already excluded above
+                # but defense in depth).
+                if _arr.ndim == 1:
+                    _u, _c = np.unique(_arr, return_counts=True)
+                    if len(_u) >= 2 and _c.min() >= 2:
+                        _stratify_y = _arr
+            except Exception:
+                _stratify_y = None
+    # Group-aware splitting opt-in. When the extractor produced ``group_ids``
+    # (e.g. ``SimpleFeaturesAndTargetsExtractor(group_field="well_id")``) and
+    # ``split_config.use_groups`` is True (default), route through
+    # ``GroupShuffleSplit`` so that no well straddles train/val/test.
+    _groups = group_ids if (split_config.use_groups and group_ids is not None and len(group_ids) > 0) else None
+    with phase("split_data"):
+        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+            df=df,
+            timestamps=timestamps,
+            stratify_y=_stratify_y,
+            groups=_groups,
+            **split_config.model_dump(exclude={"use_groups"}),
+        )
+    if verbose:
+        log_ram_usage()
+
+    # Save artifacts
+    if data_dir:
+        save_split_artifacts(
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            timestamps=timestamps,
+            group_ids_raw=group_ids_raw,
+            artifacts=artifacts,
+            data_dir=data_dir,
+            models_dir=models_dir,
+            target_name=target_name,
+            model_name=model_name,
+        )
+
+    metadata.update(
+        {
+            "train_details": train_details,
+            "val_details": val_details,
+            "test_details": test_details,
+            "train_size": len(train_idx),
+            "val_size": len(val_idx),
+            "test_size": len(test_idx),
+        }
+    )
+
+    # Pre-compute fairness subgroups from full df BEFORE splitting
+    fairness_subgroups, fairness_features = _compute_fairness_subgroups(df, behavior_config)
+    if verbose:
+        if fairness_features and fairness_subgroups is None:
+            logger.warning(f"Fairness features {fairness_features} specified but subgroups could not be computed")
+        elif fairness_subgroups is not None:
+            logger.info("Computed %d fairness subgroups", len(fairness_subgroups))
+
+    # Create split dataframes
+    train_df, val_df, test_df = create_split_dataframes(
+        df=df,
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+    )
+    if verbose:
+        logger.info("  Split shapes -- train: %s, val: %s, test: %s", _df_shape_str(train_df), _df_shape_str(val_df), _df_shape_str(test_df))
+        logger.info("  PHASE 2 total: %s", _elapsed_str(t0_phase2))
+
+    # Split sequences by train/val/test indices (for recurrent models)
+    train_sequences, val_sequences, test_sequences = None, None, None
+    if sequences is not None:
+        train_sequences = [sequences[i] for i in train_idx]
+        val_sequences = [sequences[i] for i in val_idx] if val_idx is not None else None
+        test_sequences = [sequences[i] for i in test_idx]
+        if verbose:
+            logger.info("Split sequences: train=%d, val=%d, test=%d", len(train_sequences), len(val_sequences) if val_sequences else 0, len(test_sequences))
+
+    # Delete original df to free RAM (caller already did ``del df`` after
+    # we return; we still nudge the GC + arena-release here because the
+    # baseline-RSS refresh is meaningful only AFTER the parent frees df).
+    if verbose:
+        logger.info("Deleting original DataFrame to free RAM...")
+
+    # Caller's `del df` happens after the return; we refresh baseline using
+    # the current RSS (which will reflect the post-del state on the next
+    # ``maybe_clean_ram_and_gpu`` call inside the caller).
+    baseline_rss_mb = get_process_rss_mb()
+    baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-split (del df)")
+    if verbose:
+        log_ram_usage()
+
+    return (
+        train_idx, val_idx, test_idx,
+        train_details, val_details, test_details,
+        train_df, val_df, test_df,
+        fairness_subgroups, fairness_features,
+        train_sequences, val_sequences, test_sequences,
+        baseline_rss_mb,
+    )
+
+
+def _phase_load_and_preprocess(
+    *,
+    df,
+    preprocessing_config,
+    features_and_targets_extractor,
+    recurrent_models,
+    sequences,
+    verbose,
+):
+    """Phase 1 (Data Loading & Preprocessing) of ``train_mlframe_models_suite``.
+
+    Loads the input dataframe (file path or in-memory), runs the
+    features-and-targets extractor to surface ``target_by_type`` +
+    side-channels (timestamps, group ids, sample weights, artifacts), extracts
+    sequences for any recurrent models, then drops the FTE-flagged columns
+    and runs the final preprocessing pass.
+
+    Captures the RAM baseline + DF-size estimate AFTER the FTE so the
+    downstream ``maybe_clean_ram_and_gpu`` calls have a meaningful
+    pre-transient-allocation reference point.
+
+    Returns
+    -------
+    11-tuple:
+        df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts,
+        additional_columns_to_drop, sample_weights, baseline_rss_mb,
+        df_size_mb, sequences
+    """
+    if verbose:
+        log_phase("PHASE 1: Data Loading & Preprocessing")
+
+    # Load and prepare dataframe
+    t0_phase1 = timer()
+    with phase("load_and_prepare_dataframe"):
+        df = load_and_prepare_dataframe(df, preprocessing_config, verbose=verbose)
+    if verbose:
+        logger.info("  load_and_prepare_dataframe done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_phase1))
+
+    # Apply features_and_targets_extractor to extract targets
+    if verbose:
+        logger.info("Create additional features & extracting targets...")
+
+    t0_fte = timer()
+    df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts, additional_columns_to_drop, sample_weights = features_and_targets_extractor.transform(
+        df
+    )
+    if verbose:
+        logger.info("  features_and_targets_extractor done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_fte))
+
+    # Capture baseline RSS + DF size NOW -- before any downstream steps that may allocate
+    # transient state (get_sequences, drop_columns, preprocess). Used by
+    # maybe_clean_ram_and_gpu() at later sites to skip ~0.6s gc calls when memory
+    # pressure is low. On 100GB production DFs the growth/free-RAM thresholds trip and
+    # clean_ram fires; on small test DFs all sites are skipped.
+    baseline_rss_mb = get_process_rss_mb()
+    df_size_mb = estimate_df_size_mb(df)
+
+    # Extract sequences for recurrent models (if not provided directly)
+    if recurrent_models and sequences is None:
+        extracted_sequences = features_and_targets_extractor.get_sequences(df)
+        if extracted_sequences is not None:
+            sequences = extracted_sequences
+            if verbose:
+                logger.info("Extracted %d sequences from DataFrame", len(sequences))
+        elif verbose:
+            logger.warning("recurrent_models specified but no sequences provided or extracted")
+
+    baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-FTE")
+    if verbose:
+        log_ram_usage()
+
+    # Drop columns AFTER features_and_targets_extractor (columns might be needed by features_and_targets_extractor or created by it)
+    df = drop_columns_from_dataframe(
+        df,
+        additional_columns_to_drop=additional_columns_to_drop,
+        config_drop_columns=preprocessing_config.drop_columns,
+        verbose=verbose,
+    )
+
+    # Preprocess dataframe (handle nulls, infinities, constants, dtypes)
+    t0_preproc = timer()
+    df = preprocess_dataframe(df, preprocessing_config, verbose=verbose)
+    if verbose:
+        logger.info("  preprocess_dataframe done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_preproc))
+        logger.info("  PHASE 1 total: %s", _elapsed_str(t0_phase1))
+
+    return (
+        df, target_by_type, group_ids_raw, group_ids, timestamps,
+        artifacts, additional_columns_to_drop, sample_weights,
+        baseline_rss_mb, df_size_mb, sequences,
+    )
+
+
+def _build_suite_common_params_dict(
+    *,
+    reporting_config,
+    preprocessing_config,
+    confidence_analysis_config,
+) -> Dict[str, Any]:
+    """Assemble the ``common_params_dict`` carried down through the suite.
+
+    Three sources feed in:
+    - ``reporting_config`` -- dumped via ``.model_dump(exclude=...)`` with
+      ``title_metrics_tokens`` excluded (derived field auto-recomputed by
+      ``_build_configs_from_params``) and ``plot_inline_display`` excluded
+      (consumed at suite level only).
+    - ``preprocessing_config`` -- conditionally adds ``scaler`` / ``imputer`` /
+      ``category_encoder`` when each is non-None.
+    - ``confidence_analysis_config`` -- 8 scalar fields under the
+      ``confidence_analysis_*`` / ``include_confidence_analysis`` prefix.
+
+    Pure read-only function: no side effects, no mutation of the input
+    configs. Tests can unit-check the output dict without spinning up the
+    full suite.
+    """
+    common: Dict[str, Any] = {}
+    common.update(
+        reporting_config.model_dump(exclude={
+            "title_metrics_tokens",
+            "plot_inline_display",
+        })
+    )
+    if preprocessing_config.scaler is not None:
+        common["scaler"] = preprocessing_config.scaler
+    if preprocessing_config.imputer is not None:
+        common["imputer"] = preprocessing_config.imputer
+    if preprocessing_config.category_encoder is not None:
+        common["category_encoder"] = preprocessing_config.category_encoder
+    common["include_confidence_analysis"] = confidence_analysis_config.include
+    common["confidence_analysis_use_shap"] = confidence_analysis_config.use_shap
+    common["confidence_analysis_max_features"] = confidence_analysis_config.max_features
+    common["confidence_analysis_cmap"] = confidence_analysis_config.cmap
+    common["confidence_analysis_alpha"] = confidence_analysis_config.alpha
+    common["confidence_analysis_ylabel"] = confidence_analysis_config.ylabel
+    common["confidence_analysis_title"] = confidence_analysis_config.title
+    common["confidence_model_kwargs"] = dict(confidence_analysis_config.model_kwargs)
+    return common
+
+
 def _maybe_dispatch_to_ltr_ranker_suite(
     *,
     target_type,

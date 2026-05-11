@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-05-12 (even-er later) — Phase 5c-b/c: orchestrator phase-helpers (load + split + common-params)
+
+Three more clean extractions from `train_mlframe_models_suite`:
+
+1. **`_build_suite_common_params_dict`** (~42 LOC): assembles the
+   ``common_params_dict`` that carries `ReportingConfig` + selected
+   `PreprocessingConfig` fields + `ConfidenceAnalysisConfig` scalars
+   down to the deep dict-key consumers in `trainer.py`. Pure read-only.
+
+2. **`_phase_load_and_preprocess`** (Phase 1, ~60 LOC body):
+   `load_and_prepare_dataframe` -> FTE.transform -> baseline RSS capture
+   -> sequence extraction -> drop columns -> `preprocess_dataframe`.
+   11-tuple return.
+
+3. **`_phase_train_val_test_split`** (Phase 2, ~140 LOC body):
+   auto-stratification + group-aware splitting, save artifacts to disk,
+   fairness-subgroups precompute, `create_split_dataframes`, sequence
+   split, RSS-baseline refresh. 15-tuple return; mutates `metadata`
+   in-place with split sizes.
+
+`main.py` LOC: 4843 → 4575 (–268). 435 composite + 65 focused regression
+all pass.
+
+---
+
 ## 2026-05-12 (even later) — core.py + Phase 5c-a + core/ subpackage restructure
 
 ### Phase 5c-a -- LTR dispatch extracted from train_mlframe_models_suite
