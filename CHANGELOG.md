@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-12 (continued) — Phase 5c-h: global outlier-detection helper
+
+8. **`_phase_global_outlier_detection`** (~60 LOC body): the once-before-loop
+   OD pass -- flattens `target_by_type` to `{type/name: values}` for the
+   class-balance pre-check, runs `_apply_outlier_detection_global`, records
+   pre/post sizes + n_dropped on `metadata`, applies the same boolean mask
+   to the Polars-fastpath frames so OD-filtered targets and OD-filtered
+   feature frames stay aligned. 9-tuple return.
+
+`main.py` LOC: 4110 → 4075 (−35). 435 composite + 74 focused regression
+all pass.
+
+---
+
 ## 2026-05-12 (continued) — Phase 5c-g: pandas-conversion + cat-prep + Polars-release helper
 
 7. **`_phase_pandas_conversion_and_cat_prep`** (~145 LOC body): Phase 4

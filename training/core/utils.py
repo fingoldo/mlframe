@@ -112,6 +112,100 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
 
 
+def _phase_global_outlier_detection(
+    *,
+    train_df_pd,
+    val_df_pd,
+    train_df_polars,
+    val_df_polars,
+    train_idx,
+    val_idx,
+    target_by_type,
+    outlier_detector,
+    od_val_set,
+    baseline_rss_mb,
+    df_size_mb,
+    metadata,
+    verbose,
+):
+    """Phase 4.5 (Global Outlier Detection, once before model loops).
+
+    Steps:
+    1. Flatten ``target_by_type`` to ``{target_type/target_name: values}`` for
+       the OD class-balance pre-check (so a detector that would eliminate the
+       entire minority class for any classification target gets rejected
+       upfront).
+    2. Run ``_apply_outlier_detection_global`` (handles pandas OD via sklearn,
+       returns boolean masks for train/val).
+    3. Record metadata: pre/post-OD sizes, n_outliers_dropped per split.
+    4. Apply the same boolean mask to the Polars fastpath frames so the
+       Polars-native training loop and the OD-filtered targets stay aligned.
+
+    Returns
+    -------
+    9-tuple:
+        filtered_train_df, filtered_val_df,
+        filtered_train_idx, filtered_val_idx,
+        train_od_idx, val_od_idx,
+        outlier_detection_result (dict),
+        train_df_polars (filtered), val_df_polars (filtered)
+    """
+    _targets_flat_for_classbalance = {}
+    for _tt, _named in target_by_type.items():
+        if isinstance(_named, dict):
+            for _tn, _tv in _named.items():
+                _targets_flat_for_classbalance[f"{_tt}/{_tn}"] = _tv
+    (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx,
+     train_od_idx, val_od_idx) = _apply_outlier_detection_global(
+        train_df=train_df_pd,
+        val_df=val_df_pd,
+        train_idx=train_idx,
+        val_idx=val_idx,
+        outlier_detector=outlier_detector,
+        od_val_set=od_val_set,
+        verbose=verbose,
+        baseline_rss_mb=baseline_rss_mb,
+        df_size_mb=df_size_mb,
+        targets_for_classbalance=_targets_flat_for_classbalance or None,
+    )
+
+    outlier_detection_result = {
+        "train_od_idx": train_od_idx,
+        "val_od_idx": val_od_idx,
+    }
+
+    if outlier_detector is not None:
+        n_train_pre_od = len(train_df_pd) if train_df_pd is not None else None
+        n_val_pre_od = len(val_df_pd) if val_df_pd is not None else None
+        n_train_post_od = int(train_od_idx.sum()) if train_od_idx is not None else n_train_pre_od
+        n_val_post_od = int(val_od_idx.sum()) if val_od_idx is not None else n_val_pre_od
+        n_train_dropped = (n_train_pre_od - n_train_post_od) if n_train_pre_od is not None else 0
+        n_val_dropped = (n_val_pre_od - n_val_post_od) if (n_val_pre_od is not None and val_od_idx is not None) else 0
+        metadata["outlier_detection"] = {
+            "applied": True,
+            "n_outliers_dropped_train": int(n_train_dropped),
+            "n_outliers_dropped_val": int(n_val_dropped),
+            "train_size_after_od": int(n_train_post_od) if n_train_post_od is not None else None,
+            "val_size_after_od": int(n_val_post_od) if n_val_post_od is not None else None,
+        }
+    else:
+        metadata["outlier_detection"] = {"applied": False}
+
+    # Keep Polars fastpath DFs in sync with OD-filtered targets.
+    if train_od_idx is not None and train_df_polars is not None:
+        train_df_polars = train_df_polars.filter(pl.Series(train_od_idx))
+    if val_od_idx is not None and val_df_polars is not None:
+        val_df_polars = val_df_polars.filter(pl.Series(val_od_idx))
+
+    return (
+        filtered_train_df, filtered_val_df,
+        filtered_train_idx, filtered_val_idx,
+        train_od_idx, val_od_idx,
+        outlier_detection_result,
+        train_df_polars, val_df_polars,
+    )
+
+
 def _phase_pandas_conversion_and_cat_prep(
     *,
     train_df,

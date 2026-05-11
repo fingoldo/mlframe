@@ -61,6 +61,7 @@ from .utils import (  # noqa: F401
     _log_cardinality_and_drift_snapshot,
     _phase_auto_detect_feature_types,
     _phase_fit_pipeline,
+    _phase_global_outlier_detection,
     _phase_load_and_preprocess,
     _phase_pandas_conversion_and_cat_prep,
     _phase_train_val_test_split,

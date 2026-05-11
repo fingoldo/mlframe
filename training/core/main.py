@@ -150,6 +150,7 @@ from .utils import (
     _log_cardinality_and_drift_snapshot,
     _phase_auto_detect_feature_types,
     _phase_fit_pipeline,
+    _phase_global_outlier_detection,
     _phase_load_and_preprocess,
     _phase_pandas_conversion_and_cat_prep,
     _phase_train_val_test_split,
@@ -761,65 +762,29 @@ def train_mlframe_models_suite(
     )
 
     # ==================================================================================
-    # 4.5 OUTLIER DETECTION (once, before model training loops)
+    # 4.5 OUTLIER DETECTION (once, before model training loops) -- extracted helper
     # ==================================================================================
-
-    # Pass per-target arrays into OD so the class-balance pre-check can
-    # detect when OD would eliminate the entire minority class for any
-    # classification target. Flatten the {target_type: {name: values}}
-    # dict to {name: values} for the inner check (target_name uniqueness
-    # is enforced upstream by the FTE).
-    _targets_flat_for_classbalance = {}
-    for _tt, _named in target_by_type.items():
-        if isinstance(_named, dict):
-            for _tn, _tv in _named.items():
-                _targets_flat_for_classbalance[f"{_tt}/{_tn}"] = _tv
-    (filtered_train_df, filtered_val_df, filtered_train_idx, filtered_val_idx, train_od_idx, val_od_idx) = _apply_outlier_detection_global(
-        train_df=train_df_pd,
-        val_df=val_df_pd,
+    (
+        filtered_train_df, filtered_val_df,
+        filtered_train_idx, filtered_val_idx,
+        train_od_idx, val_od_idx,
+        outlier_detection_result,
+        train_df_polars, val_df_polars,
+    ) = _phase_global_outlier_detection(
+        train_df_pd=train_df_pd,
+        val_df_pd=val_df_pd,
+        train_df_polars=train_df_polars,
+        val_df_polars=val_df_polars,
         train_idx=train_idx,
         val_idx=val_idx,
+        target_by_type=target_by_type,
         outlier_detector=outlier_detector,
         od_val_set=od_val_set,
-        verbose=verbose,
         baseline_rss_mb=baseline_rss_mb,
         df_size_mb=df_size_mb,
-        targets_for_classbalance=_targets_flat_for_classbalance or None,
+        metadata=metadata,
+        verbose=verbose,
     )
-
-    # Single global OD result (not per-target)
-    outlier_detection_result = {
-        "train_od_idx": train_od_idx,
-        "val_od_idx": val_od_idx,
-    }
-
-    # Surface OD row-reduction evidence in returned metadata so callers/tests can assert
-    # that OD actually ran without grepping logs. Only populated when an OD was applied.
-    if outlier_detector is not None:
-        n_train_pre_od = len(train_df_pd) if train_df_pd is not None else None
-        n_val_pre_od = len(val_df_pd) if val_df_pd is not None else None
-        n_train_post_od = int(train_od_idx.sum()) if train_od_idx is not None else n_train_pre_od
-        n_val_post_od = int(val_od_idx.sum()) if val_od_idx is not None else n_val_pre_od
-        n_train_dropped = (n_train_pre_od - n_train_post_od) if n_train_pre_od is not None else 0
-        n_val_dropped = (n_val_pre_od - n_val_post_od) if (n_val_pre_od is not None and val_od_idx is not None) else 0
-        metadata["outlier_detection"] = {
-            "applied": True,
-            "n_outliers_dropped_train": int(n_train_dropped),
-            "n_outliers_dropped_val": int(n_val_dropped),
-            "train_size_after_od": int(n_train_post_od) if n_train_post_od is not None else None,
-            "val_size_after_od": int(n_val_post_od) if n_val_post_od is not None else None,
-        }
-    else:
-        metadata["outlier_detection"] = {"applied": False}
-
-    # Keep polars fastpath DFs in sync with pandas-filtered copies so that the
-    # Polars-native training path operates on OD-filtered rows matching the
-    # OD-filtered targets. Without this the downstream training call feeds the
-    # unfiltered Polars DF but the OD-filtered target -> length mismatch.
-    if train_od_idx is not None and train_df_polars is not None:
-        train_df_polars = train_df_polars.filter(pl.Series(train_od_idx))
-    if val_od_idx is not None and val_df_polars is not None:
-        val_df_polars = val_df_polars.filter(pl.Series(val_od_idx))
 
     # ==================================================================================
     # 4.6 COMPOSITE-TARGET DISCOVERY (opt-in; default OFF)
