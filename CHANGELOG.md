@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-13 — DGP × Model regression-matrix lock (`test_default_no_catastrophic_failure_matrix.py`)
+
+After the TVT MLP collapse incident the user asked for *расширенные параметризованные тесты для всех поддерживаемых train_mlframe_models_suite моделей на подобных таргетах и фичах разного плана, чтобы мы точно знали, что НИ В ОДНОМ режиме наши модели не обсираются на дефолтных параметрах*. New parameterised test exercises every supported regression family (`linear` / `cb` / `xgb` / `lgb` / `mlp`) against four DGP regimes (`linear_dominant`, `linear_balanced`, `nonlinear_smooth`, `noisy`) — 20 cells in ~16 s on CPU. Each cell asserts `rmse_test / target_std ≤ threshold` where the per-(DGP, model) thresholds were calibrated against observed healthy-defaults ratios with catastrophic-line headroom.
+
+Key design choices that fell out of calibration work:
+
+- **MLP factory mirrors production wiring, not a stripped-down test version.** An earlier draft passed no `eval_set` to the MLP, so `EarlyStoppingCallback` never fired; the MLP then *diverged* with longer training (ratio 0.59 → 0.66 → 0.73 → 1.07 as `max_epochs` was bumped). Production goes through `train_mlframe_models_suite`, where the pre-pipeline produces an `eval_set` and the wrapper installs the callback — the test now reproduces that path, including the gradient clipping / accumulation / `check_val_every_n_epoch` knobs from `helpers.py::MLP_GENERAL_PARAMS`.
+- **`eval_set`'s X is pre-scaled to match the pipeline's `scaler_x` step.** sklearn pipelines do NOT auto-transform `fit_params`, so a naïve `pipeline.fit(X, y, mlp__eval_set=(X_val, y_val))` ships UNSCALED `X_val` into the wrapper while train sees scaled X — val_loss explodes on the first epoch and early-stop checkpoints at a bad place. The test pre-fits `StandardScaler` on `X_in` and transforms `X_val` to match.
+- **Thresholds are per-(DGP, model), not per-DGP.** Linear models legitimately cannot fit `sin(X[0]) + 0.3·X[1]²` well — that's a capability limit, not a regression. The matrix relaxes that one cell while keeping the boosting/MLP cells tight. On the `noisy` DGP every threshold lives above the theoretical noise floor (~0.93) — a model that catastrophically memorises noise lands at >1.20 and trips the cell.
+- **Scope is complementary, not duplicative, with `test_suite_default_mlp_beats_mean_under_short_budget`.** The new matrix locks catastrophic failures under production-faithful wiring. The existing short-budget no-early-stop test specifically locks the dropout/AdamW/LR defaults against a TVT-style cliff regression. Both are needed; the matrix passes with current defaults (20/20).
+
+Files:
+- `tests/training/test_default_no_catastrophic_failure_matrix.py` (new).
+
 ## 2026-05-13 (CRITICAL FIX) — MLP defaults that strangled the linear signal on TVT
 
 User reported a 2-hour MLP run on raw TVT (4M rows, near-linear y =
