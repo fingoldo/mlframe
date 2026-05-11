@@ -282,6 +282,22 @@ def prewarm_numba_cache():
         # (current behaviour). Caller bears the cold-start cost then.
         pass
 
+    # 2026-05-11: also warm dummy_baselines kernels. The suite already
+    # calls ``_warmup_numba_kernels`` early in
+    # ``train_mlframe_models_suite``, but that lands INSIDE the suite
+    # wall-time (verified on c0089 W11 profile: 17.7 s inside the
+    # suite call). Pre-warming here shifts the cost to the same
+    # prewarm phase as metrics + FS kernels -- before any
+    # user-visible timer starts. The suite's own call becomes
+    # near-zero after this completes (numba's process-wide JIT cache
+    # carries over).
+    try:
+        from mlframe.training.dummy_baselines import _warmup_numba_kernels
+        _warmup_numba_kernels()
+    except Exception:
+        # Non-fatal: kernels will JIT lazily on first real call.
+        pass
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # CatBoost logits to probabilities conversion
