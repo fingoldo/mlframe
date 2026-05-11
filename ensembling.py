@@ -1204,14 +1204,16 @@ def score_ensemble(
             _gate_source_split = _label
             break
 
+    # 2026-05-11 (user request): strip internal shim suffixes (``WithDMatrixReuse`` / ``WithDatasetReuse``) from member tags so the gate log line + downstream ensemble labels read ``XGBRegressor`` / ``LGBMRegressor`` -- the Pool/Dataset-reuse implementation detail is irrelevant to the reader.
+    from mlframe.training._format import strip_shim_suffix as _strip_shim
     _ensemble_member_tags: List[str] = []
     for _m in level_models_and_predictions:
         _name_attr = getattr(_m, "model_name", None) or getattr(_m, "name", None)
         if _name_attr:
-            _ensemble_member_tags.append(str(_name_attr))
+            _ensemble_member_tags.append(_strip_shim(str(_name_attr)))
         else:
             _model_obj = getattr(_m, "model", _m)
-            _ensemble_member_tags.append(type(_model_obj).__name__)
+            _ensemble_member_tags.append(_strip_shim(type(_model_obj).__name__))
 
     if _gate_preds_for_check is not None and len(_gate_preds_for_check) > 2:
         _kept_idx, _excluded, _gate_stats = compute_member_quality_gate(
@@ -1285,6 +1287,43 @@ def score_ensemble(
             max_std = 0.0
             max_mae_relative = 0.0
             max_std_relative = 0.0
+
+    # I2 (2026-05-11): for regression, gate-out harmonic / geometric ensemble flavours when ANY member's predictions contain near-zero values or sign changes. Harmonic mean = N / sum(1/p) and geometric mean = exp(mean(log p)) both diverge / are undefined on signals that cross zero. Symptom seen in the prod log: ``EnsHARM ... RMSE=178.84 MaxError=55206`` and ``RMSE=1299.55 MaxError=920165`` on composite residuals which cluster around zero by construction.
+    if is_regression and ensembling_methods:
+        _has_zero_crossing = False
+        _harm_geo_in_methods = any(
+            m in ensembling_methods for m in ("harm", "geo")
+        )
+        if _harm_geo_in_methods:
+            for _m in level_models_and_predictions:
+                for _attr in ("val_preds", "test_preds", "train_preds"):
+                    _arr = getattr(_m, _attr, None)
+                    if _arr is None:
+                        continue
+                    _arr_f = np.asarray(_arr, dtype=np.float64)
+                    if _arr_f.size == 0:
+                        continue
+                    _abs_min = float(np.nanmin(np.abs(_arr_f)))
+                    _has_neg = bool(np.any(_arr_f < 0))
+                    _has_pos = bool(np.any(_arr_f > 0))
+                    if _abs_min < 1e-6 or (_has_neg and _has_pos):
+                        _has_zero_crossing = True
+                        break
+                if _has_zero_crossing:
+                    break
+            if _has_zero_crossing:
+                _filtered_methods = [
+                    m for m in ensembling_methods if m not in ("harm", "geo")
+                ]
+                if verbose and len(_filtered_methods) != len(ensembling_methods):
+                    logger.info(
+                        "[ensemble] gating out harm/geo flavours: member "
+                        "predictions contain near-zero / sign-changing "
+                        "values (e.g. composite residual targets). "
+                        "Harmonic = N/sum(1/p) and geometric = "
+                        "exp(mean(log p)) diverge on this domain.",
+                    )
+                ensembling_methods = _filtered_methods
 
     for ensembling_level in range(max_ensembling_level):
 

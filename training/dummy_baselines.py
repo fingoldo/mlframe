@@ -2947,6 +2947,7 @@ def format_suite_end_summary(
     failures_metadata: Optional[Dict[str, Any]] = None,
     best_model_metrics_by_target: Optional[Dict[Tuple[str, str], Dict[str, float]]] = None,
     min_lift: float = 1.5,
+    composite_to_raw_target_map: Optional[Dict[Tuple[str, str], str]] = None,
 ) -> str:
     """Format the cross-target verdict block emitted at suite end (D6).
 
@@ -3009,22 +3010,46 @@ def format_suite_end_summary(
             dummy_val = strongest_row.get(primary_metric)
             if dummy_val is None:
                 continue
-            # 2026-05-11: for composite targets the per-target loop
-            # also stashed a y-scale dummy metric (inverted via the
-            # spec's transform.inverse). Prefer that for the
-            # comparison so the lift number is apples-to-apples with
-            # the model's y-scale metric (the wrapped composite model
-            # is reported on y-scale). Splits the primary_metric name
-            # like "val_RMSE" into (split="val", metric="RMSE") and
-            # looks it up in y_scale_strongest_metrics.
-            _yscale = rep_dict.get("y_scale_strongest_metrics")
-            _used_yscale = False
-            if _yscale and isinstance(primary_metric, str) and "_" in primary_metric:
-                _split_name, _metric_name = primary_metric.split("_", 1)
-                _split_yscale = _yscale.get(_split_name)
-                if _split_yscale and _metric_name in _split_yscale:
-                    dummy_val = _split_yscale[_metric_name]
-                    _used_yscale = True
+            # 2026-05-11 (B2 fix): for composite targets the verdict
+            # baseline must be a TRULY trivial baseline -- i.e. the
+            # raw-y dummy (``median(y_raw)`` constant prediction on
+            # the original y-scale), NOT the inverted T-dummy. Previous
+            # impl inverted ``median(T_train)`` through fitted
+            # ``alpha * base + beta`` to a y-scale value, but that
+            # uses fitted-alpha information from training -- not a
+            # "trivial" baseline. The composite then "barely beat" it
+            # because they're both non-trivial baselines on y-scale.
+            #
+            # Correct comparison: composite y-scale model RMSE vs
+            # raw target's strongest dummy RMSE (same scale, same
+            # honesty). Lookup via composite_to_raw_target_map.
+            _used_raw_y_dummy = False
+            if composite_to_raw_target_map is not None:
+                _raw_tname = composite_to_raw_target_map.get(
+                    (str(target_type), str(target_name))
+                )
+                if _raw_tname is not None:
+                    _raw_rep = dummy_baselines_metadata.get(
+                        target_type, {}
+                    ).get(_raw_tname)
+                    if _raw_rep is not None:
+                        _raw_strongest = _raw_rep.get("strongest")
+                        _raw_pm = _raw_rep.get("primary_metric")
+                        _raw_data = _raw_rep.get("data", {})
+                        if (_raw_strongest and _raw_pm
+                                and _raw_strongest in _raw_data):
+                            _raw_dummy_val = _raw_data[_raw_strongest].get(
+                                _raw_pm
+                            )
+                            if _raw_dummy_val is not None:
+                                dummy_val = _raw_dummy_val
+                                # Override strongest name in the
+                                # output for clarity (the raw-y dummy
+                                # is conceptually different).
+                                strongest = (
+                                    f"{_raw_strongest} [raw-y trivial]"
+                                )
+                                _used_raw_y_dummy = True
 
             # Best model metric lookup (optional)
             best_model_name = "-"
@@ -3107,9 +3132,7 @@ def format_suite_end_summary(
                         f"direction; check sign of cost_function."
                     )
 
-            _strongest_label = (
-                f"{strongest} [y]" if _used_yscale else str(strongest)
-            )
+            _strongest_label = str(strongest)
             lines.append(
                 f"{str(target_name)[:24]:<24} {_strongest_label[:28]:<28} "
                 f"{primary_metric}={dummy_val:<.4f}     {str(best_model_name)[:12]:<12} "

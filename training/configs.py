@@ -1141,6 +1141,14 @@ class TrainingBehaviorConfig(BaseConfig):
     # cost (O(n_rows) per cat column) is prohibitive.
     align_polars_categorical_dicts: bool = True
 
+    # 2026-05-11 (user request): silencing knobs for verbose report blocks.
+    #
+    # ``report_residual_audit``: when False, ``report_model_perf`` skips the multi-line residual-audit footer (moments / shape / hetero / hypothesis / suggested-loss block). Default True (informative for regression diagnostics); set False on production runs where the block adds 6-8 noisy lines per (model x split).
+    #
+    # ``confidence_ensemble_quantile``: top-quantile of MOST-CONFIDENT rows used by the "Conf Ensemble" flavors. Default 0.1 (= top 10%); set 0.0 to disable Conf Ensembles entirely (saves ~6 flavor x 2 split = 12 log blocks + their charts per ensemble pass). The raw ensemble metrics still print -- only the confidence-subset variant is suppressed.
+    report_residual_audit: bool = True
+    confidence_ensemble_quantile: float = 0.1
+
     # Fix 8 (2026-04-21): append a per-model input-schema fingerprint
     # (``__sch_<10 hex>``) to model filenames so two runs with different
     # feature-type configs (text vs cat promotion, encoding, alignment)

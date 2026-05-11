@@ -642,3 +642,26 @@ selector core and feature engineering — landed 2026-04-22. See tests:
 `tests/training/test_mrmr_polars_fe.py`,
 `tests/training/test_bizvalue_feature_selection.py::test_mrmr_drops_uninformative_features_on_polars_input`,
 regression sensors in `tests/training/test_fuzz_regression_sensors.py`.)
+
+## Comment line length: up to 160 chars (CRITICAL — repeated user complaint)
+
+Project line-length is **160** for comments and docstrings. Do NOT hard-wrap at 72 or 80 columns. The user has complained about this twice (2026-04-20 and 2026-05-11) — the rule needs to be applied without prompting.
+
+**Why:** short hard-wrapped comments fragment multi-sentence explanations across many lines, bloat diffs, and make grep noisier. The editor / terminal handles 160-char lines fine.
+
+**How to apply:** when writing or editing comments / docstrings in .py / .sql / .md / .ipynb code cells, let each sentence / logical clause flow on ONE line up to ~160 chars. Only break at natural paragraph or clause boundaries, never to meet a narrow width. Long URLs and code examples inside comments may still be broken if they'd overflow visible width.
+
+**Anti-pattern to AVOID** (each sentence wrapped to 50-80 chars):
+```python
+# C2 (2026-05-11): annotate composite-target reports as T-scale.
+# Composite targets carry ``MTRESID=`` in the model_name (stamped
+# by ``select_target``); this indicates the printed metrics are
+# on the RESIDUAL scale, not the raw y-scale.
+```
+
+**Correct shape** (one sentence per line, up to 160 chars):
+```python
+# C2 (2026-05-11): annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics are on the RESIDUAL scale, not the raw y-scale.
+```
+
+If a sentence really exceeds 160, break at a clause boundary (after a comma, semicolon, or "—") — never mid-clause.

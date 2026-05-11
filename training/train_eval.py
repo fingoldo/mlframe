@@ -358,10 +358,22 @@ def select_target(
     train_t = _to_arr(_select(target, train_idx))
 
     if target_type == TargetTypes.REGRESSION:
+        # 2026-05-11 (user request): adaptive metric format (2 d.p. by default, widening for sub-1 values) instead of fixed :.4f.
+        from ._format import format_metric as _fmt
+        # C1 fix (2026-05-11): for composite targets (name contains ``__{transform}__`` per the discovery naming convention) the train mean is the T-scale residual mean which is ~0 by OLS construction -- not informative. Switch the label to ``MTRESID=`` to make the semantic explicit.
+        _is_composite = (
+            "__linear_residual__" in model_name
+            or "__linear_residual_multi__" in model_name
+            or "__linear_residual_grouped__" in model_name
+            or "__diff__" in model_name
+            or "__ratio__" in model_name
+            or "__logratio__" in model_name
+        )
+        _tag = "MTRESID" if _is_composite else "MTTR"
         if train_t is not None and train_t.size > 0:
-            model_name += f" MTTR={train_t.mean():.4f}"
+            model_name += f" {_tag}={_fmt(train_t.mean())}"
         else:
-            model_name += f" MT={target.mean():.4f}"
+            model_name += f" MT={_fmt(target.mean())}"
     elif target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
         # 2026-04-24 Session 5: multilabel has 2-D target (N, K). Skip
         # the binary value_counts / positive-rate path (would raise
@@ -510,6 +522,9 @@ def select_target(
         "target_temporal_audit_column",
         "target_temporal_audit_granularity",
         "target_temporal_audit_save_plot",
+        # 2026-05-11 (user request): suite-level reporting knobs consumed directly by ``train_mlframe_models_suite`` (residual-audit thread-local override and the score_ensemble ``uncertainty_quantile`` arg) — never passed down to ``configure_training_params``.
+        "report_residual_audit",
+        "confidence_ensemble_quantile",
     }
     effective_behavior_params = {
         k: v for k, v in behavior_config.model_dump(exclude_none=True).items()

@@ -24,7 +24,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union, Callable
 DEFAULT_RANDOM_SEED = 42
 DEFAULT_BINARY_THRESHOLD = 0.5
 DEFAULT_PLOT_SAMPLE_SIZE = 500
-DEFAULT_REPORT_NDIGITS = 4
+# 2026-05-11 (user request): default tightened from 4 to 2 d.p. With adaptive widening on sub-1 values (see ``_format.format_metric``), 2 keeps headers short for typical metrics like RMSE=11497.47 while still rendering small values like 0.0034 correctly.
+DEFAULT_REPORT_NDIGITS = 2
 DEFAULT_CALIB_REPORT_NDIGITS = 2
 DEFAULT_NBINS = 10
 DEFAULT_FIGSIZE = (15, 5)
@@ -34,6 +35,20 @@ DEFAULT_FI_FIGSIZE = (15, 10)
 # scatter repeatedly with identical (len(preds), seed) -- caching the choice avoids
 # rebuilding the RNG and resampling each call.
 _PLOT_IDX_CACHE: "dict[tuple, np.ndarray]" = {}
+
+# 2026-05-11 (user request): suite-level override for the residual_audit block. Set by ``train_mlframe_models_suite`` from ``behavior_config.report_residual_audit``. None means "use default True" so direct callers of ``report_model_perf`` outside the suite keep the historical behaviour.
+_RESIDUAL_AUDIT_OVERRIDE: "Optional[bool]" = None
+
+
+def _set_residual_audit_enabled(enabled: Optional[bool]) -> None:
+    """Suite-level setter used by ``train_mlframe_models_suite`` to propagate ``behavior_config.report_residual_audit`` down to ``report_model_perf`` without threading the param through every call site."""
+    global _RESIDUAL_AUDIT_OVERRIDE
+    _RESIDUAL_AUDIT_OVERRIDE = enabled
+
+
+def _get_residual_audit_enabled() -> bool:
+    """Resolve the residual-audit toggle. Honour suite override when set; default True for stand-alone calls."""
+    return True if _RESIDUAL_AUDIT_OVERRIDE is None else bool(_RESIDUAL_AUDIT_OVERRIDE)
 
 
 def _get_cached_plot_idx(n: int, sample_size: int, seed: int) -> "np.ndarray":
@@ -504,10 +519,11 @@ def report_regression_model_perf(
     if metrics is not None:
         metrics.update(current_metrics)
 
-    # Compute residual audit ONCE (used by both the chart and the
-    # print-report block; cheap thanks to internal sampling).
+    # Compute residual audit ONCE (used by both the chart and the print-report block; cheap thanks to internal sampling).
+    # 2026-05-11 (user request): honour ``behavior_config.report_residual_audit`` -- when False, neither compute nor render the audit. Read via the module-level override populated by ``train_mlframe_models_suite``; defaults to True for direct callers outside the suite (back-compat).
     _residual_audit = None
-    if not (
+    _audit_enabled = bool(_get_residual_audit_enabled())
+    if _audit_enabled and not (
         (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
         or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
     ):
@@ -551,11 +567,12 @@ def report_regression_model_perf(
             report_title + " " + model_name +
             f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]"
         )
+        from ._format import format_metric as _fmt
         metrics_str = (
-            f"MAE={MAE:.{report_ndigits}f}"
-            f" RMSE={RMSE:.{report_ndigits}f}"
-            f" MaxError={MaxError:.{report_ndigits}f}"
-            f" R2={R2:.{report_ndigits}f}"
+            f"MAE={_fmt(MAE, report_ndigits)}"
+            f" RMSE={_fmt(RMSE, report_ndigits)}"
+            f" MaxError={_fmt(MaxError, report_ndigits)}"
+            f" R2={_fmt(R2, report_ndigits)}"
         )
         # ``title`` retained for the (deprecated) print-report path that
         # still concatenates everything for stdout. Charts use the split.
@@ -672,12 +689,20 @@ def report_regression_model_perf(
         # → cell output ✓ but file handler ✗. Operators using
         # init_logging in jupyter notebooks lost the metric blocks
         # from on-disk logs.
+        from ._format import format_metric as _fmt
+        # C2 (2026-05-11): annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
+        _is_t_scale_composite = "MTRESID=" in model_name
+        _scale_note = (
+            "  (T-scale residual; y-scale metrics in "
+            "[CompositeTargetEstimator] log line)"
+            if _is_t_scale_composite else ""
+        )
         _report_lines = [
-            report_title + " " + model_name,
-            f"MAE: {MAE:.{report_ndigits}f}",
-            f"RMSE: {RMSE:.{report_ndigits}f}",
-            f"MaxError: {MaxError:.{report_ndigits}f}",
-            f"R2: {R2:.{report_ndigits}f}",
+            report_title + " " + model_name + _scale_note,
+            f"MAE: {_fmt(MAE, report_ndigits)}",
+            f"RMSE: {_fmt(RMSE, report_ndigits)}",
+            f"MaxError: {_fmt(MaxError, report_ndigits)}",
+            f"R2: {_fmt(R2, report_ndigits)}",
         ]
         if _residual_audit is not None:
             from .regression_residual_audit import (

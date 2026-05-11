@@ -4004,14 +4004,12 @@ class CompositeTargetDiscovery:
                         if reject_on_drift:
                             drift_dropped.append((s.name, float(z)))
                             continue
+                        # I4 fix (2026-05-11): demote inline warning to DEBUG. Many drift-detected specs are subsequently rejected by the raw-y baseline gate / Wilcoxon filter; emitting a WARNING for each one before the gate produces dead-noise. A summary WARNING is emitted at the end of discovery ONLY for specs that survived all gates.
                         else:
-                            logger.warning(
+                            logger.debug(
                                 "[CompositeTargetDiscovery] alpha drift "
-                                "detected for spec=%s (alpha first-half="
-                                "%.4f, second-half=%.4f, z=%.2f > %.2f). "
-                                "Concept drift -- LR may underperform on "
-                                "test. Set reject_on_alpha_drift=True to "
-                                "drop automatically.",
+                                "candidate spec=%s (alpha first-half="
+                                "%.4f, second-half=%.4f, z=%.2f > %.2f).",
                                 s.name, a1, a2, z, drift_threshold,
                             )
                     drift_kept.append(s)
@@ -4115,6 +4113,35 @@ class CompositeTargetDiscovery:
             "from %d candidate(s) in %.2fs",
             target_col, len(kept_specs), len(candidates), elapsed,
         )
+
+        # I4 emit (2026-05-11): alpha-drift WARNINGs only for the SURVIVING specs. Earlier inline emits were demoted to DEBUG so the user sees a single, actionable warning at the end of discovery rather than a wall of warnings for specs that the raw-y baseline gate / Wilcoxon filter dropped anyway.
+        _drift_flags = getattr(self, "_alpha_drift_flags", {})
+        if _drift_flags and kept_specs:
+            _drift_threshold = float(getattr(
+                self.config, "alpha_drift_z_threshold", 3.0,
+            ))
+            _surviving_drift = [
+                (s.name, _drift_flags[s.name])
+                for s in kept_specs
+                if s.name in _drift_flags
+                and _drift_flags[s.name].get("z_score", 0.0) > _drift_threshold
+            ]
+            if _surviving_drift:
+                for _spec_name, _info in _surviving_drift:
+                    logger.warning(
+                        "[CompositeTargetDiscovery] alpha drift "
+                        "detected for KEPT spec=%s (alpha first-half="
+                        "%.4f, second-half=%.4f, z=%.2f > %.2f). "
+                        "Concept drift -- linear_residual may "
+                        "underperform on test. Set "
+                        "reject_on_alpha_drift=True in "
+                        "CompositeTargetDiscoveryConfig to drop "
+                        "automatically.",
+                        _spec_name,
+                        _info["alpha_first_half"],
+                        _info["alpha_second_half"],
+                        _info["z_score"], _drift_threshold,
+                    )
 
         # Bookkeeping. (target_col + df_ref + train_idx already stashed.)
         self.specs_ = kept_specs
@@ -5252,19 +5279,21 @@ class CompositeTargetDiscovery:
         # Trim to top-M.
         top_m = max(1, self.config.top_m_after_tiny)
         reranked = reranked[:top_m]
-        # Logging: show the rerank effect.
+        # Logging: show the rerank effect. The "top-%d" label reflects the ACTUAL length of the survivor set (which may be smaller than ``top_m`` after the raw-y baseline gate / Wilcoxon filter), not the configured target -- the previous "top-3" message that listed 1 spec was a confusing off-by-N (B4 fix, 2026-05-11).
         original_top = [s.name for s in kept_specs[: top_m]]
         new_top = [s.name for s in reranked]
         if original_top != new_top:
             logger.info(
-                "[CompositeTargetDiscovery] tiny-model rerank changed top-%d. "
-                "Before (by mi_gain): %s. After (by CV-RMSE on y-scale): %s.",
-                top_m, original_top, new_top,
+                "[CompositeTargetDiscovery] tiny-model rerank changed top-%d "
+                "(configured top_m=%d). Before (by mi_gain): %s. "
+                "After (by CV-RMSE on y-scale): %s.",
+                len(new_top), top_m, original_top, new_top,
             )
         else:
             logger.info(
-                "[CompositeTargetDiscovery] tiny-model rerank confirmed top-%d "
-                "from MI ranking: %s.", top_m, new_top,
+                "[CompositeTargetDiscovery] tiny-model rerank kept %d spec(s) "
+                "(configured top_m=%d): %s.",
+                len(new_top), top_m, new_top,
             )
         return reranked
 

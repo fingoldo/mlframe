@@ -2255,6 +2255,9 @@ def train_mlframe_models_suite(
     hyperparams_config = _ensure_config(hyperparams_config, ModelHyperparamsConfig, {})
     behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
     reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
+    # 2026-05-11 (user request): propagate the residual-audit toggle from behavior_config into the evaluation module so ``report_model_perf`` callers (which don't carry a behavior_config reference) honor the suite-level setting. Module-level override; subsequent stand-alone calls keep the historical default since the override only flips while a suite run is in progress.
+    from .evaluation import _set_residual_audit_enabled as _set_resid_audit
+    _set_resid_audit(getattr(behavior_config, "report_residual_audit", True))
     # 2026-05-10: honor ReportingConfig.plot_inline_display by setting
     # the process-wide MLFRAME_PLOT_INLINE_DISPLAY env var that
     # render_and_save consults. ``None`` = clear override (auto-detect
@@ -4995,15 +4998,29 @@ def train_mlframe_models_suite(
                         # preserving RAM when CB/XGB can run natively on polars.
                         # In mixed suites (cb+xgb+lgb) this fires once when
                         # lgb's iteration is reached.
+                        # B3 fix (2026-05-11): the previous message blamed the strategy ("non-Polars-native strategy CatBoostStrategy") but the strategy may BE polars-native; the actual trigger is that the polars frames were released earlier in the run (e.g. between targets). Two distinct cases now reported differently:
+                        #   (a) ``strategy.supports_polars`` is FALSE — really non-native (lgb, linear, etc.).
+                        #   (b) ``strategy.supports_polars`` is TRUE but ``train_df_polars`` was released — falling back to pandas because the polars originals are gone.
                         _logged_lazy_conv = False
                         for df_key in ("train_df", "val_df", "test_df"):
                             df_ = common_params.get(df_key)
                             if isinstance(df_, pl.DataFrame):
                                 if not _logged_lazy_conv and verbose:
+                                    if strategy.supports_polars:
+                                        _reason = (
+                                            "Polars originals released "
+                                            "(common_params still carries "
+                                            "polars frames; converting to "
+                                            "pandas for inner predict path)"
+                                        )
+                                    else:
+                                        _reason = (
+                                            f"non-Polars-native strategy "
+                                            f"{type(strategy).__name__}"
+                                        )
                                     logger.info(
-                                        "  Lazy pandas conversion triggered by non-Polars-native strategy "
-                                        "%s for %s",
-                                        type(strategy).__name__, mlframe_model_name,
+                                        "  Lazy pandas conversion for %s -- %s",
+                                        mlframe_model_name, _reason,
                                     )
                                     _logged_lazy_conv = True
                                 common_params[df_key] = get_pandas_view_of_polars_df(df_)
@@ -5463,31 +5480,22 @@ def train_mlframe_models_suite(
                     # CB+XGB. Cap the list to keep headers readable:
                     #   <=4 members -> "[cb+xgb+lgb]"
                     #   >4        -> "[N=5]" (avoid bloated titles)
+                    # 2026-05-11 (user request): delegate to the shared ``short_model_tag`` helper, which ALSO strips the internal shim suffixes (``WithDMatrixReuse`` / ``WithDatasetReuse``) so ``LinearRegression`` stays as ``LinearRegression`` in the label, but ``XGBRegressorWithDMatrixReuse`` collapses to ``xgb`` (was already correct for tree families via prefix match; this also handles any future shimmed non-tree class cleanly).
+                    from ._format import short_model_tag as _short_tag_fn
                     def _short_model_tag(ns):
-                        # ns is a SimpleNamespace from train_and_evaluate_model;
-                        # ns.model is the fitted estimator. Prefer a short tag
-                        # derived from the class name over the full class:
-                        # CatBoostClassifier -> cb, XGBClassifier -> xgb,
-                        # LGBMClassifier -> lgb, HistGradient... -> hgb.
-                        cls_name = type(getattr(ns, "model", ns)).__name__
-                        if cls_name.startswith("CatBoost"):
-                            return "cb"
-                        if cls_name.startswith("XGB"):
-                            return "xgb"
-                        if cls_name.startswith("LGBM"):
-                            return "lgb"
-                        if cls_name.startswith("HistGradient"):
-                            return "hgb"
-                        return cls_name
+                        return _short_tag_fn(getattr(ns, "model", ns))
                     _member_tags = [_short_model_tag(m) for m in ens_models]
                     if len(_member_tags) <= 4:
                         _members_label = "[" + "+".join(_member_tags) + "]"
                     else:
                         _members_label = f"[N={len(_member_tags)}]"
+                    # 2026-05-11 (user request): honour ``behavior_config.confidence_ensemble_quantile`` so users can disable the "Conf Ensemble" output entirely by setting the quantile to 0.0 -- previously hard-coded at the ``score_ensemble`` default 0.1 which produced 6 flavor x 2 split = 12 noisy log blocks per ensemble pass.
+                    _conf_q = float(getattr(behavior_config, "confidence_ensemble_quantile", 0.1))
                     _ensembles = score_ensemble(  # Result used for side effects (logging/metrics)
                         models_and_predictions=ens_models,
                         ensemble_name=f"{pre_pipeline_name}{_members_label} ",
                         n_features=ens_n_features,
+                        uncertainty_quantile=_conf_q,
                         **common_params,
                     )
 
@@ -5876,23 +5884,33 @@ def train_mlframe_models_suite(
                     # so the user sees the COMPARABLE numbers in the
                     # script output for each wrapped composite model.
                     if _entry_y_scores:
+                        from ._format import (
+                            format_metric as _fmt,
+                            strip_shim_suffix as _strip,
+                        )
                         _y_summary_parts: List[str] = []
                         for _split_name in ("train", "val", "test"):
                             _s = _entry_y_scores.get(_split_name)
                             if not _s:
                                 continue
                             _y_summary_parts.append(
-                                f"{_split_name.upper()}=RMSE_y:{_s['RMSE']:.4g} "
-                                f"MAE_y:{_s['MAE']:.4g} "
-                                f"R2_y:{_s.get('R2', float('nan')):.4g}"
+                                f"{_split_name.upper()}=RMSE_y:{_fmt(_s['RMSE'])} "
+                                f"MAE_y:{_fmt(_s['MAE'])} "
+                                f"R2_y:{_fmt(_s.get('R2', float('nan')), 4)}"
                             )
                         if _y_summary_parts:
+                            # B1 fix (2026-05-11): the previous ``getattr(_entry, 'model_name', '?')`` returned '?' whenever ``model_name`` was None / unset. Fall back to the inner model's class name (shim-stripped) so the log line is always useful for downstream grep.
+                            _mn = getattr(_entry, "model_name", None)
+                            if not _mn:
+                                _inner = getattr(_entry, "model", None) or _entry
+                                _mn = _strip(type(_inner).__name__)
+                            else:
+                                _mn = _strip(_mn)
                             logger.info(
                                 "[CompositeTargetEstimator] composite='%s' "
                                 "model='%s' y-scale metrics (post-inverse, "
                                 "comparable to raw): %s",
-                                _composite_name,
-                                getattr(_entry, "model_name", "?"),
+                                _composite_name, _mn,
                                 " | ".join(_y_summary_parts),
                             )
 
@@ -6041,17 +6059,17 @@ def train_mlframe_models_suite(
                     _y_train_for_rmse = np.asarray(_y_full_for_rmse)[filtered_train_idx]
                     for _comp, _name in zip(_components, _component_names):
                         try:
-                            # Reuse the train prediction cached during
-                            # the y-scale-metrics block above; skip
-                            # the predict call when the wrapper /
-                            # raw inner is already in cache.
-                            _pred = _train_pred_cache.get(id(_comp))
+                            # I1 fix (2026-05-11): cache key is the INNER model id, not the shim id. The wrap pass populated ``_train_pred_cache`` keyed by the wrapper / inner ``id()``; the ensemble pass builds NEW shim instances so ``id(_comp)`` never hits. Look up via the inner instead and only fall back to ``id(_comp)`` for safety.
+                            _inner_for_cache = getattr(_comp, "_model", _comp)
+                            _pred = _train_pred_cache.get(id(_inner_for_cache))
+                            if _pred is None:
+                                _pred = _train_pred_cache.get(id(_comp))
                             if _pred is None:
                                 _pred = np.asarray(
                                     _comp.predict(filtered_train_df),
                                     dtype=np.float64,
                                 ).reshape(-1)
-                                _train_pred_cache[id(_comp)] = _pred
+                                _train_pred_cache[id(_inner_for_cache)] = _pred
                             _diff = _pred - _y_train_for_rmse.astype(np.float64)
                             _component_train_rmses.append(
                                 float(np.sqrt(np.mean(_diff * _diff)))
@@ -6197,15 +6215,17 @@ def train_mlframe_models_suite(
                                 )
                             _pred_matrix_cols = []
                             for _comp, _name in zip(_oof_components, _oof_names):
-                                # Reuse cached train prediction
-                                # from the y-scale-metrics block.
-                                _pred = _train_pred_cache.get(id(_comp))
+                                # I1 (2026-05-11): inner-keyed cache lookup; see twin block above for the rationale. Shim-id keying never hit because shims are created per-pass.
+                                _inner_for_cache = getattr(_comp, "_model", _comp)
+                                _pred = _train_pred_cache.get(id(_inner_for_cache))
+                                if _pred is None:
+                                    _pred = _train_pred_cache.get(id(_comp))
                                 if _pred is None:
                                     _pred = np.asarray(
                                         _comp.predict(filtered_train_df),
                                         dtype=np.float64,
                                     ).reshape(-1)
-                                    _train_pred_cache[id(_comp)] = _pred
+                                    _train_pred_cache[id(_inner_for_cache)] = _pred
                                 _pred_matrix_cols.append(_pred)
                             _pred_matrix = np.column_stack(_pred_matrix_cols)
                         if _ce_strategy == "linear_stack":
@@ -6409,11 +6429,22 @@ def train_mlframe_models_suite(
                             _pm: _best_val,
                             "model_name": _best_name,
                         }
+            # B2 (2026-05-11): build composite->raw target map so the verdict block uses the raw target's dummy (median(y_raw) constant) as the true trivial baseline -- not the inverted-T fake baseline that uses fitted alpha.
+            _composite_to_raw: Dict[Tuple[str, str], str] = {}
+            for _tt_str, _by_tname in metadata.get(
+                "composite_target_specs", {}
+            ).items():
+                for _raw_tname, _spec_list in _by_tname.items():
+                    for _s in _spec_list or []:
+                        _comp_name = _s.get("name")
+                        if _comp_name:
+                            _composite_to_raw[(_tt_str, _comp_name)] = _raw_tname
             _summary_text = format_suite_end_summary(
                 dummy_baselines_metadata=metadata.get("dummy_baselines", {}),
                 failures_metadata=metadata.get("dummy_baselines_failures", {}),
                 best_model_metrics_by_target=_best_metrics if _best_metrics else None,
                 min_lift=dummy_baselines_config.best_model_min_lift,
+                composite_to_raw_target_map=_composite_to_raw if _composite_to_raw else None,
             )
             if _summary_text:
                 logger.info(_summary_text)

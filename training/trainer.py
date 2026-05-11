@@ -195,7 +195,16 @@ def _patch_dataset_constructors_with_logging() -> None:
                     shape_str = f"{shape[0]}x?"
                 else:
                     shape_str = "?x?"
-                logger.info(
+                # I3 fix (2026-05-11): demote composite-screening builds (typically tiny CV folds, < 50K rows) to DEBUG so 50+ log lines per discovery pass don't drown out the actually-useful build events on production-size datasets. Heuristic: callsite originates in the composite module OR row count below 50K.
+                _is_screening = (
+                    "composite" in (callsite or "")
+                    or (shape and shape[0] is not None and shape[0] < 50_000)
+                )
+                _level = (
+                    logging.DEBUG if _is_screening else logging.INFO
+                )
+                logger.log(
+                    _level,
                     "[dataset-build] %s shape=%s took=%.3fs site=%s",
                     label, shape_str, elapsed, callsite,
                 )
@@ -3578,7 +3587,9 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
 
 
 _BTTR_RE = re.compile(r"BTTR=(\d+%)")
-_MTTR_RE = re.compile(r"MTTR=(-?\d+\.\d+)")
+# C1 (2026-05-11): also match MTRESID= (the composite-target rename
+# from MTTR; same numeric format).
+_MTTR_RE = re.compile(r"(MTTR|MTRESID)=(-?\d+\.\d+)")
 _MLTR_RE = re.compile(r"MLTR=([\d,]+%)")
 
 
@@ -3633,9 +3644,19 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
     if mttr_match:
         if arr.ndim != 1:
             return model_name
-        train_val = mttr_match.group(1)
-        return _MTTR_RE.sub(f"MTTR/MT{short}={train_val}/{float(arr.mean()):.4f}",
-                            model_name, count=1)
+        _tag = mttr_match.group(1)         # "MTTR" or "MTRESID"
+        train_val = mttr_match.group(2)
+        # 2026-05-11 (user request): adaptive format -- 2 d.p. for typical magnitudes (MTV/MTTS for raw TVT ~ 11556), more decimals for tiny magnitudes (composite residual MTV ~ -1.17). The split-suffix carries the same tag prefix as train so composite shows ``MTRESID/MRV=...``, mirroring the existing BTTR/BTV / MTTR/MTV pattern.
+        from ._format import format_metric as _fmt
+        # Split-suffix: keep the trailing letter pair as-is (BTTR -> BTV, MTTR -> MTV); for MTRESID use MR* (MRV / MRTS) to stay under 8 chars on chart titles.
+        if _tag == "MTRESID":
+            _split_prefix = "MR"
+        else:
+            _split_prefix = "MT"
+        return _MTTR_RE.sub(
+            f"{_tag}/{_split_prefix}{short}={train_val}/{_fmt(float(arr.mean()))}",
+            model_name, count=1,
+        )
     mltr_match = _MLTR_RE.search(model_name)
     if mltr_match:
         if arr.ndim != 2 or arr.shape[0] == 0:
