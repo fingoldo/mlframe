@@ -1204,16 +1204,24 @@ def score_ensemble(
             _gate_source_split = _label
             break
 
-    # 2026-05-11 (user request): strip internal shim suffixes (``WithDMatrixReuse`` / ``WithDatasetReuse``) from member tags so the gate log line + downstream ensemble labels read ``XGBRegressor`` / ``LGBMRegressor`` -- the Pool/Dataset-reuse implementation detail is irrelevant to the reader.
-    from mlframe.training._format import strip_shim_suffix as _strip_shim
+    # 2026-05-11 (user request): TWO tag lists:
+    # 1. ``_ensemble_member_tags`` -- full (shim-stripped) class / model names for the per-member quality-gate log line (operators want to see which exact model class was excluded).
+    # 2. ``_ensemble_short_tags`` -- collapsed short tags (``cb`` / ``xgb`` / ``lgb`` / ``hgb`` / non-tree class name) for the rebuilt ensemble label after the gate. Without the short-collapse, the rebuilt label reads ``[CatBoostRegressor+XGBRegressor+LGBMRegressor]`` (38 chars) instead of ``[cb+xgb+lgb]`` (12 chars) -- bloated chart titles + breaks the original short-label contract from core.py.
+    from mlframe.training._format import (
+        short_model_tag as _short_tag,
+        strip_shim_suffix as _strip_shim,
+    )
     _ensemble_member_tags: List[str] = []
+    _ensemble_short_tags: List[str] = []
     for _m in level_models_and_predictions:
         _name_attr = getattr(_m, "model_name", None) or getattr(_m, "name", None)
+        _model_obj = getattr(_m, "model", _m)
         if _name_attr:
             _ensemble_member_tags.append(_strip_shim(str(_name_attr)))
         else:
-            _model_obj = getattr(_m, "model", _m)
             _ensemble_member_tags.append(_strip_shim(type(_model_obj).__name__))
+        # F2 fix (2026-05-11): short-tag ALWAYS derived from the underlying CLASS, not from ``model_name`` which carries augmentations like ``"TVT MTTR=11497.66"`` that would defeat the startswith() prefix checks (``startswith("CatBoost")`` etc.).
+        _ensemble_short_tags.append(_short_tag(_model_obj))
 
     if _gate_preds_for_check is not None and len(_gate_preds_for_check) > 2:
         _kept_idx, _excluded, _gate_stats = compute_member_quality_gate(
@@ -1265,7 +1273,8 @@ def score_ensemble(
             # from the surviving tag list using the same caller-side
             # format ([cb+xgb+lgb] for <=4, [N=K] otherwise).
             try:
-                _kept_tags = [_ensemble_member_tags[i] for i in _kept_idx]
+                # F2 fix (2026-05-11): use the SHORT tag list (cb / xgb / lgb / ...) for the rebuilt ensemble label rather than the full class names; matches the original short-label contract from core.py:5483 and keeps chart titles compact.
+                _kept_tags = [_ensemble_short_tags[i] for i in _kept_idx]
                 _re_label = ("[" + "+".join(_kept_tags) + "]"
                              if len(_kept_tags) <= 4
                              else f"[N={len(_kept_tags)}]")

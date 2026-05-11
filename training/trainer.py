@@ -4932,12 +4932,13 @@ def _configure_mlp_params(
             "(lightning + torchmetrics). Install via "
             "``pip install mlframe[neural]`` or omit ``mlp`` from mlframe_models."
         )
+    # 2026-05-11 (user feedback): default architecture trimmed. Previous (nlayers=20, ratio=1.5) generated a 14-layer monster like 100->66->44->29->19->13->8->5->3->2->1->1->1 -- absurd funnel that collapses representational capacity to 1 neuron by mid-network. New defaults: nlayers=4 + ratio=2.0 -> 128->64->32->16->1, a classic shallow tabular MLP. Caller can still override via mlp_kwargs["network_params"] when a different topology is needed.
     mlp_network_params = dict(
-        nlayers=20,
-        first_layer_num_neurons=100,
-        min_layer_neurons=1,
+        nlayers=4,
+        first_layer_num_neurons=128,
+        min_layer_neurons=16,
         neurons_by_layer_arch=_arch_cls.Declining,
-        consec_layers_neurons_ratio=1.5,
+        consec_layers_neurons_ratio=2.0,
         activation_function=torch.nn.LeakyReLU,
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
         dropout_prob=0.15,
@@ -4954,6 +4955,10 @@ def _configure_mlp_params(
         mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()
         mlp_general_params["datamodule_params"]["labels_dtype"] = torch.float32
         mlp_model = _reg_cls(network_params=mlp_network_params, **mlp_general_params)
+        # F1 fix (2026-05-11): wrap regression MLP in ``TransformedTargetRegressor`` so the target is auto-standardised at fit-time and inverse-scaled at predict-time. Without this, a kaiming-init network outputs ~0 at init and a target with mean=11500 takes many epochs to learn just the constant offset; the 2026-05-11 TVT run showed MLP predicting ~0 against target mean=11497 after 30 min of training (val_MSE=11559 ~= target_var). Sklearn TransformedTargetRegressor is the standard sklearn pattern; predictions returned from .predict() are on the ORIGINAL y-scale so downstream code is unchanged.
+        from sklearn.compose import TransformedTargetRegressor
+        from sklearn.preprocessing import StandardScaler
+        mlp_model = TransformedTargetRegressor(regressor=mlp_model, transformer=StandardScaler())
     else:
         # 2026-05-07: target-type-aware loss / dtype / task_type for multi-*
         # classification. Strategy method returns the dispatch dict;

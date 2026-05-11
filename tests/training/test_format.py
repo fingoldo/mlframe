@@ -33,8 +33,11 @@ class TestFormatMetric:
         (0.05, "0.050"),        # 1 leading zero, ndigits=2 -> 3 d.p.
         (0.0034, "0.0034"),     # 2 leading zeros -> 4 d.p.
         (0.00034, "0.00034"),   # 3 leading zeros -> 5 d.p.
-        # Very small values still produce a meaningful string.
-        (1.23e-5, "0.000012"),  # 4 leading zeros -> 6 d.p., rounded
+        # Very small values switch to scientific notation (F4 fix 2026-05-11): above 4 leading zeros, decimal widening produces unreadable ".000000029"; sci notation is cleaner.
+        (1.23e-5, "0.000012"),  # 4 leading zeros -> 6 d.p., still decimal (boundary)
+        (2.9e-8, "2.90e-08"),   # 7 leading zeros -> switch to sci
+        (1e-12, "1.00e-12"),    # extreme -> sci
+        (-2.9e-8, "-2.90e-08"), # negative tiny -> sci
         # Edge cases.
         (float("inf"), "inf"),
         (float("-inf"), "-inf"),

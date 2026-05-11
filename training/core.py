@@ -5899,11 +5899,12 @@ def train_mlframe_models_suite(
                                 f"R2_y:{_fmt(_s.get('R2', float('nan')), 4)}"
                             )
                         if _y_summary_parts:
-                            # B1 fix (2026-05-11): the previous ``getattr(_entry, 'model_name', '?')`` returned '?' whenever ``model_name`` was None / unset. Fall back to the inner model's class name (shim-stripped) so the log line is always useful for downstream grep.
+                            # B1-v2 fix (2026-05-11): drill into the WRAPPED model. After wrapping, ``_entry.model`` IS the CompositeTargetEstimator -- using its type name in the log gives the unhelpful ``model='CompositeTargetEstimator'`` (5 entries in a row, all identical). Look one level deeper at ``_entry.model.base_estimator`` (the actual inner cb / xgb / lgb / linear / mlp) for the diagnostic name.
                             _mn = getattr(_entry, "model_name", None)
                             if not _mn:
-                                _inner = getattr(_entry, "model", None) or _entry
-                                _mn = _strip(type(_inner).__name__)
+                                _outer = getattr(_entry, "model", None) or _entry
+                                _inner_actual = getattr(_outer, "base_estimator", None) or getattr(_outer, "estimator_", None) or _outer
+                                _mn = _strip(type(_inner_actual).__name__)
                             else:
                                 _mn = _strip(_mn)
                             logger.info(
