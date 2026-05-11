@@ -1266,6 +1266,115 @@ def _frac_diff_domain(
 
 
 # ----------------------------------------------------------------------
+# detect_time_column + sort_df_by_time (OPEN-3 from R10c follow-up; auto-sort for EWMA / rolling / frac_diff transforms which assume chronological row order).
+#
+# The time-series transforms (``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff``) silently produce semantically-wrong T when fed unordered rows -- the EWMA recursion + rolling window assume rows are in chronological order. Most datasets at the discovery stage are unsorted (sample / shuffled splits), so unconditional default would corrupt results. These helpers solve that.
+#
+# detect_time_column_candidates:
+# - Datetime-dtype columns are always candidates (highest score).
+# - Numeric columns are candidates if STRICTLY monotonic increasing (or decreasing) on the input order -- common pattern: row_id, timestamp-as-int, depth (well-log).
+# - Returns (col_name, info) ranked by signal strength.
+#
+# sort_df_by_time_column:
+# - Returns a copy of df with rows sorted by the chosen time column ASCENDING. Preserves index alignment so caller can map back. Polars / pandas aware.
+# ----------------------------------------------------------------------
+
+
+def detect_time_column_candidates(
+    df: Any,
+    *,
+    candidate_columns: Optional[Sequence[str]] = None,
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """Scan ``df`` for columns that look like chronological time keys (suitable for EWMA / rolling / frac_diff transforms that require ordered input).
+
+    Returns list of ``(column_name, info_dict)`` sorted by score descending. ``info_dict`` carries:
+    - ``dtype``: str, the source column dtype.
+    - ``is_datetime``: bool, True for datetime / timestamp dtypes.
+    - ``is_monotonic``: bool, True if strictly increasing OR strictly decreasing.
+    - ``monotonic_direction``: "asc" / "desc" / None.
+    - ``score``: float, datetime > monotonic numeric > nothing else.
+
+    Empty when no column qualifies.
+    """
+    if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
+        if candidate_columns is None:
+            candidate_columns = list(df.columns)
+        import polars as pl  # lazy
+        def get_col(c):
+            return df.get_column(c)
+        def get_dtype(c):
+            return str(df.schema[c])
+    elif isinstance(df, pd.DataFrame):
+        if candidate_columns is None:
+            candidate_columns = list(df.columns)
+        def get_col(c):
+            return df[c]
+        def get_dtype(c):
+            return str(df[c].dtype)
+    else:
+        raise TypeError(f"detect_time_column_candidates: unsupported df type {type(df).__name__}")
+
+    results: List[Tuple[str, Dict[str, Any]]] = []
+    for col in candidate_columns:
+        try:
+            dtype_str = get_dtype(col).lower()
+            series = get_col(col)
+        except Exception:
+            continue
+        is_datetime = ("datetime" in dtype_str
+                       or "timestamp" in dtype_str
+                       or dtype_str.startswith("date"))
+        info: Dict[str, Any] = {
+            "dtype": dtype_str,
+            "is_datetime": is_datetime,
+            "is_monotonic": False,
+            "monotonic_direction": None,
+            "score": 0.0,
+        }
+        if is_datetime:
+            info["score"] = 100.0
+            results.append((str(col), info))
+            continue
+        # Numeric: check monotonicity.
+        try:
+            if hasattr(series, "to_numpy"):
+                arr = series.to_numpy()
+            else:
+                arr = np.asarray(series)
+            arr = arr.astype(np.float64) if not np.issubdtype(arr.dtype, np.number) else arr
+        except (TypeError, ValueError):
+            continue
+        finite = np.isfinite(arr)
+        if finite.sum() < 2:
+            continue
+        diffs = np.diff(arr[finite])
+        if np.all(diffs > 0):
+            info["is_monotonic"] = True
+            info["monotonic_direction"] = "asc"
+            info["score"] = 50.0
+            results.append((str(col), info))
+        elif np.all(diffs < 0):
+            info["is_monotonic"] = True
+            info["monotonic_direction"] = "desc"
+            info["score"] = 50.0
+            results.append((str(col), info))
+    results.sort(key=lambda kv: kv[1]["score"], reverse=True)
+    return results
+
+
+def sort_df_by_time_column(df: Any, time_column: str, *, ascending: bool = True) -> Any:
+    """Return a copy of ``df`` sorted by ``time_column``. Polars / pandas aware. Original df is NOT mutated.
+
+    Required precondition for the time-series composite transforms (ewma_residual, rolling_quantile_ratio, frac_diff). Caller is responsible for keeping aligned arrays (y, base) in the SAME sort order.
+    """
+    if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
+        return df.sort(time_column, descending=not ascending)
+    if isinstance(df, pd.DataFrame):
+        return df.sort_values(by=time_column, ascending=ascending).reset_index(drop=True)
+    raise TypeError(f"sort_df_by_time_column: unsupported df type {type(df).__name__}")
+
+
+# ----------------------------------------------------------------------
 # detect_group_column (OPEN-2 from R10c follow-up; auto-detect a categorical column suitable for ``linear_residual_grouped``).
 #
 # Discovery doesn't currently know how to pick a ``group_column`` for the grouped residual transform -- callers configure it manually. This helper scans the dataframe and recommends column candidates that look like group keys (categorical, moderate cardinality, balanced sizes).
