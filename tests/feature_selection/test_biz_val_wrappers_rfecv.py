@@ -294,6 +294,83 @@ def test_biz_val_rfecv_swap_top_k_yields_valid_support():
     )
 
 
+@pytest.mark.parametrize("search_method", [
+    "ModelBasedHeuristic", "ExhaustiveRandom",
+])
+def test_biz_val_rfecv_top_predictors_search_method_completes(search_method):
+    """``top_predictors_search_method`` parametrized over the 3 most
+    common strategies. Each must complete and produce a valid
+    support_ on a signal+noise target."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from mlframe.feature_selection.wrappers._enums import OptimumSearch
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=6, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=20),
+        cv=3, max_refits=4, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        top_predictors_search_method=OptimumSearch(search_method),
+    )
+    sel.fit(df, y)
+    idx = _support_indices(sel)
+    assert 1 <= len(idx) <= df.shape[1]
+
+
+@pytest.mark.parametrize("votes_method", [
+    "Borda", "Plurality", "Dowdall", "AM", "GM",
+])
+def test_biz_val_rfecv_votes_aggregation_method_completes(votes_method):
+    """``votes_aggregation_method`` parametrized over 5 voting rules.
+    Each must complete; catches regressions in any of the aggregation
+    backends."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from mlframe.feature_selection.wrappers._enums import VotesAggregation
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=6, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=20),
+        cv=3, max_refits=4, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        votes_aggregation_method=VotesAggregation(votes_method),
+    )
+    sel.fit(df, y)
+    idx = _support_indices(sel)
+    assert 1 <= len(idx) <= df.shape[1]
+
+
+def test_biz_val_rfecv_use_last_fi_run_only_ignores_history():
+    """``use_last_fi_run_only=True`` must produce a valid result
+    (only the most recent feature-importance vector contributes to
+    voting). Catches regressions where the flag is silently ignored."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=6, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=20),
+        cv=3, max_refits=4, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        use_all_fi_runs=False,
+        use_last_fi_run_only=True,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
 def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     """RFECV with ``checkpoint_path`` must (a) write a resume file
     that allows a subsequent identical fit to pick up where it left

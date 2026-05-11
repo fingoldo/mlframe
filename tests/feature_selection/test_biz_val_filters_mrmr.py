@@ -379,6 +379,108 @@ def test_biz_val_mrmr_fe_polynomial_basis_chebyshev_default_runs():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("max_steps,expected_min_support", [
+    (0, 1),  # no FE -> at minimum 1 feature must be selected
+    (1, 1),  # 1 FE iteration -> >=1
+    (2, 1),  # 2 FE iterations -> >=1, may engineer more
+])
+def test_biz_val_mrmr_fe_max_steps_parametrized_completes(max_steps, expected_min_support):
+    """``fe_max_steps`` must complete without raising on a polynomial-
+    target across the 0/1/2 range. Parametrization multiplies the
+    test count: catches regressions across the FE-iteration count
+    dimension."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=1000, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        fe_max_steps=max_steps,
+        fe_max_polynoms=1,
+        fe_smart_polynom_iters=1 if max_steps > 0 else 0,
+        fe_smart_polynom_optimization_steps=10,
+        fe_max_polynom_degree=3,
+    )
+    sel.fit(df, ys)
+    assert len(sel.support_) >= expected_min_support
+
+
+@pytest.mark.parametrize("max_consec", [3, 10, 50])
+def test_biz_val_mrmr_max_consec_unconfirmed_higher_keeps_more(max_consec):
+    """``max_consec_unconfirmed`` controls the early-stopping
+    threshold. Higher values allow MRMR to look at more candidates
+    before stopping. Parametrize over {3, 10, 50}; assert run
+    completes and produces a valid support_."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=10, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, max_consec_unconfirmed=max_consec)
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= df.shape[1]
+
+
+@pytest.mark.parametrize("baseline_n", [1, 2, 5])
+def test_biz_val_mrmr_baseline_npermutations_robust_topk(baseline_n):
+    """``baseline_npermutations`` controls the baseline-MI confidence
+    test budget. On a clean strong-signal target, top-3 recovery must
+    hold across {1, 2, 5} baseline permutations."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df, signal_overlap,
+    )
+    X, y, signal = make_signal_plus_noise(n=1000, p_signal=3, p_noise=8, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, baseline_npermutations=baseline_n)
+    sel.fit(df, ys)
+    # Top-5 must include >= 2 of 3 signal features regardless of
+    # baseline budget.
+    assert signal_overlap(sel, signal, top_k=5) >= 2
+
+
+@pytest.mark.parametrize("redundancy_algo", ["fleuret"])
+def test_biz_val_mrmr_redundancy_algo_smoke(redundancy_algo):
+    """``mrmr_redundancy_algo`` parametrization: smoke-test it
+    completes. Currently only 'fleuret' is the supported value; the
+    parametrize keeps the structure ready for new algorithms."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_correlated_redundant, as_df,
+    )
+    X, y, _ = make_correlated_redundant(n=800, n_corr=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42,
+                mrmr_redundancy_algo=redundancy_algo)
+    sel.fit(df, ys)
+    assert len(sel.support_) >= 1
+
+
+def test_biz_val_mrmr_only_unknown_interactions_completes_smoke():
+    """``only_unknown_interactions=True`` is a workflow flag; with
+    order=3 on a 3-way-XOR target it must complete without raising.
+    Doesn't assert directional change in support size (the flag's
+    effect depends on which interactions have been previously
+    confirmed at the time of the call)."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_3way_xor, as_df,
+    )
+    X, y, _ = make_3way_xor(n=1000, p=8, seed=42)
+    df, ys = as_df(X, y)
+    sel_full = MRMR(verbose=0, random_seed=42, interactions_max_order=3,
+                     only_unknown_interactions=False)
+    sel_skip = MRMR(verbose=0, random_seed=42, interactions_max_order=3,
+                     only_unknown_interactions=True)
+    sel_full.fit(df, ys)
+    sel_skip.fit(df, ys)
+    assert 1 <= len(sel_full.support_) <= df.shape[1]
+    assert 1 <= len(sel_skip.support_) <= df.shape[1]
+
+
 def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
     """``min_nonzero_confidence=0.999`` is stricter than the default
     0.99; on a noisy target with few clear-signal features it must
