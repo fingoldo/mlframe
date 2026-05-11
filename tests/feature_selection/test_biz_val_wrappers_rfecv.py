@@ -730,6 +730,98 @@ def test_biz_val_rfecv_n_features_selection_rule_parametrize(n_features_rule):
     assert 1 <= len(_support_indices(sel)) <= df.shape[1]
 
 
+def test_biz_val_rfecv_property_no_crash_on_random_configs():
+    """Hypothesis property test: RFECV must complete cleanly across
+    a random sweep of (n, p_signal, p_noise, cv, seed)."""
+    hypothesis = pytest.importorskip("hypothesis")
+    from hypothesis import given, settings, strategies as st
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+
+    @given(
+        n=st.integers(min_value=300, max_value=500),
+        p_signal=st.integers(min_value=2, max_value=3),
+        p_noise=st.integers(min_value=2, max_value=5),
+        cv=st.integers(min_value=2, max_value=3),
+        seed=st.integers(min_value=0, max_value=50),
+    )
+    @settings(max_examples=5, deadline=None)
+    def _property(n, p_signal, p_noise, cv, seed):
+        X, y, _ = make_signal_plus_noise(
+            n=n, p_signal=p_signal, p_noise=p_noise, seed=seed,
+        )
+        df, _ys = as_df(X, y)
+        sel = RFECV(
+            estimator=RandomForestClassifier(random_state=seed, n_estimators=15),
+            cv=cv, max_refits=3, verbose=0, random_state=seed,
+            max_noimproving_iters=2,
+        )
+        sel.fit(df, y)
+        idx = _support_indices(sel)
+        assert 1 <= len(idx) <= df.shape[1]
+
+    _property()
+
+
+@pytest.mark.parametrize("leakage_thr", [0.85, 0.95, 0.99])
+def test_biz_val_rfecv_leakage_corr_threshold_parametrize(leakage_thr):
+    """``leakage_corr_threshold`` parametrize across the practical
+    range {0.85, 0.95, 0.99}. Each value must complete + leakage
+    column gets excluded."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=4, seed=42)
+    rng = np.random.default_rng(0)
+    leak = y.astype(np.float64) + 0.005 * rng.normal(size=len(y))
+    X_with_leak = np.column_stack([X, leak])
+    df = pd.DataFrame(X_with_leak, columns=[f"x{i}" for i in range(
+        X_with_leak.shape[1] - 1)] + ["leak"])
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        leakage_corr_threshold=leakage_thr,
+        leakage_action="exclude",
+    )
+    sel.fit(df, y)
+    selected_names = [df.columns[i] for i in _support_indices(sel)]
+    assert "leak" not in selected_names, (
+        f"leakage_corr_threshold={leakage_thr} + action='exclude' "
+        f"must keep leak out; got selected={selected_names}"
+    )
+
+
+@pytest.mark.parametrize("leakage_action", ["warn", "exclude"])
+def test_biz_val_rfecv_leakage_action_parametrize_completes(leakage_action):
+    """``leakage_action`` parametrize: warn / exclude both complete
+    without raising (raise would terminate, tested elsewhere)."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=4, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        leakage_corr_threshold=0.95,
+        leakage_action=leakage_action,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
 def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     """RFECV with ``checkpoint_path`` must (a) write a resume file
     that allows a subsequent identical fit to pick up where it left

@@ -823,6 +823,76 @@ def test_biz_val_mrmr_dtype_parametrize(dtype):
     assert 1 <= len(sel.support_) <= df.shape[1]
 
 
+def test_biz_val_mrmr_property_no_crash_on_random_configs():
+    """Hypothesis property test: MRMR must complete cleanly across
+    a random sweep of (n, p_signal, p_noise, seed) combinations. Each
+    example: small synthetic, default config; assert valid support_."""
+    hypothesis = pytest.importorskip("hypothesis")
+    from hypothesis import given, settings, strategies as st
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+
+    @given(
+        n=st.integers(min_value=300, max_value=800),
+        p_signal=st.integers(min_value=1, max_value=4),
+        p_noise=st.integers(min_value=2, max_value=8),
+        seed=st.integers(min_value=0, max_value=100),
+    )
+    @settings(max_examples=10, deadline=None)
+    def _property(n, p_signal, p_noise, seed):
+        X, y, _ = make_signal_plus_noise(
+            n=n, p_signal=p_signal, p_noise=p_noise, seed=seed,
+        )
+        df, ys = as_df(X, y)
+        sel = MRMR(verbose=0, random_seed=seed)
+        sel.fit(df, ys)
+        assert 1 <= len(sel.support_) <= df.shape[1]
+
+    _property()
+
+
+@pytest.mark.parametrize("target_type", ["regression"])
+def test_biz_val_mrmr_regression_target_completes(target_type):
+    """MRMR on a regression (continuous y) target must complete and
+    surface signal features. Catches regressions in the regression
+    code path."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    rng = np.random.default_rng(42)
+    n, p_signal, p_noise = 600, 3, 5
+    X_sig = rng.normal(size=(n, p_signal))
+    X_noise = rng.normal(size=(n, p_noise))
+    X = np.column_stack([X_sig, X_noise])
+    y = X_sig.sum(axis=1) + 0.3 * rng.normal(size=n)
+    df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p_signal + p_noise)])
+    ys = pd.Series(y, name="y")
+    sel = MRMR(verbose=0, random_seed=42)
+    sel.fit(df, ys)
+    # Regression: still expect signal features (0, 1, 2) in top-5
+    top5 = set(int(i) for i in sel.support_[:5])
+    overlap = top5 & {0, 1, 2}
+    assert len(overlap) >= 2, (
+        f"regression MRMR must surface >=2 signal features in top-5; "
+        f"got top5={top5}, overlap={overlap}"
+    )
+
+
+@pytest.mark.parametrize("min_occupancy", [None, 5, 10])
+def test_biz_val_mrmr_min_occupancy_parametrize(min_occupancy):
+    """``min_occupancy`` parametrize. Controls minimum cell occupancy
+    in the discretized joint histogram (rare-bin filter)."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, min_occupancy=min_occupancy)
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= df.shape[1]
+
+
 def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
     """``min_nonzero_confidence=0.999`` is stricter than the default
     0.99; on a noisy target with few clear-signal features it must
