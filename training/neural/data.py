@@ -55,18 +55,42 @@ class TorchDataset(Dataset):
         self.device = device
         self.batch_size = batch_size
 
-        # 2026-05-11 Wave 22: convert features to torch.Tensor ONCE in
-        # __init__ (was previously deferred to ``__getitem__`` for the CPU
-        # path). Per-batch type-check + dtype-coerce was ~38us per call ×
-        # 47k batches per fit = ~2s of wall-time noise on a 1M-row fit
-        # (verified on c0094 profile: ``__getitem__`` 2.0s tottime,
-        # ``_extract`` 1.0s tottime, both Python-glue not actual work).
-        # ``to_tensor_any`` handles all input types (torch.Tensor, ndarray,
-        # pd.DataFrame, pl.DataFrame) and is a zero-copy via from_numpy
-        # for the ndarray fastpath; the only allocation is for the
-        # DataFrame -> ndarray materialisation, which the legacy path also
-        # paid (just on every batch instead of once).
-        self.features = to_tensor_any(features, features_dtype, device)
+        # 2026-05-11 Wave 22: eliminate per-batch type-check chain.
+        # Previous code did ``isinstance(data, X)`` plus ``.to(dtype, device)``
+        # on EVERY ``__getitem__`` call (~38us/call × ~50k batches per fit
+        # = ~2s of wall-time noise, verified on c0094 profile).
+        # The CUDA-preload path already hoisted the conversion to
+        # ``__init__``; the CPU path didn't.
+        #
+        # Memory-safety: eager conversion to torch.Tensor copies the
+        # underlying buffer. For TYPICAL fits (<10M rows × 100 cols ~= 4GB)
+        # this is fine on a workstation. For HUGE frames (100GB+) the
+        # eager copy would OOM. We threshold on byte-size and fall back
+        # to the legacy per-batch conversion path when above the cap.
+        # Threshold is 2GB which is safely below any typical RAM budget
+        # AND well above the worst-case 10M-row × 100-col fit.
+        _EAGER_TENSOR_BYTES_CAP = 2 * 1024**3  # 2 GB
+        try:
+            _bytes_estimate = (
+                features.nbytes if hasattr(features, "nbytes")
+                else getattr(features, "estimated_size", lambda: 0)()
+                if hasattr(features, "estimated_size")
+                else 0
+            )
+        except Exception:
+            _bytes_estimate = 0
+        self._eager_features = (
+            isinstance(features, torch.Tensor)
+            or _bytes_estimate == 0  # unknown size, prefer eager (small frame)
+            or _bytes_estimate <= _EAGER_TENSOR_BYTES_CAP
+            or device == "cuda"  # CUDA path always eager (preload semantics)
+        )
+        if self._eager_features:
+            self.features = to_tensor_any(features, features_dtype, device)
+        else:
+            # Above-cap frame: keep original carrier; ``_extract`` will
+            # convert per batch (slow path, but memory-safe).
+            self.features = features
 
         # Handle labels (optional for prediction)
         if labels is not None:

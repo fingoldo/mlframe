@@ -110,6 +110,48 @@ If you find a bug that genuinely needs a copy, escalate — the user would
 rather ship a design change than accept an unconditional copy on a hot
 DataFrame path.
 
+### Caching and batching: use both, but never assume a frame fits in RAM (CRITICAL)
+
+Caching and batching are required optimization patterns in mlframe -- every
+new feature must consider both. **But remember that mlframe frames can
+reach 100+ GB.** Any cache / batch / eager-conversion design MUST be safe
+on a frame that does not fit in RAM (or VRAM):
+
+- **Caching**: prefer caching CHEAP-to-rebuild artefacts (signatures,
+  hashes, fitted-state snapshots, small derived arrays). Caching a
+  WHOLE frame is allowed ONLY when the carrier is the caller's own
+  reference (no extra copy) AND the cache key includes a content-based
+  signature so unrelated callers don't accidentally hit a stale entry.
+- **Batching**: use mini-batch / streaming iteration patterns when the
+  per-element cost is small (PyTorch DataLoader, polars LazyFrame,
+  sklearn `partial_fit`). Never materialise the whole frame into a
+  single contiguous buffer when batched access is sufficient.
+- **Eager conversion** (e.g. polars -> torch.Tensor, pandas ->
+  ndarray): always GATE on byte size. The mlframe convention:
+  - Frames under ~2 GB: eager-convert is OK -- removes per-batch
+    overhead, fits comfortably in any prod host's RAM.
+  - Frames above ~2 GB: keep the original carrier and pay the per-
+    batch type-check cost. The OOM avoidance outweighs the per-batch
+    µs overhead at this scale.
+  - Frames of unknown size: treat as small (most callers know their
+    data; the typical synthetic / small-test path has no `.nbytes`
+    attr and benefits from eager).
+- **Serialization / pickle**: never pickle a whole frame as part of an
+  optimization (e.g. for inter-process caching). Pickling 100 GB
+  doubles disk usage AND blocks for minutes. Use Arrow IPC if you
+  truly need cross-process data, but prefer in-process design.
+
+Concrete example (2026-05-11, Wave 22): ``TorchDataset.__init__``
+originally deferred tensor conversion to ``__getitem__`` (per-batch
+type-check + ``.to(dtype, device)``). The fix hoists conversion to
+``__init__`` to save ~67 s per 1M-row MLP fit -- BUT gated on byte
+size: above 2 GB the legacy per-batch path stays, so a 100 GB frame
+does not OOM the host.
+
+If a new feature needs caching/batching, sketch the byte-size gate
+BEFORE writing code. If you cannot easily estimate the worst-case
+size, ASK the user before shipping.
+
 ### Frame-type conversions are caller responsibility, NOT wrapper auto-magic
 
 Helpers / wrappers / estimators MUST NOT silently down-convert polars
