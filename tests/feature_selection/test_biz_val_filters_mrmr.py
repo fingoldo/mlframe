@@ -652,6 +652,87 @@ def test_biz_val_mrmr_factors_to_use_int_indices_restricts_search():
     )
 
 
+@pytest.mark.parametrize("cv_value", [2, 3, 5])
+def test_biz_val_mrmr_cv_int_parametrize_completes(cv_value):
+    """``cv`` integer parametrize {2, 3, 5} -- MRMR-internal CV folds."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, cv=cv_value)
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= df.shape[1]
+
+
+@pytest.mark.parametrize("cv_shuffle_flag", [True, False])
+def test_biz_val_mrmr_cv_shuffle_parametrize_completes(cv_shuffle_flag):
+    """``cv_shuffle`` toggle -- both must complete cleanly."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, cv_shuffle=cv_shuffle_flag)
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= df.shape[1]
+
+
+@pytest.mark.parametrize("max_veteranes_order", [1, 2])
+def test_biz_val_mrmr_max_veteranes_interactions_order_parametrize(max_veteranes_order):
+    """``max_veteranes_interactions_order`` parametrize. Controls
+    interaction order in redundancy-veteran evaluation."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_correlated_redundant, as_df,
+    )
+    X, y, _ = make_correlated_redundant(n=600, n_corr=3, p_noise=4, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42,
+                max_veteranes_interactions_order=max_veteranes_order)
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= df.shape[1]
+
+
+@pytest.mark.parametrize("fe_min_pair_prev", [1.0, 1.05, 1.5])
+def test_biz_val_mrmr_fe_min_pair_mi_prevalence_parametrize(fe_min_pair_prev):
+    """``fe_min_pair_mi_prevalence`` controls how much a pair's MI
+    must exceed the sum of individual MIs to be considered for FE."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        fe_max_steps=1, fe_max_polynoms=1,
+        fe_min_pair_mi_prevalence=fe_min_pair_prev,
+    )
+    sel.fit(df, ys)
+    assert len(sel.support_) >= 1
+
+
+@pytest.mark.parametrize("min_pair_mi", [0.0001, 0.001, 0.01])
+def test_biz_val_mrmr_fe_min_pair_mi_parametrize(min_pair_mi):
+    """``fe_min_pair_mi`` (absolute MI floor for pair consideration)."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        fe_max_steps=1, fe_max_polynoms=1,
+        fe_min_pair_mi=min_pair_mi,
+    )
+    sel.fit(df, ys)
+    assert len(sel.support_) >= 1
+
+
 def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
     """``min_nonzero_confidence=0.999`` is stricter than the default
     0.99; on a noisy target with few clear-signal features it must

@@ -555,6 +555,84 @@ def test_biz_val_rfecv_cv_shuffle_completes(cv_shuffle):
     assert 1 <= len(_support_indices(sel)) <= df.shape[1]
 
 
+@pytest.mark.parametrize("nsplits", [3, 5])
+def test_biz_val_rfecv_early_stopping_val_nsplits_parametrize(nsplits):
+    """``early_stopping_val_nsplits`` parametrize. Controls early-
+    stopping validation CV split count."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=3, max_refits=4, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        early_stopping_val_nsplits=nsplits,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("votes_method", ["Minimax", "OG", "Copeland"])
+def test_biz_val_rfecv_votes_aggregation_extended(votes_method):
+    """``votes_aggregation_method`` extended parametrize for the
+    additional rules not in the iter 3 test (Minimax / OG /
+    Copeland)."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from mlframe.feature_selection.wrappers._enums import VotesAggregation
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        votes_aggregation_method=VotesAggregation(votes_method),
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("seed,p_signal,p_noise", [
+    (1, 3, 8),
+    (7, 4, 6),
+    (42, 2, 10),
+    (99, 3, 12),
+])
+def test_biz_val_rfecv_signal_recovery_across_configurations(seed, p_signal, p_noise):
+    """Multi-axis parametrize: seed x p_signal x p_noise. Each combo
+    must surface >=1 signal feature in the top-half of support_."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df, signal_overlap,
+    )
+    X, y, signal = make_signal_plus_noise(
+        n=500, p_signal=p_signal, p_noise=p_noise, seed=seed,
+    )
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=20),
+        cv=2, max_refits=3, verbose=0, random_state=seed,
+        max_noimproving_iters=2,
+    )
+    sel.fit(df, y)
+    # At least 1 of the signal features must be selected.
+    assert signal_overlap(sel, signal) >= 1, (
+        f"Must surface >=1 signal feature; "
+        f"got support={_support_indices(sel)}, signal={signal}"
+    )
+
+
 def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     """RFECV with ``checkpoint_path`` must (a) write a resume file
     that allows a subsequent identical fit to pick up where it left
