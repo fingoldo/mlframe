@@ -310,3 +310,123 @@ class TestBizValueMultiBaseBeatsSingle:
         T = multi.forward(y, base, p)
         y_back = multi.inverse(T, base, p)
         np.testing.assert_allclose(y, y_back, rtol=1e-7, atol=1e-7)
+
+
+# ---------------------------------------------------------------------------
+# Wrapper integration: CompositeTargetEstimator with multi-base
+# ---------------------------------------------------------------------------
+
+import pandas as pd
+import pytest
+
+lgb = pytest.importorskip("lightgbm")
+
+
+class TestCompositeTargetEstimatorMultiBase:
+    """``CompositeTargetEstimator`` fit/predict round-trip with
+    ``transform_name='linear_residual_multi'`` and the new
+    ``base_columns`` constructor argument."""
+
+    def _make_dataset(self, n: int = 800, seed: int = 0) -> tuple:
+        rng = np.random.default_rng(seed)
+        b1 = rng.normal(loc=10.0, scale=2.0, size=n)
+        b2 = rng.normal(loc=0.0, scale=3.0, size=n)
+        x_other = rng.normal(size=n)  # unrelated
+        y = 0.95 * b1 + 0.5 * b2 + 0.2 * x_other + rng.normal(scale=0.3, size=n)
+        df = pd.DataFrame({
+            "b1": b1, "b2": b2, "x_other": x_other,
+        })
+        return df, y
+
+    def test_fit_predict_round_trip(self) -> None:
+        from mlframe.training.composite import CompositeTargetEstimator
+        df, y = self._make_dataset(n=600)
+        # Hold out 100 rows for predict.
+        train_X = df.iloc[:500]
+        train_y = y[:500]
+        test_X = df.iloc[500:]
+        test_y = y[500:]
+        inner = lgb.LGBMRegressor(
+            n_estimators=50, num_leaves=15, verbose=-1, random_state=0,
+        )
+        wrap = CompositeTargetEstimator(
+            base_estimator=inner,
+            transform_name="linear_residual_multi",
+            base_columns=("b1", "b2"),
+            drop_invalid_rows=True,
+        )
+        wrap.fit(train_X, train_y)
+        preds = wrap.predict(test_X)
+        assert preds.shape == (len(test_X),)
+        assert np.all(np.isfinite(preds))
+        # Predictions in y-scale; RMSE should be a small fraction of
+        # train-y std (DGP noise is 0.3 + 0.2*x_other unmodelled by the
+        # transform but partially captured by inner; expect RMSE < 1.0
+        # on data with std ~ 3-5).
+        rmse = float(np.sqrt(np.mean((preds - test_y) ** 2)))
+        train_std = float(np.std(train_y))
+        assert rmse < train_std * 0.5, (
+            f"multi-base wrapper RMSE {rmse:.3f} should be << train-y "
+            f"std {train_std:.3f}"
+        )
+
+    def test_backcompat_base_column_singleton_path(self) -> None:
+        """Passing legacy ``base_column='b1'`` (single string) with
+        ``linear_residual_multi`` works: wrapper resolves it to a
+        one-element tuple internally."""
+        from mlframe.training.composite import CompositeTargetEstimator
+        df, y = self._make_dataset(n=400)
+        inner = lgb.LGBMRegressor(
+            n_estimators=30, num_leaves=7, verbose=-1, random_state=0,
+        )
+        wrap = CompositeTargetEstimator(
+            base_estimator=inner,
+            transform_name="linear_residual_multi",
+            base_column="b1",  # legacy single-column path
+        )
+        wrap.fit(df, y)
+        preds = wrap.predict(df)
+        assert preds.shape == (len(df),)
+        assert np.all(np.isfinite(preds))
+
+    def test_fit_requires_base_column_or_base_columns(self) -> None:
+        from mlframe.training.composite import CompositeTargetEstimator
+        df, y = self._make_dataset(n=200)
+        inner = lgb.LGBMRegressor(n_estimators=10, num_leaves=5, verbose=-1)
+        # Neither base_column nor base_columns set.
+        wrap = CompositeTargetEstimator(
+            base_estimator=inner,
+            transform_name="linear_residual_multi",
+        )
+        with pytest.raises(ValueError, match="base_column.*base_columns"):
+            wrap.fit(df, y)
+
+    def test_multi_base_beats_single_base_on_two_factor_dgp(self) -> None:
+        """Biz_value: multi-base wrapper should produce lower test
+        RMSE than single-base on the same DGP where b2 carries
+        independent structural signal."""
+        from mlframe.training.composite import CompositeTargetEstimator
+        df, y = self._make_dataset(n=1200)
+        train_X, test_X = df.iloc[:1000], df.iloc[1000:]
+        train_y, test_y = y[:1000], y[1000:]
+
+        def _rmse(base_columns):
+            inner = lgb.LGBMRegressor(
+                n_estimators=80, num_leaves=15, verbose=-1, random_state=0,
+            )
+            wrap = CompositeTargetEstimator(
+                base_estimator=inner,
+                transform_name="linear_residual_multi",
+                base_columns=base_columns,
+            )
+            wrap.fit(train_X, train_y)
+            preds = wrap.predict(test_X)
+            return float(np.sqrt(np.mean((preds - test_y) ** 2)))
+
+        rmse_single = _rmse(("b1",))
+        rmse_multi = _rmse(("b1", "b2"))
+        assert rmse_multi < rmse_single, (
+            f"multi-base must beat single-base on a DGP where b2 "
+            f"carries orthogonal signal; got single={rmse_single:.4f}, "
+            f"multi={rmse_multi:.4f}"
+        )

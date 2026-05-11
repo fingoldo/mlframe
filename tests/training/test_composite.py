@@ -82,7 +82,12 @@ def _positive_data(n: int = 200, seed: int = 0):
 
 class TestRegistry:
     def test_list_transforms_default_alphabetical(self) -> None:
-        assert list_transforms() == sorted(["diff", "ratio", "logratio", "linear_residual"])
+        # R10c (2026-05-11): registry expanded with ``linear_residual_multi``;
+        # additional brainstorm transforms will land in subsequent commits.
+        assert list_transforms() == sorted([
+            "diff", "ratio", "logratio",
+            "linear_residual", "linear_residual_multi",
+        ])
 
     def test_list_transforms_filters_by_tag(self) -> None:
         core = list_transforms(tags=frozenset({"core"}))

@@ -656,6 +656,29 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
     )
 
 
+def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
+    """Multi-column variant of :func:`_extract_base`.
+
+    Returns a 2-D ``(n, K)`` ndarray where K = ``len(base_columns)``.
+    For K=1 this is identical to ``_extract_base(...).reshape(-1, 1)``.
+    The K-column case is used by ``linear_residual_multi`` and any
+    future multi-base transform.
+
+    Same missing-column / unsupported-type semantics as
+    :func:`_extract_base`. Errors include the offending column name so
+    feature-selection drops are easy to diagnose.
+    """
+    if len(base_columns) == 0:
+        raise ValueError(
+            "CompositeTargetEstimator: base_columns is empty; multi-base "
+            "transforms require at least one base column."
+        )
+    cols = [_extract_base(X, c) for c in base_columns]
+    # ``_extract_base`` already coerces to float64 1-D arrays, so a
+    # plain column_stack is safe and avoids redundant astype calls.
+    return np.column_stack(cols)
+
+
 class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     """sklearn-compatible wrapper that fits an inner regressor on a
     transformed target and inverts at predict time.
@@ -715,10 +738,20 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         drop_invalid_rows: bool = True,
         runtime_stats_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         auto_variance_stabilise: bool = False,
+        base_columns: Optional[Sequence[str]] = None,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
         self.base_column = base_column
+        # R10c extension #1 (2026-05-11): multi-base support.
+        # ``base_columns`` is the canonical multi-column path used by
+        # ``linear_residual_multi`` and any future multi-base transform.
+        # When None and ``base_column`` is non-empty, falls back to a
+        # single-element tuple so legacy callers continue to work
+        # unchanged. When both are passed, ``base_columns`` wins (the
+        # single-column ``base_column`` is treated as a legacy alias
+        # for back-compat).
+        self.base_columns = base_columns
         self.fallback_predict = fallback_predict
         self.drop_invalid_rows = drop_invalid_rows
         # R10b improvement #8: when transform is ratio/logratio and
@@ -756,6 +789,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         transform_fitted_params: Dict[str, Any],
         y_train: np.ndarray,
         fallback_predict: str = "y_train_median",
+        base_columns: Optional[Sequence[str]] = None,
     ) -> "CompositeTargetEstimator":
         """Build a wrapper around an ALREADY-FITTED inner model.
 
@@ -797,6 +831,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             base_estimator=fitted_inner,
             transform_name=transform_name,
             base_column=base_column,
+            base_columns=base_columns,
             fallback_predict=fallback_predict,
             drop_invalid_rows=True,
         )
@@ -833,6 +868,33 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     # sklearn API
     # ------------------------------------------------------------------
 
+    def _resolve_base_columns(self) -> Tuple[str, ...]:
+        """Canonical multi-column form of ``base_columns`` / ``base_column``.
+
+        Priority order:
+        1. ``self.base_columns`` if non-None and non-empty (multi-base path).
+        2. ``self.base_column`` if non-empty (single-base legacy path,
+           wrapped as a one-tuple).
+        3. Empty tuple (caller config error -- callers must validate).
+
+        Returns a tuple so it is hashable + immutable + safe to ship
+        into ``fitted_params_`` / spec serialization.
+        """
+        if self.base_columns:
+            return tuple(self.base_columns)
+        if self.base_column:
+            return (self.base_column,)
+        return ()
+
+    def _extract_base_for_transform(
+        self, X: Any, base_columns: Tuple[str, ...],
+    ) -> np.ndarray:
+        """Pull base values; return 1-D when K=1 (so legacy transforms
+        with 1-D fit/forward/inverse keep working), 2-D when K>=2."""
+        if len(base_columns) == 1:
+            return _extract_base(X, base_columns[0])
+        return _extract_base_matrix(X, base_columns)
+
     def fit(
         self,
         X: Any,
@@ -842,12 +904,16 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     ) -> "CompositeTargetEstimator":
         if self.base_estimator is None:
             raise ValueError("CompositeTargetEstimator: base_estimator must not be None.")
-        if not self.base_column:
-            raise ValueError("CompositeTargetEstimator: base_column must be a non-empty string.")
+        base_columns = self._resolve_base_columns()
+        if not base_columns:
+            raise ValueError(
+                "CompositeTargetEstimator: either base_column (str) or "
+                "base_columns (sequence) must be supplied."
+            )
         transform = get_transform(self.transform_name)
 
         y_arr = _to_1d_numpy(y).astype(np.float64)
-        base_arr = _extract_base(X, self.base_column)
+        base_arr = self._extract_base_for_transform(X, base_columns)
         if len(y_arr) != len(base_arr):
             raise ValueError(
                 f"CompositeTargetEstimator.fit: y has {len(y_arr)} rows but X "
@@ -989,7 +1055,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         transform = get_transform(self.transform_name)
         params = self.fitted_params_
 
-        base_arr = _extract_base(X, self.base_column)
+        base_columns = self._resolve_base_columns()
+        base_arr = self._extract_base_for_transform(X, base_columns)
         # Domain check at predict: y is unknown, so we ask the transform
         # to gate on base-side conditions only (e.g. base > 0 for
         # logratio, |base| > 0 for ratio). The ``y=None`` sentinel is
@@ -1114,7 +1181,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
 
         transform = get_transform(self.transform_name)
         params = self.fitted_params_
-        base_arr = _extract_base(X, self.base_column)
+        base_columns = self._resolve_base_columns()
+        base_arr = self._extract_base_for_transform(X, base_columns)
 
         # Sign-flip guard for ratio: T < 0 and base < 0 produces
         # positive y; high T-quantile would swap to low y-quantile.
@@ -2203,6 +2271,13 @@ class CompositeSpec:
     mi_t: float
     valid_domain_frac: float
     n_train_rows: int
+    # R10c #1 (2026-05-11): multi-base extension. Empty tuple = legacy
+    # single-base spec (the ``base_column`` field above is authoritative).
+    # When ``len(extra_base_columns) >= 1`` the spec is multi-base; the
+    # full base list is ``(base_column,) + tuple(extra_base_columns)``
+    # and the wrapper materialises a (n, 1+len(extra)) matrix at
+    # predict time. Stored as a tuple so the dataclass remains frozen.
+    extra_base_columns: Tuple[str, ...] = ()
 
 
 def _extract_column_array(df: Any, col: str) -> np.ndarray:
