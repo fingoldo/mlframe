@@ -58,6 +58,9 @@ from .utils import (  # noqa: F401
     _initialize_training_defaults,
     _finalize_and_save_metadata,
     _maybe_dispatch_to_ltr_ranker_suite,
+    _log_cardinality_and_drift_snapshot,
+    _phase_auto_detect_feature_types,
+    _phase_fit_pipeline,
     _phase_load_and_preprocess,
     _phase_train_val_test_split,
 )

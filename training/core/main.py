@@ -147,6 +147,9 @@ from .utils import (
     _get_pipeline_components,
     _initialize_training_defaults,
     _maybe_dispatch_to_ltr_ranker_suite,
+    _log_cardinality_and_drift_snapshot,
+    _phase_auto_detect_feature_types,
+    _phase_fit_pipeline,
     _phase_load_and_preprocess,
     _phase_train_val_test_split,
     _setup_model_directories,
@@ -631,414 +634,61 @@ def train_mlframe_models_suite(
     del df
 
     # ==================================================================================
-    # 4. PIPELINE FITTING & TRANSFORMATION
+    # 4. PIPELINE FITTING & TRANSFORMATION (extracted 2026-05-12 into a helper)
     # ==================================================================================
-
-    t0_phase3 = timer()
-    if verbose:
-        log_phase("PHASE 3: Pipeline Fitting & Transformation")
-
-    # Track if input is Polars before pipeline transformation
-    was_polars_input = isinstance(train_df, pl.DataFrame)
-
-    # Resolve strategies once for subsequent polars-native gating (avoids redundant lookups).
-    _strategies_for_polars_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
-    all_models_polars_native = bool(_strategies_for_polars_check) and all(
-        s.supports_polars for s in _strategies_for_polars_check
-    )
-
-    # Auto-skip categorical encoding when all models handle categoricals natively.
-    # This avoids wasting time encoding columns that polars-native models don't need,
-    # and avoids the .clone() overhead for preserving pre-pipeline originals.
-    if was_polars_input and not pipeline_config.skip_categorical_encoding:
-        if all_models_polars_native:
-            pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
-            if verbose:
-                logger.info("  All models %s support Polars natively -- skipping categorical encoding in pipeline", mlframe_models)
-
-    # 2026-04-24 (fuzz extension): datetime columns must be decomposed
-    # BEFORE the pre-pipeline clone, otherwise ``train_df_polars_pre`` and
-    # friends retain the raw datetime and reach downstream (linear
-    # pre_pipeline, MRMR, sklearn encoders, CB Pool) where numpy /
-    # sklearn / CB all raise on DateTime64DType. Decompose once here
-    # via the canonical ``create_date_features`` helper -- same
-    # treatment we'd apply inside fit_and_transform_pipeline, just
-    # lifted earlier so the clone inherits the decomposition.
-    import numpy as _np_dt
-    def _detect_datetime_cols(df_):
-        if df_ is None:
-            return []
-        if isinstance(df_, pl.DataFrame):
-            return [name for name, dt in df_.schema.items()
-                    if isinstance(dt, (pl.Datetime, pl.Date))]
-        if hasattr(df_, "dtypes"):
-            return [c for c in df_.columns
-                    if pd.api.types.is_datetime64_any_dtype(df_[c])]
-        return []
-
-    _dt_cols = _detect_datetime_cols(train_df)
-    if _dt_cols:
-        from mlframe.feature_engineering.basic import create_date_features
-        _dt_methods = {
-            "day": _np_dt.int8,
-            "weekday": _np_dt.int8,
-            "month": _np_dt.int8,
-            "hour": _np_dt.int8,
-        }
-        if verbose:
-            logger.info(
-                "Decomposing %d datetime column(s) into numeric features "
-                "(day/weekday/month/hour) before pre-pipeline clone: %s",
-                len(_dt_cols), _dt_cols,
-            )
-        train_df = create_date_features(
-            train_df, cols=_dt_cols, delete_original_cols=True,
-            methods=_dt_methods,
-        )
-        if val_df is not None:
-            v_cols = [c for c in _dt_cols if c in val_df.columns]
-            if v_cols:
-                val_df = create_date_features(
-                    val_df, cols=v_cols, delete_original_cols=True,
-                    methods=_dt_methods,
-                )
-        if test_df is not None:
-            t_cols = [c for c in _dt_cols if c in test_df.columns]
-            if t_cols:
-                test_df = create_date_features(
-                    test_df, cols=t_cols, delete_original_cols=True,
-                    methods=_dt_methods,
-                )
-
-    # Save pre-pipeline Polars originals for the Polars fastpath.
-    # Only clone when the pipeline will actually modify categorical columns;
-    # when skip_categorical_encoding=True the pipeline preserves dtypes so the
-    # original DF reference is sufficient (B1 optimization -- saves 100GB+ clone).
-    needs_polars_pre_clone = (
-        was_polars_input
-        and not pipeline_config.skip_categorical_encoding
-        and pipeline_config.categorical_encoding is not None
-    )
-    if was_polars_input:
-        if needs_polars_pre_clone:
-            train_df_polars_pre = train_df.clone()
-            val_df_polars_pre = val_df.clone() if isinstance(val_df, pl.DataFrame) else None
-            test_df_polars_pre = test_df.clone() if isinstance(test_df, pl.DataFrame) else None
-            if verbose:
-                logger.info(f"  Cloned pre-pipeline Polars originals (pipeline will modify categoricals)")
-        else:
-            # No clone needed -- pipeline won't touch categoricals, reuse references
-            train_df_polars_pre = train_df
-            val_df_polars_pre = val_df if isinstance(val_df, pl.DataFrame) else None
-            test_df_polars_pre = test_df if isinstance(test_df, pl.DataFrame) else None
-            if verbose:
-                logger.info(f"  Skipped pre-pipeline clone (skip_categorical_encoding=True)")
-        cat_features_polars = get_polars_cat_columns(train_df)
-    else:
-        train_df_polars_pre = None
-        val_df_polars_pre = None
-        test_df_polars_pre = None
-        cat_features_polars = []
-
-    # Pass user-specified text/embedding features to exclude from encoding/scaling.
-    # Auto-detection happens later (after pipeline, when cat_features are known).
-    t0_fit_pipeline = timer()
-    train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
+    (
+        train_df, val_df, test_df,
+        pipeline, extensions_pipeline,
+        cat_features, cat_features_polars,
+        was_polars_input, all_models_polars_native, polars_pipeline_applied,
+        train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
+        pipeline_config, preprocessing_extensions,
+    ) = _phase_fit_pipeline(
         train_df=train_df,
         val_df=val_df,
         test_df=test_df,
-        config=pipeline_config,
-        ensure_float32=preprocessing_config.ensure_float32_dtypes,
+        mlframe_models=mlframe_models,
+        pipeline_config=pipeline_config,
+        preprocessing_config=preprocessing_config,
+        feature_types_config=feature_types_config,
+        preprocessing_extensions=preprocessing_extensions,
+        metadata=metadata,
         verbose=verbose,
-        text_features=feature_types_config.text_features,
-        embedding_features=feature_types_config.embedding_features,
     )
-    if verbose:
-        logger.info("  fit_and_transform_pipeline done in %s", _elapsed_str(t0_fit_pipeline))
-
-    # Track if Polars-ds pipeline was applied (to skip redundant pre_pipeline transforms later)
-    polars_pipeline_applied = was_polars_input and pipeline_config.prefer_polarsds and pipeline is not None
-
-    # Apply shared sklearn-based extensions (scaler override / poly / dim-reducer / ...).
-    # When preprocessing_extensions is None (default) this is a zero-cost noop and the
-    # Polars-native fastpath is preserved byte-for-byte.
-    if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
-        preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
-    t0_ext = timer()
-    train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
-        train_df, val_df, test_df, preprocessing_extensions, verbose=verbose,
-    )
-    if verbose and preprocessing_extensions is not None:
-        logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
-    if extensions_pipeline is not None:
-        # cat_features are materialised into numeric columns by the sklearn stack.
-        cat_features = []
-
-    metadata["pipeline"] = pipeline
-    metadata["extensions_pipeline"] = extensions_pipeline
-    metadata["cat_features"] = cat_features
-    metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
-
-    if verbose:
-        logger.info("  Pipeline done -- train: %s, cat_features: %s", _df_shape_str(train_df), cat_features or '(none)')
-        # Only emit the Polars-side list when it actually differs from the
-        # post-pipeline list — when the polars fastpath skips encoding the two
-        # are identical and the second log line is pure noise (one user's log
-        # had 23 names duplicated back-to-back).
-        if was_polars_input and cat_features_polars and list(cat_features_polars) != list(cat_features or []):
-            logger.info("  Pre-pipeline Polars cat_features: %s", cat_features_polars)
-        logger.info("  PHASE 3 total: %s", _elapsed_str(t0_phase3))
 
     # ==================================================================================
-    # 4.5. AUTO-DETECT TEXT & EMBEDDING FEATURES
+    # 4.5. AUTO-DETECT TEXT & EMBEDDING FEATURES (extracted 2026-05-12 into a helper)
     # ==================================================================================
-
-    # Use pre-pipeline DF for auto-detection (original dtypes preserved).
-    detect_df = train_df_polars_pre if was_polars_input else train_df
-    # Merge pipeline-detected and pre-pipeline Polars categorical columns
-    raw_cat_features = list(set((cat_features or []) + (cat_features_polars or [])))
-    # Honor ONLY strictly-user-declared pl.Categorical columns as already-assigned:
-    # the user explicitly marked them as categorical so they must not be promoted to
-    # text. pl.Utf8/String columns (which `cat_features_polars` also includes) and
-    # pipeline-detected string cats are eligible for text-promotion based on
-    # cardinality. `effective_cat_features` below removes promoted columns from the
-    # cat list so no column double-counts.
-    if was_polars_input:
-        user_polars_cats = [
-            c for c, dt in zip(detect_df.columns, detect_df.dtypes)
-            if dt == pl.Categorical
-        ]
-    else:
-        user_polars_cats = []
-    text_features, embedding_features, auto_high_card_drop = _auto_detect_feature_types(
-        detect_df, feature_types_config, user_polars_cats, verbose=verbose,
+    (
+        train_df, val_df, test_df,
+        train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
+        text_features, embedding_features, cat_features,
+        text_emb_set, _dropped_high_card_data,
+    ) = _phase_auto_detect_feature_types(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        train_df_polars_pre=train_df_polars_pre,
+        val_df_polars_pre=val_df_polars_pre,
+        test_df_polars_pre=test_df_polars_pre,
+        cat_features=cat_features,
+        cat_features_polars=cat_features_polars,
+        was_polars_input=was_polars_input,
+        all_models_polars_native=all_models_polars_native,
+        pipeline_config=pipeline_config,
+        feature_types_config=feature_types_config,
+        metadata=metadata,
+        verbose=verbose,
     )
-    # Fix 6 correction (2026-04-22): when ``use_text_features=False``,
-    # the detector populates ``auto_high_card_drop`` with columns that
-    # exceed the cardinality threshold. Leaving them as cat_features
-    # silently OOMs XGB's QuantileDMatrix (observed on prod 9_018_479-
-    # row x ``skills_text:2_063_092``-unique run 2026-04-22) and
-    # balloons CB's model artefact. Drop them from the train/val/test
-    # splits AND from ``raw_cat_features`` here so every downstream
-    # strategy sees the same reduced frame.
-    # 2026-05-10: capture pre-drop high-card column DATA so dummy_baselines
-    # per_group_mean can use these as group keys downstream. Tree models drop
-    # them to avoid XGB QuantileDMatrix OOM, but a simple groupby on the same
-    # column gives an excellent reference baseline (well_id with 600+ unique
-    # values for well-log regression, user_id for marketplace data, etc.).
-    _dropped_high_card_data = {}
-    if auto_high_card_drop:
-        for _col in auto_high_card_drop:
-            _col_frames = {}
-            for _label, _frame in (("train", train_df), ("val", val_df), ("test", test_df)):
-                if _frame is None:
-                    continue
-                _cols = _frame.columns if hasattr(_frame, "columns") else []
-                if _col not in _cols:
-                    continue
-                try:
-                    if isinstance(_frame, pl.DataFrame):
-                        _col_frames[_label] = _frame[_col].to_numpy()
-                    else:
-                        _col_frames[_label] = np.asarray(_frame[_col])
-                except Exception:
-                    continue
-            if _col_frames:
-                _dropped_high_card_data[_col] = _col_frames
-        train_df = _drop_cols_df(train_df, auto_high_card_drop)
-        val_df = _drop_cols_df(val_df, auto_high_card_drop)
-        test_df = _drop_cols_df(test_df, auto_high_card_drop)
-        if was_polars_input:
-            if train_df_polars_pre is not None:
-                train_df_polars_pre = _drop_cols_df(train_df_polars_pre, auto_high_card_drop)
-            if val_df_polars_pre is not None:
-                val_df_polars_pre = _drop_cols_df(val_df_polars_pre, auto_high_card_drop)
-            if test_df_polars_pre is not None:
-                test_df_polars_pre = _drop_cols_df(test_df_polars_pre, auto_high_card_drop)
-        raw_cat_features = [c for c in raw_cat_features if c not in auto_high_card_drop]
-        # Keep the metadata ``columns`` snapshot in sync with the
-        # reduced frame -- load-time schema diff (_validate_input_
-        # columns_against_metadata) uses this to filter serving df to
-        # the trained subset, so a stale list re-introduces the
-        # dropped column at inference and the model errors on shape.
-        metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
-    # Remove auto-detected text/embedding features from cat list (they're not categoricals)
-    text_emb_set = set(text_features) | set(embedding_features)
-    effective_cat_features = [c for c in raw_cat_features if c not in text_emb_set]
-    _validate_feature_type_exclusivity(text_features, embedding_features, effective_cat_features)
 
-    # CRITICAL: downstream code (select_target, strategy.build_pipeline, the CB
-    # pandas-fallback path in _train_model_with_fallback, etc.) must see the
-    # *deduplicated* list. Before this reassignment the unfiltered ``cat_features``
-    # still contained text-promoted columns like 'category' / 'skills_text', and
-    # CatBoost's pandas path then rejected the run with
-    #   "column 'category' has dtype 'category' but is not in cat_features list"
-    # -- the column was pd.Categorical in the pandas view (preserved from the
-    # original Polars schema) AND listed in text_features, so CB's Pool
-    # refused to accept it. Reassigning here flows the correct set to every
-    # downstream user via the single ``cat_features`` binding.
-    cat_features = effective_cat_features
-    # Keep metadata in sync with the post-detection cat_features list.
-    # ``metadata["cat_features"]`` was set to the un-filtered list at line
-    # 1999 (before auto-detection ran); without this re-sync, Fix 6's
-    # drop-list / text auto-promotion never propagates to the persisted
-    # metadata, so load-time schema validation and inference consumers
-    # see a stale cat_features list that includes already-removed
-    # high-cardinality columns (2026-04-22 regression caught by
-    # test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard).
-    metadata["cat_features"] = cat_features
-
-    # One-time Polars string->Categorical cast (shared across all models in the loop).
-    # XGBoost's arrow bridge rejects pl.Utf8/large_string ("KeyError: DataType(large_string)");
-    # HGB/LightGBM/CatBoost all prefer Categorical over raw strings when encoding is skipped.
-    # Exclude text/embedding features -- those must remain as raw strings for CatBoost text/emb handling.
-    if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding:
-        _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
-        _keep_as_string = text_emb_set
-        def _precast_strings(df):
-            if df is None:
-                return df
-            str_cols = [c for c, dt in zip(df.columns, df.dtypes)
-                        if dt in _string_types and c not in _keep_as_string]
-            return df.with_columns([pl.col(c).cast(pl.Categorical) for c in str_cols]) if str_cols else df
-        _pre_train = _precast_strings(train_df)
-        if _pre_train is not train_df:
-            train_df = _pre_train
-            val_df = _precast_strings(val_df)
-            test_df = _precast_strings(test_df)
-            # Always cast the pre-pipeline Polars refs too: downstream Polars fastpath
-            # uses `train_df_polars_pre` as the model input, and without the cast XGBoost
-            # would hit `DataType(large_string)` again. Identity-based re-pointing is not
-            # sufficient -- a no-op pipeline may return a new object that is not `is` train_df.
-            train_df_polars_pre = _precast_strings(train_df_polars_pre)
-            val_df_polars_pre = _precast_strings(val_df_polars_pre)
-            test_df_polars_pre = _precast_strings(test_df_polars_pre)
-            if verbose:
-                logger.info("  Cast Polars string columns -> Categorical once (shared across model loop)")
-
-    if verbose and (text_features or embedding_features):
-        logger.info("  Feature types -- text: %s, embedding: %s, cat: %s", text_features, embedding_features, cat_features or '(none)')
-
-    # Pre-train cardinality + val/test drift snapshot.
-    #
-    # Cardinality: without this, a native XGB/CB crash on
-    # high-cardinality categoricals leaves us guessing at the input.
-    #
-    # Drift: for time-ordered splits (the common case here), val and
-    # test can contain category values that never appeared in train --
-    # XGB 3.x on Windows crashes silently during val IterativeDMatrix
-    # construction when this happens (observed 2026-04-20 on
-    # prod_jobsdetails). We compute ``val_minus_train`` /
-    # ``test_minus_train`` unseen-category counts here and emit a
-    # WARNING for any column with non-trivial drift, so the operator
-    # sees which column is the crash suspect BEFORE the kernel dies.
-    #
-    # Skip if cardinality > 100k (text-sized columns): the anti-join
-    # is expensive and unseen-category semantics don't cleanly apply
-    # to free-text columns (CB handles them via TF-IDF, XGB drops them).
+    # Pre-train cardinality + val/test drift snapshot (extracted to helper).
     if verbose:
-        all_cat_cols = list(cat_features or []) + list(text_features or []) + list(embedding_features or [])
-        if all_cat_cols and train_df is not None:
-            try:
-                _DRIFT_SKIP_CARD = 100_000
-                is_polars = isinstance(train_df, pl.DataFrame)
-                pairs = []
-                for c in all_cat_cols:
-                    if c not in train_df.columns:
-                        continue
-                    if is_polars:
-                        n_unique = train_df[c].n_unique()
-                    else:
-                        n_unique = int(train_df[c].nunique(dropna=False))
-                    pairs.append((c, n_unique))
-                pairs.sort(key=lambda x: -x[1])
-                summary = ", ".join(f"{c}:{n:_}" for c, n in pairs)
-                logger.info("  Categorical cardinalities (train, n_unique, desc): %s", summary)
-
-                # Drift log: val/test categories not seen in train.
-                if is_polars and val_df is not None and test_df is not None and val_df.height > 0:
-                    drift_rows = []
-                    for c, card_train in pairs:
-                        if card_train > _DRIFT_SKIP_CARD:
-                            continue  # text-sized, anti-join is expensive
-                        if c not in val_df.columns or c not in test_df.columns:
-                            continue
-                        # Polars anti-join gives count of uniques in {val|test} missing from train.
-                        tr_uniq = train_df.select(pl.col(c).drop_nulls().unique().alias(c))
-                        v_uniq  = val_df.select(pl.col(c).drop_nulls().unique().alias(c))
-                        te_uniq = test_df.select(pl.col(c).drop_nulls().unique().alias(c))
-                        val_only  = v_uniq.join(tr_uniq, on=c, how="anti").height
-                        test_only = te_uniq.join(tr_uniq, on=c, how="anti").height
-                        drift_rows.append((c, card_train, val_only, test_only))
-
-                    # Log all drift stats compactly; WARN on anything non-trivial.
-                    if drift_rows:
-                        drift_rows.sort(key=lambda x: -x[2])  # sort by val_only desc
-                        drift_summary = ", ".join(
-                            f"{c}:val_only={v},test_only={t}"
-                            for c, _, v, t in drift_rows if v > 0 or t > 0
-                        ) or "(none)"
-                        logger.info("  Category drift (val/test values missing from train): %s", drift_summary)
-
-                        # WARN for anything where val_only is a non-trivial
-                        # fraction of train cardinality -- suspect for XGB
-                        # val-DMatrix native crash.
-                        #
-                        # IMPORTANT: auto-healing decisions below rely on
-                        # ``v_only`` (val vs train) ONLY. ``t_only`` is
-                        # reported above for operator visibility but is NOT
-                        # used to choose an action -- using TEST to inform
-                        # any preprocessing decision leaks test information
-                        # into training. The suggested-action heuristics
-                        # therefore look exclusively at train-vs-val drift
-                        # and at train-side cardinality.
-                        for c, card_tr, v_only, t_only in drift_rows:
-                            if v_only == 0 and t_only == 0:
-                                continue
-                            v_frac = v_only / max(card_tr, 1)
-                            if v_only >= 5 or v_frac >= 0.05:
-                                # Pick a concrete healing suggestion based on
-                                # train-side cardinality only. Thresholds are
-                                # conservative and documented so operators can
-                                # reproduce or override them deliberately.
-                                if card_tr >= 1000:
-                                    _healing = (
-                                        f"        suggested actions (pick one):\n"
-                                        f"          a) hash-bucket via FeatureHasher / target-encoding "
-                                        f"(card {card_tr:_} >= 1 000 -> model will memorize train-only "
-                                        f"values and generalize poorly on val/test);\n"
-                                        f"          b) drop '{c}' from cat_features and keep only the "
-                                        f"top-K most frequent (K=100-300) as one-hot, route the rest "
-                                        f"into an '__OTHER__' bucket;\n"
-                                        f"          c) drop '{c}' entirely if it's an identifier or "
-                                        f"free-text field -- promote to text_features via use_text_features=True "
-                                        f"so CatBoost handles it natively and other backends ignore it."
-                                    )
-                                elif card_tr >= 100:
-                                    _healing = (
-                                        f"        suggested actions (pick one):\n"
-                                        f"          a) target-encoding (CatBoostEncoder) to collapse "
-                                        f"{card_tr:_} levels into a continuous feature;\n"
-                                        f"          b) keep top-K by train frequency, bucket the rest "
-                                        f"into '__OTHER__' before fit (K~=30-80)."
-                                    )
-                                else:
-                                    _healing = (
-                                        f"        suggested actions (pick one):\n"
-                                        f"          a) add an explicit '__UNSEEN__' bucket in the "
-                                        f"Enum domain so val values absent from train resolve to a "
-                                        f"known category instead of raising;\n"
-                                        f"          b) widen the training window (temporal split) so "
-                                        f"val_only categories are observed at fit time."
-                                    )
-                                logger.warning(
-                                    f"  Category drift suspect: {c} -- val has {v_only} categories "
-                                    f"({v_frac:.1%} of train card {card_tr:_}) that train never saw. "
-                                    f"XGB/CB may crash when constructing val DMatrix with ref=train.\n"
-                                    f"{_healing}"
-                                )
-            except Exception as _e:
-                logger.warning(f"  Failed to compute categorical cardinality/drift: {_e}")
+        _log_cardinality_and_drift_snapshot(
+            train_df=train_df, val_df=val_df, test_df=test_df,
+            cat_features=cat_features,
+            text_features=text_features,
+            embedding_features=embedding_features,
+        )
 
     metadata["text_features"] = text_features
     metadata["embedding_features"] = embedding_features

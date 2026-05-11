@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-05-12 (continued) — Phase 5c-d/e/f: 3 more orchestrator helpers extracted (pipeline-fit + auto-detect + drift snapshot)
+
+Three more extractions from `train_mlframe_models_suite`:
+
+4. **`_phase_fit_pipeline`** (Phase 3, ~150 LOC body): datetime decomposition
+   pre-clone, Polars pre-pipeline clone, `fit_and_transform_pipeline` +
+   `apply_preprocessing_extensions`, metadata mutation for
+   pipeline/extensions_pipeline/cat_features/columns. 15-tuple return.
+
+5. **`_phase_auto_detect_feature_types`** (Phase 3.5, ~140 LOC body):
+   pre-pipeline auto-detect of text + embedding columns, high-card drop with
+   pre-drop column-data capture (for dummy_baselines per_group_mean),
+   effective cat_features computation, one-time Polars string→Categorical
+   cast. 11-tuple return.
+
+6. **`_log_cardinality_and_drift_snapshot`** (~100 LOC body): pure-logging
+   helper -- pre-train cardinality summary + train-vs-val-vs-test category
+   drift via Polars anti-join + healing suggestion WARN keyed on train-side
+   cardinality. No return value, no mutation.
+
+`main.py` LOC: 4575 → 4225 (−350 across these 3 + the prior round of 3).
+Total since the Phase 5c start: 4843 → 4225 (−618). 435 composite + 74
+focused regression all pass.
+
+---
+
 ## 2026-05-12 (even-er later) — Phase 5c-b/c: orchestrator phase-helpers (load + split + common-params)
 
 Three more clean extractions from `train_mlframe_models_suite`:
