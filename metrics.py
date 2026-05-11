@@ -309,11 +309,18 @@ def prewarm_numba_cache():
     try:
         from mlframe.metrics import (
             gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores,
+            gpu_multiple_rmse_scores,
         )
         _yt_gpu = np.array([0, 1, 0, 1, 0, 1, 0, 1] * 16, dtype=np.int8)
         _yp_gpu = np.random.RandomState(0).rand(len(_yt_gpu), 3).astype(np.float64)
         _ = gpu_multiple_roc_auc_scores(_yt_gpu, _yp_gpu)
         _ = gpu_multiple_pr_auc_scores(_yt_gpu, _yp_gpu)
+        # gpu_multiple_rmse_scores: separate cupy kernel (ReductionKernel
+        # for the 2-D-actual fallback or numba.cuda for the 1-D fastpath).
+        # Each path's first call compiles a fresh NVRTC kernel; prewarming
+        # both signatures avoids the regression-suite cold-compile cost.
+        _yt_rmse = _yp_gpu[:, 0]  # 1-D path
+        _ = gpu_multiple_rmse_scores(_yt_rmse, _yp_gpu)
     except Exception:
         # cupy unavailable / CUDA missing / etc. -- non-fatal, the CPU
         # path keeps working.
