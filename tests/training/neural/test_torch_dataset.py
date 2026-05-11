@@ -134,12 +134,29 @@ class TestTorchDatasetInitialization:
         assert dataset.labels.device.type == 'cuda'
 
     def test_cpu_device_initialization(self, sample_numpy_data):
-        """Test initialization with CPU device (lazy loading)."""
+        """Test initialization with CPU device.
+
+        Pre-Wave-22 behavior: features kept as np.ndarray (lazy);
+        per-batch conversion in ``__getitem__``.
+
+        Wave 22 behavior: under the 2 GB byte cap, features are eager-
+        converted to a CPU torch.Tensor in ``__init__`` to eliminate
+        per-batch type-check overhead (~3x per-batch speedup on
+        pandas/polars). Above the cap, features stay in their original
+        carrier.
+
+        Sample data is tiny (well under 2 GB) so this test now asserts
+        the eager path fires. The lazy fallback for huge frames is
+        covered in ``test_torch_dataset_concurrency.TestByteCap``.
+        """
         features, labels = sample_numpy_data
         dataset = TorchDataset(features, labels, device=None)
 
-        # Features should NOT be converted yet (lazy)
-        assert isinstance(dataset.features, np.ndarray)
+        # Wave 22: small frames eager-convert at __init__.
+        assert isinstance(dataset.features, torch.Tensor)
+        assert dataset._eager_features is True
+        # Tensor stays on CPU (no device='cuda' arg).
+        assert dataset.features.device.type == "cpu"
 
     def test_labels_pandas_series(self):
         """Test labels as pandas Series."""
