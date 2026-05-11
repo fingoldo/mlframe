@@ -50,7 +50,7 @@ from sklearn.preprocessing import StandardScaler
 
 import category_encoders as ce
 
-from .configs import (
+from ..configs import (
     BaselineDiagnosticsConfig,
     CompositeTargetDiscoveryConfig,
     ConfidenceAnalysisConfig,
@@ -72,36 +72,36 @@ from .configs import (
     TrainingConfig,
     TrainingSplitConfig,
 )
-from .baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
-from .composite import CompositeTargetDiscovery
-from .drift_report import compute_label_distribution_drift, format_drift_report
-from .extractors import FeaturesAndTargetsExtractor
-from .helpers import (
+from ..baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
+from ..composite import CompositeTargetDiscovery
+from ..drift_report import compute_label_distribution_drift, format_drift_report
+from ..extractors import FeaturesAndTargetsExtractor
+from ..helpers import (
     get_trainset_features_stats,
     get_trainset_features_stats_polars,
 )
-from .io import load_mlframe_model
-from .models import LINEAR_MODEL_TYPES, is_linear_model
-from .phases import format_phase_summary, phase, reset_phase_registry
-from .pipeline import (
+from ..io import load_mlframe_model
+from ..models import LINEAR_MODEL_TYPES, is_linear_model
+from ..phases import format_phase_summary, phase, reset_phase_registry
+from ..pipeline import (
     apply_preprocessing_extensions,
     fit_and_transform_pipeline,
     prepare_df_for_catboost,
 )
-from .preprocessing import (
+from ..preprocessing import (
     create_split_dataframes,
     load_and_prepare_dataframe,
     preprocess_dataframe,
     save_split_artifacts,
 )
-from .splitting import make_train_test_split
-from .strategies import (
+from ..splitting import make_train_test_split
+from ..strategies import (
     PipelineCache,
     get_polars_cat_columns,
     get_strategy,
 )
-from .train_eval import process_model, select_target
-from .utils import (
+from ..train_eval import process_model, select_target
+from ..utils import (
     compute_model_input_fingerprint,
     drop_columns_from_dataframe,
     estimate_df_size_mb,
@@ -114,14 +114,14 @@ from .utils import (
 )
 from mlframe.feature_selection.filters import MRMR
 from mlframe.metrics import create_fairness_subgroups
-from ..ensembling import score_ensemble
+from ...ensembling import score_ensemble
 
 # All 27 leaf utility helpers + DEFAULT_PROBABILITY_THRESHOLD now live in
 # core_utils.py. The re-export shim at the bottom of this file makes them
 # available under the historical ``mlframe.training.core`` namespace, but
 # the train_mlframe_models_suite orchestrator below uses them directly via
 # this same core_utils import to avoid the forward-reference pitfall.
-from .core_utils import (
+from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     _apply_outlier_detection_global,
     _auto_detect_feature_types,
@@ -145,6 +145,7 @@ from .core_utils import (
     _finalize_and_save_metadata,
     _get_pipeline_components,
     _initialize_training_defaults,
+    _maybe_dispatch_to_ltr_ranker_suite,
     _setup_model_directories,
     _should_skip_catboost_metamodel,
     _validate_feature_type_exclusivity,
@@ -321,107 +322,26 @@ def train_mlframe_models_suite(
     # 2026-05-04: LTR opt-in early dispatch.
     # When ``target_type=TargetTypes.LEARNING_TO_RANK`` is explicit, route
     # to the focused ranker suite (CB/XGB/LGB native rankers + RRF/Borda
-    # ensembling). The standard classification/regression machinery
-    # below doesn't know how to consume per-row scores or per-query
-    # metrics, so we don't try to thread it through.
-    if target_type is not None and target_type == TargetTypes.LEARNING_TO_RANK:
-        from mlframe.training.ranker_suite import train_mlframe_ranker_suite
-
-        # Resolve a save_dir from output_config if available, else None.
-        _save_dir = None
-        if output_config is not None:
-            _data_dir = (
-                output_config.get("data_dir") if isinstance(output_config, dict)
-                else getattr(output_config, "data_dir", None)
-            )
-            _models_dir = (
-                output_config.get("models_dir") if isinstance(output_config, dict)
-                else getattr(output_config, "models_dir", None)
-            ) or "models"
-            if _data_dir:
-                _save_dir = os.path.join(_data_dir, _models_dir, model_name)
-
-        # Pull split sizes from split_config if provided.
-        _test_size, _val_size = 0.15, 0.15
-        if split_config is not None:
-            _test_size = (
-                split_config.get("test_size", 0.15) if isinstance(split_config, dict)
-                else getattr(split_config, "test_size", 0.15)
-            )
-            _val_size = (
-                split_config.get("val_size", 0.15) if isinstance(split_config, dict)
-                else getattr(split_config, "val_size", 0.15)
-            )
-
-        # Hyperparams from hyperparams_config if provided.
-        _iter, _lr, _es = 200, 0.1, 30
-        _mlp_kwargs = None
-        if hyperparams_config is not None:
-            _iter = (
-                hyperparams_config.get("iterations", 200) if isinstance(hyperparams_config, dict)
-                else getattr(hyperparams_config, "iterations", 200)
-            )
-            _lr = (
-                hyperparams_config.get("learning_rate", 0.1) if isinstance(hyperparams_config, dict)
-                else getattr(hyperparams_config, "learning_rate", 0.1)
-            )
-            _es = (
-                hyperparams_config.get("early_stopping_rounds", 30) if isinstance(hyperparams_config, dict)
-                else getattr(hyperparams_config, "early_stopping_rounds", 30)
-            )
-            # mlp_kwargs forwarded to MLPRanker.__init__ when LTR + 'mlp'
-            # is in mlframe_models. Mirrors the non-LTR mlp_kwargs path
-            # via _configure_mlp_params; users who want to flip
-            # enable_checkpointing, change hidden_layers, etc. for the
-            # ranker MLP should put those keys in
-            # ``hyperparams_config["mlp_kwargs"]``.
-            _mlp_kwargs = (
-                hyperparams_config.get("mlp_kwargs", None) if isinstance(hyperparams_config, dict)
-                else getattr(hyperparams_config, "mlp_kwargs", None)
-            )
-
-        # Reporting wiring (auto-emit LTR panel grid per (model, split)).
-        # Pull plot_outputs + ltr_panels from reporting_config and a
-        # base plot_file from output_config; passed through as no-op
-        # when any are missing.
-        _plot_outputs = None
-        _ltr_panels = None
-        if reporting_config is not None:
-            _plot_outputs = (
-                reporting_config.get("plot_outputs") if isinstance(reporting_config, dict)
-                else getattr(reporting_config, "plot_outputs", None)
-            )
-            _ltr_panels = (
-                reporting_config.get("ltr_panels") if isinstance(reporting_config, dict)
-                else getattr(reporting_config, "ltr_panels", None)
-            )
-        _plot_file = None
-        if output_config is not None:
-            _plot_file = (
-                output_config.get("plot_file") if isinstance(output_config, dict)
-                else getattr(output_config, "plot_file", None)
-            )
-
-        return train_mlframe_ranker_suite(
-            df=df,
-            target_name=target_name,
-            model_name=model_name,
-            features_and_targets_extractor=features_and_targets_extractor,
-            mlframe_models=mlframe_models,
-            use_mlframe_ensembles=use_mlframe_ensembles,
-            ranking_config=ranking_config,
-            test_size=_test_size,
-            val_size=_val_size,
-            iterations=_iter,
-            learning_rate=_lr,
-            early_stopping_rounds=_es,
-            save_dir=_save_dir,
-            verbose=verbose,
-            plot_file=_plot_file,
-            plot_outputs=_plot_outputs,
-            ltr_panels=_ltr_panels,
-            mlp_kwargs=_mlp_kwargs,
-        )
+    # ensembling). Helper returns ``None`` for non-LTR call sites; a
+    # non-None return means the LTR suite was invoked and we forward its
+    # result straight to the caller.
+    _ltr_result = _maybe_dispatch_to_ltr_ranker_suite(
+        target_type=target_type,
+        df=df,
+        target_name=target_name,
+        model_name=model_name,
+        features_and_targets_extractor=features_and_targets_extractor,
+        mlframe_models=mlframe_models,
+        use_mlframe_ensembles=use_mlframe_ensembles,
+        ranking_config=ranking_config,
+        split_config=split_config,
+        hyperparams_config=hyperparams_config,
+        reporting_config=reporting_config,
+        output_config=output_config,
+        verbose=verbose,
+    )
+    if _ltr_result is not None:
+        return _ltr_result
 
     # Validate required parameters
     if not target_name:
@@ -467,7 +387,7 @@ def train_mlframe_models_suite(
     behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
     reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
     # 2026-05-11 (user request): propagate the residual-audit toggle from behavior_config into the evaluation module so ``report_model_perf`` callers (which don't carry a behavior_config reference) honor the suite-level setting. Module-level override; subsequent stand-alone calls keep the historical default since the override only flips while a suite run is in progress.
-    from .evaluation import _set_residual_audit_enabled as _set_resid_audit
+    from ..evaluation import _set_residual_audit_enabled as _set_resid_audit
     _set_resid_audit(getattr(behavior_config, "report_residual_audit", True))
     # 2026-05-10: honor ReportingConfig.plot_inline_display by setting
     # the process-wide MLFRAME_PLOT_INLINE_DISPLAY env var that
@@ -502,7 +422,7 @@ def train_mlframe_models_suite(
     # afterwards. No-op when numba unavailable or dummy_baselines disabled.
     if dummy_baselines_config.enabled:
         try:
-            from .dummy_baselines import _warmup_numba_kernels
+            from ..dummy_baselines import _warmup_numba_kernels
             _warmup_numba_kernels()
         except Exception:
             pass
@@ -1579,7 +1499,7 @@ def train_mlframe_models_suite(
         # Snapshot env once per discovery run; persists on metadata
         # so a v2-loaded suite can detect numpy / sklearn / lgb / xgb
         # version drift between save time and load time.
-        from .composite import env_signature as _env_sig, detect_gpu_in_use as _detect_gpu
+        from ..composite import env_signature as _env_sig, detect_gpu_in_use as _detect_gpu
         metadata["composite_target_env_signature"] = _env_sig()
         # R10c bug #6 fix: GPU warning is now DEFERRED until after
         # discovery completes, so it only fires when ``K > 0`` (i.e.
@@ -1899,7 +1819,7 @@ def train_mlframe_models_suite(
                 # is biased but never propagates to predictions because
                 # the inverse layer (PR5) fills via y_train_median for
                 # those rows.
-                from .composite import get_transform as _get_transform_local
+                from ..composite import get_transform as _get_transform_local
                 for _spec in _disc.specs_:
                     _transform = _get_transform_local(_spec.transform_name)
                     _base_full = _build_full_column_from_splits(
@@ -2264,7 +2184,7 @@ def train_mlframe_models_suite(
         _audit_ts_col = _audit_ts_override
     if _audit_ts_col:
         try:
-            from .target_temporal_audit import (
+            from ..target_temporal_audit import (
                 audit_targets_over_time as _audit_targets_over_time,
                 format_temporal_audit_report as _format_temporal_audit_report,
                 plot_target_over_time as _plot_target_over_time,
@@ -2489,7 +2409,7 @@ def train_mlframe_models_suite(
                     if dummy_baselines_config.enabled and (
                         str(target_type) in dummy_baselines_config.apply_to_target_types
                     ):
-                        from .dummy_baselines import compute_dummy_baselines
+                        from ..dummy_baselines import compute_dummy_baselines
 
                         _ts_train = (
                             timestamps[filtered_train_idx]
@@ -2582,7 +2502,7 @@ def train_mlframe_models_suite(
                                     "plot_strongest", True)
                                 and _db_report.strongest is not None):
                             try:
-                                from .evaluation import report_model_perf
+                                from ..evaluation import report_model_perf
                                 _strongest_val_raw = _db_report.extras.get(
                                     "strongest_val_preds",
                                 )
@@ -2597,7 +2517,7 @@ def train_mlframe_models_suite(
                                 # the dummy gets the same suffix so the
                                 # operator can see which target / experiment
                                 # the scatter belongs to.
-                                from ._format import format_metric as _dummy_fmt
+                                from .._format import format_metric as _dummy_fmt
                                 _dummy_is_composite = (
                                     "__linear_residual__" in cur_target_name
                                     or "__linear_residual_multi__" in cur_target_name
@@ -2731,7 +2651,7 @@ def train_mlframe_models_suite(
                                 and _db_report.extras.get("strongest_val_preds")
                                 is not None):
                             try:
-                                from .composite import get_transform
+                                from ..composite import get_transform
                                 _tf = get_transform(
                                     _matching_spec["transform_name"]
                                 )
@@ -3617,7 +3537,7 @@ def train_mlframe_models_suite(
                             "schema_version": 2,  # 1=legacy, 2=multi-output-aware
                         }
                         try:
-                            from .configs import TargetTypes as _TT
+                            from ..configs import TargetTypes as _TT
                             if target_type == _TT.MULTILABEL_CLASSIFICATION:
                                 # Number of label outputs and dispatch strategy
                                 _record["n_classes"] = (
@@ -3726,7 +3646,7 @@ def train_mlframe_models_suite(
                     #   <=4 members -> "[cb+xgb+lgb]"
                     #   >4        -> "[N=5]" (avoid bloated titles)
                     # 2026-05-11 (user request): delegate to the shared ``short_model_tag`` helper, which ALSO strips the internal shim suffixes (``WithDMatrixReuse`` / ``WithDatasetReuse``) so ``LinearRegression`` stays as ``LinearRegression`` in the label, but ``XGBRegressorWithDMatrixReuse`` collapses to ``xgb`` (was already correct for tree families via prefix match; this also handles any future shimmed non-tree class cleanly).
-                    from ._format import short_model_tag as _short_tag_fn
+                    from .._format import short_model_tag as _short_tag_fn
                     def _short_model_tag(ns):
                         return _short_tag_fn(getattr(ns, "model", ns))
                     _member_tags = [_short_model_tag(m) for m in ens_models]
@@ -3752,7 +3672,7 @@ def train_mlframe_models_suite(
         if verbose:
             log_phase("PHASE 5: Recurrent Model Training")
 
-        from .trainer import _configure_recurrent_params
+        from ..trainer import _configure_recurrent_params
 
         # Determine if this is a regression task
         use_regression = TargetTypes.REGRESSION in target_by_type
@@ -3873,7 +3793,7 @@ def train_mlframe_models_suite(
         # against the longest-running phase (effectively the suite root).
         # Helps spot plot/render-bound vs train-bound runs at a glance.
         try:
-            from .phases import phase_snapshot
+            from ..phases import phase_snapshot
             _snap = phase_snapshot()
             if _snap:
                 _root_wall = _snap[0][1] if _snap else 0.0
@@ -3976,7 +3896,7 @@ def train_mlframe_models_suite(
     # target on the LightGBM/XGB hot path.
     _train_pred_cache: Dict[int, np.ndarray] = {}
     if composite_specs_by_target_type:
-        from .composite import CompositeTargetEstimator as _CTE
+        from ..composite import CompositeTargetEstimator as _CTE
         for _tt_w, _by_name in (models or {}).items():
             if not isinstance(_by_name, dict):
                 continue
@@ -4142,7 +4062,7 @@ def train_mlframe_models_suite(
                     # so the user sees the COMPARABLE numbers in the
                     # script output for each wrapped composite model.
                     if _entry_y_scores:
-                        from ._format import (
+                        from .._format import (
                             format_metric as _fmt,
                             strip_shim_suffix as _strip,
                         )
@@ -4210,7 +4130,7 @@ def train_mlframe_models_suite(
     if (composite_target_discovery_config.enabled
             and _ce_strategy != "off"
             and composite_specs_by_target_type):
-        from .composite import CompositeCrossTargetEnsemble as _CrossEns
+        from ..composite import CompositeCrossTargetEnsemble as _CrossEns
 
         # R10c bug #4 fix: cross-target ensemble must call
         # ``inner.predict`` on input that has already been transformed
@@ -4369,7 +4289,7 @@ def train_mlframe_models_suite(
                 _oof_names = _component_names
                 _oof_rmses = _rmse_arr  # train-RMSE proxy by default
                 if _oof_frac > 0.0 and _oof_y_full is not None:
-                    from .composite import compute_oof_holdout_predictions
+                    from ..composite import compute_oof_holdout_predictions
                     # Build per-spec base column on filtered_train_df
                     # rows (composite components need this for the
                     # transform.forward step inside the OOF helper).
@@ -4626,7 +4546,7 @@ def train_mlframe_models_suite(
                 # component shim that doesn't accept the suite's frame
                 # shape would otherwise abort the whole suite.
                 try:
-                    from .evaluation import report_model_perf
+                    from ..evaluation import report_model_perf
                     _ens_orig_y = target_by_type.get(_tt_e, {}).get(_orig_tname)
                     if _ens_orig_y is not None:
                         _ens_y_arr = np.asarray(_ens_orig_y)
@@ -4688,7 +4608,7 @@ def train_mlframe_models_suite(
     # verdict block — canonical UPPERCASE WARN tokens.
     try:
         if metadata.get("dummy_baselines"):
-            from .dummy_baselines import format_suite_end_summary
+            from ..dummy_baselines import format_suite_end_summary
             # Build {(target_type, target_name): {primary_metric: best_val,
             # "model_name": ...}} from the trained models. The model
             # metrics dict is keyed by metric NAME (e.g. "RMSE"); the
@@ -4799,7 +4719,7 @@ def train_mlframe_models_suite(
 # Phase 5b split: re-export 27 leaf helpers + DEFAULT_PROBABILITY_THRESHOLD
 # from core_utils for full back-compat.
 # ----------------------------------------------------------------------
-from .core_utils import (  # noqa: E402,F401
+from .utils import (  # noqa: E402,F401
     DEFAULT_PROBABILITY_THRESHOLD,
     _ensure_logging_visible,
     _entry_metric,
@@ -4836,7 +4756,7 @@ from .core_utils import (  # noqa: E402,F401
 # back-compat. Existing callers ``from mlframe.training.core import
 # predict_mlframe_models_suite, load_mlframe_suite`` keep working.
 # ----------------------------------------------------------------------
-from .core_predict import (  # noqa: E402,F401
+from .predict import (  # noqa: E402,F401
     predict_mlframe_models_suite,
     predict_from_models,
     load_mlframe_suite,

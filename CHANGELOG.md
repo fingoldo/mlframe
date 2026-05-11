@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-05-12 (even later) — core.py + Phase 5c-a + core/ subpackage restructure
+
+### Phase 5c-a -- LTR dispatch extracted from train_mlframe_models_suite
+
+The ~100-LOC LTR early-dispatch block at the top of `train_mlframe_models_suite`
+moved into a dedicated helper `_maybe_dispatch_to_ltr_ranker_suite` in
+`core.utils`. The orchestrator now reads:
+
+```python
+_ltr_result = _maybe_dispatch_to_ltr_ranker_suite(target_type=..., df=..., ...)
+if _ltr_result is not None:
+    return _ltr_result
+```
+
+instead of inlining 100 lines of `getattr(config, key) / dict.get(key)` glue
++ a deep `train_mlframe_ranker_suite(...)` call. Helper returns `None` when
+the call site isn't LTR -- caller continues with the standard pipeline.
+
+### core/ subpackage restructure (user request)
+
+`mlframe/training/{core,core_utils,core_predict}.py` collapsed into a single
+`mlframe/training/core/` subpackage:
+
+```
+mlframe/training/core/
+├── __init__.py     # re-export hub (public API)
+├── main.py         # train_mlframe_models_suite orchestrator
+├── utils.py        # 27+ leaf helpers + DEFAULT_PROBABILITY_THRESHOLD + _maybe_dispatch_to_ltr_ranker_suite
+└── predict.py      # predict_*/load_* entry points
+```
+
+All 58 external callers (`from mlframe.training.core import ...`) keep
+working transparently -- the `__init__.py` re-exports every public symbol.
+Internal relative imports rewritten from single-dot (sibling) to double-dot
+(parent-package) by the restructure script; intra-package edges
+(`.core_utils` -> `.utils`, `.core_predict` -> `.predict`) collapsed to
+single-dot.
+
+Test status: 435/435 composite, 74/74 focused regression all pass.
+
+---
+
 ## 2026-05-12 (later) — core.py 7K-LOC split: Phase 5a + 5b
 
 Pulled 32% of `mlframe/training/core.py` out into two sibling modules,

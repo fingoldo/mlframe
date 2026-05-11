@@ -43,7 +43,7 @@ from sklearn.preprocessing import StandardScaler
 
 import category_encoders as ce
 
-from .configs import (
+from ..configs import (
     BaselineDiagnosticsConfig,
     CompositeTargetDiscoveryConfig,
     ConfidenceAnalysisConfig,
@@ -65,32 +65,32 @@ from .configs import (
     TrainingConfig,
     TrainingSplitConfig,
 )
-from .extractors import FeaturesAndTargetsExtractor
-from .helpers import (
+from ..extractors import FeaturesAndTargetsExtractor
+from ..helpers import (
     get_trainset_features_stats,
     get_trainset_features_stats_polars,
 )
-from .io import load_mlframe_model
-from .models import LINEAR_MODEL_TYPES, is_linear_model
-from .phases import format_phase_summary, phase, reset_phase_registry
-from .pipeline import (
+from ..io import load_mlframe_model
+from ..models import LINEAR_MODEL_TYPES, is_linear_model
+from ..phases import format_phase_summary, phase, reset_phase_registry
+from ..pipeline import (
     apply_preprocessing_extensions,
     fit_and_transform_pipeline,
     prepare_df_for_catboost,
 )
-from .preprocessing import (
+from ..preprocessing import (
     create_split_dataframes,
     load_and_prepare_dataframe,
     preprocess_dataframe,
     save_split_artifacts,
 )
-from .splitting import make_train_test_split
-from .strategies import (
+from ..splitting import make_train_test_split
+from ..strategies import (
     PipelineCache,
     get_polars_cat_columns,
     get_strategy,
 )
-from .utils import (
+from ..utils import (
     compute_model_input_fingerprint,
     drop_columns_from_dataframe,
     estimate_df_size_mb,
@@ -110,6 +110,133 @@ logger = logging.getLogger(__name__)
 # Module-level constants
 
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
+
+
+def _maybe_dispatch_to_ltr_ranker_suite(
+    *,
+    target_type,
+    df,
+    target_name,
+    model_name,
+    features_and_targets_extractor,
+    mlframe_models,
+    use_mlframe_ensembles,
+    ranking_config,
+    split_config,
+    hyperparams_config,
+    reporting_config,
+    output_config,
+    verbose,
+):
+    """If ``target_type == LEARNING_TO_RANK``, route to the focused ranker suite.
+
+    The standard classification/regression machinery in ``train_mlframe_models_suite``
+    doesn't know how to consume per-row scores or per-query metrics, so we hand
+    LTR runs off to ``train_mlframe_ranker_suite`` (CB/XGB/LGB native rankers
+    + RRF/Borda ensembling). Helper inspects the bag of config objects, mirrors
+    the relevant fields onto the ranker-suite signature, and returns its result.
+
+    Returns
+    -------
+    ``None`` when the call site is NOT LTR (caller continues with the standard
+    pipeline); the ranker-suite return tuple otherwise (caller forwards verbatim).
+    """
+    if target_type is None or target_type != TargetTypes.LEARNING_TO_RANK:
+        return None
+    from mlframe.training.ranker_suite import train_mlframe_ranker_suite
+
+    # Resolve a save_dir from output_config if available, else None.
+    _save_dir = None
+    if output_config is not None:
+        _data_dir = (
+            output_config.get("data_dir") if isinstance(output_config, dict)
+            else getattr(output_config, "data_dir", None)
+        )
+        _models_dir = (
+            output_config.get("models_dir") if isinstance(output_config, dict)
+            else getattr(output_config, "models_dir", None)
+        ) or "models"
+        if _data_dir:
+            _save_dir = os.path.join(_data_dir, _models_dir, model_name)
+
+    # Pull split sizes from split_config if provided.
+    _test_size, _val_size = 0.15, 0.15
+    if split_config is not None:
+        _test_size = (
+            split_config.get("test_size", 0.15) if isinstance(split_config, dict)
+            else getattr(split_config, "test_size", 0.15)
+        )
+        _val_size = (
+            split_config.get("val_size", 0.15) if isinstance(split_config, dict)
+            else getattr(split_config, "val_size", 0.15)
+        )
+
+    # Hyperparams from hyperparams_config if provided.
+    _iter, _lr, _es = 200, 0.1, 30
+    _mlp_kwargs = None
+    if hyperparams_config is not None:
+        _iter = (
+            hyperparams_config.get("iterations", 200) if isinstance(hyperparams_config, dict)
+            else getattr(hyperparams_config, "iterations", 200)
+        )
+        _lr = (
+            hyperparams_config.get("learning_rate", 0.1) if isinstance(hyperparams_config, dict)
+            else getattr(hyperparams_config, "learning_rate", 0.1)
+        )
+        _es = (
+            hyperparams_config.get("early_stopping_rounds", 30) if isinstance(hyperparams_config, dict)
+            else getattr(hyperparams_config, "early_stopping_rounds", 30)
+        )
+        # mlp_kwargs forwarded to MLPRanker.__init__ when LTR + 'mlp'
+        # is in mlframe_models. Mirrors the non-LTR mlp_kwargs path
+        # via _configure_mlp_params; users who want to flip
+        # enable_checkpointing, change hidden_layers, etc. for the
+        # ranker MLP should put those keys in
+        # ``hyperparams_config["mlp_kwargs"]``.
+        _mlp_kwargs = (
+            hyperparams_config.get("mlp_kwargs", None) if isinstance(hyperparams_config, dict)
+            else getattr(hyperparams_config, "mlp_kwargs", None)
+        )
+
+    # Reporting wiring (auto-emit LTR panel grid per (model, split)).
+    _plot_outputs = None
+    _ltr_panels = None
+    if reporting_config is not None:
+        _plot_outputs = (
+            reporting_config.get("plot_outputs") if isinstance(reporting_config, dict)
+            else getattr(reporting_config, "plot_outputs", None)
+        )
+        _ltr_panels = (
+            reporting_config.get("ltr_panels") if isinstance(reporting_config, dict)
+            else getattr(reporting_config, "ltr_panels", None)
+        )
+    _plot_file = None
+    if output_config is not None:
+        _plot_file = (
+            output_config.get("plot_file") if isinstance(output_config, dict)
+            else getattr(output_config, "plot_file", None)
+        )
+
+    return train_mlframe_ranker_suite(
+        df=df,
+        target_name=target_name,
+        model_name=model_name,
+        features_and_targets_extractor=features_and_targets_extractor,
+        mlframe_models=mlframe_models,
+        use_mlframe_ensembles=use_mlframe_ensembles,
+        ranking_config=ranking_config,
+        test_size=_test_size,
+        val_size=_val_size,
+        iterations=_iter,
+        learning_rate=_lr,
+        early_stopping_rounds=_es,
+        save_dir=_save_dir,
+        verbose=verbose,
+        plot_file=_plot_file,
+        plot_outputs=_plot_outputs,
+        ltr_panels=_ltr_panels,
+        mlp_kwargs=_mlp_kwargs,
+    )
 
 
 def _ensure_logging_visible(level: int = logging.INFO) -> None:
@@ -1126,7 +1253,7 @@ from sklearn.preprocessing import StandardScaler
 
 from pyutilz.system import ensure_dir_exists
 
-from .configs import (
+from ..configs import (
     PreprocessingConfig,
     TrainingSplitConfig,
     PreprocessingBackendConfig,
@@ -1148,15 +1275,15 @@ from .configs import (
     DummyBaselinesConfig,
     QuantileRegressionConfig,
 )
-from .preprocessing import (
+from ..preprocessing import (
     load_and_prepare_dataframe,
     preprocess_dataframe,
     save_split_artifacts,
     create_split_dataframes,
 )
-from .pipeline import fit_and_transform_pipeline, prepare_df_for_catboost, apply_preprocessing_extensions
+from ..pipeline import fit_and_transform_pipeline, prepare_df_for_catboost, apply_preprocessing_extensions
 from mlframe.feature_selection.filters import MRMR
-from .utils import (
+from ..utils import (
     log_ram_usage,
     log_phase,
     drop_columns_from_dataframe,
@@ -1167,24 +1294,24 @@ from .utils import (
     filter_existing,
     compute_model_input_fingerprint,
 )
-from .helpers import get_trainset_features_stats_polars, get_trainset_features_stats
-from .models import is_linear_model, LINEAR_MODEL_TYPES
-from .strategies import get_strategy, get_polars_cat_columns, PipelineCache
-from .io import load_mlframe_model
-from .splitting import make_train_test_split
-from .phases import phase, reset_phase_registry, format_phase_summary
+from ..helpers import get_trainset_features_stats_polars, get_trainset_features_stats
+from ..models import is_linear_model, LINEAR_MODEL_TYPES
+from ..strategies import get_strategy, get_polars_cat_columns, PipelineCache
+from ..io import load_mlframe_model
+from ..splitting import make_train_test_split
+from ..phases import phase, reset_phase_registry, format_phase_summary
 
 # Extractors from new module
-from .extractors import FeaturesAndTargetsExtractor
+from ..extractors import FeaturesAndTargetsExtractor
 
 # score_ensemble is in ensembling module
-from ..ensembling import score_ensemble
+from ...ensembling import score_ensemble
 
 # Training execution functions from train_eval module
-from .train_eval import process_model, select_target
-from .drift_report import compute_label_distribution_drift, format_drift_report
-from .baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
-from .composite import CompositeTargetDiscovery
+from ..train_eval import process_model, select_target
+from ..drift_report import compute_label_distribution_drift, format_drift_report
+from ..baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
+from ..composite import CompositeTargetDiscovery
 
 # Fairness subgroups creation
 from mlframe.metrics import create_fairness_subgroups
