@@ -167,6 +167,9 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         "prefer_calibrated_classifiers": _effective_prefer_calibrated,
         # 2026-04-24 round 2
         "use_robust_eval_metric": combo.use_robust_eval_metric_cfg,
+        # 2026-05-11 Wave 21: residual-audit footer toggle (regression only;
+        # canonicalised to True for non-regression combos so dedup collapses).
+        "report_residual_audit": combo.report_residual_audit_cfg,
     }
     if fairness_features:
         behavior_kwargs["fairness_features"] = fairness_features
@@ -206,6 +209,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         shuffle_test=combo.shuffle_test_cfg,
         wholeday_splitting=combo.wholeday_splitting_cfg,
         val_sequential_fraction=combo.val_sequential_fraction_cfg,
+        # 2026-05-11 Wave 21: group-aware splitting toggle. Only meaningful
+        # when wholeday_splitting=True + with_datetime_col=True (the
+        # splitter derives groups from the datetime); canonicalised away
+        # for other combos.
+        use_groups=combo.use_groups_cfg,
     )
     # PreprocessingConfig is built by ``_preprocessing_for_combo`` and
     # passed explicitly at the suite call site (it owns the fix_inf_eff /
@@ -249,6 +257,9 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             n_chains=combo.multilabel_n_chains_cfg,
             chain_order_strategy=combo.multilabel_chain_order_cfg,
             cv=combo.multilabel_cv_cfg,
+            # 2026-05-11 Wave 21: post-hoc calib downgrade toggle (multilabel
+            # only). Canonicalised to default False for non-multilabel.
+            allow_uncalibrated_multi=combo.multilabel_allow_uncalibrated_cfg,
         ),
     }
 
@@ -779,6 +790,10 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             mlframe_models=_ltr_models,)
         if _is_ltr:
             _suite_kwargs["target_type"] = _combo_tt
+            # Wave 21: assume_comparable_scales axis on LTR ensembling.
+            _ltr_ranking_config = _ltr_ranking_config.model_copy(
+                update={"assume_comparable_scales": combo.ltr_assume_comparable_scales_cfg}
+            )
             _suite_kwargs["ranking_config"] = _ltr_ranking_config
         trained, _meta = train_mlframe_models_suite(
             **_suite_kwargs,
@@ -791,7 +806,10 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             verbose=0,
             use_ordinary_models=True,
             use_mlframe_ensembles=combo.use_ensembles,
-            outlier_detection_config=OutlierDetectionConfig(detector=outlier_detector),
+            outlier_detection_config=OutlierDetectionConfig(
+                detector=outlier_detector,
+                apply_to_val=combo.apply_outlier_to_val_cfg,
+            ),
             feature_selection_config=FeatureSelectionConfig(
                 use_mrmr_fs=combo.use_mrmr_fs,
                 mrmr_kwargs=({
@@ -840,6 +858,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             # is per-model not suite-level, so it stays out of the fuzz
             # axis space.
             confidence_analysis_config=ConfidenceAnalysisConfig(include=combo.include_confidence_analysis_cfg),
+            # Wave 21: dummy-baselines + baseline-diagnostics enabled toggles.
+            dummy_baselines_config=__import__(
+                "mlframe.training.configs", fromlist=["DummyBaselinesConfig"]
+            ).DummyBaselinesConfig(enabled=combo.dummy_baselines_enabled_cfg),
+            baseline_diagnostics_config=__import__(
+                "mlframe.training.configs", fromlist=["BaselineDiagnosticsConfig"]
+            ).BaselineDiagnosticsConfig(enabled=combo.baseline_diagnostics_enabled_cfg),
             **_configs_for_combo(combo),
         )
         # An empty ``trained`` dict is acceptable ONLY when

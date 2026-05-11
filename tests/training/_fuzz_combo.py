@@ -235,6 +235,20 @@ AXES: dict[str, tuple[Any, ...]] = {
     "mrmr_interactions_max_order_cfg": (1, 2, 3),
     "mrmr_fe_max_steps_cfg": (0, 1, 2),
     "mrmr_cat_fe_enable_cfg": (True, False),
+    # 2026-05-11 Wave 21: high-value missing axes from full configs.py audit.
+    # Each toggles a distinct code path that prior fuzz axes did not exercise.
+    # Canonicalised individually below.
+    "dummy_baselines_enabled_cfg": (True, False),
+    "baseline_diagnostics_enabled_cfg": (True, False),
+    # ``auto_detect_feature_types`` is already covered by the legacy
+    # ``auto_detect_cats`` axis (wired via FeatureTypesConfig); don't
+    # double-add. ``use_groups`` toggles the group-aware splitter path
+    # (groupwise validation when wholeday_splitting + datetime present).
+    "use_groups_cfg": (True, False),
+    "apply_outlier_to_val_cfg": (True, False),
+    "multilabel_allow_uncalibrated_cfg": (True, False),
+    "report_residual_audit_cfg": (True, False),
+    "ltr_assume_comparable_scales_cfg": (True, False),
 }
 
 
@@ -330,6 +344,14 @@ class FuzzCombo:
     mrmr_interactions_max_order_cfg: int = 1
     mrmr_fe_max_steps_cfg: int = 1
     mrmr_cat_fe_enable_cfg: bool = True
+    # 2026-05-11 Wave 21 — assorted high-value config-toggle axes
+    dummy_baselines_enabled_cfg: bool = True
+    baseline_diagnostics_enabled_cfg: bool = True
+    use_groups_cfg: bool = True
+    apply_outlier_to_val_cfg: bool = True
+    multilabel_allow_uncalibrated_cfg: bool = False
+    report_residual_audit_cfg: bool = True
+    ltr_assume_comparable_scales_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -553,6 +575,26 @@ class FuzzCombo:
             self.mrmr_cat_fe_enable_cfg if (
                 self.use_mrmr_fs and self.cat_feature_count >= 2
             ) else True,
+            # 2026-05-11 Wave 21 — config-toggle axes with relevance gates
+            self.dummy_baselines_enabled_cfg,
+            self.baseline_diagnostics_enabled_cfg,
+            # use_groups only matters when wholeday_splitting is on AND there's
+            # a datetime column to derive groups from.
+            self.use_groups_cfg if (
+                self.with_datetime_col and self.wholeday_splitting_cfg
+            ) else True,
+            # apply_outlier_to_val only matters when outlier_detection is set.
+            self.apply_outlier_to_val_cfg if self.outlier_detection is not None else True,
+            # multilabel_allow_uncalibrated only meaningful for multilabel.
+            self.multilabel_allow_uncalibrated_cfg if (
+                self.target_type == "multilabel_classification"
+            ) else False,
+            # report_residual_audit only matters for regression target.
+            self.report_residual_audit_cfg if self.target_type == "regression" else True,
+            # ltr_assume_comparable_scales only meaningful for LTR.
+            self.ltr_assume_comparable_scales_cfg if (
+                self.target_type == "learning_to_rank"
+            ) else False,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -1097,6 +1139,14 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_interactions_max_order_cfg=axes.get("mrmr_interactions_max_order_cfg", 1),
         mrmr_fe_max_steps_cfg=axes.get("mrmr_fe_max_steps_cfg", 1),
         mrmr_cat_fe_enable_cfg=axes.get("mrmr_cat_fe_enable_cfg", True),
+        # 2026-05-11 Wave 21 -- assorted config-toggle axes
+        dummy_baselines_enabled_cfg=axes.get("dummy_baselines_enabled_cfg", True),
+        baseline_diagnostics_enabled_cfg=axes.get("baseline_diagnostics_enabled_cfg", True),
+        use_groups_cfg=axes.get("use_groups_cfg", True),
+        apply_outlier_to_val_cfg=axes.get("apply_outlier_to_val_cfg", True),
+        multilabel_allow_uncalibrated_cfg=axes.get("multilabel_allow_uncalibrated_cfg", False),
+        report_residual_audit_cfg=axes.get("report_residual_audit_cfg", True),
+        ltr_assume_comparable_scales_cfg=axes.get("ltr_assume_comparable_scales_cfg", False),
     )
 
 
