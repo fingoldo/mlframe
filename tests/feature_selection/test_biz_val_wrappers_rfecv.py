@@ -633,6 +633,103 @@ def test_biz_val_rfecv_signal_recovery_across_configurations(seed, p_signal, p_n
     )
 
 
+@pytest.mark.parametrize("swap_k", [0, 1, 3, 5])
+def test_biz_val_rfecv_swap_top_k_parametrize_completes(swap_k):
+    """``swap_top_k`` parametrize {0, 1, 3, 5}. Each must complete +
+    return a valid support_."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        swap_top_k=swap_k,
+    )
+    sel.fit(df, y)
+    idx = _support_indices(sel)
+    assert len(idx) == len(set(idx))
+
+
+@pytest.mark.parametrize("noimp_iters", [2, 5, 10])
+def test_biz_val_rfecv_max_noimproving_iters_parametrize(noimp_iters):
+    """``max_noimproving_iters`` parametrize. Controls patience
+    before optimizer stops on no-improvement."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=10, verbose=0, random_state=42,
+        max_noimproving_iters=noimp_iters,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("mean_weight,std_weight", [
+    (1.0, 0.0),
+    (1.0, 0.1),
+    (1.0, 0.5),
+    (1.0, 1.0),
+    (0.5, 0.5),
+])
+def test_biz_val_rfecv_perf_weight_parametrize_completes(mean_weight, std_weight):
+    """``mean_perf_weight`` x ``std_perf_weight`` cross-parametrize.
+    All combinations must complete + produce valid support_."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=3, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        mean_perf_weight=mean_weight,
+        std_perf_weight=std_weight,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
+@pytest.mark.parametrize("n_features_rule", [
+    "auto", "argmax", "one_se_min",
+])
+def test_biz_val_rfecv_n_features_selection_rule_parametrize(n_features_rule):
+    """``n_features_selection_rule`` parametrize across all three
+    documented rules."""
+    pytest.importorskip("sklearn")
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.wrappers import RFECV
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=500, p_signal=3, p_noise=5, seed=42)
+    df, _ys = as_df(X, y)
+    sel = RFECV(
+        estimator=RandomForestClassifier(random_state=42, n_estimators=15),
+        cv=2, max_refits=4, verbose=0, random_state=42,
+        max_noimproving_iters=2,
+        n_features_selection_rule=n_features_rule,
+    )
+    sel.fit(df, y)
+    assert 1 <= len(_support_indices(sel)) <= df.shape[1]
+
+
 def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     """RFECV with ``checkpoint_path`` must (a) write a resume file
     that allows a subsequent identical fit to pick up where it left

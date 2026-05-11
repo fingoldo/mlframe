@@ -733,6 +733,96 @@ def test_biz_val_mrmr_fe_min_pair_mi_parametrize(min_pair_mi):
     assert len(sel.support_) >= 1
 
 
+@pytest.mark.parametrize("degree", [2, 3, 4, 5])
+def test_biz_val_mrmr_fe_max_polynom_degree_parametrize(degree):
+    """``fe_max_polynom_degree`` parametrize {2..5}. Each degree must
+    complete the FE step without raising on a polynomial target."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        fe_max_steps=1, fe_max_polynoms=1,
+        fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=10,
+        fe_max_polynom_degree=degree,
+    )
+    sel.fit(df, ys)
+    assert len(sel.support_) >= 1
+
+
+@pytest.mark.parametrize("coef_range_max", [2.0, 5.0, 10.0])
+def test_biz_val_mrmr_fe_max_polynom_coeff_parametrize(coef_range_max):
+    """``fe_max_polynom_coeff`` parametrize. Controls upper bound of
+    polynomial coefficient search range."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        fe_max_steps=1, fe_max_polynoms=1,
+        fe_smart_polynom_iters=1, fe_smart_polynom_optimization_steps=10,
+        fe_min_polynom_coeff=-coef_range_max,
+        fe_max_polynom_coeff=coef_range_max,
+    )
+    sel.fit(df, ys)
+    assert len(sel.support_) >= 1
+
+
+@pytest.mark.parametrize("n_polynoms", [0, 1, 2])
+def test_biz_val_mrmr_fe_max_polynoms_parametrize(n_polynoms):
+    """``fe_max_polynoms`` parametrize {0, 1, 2}. Limit on engineered
+    polynomial features."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_polynomial_target, as_df,
+    )
+    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(
+        verbose=0, random_seed=42,
+        fe_max_steps=1, fe_max_polynoms=n_polynoms,
+    )
+    sel.fit(df, ys)
+    assert len(sel.support_) >= 1
+
+
+@pytest.mark.parametrize("nbins", [5, 10, 20, 50])
+def test_biz_val_mrmr_quantization_nbins_range_parametrize(nbins):
+    """``quantization_nbins`` parametrize across the practical range.
+    Each value must produce a valid selection."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, quantization_nbins=nbins)
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= df.shape[1]
+
+
+@pytest.mark.parametrize("dtype", [np.int32, np.int64])
+def test_biz_val_mrmr_dtype_parametrize(dtype):
+    """``dtype`` parametrize: int32 vs int64 storage. Both must
+    produce a valid selection. Catches regressions in dtype-dependent
+    code paths."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_signal_plus_noise, as_df,
+    )
+    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
+    df, ys = as_df(X, y)
+    sel = MRMR(verbose=0, random_seed=42, dtype=dtype)
+    sel.fit(df, ys)
+    assert 1 <= len(sel.support_) <= df.shape[1]
+
+
 def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
     """``min_nonzero_confidence=0.999`` is stricter than the default
     0.99; on a noisy target with few clear-signal features it must
