@@ -49,6 +49,21 @@ _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
 COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_SEED)
 
 
+def _make_cat_fe_config_for_fuzz(combo: FuzzCombo):
+    """Build a ``CatFEConfig`` honoring the combo's ``mrmr_cat_fe_enable_cfg``
+    axis. Returns ``None`` when cat-FE should keep its default-on behavior
+    (no override needed); returns an explicit ``CatFEConfig(enable=False)``
+    when the combo asks for the disabled variant. Keeping the cheap-default
+    knobs (top_k_pairs=32, full_npermutations=100, etc.) on the enabled
+    path so the cat-FE algorithm runs with realistic settings rather than
+    a degenerate small-sample config.
+    """
+    if combo.mrmr_cat_fe_enable_cfg:
+        return None  # MRMR's own default CatFEConfig() (enable=True)
+    from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+    return CatFEConfig(enable=False)
+
+
 def _config_for_models(
     models: tuple[str, ...],
     n_rows: int,
@@ -784,6 +799,10 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     "quantization_nbins": 5, "use_simple_mode": True,
                     "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 2,
                     "full_npermutations": 2,
+                    # 2026-05-11 Wave 15 -- fuzz-driven MRMR internals.
+                    "interactions_max_order": combo.mrmr_interactions_max_order_cfg,
+                    "fe_max_steps": combo.mrmr_fe_max_steps_cfg,
+                    "cat_fe_config": _make_cat_fe_config_for_fuzz(combo),
                 } if combo.use_mrmr_fs else None),
                 # rfecv_models: pass exactly the canonical estimator (None when
                 # the combo would mis-use it) — wrap in a single-element list

@@ -223,6 +223,18 @@ AXES: dict[str, tuple[Any, ...]] = {
     # path with its own metrics/report side-effects). ``use_cache`` is
     # per-model not suite-level, so it stays out of the fuzz axis space.
     "include_confidence_analysis_cfg": (False, True),
+    # 2026-05-11 Wave 15: MRMR-internal knobs. Prior to this all 75
+    # use_mrmr_fs=True combos used identical hardcoded MRMR kwargs
+    # (full_npermutations=2, quantization_nbins=5, fe_max_steps=default
+    # =1, interactions_max_order=default=1, cat_fe=default=enabled).
+    # Wave 14 fixes (categorical_vars after cat-FE; polars->pandas via
+    # ``.to_pandas()``; ``_FIT_CACHE`` col_names) require explicit fuzz
+    # axis coverage so future regressions surface deterministically.
+    # Canonicalised to defaults when ``use_mrmr_fs=False`` so the dedup
+    # pass collapses identical-behaviour entries.
+    "mrmr_interactions_max_order_cfg": (1, 2, 3),
+    "mrmr_fe_max_steps_cfg": (0, 1, 2),
+    "mrmr_cat_fe_enable_cfg": (True, False),
 }
 
 
@@ -314,6 +326,10 @@ class FuzzCombo:
     recurrent_model_cfg: "str | None" = None
     # 2026-04-28 batch 4 followup — confidence analysis
     include_confidence_analysis_cfg: bool = False
+    # 2026-05-11 Wave 15 — MRMR-internal knobs
+    mrmr_interactions_max_order_cfg: int = 1
+    mrmr_fe_max_steps_cfg: int = 1
+    mrmr_cat_fe_enable_cfg: bool = True
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -525,6 +541,18 @@ class FuzzCombo:
             # The synthetic builder emits sequences only on the small-row
             # tier (training time scales linearly per epoch with n).
             self._canonical_recurrent_model(),
+            # 2026-05-11 Wave 15 — MRMR-internal knobs collapse to default
+            # when MRMR is disabled. cat-FE-enable also collapses when
+            # there are 0/1 cat features (cat-FE requires >=2). interactions
+            # >= 2 collapses when cat_feature_count == 0 (cat-FE is the
+            # primary trigger for the Wave-14-fixed kway-engineered-cols
+            # path; pure numeric MRMR at order>=2 exercises a different
+            # branch but is still useful to fuzz, so keep that variant).
+            self.mrmr_interactions_max_order_cfg if self.use_mrmr_fs else 1,
+            self.mrmr_fe_max_steps_cfg if self.use_mrmr_fs else 1,
+            self.mrmr_cat_fe_enable_cfg if (
+                self.use_mrmr_fs and self.cat_feature_count >= 2
+            ) else True,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -1065,6 +1093,10 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         recurrent_model_cfg=axes.get("recurrent_model_cfg"),
         # 2026-04-28 batch 4 followup
         include_confidence_analysis_cfg=axes.get("include_confidence_analysis_cfg", False),
+        # 2026-05-11 Wave 15 -- MRMR-internal knobs
+        mrmr_interactions_max_order_cfg=axes.get("mrmr_interactions_max_order_cfg", 1),
+        mrmr_fe_max_steps_cfg=axes.get("mrmr_fe_max_steps_cfg", 1),
+        mrmr_cat_fe_enable_cfg=axes.get("mrmr_cat_fe_enable_cfg", True),
     )
 
 
