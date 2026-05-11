@@ -324,6 +324,177 @@ def _linear_residual_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.nda
 
 
 # ----------------------------------------------------------------------
+# linear_residual_multi (#1 from R10c brainstorm).
+# T = y - Σⱼ αⱼ·baseⱼ - β. Joint OLS on (n, K) base matrix.
+#
+# Same inverse contract as single-base linear_residual; the only thing
+# that changes is the shape of ``base``: 2-D ``(n, K)`` instead of 1-D
+# ``(n,)``. Callers materialise the matrix from ``spec.base_columns``
+# at predict time. ``fit`` accepts 1-D or 2-D ``base`` for ergonomics
+# (1-D is degenerate-K=1 multi-base, equivalent to plain
+# ``linear_residual``).
+#
+# Joint OLS guard: when K bases are near-collinear (e.g. ``TVT_prev``
+# and ``TVT_prev_smoothed`` together), the design-matrix condition
+# number explodes and αs become unstable. We compute condition number
+# upfront and reject (returning the zero-alpha fallback) above a
+# configurable threshold (default 30) so the spec downstream gets a
+# safe identity-like inverse rather than blowing up at predict time.
+# ----------------------------------------------------------------------
+
+# Condition-number gate above which joint OLS is considered unstable
+# and the multi-base transform falls back to zero-alpha + intercept.
+# 30 is the conventional threshold (Belsley/Kuh/Welsch); above that,
+# multicollinearity inflates standard errors enough that the alpha
+# estimates carry no useful information. Exposed as module-level so
+# tests can monkey-patch without recompiling.
+_MULTI_BASE_COND_NUMBER_MAX: float = 30.0
+
+
+def _linear_residual_multi_fit(
+    y: np.ndarray, base: np.ndarray,
+    sample_weight: Optional[np.ndarray] = None,
+) -> Dict[str, Any]:
+    """Joint OLS fit for ``T = y - Σⱼ αⱼ·baseⱼ - β``.
+
+    Parameters
+    ----------
+    y
+        Training target (``shape=(n,)``).
+    base
+        Either 1-D ``(n,)`` (K=1, equivalent to single-base linear_residual)
+        or 2-D ``(n, K)`` for K-base joint fit.
+    sample_weight
+        Optional row weights — same weighted-LS reformulation as
+        single-base ``_linear_residual_fit``.
+
+    Returns
+    -------
+    dict with keys:
+    - ``alphas``: list of K floats (one per base column).
+    - ``beta``: float intercept.
+    - ``condition_number``: float — design-matrix condition number;
+      diagnostic only.
+    - ``collinear_fallback``: bool — True if condition number > the
+      gate, in which case ``alphas`` is all-zero and ``beta`` is the
+      train mean of ``y`` (transform degenerates to ``T = y - mean(y)``).
+    """
+    if base.ndim == 1:
+        base = base.reshape(-1, 1)
+    n, k = base.shape
+    y_f = y.astype(np.float64)
+    if n < k + 1:
+        return {
+            "alphas": [0.0] * k,
+            "beta": float(np.mean(y_f)) if n > 0 else 0.0,
+            "condition_number": float("nan"),
+            "collinear_fallback": True,
+        }
+    base_f = base.astype(np.float64)
+    X = np.column_stack([base_f, np.ones(n, dtype=np.float64)])
+
+    # Condition-number gate (Belsley/Kuh/Welsch). Computed on the
+    # CENTERED base columns ONLY: including the intercept column would
+    # conflate uncentered scale (e.g. ``base ~ N(10, 2)`` gives cond
+    # >> 30 just from the offset, not from real multicollinearity).
+    # For K=1 the centered base is just a single column => cond = 1
+    # by construction (still go through the path so the code shape
+    # matches the K>1 branch).
+    try:
+        if k == 1:
+            cond = 1.0
+        else:
+            base_centered = base_f - base_f.mean(axis=0, keepdims=True)
+            # Guard against an exactly-constant base column (zero
+            # singular value); cond is infinite by definition there.
+            col_norms = np.linalg.norm(base_centered, axis=0)
+            if np.any(col_norms < 1e-12):
+                cond = float("inf")
+            else:
+                sv = np.linalg.svd(base_centered, compute_uv=False)
+                cond = float(sv.max() / max(sv.min(), np.finfo(np.float64).tiny))
+    except np.linalg.LinAlgError:
+        cond = float("inf")
+    if cond > _MULTI_BASE_COND_NUMBER_MAX or not np.isfinite(cond):
+        return {
+            "alphas": [0.0] * k,
+            "beta": float(np.mean(y_f)),
+            "condition_number": cond,
+            "collinear_fallback": True,
+        }
+
+    if sample_weight is None:
+        coef, *_ = np.linalg.lstsq(X, y_f, rcond=None)
+    else:
+        w = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        if w.size != n:
+            raise ValueError(
+                f"_linear_residual_multi_fit: sample_weight length {w.size} "
+                f"!= y length {n}"
+            )
+        finite = np.isfinite(w) & (w > 0)
+        if not finite.any():
+            return {
+                "alphas": [0.0] * k,
+                "beta": float(np.mean(y_f)),
+                "condition_number": cond,
+                "collinear_fallback": True,
+            }
+        w_norm = w[finite] * (n / w[finite].sum())
+        sw = np.sqrt(w_norm)
+        X_w = X[finite] * sw[:, None]
+        y_w = y_f[finite] * sw
+        coef, *_ = np.linalg.lstsq(X_w, y_w, rcond=None)
+    return {
+        "alphas": [float(c) for c in coef[:k]],
+        "beta": float(coef[-1]),
+        "condition_number": cond,
+        "collinear_fallback": False,
+    }
+
+
+def _linear_residual_multi_forward(
+    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    if base.ndim == 1:
+        base = base.reshape(-1, 1)
+    alphas = np.asarray(params["alphas"], dtype=np.float64)
+    beta = float(params["beta"])
+    if base.shape[1] != alphas.size:
+        raise ValueError(
+            f"linear_residual_multi: base has {base.shape[1]} columns but "
+            f"fitted alphas has {alphas.size} entries"
+        )
+    return y - (base.astype(np.float64) @ alphas) - beta
+
+
+def _linear_residual_multi_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    if base.ndim == 1:
+        base = base.reshape(-1, 1)
+    alphas = np.asarray(params["alphas"], dtype=np.float64)
+    beta = float(params["beta"])
+    if base.shape[1] != alphas.size:
+        raise ValueError(
+            f"linear_residual_multi: base has {base.shape[1]} columns but "
+            f"fitted alphas has {alphas.size} entries"
+        )
+    return t_hat + (base.astype(np.float64) @ alphas) + beta
+
+
+def _linear_residual_multi_domain(
+    y: Optional[np.ndarray], base: np.ndarray,
+) -> np.ndarray:
+    if base.ndim == 1:
+        base = base.reshape(-1, 1)
+    base_ok = np.all(np.isfinite(base), axis=1)
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(y)
+
+
+# ----------------------------------------------------------------------
 # Registry and lookup
 # ----------------------------------------------------------------------
 
@@ -372,6 +543,20 @@ _TRANSFORMS_REGISTRY: Dict[str, Transform] = {
             "Inverse y_hat = T_hat + alpha*base + beta."
         ),
         tags=frozenset({TAG_CORE, TAG_REGRESSION}),
+    ),
+    "linear_residual_multi": Transform(
+        name="linear_residual_multi",
+        forward=_linear_residual_multi_forward,
+        inverse=_linear_residual_multi_inverse,
+        fit=_linear_residual_multi_fit,
+        domain_check=_linear_residual_multi_domain,
+        description=(
+            "T = y - sum_j(alpha_j * base_j) - beta with joint-OLS (alphas, beta) "
+            "over a K-column base matrix. Inverse y_hat = T_hat + base @ alphas + beta. "
+            "Falls back to zero-alpha + train mean intercept when the design-matrix "
+            "condition number exceeds _MULTI_BASE_COND_NUMBER_MAX (multicollinearity guard)."
+        ),
+        tags=frozenset({TAG_CORE, TAG_EXTENDED, TAG_REGRESSION}),
     ),
 }
 
