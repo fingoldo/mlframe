@@ -11,6 +11,7 @@ import gc
 import logging
 import math
 import time
+from timeit import default_timer as timer
 from typing import Sequence
 
 import numpy as np
