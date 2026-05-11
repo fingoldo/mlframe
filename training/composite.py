@@ -2529,10 +2529,19 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         auto_variance_stabilise: bool = False,
         base_columns: Optional[Sequence[str]] = None,
         group_column: Optional[str] = None,
+        online_refit_enabled: bool = False,
+        online_refit_buffer_n: int = 10_000,
+        online_refit_z_threshold: float = 3.0,
+        online_refit_min_buffer_n: int = 200,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
         self.base_column = base_column
+        # OPEN-4 (2026-05-11): rolling-buffer streaming alpha refit. When ``online_refit_enabled=True``, the wrapper carries a rolling buffer of last-N (y, base) observations across ``update()`` calls; each update runs ``streaming_alpha_check_and_refit`` and, when |z| > threshold, updates ``self.fitted_params_["alpha"]`` / ``["beta"]`` in-place so subsequent predict() calls use the drift-corrected coefficients. Default OFF: stateful estimators break sklearn.clone() (cloned instance starts with empty buffer) so the flag is explicit opt-in. The buffer fields use trailing underscore (``self._buffer_y_``) to mark runtime-only state; sklearn.clone() ignores those.
+        self.online_refit_enabled = online_refit_enabled
+        self.online_refit_buffer_n = online_refit_buffer_n
+        self.online_refit_z_threshold = online_refit_z_threshold
+        self.online_refit_min_buffer_n = online_refit_min_buffer_n
         # R10c extension #3 (2026-05-11): grouped-transform support.
         # When the configured ``transform_name`` resolves to a transform
         # with ``requires_groups=True`` (currently only
@@ -3162,6 +3171,89 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             return X.drop(columns=present) if present else X
         # ndarray has no columns -> nothing to drop.
         return X
+
+    # ------------------------------------------------------------------
+    # OPEN-4 (2026-05-11): rolling-buffer streaming alpha refit
+    # ------------------------------------------------------------------
+
+    def update(self, y_recent: Any, base_recent: Any) -> Dict[str, Any]:
+        """Streaming-update interface: append new (y, base) observations to a rolling buffer and run a drift check.
+
+        Caller invokes this method on incoming production data; when the buffer fills past ``online_refit_min_buffer_n`` AND the Chow-style z-score crosses ``online_refit_z_threshold``, the wrapper's ``fitted_params_["alpha"]`` / ``["beta"]`` get updated in-place so subsequent predict() calls use the drift-corrected coefficients.
+
+        Only supported for the ``linear_residual`` transform (the only one with closed-form alpha/beta in the fitted params; other transforms have transform-specific params that aren't suitable for streaming refit). For other transforms, raises ``NotImplementedError``.
+
+        Parameters
+        ----------
+        y_recent, base_recent
+            New observation arrays (1-D, equal length). Appended to the rolling buffer; oldest rows evicted (FIFO) once the buffer reaches ``online_refit_buffer_n``.
+
+        Returns
+        -------
+        info: dict carrying the same fields as ``streaming_alpha_check_and_refit`` (refit / z_score / alpha_buffer / beta_buffer / reason) PLUS ``buffer_n_total`` (current buffer size after the update).
+        """
+        if not getattr(self, "online_refit_enabled", False):
+            raise RuntimeError(
+                "CompositeTargetEstimator.update: online_refit_enabled is False. Set it to True in __init__ to enable streaming refit."
+            )
+        if self.transform_name not in ("linear_residual",):
+            raise NotImplementedError(
+                f"streaming alpha refit only supported for 'linear_residual'; got transform_name={self.transform_name!r}. Other transforms have transform-specific params (eps for ratio, mad_eff for logratio, per-bin medians for quantile_residual, etc.) that don't fit the closed-form alpha/beta refit pattern."
+            )
+        if not hasattr(self, "fitted_params_"):
+            raise RuntimeError(
+                "CompositeTargetEstimator.update called before fit (no fitted_params_ to refit)."
+            )
+        # Lazy-init the rolling buffers on first update.
+        if not hasattr(self, "_buffer_y_"):
+            from collections import deque
+            self._buffer_y_ = deque(maxlen=int(self.online_refit_buffer_n))
+            self._buffer_base_ = deque(maxlen=int(self.online_refit_buffer_n))
+        y_arr = np.asarray(y_recent, dtype=np.float64).reshape(-1)
+        base_arr = np.asarray(base_recent, dtype=np.float64).reshape(-1)
+        if y_arr.size != base_arr.size:
+            raise ValueError(
+                f"CompositeTargetEstimator.update: y_recent ({y_arr.size} rows) and base_recent ({base_arr.size} rows) must have equal length."
+            )
+        self._buffer_y_.extend(y_arr.tolist())
+        self._buffer_base_.extend(base_arr.tolist())
+        buffer_n = len(self._buffer_y_)
+        # Run drift check; the helper handles the buffer-too-small case.
+        new_alpha, new_beta, info = streaming_alpha_check_and_refit(
+            np.asarray(self._buffer_y_, dtype=np.float64),
+            np.asarray(self._buffer_base_, dtype=np.float64),
+            current_alpha=float(self.fitted_params_.get("alpha", 0.0)),
+            current_beta=float(self.fitted_params_.get("beta", 0.0)),
+            z_threshold=float(self.online_refit_z_threshold),
+            min_buffer_n=int(self.online_refit_min_buffer_n),
+        )
+        info["buffer_n_total"] = buffer_n
+        if info.get("refit"):
+            # Update params in-place. The wrapper's predict() reads these on every call so the next predict will use the drifted alpha / beta.
+            self.fitted_params_["alpha"] = new_alpha
+            self.fitted_params_["beta"] = new_beta
+            logger.info(
+                "[CompositeTargetEstimator.update] streaming refit fired (z=%.2f > %.2f). alpha %.4f -> %.4f, beta %.4f -> %.4f. buffer_n=%d",
+                info["z_score"], self.online_refit_z_threshold,
+                info["alpha_buffer"] if info["alpha_buffer"] is not None else float("nan"),
+                new_alpha,
+                info["beta_buffer"] if info["beta_buffer"] is not None else float("nan"),
+                new_beta, buffer_n,
+            )
+        return info
+
+    def get_buffer_state(self) -> Dict[str, Any]:
+        """Diagnostic: returns the current rolling-buffer state without exposing the deque internals to callers.
+
+        Useful for monitoring / unit tests. Returns ``{"buffer_n": int, "buffer_full": bool, "alpha_current": float, "beta_current": float}``.
+        """
+        buf_n = len(getattr(self, "_buffer_y_", []))
+        return {
+            "buffer_n": buf_n,
+            "buffer_full": buf_n >= int(self.online_refit_buffer_n),
+            "alpha_current": float(getattr(self, "fitted_params_", {}).get("alpha", float("nan"))),
+            "beta_current": float(getattr(self, "fitted_params_", {}).get("beta", float("nan"))),
+        }
 
 
 # ----------------------------------------------------------------------
