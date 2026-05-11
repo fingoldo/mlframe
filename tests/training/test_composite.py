@@ -88,6 +88,7 @@ class TestRegistry:
             "diff", "ratio", "logratio",
             "linear_residual", "linear_residual_multi",
             "linear_residual_grouped",
+            "quantile_residual",
         ])
 
     def test_list_transforms_filters_by_tag(self) -> None:

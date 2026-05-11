@@ -763,6 +763,154 @@ def _linear_residual_grouped_domain(
 
 
 # ----------------------------------------------------------------------
+# quantile_residual (#6 from R10c brainstorm).
+#
+# Non-parametric, heteroscedasticity-aware residual. Bin ``base`` into ``n_bins`` quantile buckets on train; for each bucket compute median(y) and IQR(y). T = (y - median_bin) / IQR_bin. Inverse: y_hat = T_hat * IQR_bin + median_bin. The bucket-conditional centring + scaling makes T near-iid (mean 0, scale 1) regardless of how Var(y|base) depends on base -- which linear_residual cannot do.
+#
+# Use case (TVT): when Var(TVT|TVT_prev) scales with TVT_prev (heteroscedastic, common in flow / queue / well-log data), conditional-quantile residual produces a near-iid target which tree models predict more cleanly than a heteroscedastic linear residual.
+#
+# Failure handling:
+# - Bins with < ``min_bin_n`` train rows reuse the GLOBAL median(y) / IQR(y) so under-populated bins don't carry noisy bin-local estimates. Tracked in ``params["bin_sizes"]`` for diagnostics.
+# - At predict, ``base`` values outside the train range fall back to the EDGE bin (first or last), not a separate "out-of-range" bucket. Consistent with the quantile-binning contract.
+# - IQR == 0 for a bin (constant y) is replaced with the global IQR or a small floor (1e-6 * std(y_train)) to keep the inverse well-defined.
+# ----------------------------------------------------------------------
+
+_QUANTILE_RESIDUAL_DEFAULT_N_BINS: int = 10
+_QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N: int = 50
+
+
+def _quantile_residual_fit(
+    y: np.ndarray, base: np.ndarray,
+    n_bins: int = _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
+    min_bin_n: int = _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
+) -> Dict[str, Any]:
+    """Fit per-bucket median(y) + IQR(y) over ``n_bins`` quantile bins of ``base``.
+
+    Returns
+    -------
+    dict with keys:
+    - ``bin_edges``: 1-D ndarray of length ``n_bins+1`` (open at -inf, +inf).
+    - ``bin_medians``: 1-D ndarray of length ``n_bins`` (median(y) per bin; global median for under-populated bins).
+    - ``bin_iqrs``: 1-D ndarray of length ``n_bins`` (IQR(y) per bin; global IQR with floor for under-populated / constant bins).
+    - ``bin_sizes``: list[int] of length ``n_bins`` (train rows per bin).
+    - ``global_median``: float (median of train y, used as fallback).
+    - ``global_iqr``: float (IQR of train y, used as fallback).
+    - ``n_bins``: int (recorded for predict-time validation).
+    """
+    n_bins = max(2, int(n_bins))
+    min_bin_n = max(2, int(min_bin_n))
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(y_f) & np.isfinite(base_f)
+    if finite.sum() < n_bins * 2:
+        # Degenerate: fall back to global stats so the inverse is still safe.
+        med = float(np.median(y_f[finite])) if finite.any() else 0.0
+        iqr_v = float(np.subtract(*np.percentile(y_f[finite], [75, 25]))) if finite.sum() >= 4 else 1.0
+        iqr_v = max(iqr_v, 1e-6)
+        return {
+            "bin_edges": np.array([-np.inf, np.inf], dtype=np.float64),
+            "bin_medians": np.array([med], dtype=np.float64),
+            "bin_iqrs": np.array([iqr_v], dtype=np.float64),
+            "bin_sizes": [int(finite.sum())],
+            "global_median": med,
+            "global_iqr": iqr_v,
+            "n_bins": 1,
+        }
+    y_clean = y_f[finite]
+    base_clean = base_f[finite]
+    # Quantile edges on train base. ``np.quantile`` with linspace covers the open-open envelope; we replace the outermost edges with +/-inf so the predict-time digitize never produces an out-of-range bucket.
+    inner_qs = np.linspace(0.0, 1.0, n_bins + 1)
+    edges = np.quantile(base_clean, inner_qs)
+    # Deduplicate edges (when many ties at one quantile, several edges collapse) -- empty bins would otherwise emerge. Tolerate up to n_bins-1 unique edges; clip n_bins accordingly downstream.
+    edges = np.unique(edges)
+    if edges.size < 2:
+        # All base values identical: degenerate single bucket.
+        med = float(np.median(y_clean))
+        iqr_v = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
+        return {
+            "bin_edges": np.array([-np.inf, np.inf], dtype=np.float64),
+            "bin_medians": np.array([med], dtype=np.float64),
+            "bin_iqrs": np.array([iqr_v], dtype=np.float64),
+            "bin_sizes": [int(y_clean.size)],
+            "global_median": med,
+            "global_iqr": iqr_v,
+            "n_bins": 1,
+        }
+    edges[0] = -np.inf
+    edges[-1] = np.inf
+    actual_n_bins = edges.size - 1
+    # Global stats (fallback for under-populated bins).
+    global_median = float(np.median(y_clean))
+    global_iqr = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
+    # Per-bin assignment via np.searchsorted (right-side: edges[i-1] <= x < edges[i]).
+    bin_idx = np.clip(np.searchsorted(edges[1:-1], base_clean, side="right"), 0, actual_n_bins - 1)
+    bin_medians = np.full(actual_n_bins, global_median, dtype=np.float64)
+    bin_iqrs = np.full(actual_n_bins, global_iqr, dtype=np.float64)
+    bin_sizes: List[int] = []
+    for b in range(actual_n_bins):
+        mask = bin_idx == b
+        bin_n = int(mask.sum())
+        bin_sizes.append(bin_n)
+        if bin_n < min_bin_n:
+            # Under-populated: keep global fallback.
+            continue
+        bin_y = y_clean[mask]
+        bin_medians[b] = float(np.median(bin_y))
+        bin_iqr = float(np.subtract(*np.percentile(bin_y, [75, 25])))
+        # Floor IQR against constant-y bins so the inverse stays well-defined; use global IQR as a sensible scale anchor rather than 1e-6.
+        bin_iqrs[b] = bin_iqr if bin_iqr > 1e-6 else global_iqr
+    return {
+        "bin_edges": edges,
+        "bin_medians": bin_medians,
+        "bin_iqrs": bin_iqrs,
+        "bin_sizes": bin_sizes,
+        "global_median": global_median,
+        "global_iqr": global_iqr,
+        "n_bins": int(actual_n_bins),
+    }
+
+
+def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Map each row of ``base`` to a bin index in [0, n_bins-1]. Out-of-range values map to the edge bin (no separate OOR bucket), per the contract documented on the transform."""
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    n_bins = edges.size - 1
+    if n_bins <= 1:
+        return np.zeros(base_f.size, dtype=np.intp)
+    # ``edges[1:-1]`` are the INNER cut points; searchsorted returns 0..n_bins.
+    bin_idx = np.searchsorted(edges[1:-1], base_f, side="right")
+    return np.clip(bin_idx, 0, n_bins - 1)
+
+
+def _quantile_residual_forward(
+    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    edges = np.asarray(params["bin_edges"], dtype=np.float64)
+    medians = np.asarray(params["bin_medians"], dtype=np.float64)
+    iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
+    bin_idx = _quantile_residual_assign_bins(base, edges)
+    return (np.asarray(y, dtype=np.float64) - medians[bin_idx]) / iqrs[bin_idx]
+
+
+def _quantile_residual_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+) -> np.ndarray:
+    edges = np.asarray(params["bin_edges"], dtype=np.float64)
+    medians = np.asarray(params["bin_medians"], dtype=np.float64)
+    iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
+    bin_idx = _quantile_residual_assign_bins(base, edges)
+    return np.asarray(t_hat, dtype=np.float64) * iqrs[bin_idx] + medians[bin_idx]
+
+
+def _quantile_residual_domain(
+    y: Optional[np.ndarray], base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+
+
+# ----------------------------------------------------------------------
 # Registry and lookup
 # ----------------------------------------------------------------------
 
@@ -841,6 +989,17 @@ _TRANSFORMS_REGISTRY: Dict[str, Transform] = {
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
         requires_groups=True,
+    ),
+    "quantile_residual": Transform(
+        name="quantile_residual",
+        forward=_quantile_residual_forward,
+        inverse=_quantile_residual_inverse,
+        fit=_quantile_residual_fit,
+        domain_check=_quantile_residual_domain,
+        description=(
+            "Non-parametric heteroscedasticity-aware residual: T = (y - median_bin(y)) / IQR_bin(y) with ``n_bins`` quantile bins of ``base``. Inverse y_hat = T_hat * IQR_bin + median_bin. Under-populated bins (< min_bin_n train rows) and constant-y bins fall back to the global median(y) / IQR(y); out-of-range base values at predict map to the edge bin (no separate OOR bucket)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
 }
 
