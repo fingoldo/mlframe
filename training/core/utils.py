@@ -112,6 +112,105 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
 
 
+def _apply_plot_style_overrides(
+    *,
+    matplotlib_style=None,
+    matplotlib_rcparams=None,
+    plotly_template=None,
+    verbose: bool = False,
+) -> None:
+    """Apply ``ReportingConfig.matplotlib_style`` + ``matplotlib_rcparams`` +
+    ``plotly_template`` to the process-wide plot-backend state.
+
+    Two independent backends:
+    - matplotlib: ``plt.style.use(...)`` + ``plt.rcParams.update(...)``.
+    - plotly:     ``plotly.io.templates.default = ...``.
+
+    Each backend's override is applied independently -- the user can set
+    just matplotlib, just plotly, or both (recommended for a unified look:
+    eg ``matplotlib_style="ggplot"`` + ``plotly_template="ggplot2"``).
+
+    All fields are ``None``-defaultable -- when None, the user's
+    pre-suite settings are preserved untouched. When set, they're
+    applied PROCESS-WIDE (mirrors the ``plot_inline_display`` plumbing
+    semantics: "set once, see everywhere"; not reverted on suite exit so
+    a long-running notebook session sees the override across cells).
+
+    Failures are logged at WARNING level and don't abort the suite --
+    matplotlib raises ``OSError`` on unknown style names, plotly raises
+    ``ValueError`` on unknown template names; both surface as one-line
+    warnings so the operator notices the typo without losing the whole
+    training run.
+    """
+    if (matplotlib_style is None and not matplotlib_rcparams
+            and plotly_template is None):
+        return
+
+    # matplotlib branch
+    if matplotlib_style is not None or matplotlib_rcparams:
+        try:
+            import matplotlib.pyplot as plt
+        except Exception as _imp_err:
+            logger.warning(
+                "[plot_style] matplotlib import failed (%s); matplotlib "
+                "style override skipped.", _imp_err,
+            )
+            plt = None
+        if plt is not None:
+            if matplotlib_style is not None:
+                try:
+                    plt.style.use(matplotlib_style)
+                    if verbose:
+                        logger.info(
+                            "[plot_style] matplotlib style: %r", matplotlib_style,
+                        )
+                except Exception as _style_err:
+                    logger.warning(
+                        "[plot_style] plt.style.use(%r) failed: %s. "
+                        "Continuing with the current matplotlib style.",
+                        matplotlib_style, _style_err,
+                    )
+            if matplotlib_rcparams:
+                try:
+                    plt.rcParams.update(dict(matplotlib_rcparams))
+                    if verbose:
+                        logger.info(
+                            "[plot_style] applied %d matplotlib rcParams "
+                            "override(s): %s",
+                            len(matplotlib_rcparams),
+                            sorted(matplotlib_rcparams.keys()),
+                        )
+                except Exception as _rc_err:
+                    logger.warning(
+                        "[plot_style] plt.rcParams.update(%r) failed: %s. "
+                        "Some matplotlib keys may not have been applied.",
+                        matplotlib_rcparams, _rc_err,
+                    )
+
+    # plotly branch
+    if plotly_template is not None:
+        try:
+            import plotly.io as pio
+        except Exception as _imp_err:
+            logger.warning(
+                "[plot_style] plotly import failed (%s); plotly template "
+                "override skipped.", _imp_err,
+            )
+            return
+        try:
+            pio.templates.default = plotly_template
+            if verbose:
+                logger.info(
+                    "[plot_style] plotly template: %r", plotly_template,
+                )
+        except Exception as _tpl_err:
+            logger.warning(
+                "[plot_style] plotly templates.default = %r failed: %s. "
+                "Continuing with the current plotly template.",
+                plotly_template, _tpl_err,
+            )
+
+
 def _defensive_copy_and_expand_multilabel_regression(
     *,
     target_by_type,
@@ -1221,6 +1320,15 @@ def _build_suite_common_params_dict(
         reporting_config.model_dump(exclude={
             "title_metrics_tokens",
             "plot_inline_display",
+            # 2026-05-13: matplotlib / plotly style overrides are
+            # consumed at suite-level only (via
+            # ``_apply_plot_style_overrides``); the deep consumer
+            # ``_build_configs_from_params`` does NOT accept these
+            # kwargs. Excluding here so the dump stays compatible with
+            # the train_eval signature.
+            "matplotlib_style",
+            "matplotlib_rcparams",
+            "plotly_template",
         })
     )
     if preprocessing_config.scaler is not None:

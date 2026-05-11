@@ -1,5 +1,55 @@
 # Changelog
 
+## 2026-05-13 (continued) — Plot-style overrides on ReportingConfig (matplotlib + plotly)
+
+Three new fields on `ReportingConfig`, applied process-wide at suite entry:
+
+- `matplotlib_style: Optional[Union[str, List[str]]] = None` -- e.g.
+  `"ggplot"`, `"seaborn-v0_8-darkgrid"`, `"dark_background"`,
+  `"fivethirtyeight"`, or a path to a `.mplstyle` file. List value layers
+  multiple sheets (matplotlib stacks them; later wins on conflict).
+- `matplotlib_rcparams: Optional[Dict[str, Any]] = None` -- direct
+  rcParams dict; merged ON TOP of any style sheet so the user can
+  fine-tune specific keys without writing a full `.mplstyle` file.
+- `plotly_template: Optional[str] = None` -- plotly has its own template
+  system (not shared with matplotlib). Common values: `"plotly_white"`,
+  `"plotly_dark"`, `"ggplot2"`, `"seaborn"`, `"simple_white"`,
+  `"presentation"`. Applied via `plotly.io.templates.default = ...`.
+
+Both backends are independent -- set just one, or both, or neither.
+For a unified look across both backends, pair matching themes:
+`matplotlib_style="ggplot"` + `plotly_template="ggplot2"`. There is no
+single "theme" knob because the available style names + rcParams keys
+differ between backends.
+
+Application semantics mirror the existing `plot_inline_display` knob:
+process-wide, applied once at suite entry, NOT reverted on suite exit
+(operators expect "set once, see everywhere" for plot styling in
+long-running notebook sessions). When all three are `None` (default),
+the user's pre-suite `plt.style.use(...)` / `plt.rcParams` / plotly
+template state is preserved untouched -- so a one-line script-level
+`plt.style.use("ggplot")` also works for callers who don't want to
+thread a config object.
+
+Failures (typo in style name, etc.) log a WARNING and don't abort the
+suite -- matplotlib raises `OSError` on unknown style names, plotly
+raises `ValueError` on unknown template names; both surface as
+one-line warnings.
+
+Excluded from `common_params_dict` (alongside `title_metrics_tokens` and
+`plot_inline_display`) so the deep `_build_configs_from_params` consumer
+in `train_eval.py` doesn't choke on unknown kwargs.
+
+13/13 new locks pass:
+- 5 config-default tests (defaults, set-all-three, list-of-styles).
+- 1 no-op test (`None` -> no mutation).
+- 4 matplotlib tests (style sheet applies, rcparams apply, rcparams
+  overlay on top of style, unknown style logs WARN).
+- 2 plotly tests (template applies, unknown template logs WARN).
+- 1 unified-theme test (both backends in one call).
+
+---
+
 ## 2026-05-13 — FI plot figsize + style unified with regression-diagnostic chart
 
 User reported the FI plot was visibly mismatched against the 3-panel

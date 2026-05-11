@@ -124,6 +124,7 @@ from ...ensembling import score_ensemble
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     _apply_outlier_detection_global,
+    _apply_plot_style_overrides,
     _auto_detect_feature_types,
     _augment_with_dropped_high_card_cols,
     _build_common_params_for_target,
@@ -413,6 +414,15 @@ def train_mlframe_models_suite(
         _set_idm(getattr(reporting_config, "plot_inline_display", None))
     except Exception:
         pass
+    # 2026-05-13 (user request): apply matplotlib style + rcParams +
+    # plotly template overrides from reporting_config. Process-wide;
+    # ``None`` keeps the user's pre-suite settings intact.
+    _apply_plot_style_overrides(
+        matplotlib_style=getattr(reporting_config, "matplotlib_style", None),
+        matplotlib_rcparams=getattr(reporting_config, "matplotlib_rcparams", None),
+        plotly_template=getattr(reporting_config, "plotly_template", None),
+        verbose=bool(verbose),
+    )
     output_config = _ensure_config(output_config, OutputConfig, {})
     outlier_detection_config = _ensure_config(outlier_detection_config, OutlierDetectionConfig, {})
     feature_selection_config = _ensure_config(feature_selection_config, FeatureSelectionConfig, {})

@@ -2703,6 +2703,49 @@ class ReportingConfig(BaseConfig):
     # without cell-output errors.
     plot_inline_display: Optional[bool] = None
 
+    # 2026-05-13 (user request): matplotlib style + rcParams override.
+    #
+    # Use cases:
+    # - ``matplotlib_style="ggplot"`` -> use the "ggplot" style sheet for
+    #   all charts the suite emits. Accepts any name resolvable by
+    #   ``plt.style.use(...)`` (eg ``"seaborn-v0_8-darkgrid"``,
+    #   ``"dark_background"``, ``"fivethirtyeight"``, ``"_classic_test_patch"``,
+    #   or a path to a user-written ``.mplstyle`` file).
+    # - ``matplotlib_style=["seaborn-v0_8", "dark_background"]`` -- list to
+    #   layer multiple styles (matplotlib stacks them; later wins on conflict).
+    # - ``matplotlib_rcparams={"font.size": 12, "axes.grid": True, ...}`` --
+    #   direct rcParams dict; merged ON TOP of any style sheet so the user
+    #   can fine-tune specific keys without writing a full .mplstyle file.
+    #
+    # Application: both fields are applied to the PROCESS-WIDE matplotlib
+    # state at suite entry (mirrors the existing ``plot_inline_display``
+    # plumbing). When ``None`` (default), the user's script-level
+    # ``plt.style.use(...)`` / ``plt.rcParams`` settings are preserved
+    # untouched -- so a one-line ``plt.style.use("ggplot")`` before the
+    # suite invocation also works for callers who don't want to thread
+    # the field through a config object.
+    #
+    # The fields are NOT reverted on suite exit; matches the
+    # ``plot_inline_display`` semantics (operators expect "set once, see
+    # everywhere" for plot styling in a long-running notebook session).
+    matplotlib_style: Optional[Union[str, List[str]]] = None
+    matplotlib_rcparams: Optional[Dict[str, Any]] = None
+
+    # 2026-05-13 (user request): plotly template override -- separate from
+    # the matplotlib style because plotly has its own template system.
+    # Common values: ``"plotly"`` (default), ``"plotly_white"``,
+    # ``"plotly_dark"``, ``"ggplot2"``, ``"seaborn"``, ``"simple_white"``,
+    # ``"presentation"``. Applied via ``plotly.io.templates.default = ...``
+    # at suite entry, process-wide (mirrors matplotlib_style semantics).
+    # ``None`` (default) keeps the user's pre-suite plotly setting.
+    #
+    # Ergonomic note: to unify the look across both backends, set BOTH
+    # ``matplotlib_style`` and ``plotly_template`` to matching themes,
+    # eg ``matplotlib_style="ggplot"`` + ``plotly_template="ggplot2"``.
+    # There is no single "theme" knob that targets both because the
+    # available style names and rcParams keys differ between backends.
+    plotly_template: Optional[str] = None
+
     # 2026-05-11: per-figure DPI for saved PNG / inline rendering.
     # matplotlib's default is 100. Lowering to 80 cuts savefig wall-time
     # ~30 % linearly (verified on a 6-panel multiclass figure: 1330 ms ->
