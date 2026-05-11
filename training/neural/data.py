@@ -49,11 +49,53 @@ class TorchDataset(Dataset):
         labels_dtype: torch.dtype = torch.float32,
         device: Optional[str] = None,
         batch_size: int = 0,
+        # 2026-05-11 Wave 23: zero-copy concurrent-worker access.
+        share_memory: bool = True,
     ):
+        """``share_memory``: when True (default) AND the dataset eager-
+        converts the feature/label tensors to CPU memory, call
+        ``tensor.share_memory_()`` so PyTorch DataLoader child workers
+        (``num_workers > 0``) attach to the same backing buffer instead
+        of each pickling+receiving a fresh copy.
+
+        Rationale (Yuxin Wu, 2022, "Demystify RAM Usage in Multi-Process
+        Data Loaders"): the naive multi-worker DataLoader pattern leaks
+        memory across workers because Linux copy-on-write fails for
+        Python objects -- accessing ANY Python attribute increments its
+        refcount, which is a write, which triggers a per-process copy
+        of the page. The standard mitigation -- already widely adopted
+        in TorchVision / fairseq -- is to put the dataset's hot buffers
+        into ``torch.Tensor`` so PyTorch's custom ``ForkingPickler``
+        moves them to ``/dev/shm`` (Linux) or a SharedMemoryManager
+        handle (Windows) instead of serialising bytes. ``share_memory_()``
+        does that promotion eagerly so the first worker access is
+        zero-copy from the start.
+
+        Disable (``False``) only for tests or for special tensor types
+        (sparse, MPS) where ``share_memory_()`` raises. Negligible cost
+        at ``num_workers=0``; with ``num_workers >= 2`` and a 1 GB
+        feature buffer the net RAM saving is ``num_workers * 1 GB``.
+
+        Multi-GPU note: this dataset is single-process / single-GPU.
+        For multi-GPU DDP, designate rank-0 to load data once, then
+        pass the shared-memory tensor handle to ranks 1..N-1 via
+        ``ForkingPickler``. Implementing the DDP wrapper is out of
+        scope for Wave 23; the shared-memory tensor stays compatible
+        when that wrapper lands.
+
+        Note on pinning: PyTorch DataLoader's own ``pin_memory=True``
+        kwarg performs per-batch pinning (which the suite already wires
+        via ``_create_dataloader: dl_params["pin_memory"] = on_gpu``).
+        Pinning the WHOLE feature tensor once would lock the buffer's
+        RAM permanently -- only worth it for small frames AND a GPU
+        target. Out of scope for Wave 23; revisit if profiles show
+        batch-pin cost dominating.
+        """
         self.features_dtype = features_dtype
         self.labels_dtype = labels_dtype
         self.device = device
         self.batch_size = batch_size
+        self._share_memory = share_memory
 
         # 2026-05-11 Wave 22: eliminate per-batch type-check chain.
         # Previous code did ``isinstance(data, X)`` plus ``.to(dtype, device)``
@@ -87,6 +129,18 @@ class TorchDataset(Dataset):
         )
         if self._eager_features:
             self.features = to_tensor_any(features, features_dtype, device)
+            # 2026-05-11 Wave 23: promote to shared memory so DataLoader
+            # workers attach to the same buffer (zero-copy across procs).
+            # Guarded -- some tensor types / devices reject share_memory_().
+            if (
+                self._share_memory
+                and isinstance(self.features, torch.Tensor)
+                and self.features.device.type == "cpu"
+            ):
+                try:
+                    self.features.share_memory_()
+                except (RuntimeError, NotImplementedError):
+                    pass
         else:
             # Above-cap frame: keep original carrier; ``_extract`` will
             # convert per batch (slow path, but memory-safe).
@@ -123,6 +177,17 @@ class TorchDataset(Dataset):
                 _arr = _arr.reshape(-1)  # collapse (N, 1) -> (N,) for single-label paths
             # 2-D ndarray with K>=2 passes through; ndim>=3 untouched (caller's responsibility)
             self.labels = torch.tensor(_arr, dtype=labels_dtype, device=device)
+            # Wave 23: same shared-memory promotion as features (labels
+            # are accessed per-batch alongside features).
+            if (
+                self._share_memory
+                and isinstance(self.labels, torch.Tensor)
+                and self.labels.device.type == "cpu"
+            ):
+                try:
+                    self.labels.share_memory_()
+                except (RuntimeError, NotImplementedError):
+                    pass
             dataset_length = len(self.labels)
         else:
             self.labels = None
@@ -147,6 +212,16 @@ class TorchDataset(Dataset):
 
             sample_weight = np.asarray(sample_weight).reshape(-1)
             self.sample_weight = torch.tensor(sample_weight, dtype=torch.float32, device=device)
+            # Wave 23: shared-memory promotion for sample_weight too.
+            if (
+                self._share_memory
+                and isinstance(self.sample_weight, torch.Tensor)
+                and self.sample_weight.device.type == "cpu"
+            ):
+                try:
+                    self.sample_weight.share_memory_()
+                except (RuntimeError, NotImplementedError):
+                    pass
         else:
             self.sample_weight = None
 
@@ -410,6 +485,17 @@ class TorchDataModule(LightningDataModule):
         dl_params["shuffle"] = shuffle
         dl_params["drop_last"] = drop_last
         dl_params["pin_memory"] = on_gpu
+
+        # 2026-05-11 Wave 23: ``persistent_workers=True`` skips the
+        # worker-restart cost between epochs (each restart re-imports
+        # torch / lightning / numpy + re-attaches to the shared-memory
+        # tensor handle, ~100-300 ms / restart on Windows). At our
+        # typical 30-100 epoch fits with num_workers>=2 the saving is
+        # 3-30 s per fit. Only set when num_workers > 0 -- PyTorch
+        # raises a warning if you ask for persistent workers with 0
+        # workers.
+        if dl_params.get("num_workers", 0) > 0:
+            dl_params.setdefault("persistent_workers", True)
 
         # IMPORTANT: Set batch_size=None since TorchDataset handles batching internally
         # when its own batch_size parameter > 0
