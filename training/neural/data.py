@@ -55,11 +55,18 @@ class TorchDataset(Dataset):
         self.device = device
         self.batch_size = batch_size
 
-        # Store features as-is, unless GPU preloading requested
-        if device == "cuda":
-            self.features = to_tensor_any(features, features_dtype, device)
-        else:
-            self.features = features
+        # 2026-05-11 Wave 22: convert features to torch.Tensor ONCE in
+        # __init__ (was previously deferred to ``__getitem__`` for the CPU
+        # path). Per-batch type-check + dtype-coerce was ~38us per call ×
+        # 47k batches per fit = ~2s of wall-time noise on a 1M-row fit
+        # (verified on c0094 profile: ``__getitem__`` 2.0s tottime,
+        # ``_extract`` 1.0s tottime, both Python-glue not actual work).
+        # ``to_tensor_any`` handles all input types (torch.Tensor, ndarray,
+        # pd.DataFrame, pl.DataFrame) and is a zero-copy via from_numpy
+        # for the ndarray fastpath; the only allocation is for the
+        # DataFrame -> ndarray materialisation, which the legacy path also
+        # paid (just on every batch instead of once).
+        self.features = to_tensor_any(features, features_dtype, device)
 
         # Handle labels (optional for prediction)
         if labels is not None:
@@ -129,21 +136,26 @@ class TorchDataset(Dataset):
         return self.num_batches if self.batch_size > 0 else self.dataset_length
 
     def _extract(self, data, indices):
-        """Extract and convert subset to tensor."""
+        """Extract and convert subset to tensor.
+
+        Wave 22: features are now always torch.Tensor (converted once in
+        __init__), so this fastpaths to a single indexing op. The
+        non-Tensor branches stay for the rare case where ``self.features``
+        is replaced post-init by a caller (defensive; not exercised by
+        the mlframe suite).
+        """
         if isinstance(data, torch.Tensor):
-            subset = data[indices]
-        elif isinstance(data, np.ndarray):
-            subset = data[indices]
+            # Hot path: features already a tensor of the right dtype/device
+            # from __init__'s to_tensor_any call.
+            return data[indices]
+        if isinstance(data, np.ndarray):
+            subset = torch.from_numpy(data[indices])
         elif isinstance(data, pd.DataFrame):
-            subset = data.iloc[indices, :].to_numpy()
+            subset = torch.from_numpy(data.iloc[indices, :].to_numpy())
         elif isinstance(data, pl.DataFrame):
             subset = data[indices].to_torch()
         else:
             raise TypeError(f"Unsupported data type for extraction: {type(data)}")
-
-        if isinstance(subset, np.ndarray):
-            subset = torch.from_numpy(subset)
-
         return subset.to(dtype=self.features_dtype, device=self.device)
 
     def __getitem__(self, idx):
