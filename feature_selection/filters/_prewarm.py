@@ -259,14 +259,24 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     # this, numba's per-signature cache misses and the kernel recompiles
     # on first real use.
     cont = rng.normal(size=(n, 2)).astype(np.float64)
+    # Wave 17d: polars ``.to_numpy()`` returns F-contiguous (column-major)
+    # while pandas ``.to_numpy()`` returns C-contiguous (row-major).
+    # Numba's array-layout dispatch treats these as DIFFERENT signatures
+    # (Array(float64, 2, 'C') vs Array(float64, 2, 'F')) and compiles
+    # separately -- prewarming only C-contig leaves the polars path with
+    # ~10s of cold JIT compile on first MRMR.fit(polars_df) at 1M rows
+    # (verified on c0121 1M profile: 10.05s attributed to categorize_dataset
+    # -> discretize_2d_array(F-contig)). Cover BOTH layouts.
+    cont_f = np.asfortranarray(cont)  # F-contiguous variant
     for _disc_dtype in (np.int8, np.int16):
-        try:
-            _ = discretize_2d_array(
-                arr=cont, n_bins=4, method="quantile", min_ncats=50,
-                min_values=None, max_values=None, dtype=_disc_dtype,
-            )
-        except Exception:
-            pass
+        for _arr in (cont, cont_f):
+            try:
+                _ = discretize_2d_array(
+                    arr=_arr, n_bins=4, method="quantile", min_ncats=50,
+                    min_values=None, max_values=None, dtype=_disc_dtype,
+                )
+            except Exception:
+                pass
         try:
             _ = discretize_array(
                 arr=cont[:, 0], n_bins=4, method="quantile",
