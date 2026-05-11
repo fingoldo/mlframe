@@ -1842,8 +1842,22 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     dominant_features_hint: Optional[List[str]] = None
 
     # Transform names from the registry (mlframe.training.composite).
+    #
+    # 2026-05-11 (R10c brainstorm rollout): default extended from the original 4 to include the SINGLE-BASE, DROP-IN transforms shipped in commits 9e05955 + 0894369:
+    #   - ``quantile_residual`` -- conditional-on-bin centering + scaling.
+    #   - ``monotonic_residual`` -- monotone PCHIP spline residual.
+    # These accept the standard ``(y, base)`` signature and need no special orchestration -- discovery evaluates them like ``linear_residual``.
+    #
+    # NOT in default list (require orchestration the discovery loop does not yet provide):
+    #   - ``linear_residual_multi`` -- needs multi-column base selection (forward stepwise); single-base mode is identical to ``linear_residual``.
+    #   - ``linear_residual_grouped`` -- needs ``group_column`` extraction + groups kwarg through fit/forward/inverse.
+    #   - ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` -- require chronological row order which most datasets lack at the discovery stage.
+    # All four are accessible via explicit user configuration (``CompositeTargetEstimator(...)`` directly) and ship with their own tests; auto-discovery integration is the open item beyond this PR.
     transforms: List[str] = Field(
-        default_factory=lambda: ["diff", "ratio", "logratio", "linear_residual"]
+        default_factory=lambda: [
+            "diff", "ratio", "logratio", "linear_residual",
+            "quantile_residual", "monotonic_residual",
+        ]
     )
 
     # MI screening. Sample to keep the diagnostic under one minute on
