@@ -949,8 +949,20 @@ def _count_nfailed_joint_indep_prange(
     numpy version drift in ``random.shuffle``).
 
     Returns total ``nfailed`` summed across threads.
+
+    2026-05-11: inner per-permutation work fused into a SINGLE pass
+    over N=1M (vs three separate ``compute_mi_from_classes`` calls).
+    On c0089 1M-row regression+MRMR profile, this kernel was the
+    largest mlframe-owned cumtime (26.5 s tottime over 56 calls);
+    the three-pass form scanned N=1M three times per permutation,
+    fusing collapses that to one. Joint MI summation on the small
+    (K_x, K_y) joint-count matrices is unchanged.
     """
     n = len(classes_y)
+    K_pair = len(freqs_pair)
+    K_x1 = len(freqs_x1)
+    K_x2 = len(freqs_x2)
+    K_y = len(freqs_y)
     nfailed_total = 0
     for tid in prange(n_perms):
         # Per-thread copy of Y so each prange iteration shuffles
@@ -965,18 +977,45 @@ def _count_nfailed_joint_indep_prange(
             tmp = cy_local[i]
             cy_local[i] = cy_local[j]
             cy_local[j] = tmp
-        i_pair = compute_mi_from_classes(
-            classes_x=classes_pair, freqs_x=freqs_pair,
-            classes_y=cy_local, freqs_y=freqs_y, dtype=dtype,
-        )
-        i_x1 = compute_mi_from_classes(
-            classes_x=classes_x1, freqs_x=freqs_x1,
-            classes_y=cy_local, freqs_y=freqs_y, dtype=dtype,
-        )
-        i_x2 = compute_mi_from_classes(
-            classes_x=classes_x2, freqs_x=freqs_x2,
-            classes_y=cy_local, freqs_y=freqs_y, dtype=dtype,
-        )
+
+        # Single-pass joint-counts for the three (X*, Y) pairs.
+        joint_pair = np.zeros((K_pair, K_y), dtype=dtype)
+        joint_x1 = np.zeros((K_x1, K_y), dtype=dtype)
+        joint_x2 = np.zeros((K_x2, K_y), dtype=dtype)
+        for k in range(n):
+            cy = cy_local[k]
+            joint_pair[classes_pair[k], cy] += 1
+            joint_x1[classes_x1[k], cy] += 1
+            joint_x2[classes_x2[k], cy] += 1
+
+        inv_n = 1.0 / n
+        i_pair = 0.0
+        for i in range(K_pair):
+            px = freqs_pair[i]
+            for j in range(K_y):
+                jc = joint_pair[i, j]
+                if jc:
+                    jf = jc * inv_n
+                    i_pair += jf * math.log(jf / (px * freqs_y[j]))
+
+        i_x1 = 0.0
+        for i in range(K_x1):
+            px = freqs_x1[i]
+            for j in range(K_y):
+                jc = joint_x1[i, j]
+                if jc:
+                    jf = jc * inv_n
+                    i_x1 += jf * math.log(jf / (px * freqs_y[j]))
+
+        i_x2 = 0.0
+        for i in range(K_x2):
+            px = freqs_x2[i]
+            for j in range(K_y):
+                jc = joint_x2[i, j]
+                if jc:
+                    jf = jc * inv_n
+                    i_x2 += jf * math.log(jf / (px * freqs_y[j]))
+
         if (i_pair - i_x1 - i_x2) >= ii_obs:
             nfailed_total += 1
     return nfailed_total
@@ -995,8 +1034,19 @@ def _shuffle_and_compute_three_mis(
     dtype,
 ) -> tuple:
     """Shuffle classes_y_safe in place (Fisher-Yates) and compute three
-    MIs against the shuffled Y. Single-pass kernel keeps allocation
-    low and ensures the same shuffle drives all three MIs (E2)."""
+    MIs against the shuffled Y in a SINGLE pass over N rows.
+
+    Pre-2026-05-11 form: shuffle + 3 separate ``compute_mi_from_classes``
+    calls = 3 passes over N=1M to build three joint-count matrices.
+    Each pass is the dominant cost in the cat-interaction permutation
+    confirmation loop (c0089 1M-row regression+MRMR profile: 26.5 s
+    tottime in ``_count_nfailed_joint_indep_prange`` over 56 calls).
+    New form: ONE pass that increments all three joint-count matrices
+    simultaneously, then closed-form MI summation on each (only depends
+    on the small (K_x, K_y) matrices). Bit-exact equivalent of the
+    three-call form -- joint counts are integer increments, log/exp
+    rounding identical.
+    """
     n = len(classes_y_safe)
     # Fisher-Yates shuffle in place
     for i in range(n - 1, 0, -1):
@@ -1005,18 +1055,54 @@ def _shuffle_and_compute_three_mis(
         classes_y_safe[i] = classes_y_safe[j]
         classes_y_safe[j] = tmp
 
-    i_pair = compute_mi_from_classes(
-        classes_x=classes_pair, freqs_x=freqs_pair,
-        classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
-    )
-    i_x1 = compute_mi_from_classes(
-        classes_x=classes_x1, freqs_x=freqs_x1,
-        classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
-    )
-    i_x2 = compute_mi_from_classes(
-        classes_x=classes_x2, freqs_x=freqs_x2,
-        classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
-    )
+    K_pair = len(freqs_pair)
+    K_x1 = len(freqs_x1)
+    K_x2 = len(freqs_x2)
+    K_y = len(freqs_y)
+
+    joint_pair = np.zeros((K_pair, K_y), dtype=dtype)
+    joint_x1 = np.zeros((K_x1, K_y), dtype=dtype)
+    joint_x2 = np.zeros((K_x2, K_y), dtype=dtype)
+
+    # SINGLE pass over N: increment all three joint matrices.
+    for k in range(n):
+        cy = classes_y_safe[k]
+        joint_pair[classes_pair[k], cy] += 1
+        joint_x1[classes_x1[k], cy] += 1
+        joint_x2[classes_x2[k], cy] += 1
+
+    inv_n = 1.0 / n
+
+    # MI from joint counts. Inner loop is O(K_x * K_y) -- typically
+    # K_x, K_y in {2..100} so this dominates by orders of magnitude
+    # less than the N-pass above on N=1M.
+    i_pair = 0.0
+    for i in range(K_pair):
+        px = freqs_pair[i]
+        for j in range(K_y):
+            jc = joint_pair[i, j]
+            if jc:
+                jf = jc * inv_n
+                i_pair += jf * math.log(jf / (px * freqs_y[j]))
+
+    i_x1 = 0.0
+    for i in range(K_x1):
+        px = freqs_x1[i]
+        for j in range(K_y):
+            jc = joint_x1[i, j]
+            if jc:
+                jf = jc * inv_n
+                i_x1 += jf * math.log(jf / (px * freqs_y[j]))
+
+    i_x2 = 0.0
+    for i in range(K_x2):
+        px = freqs_x2[i]
+        for j in range(K_y):
+            jc = joint_x2[i, j]
+            if jc:
+                jf = jc * inv_n
+                i_x2 += jf * math.log(jf / (px * freqs_y[j]))
+
     return i_pair, i_x1, i_x2
 
 

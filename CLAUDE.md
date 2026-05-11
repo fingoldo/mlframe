@@ -544,6 +544,49 @@ catch silent quality regressions, cProfile prevents "ships latent
 overhead that only surfaces under prod shapes". Skipping any one of
 the three has caused real prod regressions in mlframe history.
 
+## Every bug fix ships with a regression unit test (CRITICAL)
+
+A bug fix without a regression test is unfinished work. The fix-and-
+move-on pattern accumulates silent failure modes that re-appear at the
+worst time (mid-refactor, mid-merge, during a release crunch). A
+pinned regression test is the cheapest way to guarantee the specific
+failure mode never returns.
+
+The test goes in the SAME commit as the fix, NOT in a follow-up
+"add tests later" task. It must:
+
+1. **Exercise the EXACT path the bug travelled.** Reuse the fixture /
+   data shape that surfaced the bug if available — synthetic minimal
+   data often doesn't reproduce the same conditions (the codepath
+   may short-circuit at a guard that the real data tripped past).
+2. **Fail on the pre-fix code.** Verify this empirically before
+   committing: ``git stash push <fix_file>`` → run the test → expect
+   FAIL with the actual pre-fix error signature → ``git stash pop``.
+   If the test passes on pre-fix code, it's not a regression sensor —
+   rework the test until it catches the bug.
+3. **Pass on the post-fix code.** Trivial after step 2.
+4. **Be narrowly scoped.** One test per bug, named after the failure
+   mode (``test_fe_step_appends_nbins_via_concat_not_elementwise_add``,
+   not ``test_mrmr_works``). Reviewers see the bug and the proof
+   it stays fixed side by side in the diff.
+
+Applies equally to:
+- Bugs YOU introduced in the current session.
+- Pre-existing bugs you encountered while doing other work. These are
+  the highest-leverage tests because the bug went uncovered precisely
+  because no test caught it.
+- Bug surfacing during fuzz / metamorphic / regression-sensor runs —
+  promote the failing combo into a named unit test so the failure
+  mode is pinned independently of the fuzz pool.
+
+Counter-pattern: fix the bug, see green on the existing test suite,
+move on. The original-failing-path then drifts back into a future
+regression. The 30-second cost of writing a regression sensor pays
+for itself the first time someone refactors near the fixed code.
+
+This rule pairs with the user's general-memory entry
+``feedback_test_every_bug_fix.md``.
+
 ## Multi-agent review: every finding gets explicit disposition (CRITICAL)
 
 When a plan / PR / refactor goes through multi-agent adversarial review

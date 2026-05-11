@@ -40,7 +40,9 @@ from tests.training._fuzz_combo import (  # noqa: E402
 )
 from mlframe.training.core import train_mlframe_models_suite  # noqa: E402
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor  # noqa: E402
-from mlframe.training.configs import OutputConfig, TargetTypes  # noqa: E402
+from mlframe.training.configs import (  # noqa: E402
+    FeatureSelectionConfig, OutputConfig, TargetTypes,
+)
 
 
 def _build_fte(combo):
@@ -113,6 +115,13 @@ def main():
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
                 output_config=OutputConfig(data_dir=tmpdir, models_dir="models"),
                 use_mlframe_ensembles=combo.use_ensembles,
+                # 2026-05-11: thread combo.use_mrmr_fs through. Previously
+                # the script reported `mrmr=True` in the header but never
+                # passed it to the suite -- so MRMR didn't appear in the
+                # profile despite being in the combo definition.
+                feature_selection_config=FeatureSelectionConfig(
+                    use_mrmr_fs=combo.use_mrmr_fs,
+                ),
                 # Force CPU so CatBoost / XGBoost / LightGBM don't trip on
                 # missing CUDA in profiling environments. We're profiling
                 # the mlframe-side overhead, not GPU vs CPU trade-offs.

@@ -146,6 +146,54 @@ class TestRecipeBuilding:
                 assert src in df_tr.columns, \
                     f"Recipe src '{src}' must reference a real input column"
 
+    @pytest.mark.slow
+    def test_fe_step_appends_nbins_via_concat_not_elementwise_add(
+        self, multiplicative_synergy_train_test
+    ):
+        """Regression sensor for 2026-05-11 nbins concatenation bug.
+
+        At ``mrmr.py:1286`` the FE step previously did
+        ``nbins = nbins + new_nbins``. ``nbins`` is a numpy ndarray
+        returned by ``categorize_dataset``; ``+`` does element-wise
+        addition (or shape-mismatch broadcast error), NOT
+        concatenation. After the FE step ``data.shape[1]`` and
+        ``len(nbins)`` desynchronised and the next
+        ``screen_predictors`` call tripped its
+        ``targets_data.shape[1] == len(targets_nbins)`` assertion.
+
+        Reuses ``multiplicative_synergy_train_test`` (same a*b
+        synergy fixture) because that data reliably triggers the FE
+        step to append engineered columns -- which is the only path
+        that exercises the buggy ``nbins + new_nbins`` line.
+        Verified that the test FAILS on pre-fix code (mid-fit
+        AssertionError at screen.py:314) and PASSES on post-fix
+        code (clean fit).
+        """
+        df_tr, y_tr, _df_te, _y_te = multiplicative_synergy_train_test
+        mrmr = MRMR(
+            full_npermutations=5,
+            baseline_npermutations=5,
+            fe_max_steps=2,  # forces the FE-step path that hits the bug-line
+            fe_npermutations=5,
+            fe_unary_preset="default",
+            fe_binary_preset="default",
+            fe_min_pair_mi_prevalence=1.05,
+            verbose=0,
+            n_jobs=1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(df_tr, y_tr)
+        # Pre-fix: the inner ``screen_predictors`` call after the FE
+        # step raised AssertionError mid-fit. Post-fix: ``fit``
+        # completes; reaching these asserts at all is the regression
+        # signal.
+        assert mrmr.support_ is not None
+        # And the recipes list is well-formed (downstream consumers
+        # iterate over it via .kind / .src_names).
+        for r in mrmr._engineered_recipes_:
+            assert isinstance(r, EngineeredRecipe)
+
     def test_fe_max_steps_1_records_no_recipes(self):
         """At the ``fe_max_steps=1`` default no engineered cols are
         added back to ``data`` (they're computed but never re-screened),

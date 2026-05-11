@@ -1283,7 +1283,20 @@ class MRMR(BaseEstimator, TransformerMixin):
                                 dtype=self.quantization_dtype,
                             )
                         data = np.append(data, new_vals, axis=1)
-                        nbins = nbins + new_nbins
+                        # 2026-05-11: ``nbins`` is a numpy.ndarray
+                        # (returned by ``categorize_dataset``), so plain
+                        # ``+`` does element-wise addition / broadcasting
+                        # rather than concatenation. Surfaced by
+                        # ``test_fe_max_steps_2_records_recipe_for_selected_engineered``
+                        # which fed engineered columns back into
+                        # ``screen_predictors`` and tripped its
+                        # ``targets_data.shape[1] == len(targets_nbins)``
+                        # assertion -- nbins size didn't grow while
+                        # data.shape[1] did.
+                        nbins = np.concatenate([
+                            np.asarray(nbins),
+                            np.asarray(new_nbins, dtype=nbins.dtype),
+                        ])
                         cols = cols + new_cols
                         if _is_polars_input:
                             # Polars is immutable -- accumulate new cols
