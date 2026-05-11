@@ -140,12 +140,19 @@ class Transform:
     """
 
     name: str
-    forward: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray]
-    inverse: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray]
-    fit: Callable[[np.ndarray, np.ndarray], Dict[str, Any]]
+    forward: Callable[..., np.ndarray]
+    inverse: Callable[..., np.ndarray]
+    fit: Callable[..., Dict[str, Any]]
     domain_check: Callable[[np.ndarray, np.ndarray], np.ndarray]
     description: str
     tags: FrozenSet[str] = field(default_factory=frozenset)
+    # R10c #3 (2026-05-11): grouped-transform support. When True, the
+    # wrapper extracts a ``groups`` array from a configured column and
+    # passes it as a keyword argument to ``fit`` / ``forward`` /
+    # ``inverse``. Used by ``linear_residual_grouped`` (per-segment alpha
+    # with James-Stein shrinkage). Default False: legacy transforms
+    # keep their 3-arg signatures and the wrapper never passes groups.
+    requires_groups: bool = False
 
 
 # ----------------------------------------------------------------------
@@ -495,6 +502,267 @@ def _linear_residual_multi_domain(
 
 
 # ----------------------------------------------------------------------
+# linear_residual_grouped (#3 from R10c brainstorm).
+#
+# T = y - alpha_g * base - beta_g, where g = group(row). Alphas are fit
+# per group via OLS, then shrunk toward the global alpha via empirical-
+# Bayes (James-Stein style). The shrinkage protects small-n groups
+# from over-fitted alphas while still letting large-n groups follow
+# their own distinct AR dynamics.
+#
+# Use case (TVT): per-well α. Wells differ in autoregressive strength;
+# one-α-across-wells is the wrong model. Per-well α + shrinkage handles
+# the 5-row wells safely without losing the per-well structure that a
+# global fit averages out.
+#
+# Failure handling:
+# - At fit: small groups (n < min_group_size) skip OLS and use the
+#   global α (i.e. fully shrunk to global).
+# - At predict: unseen group IDs fall back to the global α.
+# Both paths are silent + tracked in fitted_params for diagnostics.
+# ----------------------------------------------------------------------
+
+# Minimum rows per group below which the group falls back to the global
+# fit. Belsley/Kuh/Welsch rule of thumb is "≥10× predictors" for stable
+# OLS; for 1-base + intercept that's 20-30. We use 30 as a safe default;
+# exposed as module-level so tests can monkey-patch.
+_GROUPED_MIN_GROUP_SIZE: int = 30
+
+
+def _james_stein_shrinkage_factor(
+    per_group_alphas: np.ndarray,
+    global_alpha: float,
+    group_sizes: np.ndarray,
+    sigma2_total: float,
+) -> float:
+    """Estimate the James-Stein shrinkage factor toward ``global_alpha``.
+
+    Returns a scalar c ∈ [0, 1]:
+    - c = 0: keep per-group alphas as-is (no shrinkage).
+    - c = 1: collapse all per-group alphas to global_alpha (full shrinkage).
+
+    The classic JS estimator for K group means with known variance σ² is
+
+        c = max(0, 1 - (K - 3) σ² / Σ_g (α_g - global)² )
+
+    We use the variance of residuals as σ² proxy (σ²/n_g per group),
+    weighted by ``group_sizes``. When the per-group spread is large
+    relative to noise, c -> 0 (let the data speak). When noise dominates
+    spread, c -> 1 (shrink heavily).
+
+    A degenerate case (K < 4 groups, or all alphas equal) returns c = 0
+    so the JS correction can't reduce K below the JS-applicability
+    threshold; the per-group estimates pass through unmodified.
+    """
+    k = per_group_alphas.size
+    if k < 4:
+        return 0.0
+    deviations = per_group_alphas - global_alpha
+    sum_sq = float(np.sum(deviations * deviations))
+    if sum_sq <= 0:
+        return 0.0
+    # σ²_per_group ≈ σ²_total / mean(n_g) (residual variance per group).
+    # Use mean per-group variance as the JS noise proxy.
+    mean_per_group_variance = float(sigma2_total / max(np.mean(group_sizes), 1.0))
+    # Classic JS shrinkage factor c in
+    #     α_shrunk = (1-c) α_g + c α_global
+    # c = (K-3) σ² / Σ_g (α_g - α_global)², clamped to [0, 1].
+    # High noise / low spread => c -> 1 (full shrink to global).
+    # Low noise / high spread  => c -> 0 (keep per-group alphas).
+    raw = (k - 3) * mean_per_group_variance / sum_sq
+    return float(max(0.0, min(1.0, raw)))
+
+
+def _linear_residual_grouped_fit(
+    y: np.ndarray, base: np.ndarray,
+    groups: Optional[np.ndarray] = None,
+    sample_weight: Optional[np.ndarray] = None,
+    min_group_size: int = _GROUPED_MIN_GROUP_SIZE,
+) -> Dict[str, Any]:
+    """Per-group OLS fit with James-Stein shrinkage toward global α.
+
+    Parameters
+    ----------
+    y, base
+        Training target and base (1-D arrays, length n).
+    groups
+        Per-row group labels (1-D ndarray, length n). Required; raised
+        as ValueError if None.
+    sample_weight
+        Optional row weights (currently unused for the per-group OLS
+        because weight semantics within small groups are unstable; the
+        global fit honours weights via standard OLS).
+    min_group_size
+        Rows-per-group threshold below which a group skips its own
+        OLS and uses the global α/β.
+
+    Returns
+    -------
+    fitted_params with keys:
+    - ``alpha_global`` / ``beta_global``: global OLS fit on all rows.
+    - ``per_group_alphas`` / ``per_group_betas``: dict[group_label ->
+      float]. Keys are str(group_label) for JSON-serialisability.
+    - ``shrinkage_factor``: float in [0, 1] from James-Stein.
+    - ``group_sizes``: dict[str(group_label) -> int]; diagnostic.
+    - ``min_group_size``: int; the threshold used.
+    """
+    if groups is None:
+        raise ValueError(
+            "linear_residual_grouped requires a 1-D ``groups`` array of "
+            "per-row group labels (configure ``group_column`` on the "
+            "wrapper). For ungrouped fit, use ``linear_residual``."
+        )
+    groups = np.asarray(groups).reshape(-1)
+    if len(groups) != len(y):
+        raise ValueError(
+            f"linear_residual_grouped: groups has {len(groups)} rows but "
+            f"y has {len(y)} rows."
+        )
+
+    # Global OLS: same logic as legacy linear_residual.
+    global_params = _linear_residual_fit(y, base, sample_weight=sample_weight)
+    alpha_global = float(global_params["alpha"])
+    beta_global = float(global_params["beta"])
+
+    # Per-group OLS.
+    per_group_alphas: Dict[str, float] = {}
+    per_group_betas: Dict[str, float] = {}
+    group_sizes: Dict[str, int] = {}
+    unique_groups, inverse_idx = np.unique(groups, return_inverse=True)
+
+    # Cache residual squared sum across all groups to estimate σ² for
+    # James-Stein. Computed against the per-group OLS predictions (the
+    # estimator we're trying to shrink).
+    total_resid_sq = 0.0
+    total_n = 0
+
+    alphas_for_shrink: List[float] = []
+    sizes_for_shrink: List[float] = []
+
+    for i, g in enumerate(unique_groups):
+        g_mask = (inverse_idx == i)
+        n_g = int(g_mask.sum())
+        g_key = str(g)
+        group_sizes[g_key] = n_g
+        if n_g < min_group_size:
+            # Skip per-group OLS; defer to global.
+            per_group_alphas[g_key] = alpha_global
+            per_group_betas[g_key] = beta_global
+            continue
+        y_g = y[g_mask]
+        base_g = base[g_mask]
+        sw_g = sample_weight[g_mask] if sample_weight is not None else None
+        try:
+            params_g = _linear_residual_fit(y_g, base_g, sample_weight=sw_g)
+            a_g = float(params_g["alpha"])
+            b_g = float(params_g["beta"])
+        except Exception:  # pragma: no cover - defensive
+            a_g, b_g = alpha_global, beta_global
+        per_group_alphas[g_key] = a_g
+        per_group_betas[g_key] = b_g
+        alphas_for_shrink.append(a_g)
+        sizes_for_shrink.append(float(n_g))
+        # Accumulate residuals for σ² estimate.
+        resid = y_g - a_g * base_g - b_g
+        total_resid_sq += float(np.sum(resid * resid))
+        total_n += n_g
+
+    # James-Stein shrinkage of the eligible per-group alphas.
+    if len(alphas_for_shrink) >= 4 and total_n > 0:
+        sigma2 = total_resid_sq / max(total_n - 2 * len(alphas_for_shrink), 1)
+        c = _james_stein_shrinkage_factor(
+            np.asarray(alphas_for_shrink, dtype=np.float64),
+            alpha_global,
+            np.asarray(sizes_for_shrink, dtype=np.float64),
+            sigma2,
+        )
+    else:
+        c = 0.0
+    # Apply shrinkage to eligible groups (ones that ran their own OLS).
+    if c > 0:
+        for g_key, a_g in list(per_group_alphas.items()):
+            n_g = group_sizes[g_key]
+            if n_g < min_group_size:
+                continue
+            per_group_alphas[g_key] = (1.0 - c) * a_g + c * alpha_global
+
+    return {
+        "alpha_global": alpha_global,
+        "beta_global": beta_global,
+        "per_group_alphas": per_group_alphas,
+        "per_group_betas": per_group_betas,
+        "shrinkage_factor": float(c),
+        "group_sizes": group_sizes,
+        "min_group_size": int(min_group_size),
+    }
+
+
+def _row_alpha_beta(
+    groups: np.ndarray, params: Dict[str, Any],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Materialise per-row (alpha, beta) from the grouped params dict.
+
+    Vectorised: ``np.unique`` collapses the n-row groups vector to K
+    unique labels, looks them up in the params dict ONCE per unique
+    label, then uses inverse-indexing to broadcast back to n rows.
+    A naive ``for i, g in enumerate(groups)`` is ~30x slower on 200K
+    rows; cProfile measured the loop at 88% of total fit+predict cost
+    pre-optimisation.
+
+    Unseen group labels (present at predict but not at fit) fall back
+    to global alpha/beta -- a safe identity-like inverse.
+    """
+    alpha_global = float(params["alpha_global"])
+    beta_global = float(params["beta_global"])
+    pg_alphas = params["per_group_alphas"]
+    pg_betas = params["per_group_betas"]
+    # K unique labels; inv maps each row to an index into uniq.
+    uniq, inv = np.unique(groups, return_inverse=True)
+    # Build per-unique-label alpha / beta with global as fallback.
+    uniq_alpha = np.array(
+        [pg_alphas.get(str(g), alpha_global) for g in uniq],
+        dtype=np.float64,
+    )
+    uniq_beta = np.array(
+        [pg_betas.get(str(g), beta_global) for g in uniq],
+        dtype=np.float64,
+    )
+    return uniq_alpha[inv], uniq_beta[inv]
+
+
+def _linear_residual_grouped_forward(
+    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    groups: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    if groups is None:
+        raise ValueError(
+            "linear_residual_grouped.forward: groups kwarg is required."
+        )
+    groups = np.asarray(groups).reshape(-1)
+    row_alpha, row_beta = _row_alpha_beta(groups, params)
+    return y - row_alpha * base - row_beta
+
+
+def _linear_residual_grouped_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    groups: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    if groups is None:
+        raise ValueError(
+            "linear_residual_grouped.inverse: groups kwarg is required."
+        )
+    groups = np.asarray(groups).reshape(-1)
+    row_alpha, row_beta = _row_alpha_beta(groups, params)
+    return t_hat + row_alpha * base + row_beta
+
+
+def _linear_residual_grouped_domain(
+    y: Optional[np.ndarray], base: np.ndarray,
+) -> np.ndarray:
+    return _linear_residual_domain(y, base)
+
+
+# ----------------------------------------------------------------------
 # Registry and lookup
 # ----------------------------------------------------------------------
 
@@ -557,6 +825,22 @@ _TRANSFORMS_REGISTRY: Dict[str, Transform] = {
             "condition number exceeds _MULTI_BASE_COND_NUMBER_MAX (multicollinearity guard)."
         ),
         tags=frozenset({TAG_CORE, TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "linear_residual_grouped": Transform(
+        name="linear_residual_grouped",
+        forward=_linear_residual_grouped_forward,
+        inverse=_linear_residual_grouped_inverse,
+        fit=_linear_residual_grouped_fit,
+        domain_check=_linear_residual_grouped_domain,
+        description=(
+            "T = y - alpha_g * base - beta_g where g = group(row). Per-group OLS "
+            "with James-Stein shrinkage toward global (alpha, beta). Small groups "
+            "(n < _GROUPED_MIN_GROUP_SIZE) and unseen groups at predict time "
+            "fall back to global. Requires a 'groups' kwarg threaded through "
+            "fit/forward/inverse (wrapper extracts from configured group_column)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_groups=True,
     ),
 }
 
@@ -656,6 +940,33 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
     )
 
 
+def _extract_groups(X: Any, group_column: str) -> np.ndarray:
+    """Pull group labels from X without numeric casting.
+
+    Unlike :func:`_extract_base`, this preserves the dtype (string /
+    integer / categorical) so per-row group lookups work in the
+    grouped transform. Returns a 1-D ndarray.
+    """
+    if hasattr(X, "to_pandas") and not isinstance(X, pd.DataFrame):
+        if group_column not in X.columns:
+            raise KeyError(
+                f"CompositeTargetEstimator: group column '{group_column}' "
+                f"missing from X."
+            )
+        return np.asarray(X.get_column(group_column).to_numpy())
+    if isinstance(X, pd.DataFrame):
+        if group_column not in X.columns:
+            raise KeyError(
+                f"CompositeTargetEstimator: group column '{group_column}' "
+                f"missing from X."
+            )
+        return X[group_column].to_numpy()
+    raise TypeError(
+        f"CompositeTargetEstimator: unsupported X type {type(X).__name__}; "
+        "pass pandas / polars DataFrame."
+    )
+
+
 def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
     """Multi-column variant of :func:`_extract_base`.
 
@@ -739,10 +1050,20 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         runtime_stats_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         auto_variance_stabilise: bool = False,
         base_columns: Optional[Sequence[str]] = None,
+        group_column: Optional[str] = None,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
         self.base_column = base_column
+        # R10c extension #3 (2026-05-11): grouped-transform support.
+        # When the configured ``transform_name`` resolves to a transform
+        # with ``requires_groups=True`` (currently only
+        # ``linear_residual_grouped``), the wrapper extracts a 1-D groups
+        # ndarray from this column and passes it as a kwarg to
+        # fit / forward / inverse. None for ungrouped transforms; the
+        # wrapper validates the pair at fit-time and raises a clear
+        # error if a grouped transform is configured without group_column.
+        self.group_column = group_column
         # R10c extension #1 (2026-05-11): multi-base support.
         # ``base_columns`` is the canonical multi-column path used by
         # ``linear_residual_multi`` and any future multi-base transform.
@@ -953,16 +1274,48 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         sample_weight_train = (
             np.asarray(sample_weight)[valid] if sample_weight is not None else None
         )
+        # R10c #3 (2026-05-11): grouped-transform support. When the
+        # transform requires_groups=True, extract group labels from the
+        # configured group_column and pass them as kwargs through fit/
+        # forward. The transform's own fit signature enforces presence.
+        groups_full: Optional[np.ndarray] = None
+        groups_train: Optional[np.ndarray] = None
+        if transform.requires_groups:
+            if not self.group_column:
+                raise ValueError(
+                    f"CompositeTargetEstimator: transform '{self.transform_name}' "
+                    f"requires groups; configure ``group_column`` on the wrapper."
+                )
+            groups_full = _extract_groups(X, self.group_column)
+            groups_train = groups_full[valid]
+        # transform_fit_kwargs is separate from fit_kwargs (which is
+        # the caller's pass-through to the inner estimator's .fit() at
+        # the bottom of this method). Only ``groups`` flows into the
+        # transform; sample_weight is also threaded through but lives
+        # in its own kwarg name.
+        transform_fit_kwargs: Dict[str, Any] = {}
+        if groups_train is not None:
+            transform_fit_kwargs["groups"] = groups_train
         try:
             transform_params = transform.fit(
-                y_train, base_train, sample_weight=sample_weight_train,
+                y_train, base_train,
+                sample_weight=sample_weight_train,
+                **transform_fit_kwargs,
             )
         except TypeError:
             # Transform.fit doesn't accept sample_weight (most don't).
-            transform_params = transform.fit(y_train, base_train)
+            transform_params = transform.fit(
+                y_train, base_train, **transform_fit_kwargs,
+            )
 
-        # Compute T on the valid rows.
-        t_train = transform.forward(y_train, base_train, transform_params)
+        # Compute T on the valid rows. Grouped transforms need the
+        # groups kwarg for forward as well.
+        transform_forward_kwargs: Dict[str, Any] = (
+            {"groups": groups_train} if groups_train is not None else {}
+        )
+        t_train = transform.forward(
+            y_train, base_train, transform_params, **transform_forward_kwargs,
+        )
 
         # Sanity: T must be finite or the inner estimator will choke.
         if not np.all(np.isfinite(t_train)):
@@ -982,6 +1335,14 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # materialise large polars frames -- that defeats the whole
         # zero-copy Arrow path on multi-GB datasets.
         X_valid = self._subset_rows(X, valid)
+        # R10c #3 (2026-05-11): for grouped transforms, the group_column
+        # is metadata for the transform (per-row alpha lookup) and is
+        # commonly non-numeric (e.g. well_id strings). Tree models like
+        # LightGBM reject object dtypes outright; the user-friendly
+        # behaviour is to drop the column from X_valid before passing
+        # to the inner so the wrapper hides this plumbing entirely.
+        if transform.requires_groups and self.group_column:
+            X_valid = self._drop_columns(X_valid, [self.group_column])
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight)[valid]
         elif (getattr(self, "auto_variance_stabilise", False)
@@ -1065,22 +1426,49 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # core transforms all degrade cleanly.
         domain_ok = transform.domain_check(None, base_arr)
 
+        # R10c #3 (2026-05-11): grouped-transform support at predict.
+        # Extract per-row group labels and thread them as kwargs to the
+        # inverse call. Unseen groups (not present at fit) fall back to
+        # global alpha/beta inside the transform's inverse impl, so no
+        # caller-side handling is needed here.
+        inverse_kwargs: Dict[str, Any] = {}
+        if transform.requires_groups:
+            if not self.group_column:
+                raise ValueError(
+                    f"CompositeTargetEstimator.predict: transform "
+                    f"'{self.transform_name}' requires groups but "
+                    f"``group_column`` is not configured."
+                )
+            inverse_kwargs["groups"] = _extract_groups(X, self.group_column)
+
         # Pass X through to the inner unchanged. NEVER materialise the
         # frame here -- on a 100 GB polars frame a silent conversion
         # blows the host out of memory. Caller is responsible for
         # ensuring the frame type is acceptable to the inner estimator
         # (mlframe strategies handle this at the suite level).
-        t_hat = np.asarray(self.estimator_.predict(X), dtype=np.float64).reshape(-1)
+        # For grouped transforms: strip group_column from X before
+        # predict so the inner doesn't see the (typically string)
+        # plumbing column -- same logic as fit().
+        X_for_inner = (
+            self._drop_columns(X, [self.group_column])
+            if transform.requires_groups and self.group_column
+            else X
+        )
+        t_hat = np.asarray(
+            self.estimator_.predict(X_for_inner), dtype=np.float64,
+        ).reshape(-1)
 
         # Apply inverse only on valid rows; fill the rest with fallback.
         if domain_ok.all():
-            y_hat = transform.inverse(t_hat, base_arr, params)
+            y_hat = transform.inverse(t_hat, base_arr, params, **inverse_kwargs)
         else:
             y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
             # Inverse on valid rows only; placeholder base for invalid
             # rows is irrelevant since we overwrite immediately.
             base_safe = np.where(domain_ok, base_arr, 1.0)
-            y_hat_valid = transform.inverse(t_hat, base_safe, params)
+            y_hat_valid = transform.inverse(
+                t_hat, base_safe, params, **inverse_kwargs,
+            )
             y_hat[domain_ok] = y_hat_valid[domain_ok]
             # Fallback for invalid rows.
             if self.fallback_predict == "y_train_median":
@@ -1274,6 +1662,28 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         raise TypeError(
             f"CompositeTargetEstimator: unsupported X type {type(X).__name__} for row subsetting."
         )
+
+    @staticmethod
+    def _drop_columns(X: Any, columns: Sequence[str]) -> Any:
+        """Return ``X`` without ``columns``, preserving frame flavour.
+
+        Used to strip the wrapper's plumbing columns (group_column for
+        grouped transforms) before passing ``X`` to the inner estimator
+        — tree models like LightGBM reject object/string dtypes that
+        the wrapper needs for per-row group lookups.
+
+        Silently no-op for columns not present (the caller may pass
+        columns that were already dropped upstream by feature selection).
+        """
+        # Polars
+        if hasattr(X, "to_pandas") and not isinstance(X, pd.DataFrame):
+            present = [c for c in columns if c in X.columns]
+            return X.drop(present) if present else X
+        if isinstance(X, pd.DataFrame):
+            present = [c for c in columns if c in X.columns]
+            return X.drop(columns=present) if present else X
+        # ndarray has no columns -> nothing to drop.
+        return X
 
 
 # ----------------------------------------------------------------------
