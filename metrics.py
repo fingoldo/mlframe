@@ -298,6 +298,25 @@ def prewarm_numba_cache():
         # Non-fatal: kernels will JIT lazily on first real call.
         pass
 
+    # 2026-05-11 Wave 16: warm ``ranking_metrics._summary_batched_kernel``
+    # (parallel njit). On LTR combos (c0120 profile: 23.4 s wall, 17.7 s
+    # numba JIT) ``compute_ranking_summary`` is called once per dummy
+    # baseline (~10 calls per target) and the first call eats the entire
+    # JIT-compile budget. Pre-warming shifts the cost out of the user-
+    # visible timer. We compile with the canonical dtype combo
+    # (sorted_y_true float64, sorted_y_score float64, group_starts int64,
+    # eval_ks int64) used by ``compute_ranking_summary`` itself.
+    try:
+        from mlframe.ranking_metrics import _summary_batched_kernel
+        _yt_rank = np.array([0.0, 1.0, 2.0, 0.0, 1.0, 0.0], dtype=np.float64)
+        _ys_rank = np.array([0.3, 0.9, 0.5, 0.7, 0.2, 0.1], dtype=np.float64)
+        _gs_rank = np.array([0, 3, 6], dtype=np.int64)
+        _ks_rank = np.array([1, 5, 10], dtype=np.int64)
+        _ = _summary_batched_kernel(_yt_rank, _ys_rank, _gs_rank, _ks_rank)
+    except Exception:
+        # Non-fatal: kernel will JIT lazily on first ranking-metrics call.
+        pass
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # CatBoost logits to probabilities conversion
