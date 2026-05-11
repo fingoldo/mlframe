@@ -1,5 +1,53 @@
 # Changelog
 
+## 2026-05-12 (later) — core.py 7K-LOC split: Phase 5a + 5b
+
+Pulled 32% of `mlframe/training/core.py` out into two sibling modules,
+behind a back-compat re-export shim at the bottom of `core.py`. The giant
+`train_mlframe_models_suite` orchestrator stays in `core.py` but no longer
+shares the file with its predict/load siblings or 27 utility helpers.
+
+### Phase 5a: predict + load (`core_predict.py`)
+
+`predict_mlframe_models_suite`, `predict_from_models`, `load_mlframe_suite`
+(546 LOC, 3 top-level functions) moved out. Each independently testable
+without loading the train-suite stack.
+
+### Phase 5b: 27 leaf utility helpers (`core_utils.py`)
+
+Every helper in `core.py` lines 22-1944 is a leaf — zero internal-helper
+dependencies on its peers. Moved en bloc into `core_utils.py` (2089 LOC):
+
+`_ensure_logging_visible`, `_entry_metric`, `_augment_with_dropped_high_card_cols`,
+`_build_full_column_from_splits`, `_drop_cols_df`, `_validate_trusted_path`,
+`_df_shape_str`, `_elapsed_str`, `_detect_dataset_reuse_capabilities`,
+`_validate_input_columns_against_metadata`, `_filter_polars_cat_features_by_dtype`,
+`_auto_detect_feature_types`, `_validate_feature_type_exclusivity`,
+`_build_tier_dfs`, `_ensure_config`, `_apply_outlier_detection_global`,
+`_setup_model_directories`, `_build_common_params_for_target`,
+`_build_pre_pipelines`, `_build_process_model_kwargs`, `_convert_dfs_to_pandas`,
+`_get_pipeline_components`, `_compute_fairness_subgroups`,
+`_should_skip_catboost_metamodel`, `_create_initial_metadata`,
+`_initialize_training_defaults`, `_finalize_and_save_metadata`,
+plus `DEFAULT_PROBABILITY_THRESHOLD = 0.5`.
+
+### Result
+
+| File | Before | After | Δ |
+|---|---|---|---|
+| `core.py` | 7131 | 4843 | -2288 |
+| `core_utils.py` | — | 2089 | +2089 |
+| `core_predict.py` | — | 594 | +594 |
+
+435/435 composite tests pass; 74/74 session + integration tests pass.
+
+The remaining 4843 LOC in `core.py` is dominated by the single
+`train_mlframe_models_suite` orchestrator (~4640 LOC). Splitting that
+function into per-phase helpers (Phase 5c) is queued for a later session
+since it requires careful refactor of the shared local-variable state.
+
+---
+
 ## 2026-05-12 — TVT training-log triage: 13 fixes (MLP throughput, FI plot ergonomics, ensemble safety, plumbing knobs) + composite.py 7K-LOC -> 250-LOC split
 
 Triage of a TVT regression run on 4M rows (`TVT__monotonic_residual__Y`, `TVT__linear_residual__TVT_prev`) surfaced a cluster of UX + correctness defects across the MLP path, the FI plot, the dummy-baseline chart titles, the residual-audit gate, and the ensemble-flavour selection. Also split the 7K-LOC `mlframe/training/composite.py` into 14 focused modules.
