@@ -112,6 +112,160 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
 
 
+def _phase_pandas_conversion_and_cat_prep(
+    *,
+    train_df,
+    val_df,
+    test_df,
+    train_df_polars_pre,
+    val_df_polars_pre,
+    test_df_polars_pre,
+    cat_features,
+    was_polars_input,
+    all_models_polars_native,
+    needs_polars_pre_clone,
+    mlframe_models,
+    recurrent_models,
+    rfecv_models,
+    baseline_rss_mb,
+    df_size_mb,
+    verbose,
+):
+    """Phase 4 pre-loop (pandas conversion + CatBoost cat prep + Polars release).
+
+    Two main responsibilities:
+
+    1. **Pandas conversion gating**. Skip the polars->pandas conversion entirely
+       when all models are Polars-native (CB/XGB on supported builds) OR when
+       only non-native sklearn models block the fastpath (those do their own
+       lazy conversion later). Forces conversion when recurrent_models or
+       rfecv_models are requested (those paths predate Polars support).
+
+    2. **CatBoost cat-feature prep + size capture**. Calls
+       ``prepare_df_for_catboost`` on the pandas views when actually needed
+       (i.e. when conversion wasn't skipped). Captures Polars-side estimated
+       sizes BEFORE conversion to avoid the pathological pandas
+       ``memory_usage(deep=True)`` scan downstream.
+
+    3. **Post-pandas Polars release**. When a clone was made, frees the
+       post-pipeline Polars frames after conversion -- the Arrow-backed
+       pandas views hold their own buffer references, so the Polars objects
+       are no longer needed (~100 GB peak saved on the user's 4M-row TVT run).
+
+    Returns
+    -------
+    13-tuple:
+        train_df_pd, val_df_pd, test_df_pd,
+        train_df_polars, val_df_polars, test_df_polars,
+        train_df, val_df, test_df (possibly cleared to None on Polars release),
+        train_df_size_bytes_cached, val_df_size_bytes_cached,
+        can_skip_pandas_conv, baseline_rss_mb_refreshed
+    """
+    if verbose:
+        logger.info("Zero-copy conversion to pandas...")
+
+    # Pre-pipeline Polars references for the Polars fastpath.
+    train_df_polars = train_df_polars_pre
+    val_df_polars = val_df_polars_pre
+    test_df_polars = test_df_polars_pre
+
+    # Re-resolve strategies locally -- cheap O(M) lookup.
+    strategies_for_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
+
+    _has_rfecv = bool(rfecv_models)
+    _has_non_native_mlframe_strategy = was_polars_input and not all_models_polars_native
+    can_skip_pandas_conv = (
+        was_polars_input
+        and not recurrent_models and not _has_rfecv
+        and (all_models_polars_native or _has_non_native_mlframe_strategy)
+    )
+
+    # Pre-conversion Polars size capture (Fix 3B).
+    train_df_size_bytes_cached: Optional[float] = None
+    val_df_size_bytes_cached: Optional[float] = None
+    if was_polars_input:
+        try:
+            if isinstance(train_df, pl.DataFrame):
+                train_df_size_bytes_cached = float(train_df.estimated_size())
+            if val_df is not None and isinstance(val_df, pl.DataFrame):
+                val_df_size_bytes_cached = float(val_df.estimated_size())
+        except Exception:
+            train_df_size_bytes_cached = None
+            val_df_size_bytes_cached = None
+
+    if can_skip_pandas_conv:
+        train_df_pd, val_df_pd, test_df_pd = train_df, val_df, test_df
+        if verbose:
+            if all_models_polars_native:
+                logger.info("  Skipped pandas conversion -- all models are Polars-native")
+            else:
+                non_native = [
+                    m for m, s in zip(mlframe_models or [], strategies_for_check)
+                    if not s.supports_polars
+                ]
+                logger.info(
+                    "  Deferred pandas conversion -- Polars-native models run on the fastpath; "
+                    "non-native %s will convert lazily at their strategy branch.",
+                    non_native,
+                )
+    else:
+        if verbose:
+            reasons = []
+            if not was_polars_input:
+                reasons.append("input is not a Polars DataFrame")
+            if not all_models_polars_native:
+                non_native = [
+                    m for m, s in zip(mlframe_models or [], strategies_for_check)
+                    if not s.supports_polars
+                ]
+                reasons.append(
+                    f"non-Polars-native models requested: {non_native}"
+                    if non_native
+                    else "all_models_polars_native=False (no strategies)"
+                )
+            if recurrent_models:
+                reasons.append(f"recurrent_models={recurrent_models}")
+            if _has_rfecv:
+                reasons.append(f"rfecv_models={rfecv_models}")
+            logger.info(
+                "  polars->pandas conversion needed because: %s",
+                "; ".join(reasons) or "unknown",
+            )
+        train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
+
+    # CatBoost cat-feature prep.
+    if cat_features and not can_skip_pandas_conv:
+        if verbose:
+            logger.info("Preparing %d categorical features for CatBoost: %s", len(cat_features), cat_features)
+        for df_pd in [train_df_pd, val_df_pd, test_df_pd]:
+            if df_pd is not None:
+                prepare_df_for_catboost(df_pd, cat_features)
+    elif cat_features and can_skip_pandas_conv and verbose:
+        logger.info(
+            "Skipping pandas-side CatBoost prep for %d categorical "
+            "features -- Polars fastpath receives the DFs natively.",
+            len(cat_features),
+        )
+
+    # B2 -- post-pipeline Polars release.
+    if was_polars_input and needs_polars_pre_clone:
+        train_df = val_df = test_df = None
+        baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-pipeline Polars release")
+        if verbose:
+            logger.info("  Released post-pipeline Polars DFs (pandas views retained)")
+
+    if verbose:
+        log_ram_usage()
+
+    return (
+        train_df_pd, val_df_pd, test_df_pd,
+        train_df_polars, val_df_polars, test_df_polars,
+        train_df, val_df, test_df,
+        train_df_size_bytes_cached, val_df_size_bytes_cached,
+        can_skip_pandas_conv, baseline_rss_mb,
+    )
+
+
 def _log_cardinality_and_drift_snapshot(
     *,
     train_df,

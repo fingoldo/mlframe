@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-05-12 (continued) — Phase 5c-g: pandas-conversion + cat-prep + Polars-release helper
+
+7. **`_phase_pandas_conversion_and_cat_prep`** (~145 LOC body): Phase 4
+   pre-loop logic -- pandas-conversion gating (skip when all models are
+   Polars-native, force when recurrent_models / rfecv_models present;
+   diagnostic logging of skip-vs-convert reasons), Polars-side
+   ``estimated_size()`` capture before conversion (so downstream
+   ``configure_training_params`` doesn't pay the pathological pandas
+   ``memory_usage(deep=True)`` scan), CatBoost ``prepare_df_for_catboost``
+   on pandas views when needed, post-pipeline Polars release once the
+   Arrow-backed pandas views are built. 13-tuple return.
+
+`main.py` LOC: 4225 → 4110 (−115). 435 composite + 74 focused regression
+all pass.
+
+---
+
 ## 2026-05-12 (continued) — Phase 5c-d/e/f: 3 more orchestrator helpers extracted (pipeline-fit + auto-detect + drift snapshot)
 
 Three more extractions from `train_mlframe_models_suite`:

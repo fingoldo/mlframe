@@ -151,6 +151,7 @@ from .utils import (
     _phase_auto_detect_feature_types,
     _phase_fit_pipeline,
     _phase_load_and_preprocess,
+    _phase_pandas_conversion_and_cat_prep,
     _phase_train_val_test_split,
     _setup_model_directories,
     _should_skip_catboost_metamodel,
@@ -728,152 +729,36 @@ def train_mlframe_models_suite(
             trainset_features_stats = get_trainset_features_stats(train_df)
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    # Actual training
+    # Actual training (extracted: pandas-conversion gating + cat-feature prep + Polars release)
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-    if verbose:
-        logger.info("Zero-copy conversion to pandas...")
-
-    # Use pre-pipeline Polars originals for models that support native Polars input.
-    # Post-pipeline DFs may have string/categorical columns converted to float by
-    # polars-ds, losing dtype info needed by CatBoost and HGB.
-    train_df_polars = train_df_polars_pre
-    val_df_polars = val_df_polars_pre
-    test_df_polars = test_df_polars_pre
-
-    # Cache pandas versions for select_target (zero-copy Arrow-backed view for Polars).
-    # Skip the conversion entirely when every model supports Polars natively -- the Polars
-    # fastpath in process_model substitutes Polars DFs back anyway, so pandas views would
-    # be unused. Saves ~1-2s on CB-only runs on small-to-medium DFs.
-    # sklearn 1.4+ accepts Polars DataFrames as input (verified on 1.7.2 with
-    # IsolationForest, LocalOutlierFactor novelty=True, and Pipeline wrappers);
-    # _apply_outlier_detection_global's boolean-mask filter handles both pandas and
-    # Polars via _filter_df_by_mask. So we can skip the conversion regardless of
-    # outlier_detector presence.
-    # Guard: recurrent models use fit() signatures that predate Polars support
-    # (core.py passes train_df_pd as `features_train=` / `val_features=` / `features=`).
-    # Force pandas conversion if recurrent_models is non-empty.
-    # RFECV goes through sklearn.feature_selection.RFECV, which calls estimator.fit(X)
-    # where X is indexed via integer positional slicing internally -- pandas-only path.
-    # Force pandas conversion whenever any RFECV variant is requested.
-    _has_rfecv = bool(rfecv_models)
-    # Fix 1 (2026-04-21): when the ONLY blockers for the Polars fastpath are
-    # non-native strategies (LGB, sklearn, linear), defer upfront conversion
-    # and let the per-strategy lazy conversion at the non-polars-fastpath
-    # branch of the training loop do it just-in-time. recurrent_models and
-    # rfecv still trigger upfront conversion -- those paths use pandas-only
-    # internals that predate Polars support. Savings on the user's 2026-04-21
-    # run: 661 s polars->pandas + 70 GB RAM held across the 6-hour CB fit.
-    _has_non_native_mlframe_strategy = was_polars_input and not all_models_polars_native
-    can_skip_pandas_conv = (
-        was_polars_input
-        and not recurrent_models and not _has_rfecv
-        and (all_models_polars_native or _has_non_native_mlframe_strategy)
+    (
+        train_df_pd, val_df_pd, test_df_pd,
+        train_df_polars, val_df_polars, test_df_polars,
+        train_df, val_df, test_df,
+        train_df_size_bytes_cached, val_df_size_bytes_cached,
+        can_skip_pandas_conv, baseline_rss_mb,
+    ) = _phase_pandas_conversion_and_cat_prep(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        train_df_polars_pre=train_df_polars_pre,
+        val_df_polars_pre=val_df_polars_pre,
+        test_df_polars_pre=test_df_polars_pre,
+        cat_features=cat_features,
+        was_polars_input=was_polars_input,
+        all_models_polars_native=all_models_polars_native,
+        needs_polars_pre_clone=(
+            was_polars_input
+            and not pipeline_config.skip_categorical_encoding
+            and pipeline_config.categorical_encoding is not None
+        ),
+        mlframe_models=mlframe_models,
+        recurrent_models=recurrent_models,
+        rfecv_models=rfecv_models,
+        baseline_rss_mb=baseline_rss_mb,
+        df_size_mb=df_size_mb,
+        verbose=verbose,
     )
-
-    # Pre-conversion size capture (Fix 3B): polars .estimated_size() is O(cols),
-    # microseconds. Computing it now -- BEFORE any pandas conversion -- avoids the
-    # pathological pandas memory_usage(deep=True) scan downstream in
-    # configure_training_params (3 min on a 75 GB frame with millions of unique
-    # object-column strings). Only used if the frame is polars here; when it's
-    # already pandas (unusual entry), the downstream fallback stays on
-    # get_df_memory_consumption(deep=False).
-    train_df_size_bytes_cached: Optional[float] = None
-    val_df_size_bytes_cached: Optional[float] = None
-    if was_polars_input:
-        try:
-            if isinstance(train_df, pl.DataFrame):
-                train_df_size_bytes_cached = float(train_df.estimated_size())
-            if val_df is not None and isinstance(val_df, pl.DataFrame):
-                val_df_size_bytes_cached = float(val_df.estimated_size())
-        except Exception:
-            # Any failure here is non-fatal -- downstream get_df_memory_consumption
-            # fallback remains correct (just slower).
-            train_df_size_bytes_cached = None
-            val_df_size_bytes_cached = None
-
-    if can_skip_pandas_conv:
-        train_df_pd, val_df_pd, test_df_pd = train_df, val_df, test_df
-        if verbose:
-            if all_models_polars_native:
-                logger.info("  Skipped pandas conversion -- all models are Polars-native")
-            else:
-                non_native = [
-                    m for m, s in zip(mlframe_models or [], _strategies_for_polars_check)
-                    if not s.supports_polars
-                ]
-                logger.info(
-                    "  Deferred pandas conversion -- Polars-native models run on the fastpath; "
-                    "non-native %s will convert lazily at their strategy branch.",
-                    non_native,
-                )
-    else:
-        # Diagnostic: on large high-cardinality frames the polars->pandas
-        # conversion costs minutes (per-column dict rebuild for every split),
-        # so if users assume fastpath is active but see the conversion fire
-        # anyway they need to know *which condition* blocked the skip. Log
-        # the exact reasons instead of the single non-skip signal.
-        if verbose:
-            reasons = []
-            if not was_polars_input:
-                reasons.append("input is not a Polars DataFrame")
-            if not all_models_polars_native:
-                non_native = [
-                    m for m, s in zip(mlframe_models or [], _strategies_for_polars_check)
-                    if not s.supports_polars
-                ]
-                reasons.append(
-                    f"non-Polars-native models requested: {non_native}"
-                    if non_native
-                    else "all_models_polars_native=False (no strategies)"
-                )
-            if recurrent_models:
-                reasons.append(f"recurrent_models={recurrent_models}")
-            if _has_rfecv:
-                reasons.append(f"rfecv_models={rfecv_models}")
-            logger.info(
-                "  polars->pandas conversion needed because: %s",
-                "; ".join(reasons) or "unknown",
-            )
-        train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
-
-    # Ensure categorical features have pandas category dtype for CatBoost.
-    # After the 2026-04-17 optimization, get_pandas_view_of_polars_df already
-    # preserves Polars Categorical as pd.Categorical (int32 dict rebuild), so
-    # this is usually a no-op. The call is kept for safety when pandas frames
-    # come in with plain string columns that still need the category cast.
-    #
-    # Gate (item 11 of 2026-04-18 log triage): when the Polars fastpath is
-    # active (can_skip_pandas_conv=True) the models receive the Polars DFs
-    # directly -- running prepare_df_for_catboost on the *pandas views* that
-    # are built for select_target only is pointless work that shows up as
-    # a 2+ minute blocking step in PHASE 4 on 1Mx100 frames. Skip it in
-    # that case.
-    if cat_features and not can_skip_pandas_conv:
-        if verbose:
-            logger.info("Preparing %d categorical features for CatBoost: %s", len(cat_features), cat_features)
-        for df_pd in [train_df_pd, val_df_pd, test_df_pd]:
-            if df_pd is not None:
-                prepare_df_for_catboost(df_pd, cat_features)
-    elif cat_features and can_skip_pandas_conv and verbose:
-        logger.info(
-            "Skipping pandas-side CatBoost prep for %d categorical "
-            "features -- Polars fastpath receives the DFs natively.",
-            len(cat_features),
-        )
-
-    # B2: Release post-pipeline Polars DFs after pandas conversion.
-    # Arrow-backed pandas views hold their own Arrow buffer references,
-    # so the Polars objects are no longer needed. Saves ~100GB peak memory.
-    if was_polars_input and needs_polars_pre_clone:
-        # Only release if we cloned (otherwise train_df IS train_df_polars_pre)
-        train_df = val_df = test_df = None
-        baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-pipeline Polars release")
-        if verbose:
-            logger.info("  Released post-pipeline Polars DFs (pandas views retained)")
-
-    if verbose:
-        log_ram_usage()
 
     # ==================================================================================
     # 4.5 OUTLIER DETECTION (once, before model training loops)

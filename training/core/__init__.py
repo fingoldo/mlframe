@@ -62,5 +62,6 @@ from .utils import (  # noqa: F401
     _phase_auto_detect_feature_types,
     _phase_fit_pipeline,
     _phase_load_and_preprocess,
+    _phase_pandas_conversion_and_cat_prep,
     _phase_train_val_test_split,
 )
