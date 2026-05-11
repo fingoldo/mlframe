@@ -298,6 +298,27 @@ def prewarm_numba_cache():
         # Non-fatal: kernels will JIT lazily on first real call.
         pass
 
+    # 2026-05-11 Wave 18: warm cupy GPU AUC kernels.
+    # ``compute_batch_aucs`` dispatches to ``gpu_multiple_roc_auc_scores``
+    # / ``gpu_multiple_pr_auc_scores`` when N>=100k AND M>=5. cupy compiles
+    # CUDA kernels via NVRTC on first call -- ~128s of compile latency per
+    # fresh process (measured 2026-05-11 on c0008 1M binary-cls profile:
+    # 127.13s in nvrtc.compileProgram). Pre-warming with a tiny synthetic
+    # input shifts that cost out of the user-visible suite timer.
+    # No-op when cupy isn't installed (`_require_cupy()` raises ImportError).
+    try:
+        from mlframe.metrics import (
+            gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores,
+        )
+        _yt_gpu = np.array([0, 1, 0, 1, 0, 1, 0, 1] * 16, dtype=np.int8)
+        _yp_gpu = np.random.RandomState(0).rand(len(_yt_gpu), 3).astype(np.float64)
+        _ = gpu_multiple_roc_auc_scores(_yt_gpu, _yp_gpu)
+        _ = gpu_multiple_pr_auc_scores(_yt_gpu, _yp_gpu)
+    except Exception:
+        # cupy unavailable / CUDA missing / etc. -- non-fatal, the CPU
+        # path keeps working.
+        pass
+
     # 2026-05-11 Wave 16: warm ``ranking_metrics._summary_batched_kernel``
     # (parallel njit). On LTR combos (c0120 profile: 23.4 s wall, 17.7 s
     # numba JIT) ``compute_ranking_summary`` is called once per dummy
