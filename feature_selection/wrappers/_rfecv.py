@@ -2300,6 +2300,18 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         nfeatures_arr = np.array(checked_nfeatures)
         nonzero_mask = nfeatures_arr > 0
+        # Honor max_nfeatures as a HARD cap on the final pick. The
+        # optimiser is allowed to evaluate larger N values during
+        # search (e.g. an all-features baseline at iter=0), but the
+        # final selection must NEVER exceed ``self.max_nfeatures``
+        # when set. Previously this constraint was only applied to
+        # the MBH search space (lines 1354 / 1382) but not to the
+        # post-search argmax / one_se_* selection -- so a high-N
+        # baseline could win the final selection in violation of the
+        # user's stated cap.
+        max_nf = getattr(self, "max_nfeatures", None)
+        if max_nf is not None:
+            nonzero_mask = nonzero_mask & (nfeatures_arr <= max_nf)
         if not nonzero_mask.any():
             logger.warning(
                 "select_optimal_nfeatures_: only nfeatures==0 was evaluated; "
@@ -2311,11 +2323,13 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if rule == "argmax":
             # Legacy behaviour: pick the index with the highest ultimate_perf
-            # among the nonzero candidates.
+            # among the candidate N values. ``nonzero_mask`` now also
+            # honours ``max_nfeatures``: only N <= max_nfeatures (and > 0)
+            # are eligible.
             sorted_idx = np.argsort(ultimate_perf)[::-1]
             best_idx = None
             for idx in sorted_idx:
-                if nfeatures_arr[idx] != 0:
+                if nonzero_mask[idx]:
                     best_idx = idx
                     break
         else:

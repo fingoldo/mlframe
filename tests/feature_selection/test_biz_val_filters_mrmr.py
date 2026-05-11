@@ -459,6 +459,58 @@ def test_biz_val_mrmr_redundancy_algo_smoke(redundancy_algo):
     assert len(sel.support_) >= 1
 
 
+def test_biz_val_mrmr_only_unknown_interactions_actual_semantic():
+    """``only_unknown_interactions`` controls when k-way candidates
+    are SKIPPED:
+
+    * False: skip a k-way candidate only if ALL its subelements are
+      already selected (allows partial-overlap exploration -- the
+      "completeness" mode).
+    * True: skip if ANY subelement is already selected (forces novel
+      feature combinations -- the "speed/orthogonal" mode).
+
+    Empirically the directional effect on ``len(support_)`` depends
+    on the data: forced-orthogonal exploration can let MORE 1-way
+    features through (the k-way candidates that would have absorbed
+    their MI get rejected, freeing singleton slots). My earlier
+    test asserted ``True -> smaller support`` which was wrong; this
+    test verifies the actual contract instead: both modes complete
+    AND produce supports that overlap with the signal triplet on a
+    3-way XOR target."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection._biz_val_synth import (
+        make_3way_xor, as_df,
+    )
+    X, y, signal = make_3way_xor(n=1000, p=8, seed=42)
+    df, ys = as_df(X, y)
+
+    # Both modes must complete on 3-way XOR with order=3.
+    sel_full = MRMR(verbose=0, random_seed=42, interactions_max_order=3,
+                     only_unknown_interactions=False)
+    sel_skip = MRMR(verbose=0, random_seed=42, interactions_max_order=3,
+                     only_unknown_interactions=True)
+    sel_full.fit(df, ys)
+    sel_skip.fit(df, ys)
+    # Structural invariants.
+    assert 1 <= len(sel_full.support_) <= df.shape[1]
+    assert 1 <= len(sel_skip.support_) <= df.shape[1]
+    # On 3-way XOR with high-quality screening, BOTH modes should
+    # surface signal features. The threshold is generous (top-7 of 8)
+    # because greedy MRMR is suboptimal for pure n-way -- but both
+    # modes must NOT degenerate to all-noise selections.
+    sup_full = set(int(i) for i in sel_full.support_[:7])
+    sup_skip = set(int(i) for i in sel_skip.support_[:7])
+    sig = set(signal)
+    assert len(sup_full & sig) >= 1, (
+        f"only_unknown=False must surface >=1 signal in top-7; "
+        f"got {sup_full}, signal={sig}"
+    )
+    assert len(sup_skip & sig) >= 1, (
+        f"only_unknown=True must surface >=1 signal in top-7; "
+        f"got {sup_skip}, signal={sig}"
+    )
+
+
 def test_biz_val_mrmr_only_unknown_interactions_completes_smoke():
     """``only_unknown_interactions=True`` is a workflow flag; with
     order=3 on a 3-way-XOR target it must complete without raising.

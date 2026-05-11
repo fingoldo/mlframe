@@ -737,12 +737,45 @@ def get_next_features_subset(
         next_nfeatures_to_check = random.choice(remaining)
     elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
         next_nfeatures_to_check = Optimizer.suggest_candidate()
+    elif top_predictors_search_method == OptimumSearch.ExhaustiveDichotomic:
+        # Binary search over ``remaining``: probe the midpoint of the
+        # remaining-N range, then converge based on which side has
+        # higher score. When ``evaluated_scores_mean`` is empty (first
+        # call after the all-features baseline), probe the midpoint of
+        # the FULL feature range so the optimizer learns the shape.
+        next_nfeatures_to_check = _suggest_dichotomic(
+            remaining=sorted(remaining),
+            evaluated_scores_mean=evaluated_scores_mean,
+            n_total=len(original_features),
+        )
+    elif top_predictors_search_method == OptimumSearch.ScipyLocal:
+        # Local (univariate) optimization via scipy ``minimize_scalar``
+        # Brent. Treats the function ``N -> -score(N)`` as a continuous
+        # 1-D objective; rounds the proposed real-valued ``next_n`` to
+        # the nearest integer in ``remaining``. Best for problems where
+        # the score curve has a single smooth peak.
+        next_nfeatures_to_check = _suggest_scipy_local(
+            remaining=remaining,
+            evaluated_scores_mean=evaluated_scores_mean,
+            n_total=len(original_features),
+        )
+    elif top_predictors_search_method == OptimumSearch.ScipyGlobal:
+        # Global optimization via ``scipy.optimize.differential_evolution``
+        # on a surrogate built from evaluated points. Best when the
+        # score-vs-N curve has multiple plateaus / local maxima.
+        next_nfeatures_to_check = _suggest_scipy_global(
+            remaining=remaining,
+            evaluated_scores_mean=evaluated_scores_mean,
+            n_total=len(original_features),
+        )
     else:
         raise NotImplementedError(
             f"top_predictors_search_method={top_predictors_search_method!r} "
             f"is declared in OptimumSearch but not implemented in "
             f"get_next_features_subset. Currently supported: "
-            f"OptimumSearch.ExhaustiveRandom, OptimumSearch.ModelBasedHeuristic."
+            f"OptimumSearch.ExhaustiveRandom, OptimumSearch.ModelBasedHeuristic, "
+            f"OptimumSearch.ExhaustiveDichotomic, OptimumSearch.ScipyLocal, "
+            f"OptimumSearch.ScipyGlobal."
         )
 
     if next_nfeatures_to_check is None:
@@ -759,3 +792,131 @@ def get_next_features_subset(
     )
     ranks = get_actual_features_ranking(feature_importances=fi_to_consider, votes_aggregation_method=votes_aggregation_method)
     return ranks[:next_nfeatures_to_check]
+
+
+# ----------------------------------------------------------------------------
+# OptimumSearch candidate suggesters (added 2026-05-12 -- previously
+# declared in the enum but raised NotImplementedError)
+# ----------------------------------------------------------------------------
+
+
+def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
+                         n_total: int) -> int:
+    """Binary-search-style suggester for ExhaustiveDichotomic.
+
+    With one or zero evaluations: probe the midpoint of the full
+    feature range. With >=2 evaluations: identify the highest-scoring
+    evaluated N and probe the midpoint between it and the nearest
+    unevaluated neighbour. Falls back to picking the unevaluated N
+    closest to the global midpoint if nothing useful from history.
+    """
+    remaining = sorted(remaining)
+    if not remaining:
+        return None
+    if len(evaluated_scores_mean) <= 1:
+        # First-time call (or just-the-baseline): probe the midpoint
+        # of the FULL range. Picks the remaining N closest to N/2.
+        target = max(1, n_total // 2)
+        return min(remaining, key=lambda n: abs(n - target))
+    # Pick best evaluated N as the local peak; probe halfway to the
+    # nearest unevaluated neighbour on either side.
+    best_evaluated = max(evaluated_scores_mean.items(), key=lambda kv: kv[1])[0]
+    # Candidates: midpoint towards next-lower and next-higher
+    # unevaluated N. Pick whichever has a wider gap (more information).
+    lower = [n for n in remaining if n < best_evaluated]
+    higher = [n for n in remaining if n > best_evaluated]
+    candidates = []
+    if lower:
+        gap_lo = best_evaluated - max(lower)
+        candidates.append((gap_lo, (best_evaluated + max(lower)) // 2))
+    if higher:
+        gap_hi = min(higher) - best_evaluated
+        candidates.append((gap_hi, (best_evaluated + min(higher)) // 2))
+    if not candidates:
+        # No unevaluated N adjacent to the best -- fall back to any
+        # remaining N closest to best_evaluated.
+        return min(remaining, key=lambda n: abs(n - best_evaluated))
+    # Probe the side with the LARGER gap first (more uncertainty).
+    target = max(candidates, key=lambda gc: gc[0])[1]
+    return min(remaining, key=lambda n: abs(n - target))
+
+
+def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict,
+                           n_total: int) -> int:
+    """Local (univariate) suggester via scipy ``minimize_scalar``.
+
+    Builds a piecewise-linear interpolant over the evaluated points,
+    finds its local maximum within the bracket of evaluated N values
+    using ``method='bounded'``, then snaps to the nearest unevaluated
+    N. When fewer than 3 evaluated points exist, falls back to the
+    dichotomic suggester (scipy needs >= 2 anchors for a bracket).
+    """
+    remaining = sorted(remaining)
+    if not remaining:
+        return None
+    if len(evaluated_scores_mean) < 3:
+        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+    try:
+        from scipy.optimize import minimize_scalar
+    except ImportError:
+        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+    xs = sorted(evaluated_scores_mean.keys())
+    ys = [evaluated_scores_mean[k] for k in xs]
+    lo, hi = float(xs[0]), float(xs[-1])
+    if hi <= lo:
+        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+
+    def _neg_score(x: float) -> float:
+        # Piecewise-linear interpolation between evaluated anchors.
+        return -float(np.interp(x, xs, ys))
+
+    try:
+        res = minimize_scalar(_neg_score, bounds=(lo, hi),
+                                method="bounded",
+                                options={"xatol": 0.5})
+        target = int(round(res.x))
+    except Exception:
+        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+    return min(remaining, key=lambda n: abs(n - target))
+
+
+def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict,
+                            n_total: int) -> int:
+    """Global suggester via scipy ``differential_evolution`` on a
+    spline surrogate of the evaluated points.
+
+    Best when the score-vs-N curve has multiple plateaus or local
+    maxima that a local optimiser would miss. Falls back to
+    dichotomic when scipy is unavailable or evaluation history is
+    insufficient (< 4 points).
+    """
+    remaining = sorted(remaining)
+    if not remaining:
+        return None
+    if len(evaluated_scores_mean) < 4:
+        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+    try:
+        from scipy.optimize import differential_evolution
+    except ImportError:
+        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+    xs = sorted(evaluated_scores_mean.keys())
+    ys = [evaluated_scores_mean[k] for k in xs]
+    lo, hi = float(xs[0]), float(xs[-1])
+    if hi <= lo:
+        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+
+    def _neg_score(xv) -> float:
+        x = float(xv[0]) if hasattr(xv, "__len__") else float(xv)
+        return -float(np.interp(x, xs, ys))
+
+    try:
+        res = differential_evolution(
+            _neg_score,
+            bounds=[(lo, hi)],
+            seed=42, maxiter=12, tol=1e-3, polish=False,
+            updating="immediate", popsize=8,
+        )
+        target = int(round(float(res.x[0])))
+    except Exception:
+        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+    return min(remaining, key=lambda n: abs(n - target))
