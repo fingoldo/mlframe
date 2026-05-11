@@ -1,0 +1,92 @@
+{
+  "timestamp": "20260510_231952",
+  "platform": {
+    "python": "3.11.5",
+    "numpy": "2.2.6",
+    "pandas": "2.3.3"
+  },
+  "decision_rule": "Inspect wall_seconds across (n_samples, n_cat_cols). If n_cat_cols >= 200 AND n_samples >= 500_000, GPU dispatch (CatFEConfig(backend='gpu')) is expected to outperform CPU by 5-50x once CuPy is installed. Below that regime, CPU prange is the right call.",
+  "results": [
+    {
+      "n_samples": 1000,
+      "n_cat_cols": 10,
+      "n_pairs_considered": 45,
+      "n_recipes_produced": 1,
+      "wall_seconds": 0.0009930000232998282,
+      "signal_pair": true,
+      "warmup": false
+    },
+    {
+      "n_samples": 1000,
+      "n_cat_cols": 50,
+      "n_pairs_considered": 1225,
+      "n_recipes_produced": 1,
+      "wall_seconds": 0.005716799991205335,
+      "signal_pair": true,
+      "warmup": false
+    },
+    {
+      "n_samples": 1000,
+      "n_cat_cols": 100,
+      "n_pairs_considered": 4950,
+      "n_recipes_produced": 1,
+      "wall_seconds": 0.024039499985519797,
+      "signal_pair": true,
+      "warmup": false
+    },
+    {
+      "n_samples": 10000,
+      "n_cat_cols": 10,
+      "n_pairs_considered": 45,
+      "n_recipes_produced": 1,
+      "wall_seconds": 0.0023188999912235886,
+      "signal_pair": true,
+      "warmup": false
+    },
+    {
+      "n_samples": 10000,
+      "n_cat_cols": 50,
+      "n_pairs_considered": 1225,
+      "n_recipes_produced": 1,
+      "wall_seconds": 0.0377102000056766,
+      "signal_pair": true,
+      "warmup": false
+    },
+    {
+      "n_samples": 10000,
+      "n_cat_cols": 100,
+      "n_pairs_considered": 4950,
+      "n_recipes_produced": 1,
+      "wall_seconds": 0.1512120999977924,
+      "signal_pair": true,
+      "warmup": false
+    },
+    {
+      "n_samples": 100000,
+      "n_cat_cols": 10,
+      "n_pairs_considered": 45,
+      "n_recipes_produced": 1,
+      "wall_seconds": 0.02362880000146106,
+      "signal_pair": true,
+      "warmup": false
+    },
+    {
+      "n_samples": 100000,
+      "n_cat_cols": 50,
+      "n_pairs_considered": 1225,
+      "n_recipes_produced": 1,
+      "wall_seconds": 1.1214905999950133,
+      "signal_pair": true,
+      "warmup": false
+    },
+    {
+      "n_samples": 100000,
+      "n_cat_cols": 100,
+      "n_pairs_considered": 4950,
+      "n_recipes_produced": 1,
+      "wall_seconds": 5.9548187000036705,
+      "signal_pair": true,
+      "warmup": false
+    }
+  ]
+}

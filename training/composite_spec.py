@@ -30,7 +30,14 @@ class CompositeSpec:
     the rows isn't promoted.
     """
 
-    name: str  # f"{target_col}__{transform_name}__{base_column}"
+    # Canonical composite name. Format (post-2026-05-13):
+    # ``{target_col}-{TRANSFORM_NAME_SHORT[transform_name]}-{base_column}``
+    # e.g. ``"TVT-linres-TVT_prev"``. Built via
+    # ``composite_transforms.compose_target_name``. The legacy
+    # double-underscore format ``"{target}__{transform}__{base}"`` is
+    # still recognised by ``is_composite_target_name`` for pickle
+    # back-compat but is no longer produced by discovery.
+    name: str
     target_col: str
     transform_name: str
     base_column: str

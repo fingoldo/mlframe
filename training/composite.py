@@ -117,7 +117,10 @@ from .composite_transforms import (  # noqa: E402,F401
     _FRAC_DIFF_DEFAULT_LAGS,
     _ROLLING_QUANTILE_DEFAULT_K,
     _TRANSFORMS_REGISTRY,
+    TRANSFORM_NAME_SHORT,
+    compose_target_name,
     get_transform,
+    is_composite_target_name,
     list_transforms,
     # Shared helpers used by transforms (tests import some directly).
     _ewma_compute,

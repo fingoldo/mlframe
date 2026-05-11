@@ -808,7 +808,8 @@ def train_mlframe_models_suite(
     # batch (line ~3310) and BEFORE the per-target loop (line ~3500) so
     # the new composite-target columns flow through both. Each discovered
     # spec contributes ONE entry to target_by_type[regression] keyed by
-    # ``f"{target}__{transform}__{base}"``. Specs are stored on
+    # ``composite_transforms.compose_target_name(target, transform, base)``
+    # e.g. ``"TVT-linres-TVT_prev"``. Specs are stored on
     # ``metadata["composite_target_specs"]`` for downstream inversion at
     # predict time (post-PR4 wiring).
     #
@@ -1763,14 +1764,8 @@ def train_mlframe_models_suite(
                                 # operator can see which target / experiment
                                 # the scatter belongs to.
                                 from .._format import format_metric as _dummy_fmt
-                                _dummy_is_composite = (
-                                    "__linear_residual__" in cur_target_name
-                                    or "__linear_residual_multi__" in cur_target_name
-                                    or "__linear_residual_grouped__" in cur_target_name
-                                    or "__diff__" in cur_target_name
-                                    or "__ratio__" in cur_target_name
-                                    or "__logratio__" in cur_target_name
-                                )
+                                from ..composite_transforms import is_composite_target_name
+                                _dummy_is_composite = is_composite_target_name(cur_target_name)
                                 _dummy_mt_tag = (
                                     "MTRESID" if _dummy_is_composite else "MTTR"
                                 )

@@ -255,32 +255,68 @@ def generate_mlp(
     # ----------------------------------------------------------------------------------------------------------------------------
 
     if verbose == 1:
-        # Calculate total neurons and weights
         total_neurons = sum(layer_sizes)
         total_weights = 0
-
-        # Count parameters in all layers
         for module in model.modules():
             if isinstance(module, nn.Linear):
-                # Linear layer: in_features * out_features + out_features (bias)
                 total_weights += module.weight.numel()
                 if module.bias is not None:
                     total_weights += module.bias.numel()
             elif isinstance(module, (nn.BatchNorm1d, nn.LayerNorm)):
-                # Norm layers have weight and bias
                 if hasattr(module, "weight") and module.weight is not None:
                     total_weights += module.weight.numel()
                 if hasattr(module, "bias") and module.bias is not None:
                     total_weights += module.bias.numel()
 
-        # Format numbers with 'k' suffix if >= 1000
         def format_num(n):
             if n >= 1000:
                 return f"{n/1000:.1f}k"
             return str(n)
 
+        # 2026-05-13: extended architecture log -- the bare layer chain
+        # was hiding regularisation choices (dropout, batchnorm, LN) and
+        # activation / init function, which is exactly the information
+        # needed to debug the TVT-style "MLP collapsed predictions to
+        # narrow band around mean" regression. Now every default that
+        # *could* sabotage training is on the line.
+        arch_name = getattr(neurons_by_layer_arch, "name", str(neurons_by_layer_arch))
+        if nlayers > 1:
+            arch_descr = f"{arch_name}(r={consec_layers_neurons_ratio:g})"
+        else:
+            arch_descr = arch_name
+
+        if activation_function is None:
+            act_descr = "identity"
+        else:
+            act_descr = getattr(activation_function, "__name__", type(activation_function).__name__)
+
+        norm_parts = []
+        if use_batchnorm:
+            norm_parts.append("BN")
+        if use_layernorm:
+            norm_parts.append("LN_in")
+        if use_layernorm_per_layer:
+            norm_parts.append("LN_per_layer")
+        if groupnorm_num_groups > 0:
+            norm_parts.append(f"GN({groupnorm_num_groups})")
+        norm_descr = "+".join(norm_parts) if norm_parts else "none"
+
+        if weights_init_fcn is None:
+            init_descr = "default"
+        else:
+            # ``partial(nn.init.kaiming_normal_, nonlinearity='leaky_relu', a=0.01)``
+            # has ``.func`` set; bare functions / lambdas use __name__.
+            _wf = getattr(weights_init_fcn, "func", weights_init_fcn)
+            init_descr = getattr(_wf, "__name__", type(_wf).__name__)
+
         architecture = "->".join(str(size) for size in layer_sizes)
-        logger.info(f"Network architecture: {architecture} [{model_type}, n={format_num(total_neurons)}, w={format_num(total_weights)}]")
+        logger.info(
+            f"Network architecture: {architecture} "
+            f"[{model_type}, n={format_num(total_neurons)}, w={format_num(total_weights)}] "
+            f"arch={arch_descr} act={act_descr} "
+            f"drop=in:{inputs_dropout_prob:g}/hid:{dropout_prob:g} "
+            f"norm={norm_descr} init={init_descr}"
+        )
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # Init weights explicitly if weights_init_fcn is set

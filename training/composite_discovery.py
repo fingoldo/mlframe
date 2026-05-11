@@ -77,6 +77,7 @@ from .composite_transforms import (
     _linear_residual_fit,
     _linear_residual_multi_fit,
     _TRANSFORMS_REGISTRY,
+    compose_target_name,
     get_transform,
     list_transforms,
 )
@@ -408,7 +409,7 @@ class CompositeTargetDiscovery:
                         mi_gain_lcb = float(np.percentile(boot_finite, 2.5))
 
                 spec = CompositeSpec(
-                    name=f"{target_col}__{transform_name}__{base}",
+                    name=compose_target_name(target_col, transform_name, base),
                     target_col=target_col,
                     transform_name=transform_name,
                     base_column=base,

@@ -1,0 +1,76 @@
+{
+  "scenarios": [
+    {
+      "scenario": "S1_single_dominant",
+      "expected_added": 0,
+      "actual_added": 0,
+      "kept_bases": [
+        "b1"
+      ],
+      "rmse_single": 0.10059807441983537,
+      "rmse_multi": 0.10059807441983537,
+      "gain_pct": 0.0,
+      "search_time_seconds": 0.007145500014303252,
+      "n_diagnostics_steps": 1
+    },
+    {
+      "scenario": "S2_two_orthogonal",
+      "expected_added": 1,
+      "actual_added": 1,
+      "kept_bases": [
+        "b1",
+        "b2"
+      ],
+      "rmse_single": 0.9139500436344816,
+      "rmse_multi": 0.20113953049419594,
+      "gain_pct": 77.99228394428107,
+      "search_time_seconds": 0.011801299988292158,
+      "n_diagnostics_steps": 2
+    },
+    {
+      "scenario": "S3_three_orthogonal",
+      "expected_added": 2,
+      "actual_added": 2,
+      "kept_bases": [
+        "b1",
+        "b2",
+        "b3"
+      ],
+      "rmse_single": 0.9092948950150436,
+      "rmse_multi": 0.09971855933582287,
+      "gain_pct": 89.03341920398958,
+      "search_time_seconds": 0.015557400009129196,
+      "n_diagnostics_steps": 2
+    },
+    {
+      "scenario": "S4_collinear_pool",
+      "expected_added": 0,
+      "actual_added": 0,
+      "kept_bases": [
+        "b1"
+      ],
+      "rmse_single": 0.30179422325950694,
+      "rmse_multi": 0.30179422325950694,
+      "gain_pct": 0.0,
+      "search_time_seconds": 0.0068740000133402646,
+      "n_diagnostics_steps": 1
+    },
+    {
+      "scenario": "S5_partial_pool",
+      "expected_added": 0,
+      "actual_added": 0,
+      "kept_bases": [
+        "b1"
+      ],
+      "rmse_single": 0.3006421912019737,
+      "rmse_multi": 0.3006421912019737,
+      "gain_pct": 0.0,
+      "search_time_seconds": 0.013867700006812811,
+      "n_diagnostics_steps": 1
+    }
+  ],
+  "geo_mean_gain_on_positive_scenarios_pct": 83.33018487371642,
+  "no_harm_on_negative_scenarios": true,
+  "decision_auto_promote": true,
+  "decision_rule": "auto-promote iff (geo_mean_gain on S2/S3 > 5%) AND (S1/S4 added 0 extra bases)."
+}

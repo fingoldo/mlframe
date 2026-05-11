@@ -360,15 +360,13 @@ def select_target(
     if target_type == TargetTypes.REGRESSION:
         # 2026-05-11 (user request): adaptive metric format (2 d.p. by default, widening for sub-1 values) instead of fixed :.4f.
         from ._format import format_metric as _fmt
-        # C1 fix (2026-05-11): for composite targets (name contains ``__{transform}__`` per the discovery naming convention) the train mean is the T-scale residual mean which is ~0 by OLS construction -- not informative. Switch the label to ``MTRESID=`` to make the semantic explicit.
-        _is_composite = (
-            "__linear_residual__" in model_name
-            or "__linear_residual_multi__" in model_name
-            or "__linear_residual_grouped__" in model_name
-            or "__diff__" in model_name
-            or "__ratio__" in model_name
-            or "__logratio__" in model_name
-        )
+        from .composite_transforms import is_composite_target_name
+        # For composite targets the train mean is the T-scale residual
+        # mean which is ~0 by OLS construction -- not informative.
+        # Switch the label to ``MTRESID=`` to make the semantic
+        # explicit. Detection covers every registered transform (incl.
+        # monotonic/ewma/quantile/etc.), not just the original four.
+        _is_composite = is_composite_target_name(model_name)
         _tag = "MTRESID" if _is_composite else "MTTR"
         if train_t is not None and train_t.size > 0:
             model_name += f" {_tag}={_fmt(train_t.mean())}"
