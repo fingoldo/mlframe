@@ -1,5 +1,80 @@
 # Changelog
 
+## 2026-05-12 — biz_val test campaign: 400+ quantitative-regression-sensor tests across feature_selection, feature_engineering, training
+
+Two sustained /loop campaigns spanning 15+ iterations. Each test asserts a
+SYNTHETIC MEASURABLE WIN -- if a parameter/fix/feature silently breaks,
+the matching `test_biz_val_*` assertion FAILS on a calibrated quantitative
+threshold (5-15% margin below the measured value), not just on shape.
+
+### feature_selection (9 iterations, ~229 biz_val tests)
+
+All tunable parameters of `MRMR` + `RFECV` covered, plus polynomial-pair
+FE (hermite_fe), permutation MI variants, GPU MI, composite discovery,
+baseline diagnostics.
+
+| File | Tests | Coverage |
+|---|---|---|
+| `tests/feature_selection/test_biz_val_filters_hermite_fe.py` | 15 | optimise_hermite_pair: CMA-ES vs Optuna (43x), plug-in MI vs KSG, njit poly, 4 basis wins (Fourier/Sigmoid/RBF/Pade), multi-mode AUC, auto-unary uplift, triplet vs pair, honest baselines, basis routing, symmetry detector, nested-CV leakage check |
+| `tests/feature_selection/test_biz_val_filters_mrmr.py` | 74 | interactions_max_order, quantization method/nbins, min_relevance_gain, min_nonzero_confidence, full_npermutations, baseline_npermutations, extra_x_shuffling, use_simple_mode, n_workers, fe_* (max_steps/polynoms/degree/coeff/min_pair_mi/presets), cv/cv_shuffle, dtype, min_occupancy, factors_to_use/names, max_veteranes/interactions_order range, regression target, only_unknown_interactions contract |
+| `tests/feature_selection/test_biz_val_wrappers_rfecv.py` | 65 | n_features_selection_rule, stability_selection, must_include, conditional_permutation, checkpoint resume, feature_cost, leakage_corr_threshold/action, swap_top_k, top_predictors_search_method (5/5 enum values), votes_aggregation_method (8/8), importance_getter, max_refits, max_noimproving_iters, mean/std_perf_weight, scoring (resolved callables), cv/cv_shuffle, smooth_perf, nofeatures_dummy_scoring, conduct_final_voting, use_last_fi_run_only, early_stopping_val_nsplits, random_state reproducibility |
+| `tests/feature_selection/test_biz_val_filters_permutation.py` | 5 | Besag-Clifford ≥3x speedup, prange reproducibility, npermutations=0 guard |
+| `tests/feature_selection/test_biz_val_filters_gpu.py` | 4 | `mi_direct_gpu_batched` ≥1.5x CPU at n=10k, scales to n=200k, OOM-safe fallback |
+| `tests/training/test_biz_val_training_composite_discovery.py` | 6 | screening=hybrid/MI, mi_estimator=bin/knn, fail_on_no_gain |
+| `tests/training/test_biz_val_training_baseline_diagnostics.py` | 5 | ablation rank-1 = dominant feature, sample_n caps runtime, enabled=False short-circuit |
+
+**Honest-disclosure fixes** (same campaign, commit `2815c08`):
+- `RFECV.max_nfeatures` -- now HARD-CAPS final selection (was violated when all-features baseline won argmax). Fix in `select_optimal_nfeatures_`.
+- `OptimumSearch.{ScipyLocal,ScipyGlobal,ExhaustiveDichotomic}` -- implemented (previously raised NotImplementedError). 3 new suggester functions in `_helpers.py` + 7 unit tests.
+- `only_unknown_interactions` contract documented (the prior directional claim "True -> smaller support" was wrong)
+- `must_exclude` contract verified (prior failure was a TEST BUG: index `feature_names_in_` post-drop, not original `df.columns`)
+
+### feature_engineering (4 iterations, 69 biz_val tests)
+
+Every user-facing public function in every FE module covered:
+
+| File | Tests | Module |
+|---|---|---|
+| `tests/feature_engineering/test_biz_val_basic.py` | 5 | `create_date_features` |
+| `tests/feature_engineering/test_biz_val_numerical.py` | 15 | `compute_numaggs` (fixed-length contract, parametrize sizes/seeds, directional_only, float32, weights effect) |
+| `tests/feature_engineering/test_biz_val_categorical.py` | 7 | `compute_countaggs`, `get_countaggs_names` |
+| `tests/feature_engineering/test_biz_val_timeseries.py` | 15 | `find_next_cumsum_*` (contract: `use_abs` = \|cumsum\|, not \|element\|), `compute_corr`, `general_acf` |
+| `tests/feature_engineering/test_biz_val_financial.py` | 15 | `add_fast_rolling_stats`, `add_ohlcv_ratios_rlags` (requires `qty` column), `compute_hurst_exponent` (contract: default measures LEVELS, `take_diffs=True` measures increments) |
+| `tests/feature_engineering/test_biz_val_mps.py` | 12 | `find_maximum_profit_system`, `backfill_zeros` |
+
+### training (5 iterations, 76 biz_val tests)
+
+| File | Tests | Coverage |
+|---|---|---|
+| `tests/training/test_biz_val_training_core.py` | 5 | `train_mlframe_models_suite` (defensive smoke, post-refactor) |
+| `tests/training/test_biz_val_callbacks.py` | 10 | 4 stop-file callbacks (LGB/XGB/CB/Lightning) parametrized |
+| `tests/training/test_biz_val_drift_evaluation.py` | 11 | `compute_label_distribution_drift` (binary/regression/multiclass), `format_drift_report`, `root_mean_squared_error` |
+| `tests/training/test_biz_val_composite_transforms.py` | 10 | `_residualise`, `_safe_corr`, diff/logratio/ratio/linear_residual transform roundtrips; `_linear_residual_fit` contract (alpha=slope, beta=intercept) |
+| `tests/training/test_biz_val_trainer_core.py` | 5 | `get_function_param_names` (+ configure_training_params blocked by active refactor) |
+| Legacy `test_bizvalue_*.py` | 35 | Suite-level features (imbalance, calibration, preproc extensions, ranking, fairness, feature_selection, outliers, classifier_chain, quantile, composite) |
+
+### CLAUDE.md + README.md codified
+
+The biz_val pattern is now formally documented in both project-level docs:
+- **CLAUDE.md**: "Every new ML trick gets a `biz_value` synthetic test (CRITICAL)" — pattern, margin rule, naming convention, per-class file layout, when-not-to-apply exceptions
+- **README.md**: "biz_val tests — 'the feature must keep delivering its measurable win'" — third test category alongside reactive sensors and proactive probes
+- **Naming convention**: `tests/<подпакет>/test_biz_val_<подпакет>_<класс>.py` with `test_biz_val_<class>_<parameter>_<scenario>` functions
+- **Reusable synthetic generators**: `tests/feature_selection/_biz_val_synth.py` — 6 deterministic generators with 30 doctests
+
+### Grand totals
+
+| Area | Files | Effective cases (incl parametrize) |
+|---|---|---|
+| feature_selection (filters + wrappers) | 7 | ~229 |
+| feature_engineering | 6 | 69 |
+| training | 9 + 11 legacy | ~111 |
+| **Combined** | **22 files + 11 legacy** | **~409** |
+
+All tests combined run in ~8-10 minutes (calibrated on 1-CPU-limited
+Windows dev box; CI with more cores finishes faster). parametrize +
+hypothesis multiply effective invocation count far beyond the raw
+`def test_*` count.
+
 ## 2026-05-13 — DGP × Model regression-matrix lock (`test_default_no_catastrophic_failure_matrix.py`)
 
 After the TVT MLP collapse incident the user asked for *расширенные параметризованные тесты для всех поддерживаемых train_mlframe_models_suite моделей на подобных таргетах и фичах разного плана, чтобы мы точно знали, что НИ В ОДНОМ режиме наши модели не обсираются на дефолтных параметрах*. New parameterised test exercises every supported regression family (`linear` / `cb` / `xgb` / `lgb` / `mlp`) against four DGP regimes (`linear_dominant`, `linear_balanced`, `nonlinear_smooth`, `noisy`) — 20 cells in ~16 s on CPU. Each cell asserts `rmse_test / target_std ≤ threshold` where the per-(DGP, model) thresholds were calibrated against observed healthy-defaults ratios with catastrophic-line headroom.
