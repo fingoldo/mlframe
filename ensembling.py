@@ -110,10 +110,7 @@ class _WelfordAccumulator(StreamingAccumulator):
 
     def push(self, arr: np.ndarray) -> None:
         if arr.shape != self.mean.shape:
-            raise ValueError(
-                f"_WelfordAccumulator.push: expected shape {self.mean.shape}, "
-                f"got {arr.shape}"
-            )
+            raise ValueError(f"_WelfordAccumulator.push: expected shape {self.mean.shape}, " f"got {arr.shape}")
         arr = arr.astype(self._dtype, copy=False)
         self.n += 1
         delta = arr - self.mean
@@ -157,7 +154,7 @@ class _WelfordAccumulator(StreamingAccumulator):
         out = _WelfordAccumulator(shape=a.mean.shape, dtype=a._dtype)
         out.n = n
         out.mean = a.mean + delta * b.n / n
-        out.M2 = a.M2 + b.M2 + (delta ** 2) * a.n * b.n / n
+        out.M2 = a.M2 + b.M2 + (delta**2) * a.n * b.n / n
         out.min = np.minimum(a.min, b.min) if (a.min is not None and b.min is not None) else (a.min if a.min is not None else b.min)
         out.max = np.maximum(a.max, b.max) if (a.max is not None and b.max is not None) else (a.max if a.max is not None else b.max)
         return out
@@ -345,22 +342,15 @@ def compute_member_quality_gate(
     for i in range(n):
         tot_mae = float(per_member_mae[i])
         tot_std = float(per_member_std[i])
-        abs_violation = (
-            (max_mae > 0 and tot_mae > max_mae)
-            or (max_std > 0 and tot_std > max_std)
-        )
-        rel_violation = (
-            (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold)
-            or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
-        )
+        abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
+        rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
         if abs_violation or rel_violation:
             reason_parts = []
             if abs_violation:
                 reason_parts.append(f"abs(mae>{max_mae}|std>{max_std})")
             if rel_violation:
                 reason_parts.append(
-                    f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; "
-                    f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
+                    f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; " f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
                 )
             excluded.append((i, f"mae={tot_mae:.4f}, std={tot_std:.4f} [{'; '.join(reason_parts)}]"))
         else:
@@ -370,21 +360,31 @@ def compute_member_quality_gate(
     # ensemble_probabilistic_predictions returns a degenerate empty
     # ensemble downstream).
     if not kept:
-        return list(range(n)), [], {
-            "median_mae": median_mae, "median_std": median_std,
+        return (
+            list(range(n)),
+            [],
+            {
+                "median_mae": median_mae,
+                "median_std": median_std,
+                "rel_mae_threshold": rel_mae_threshold,
+                "rel_std_threshold": rel_std_threshold,
+                "per_member_mae": per_member_mae,
+                "per_member_std": per_member_std,
+                "filter_too_restrictive": True,
+            },
+        )
+    return (
+        kept,
+        excluded,
+        {
+            "median_mae": median_mae,
+            "median_std": median_std,
             "rel_mae_threshold": rel_mae_threshold,
             "rel_std_threshold": rel_std_threshold,
             "per_member_mae": per_member_mae,
             "per_member_std": per_member_std,
-            "filter_too_restrictive": True,
-        }
-    return kept, excluded, {
-        "median_mae": median_mae, "median_std": median_std,
-        "rel_mae_threshold": rel_mae_threshold,
-        "rel_std_threshold": rel_std_threshold,
-        "per_member_mae": per_member_mae,
-        "per_member_std": per_member_std,
-    }
+        },
+    )
 
 
 def ensemble_probabilistic_predictions(
@@ -473,7 +473,7 @@ def ensemble_probabilistic_predictions(
         per_member_std = np.empty(len(preds), dtype=np.float64)
         for i, pred in enumerate(preds):
             diffs = np.abs(pred - median_preds)
-            mae_per_col = diffs.mean(axis=0)                     # (n_cols,)
+            mae_per_col = diffs.mean(axis=0)  # (n_cols,)
             std_per_col = np.sqrt(((diffs - mae_per_col) ** 2).mean(axis=0))
             per_member_mae[i] = mae_per_col.mean()
             per_member_std[i] = std_per_col.mean()
@@ -483,40 +483,24 @@ def ensemble_probabilistic_predictions(
         # bad member drag the threshold up and shield itself).
         median_mae = float(np.median(per_member_mae))
         median_std = float(np.median(per_member_std))
-        rel_mae_threshold = (
-            max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
-        )
-        rel_std_threshold = (
-            max_std_relative * median_std if max_std_relative > 0 else 0.0
-        )
+        rel_mae_threshold = max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
+        rel_std_threshold = max_std_relative * median_std if max_std_relative > 0 else 0.0
 
         for i in range(len(preds)):
             tot_mae = float(per_member_mae[i])
             tot_std = float(per_member_std[i])
-            abs_violation = (
-                (max_mae > 0 and tot_mae > max_mae)
-                or (max_std > 0 and tot_std > max_std)
-            )
-            rel_violation = (
-                (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold)
-                or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
-            )
+            abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
+            rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
             if abs_violation or rel_violation:
                 if verbose:
                     reason_parts = []
                     if abs_violation:
-                        reason_parts.append(
-                            f"abs(mae>{max_mae}|std>{max_std})"
-                        )
+                        reason_parts.append(f"abs(mae>{max_mae}|std>{max_std})")
                     if rel_violation:
                         reason_parts.append(
-                            f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; "
-                            f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
+                            f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; " f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
                         )
-                    print(
-                        f"ens member {i} excluded due to high distance from the median: "
-                        f"mae={tot_mae:.4f}, std={tot_std:.4f} [{'; '.join(reason_parts)}]"
-                    )
+                    print(f"ens member {i} excluded due to high distance from the median: " f"mae={tot_mae:.4f}, std={tot_std:.4f} [{'; '.join(reason_parts)}]")
                 skipped_preds_indices.add(i)
         if skipped_preds_indices:
             if len(skipped_preds_indices) < len(preds):
@@ -551,9 +535,9 @@ def ensemble_probabilistic_predictions(
     elif ensemble_method == "median":
         ensembled_predictions = np.quantile(_preds_arr, 0.5, axis=0)
     elif ensemble_method == "quad":
-        ensembled_predictions = np.sqrt(np.mean(_preds_arr ** 2, axis=0))
+        ensembled_predictions = np.sqrt(np.mean(_preds_arr**2, axis=0))
     elif ensemble_method == "qube":
-        ensembled_predictions = np.cbrt(np.mean(_preds_arr ** 3, axis=0))
+        ensembled_predictions = np.cbrt(np.mean(_preds_arr**3, axis=0))
     elif ensemble_method == "geo":
         # Use log-sum-exp via log-mean for numerical stability on large M.
         # Floor at 1e-300 (smallest safe float64) instead of 1e-12 to
@@ -643,9 +627,7 @@ def ensemble_probabilistic_predictions_streaming(
         std_preds.mean(axis=1) for consistency). ``confident_indices``
         is None (no quantile-based filtering).
     """
-    assert ensemble_method in SIMPLE_ENSEMBLING_METHODS, (
-        f"unknown ensemble_method {ensemble_method!r}"
-    )
+    assert ensemble_method in SIMPLE_ENSEMBLING_METHODS, f"unknown ensemble_method {ensemble_method!r}"
     if ensemble_method == "median":
         raise NotImplementedError(
             "ensemble_probabilistic_predictions_streaming: 'median' requires "
@@ -840,12 +822,10 @@ def _process_single_ensemble_method(
     # ``ensemble_probabilistic_predictions`` already returns
     # ``(None, None, None)`` for that case (line ~438).
     if not is_regression:
-        _val_preds = [el.val_probs for el in level_models_and_predictions
-                      if el.val_probs is not None]
+        _val_preds = [el.val_probs for el in level_models_and_predictions if el.val_probs is not None]
         predictions = iter(_val_preds)
     else:
-        _val_preds = [el.val_preds for el in level_models_and_predictions
-                      if el.val_preds is not None]
+        _val_preds = [el.val_preds for el in level_models_and_predictions if el.val_preds is not None]
         predictions = (p.reshape(-1, 1) for p in _val_preds)
 
     val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
@@ -863,12 +843,10 @@ def _process_single_ensemble_method(
 
     # 2026-05-13: same ``None``-guard for test_preds / test_probs.
     if not is_regression:
-        _test_preds = [el.test_probs for el in level_models_and_predictions
-                       if el.test_probs is not None]
+        _test_preds = [el.test_probs for el in level_models_and_predictions if el.test_probs is not None]
         predictions = iter(_test_preds)
     else:
-        _test_preds = [el.test_preds for el in level_models_and_predictions
-                       if el.test_preds is not None]
+        _test_preds = [el.test_preds for el in level_models_and_predictions if el.test_preds is not None]
         predictions = (p.reshape(-1, 1) for p in _test_preds)
 
     test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
@@ -1059,12 +1037,7 @@ def _process_single_ensemble_method(
         # split. Marker is binary-classification only; regression has no
         # class balance to check.
         _degenerate_marker = ""
-        if (
-            flag_degenerate_conf_subset
-            and not is_regression
-            and _conf_target is not None
-            and len(_conf_target) > 0
-        ):
+        if flag_degenerate_conf_subset and not is_regression and _conf_target is not None and len(_conf_target) > 0:
             _ct = np.asarray(_conf_target)
             if _ct.ndim == 1:
                 # Count positives via boolean comparison so float / bool / int
@@ -1102,7 +1075,9 @@ def _process_single_ensemble_method(
             **conf_target_kwargs,
             **kwargs_copy,
         )
-        conf_data, conf_control, conf_metrics, conf_reporting, conf_naming, conf_confidence, conf_predictions, conf_output = _build_configs_from_params(**conf_flat_params)
+        conf_data, conf_control, conf_metrics, conf_reporting, conf_naming, conf_confidence, conf_predictions, conf_output = _build_configs_from_params(
+            **conf_flat_params
+        )
         conf_results = train_and_evaluate_model(
             model=None,
             data=conf_data,
@@ -1215,8 +1190,14 @@ def score_ensemble(
     # loop and disable the embedded filter so no duplicate prints fire.
     _gate_source_split = None
     _gate_preds_for_check: Optional[List[np.ndarray]] = None
-    for _attr, _label in (("val_preds", "val"), ("test_preds", "test"), ("train_preds", "train"),
-                          ("val_probs", "val"), ("test_probs", "test"), ("train_probs", "train")):
+    for _attr, _label in (
+        ("val_preds", "val"),
+        ("test_preds", "test"),
+        ("train_preds", "train"),
+        ("val_probs", "val"),
+        ("test_probs", "test"),
+        ("train_probs", "train"),
+    ):
         _candidate = [getattr(m, _attr, None) for m in level_models_and_predictions]
         if all(p is not None for p in _candidate):
             _gate_preds_for_check = _candidate
@@ -1230,6 +1211,7 @@ def score_ensemble(
         short_model_tag as _short_tag,
         strip_shim_suffix as _strip_shim,
     )
+
     _ensemble_member_tags: List[str] = []
     _ensemble_short_tags: List[str] = []
     for _m in level_models_and_predictions:
@@ -1245,25 +1227,23 @@ def score_ensemble(
     if _gate_preds_for_check is not None and len(_gate_preds_for_check) > 2:
         _kept_idx, _excluded, _gate_stats = compute_member_quality_gate(
             _gate_preds_for_check,
-            max_mae=max_mae, max_std=max_std,
-            max_mae_relative=max_mae_relative, max_std_relative=max_std_relative,
+            max_mae=max_mae,
+            max_std=max_std,
+            max_mae_relative=max_mae_relative,
+            max_std_relative=max_std_relative,
         )
         if verbose:
             # Per-member visual table: tag + MAE-vs-median + ✓/✗ + reason
             _per_mae = _gate_stats.get("per_member_mae", [])
             _med_mae = _gate_stats.get("median_mae", 0.0)
             _excl_idx = {i for i, _ in _excluded}
-            _kept_lbls = [
-                f"{_ensemble_member_tags[i]} (MAE={float(_per_mae[i]):.4f})"
-                for i in _kept_idx
-            ]
-            _excl_lbls = [
-                f"{_ensemble_member_tags[i]} (MAE={float(_per_mae[i]):.4f}, >{max_mae_relative:g}x median={_med_mae:.4f})"
-                for i in _excl_idx
-            ]
+            _kept_lbls = [f"{_ensemble_member_tags[i]} (MAE={float(_per_mae[i]):.4f})" for i in _kept_idx]
+            _excl_lbls = [f"{_ensemble_member_tags[i]} (MAE={float(_per_mae[i]):.4f}, >{max_mae_relative:g}x median={_med_mae:.4f})" for i in _excl_idx]
             logger.info(
                 "[ensemble] member quality gate (split=%s): kept %d/%d -- %s%s",
-                _gate_source_split, len(_kept_idx), len(_gate_preds_for_check),
+                _gate_source_split,
+                len(_kept_idx),
+                len(_gate_preds_for_check),
                 ", ".join(_kept_lbls) if _kept_lbls else "(none)",
                 ("; excluded: " + ", ".join(_excl_lbls)) if _excl_lbls else "",
             )
@@ -1276,13 +1256,9 @@ def score_ensemble(
                     _est_skipped_iters,
                 )
             if _gate_stats.get("filter_too_restrictive"):
-                logger.warning(
-                    "[ensemble] gate would have excluded ALL members; falling back to original list (filter too restrictive for this combo)"
-                )
+                logger.warning("[ensemble] gate would have excluded ALL members; falling back to original list (filter too restrictive for this combo)")
         if _excluded and not _gate_stats.get("filter_too_restrictive"):
-            level_models_and_predictions = [
-                level_models_and_predictions[i] for i in _kept_idx
-            ]
+            level_models_and_predictions = [level_models_and_predictions[i] for i in _kept_idx]
             # 2026-05-11: refresh ``ensemble_name`` to reflect the kept
             # members so downstream model_name_prefix / report titles
             # show [cb+xgb+lgb] (gate-survivors) instead of the original
@@ -1294,17 +1270,19 @@ def score_ensemble(
             try:
                 # F2 fix (2026-05-11): use the SHORT tag list (cb / xgb / lgb / ...) for the rebuilt ensemble label rather than the full class names; matches the original short-label contract from core.py:5483 and keeps chart titles compact.
                 _kept_tags = [_ensemble_short_tags[i] for i in _kept_idx]
-                _re_label = ("[" + "+".join(_kept_tags) + "]"
-                             if len(_kept_tags) <= 4
-                             else f"[N={len(_kept_tags)}]")
+                _re_label = "[" + "+".join(_kept_tags) + "]" if len(_kept_tags) <= 4 else f"[N={len(_kept_tags)}]"
                 # Replace any [...] / [N=k] in ``ensemble_name`` with
                 # the new label. The caller pattern is
                 # ``f"{pre_pipeline}{_members_label} "`` so we look for
                 # the first bracketed substring and substitute.
                 import re as _re_mod
+
                 if _re_mod.search(r"\[[^\]]+\]", ensemble_name):
                     ensemble_name = _re_mod.sub(
-                        r"\[[^\]]+\]", _re_label, ensemble_name, count=1,
+                        r"\[[^\]]+\]",
+                        _re_label,
+                        ensemble_name,
+                        count=1,
                     )
             except Exception:  # pragma: no cover -- defensive
                 pass
@@ -1327,9 +1305,7 @@ def score_ensemble(
     # [-2200, 500]). QUBE (cube root) is sign-preserving so it stays in.
     if is_regression and ensembling_methods:
         _has_zero_crossing = False
-        _sign_sensitive_in_methods = any(
-            m in ensembling_methods for m in ("harm", "geo", "quad")
-        )
+        _sign_sensitive_in_methods = any(m in ensembling_methods for m in ("harm", "geo", "quad"))
         if _sign_sensitive_in_methods:
             for _m in level_models_and_predictions:
                 for _attr in ("val_preds", "test_preds", "train_preds"):
@@ -1348,14 +1324,9 @@ def score_ensemble(
                 if _has_zero_crossing:
                     break
             if _has_zero_crossing:
-                _filtered_methods = [
-                    m for m in ensembling_methods
-                    if m not in ("harm", "geo", "quad")
-                ]
+                _filtered_methods = [m for m in ensembling_methods if m not in ("harm", "geo", "quad")]
                 if verbose and len(_filtered_methods) != len(ensembling_methods):
-                    _dropped = [
-                        m for m in ensembling_methods if m not in _filtered_methods
-                    ]
+                    _dropped = [m for m in ensembling_methods if m not in _filtered_methods]
                     logger.info(
                         "[ensemble] gating out %s flavour(s): member "
                         "predictions contain near-zero / sign-changing "
@@ -1407,11 +1378,11 @@ def score_ensemble(
             # blow up in workers. Pre-check so we can fall back to sequential with a clear warning.
             try:
                 import pickle
+
                 pickle.dumps((custom_ice_metric, custom_rice_metric, kwargs))
             except (pickle.PicklingError, AttributeError, TypeError) as exc:
                 logger.warning(
-                    "ensembling: falling back to sequential -- one of "
-                    "custom_ice_metric / custom_rice_metric / kwargs is not picklable: %s",
+                    "ensembling: falling back to sequential -- one of " "custom_ice_metric / custom_rice_metric / kwargs is not picklable: %s",
                     exc,
                 )
                 effective_n_jobs = 1
@@ -1434,6 +1405,8 @@ def score_ensemble(
             # Sequential processing
             for ensemble_method in ensembling_methods:
                 internal_method, next_ens_results, conf_results = _process_single_ensemble_method(ensemble_method=ensemble_method, **common_params)
+                if next_ens_results is None:
+                    continue
                 res[internal_method] = next_ens_results
                 next_level_models_and_predictions.append(next_ens_results)
                 if conf_results is not None:
