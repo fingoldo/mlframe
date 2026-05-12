@@ -197,6 +197,23 @@ def _content_array_signature(arr) -> tuple:
         return ("uncached", id(arr))
 
 
+def _target_to_numpy_values(y) -> np.ndarray:
+    """Return a numpy view/array for sklearn-style targets.
+
+    pandas exposes both ``to_numpy`` and ``values``; Polars Series exposes
+    ``to_numpy`` but not ``values``. MRMR only needs the 1-D/2-D target
+    vector for its own temporary target columns, so normalize y directly
+    without touching or copying the feature frame.
+    """
+    if isinstance(y, np.ndarray):
+        return y
+    if hasattr(y, "to_numpy"):
+        return y.to_numpy()
+    if hasattr(y, "values"):
+        return y.values
+    return np.asarray(y)
+
+
 # Constructor-parameter names of ``MRMR``. Populated lazily on first
 # call to ``_replay_fitted_state`` (avoids importing ``inspect`` /
 # instantiating MRMR at module import time).
@@ -637,10 +654,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             y_shape = 1
         target_names = [target_prefix + str(i) for i in range(y_shape)]
 
-        if isinstance(y, np.ndarray):
-            vals = y
-        else:
-            vals = y.values
+        vals = _target_to_numpy_values(y)
 
         if vals.dtype == np.int64:
             print("Converted targets from int64 to int16.")

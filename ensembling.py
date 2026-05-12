@@ -932,18 +932,25 @@ def _process_single_ensemble_method(
     # 2026-04-27 typed-config refactor: ``compute_{trainset,valset,testset}_-
     # metrics`` were lifted from trainer-internal to ``ReportingConfig``.
     # core.py now seeds ``common_params_dict`` from ``reporting_config.model_dump()``,
-    # which makes those fields part of ``kwargs_copy``. Pop them before the
-    # ``dict(... compute_valset_metrics=True, **kwargs_copy)`` splat below to
-    # avoid ``TypeError: dict() got multiple values for keyword argument
-    # 'compute_valset_metrics'``. The ensemble scorer always wants val
-    # metrics on (irrespective of caller's reporting config), so the hard-
-    # coded ``compute_valset_metrics=True`` below is the source of truth.
-    for _metrics_kwarg in (
-        "compute_trainset_metrics",
-        "compute_valset_metrics",
-        "compute_testset_metrics",
-    ):
-        kwargs_copy.pop(_metrics_kwarg, None)
+    # which makes those fields part of ``kwargs_copy``. Preserve the caller's
+    # switches before popping them to avoid duplicate-key ``dict(...)`` splats;
+    # ensemble scoring must respect the same reporting contract as single
+    # models.
+    _caller_compute_trainset_metrics = bool(
+        kwargs_copy.pop("compute_trainset_metrics", False)
+    )
+    _caller_compute_valset_metrics = bool(
+        kwargs_copy.pop("compute_valset_metrics", True)
+    )
+    _caller_compute_testset_metrics = bool(
+        kwargs_copy.pop("compute_testset_metrics", True)
+    )
+
+    def _has_split_predictions(_kwargs: dict, _split: str) -> bool:
+        return (
+            _kwargs.get(f"{_split}_preds") is not None
+            or _kwargs.get(f"{_split}_probs") is not None
+        )
 
     # Build config objects from flat params
     flat_params = dict(
@@ -954,7 +961,18 @@ def _process_single_ensemble_method(
         test_idx=test_idx,
         val_idx=val_idx,
         target_label_encoder=target_label_encoder,
-        compute_valset_metrics=True,
+        compute_trainset_metrics=(
+            _caller_compute_trainset_metrics
+            and _has_split_predictions(predictive_kwargs, "train")
+        ),
+        compute_valset_metrics=(
+            _caller_compute_valset_metrics
+            and _has_split_predictions(predictive_kwargs, "val")
+        ),
+        compute_testset_metrics=(
+            _caller_compute_testset_metrics
+            and _has_split_predictions(predictive_kwargs, "test")
+        ),
         nbins=nbins,
         custom_ice_metric=custom_ice_metric,
         custom_rice_metric=custom_rice_metric,
@@ -1065,7 +1083,18 @@ def _process_single_ensemble_method(
             test_idx=test_idx[test_confident_indices] if (test_idx is not None and test_confident_indices is not None) else None,
             val_idx=val_idx[val_confident_indices] if (val_idx is not None and val_confident_indices is not None) else None,
             target_label_encoder=target_label_encoder,
-            compute_valset_metrics=True,
+            compute_trainset_metrics=(
+                _caller_compute_trainset_metrics
+                and _has_split_predictions(conf_predictive_kwargs, "train")
+            ),
+            compute_valset_metrics=(
+                _caller_compute_valset_metrics
+                and _has_split_predictions(conf_predictive_kwargs, "val")
+            ),
+            compute_testset_metrics=(
+                _caller_compute_testset_metrics
+                and _has_split_predictions(conf_predictive_kwargs, "test")
+            ),
             nbins=nbins,
             custom_ice_metric=custom_ice_metric,
             custom_rice_metric=custom_rice_metric,

@@ -237,6 +237,16 @@ _PREDICT_DTYPE_BYTES: int = 4        # float32 (cheap upper bound for tabular)
 # order of magnitude but lets typical predict still throughput.
 _PREDICT_BATCH_FALLBACK: int = 1024
 
+# Train-time auto batch size. Keep the historical 1024 ceiling for typical
+# narrow tabular data, but allow the resolver to shrink wide-feature fits
+# before they reach CUDA/CPU OOM territory.
+_TRAIN_BATCH_MIN: int = 32
+_TRAIN_BATCH_MAX: int = 1024
+_TRAIN_BATCH_FALLBACK: int = 1024
+_TRAIN_ACTIVATION_MULTIPLIER: int = 12
+_TRAIN_MEM_FRACTION: float = 0.10
+_TRAIN_DTYPE_BYTES: int = 4
+
 
 def _probe_available_memory_bytes(*, cuda_available: Optional[bool] = None) -> Optional[int]:
     """Return available memory (GPU free if CUDA, else CPU available).
@@ -346,6 +356,44 @@ def resolve_mlp_predict_batch_size(
     raw = budget // per_row_bytes
     clamped = max(min_batch, min(max_batch, int(raw)))
     return clamped
+
+
+def resolve_mlp_train_batch_size(
+    *,
+    user_override: Optional[int] = None,
+    n_features: Optional[int] = None,
+    available_memory_bytes: Optional[int] = None,
+    cuda_available: Optional[bool] = None,
+    dtype_bytes: int = _TRAIN_DTYPE_BYTES,
+    activation_multiplier: int = _TRAIN_ACTIVATION_MULTIPLIER,
+    mem_fraction: float = _TRAIN_MEM_FRACTION,
+    min_batch: int = _TRAIN_BATCH_MIN,
+    max_batch: int = _TRAIN_BATCH_MAX,
+) -> int:
+    """Return the train-time MLP batch size for ``batch_size="auto"``.
+
+    The resolver is conservative: it preserves the previous 1024 default as
+    the ceiling for ordinary narrow frames, while shrinking automatically for
+    very wide frames using the same memory probe as predict-time batching.
+    """
+    if user_override is not None:
+        return max(1, int(user_override))
+    if n_features is None or n_features <= 0:
+        return _TRAIN_BATCH_FALLBACK
+    if available_memory_bytes is None:
+        available_memory_bytes = _probe_available_memory_bytes(
+            cuda_available=cuda_available,
+        )
+    if available_memory_bytes is None or available_memory_bytes <= 0:
+        return _TRAIN_BATCH_FALLBACK
+    per_row_bytes = max(
+        1, int(n_features) * int(dtype_bytes) * int(activation_multiplier),
+    )
+    budget = int(float(available_memory_bytes) * float(mem_fraction))
+    if budget <= 0:
+        return min_batch
+    raw = budget // per_row_bytes
+    return max(min_batch, min(max_batch, int(raw)))
 
 
 # Back-compat constants (so other modules can import the default ceiling).

@@ -103,14 +103,12 @@ _FI_LOG_DEFAULT_TOP_N: int = 10
 # from the bottom of the magnitude-sorted list.
 _FI_DEFAULT_MAX_ZERO: int = 4
 
-# 2026-05-13 (user request): default FI figsize unified with the
+# 2026-05-13 (user request): default FI figsize is intentionally half the
 # regression-diagnostic 3-panel chart (DEFAULT_FIGSIZE = (15, 5) in
-# evaluation.py). Hardcoding the same tuple here as the function default
-# so direct callers outside the suite (tests, notebooks) also get the
-# unified size out of the box. The suite layer passes
-# ``reporting_config.feature_importance_config.figsize`` explicitly anyway,
-# so this is purely the direct-caller default.
-_FI_DEFAULT_FIGSIZE: tuple = (15, 5)
+# evaluation.py). Direct callers outside the suite (tests, notebooks) get the
+# compact size too; the suite layer still passes
+# ``reporting_config.feature_importance_config.figsize`` explicitly.
+_FI_DEFAULT_FIGSIZE: tuple = (7.5, 2.5)
 
 
 def plot_feature_importance(

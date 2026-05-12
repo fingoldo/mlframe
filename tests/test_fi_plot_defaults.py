@@ -188,35 +188,38 @@ class TestConfigPlumbing:
 
 
 class TestFigsizeUnification:
-    """Locks the 2026-05-13 FI plot figsize + style unification with the
-    3-panel regression-diagnostic chart. Pre-fix the FI plot defaulted to
-    (15, 10) -- twice the height of the diagnostic above it -- creating
-    a jarring size mismatch in the suite report."""
+    """Locks the 2026-05-13 compact FI plot figsize. The default is half
+    the 3-panel regression-diagnostic chart so FI no longer dominates the
+    suite report."""
 
-    def test_fi_function_default_figsize_matches_perf_chart(self) -> None:
-        """``plot_feature_importance(figsize=...)`` default sits at the
-        same tuple the regression-diagnostic 3-panel chart uses."""
+    def test_fi_function_default_figsize_is_half_perf_chart(self) -> None:
+        """``plot_feature_importance(figsize=...)`` defaults to half the
+        regression-diagnostic 3-panel chart."""
         from mlframe.feature_importance import _FI_DEFAULT_FIGSIZE
         from mlframe.training.evaluation import DEFAULT_FIGSIZE
-        assert _FI_DEFAULT_FIGSIZE == DEFAULT_FIGSIZE
-        assert _FI_DEFAULT_FIGSIZE == (15, 5)
+        assert _FI_DEFAULT_FIGSIZE == (
+            DEFAULT_FIGSIZE[0] / 2,
+            DEFAULT_FIGSIZE[1] / 2,
+        )
+        assert _FI_DEFAULT_FIGSIZE == (7.5, 2.5)
 
-    def test_fi_config_default_figsize_matches_perf_chart(self) -> None:
-        """``FeatureImportanceConfig.figsize`` default sits at (15, 5)
-        too, matching the perf-chart figsize for consistent reports."""
+    def test_fi_config_default_figsize_is_half_perf_chart(self) -> None:
+        """``FeatureImportanceConfig.figsize`` default is compact too."""
         from mlframe.training.evaluation import DEFAULT_FIGSIZE
         cfg = FeatureImportanceConfig()
-        assert cfg.figsize == DEFAULT_FIGSIZE
-        assert cfg.figsize == (15, 5)
+        assert cfg.figsize == (
+            DEFAULT_FIGSIZE[0] / 2,
+            DEFAULT_FIGSIZE[1] / 2,
+        )
+        assert cfg.figsize == (7.5, 2.5)
 
-    def test_fi_eval_module_default_figsize_unified(self) -> None:
+    def test_fi_eval_module_default_figsize_compact(self) -> None:
         """The module-level constant in evaluation.py
-        (``DEFAULT_FI_FIGSIZE``) matches the perf-chart figsize too."""
+        (``DEFAULT_FI_FIGSIZE``) matches the compact FI default."""
         from mlframe.training.evaluation import (
             DEFAULT_FI_FIGSIZE,
-            DEFAULT_FIGSIZE,
         )
-        assert DEFAULT_FI_FIGSIZE == DEFAULT_FIGSIZE
+        assert DEFAULT_FI_FIGSIZE == (7.5, 2.5)
 
     def test_fi_plot_uses_grid_alpha_and_zero_line(self, captured_barh, monkeypatch) -> None:
         """Bars render with the unified perf-chart styling: translucent

@@ -25,7 +25,9 @@ box. So the contract this suite locks:
     4. AMP precision auto-resolves to ``"bf16-mixed"`` only on Ampere+ (CC
        major >= 8); older GPUs and CPU mode stay on ``"32-true"``. User
        override always wins.
-    5. Predict batch_size adapts to memory + dataframe width: it picks the
+    5. Train batch_size="auto" resolves at DataModule time, where the
+       feature width is known, and logs the selected value.
+    6. Predict batch_size adapts to memory + dataframe width: it picks the
        biggest batch that fits ``mem_fraction`` of free memory at the
        assumed dtype + activation overhead, clamped to ``[64, 16384]``.
        Without a width hint or memory probe it returns the conservative
@@ -40,9 +42,13 @@ from mlframe.training.mlp_runtime_defaults import (
     _PREDICT_BATCH_FALLBACK,
     _PREDICT_BATCH_MAX,
     _PREDICT_BATCH_MIN,
+    _TRAIN_BATCH_FALLBACK,
+    _TRAIN_BATCH_MAX,
+    _TRAIN_BATCH_MIN,
     resolve_mlp_dataloader_defaults,
     resolve_mlp_precision_default,
     resolve_mlp_predict_batch_size,
+    resolve_mlp_train_batch_size,
 )
 
 
@@ -289,3 +295,57 @@ class TestPredictBatchSize:
         assert resolve_mlp_predict_batch_size(
             n_features=-1, available_memory_bytes=8_000_000_000,
         ) == _PREDICT_BATCH_FALLBACK
+
+
+# ---------------------------------------------------------------------------
+# Train batch_size -- auto at DataModule time
+# ---------------------------------------------------------------------------
+
+
+class TestTrainBatchSize:
+    def test_no_width_hint_returns_fallback(self) -> None:
+        assert resolve_mlp_train_batch_size(
+            n_features=None, available_memory_bytes=8_000_000_000,
+        ) == _TRAIN_BATCH_FALLBACK
+
+    def test_narrow_dataframe_keeps_historical_ceiling(self) -> None:
+        res = resolve_mlp_train_batch_size(
+            n_features=25, available_memory_bytes=8_000_000_000,
+        )
+        assert res == _TRAIN_BATCH_MAX
+
+    def test_extremely_wide_features_picks_min_batch(self) -> None:
+        res = resolve_mlp_train_batch_size(
+            n_features=500_000, available_memory_bytes=100_000_000,
+        )
+        assert res == _TRAIN_BATCH_MIN
+
+    def test_datamodule_auto_batch_logs_selected_value(self, caplog, monkeypatch) -> None:
+        import logging
+        import numpy as np
+
+        torch = pytest.importorskip("torch")
+        pytest.importorskip("lightning")
+        from mlframe.training import mlp_runtime_defaults
+        from mlframe.training.neural.data import TorchDataModule
+
+        monkeypatch.setattr(
+            mlp_runtime_defaults,
+            "_probe_available_memory_bytes",
+            lambda *, cuda_available=None: 100_000_000,
+        )
+        dm = TorchDataModule(
+            train_features=np.zeros((2, 500_000), dtype=np.float32),
+            train_labels=np.zeros(2, dtype=np.float32),
+            dataloader_params={"batch_size": "auto", "num_workers": 0},
+            features_dtype=torch.float32,
+            labels_dtype=torch.float32,
+        )
+
+        with caplog.at_level(logging.INFO, logger="mlframe.training.neural.data"):
+            assert dm._resolve_batch_size("auto", dm.train_features, "train") == _TRAIN_BATCH_MIN
+
+        assert any(
+            "MLP train DataLoader auto-selected batch_size=" in record.getMessage()
+            for record in caplog.records
+        )

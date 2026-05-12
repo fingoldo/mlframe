@@ -524,10 +524,12 @@ class PytorchLightningEstimator(BaseEstimator):
         # clamped to ``[64, 16384]``.
         if batch_size is not None:
             pred_batch_size = int(batch_size)
+            _batch_source = "predict argument"
         else:
             override = self.datamodule_params.get("predict_batch_size")
             if override is not None:
                 pred_batch_size = max(1, int(override))
+                _batch_source = "datamodule predict_batch_size"
             else:
                 try:
                     from mlframe.training.mlp_runtime_defaults import (
@@ -547,14 +549,23 @@ class PytorchLightningEstimator(BaseEstimator):
                         n_features=_n_features,
                         train_batch_size=self.datamodule_params.get("batch_size"),
                     )
+                    _batch_source = f"auto n_features={_n_features if _n_features is not None else 'unknown'}"
                 except Exception:
                     # Resolver failed for any reason -- fall back to the
                     # train-time batch size (still vastly better than 64 on
                     # production setups).
-                    pred_batch_size = int(
-                        self.datamodule_params.get("batch_size", 1024)
+                    _train_batch_hint = self.datamodule_params.get(
+                        "batch_size", 1024
                     )
-        logger.info("Using batch_size=%s for prediction", pred_batch_size)
+                    if isinstance(_train_batch_hint, str):
+                        _train_batch_hint = 1024
+                    pred_batch_size = int(_train_batch_hint)
+                    _batch_source = "fallback train batch_size"
+        logger.info(
+            "MLP prediction batch_size=%s (%s)",
+            pred_batch_size,
+            _batch_source,
+        )
 
         # Setup prediction dataset
         datamodule.setup_predict(X, batch_size=pred_batch_size)

@@ -65,6 +65,7 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
+        target_carrier=combo.target_carrier,
     )
 
     cfg: dict = {"iterations": 3 if combo.n_rows <= 300 else 5}
@@ -160,6 +161,47 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
 # ---------------------------------------------------------------------------
 # Sensor #1 — tier_dfs_cache Polars/pandas collision (FIXED 2026-04-22).
 # ---------------------------------------------------------------------------
+
+
+def test_sensor_fuzz_fixture_emits_native_polars_target():
+    """Regression guard for the fuzz blind spot that missed MRMR's
+    ``pl.Series`` target crash.
+
+    Before the target_carrier axis, SimpleFeaturesAndTargetsExtractor always
+    returned ``col.to_numpy()`` for Polars single-output targets. Fuzz combos
+    could vary the frame carrier but not the target carrier, so MRMR never
+    exercised its production ``pl.Series`` y path.
+    """
+    import polars as pl
+    from mlframe.training.configs import TargetTypes
+
+    combo = FuzzCombo(
+        models=("cb",),
+        input_type="polars_utf8",
+        n_rows=300,
+        cat_feature_count=0,
+        null_fraction_cats=0.0,
+        use_mrmr_fs=True,
+        weight_schemas=("uniform",),
+        target_type="regression",
+        target_carrier="native",
+        auto_detect_cats=True,
+        align_polars_categorical_dicts=False,
+        seed=513,
+    )
+    df, target_col, _ = build_frame_for_combo(combo)
+    fte = SimpleFeaturesAndTargetsExtractor(
+        target_column=target_col,
+        regression=True,
+        target_type=TargetTypes.REGRESSION,
+        target_carrier=combo.target_carrier,
+    )
+
+    target_by_type = fte.transform(df)[1]
+    target = target_by_type[TargetTypes.REGRESSION][target_col]
+
+    assert isinstance(target, pl.Series)
+    assert not hasattr(target, "values")
 
 
 def test_sensor_tier_cache_polars_pandas_collision(tmp_path):

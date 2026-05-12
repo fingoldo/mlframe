@@ -238,8 +238,8 @@ class TestOutputConfig:
 class TestFeatureImportanceConfig:
     def test_defaults_match_plot_function_kwargs(self):
         cfg = FeatureImportanceConfig()
-        assert cfg.num_factors == 40
-        assert cfg.figsize == (15, 10)
+        assert cfg.num_factors == 10
+        assert cfg.figsize == (7.5, 2.5)
         assert cfg.positive_fi_only is False
         assert cfg.show_plots is True
 

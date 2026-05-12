@@ -143,7 +143,11 @@ try:
             ]
     except Exception:  # pragma: no cover
         pass
-except ImportError:  # pragma: no cover
+except (ImportError, OSError, RuntimeError) as exc:  # pragma: no cover
+    warnings.warn(
+        f"Skipping optional thinc pytest-randomly seed shim because thinc import failed: {exc}",
+        RuntimeWarning,
+    )
     pass
 
 

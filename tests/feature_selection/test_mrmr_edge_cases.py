@@ -96,6 +96,85 @@ class TestMRMREdgeCases:
         mrmr.fit(X, y)
         assert hasattr(mrmr, 'n_features_')
 
+    def test_target_container_normalization(self):
+        """MRMR target normalization accepts numpy, pandas and polars
+        carriers. The pre-fix code handled only numpy and pandas-like
+        ``.values``."""
+        pl = pytest.importorskip("polars")
+        from mlframe.feature_selection.filters.mrmr import _target_to_numpy_values
+
+        base = np.array([0, 1, 1, 0], dtype=np.int64)
+        cases = [
+            base,
+            pd.Series(base),
+            pd.DataFrame({"target": base}),
+            pl.Series("target", base),
+            pl.DataFrame({"target": base}),
+            base.tolist(),
+        ]
+
+        for target in cases:
+            vals = _target_to_numpy_values(target)
+            assert isinstance(vals, np.ndarray)
+            assert vals.shape[0] == base.shape[0]
+            assert np.asarray(vals).reshape(base.shape[0], -1)[:, 0].tolist() == base.tolist()
+
+        assert _target_to_numpy_values(base) is base
+
+    @pytest.mark.parametrize(
+        "x_backend,target_backend",
+        [
+            ("pandas", "polars_series"),
+            ("polars", "polars_series"),
+            ("polars", "polars_frame"),
+        ],
+    )
+    def test_target_containers_fit(self, x_backend, target_backend):
+        """Regression: Polars target carriers have no ``.values`` attr.
+
+        The suite path ``FeatureSelectionConfig(use_mrmr_fs=True)`` passes a
+        Polars target through sklearn's supervised ``fit_transform`` call.
+        MRMR must normalize that target via ``to_numpy`` rather than assuming
+        pandas-like ``y.values``.
+        """
+        pl = pytest.importorskip("polars")
+        from mlframe.feature_selection.filters import CatFEConfig
+
+        rng = np.random.default_rng(0)
+        n = 120
+        signal = rng.normal(size=n)
+        data = {
+            "signal": signal,
+            "noise": rng.normal(size=n),
+        }
+        X = pd.DataFrame(data) if x_backend == "pandas" else pl.DataFrame(data)
+        target = (signal > 0).astype(np.int64)
+        if target_backend == "polars_series":
+            y = pl.Series("target", target)
+        elif target_backend == "polars_frame":
+            y = pl.DataFrame({"target": target})
+        else:
+            raise AssertionError(target_backend)
+
+        mrmr = MRMR(
+            full_npermutations=1,
+            baseline_npermutations=1,
+            quantization_nbins=5,
+            fe_max_steps=0,
+            min_features_fallback=1,
+            cat_fe_config=CatFEConfig(enable=False),
+            verbose=0,
+            n_jobs=1,
+            n_workers=1,
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mrmr.fit(X, y)
+
+        assert hasattr(mrmr, "support_")
+        assert hasattr(mrmr, "n_features_")
+
     def test_no_features_selected_transform(self):
         """Test MRMR transform when no features are selected (empty selection).
 

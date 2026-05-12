@@ -178,7 +178,8 @@ def _factory_mlp():
 
     Production reality check: ``helpers.py::MLP_GENERAL_PARAMS`` ships with
     ``early_stopping_rounds=100``, ``gradient_clip_val=1.0``,
-    ``accumulate_grad_batches=2``, ``batch_size=1024``,
+    ``accumulate_grad_batches=2``, ``batch_size="auto"`` (1024 ceiling on
+    narrow frames),
     ``check_val_every_n_epoch=1``. The EarlyStoppingCallback is wired in
     ``neural/base.py`` only when ``has_validation`` is True -- i.e. when
     fit was passed an ``eval_set``. Without it, the MLP runs the full

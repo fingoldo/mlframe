@@ -2342,8 +2342,6 @@ def _predict_with_fallback(
     model), run ``prepare_df_for_catboost``, and retry. Non-CatBoost
     TypeErrors and non-Polars inputs propagate unchanged.
     """
-    if model is None:
-        return np.zeros(len(X), dtype=np.float32)
     fn = getattr(model, method)
     n_rows = len(X) if hasattr(X, "__len__") else None
 
@@ -3866,20 +3864,23 @@ def _compute_split_metrics(
     target_type: Optional[str] = None,
 ):
     """Unified metrics computation for train/val/test splits."""
-    # Only skip if we can't compute metrics (no probs AND no df to make predictions)
-    if df is None and probs is None:
-        return preds, probs, []
-
-    # Historical 0-row split skip removed 2026-04-28 (batch 4). The
-    # original empty-split window came from outlier detection
-    # (val-side) or splitter edge cases; both are now guarded at the
-    # source. If a 0-row split still arrives here, the metrics layer
-    # would crash with ``Found empty input array`` from
-    # classification_report -- a clear signal of an upstream bug rather
-    # than silently dropping the split's contribution to the report.
-
     # Derive columns from df if available (for feature importance)
     columns = list(df.columns) if df is not None and hasattr(df, "columns") else []
+    # Only skip if no precomputed predictions/probabilities exist and
+    # either no feature frame is available or no live model exists to
+    # predict from. Ensemble pseudo-model rows have ``model=None`` by
+    # design; their metrics must be driven by precomputed preds/probs.
+    if preds is None and probs is None and (df is None or model is None):
+        return preds, probs, columns
+
+    # Historical 0-row split skip removed 2026-04-28 (batch 4). The
+    # original empty-split window came from outlier detection (val-side)
+    # or splitter edge cases; both are now guarded at the source. If a
+    # 0-row split still arrives here, the metrics layer would crash with
+    # ``Found empty input array`` from classification_report: a clear
+    # signal of an upstream bug rather than silently dropping the split's
+    # contribution to the report.
+
     df_prepared = _prepare_df_for_model(df, model_type_name) if df is not None else None
 
     effective_show_fi = show_fi and not has_other_splits

@@ -365,6 +365,43 @@ class TorchDataModule(LightningDataModule):
         # Extract batch_size for easy access
         self.batch_size = self.dataloader_params.get("batch_size", 64)
 
+    @staticmethod
+    def _infer_n_features(features) -> Optional[int]:
+        """Best-effort feature width probe; cheap for numpy, pandas, polars."""
+        try:
+            if hasattr(features, "shape") and len(features.shape) >= 2:
+                return int(features.shape[1])
+            if hasattr(features, "columns"):
+                return int(len(features.columns))
+        except Exception:
+            return None
+        return None
+
+    def _resolve_batch_size(self, batch_size, features, split_name: str) -> int:
+        if isinstance(batch_size, str):
+            if batch_size.lower() != "auto":
+                raise ValueError(
+                    f"Unsupported MLP DataLoader batch_size={batch_size!r}; "
+                    "expected an int or 'auto'."
+                )
+            try:
+                from mlframe.training.mlp_runtime_defaults import (
+                    resolve_mlp_train_batch_size,
+                )
+                n_features = self._infer_n_features(features)
+                resolved = resolve_mlp_train_batch_size(n_features=n_features)
+            except Exception:
+                n_features = self._infer_n_features(features)
+                resolved = 1024
+            logger.info(
+                "MLP %s DataLoader auto-selected batch_size=%s (n_features=%s)",
+                split_name,
+                resolved,
+                n_features if n_features is not None else "unknown",
+            )
+            return max(1, int(resolved))
+        return max(0, int(batch_size))
+
     def prepare_data(self):
         """
         Called once on main process for data download/preprocessing.
@@ -455,6 +492,7 @@ class TorchDataModule(LightningDataModule):
         sample_weight=None,
         shuffle: bool = False,
         drop_last: bool = False,
+        split_name: str = "data",
     ) -> DataLoader:
         """
         Create a DataLoader with consistent configuration.
@@ -480,6 +518,7 @@ class TorchDataModule(LightningDataModule):
         # Prepare dataloader params (extract batch_size for TorchDataset)
         dl_params = self.dataloader_params.copy()
         batch_size = dl_params.pop("batch_size", self.batch_size)
+        batch_size = self._resolve_batch_size(batch_size, features, split_name)
 
         # Override shuffle and drop_last
         dl_params["shuffle"] = shuffle
@@ -522,6 +561,7 @@ class TorchDataModule(LightningDataModule):
             sample_weight=self.train_sample_weight,
             shuffle=True,
             drop_last=False,
+            split_name="train",
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -532,6 +572,7 @@ class TorchDataModule(LightningDataModule):
             sample_weight=self.val_sample_weight,
             shuffle=False,
             drop_last=False,
+            split_name="val",
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -544,6 +585,7 @@ class TorchDataModule(LightningDataModule):
             labels=self.test_labels,
             shuffle=False,
             drop_last=False,
+            split_name="test",
         )
 
     def predict_dataloader(self) -> DataLoader:
@@ -560,6 +602,7 @@ class TorchDataModule(LightningDataModule):
             labels=None,  # No labels for prediction
             shuffle=False,
             drop_last=False,
+            split_name="predict",
         )
 
     def setup_predict(

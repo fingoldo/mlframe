@@ -38,6 +38,7 @@ class SimpleFeaturesAndTargetsExtractor:
         ts_field=None,
         group_field=None,
         weight_schemas=None,
+        target_carrier="numpy",
     ):
         self.target_column = target_column
         self.regression = regression
@@ -57,6 +58,11 @@ class SimpleFeaturesAndTargetsExtractor:
         # ``group_ids=None, sample_weights={}``, so the suite silently
         # fell back to the no-group / uniform-weighting branches.
         self.group_field = group_field
+        # ``target_carrier='native'`` keeps single-output targets as
+        # pandas/polars Series instead of normalising to ndarray. Fuzz uses
+        # this to exercise real suite target-carrier paths such as MRMR's
+        # supervised fit_transform target handling.
+        self.target_carrier = target_carrier
         # ``weight_schemas`` is a tuple/list/None of strings, e.g.
         # ``("uniform",)`` (default behaviour) or ``("uniform", "recency")``.
         # The fixture generates the actual weight arrays at transform()
@@ -100,6 +106,8 @@ class SimpleFeaturesAndTargetsExtractor:
                     return np.stack([np.asarray(c, dtype=np.int8) for c in arr])
                 return arr
         # Default: 1-D values (regression / binary / multiclass label).
+        if self.target_carrier == "native":
+            return col
         if isinstance(df, pd.DataFrame):
             return raw
         return col.to_numpy()

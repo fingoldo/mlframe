@@ -187,3 +187,109 @@ def test_multioutput_predictions_supported():
     )
     assert kept == [0, 1, 2]
     assert len(excluded) == 1 and excluded[0][0] == 3
+
+
+def test_compute_split_metrics_skips_model_none_without_predictions():
+    """``model=None`` plus no precomputed split predictions is not a valid prediction request; metrics must skip instead of calling ``None.predict``."""
+    import pandas as pd
+    from mlframe.training.trainer import _compute_split_metrics
+
+    metrics = {}
+    preds, probs, columns = _compute_split_metrics(
+        split_name="val",
+        df=pd.DataFrame({"x": [0.0, 1.0, 2.0]}),
+        target=np.array([0.0, 1.0, 2.0]),
+        idx=np.arange(3),
+        model=None,
+        model_type_name="NoneType",
+        model_name="EnsARITHM",
+        metrics_dict=metrics,
+        preds=None,
+        probs=None,
+        print_report=False,
+        show_perf_chart=False,
+        show_fi=False,
+    )
+
+    assert preds is None
+    assert probs is None
+    assert columns == ["x"]
+    assert metrics == {}
+
+
+def test_ensemble_scoring_respects_reporting_metric_switches(monkeypatch):
+    """Ensemble pseudo-models must inherit ReportingConfig compute_* flags
+    instead of forcing val/test metrics back on."""
+    from types import SimpleNamespace
+
+    import mlframe.training as training_mod
+    from mlframe.ensembling import _process_single_ensemble_method
+
+    captured = []
+
+    def _fake_train_and_evaluate_model(*, model, data, control, metrics, reporting,
+                                       naming, output, confidence, predictions):
+        captured.append(
+            (
+                control.compute_trainset_metrics,
+                control.compute_valset_metrics,
+                control.compute_testset_metrics,
+            )
+        )
+        return SimpleNamespace(model=model, model_name=naming.model_name_prefix)
+
+    monkeypatch.setattr(
+        training_mod,
+        "train_and_evaluate_model",
+        _fake_train_and_evaluate_model,
+    )
+
+    n_rows = 8
+    base = np.linspace(0.0, 1.0, n_rows)
+    members = [
+        SimpleNamespace(
+            train_preds=base + i * 0.01,
+            val_preds=base + i * 0.01,
+            test_preds=base + i * 0.01,
+            train_probs=None,
+            val_probs=None,
+            test_probs=None,
+        )
+        for i in range(3)
+    ]
+
+    _process_single_ensemble_method(
+        ensemble_method="arithm",
+        level_models_and_predictions=members,
+        is_regression=True,
+        ensembling_level=0,
+        ensemble_name="[a+b+c]",
+        target=None,
+        train_idx=np.arange(n_rows),
+        test_idx=np.arange(n_rows),
+        val_idx=np.arange(n_rows),
+        train_target=base,
+        test_target=base,
+        val_target=base,
+        target_label_encoder=None,
+        max_mae=0.0,
+        max_std=0.0,
+        max_mae_relative=0.0,
+        max_std_relative=0.0,
+        ensure_prob_limits=True,
+        nbins=10,
+        uncertainty_quantile=0.0,
+        normalize_stds_by_mean_preds=False,
+        custom_ice_metric=None,
+        custom_rice_metric=None,
+        subgroups=None,
+        n_features=1,
+        verbose=False,
+        kwargs={
+            "compute_trainset_metrics": False,
+            "compute_valset_metrics": False,
+            "compute_testset_metrics": True,
+        },
+    )
+
+    assert captured == [(False, False, True)]

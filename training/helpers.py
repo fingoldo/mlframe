@@ -1235,7 +1235,7 @@ def get_training_configs(
             prefetch_factor=_resolved_dataloader_extras["prefetch_factor"],
             persistent_workers=_resolved_dataloader_extras["persistent_workers"],
             pin_memory=_resolved_dataloader_extras["pin_memory"],
-            batch_size=1024,
+            batch_size="auto",
             shuffle=False,
         )
         if mlp_kwargs:

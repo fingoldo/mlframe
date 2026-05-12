@@ -746,6 +746,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         ts_field=("ts" if combo.with_datetime_col else None),
         # 2026-05-04: LTR combos need group_field for the ranker suite.
         group_field=("qid" if _is_ltr else None),
+        target_carrier=combo.target_carrier,
     )
 
     # Resolve combo-specific kwargs (outlier detector, custom prep,

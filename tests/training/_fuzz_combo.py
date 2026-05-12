@@ -117,6 +117,10 @@ AXES: dict[str, tuple[Any, ...]] = {
         # ensembling). Non-LTR combos canonicalise to no group_field.
         "learning_to_rank",
     ),
+    # 2026-05-13: target carrier itself is a fuzz axis. The old fixture
+    # always normalised Polars targets to numpy, so MRMR never saw the
+    # production ``pl.Series`` path that crashed on ``y.values``.
+    "target_carrier": ("numpy", "native"),
     "multilabel_strategy_cfg": ("auto", "wrapper", "chain"),  # parametric on multilabel; canonicalised to "auto" for non-multilabel
     # 2026-05-04: ranking ensemble method -- only relevant when
     # target_type=learning_to_rank. Canonicaliser collapses to "rrf" for
@@ -275,6 +279,7 @@ class FuzzCombo:
     prefer_polarsds: bool = True
     use_text_features: bool = True
     honor_user_dtype: bool = False
+    target_carrier: str = "numpy"
     text_col_count: int = 0
     embedding_col_count: int = 0
     # 2026-04-24 combo extension from test_suite_coverage_gaps analysis
@@ -386,6 +391,12 @@ class FuzzCombo:
         )
         custom_prep = self.custom_prep if not pca_incompatible else None
         use_ensembles = self.use_ensembles
+        target_carrier = self.target_carrier
+        if self.target_type == "multilabel_classification":
+            # Multilabel FTE intentionally unpacks list cells to (N, K)
+            # ndarray. Native list-Series targets are a different
+            # contract, so keep that axis for a dedicated future sensor.
+            target_carrier = "numpy"
         return (
             tuple(sorted(self.models)),
             self.input_type,
@@ -395,6 +406,7 @@ class FuzzCombo:
             self.use_mrmr_fs,
             tuple(sorted(self.weight_schemas)),
             self.target_type,
+            target_carrier,
             self.auto_detect_cats,
             align,
             self.prefer_polarsds,
@@ -832,6 +844,7 @@ class FuzzCombo:
             "use_mrmr_fs": self.use_mrmr_fs,
             "weight_schemas": list(self.weight_schemas),
             "target_type": self.target_type,
+            "target_carrier": self.target_carrier,
             "auto_detect_cats": self.auto_detect_cats,
             "align_polars_categorical_dicts": self.align_polars_categorical_dicts,
             "seed": self.seed,
@@ -1075,6 +1088,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         prefer_polarsds=axes.get("prefer_polarsds", True),
         use_text_features=axes.get("use_text_features", True),
         honor_user_dtype=axes.get("honor_user_dtype", False),
+        target_carrier=axes.get("target_carrier", "numpy"),
         text_col_count=axes.get("text_col_count", 0),
         embedding_col_count=axes.get("embedding_col_count", 0),
         # 2026-04-24 combo-extension axes
