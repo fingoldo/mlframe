@@ -1405,8 +1405,6 @@ def score_ensemble(
             # Sequential processing
             for ensemble_method in ensembling_methods:
                 internal_method, next_ens_results, conf_results = _process_single_ensemble_method(ensemble_method=ensemble_method, **common_params)
-                if next_ens_results is None:
-                    continue
                 res[internal_method] = next_ens_results
                 next_level_models_and_predictions.append(next_ens_results)
                 if conf_results is not None:
