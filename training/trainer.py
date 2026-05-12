@@ -2331,6 +2331,8 @@ def _predict_with_fallback(
     model), run ``prepare_df_for_catboost``, and retry. Non-CatBoost
     TypeErrors and non-Polars inputs propagate unchanged.
     """
+    if model is None:
+        return none
     fn = getattr(model, method)
     n_rows = len(X) if hasattr(X, "__len__") else None
 
