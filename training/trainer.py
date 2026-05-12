@@ -947,20 +947,30 @@ def _prepare_test_split(
             test_target = _extract_target_subset(target, test_idx)
 
         if model is not None and pre_pipeline and not skip_pre_pipeline_transform:
-            if skip_preprocessing:
-                feature_selector = _extract_feature_selector(pre_pipeline)
-                if feature_selector is not None:
+            # 2026-05-13: when the pre_pipeline is identity-equivalent
+            # (kept every input column on train, created none), its
+            # transform() is a no-op. Skip the call — saves a full
+            # copy AND dodges the NotFittedError that fires when the
+            # train-side cache (line 1526) returned cached DFs without
+            # fitting the pre_pipeline (the cache saves fit_TRANSFORM
+            # cost but the fitted state lives on the PREVIOUS call's
+            # pre_pipeline instance, not this one).
+            _id_equiv = getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
+            if not _id_equiv:
+                if skip_preprocessing:
+                    feature_selector = _extract_feature_selector(pre_pipeline)
+                    if feature_selector is not None:
+                        test_df = _passthrough_cols_fit_transform(
+                            feature_selector.transform,
+                            test_df,
+                            passthrough_cols=selector_passthrough_cols,
+                        )
+                else:
                     test_df = _passthrough_cols_fit_transform(
-                        feature_selector.transform,
+                        pre_pipeline.transform,
                         test_df,
                         passthrough_cols=selector_passthrough_cols,
                     )
-            else:
-                test_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.transform,
-                    test_df,
-                    passthrough_cols=selector_passthrough_cols,
-                )
         columns = list(test_df.columns) if hasattr(test_df, "columns") else []
     else:
         columns = []
@@ -1370,14 +1380,16 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             out = out.with_columns([held[c] for c in present])
         else:
             held_pd = held.to_pandas() if is_polars else held
-            # ``out`` may be a view/slice of an inner sklearn pipeline result
-            # (e.g. a SelectorMixin returning ``X.iloc[:, support_]``); a
-            # bare ``out[c] = ...`` then triggers ``SettingWithCopyWarning``
-            # 18x per fuzz combo. Materialise an owning copy once before
-            # the assignment loop so the writes target known-private memory.
-            out = out.copy()
-            for c in present:
-                out.loc[:, c] = held_pd[c].values if hasattr(held_pd[c], "values") else held_pd[c]
+            # 2026-05-12 Wave 26: single ``pd.concat`` instead of per-column
+            # ``out.loc[:, c] = ...`` assignment loop. Each column write
+            # triggers a full-DataFrame copy; concat does one allocation
+            # and copies all columns in one pass.
+            # ``out`` may be a view/slice of an inner sklearn pipeline
+            # result (e.g. SelectorMixin returning ``X.iloc[:, support_]``);
+            # ``pd.concat`` semantics consume views cleanly, no
+            # SettingWithCopyWarning. The original ``out.copy()`` is NOT
+            # needed before concat -- concat returns a new frame regardless.
+            out = pd.concat([out, held_pd], axis=1)
     elif isinstance(out, np.ndarray) and out.ndim == 2:
         # Reconstruct a DataFrame using the reduced-input column names when the
         # transformer preserved the column count. If the shape differs (e.g. a
@@ -1390,8 +1402,8 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             col_names = [f"f{i}" for i in range(out.shape[1])]
         out = pd.DataFrame(out, columns=col_names, index=getattr(reduced, "index", None))
         held_pd = held.to_pandas() if is_polars else held
-        for c in present:
-            out[c] = held_pd[c].values if hasattr(held_pd[c], "values") else held_pd[c]
+        # Wave 26: single concat instead of per-column assignment loop.
+        out = pd.concat([out, held_pd], axis=1)
     return out
 
 
