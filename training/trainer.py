@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import joblib
+
 # Heavy optional deps: defer failures to first actual use so `import mlframe.training`
 # stays cheap and does not crash when a given backend is not installed. Mirrors the
 # lazy-loading style in `mlframe.training.__init__.__getattr__`.
@@ -84,6 +85,7 @@ def _patch_lgb_feature_names_in_setter() -> None:
     if LGBMClassifier is None:
         return
     import lightgbm.sklearn as _lgbm_sk
+
     _model_cls = _lgbm_sk.LGBMModel
     prop = _model_cls.__dict__.get("feature_names_in_")
     # Only patch if the property exists and has no setter. Avoids clobbering
@@ -153,18 +155,10 @@ def _patch_dataset_constructors_with_logging() -> None:
                 if frame is None:
                     break
                 mod = frame.f_globals.get("__name__", "?")
-                if not (
-                    mod.startswith("catboost.")
-                    or mod.startswith("xgboost.")
-                    or mod.startswith("lightgbm.")
-                ):
+                if not (mod.startswith("catboost.") or mod.startswith("xgboost.") or mod.startswith("lightgbm.")):
                     return f"{mod}:{frame.f_lineno}"
                 frame = frame.f_back
-            return (
-                f"{frame.f_globals.get('__name__', '?')}:{frame.f_lineno}"
-                if frame
-                else "?"
-            )
+            return f"{frame.f_globals.get('__name__', '?')}:{frame.f_lineno}" if frame else "?"
         except Exception:
             return "?"
 
@@ -196,17 +190,15 @@ def _patch_dataset_constructors_with_logging() -> None:
                 else:
                     shape_str = "?x?"
                 # I3 fix (2026-05-11): demote composite-screening builds (typically tiny CV folds, < 50K rows) to DEBUG so 50+ log lines per discovery pass don't drown out the actually-useful build events on production-size datasets. Heuristic: callsite originates in the composite module OR row count below 50K.
-                _is_screening = (
-                    "composite" in (callsite or "")
-                    or (shape and shape[0] is not None and shape[0] < 50_000)
-                )
-                _level = (
-                    logging.DEBUG if _is_screening else logging.INFO
-                )
+                _is_screening = "composite" in (callsite or "") or (shape and shape[0] is not None and shape[0] < 50_000)
+                _level = logging.DEBUG if _is_screening else logging.INFO
                 logger.log(
                     _level,
                     "[dataset-build] %s shape=%s took=%.3fs site=%s",
-                    label, shape_str, elapsed, callsite,
+                    label,
+                    shape_str,
+                    elapsed,
+                    callsite,
                 )
 
         _logged_init.__wrapped__ = orig_init  # type: ignore[attr-defined]
@@ -216,6 +208,7 @@ def _patch_dataset_constructors_with_logging() -> None:
     # CatBoost Pool
     try:
         import catboost as _cb
+
         _wrap_init(getattr(_cb, "Pool", None), "catboost.Pool")
     except ImportError:
         pass
@@ -225,6 +218,7 @@ def _patch_dataset_constructors_with_logging() -> None:
     # __init__ overrides still see logging.
     try:
         import xgboost as _xgb
+
         for _name in ("DMatrix", "QuantileDMatrix", "DeviceQuantileDMatrix"):
             _wrap_init(getattr(_xgb, _name, None), f"xgboost.{_name}")
     except ImportError:
@@ -233,6 +227,7 @@ def _patch_dataset_constructors_with_logging() -> None:
     # LightGBM Dataset
     try:
         import lightgbm as _lgb
+
         _wrap_init(getattr(_lgb, "Dataset", None), "lightgbm.Dataset")
     except ImportError:
         pass
@@ -256,6 +251,7 @@ try:
         XGBClassifierWithDMatrixReuse,
         XGBRegressorWithDMatrixReuse,
     )
+
     _XGB_SHIM_AVAILABLE = True
 except ImportError:  # pragma: no cover
     XGBClassifierWithDMatrixReuse = XGBRegressorWithDMatrixReuse = None  # type: ignore[assignment]
@@ -271,6 +267,7 @@ try:
         LGBMClassifierWithDatasetReuse,
         LGBMRegressorWithDatasetReuse,
     )
+
     _LGB_SHIM_AVAILABLE = True
 except ImportError:  # pragma: no cover
     LGBMClassifierWithDatasetReuse = LGBMRegressorWithDatasetReuse = None  # type: ignore[assignment]
@@ -381,6 +378,8 @@ def _lgb_regressor_cls(use_flaml_zeroshot: bool):
     if USE_LGB_DATASET_REUSE_SHIM and LGBMRegressorWithDatasetReuse is not None:
         return LGBMRegressorWithDatasetReuse
     return LGBMRegressor
+
+
 try:
     from ngboost import NGBClassifier, NGBRegressor
 except ImportError:  # pragma: no cover
@@ -406,10 +405,13 @@ def _get_flaml_zeroshot():
     if flaml_zeroshot is None:
         try:
             import flaml.default as _flaml_default
+
             flaml_zeroshot = _flaml_default
         except ImportError:  # pragma: no cover
             return None
     return flaml_zeroshot
+
+
 try:
     import torch
     import torch.nn as nn
@@ -445,12 +447,14 @@ def _get_neural_components():
                 PytorchLightningRegressor as _reg,
                 PytorchLightningClassifier as _cls,
             )
+
             MLPNeuronsByLayerArchitecture = _arch
             PytorchLightningRegressor = _reg
             PytorchLightningClassifier = _cls
         except ImportError:  # pragma: no cover
             return None, None, None
     return MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
+
 
 from pyutilz.system import clean_ram, ensure_dir_exists, compute_total_gpus_ram, get_gpuinfo_gpu_info
 
@@ -480,7 +484,6 @@ from mlframe.metrics import (
     fast_calibration_report,
     fast_roc_auc,
 )
-
 
 # Import helper functions from helpers module
 from .helpers import (
@@ -524,6 +527,7 @@ def _validate_trusted_path(path: str, trusted_root: Optional[str]) -> None:
     loading untrusted pickles).
     """
     import os as _os
+
     if trusted_root is None:
         raise ValueError(
             "trusted_root is required for joblib.load() of cached model files. "
@@ -538,6 +542,8 @@ def _validate_trusted_path(path: str, trusted_root: Optional[str]) -> None:
         raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
     if common != abs_root:
         raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
+
+
 from .models import create_linear_model, LINEAR_MODEL_TYPES
 
 logger = logging.getLogger(__name__)
@@ -709,10 +715,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
             parts.append(f"{nan_count:_} NaN")
         if inf_count > 0:
             parts.append(f"{inf_count:_} infinity")
-        raise ValueError(
-            f"{subset_name} target contains {' and '.join(parts)} value(s). "
-            f"Clean the target before training."
-        )
+        raise ValueError(f"{subset_name} target contains {' and '.join(parts)} value(s). " f"Clean the target before training.")
     if is_classification:
         try:
             arr_np = np.asarray(target)
@@ -724,9 +727,7 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
             # c0000).
             if arr_np.dtype == object and arr_np.ndim == 1 and arr_np.shape[0] > 0:
                 _first = arr_np[0]
-                if hasattr(_first, "shape") or (
-                    hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-                ):
+                if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
                     try:
                         arr_np = np.stack([np.asarray(c) for c in arr_np], axis=0)
                     except Exception:
@@ -747,7 +748,9 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
                         "value: %s. The corresponding per-label model(s) will "
                         "fail; the rest may train normally if the multilabel "
                         "strategy supports it.",
-                        subset_name, len(degenerate_cols), degenerate_cols,
+                        subset_name,
+                        len(degenerate_cols),
+                        degenerate_cols,
                     )
             else:
                 if len(np.unique(arr_np)) < 2:
@@ -804,7 +807,7 @@ def _strip_internal_model_suffixes(name: str) -> str:
     """
     for suffix in ("WithDMatrixReuse", "WithDatasetReuse", "WithFastpath"):
         if name.endswith(suffix):
-            return name[:-len(suffix)]
+            return name[: -len(suffix)]
     return name
 
 
@@ -877,9 +880,7 @@ def _normalize_multilabel_target(target):
     if target.dtype != object or target.ndim != 1 or target.shape[0] == 0:
         return target
     _first = target[0]
-    if not (hasattr(_first, "shape") or (
-        hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-    )):
+    if not (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
         return target
     try:
         return np.stack([np.asarray(c) for c in target], axis=0)
@@ -925,7 +926,16 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
 
 
 def _prepare_test_split(
-    df, test_df, test_idx, test_target, target, real_drop_columns, model, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing=False,
+    df,
+    test_df,
+    test_idx,
+    test_target,
+    target,
+    real_drop_columns,
+    model,
+    pre_pipeline,
+    skip_pre_pipeline_transform,
+    skip_preprocessing=False,
     selector_passthrough_cols=None,
 ):
     """Prepare test DataFrame and target for evaluation."""
@@ -941,11 +951,15 @@ def _prepare_test_split(
                 feature_selector = _extract_feature_selector(pre_pipeline)
                 if feature_selector is not None:
                     test_df = _passthrough_cols_fit_transform(
-                        feature_selector.transform, test_df, passthrough_cols=selector_passthrough_cols,
+                        feature_selector.transform,
+                        test_df,
+                        passthrough_cols=selector_passthrough_cols,
                     )
             else:
                 test_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.transform, test_df, passthrough_cols=selector_passthrough_cols,
+                    pre_pipeline.transform,
+                    test_df,
+                    passthrough_cols=selector_passthrough_cols,
                 )
         columns = list(test_df.columns) if hasattr(test_df, "columns") else []
     else:
@@ -1004,6 +1018,7 @@ def _is_fitted(estimator):
     # Require every non-trivial step to be fitted.
     try:
         from sklearn.pipeline import Pipeline
+
         if isinstance(estimator, Pipeline):
             for _name, step in estimator.steps:
                 if step is None or step == "passthrough":
@@ -1044,8 +1059,11 @@ def _maybe_wrap_for_2d_target(model, train_target):
     _mt = type(model).__name__
     # Already a multi-output wrap or a strategy with native 2-D support.
     if _mt in (
-        "MultiOutputClassifier", "MultiOutputRegressor", "ClassifierChain",
-        "RegressorChain", "_ChainEnsemble",
+        "MultiOutputClassifier",
+        "MultiOutputRegressor",
+        "ClassifierChain",
+        "RegressorChain",
+        "_ChainEnsemble",
     ):
         return model
     if _mt in ("CatBoostClassifier", "CatBoostRegressor"):
@@ -1074,6 +1092,7 @@ def _maybe_wrap_for_2d_target(model, train_target):
     # an array of shape (N, K)`` before this guard.
     try:
         from sklearn.multioutput import MultiOutputClassifier
+
         # Disable inner-estimator features that depend on a held-out
         # eval / val split: ``MultiOutputClassifier`` splits ``y`` per
         # label but does NOT propagate eval_set / val_data, so
@@ -1145,9 +1164,7 @@ def _ensure_xgb_classification_objective(model, train_target) -> None:
         return
     if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
         _first = arr[0]
-        if hasattr(_first, "shape") or (
-            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-        ):
+        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
             try:
                 arr = np.stack([np.asarray(c) for c in arr], axis=0)
             except Exception:
@@ -1246,9 +1263,7 @@ def _coerce_label_for_cb_pool(target):
     arr = np.asarray(target)
     if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
         _first = arr[0]
-        if hasattr(_first, "shape") or (
-            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-        ):
+        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
             try:
                 arr = np.stack([np.asarray(c) for c in arr], axis=0)
             except Exception:
@@ -1283,9 +1298,7 @@ def _multilabel_target_to_1d_for_supervised_encoders(target):
     arr = np.asarray(target) if not isinstance(target, np.ndarray) else target
     if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
         _first = arr[0]
-        if hasattr(_first, "shape") or (
-            hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-        ):
+        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
             try:
                 arr = np.stack([np.asarray(c) for c in arr], axis=0)
             except Exception:
@@ -1310,6 +1323,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     pd.DataFrame from the reduced-input column names so passthrough_cols re-attach
     and downstream models take the native-pandas fastpath.
     """
+
     # 2026-05-11 Wave 20: convert sklearn/polars "empty output" errors into
     # an empty-frame return so the downstream ``train_df.shape[1] == 0``
     # guard at trainer.py:4515 fires cleanly. Triggered by MRMR / RFECV
@@ -1327,10 +1341,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             return _fn(_arg, _target_arg) if fit else _fn(_arg)
         except ValueError as _exc:
             _m = str(_exc)
-            if (
-                "need at least one array to concatenate" in _m
-                or "at least one array or dtype is required" in _m
-            ):
+            if "need at least one array to concatenate" in _m or "at least one array or dtype is required" in _m:
                 # Empty output (0 features); return an empty DataFrame of
                 # matching shape so the suite's downstream 0-feature guard
                 # catches it.
@@ -1463,7 +1474,16 @@ def _pre_pipeline_cache_clear() -> None:
 
 
 def _apply_pre_pipeline_transforms(
-    model, pre_pipeline, train_df, val_df, train_target, skip_pre_pipeline_transform, skip_preprocessing, use_cache, model_file_name, verbose,
+    model,
+    pre_pipeline,
+    train_df,
+    val_df,
+    train_target,
+    skip_pre_pipeline_transform,
+    skip_preprocessing,
+    use_cache,
+    model_file_name,
+    verbose,
     selector_passthrough_cols=None,
 ):
     """Apply pre-pipeline transformations to train and validation DataFrames.
@@ -1493,26 +1513,16 @@ def _apply_pre_pipeline_transforms(
         _train_df_in_id = id(train_df) if train_df is not None else 0
         _val_df_in_id = id(val_df) if val_df is not None else 0
         _cache_hit = _pre_pipeline_cache_get(train_df, val_df, pre_pipeline)
-        if (
-            _cache_hit is not None
-            and not skip_pre_pipeline_transform
-            and not skip_preprocessing
-            and not _is_fitted(pre_pipeline)
-        ):
+        if _cache_hit is not None and not skip_pre_pipeline_transform and not skip_preprocessing and not _is_fitted(pre_pipeline):
             train_df_cached, val_df_cached = _cache_hit
             if verbose:
-                logger.info(
-                    "Reusing pre_pipeline fit-transform from cache "
-                    "(same train_df + structurally identical pipeline)."
-                )
-            shape_str = (
-                f"{train_df_cached.shape[0]:_}x{train_df_cached.shape[1]}"
-                if hasattr(train_df_cached, "shape") else ""
-            )
+                logger.info("Reusing pre_pipeline fit-transform from cache " "(same train_df + structurally identical pipeline).")
+            shape_str = f"{train_df_cached.shape[0]:_}x{train_df_cached.shape[1]}" if hasattr(train_df_cached, "shape") else ""
             if verbose:
                 logger.info(
                     "  pre_pipeline done (cached) -- train: %s, %.1fs",
-                    shape_str, timer() - t0_pre,
+                    shape_str,
+                    timer() - t0_pre,
                 )
             return train_df_cached, val_df_cached
         with phase("pre_pipeline_fit_transform"):
@@ -1528,15 +1538,19 @@ def _apply_pre_pipeline_transforms(
                         if verbose:
                             logger.info("Using pre-fitted feature selector (transform only): %s", feature_selector)
                         train_df = _passthrough_cols_fit_transform(
-                            feature_selector.transform, train_df,
+                            feature_selector.transform,
+                            train_df,
                             passthrough_cols=selector_passthrough_cols,
                         )
                     else:
                         if verbose:
                             logger.info("Fitting feature selector: %s", feature_selector)
                         train_df = _passthrough_cols_fit_transform(
-                            feature_selector.fit_transform, train_df,
-                            passthrough_cols=selector_passthrough_cols, fit=True, target=train_target,
+                            feature_selector.fit_transform,
+                            train_df,
+                            passthrough_cols=selector_passthrough_cols,
+                            fit=True,
+                            target=train_target,
                         )
                     if verbose:
                         log_ram_usage()
@@ -1544,7 +1558,8 @@ def _apply_pre_pipeline_transforms(
                         if verbose:
                             logger.info(f"Transforming val_df via feature selector...")
                         val_df = _passthrough_cols_fit_transform(
-                            feature_selector.transform, val_df,
+                            feature_selector.transform,
+                            val_df,
                             passthrough_cols=selector_passthrough_cols,
                         )
                         if verbose:
@@ -1558,7 +1573,9 @@ def _apply_pre_pipeline_transforms(
                     except (ValueError, TypeError):
                         pass
                 train_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.transform, train_df, passthrough_cols=selector_passthrough_cols,
+                    pre_pipeline.transform,
+                    train_df,
+                    passthrough_cols=selector_passthrough_cols,
                 )
                 if verbose:
                     log_ram_usage()
@@ -1576,7 +1593,9 @@ def _apply_pre_pipeline_transforms(
                     # surfaces it immediately instead of training a model
                     # we can't evaluate.
                     val_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                        pre_pipeline.transform,
+                        val_df,
+                        passthrough_cols=selector_passthrough_cols,
                     )
                     if verbose:
                         log_ram_usage()
@@ -1589,8 +1608,11 @@ def _apply_pre_pipeline_transforms(
                 # only -- actual model still trains on the full (N, K) target.
                 _enc_target = _multilabel_target_to_1d_for_supervised_encoders(train_target)
                 train_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.fit_transform, train_df,
-                    passthrough_cols=selector_passthrough_cols, fit=True, target=_enc_target,
+                    pre_pipeline.fit_transform,
+                    train_df,
+                    passthrough_cols=selector_passthrough_cols,
+                    fit=True,
+                    target=_enc_target,
                 )
                 if verbose:
                     log_ram_usage()
@@ -1600,7 +1622,9 @@ def _apply_pre_pipeline_transforms(
                     # Historical 0-row val skip removed 2026-04-27 (batch 3) --
                     # see fit-transform branch comment for rationale.
                     val_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.transform, val_df, passthrough_cols=selector_passthrough_cols,
+                        pre_pipeline.transform,
+                        val_df,
+                        passthrough_cols=selector_passthrough_cols,
                     )
                     if verbose:
                         log_ram_usage()
@@ -1614,10 +1638,7 @@ def _apply_pre_pipeline_transforms(
             # same structural pipeline. Guarded: only stash when we
             # actually went through the fit-transform branch (the others
             # didn't have anything new to cache anyway).
-            if (
-                not skip_pre_pipeline_transform
-                and not skip_preprocessing
-            ):
+            if not skip_pre_pipeline_transform and not skip_preprocessing:
                 # Inline ``_pre_pipeline_cache_set`` to avoid recomputing
                 # the signature; reuse the entry-time IDs captured above.
                 try:
@@ -1783,6 +1804,7 @@ class _SigmoidAdapter:
 
     def predict(self, x):
         import numpy as _np
+
         return self.lr.predict_proba(_np.asarray(x).reshape(-1, 1))[:, 1]
 
 
@@ -1824,6 +1846,7 @@ class _PostHocCalibratedModel:
 
     def predict_proba(self, X):
         import numpy as _np
+
         raw = self.base.predict_proba(X)
         raw = _np.asarray(raw)
         if raw.ndim == 2 and raw.shape[1] == 2:
@@ -1835,6 +1858,7 @@ class _PostHocCalibratedModel:
 
     def predict(self, X):
         import numpy as _np
+
         probs = self.predict_proba(X)
         if probs.ndim == 2 and probs.shape[1] == 2:
             classes = getattr(self.base, "classes_", _np.array([0, 1]))
@@ -1903,7 +1927,7 @@ class _PerClassIsotonicCalibrator:
 
         probs = _np.asarray(probs_NK, dtype=_np.float64)
         K = probs.shape[1]
-        is_exclusive = (target_type == TargetTypes.MULTICLASS_CLASSIFICATION)
+        is_exclusive = target_type == TargetTypes.MULTICLASS_CLASSIFICATION
         y = _np.asarray(y_true)
 
         calibrators = {}
@@ -1932,6 +1956,7 @@ class _PerClassIsotonicCalibrator:
         calibrated. For MULTICLASS, row-normalise so rows sum to 1.
         """
         import numpy as _np
+
         probs = _np.asarray(probs_NK, dtype=_np.float64)
         out = _np.empty_like(probs)
         for k in range(self.n_classes):
@@ -1960,16 +1985,14 @@ class _PostHocMultiCalibratedModel:
     List[(N, 2)] output to (N, K) before calibration.
     """
 
-    def __init__(self, base, calibrator: "_PerClassIsotonicCalibrator",
-                 target_type, classes_=None):
+    def __init__(self, base, calibrator: "_PerClassIsotonicCalibrator", target_type, classes_=None):
         object.__setattr__(self, "base", base)
         object.__setattr__(self, "_calibrator", calibrator)
         object.__setattr__(self, "_target_type", target_type)
         object.__setattr__(self, "_classes", classes_)
 
     def __getattr__(self, name):
-        if name in ("base", "_calibrator", "_target_type", "_classes",
-                    "__setstate__", "__getstate__", "__reduce__", "__reduce_ex__"):
+        if name in ("base", "_calibrator", "_target_type", "_classes", "__setstate__", "__getstate__", "__reduce__", "__reduce_ex__"):
             raise AttributeError(name)
         try:
             base = object.__getattribute__(self, "__dict__")["base"]
@@ -1991,6 +2014,7 @@ class _PostHocMultiCalibratedModel:
 
     def predict_proba(self, X):
         from .helpers import _canonical_predict_proba_shape
+
         raw = self.base.predict_proba(X)
         classes_ = getattr(self.base, "classes_", self._classes)
         probs_NK = _canonical_predict_proba_shape(raw, classes_=classes_)
@@ -1998,6 +2022,7 @@ class _PostHocMultiCalibratedModel:
 
     def predict(self, X):
         from .helpers import _predict_from_probs
+
         probs = self.predict_proba(X)
         return _predict_from_probs(probs, self._target_type, classes_=self._classes)
 
@@ -2054,6 +2079,7 @@ def _polars_schema_diagnostic(
     """
     try:
         import polars as _pl
+
         cat_set = set(cat_features or [])
         text_set = set(text_features or [])
         lines: List[str] = []
@@ -2070,9 +2096,7 @@ def _polars_schema_diagnostic(
             if isinstance(dt, _pl.Enum):
                 variant = f"Enum(n_values={len(dt.categories)})"
                 enum_cat_cols.append(col)
-            elif dt == _pl.Categorical or (
-                hasattr(_pl, "Categorical") and isinstance(dt, type(_pl.Categorical))
-            ):
+            elif dt == _pl.Categorical or (hasattr(_pl, "Categorical") and isinstance(dt, type(_pl.Categorical))):
                 try:
                     ordering = getattr(dt, "ordering", "?")
                     variant = f"Categorical(ordering={ordering!r})"
@@ -2109,10 +2133,7 @@ def _polars_schema_diagnostic(
             summary = ", ".join(f"{k}:{v}" for k, v in sorted(text_dt_counts.items()))
             lines.append(f"    (text_features by dtype) {summary}")
 
-        nullable_cat_cols = [
-            c for c in cat_cols
-            if c in df.columns and int(df[c].null_count()) > 0
-        ]
+        nullable_cat_cols = [c for c in cat_cols if c in df.columns and int(df[c].null_count()) > 0]
         header = f"  Polars schema diagnostic for {df.shape[0]:_}x{df.shape[1]}:"
         if nullable_cat_cols:
             header += (
@@ -2174,10 +2195,12 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]]
     """
     try:
         import polars as _pl
+
         if not isinstance(df, _pl.DataFrame):
             return []
 
         schema = df.schema
+
         # 2026-04-23: extended to include pl.Utf8 / pl.String. Raw Utf8
         # cat_features with nulls trigger the same CB 'Invalid type for
         # cat_feature ... NaN' error on the Polars fastpath -- the
@@ -2185,23 +2208,12 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]]
         # Fuzz c0061/c0084/c0096 (cb + polars_utf8 + nulls) all crashed
         # because Utf8 cols weren't in this candidate list.
         def _is_cat_like(dt):
-            return (
-                dt == _pl.Categorical
-                or dt == _pl.Utf8
-                or dt == _pl.String
-                or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
-            )
+            return dt == _pl.Categorical or dt == _pl.Utf8 or dt == _pl.String or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
+
         if cat_features:
-            candidate = [
-                c for c in cat_features
-                if c in schema and _is_cat_like(schema[c])
-            ]
+            candidate = [c for c in cat_features if c in schema and _is_cat_like(schema[c])]
         else:
-            candidate = [
-                name for name, dtype in schema.items()
-                if dtype == _pl.Categorical
-                or (hasattr(_pl, "Enum") and isinstance(dtype, _pl.Enum))
-            ]
+            candidate = [name for name, dtype in schema.items() if dtype == _pl.Categorical or (hasattr(_pl, "Enum") and isinstance(dtype, _pl.Enum))]
         if not candidate:
             return []
 
@@ -2249,6 +2261,7 @@ def _polars_fill_null_in_categorical(
     """
     try:
         import polars as _pl
+
         if not nullable_cat_cols or not isinstance(df, _pl.DataFrame):
             return df
         fill_exprs = []
@@ -2260,9 +2273,7 @@ def _polars_fill_null_in_categorical(
                 orig_cats = list(dt.categories)
                 if sentinel not in orig_cats:
                     new_enum = _pl.Enum(orig_cats + [sentinel])
-                    fill_exprs.append(
-                        _pl.col(c).cast(new_enum).fill_null(sentinel).alias(c)
-                    )
+                    fill_exprs.append(_pl.col(c).cast(new_enum).fill_null(sentinel).alias(c))
                     continue
                 # Enum already allowed the sentinel -- plain fill_null works.
             fill_exprs.append(_pl.col(c).fill_null(sentinel))
@@ -2332,7 +2343,7 @@ def _predict_with_fallback(
     TypeErrors and non-Polars inputs propagate unchanged.
     """
     if model is None:
-        return np.zeros(len(X) =,dtype=np.float32)
+        return np.zeros(len(X), dtype=np.float32)
     fn = getattr(model, method)
     n_rows = len(X) if hasattr(X, "__len__") else None
 
@@ -2345,10 +2356,11 @@ def _predict_with_fallback(
     _model_type = type(model).__name__
     if isinstance(X, pl.DataFrame) and "LGBM" in _model_type:
         from .utils import get_pandas_view_of_polars_df
+
         logger.warning(
-            "  [predict] %s.%s received pl.DataFrame; converting to pandas "
-            "so LGB's sklearn wrapper takes the pandas-native fastpath.",
-            _model_type, method,
+            "  [predict] %s.%s received pl.DataFrame; converting to pandas " "so LGB's sklearn wrapper takes the pandas-native fastpath.",
+            _model_type,
+            method,
         )
         X = get_pandas_view_of_polars_df(X)
 
@@ -2415,20 +2427,15 @@ def _predict_with_fallback(
             if _hit is None and _shape_sig is not None and _dtypes_sig is not None:
                 for key, pool in _CB_VAL_POOL_CACHE.items():
                     cached_dtypes_sig = getattr(pool, "_mlframe_dtypes_sig", None)
-                    if (
-                        key[1] == _cols
-                        and key[2] == _shape_sig
-                        and cached_dtypes_sig == _dtypes_sig
-                    ):
+                    if key[1] == _cols and key[2] == _shape_sig and cached_dtypes_sig == _dtypes_sig:
                         _hit = pool
                         _hit_via = "content"
                         break
             if _hit is not None:
                 logger.info(
-                    "[cb-val-pool-reuse] %s hit on cached val Pool via %s -- "
-                    "skipping redundant Pool rebuild (saves the 53-66s "
-                    "observed on 7M-row prod)",
-                    method, _hit_via,
+                    "[cb-val-pool-reuse] %s hit on cached val Pool via %s -- " "skipping redundant Pool rebuild (saves the 53-66s " "observed on 7M-row prod)",
+                    method,
+                    _hit_via,
                 )
                 with phase(method, model=_model_type, n_rows=n_rows):
                     return fn(_hit)
@@ -2436,7 +2443,9 @@ def _predict_with_fallback(
         # Any lookup failure is benign -- fall through to normal path.
         logger.debug(
             "[cb-val-pool-reuse] %s cache probe failed (%s: %s); falling through.",
-            method, type(_exc).__name__, _exc,
+            method,
+            type(_exc).__name__,
+            _exc,
         )
 
     # Short-circuit: if this model already made a Polars-fastpath predict
@@ -2447,14 +2456,11 @@ def _predict_with_fallback(
     # a "No matching signature found" WARN + 1-2s wasted conversion. The flag
     # is set on the model instance (not module-level) so different models in
     # the same suite each get their own cache state.
-    _sticky_pandas = (
-        isinstance(X, pl.DataFrame)
-        and type(model).__name__ in CATBOOST_MODEL_TYPES
-        and getattr(model, "_mlframe_polars_fastpath_broken", False)
-    )
+    _sticky_pandas = isinstance(X, pl.DataFrame) and type(model).__name__ in CATBOOST_MODEL_TYPES and getattr(model, "_mlframe_polars_fastpath_broken", False)
     if _sticky_pandas:
         from mlframe.training.utils import get_pandas_view_of_polars_df
         from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
+
         cat_feat, text_feat = _recover_cb_feature_names(model)
         X_pd = get_pandas_view_of_polars_df(X)
         if text_feat:
@@ -2474,17 +2480,13 @@ def _predict_with_fallback(
         # Only catch the specific Polars fastpath dispatch miss on a CB
         # model with a pl.DataFrame input. Everything else bubbles up
         # -- otherwise we'd mask real type bugs.
-        if (
-            model_type_name not in CATBOOST_MODEL_TYPES
-            or not isinstance(X, pl.DataFrame)
-            or "No matching signature found" not in err_str
-        ):
+        if model_type_name not in CATBOOST_MODEL_TYPES or not isinstance(X, pl.DataFrame) or "No matching signature found" not in err_str:
             raise
 
         logger.warning(
-            "CatBoost %s Polars fastpath rejected the data (%s); "
-            "converting to pandas and retrying.",
-            method, err_str.splitlines()[-1][:240],
+            "CatBoost %s Polars fastpath rejected the data (%s); " "converting to pandas and retrying.",
+            method,
+            err_str.splitlines()[-1][:240],
         )
 
         # Mark this model instance as "Polars-broken" so the next predict/
@@ -2502,7 +2504,8 @@ def _predict_with_fallback(
         if verbose or not (cat_feat or text_feat):
             logger.info(
                 "  [predict fallback] recovered from model: cat=%d, text=%d",
-                len(cat_feat), len(text_feat),
+                len(cat_feat),
+                len(text_feat),
             )
 
         from mlframe.training.utils import get_pandas_view_of_polars_df
@@ -2513,7 +2516,9 @@ def _predict_with_fallback(
         X_pd = get_pandas_view_of_polars_df(X)
         logger.info(
             "  [predict fallback] polars->pandas(%s) %s in %.1fs",
-            method, shape_str, timer() - t0,
+            method,
+            shape_str,
+            timer() - t0,
         )
 
         # Decategorize text columns BEFORE prepare_df_for_catboost
@@ -2529,7 +2534,8 @@ def _predict_with_fallback(
         X_pd = _prep_cb(X_pd, cat_features=list(cat_feat), text_features=list(text_feat))
         logger.info(
             "  [predict fallback] prepare_df_for_catboost(%s) in %.1fs",
-            method, timer() - t0,
+            method,
+            timer() - t0,
         )
 
         return fn(X_pd)
@@ -2585,9 +2591,7 @@ def _cb_reuse_capable() -> bool:
         from catboost import Pool as _Pool
     except ImportError:
         return False
-    return callable(getattr(_Pool, "set_label", None)) and callable(
-        getattr(_Pool, "set_weight", None)
-    )
+    return callable(getattr(_Pool, "set_label", None)) and callable(getattr(_Pool, "set_weight", None))
 
 
 def _maybe_get_or_build_cb_pool(
@@ -2621,10 +2625,7 @@ def _maybe_get_or_build_cb_pool(
     # context about which combo / fold triggered it.
     try:
         if train_target is not None and hasattr(train_target, "__len__") and len(train_target) == 0:
-            logger.warning(
-                "[cb-pool-reuse] empty train_target -- skipping Pool reuse "
-                "(would set zero-length label); deferring to sklearn fallback."
-            )
+            logger.warning("[cb-pool-reuse] empty train_target -- skipping Pool reuse " "(would set zero-length label); deferring to sklearn fallback.")
             return None
     except Exception:
         pass
@@ -2640,11 +2641,13 @@ def _maybe_get_or_build_cb_pool(
         _df_cols = set(train_df.columns) if hasattr(train_df, "columns") else None
     except Exception:
         _df_cols = None
+
     def _filter_to_df(feats):
         raw = fit_params.get(feats) or []
         if _df_cols is None:
             return tuple(sorted(raw))
         return tuple(sorted(c for c in raw if c in _df_cols))
+
     cat_features = _filter_to_df("cat_features")
     text_features = _filter_to_df("text_features")
     embedding_features = _filter_to_df("embedding_features")
@@ -2749,10 +2752,7 @@ def _maybe_get_or_build_cb_pool(
             try:
                 _post_label = cached.get_label()
                 if _post_label is not None and hasattr(_post_label, "__len__") and len(_post_label) == 0:
-                    logger.info(
-                        "[cb-pool-reuse] cached Pool ended up with empty label after swap "
-                        "-- evicting and rebuilding."
-                    )
+                    logger.info("[cb-pool-reuse] cached Pool ended up with empty label after swap " "-- evicting and rebuilding.")
                     _CB_POOL_CACHE.pop(key, None)
                     raise RuntimeError("empty cached label after set_label")
             except Exception as _verify_exc:
@@ -2761,9 +2761,11 @@ def _maybe_get_or_build_cb_pool(
                 # get_label() not exposed on this CB build; trust set_label.
                 pass
             logger.info(
-                "[cb-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) "
-                "swapped weight%s without rebuild",
-                key[0], len(cat_features), len(text_features), len(embedding_features),
+                "[cb-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) " "swapped weight%s without rebuild",
+                key[0],
+                len(cat_features),
+                len(text_features),
+                len(embedding_features),
                 " + label" if last_target_id != id(train_target) else "",
             )
             return cached
@@ -2774,7 +2776,8 @@ def _maybe_get_or_build_cb_pool(
             # type". Rebuild is safe.
             logger.info(
                 "[cb-pool-reuse] swap path not usable (%s: %s); rebuilding Pool.",
-                type(exc).__name__, str(exc).splitlines()[0][:120],
+                type(exc).__name__,
+                str(exc).splitlines()[0][:120],
             )
             _CB_POOL_CACHE.pop(key, None)
 
@@ -2814,10 +2817,7 @@ def _maybe_get_or_build_cb_pool(
         # fall back to the sklearn-wrapper path by returning None. The
         # operator sees the build-logger line above; we don't cache a
         # failed attempt.
-        logger.warning(
-            f"[cb-pool-reuse] Pool construction failed ({type(exc).__name__}: {exc}); "
-            f"falling back to rebuild-every-fit sklearn path."
-        )
+        logger.warning(f"[cb-pool-reuse] Pool construction failed ({type(exc).__name__}: {exc}); " f"falling back to rebuild-every-fit sklearn path.")
         return None
 
     pool._mlframe_last_target_id = id(train_target)
@@ -2830,7 +2830,8 @@ def _maybe_get_or_build_cb_pool(
     pool._mlframe_embedding_features = list(embedding_features)
     _CB_POOL_CACHE[key] = pool
     logger.info(
-        "[cb-pool-reuse] miss; stored fresh Pool (cache size=%d)", len(_CB_POOL_CACHE),
+        "[cb-pool-reuse] miss; stored fresh Pool (cache size=%d)",
+        len(_CB_POOL_CACHE),
     )
     return pool
 
@@ -2910,19 +2911,18 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
                     cached.set_label(_lab)
                     cached._mlframe_last_target_id = id(val_target)
                 logger.info(
-                    "[cb-val-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) "
-                    "swapped%s without rebuild",
-                    key[0], len(cat_features), len(text_features), len(embedding_features),
+                    "[cb-val-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) " "swapped%s without rebuild",
+                    key[0],
+                    len(cat_features),
+                    len(text_features),
+                    len(embedding_features),
                     " label" if last_target_id != id(val_target) else "",
                 )
                 rewritten.append(cached)
                 changed = True
                 continue
             except Exception as exc:
-                logger.info(
-                    f"[cb-val-pool-reuse] swap failed ({type(exc).__name__}: "
-                    f"{str(exc).splitlines()[0][:120]}); rebuilding val Pool."
-                )
+                logger.info(f"[cb-val-pool-reuse] swap failed ({type(exc).__name__}: " f"{str(exc).splitlines()[0][:120]}); rebuilding val Pool.")
                 _CB_VAL_POOL_CACHE.pop(key, None)
 
         # Miss: build fresh val Pool with float32-cast label.
@@ -2944,9 +2944,9 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
             )
         except Exception as exc:
             logger.info(
-                "[cb-val-pool-reuse] Pool build failed (%s: %s); "
-                "leaving eval_set entry as (df, target) tuple for sklearn-wrapper rebuild.",
-                type(exc).__name__, exc,
+                "[cb-val-pool-reuse] Pool build failed (%s: %s); " "leaving eval_set entry as (df, target) tuple for sklearn-wrapper rebuild.",
+                type(exc).__name__,
+                exc,
             )
             rewritten.append(entry)
             continue
@@ -3085,8 +3085,8 @@ def _train_model_with_fallback(
     # the real fix; this raise is the guard that ensures future leaks are
     # caught at the trainer boundary instead of being papered over.
     _POLARS_NATIVE_FIT_MODEL_PREFIXES = (
-        "CatBoost",      # CatBoostClassifier / CatBoostRegressor / CatBoost
-        "XGB",           # XGBClassifier / XGBRegressor / XGBRanker
+        "CatBoost",  # CatBoostClassifier / CatBoostRegressor / CatBoost
+        "XGB",  # XGBClassifier / XGBRegressor / XGBRanker
         "HistGradient",  # HistGradientBoostingClassifier / Regressor
     )
     # Look through MultiOutputClassifier wrapper for the polars-native check.
@@ -3103,9 +3103,7 @@ def _train_model_with_fallback(
         inner = getattr(model, "base_estimator", None)
         if inner is not None:
             _effective_model_type_name = type(inner).__name__
-    if _is_polars and not any(
-        _effective_model_type_name.startswith(p) for p in _POLARS_NATIVE_FIT_MODEL_PREFIXES
-    ):
+    if _is_polars and not any(_effective_model_type_name.startswith(p) for p in _POLARS_NATIVE_FIT_MODEL_PREFIXES):
         raise RuntimeError(
             f"{model_type_name} received pl.DataFrame at fit time "
             f"(shape={train_df.shape}, id={id(train_df)}). Only Polars-native "
@@ -3128,12 +3126,7 @@ def _train_model_with_fallback(
     # type for cat_feature ... =NaN`` (fuzz c0062). Mirror the polars
     # __MISSING__ sentinel for the pandas surface so the bug is patched
     # at the trainer boundary regardless of which upstream path led here.
-    if (
-        _is_pandas
-        and model_type_name in CATBOOST_MODEL_TYPES
-        and "cat_features" in fit_params
-        and fit_params["cat_features"]
-    ):
+    if _is_pandas and model_type_name in CATBOOST_MODEL_TYPES and "cat_features" in fit_params and fit_params["cat_features"]:
         _cat_cols = [c for c in fit_params["cat_features"] if c in train_df.columns]
         if _cat_cols:
             for _c in _cat_cols:
@@ -3155,10 +3148,7 @@ def _train_model_with_fallback(
                             if _c in _eval_df_filled.columns and _eval_df_filled[_c].isna().any():
                                 if not getattr(_eval_df_filled, "_mlframe_filled", False):
                                     _eval_df_filled = _eval_df_filled.copy()
-                                _eval_df_filled[_c] = (
-                                    _eval_df_filled[_c].astype("string")
-                                    .fillna("__MISSING__").astype("category")
-                                )
+                                _eval_df_filled[_c] = _eval_df_filled[_c].astype("string").fillna("__MISSING__").astype("category")
                                 _eval_df_filled._mlframe_filled = True
                         _new_eval_set.append((_eval_df_filled, _eval_y))
                     else:
@@ -3173,14 +3163,9 @@ def _train_model_with_fallback(
     # default in place. Skipped when the user has explicitly set
     # ``text_processing`` via cb_kwargs (already on the estimator's params).
     if model_type_name in CATBOOST_MODEL_TYPES:
-        _has_text = bool(fit_params.get("text_features")) or (
-            _cb_pool is not None and bool(getattr(_cb_pool, "_mlframe_text_features", None))
-        )
+        _has_text = bool(fit_params.get("text_features")) or (_cb_pool is not None and bool(getattr(_cb_pool, "_mlframe_text_features", None)))
         if _has_text:
-            _cb_n_rows = (
-                train_df.shape[0] if hasattr(train_df, "shape")
-                else (len(_cb_pool) if _cb_pool is not None and hasattr(_cb_pool, "__len__") else None)
-            )
+            _cb_n_rows = train_df.shape[0] if hasattr(train_df, "shape") else (len(_cb_pool) if _cb_pool is not None and hasattr(_cb_pool, "__len__") else None)
             _user_text_proc = None
             if hasattr(model, "get_params"):
                 try:
@@ -3194,8 +3179,7 @@ def _train_model_with_fallback(
                         model.set_params(text_processing=_tp)
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
-                                "[%s] scaled CB text_processing.occurrence_lower_bound to %s "
-                                "(n_train=%s, default would be %s).",
+                                "[%s] scaled CB text_processing.occurrence_lower_bound to %s " "(n_train=%s, default would be %s).",
                                 model_type_name,
                                 _tp["dictionaries"][0]["occurrence_lower_bound"],
                                 _cb_n_rows,
@@ -3206,9 +3190,9 @@ def _train_model_with_fallback(
                         # fall back to the post-fit "Dictionary size is 0"
                         # recovery path below.
                         logger.warning(
-                            "[%s] failed to set scaled CB text_processing (%s); "
-                            "falling back to post-fit recovery.",
-                            model_type_name, _tp_exc,
+                            "[%s] failed to set scaled CB text_processing (%s); " "falling back to post-fit recovery.",
+                            model_type_name,
+                            _tp_exc,
                         )
 
     try:
@@ -3230,7 +3214,10 @@ def _train_model_with_fallback(
                     break
         if isinstance(train_df, pd.DataFrame) and _val_df_from_eval is not None:
             train_df, _aligned_val, _ = _align_xgb_cat_categories(
-                model_type_name, train_df, val_df=_val_df_from_eval, test_df=None,
+                model_type_name,
+                train_df,
+                val_df=_val_df_from_eval,
+                test_df=None,
             )
             # Refresh eval_set if val_df was modified (set_categories
             # returns a new Series; the eval_set tuple needs the new
@@ -3238,25 +3225,24 @@ def _train_model_with_fallback(
             if _aligned_val is not None and _aligned_val is not _val_df_from_eval:
                 if isinstance(_eval_set_for_align, list):
                     fit_params["eval_set"] = [
-                        (_aligned_val, _p[1]) if isinstance(_p, tuple) and _p[0] is _val_df_from_eval else _p
-                        for _p in _eval_set_for_align
+                        (_aligned_val, _p[1]) if isinstance(_p, tuple) and _p[0] is _val_df_from_eval else _p for _p in _eval_set_for_align
                     ]
                 elif isinstance(_eval_set_for_align, tuple):
                     fit_params["eval_set"] = (_aligned_val, _eval_set_for_align[1])
 
-        with phase("model.fit", model=model_type_name,
-                   n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
-                   n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None)):
+        with phase(
+            "model.fit",
+            model=model_type_name,
+            n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
+            n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None),
+        ):
             if _cb_pool is not None:
                 # Reuse path: X=Pool, y omitted (label already on the Pool).
                 # fit_params still carries sample_weight, which CB's wrapper
                 # ignores when X is a Pool (the Pool already has weight).
                 # Filter it explicitly so downstream assertion paths don't
                 # flag a "sample_weight with Pool" mismatch.
-                _reuse_fit_params = {
-                    k: v for k, v in fit_params.items()
-                    if k not in ("sample_weight", "cat_features", "text_features", "embedding_features")
-                }
+                _reuse_fit_params = {k: v for k, v in fit_params.items() if k not in ("sample_weight", "cat_features", "text_features", "embedding_features")}
                 _ensure_cb_multilabel_loss(model, train_target, pool=_cb_pool)
                 _ensure_xgb_classification_objective(model, train_target)
                 model = _maybe_wrap_for_2d_target(model, train_target)
@@ -3274,10 +3260,7 @@ def _train_model_with_fallback(
                 # classifiers don't accept eval_set anyway. Surfaced 3-way
                 # fuzz c0036 / c0041 / c0045 / c0056 (cb_hgb_lgb_linear*xgb /
                 # multilabel + eval_set passed through).
-                if (
-                    type(model).__name__ == "MultiOutputClassifier"
-                    and _model_pre_wrap_type != "MultiOutputClassifier"
-                ):
+                if type(model).__name__ == "MultiOutputClassifier" and _model_pre_wrap_type != "MultiOutputClassifier":
                     # Strip val-injected fit_params - MOC doesn't slice
                     # them per label, so the inner estimator's
                     # ``_validate_data`` chokes on the 2-D ``y_val``
@@ -3310,10 +3293,7 @@ def _train_model_with_fallback(
             logger.warning(f"Model {model} skipped due to error 'pandas dtypes must be int, float or bool, got {train_df.dtypes}'")
             return None, None
 
-        elif (
-            model_type_name in CATBOOST_MODEL_TYPES
-            and "Dictionary size is 0" in error_str
-        ):
+        elif model_type_name in CATBOOST_MODEL_TYPES and "Dictionary size is 0" in error_str:
             # CatBoost's text feature estimator failed to build a TF-IDF
             # vocabulary -- the column's non-null samples, after the
             # occurrence_lower_bound filter, leave an empty dictionary.
@@ -3374,8 +3354,7 @@ def _train_model_with_fallback(
             # and for opaque dispatch misses that's useless).
             last_line = error_str.splitlines()[-1] if error_str else "<empty>"
             logger.warning(
-                "CatBoost Polars fastpath rejected the data (%s); "
-                "converting to pandas and retrying.",
+                "CatBoost Polars fastpath rejected the data (%s); " "converting to pandas and retrying.",
                 last_line[:240],
             )
             # Mark the model "Polars-broken" so subsequent predict_proba /
@@ -3480,10 +3459,13 @@ def _train_model_with_fallback(
 
         if try_again:
             _maybe_clean_ram()
-            with phase("model.fit", model=model_type_name,
-                       n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
-                       n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None),
-                       retry=True):
+            with phase(
+                "model.fit",
+                model=model_type_name,
+                n_rows=(train_df.shape[0] if hasattr(train_df, "shape") else None),
+                n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None),
+                retry=True,
+            ):
                 model.fit(train_df, train_target, **fit_params)
         else:
             raise e
@@ -3552,7 +3534,10 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     # harmless for CB/HGB/LGB (they tolerate unseen cats but accept the
     # union dtype identically). Cost: one cat-column scan per frame.
     if os.environ.get("MLFRAME_CAT_DIAG"):
-        print(f"[CAT-DIAG-ENTER] model={model_type_name}, train_df type={type(train_df).__name__}, is_pandas={isinstance(train_df, pd.DataFrame)}, is_polars={isinstance(train_df, pl.DataFrame)}", flush=True)
+        print(
+            f"[CAT-DIAG-ENTER] model={model_type_name}, train_df type={type(train_df).__name__}, is_pandas={isinstance(train_df, pd.DataFrame)}, is_polars={isinstance(train_df, pl.DataFrame)}",
+            flush=True,
+        )
 
     # Polars frames: alignment is now done UPSTREAM by
     # ``XGBoostStrategy.prepare_polars_dataframe`` + ``build_polars_enum_map``
@@ -3666,6 +3651,7 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
     Returns ``(train_df, val_df, test_df)`` -- frames are copied when a
     decategorise happens, otherwise returned unchanged.
     """
+
     def _decat(df):
         if df is None or not isinstance(df, pd.DataFrame):
             return df
@@ -3726,12 +3712,14 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
     cat_columns: set = set()
     if isinstance(train_df, pd.DataFrame):
         from .strategies import PANDAS_CATEGORICAL_DTYPES
+
         _pd_cats = list(PANDAS_CATEGORICAL_DTYPES)
         for split in (train_df, val_df, test_df):
             if isinstance(split, pd.DataFrame):
                 cat_columns.update(split.select_dtypes(_pd_cats).columns)
     elif isinstance(train_df, pl.DataFrame):
         from .strategies import get_polars_cat_columns
+
         for split in (train_df, val_df, test_df):
             if isinstance(split, pl.DataFrame):
                 cat_columns.update(get_polars_cat_columns(split))
@@ -3807,16 +3795,16 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
             return model_name
         rate = float((arr == 1).sum()) / arr.size
         train_pct = bttr_match.group(1)
-        return _BTTR_RE.sub(f"BTTR/BT{short}={train_pct}/{rate*100:.0f}%",
-                            model_name, count=1)
+        return _BTTR_RE.sub(f"BTTR/BT{short}={train_pct}/{rate*100:.0f}%", model_name, count=1)
     mttr_match = _MTTR_RE.search(model_name)
     if mttr_match:
         if arr.ndim != 1:
             return model_name
-        _tag = mttr_match.group(1)         # "MTTR" or "MTRESID"
+        _tag = mttr_match.group(1)  # "MTTR" or "MTRESID"
         train_val = mttr_match.group(2)
         # 2026-05-11 (user request): adaptive format -- 2 d.p. for typical magnitudes (MTV/MTTS for raw TVT ~ 11556), more decimals for tiny magnitudes (composite residual MTV ~ -1.17). The split-suffix carries the same tag prefix as train so composite shows ``MTRESID/MRV=...``, mirroring the existing BTTR/BTV / MTTR/MTV pattern.
         from ._format import format_metric as _fmt
+
         # Split-suffix: keep the trailing letter pair as-is (BTTR -> BTV, MTTR -> MTV); for MTRESID use MR* (MRV / MRTS) to stay under 8 chars on chart titles.
         if _tag == "MTRESID":
             _split_prefix = "MR"
@@ -3824,7 +3812,8 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
             _split_prefix = "MT"
         return _MTTR_RE.sub(
             f"{_tag}/{_split_prefix}{short}={train_val}/{_fmt(float(arr.mean()))}",
-            model_name, count=1,
+            model_name,
+            count=1,
         )
     mltr_match = _MLTR_RE.search(model_name)
     if mltr_match:
@@ -3833,8 +3822,7 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
         rates = arr.mean(axis=0)
         summary = ",".join(f"{p*100:.0f}" for p in rates)
         train_summary = mltr_match.group(1)
-        return _MLTR_RE.sub(f"MLTR/ML{short}={train_summary}/{summary}%",
-                            model_name, count=1)
+        return _MLTR_RE.sub(f"MLTR/ML{short}={train_summary}/{summary}%", model_name, count=1)
     return model_name
 
 
@@ -3905,7 +3893,9 @@ def _compute_split_metrics(
     # and ``BTTR/BTTS=74%/83%`` (test) — prior shift between train
     # and val/test is visible in every header.
     augmented_model_name = _append_split_rate_suffix(
-        model_name, split_name=split_name, target=target,
+        model_name,
+        split_name=split_name,
+        target=target,
     )
 
     # Lazy import -- see comment near the top of this module about the
@@ -4126,7 +4116,9 @@ def run_confidence_analysis(
                 "test_probs=%s, test_target=%s. The three artifacts must come "
                 "from the same predict pass; an upstream filter likely sliced "
                 "one but not the others.",
-                _n_df, _n_probs, _n_target,
+                _n_df,
+                _n_probs,
+                _n_target,
             )
         return None
     confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target_arr]
@@ -4199,6 +4191,7 @@ def run_confidence_analysis(
     else:
         # Lazy import -- see comment near top of module about cycle.
         from .evaluation import plot_model_feature_importances
+
         plot_model_feature_importances(
             model=confidence_model,
             columns=list(test_df.columns),
@@ -4665,7 +4658,9 @@ def train_and_evaluate_model(
     # pre_pipeline runs (RFECV inner CB / XGB inside the pre_pipeline
     # would otherwise reject them -- fuzz c0102, see helper docstring).
     train_df, val_df, test_df = _decategorise_float_cat_columns(
-        train_df, val_df=val_df, test_df=test_df,
+        train_df,
+        val_df=val_df,
+        test_df=test_df,
     )
 
     train_df, val_df = _apply_pre_pipeline_transforms(
@@ -4759,10 +4754,7 @@ def train_and_evaluate_model(
             # + MultiOutputClassifier + ClassifierChain). Used by
             # ``_validate_target_values`` to flag single-class collapse
             # before the per-backend C++ crash.
-            _is_clf = (
-                "Classifier" in model_type_name
-                or model_type_name in ("ClassifierChain", "_ChainEnsemble")
-            )
+            _is_clf = "Classifier" in model_type_name or model_type_name in ("ClassifierChain", "_ChainEnsemble")
             _validate_target_values(train_target, "train", is_classification=_is_clf)
             if val_target is not None:
                 _validate_target_values(val_target, "val", is_classification=_is_clf)
@@ -4777,7 +4769,10 @@ def train_and_evaluate_model(
             # rename / re-cast cat columns; aligning before that would
             # be undone).
             train_df, val_df, test_df = _align_xgb_cat_categories(
-                model_type_name, train_df, val_df=val_df, test_df=test_df,
+                model_type_name,
+                train_df,
+                val_df=val_df,
+                test_df=test_df,
             )
 
             if not just_evaluate:
@@ -4910,9 +4905,13 @@ def train_and_evaluate_model(
             if should_compute and split_name == "train":
                 preds_result, probs_result, columns = _compute_split_metrics(
                     split_name=split_name,
-                    df=split_df, target=split_target, idx=split_idx,
+                    df=split_df,
+                    target=split_target,
+                    idx=split_idx,
                     metrics_dict=metrics[split_name],
-                    preds=split_preds, probs=split_probs, details=split_details,
+                    preds=split_preds,
+                    probs=split_probs,
+                    details=split_details,
                     has_other_splits=has_val or has_test,
                     **common_metrics_params,
                 )
@@ -4931,9 +4930,14 @@ def train_and_evaluate_model(
 
         if _run_test:
             test_df, test_target, columns = _prepare_test_split(
-                df=df, test_df=test_df, test_idx=test_idx, test_target=test_target,
-                target=target, real_drop_columns=real_drop_columns,
-                model=model, pre_pipeline=pre_pipeline,
+                df=df,
+                test_df=test_df,
+                test_idx=test_idx,
+                test_target=test_target,
+                target=target,
+                real_drop_columns=real_drop_columns,
+                model=model,
+                pre_pipeline=pre_pipeline,
                 skip_pre_pipeline_transform=skip_pre_pipeline_transform,
                 skip_preprocessing=skip_preprocessing,
                 selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
@@ -4949,9 +4953,14 @@ def train_and_evaluate_model(
                 return None
             _, sdf, starg, sidx, spreds, sprobs, sdet, _sc = _val_cfg
             return _compute_split_metrics(
-                split_name="val", df=sdf, target=starg, idx=sidx,
+                split_name="val",
+                df=sdf,
+                target=starg,
+                idx=sidx,
                 metrics_dict=metrics["val"],
-                preds=spreds, probs=sprobs, details=sdet,
+                preds=spreds,
+                probs=sprobs,
+                details=sdet,
                 has_other_splits=has_test,
                 **common_metrics_params,
             )
@@ -4960,9 +4969,14 @@ def train_and_evaluate_model(
             if not _run_test:
                 return None
             return _compute_split_metrics(
-                split_name="test", df=test_df, target=test_target, idx=test_idx,
+                split_name="test",
+                df=test_df,
+                target=test_target,
+                idx=test_idx,
                 metrics_dict=metrics["test"],
-                preds=test_preds, probs=test_probs, details=test_details,
+                preds=test_preds,
+                probs=test_probs,
+                details=test_details,
                 has_other_splits=False,
                 **common_metrics_params,
             )
@@ -5172,6 +5186,7 @@ def _configure_mlp_params(
                 # Fit the transformer FIRST on y so we have the same scale to apply to eval_set's y_val. Mirrors what ``TransformedTargetRegressor.fit`` does internally (line 167 in sklearn 1.5+).
                 import numpy as _np
                 from sklearn.base import clone as _clone
+
                 y_arr = _np.asarray(y, dtype=_np.float64)
                 if y_arr.ndim == 1:
                     y_arr_2d = y_arr.reshape(-1, 1)
@@ -5213,6 +5228,7 @@ def _configure_mlp_params(
         if target_type is not None:
             from .strategies import NeuralNetStrategy
             from .configs import TargetTypes as _TT
+
             n_cls = 0  # not used by NeuralNetStrategy.get_classif_objective_kwargs
             mlp_obj = NeuralNetStrategy().get_classif_objective_kwargs(target_type, n_cls)
             if mlp_obj:
@@ -5270,13 +5286,14 @@ def _configure_recurrent_params(
     )
 
     if metamodel_func is None:
+
         def metamodel_func(x):
             return x
 
     # Determine input mode based on available data
     has_sequences = sequences_train is not None and len(sequences_train) > 0
     has_features = features_train is not None
-    if hasattr(features_train, 'shape'):
+    if hasattr(features_train, "shape"):
         has_features = has_features and features_train.shape[1] > 0
 
     if has_sequences and has_features:
@@ -5297,7 +5314,7 @@ def _configure_recurrent_params(
         seq_input_dim = 0
 
     if has_features:
-        if hasattr(features_train, 'shape'):
+        if hasattr(features_train, "shape"):
             features_dim = features_train.shape[1]
         else:
             features_dim = len(features_train.columns)
@@ -5317,8 +5334,7 @@ def _configure_recurrent_params(
             "transformer": RNNType.TRANSFORMER,
         }
         if model_name_lower not in rnn_type_map:
-            raise ValueError(f"Unknown recurrent model type: {model_name}. "
-                           f"Supported: {list(rnn_type_map.keys())}")
+            raise ValueError(f"Unknown recurrent model type: {model_name}. " f"Supported: {list(rnn_type_map.keys())}")
 
         rnn_type = rnn_type_map[model_name_lower]
 
@@ -5481,12 +5497,9 @@ def configure_training_params(
     # True, drop the calibration request with a warning and continue. No-op
     # when target is not multilabel or no MultilabelDispatchConfig was
     # supplied (legacy call path stays unchanged).
-    if (
-        target_type is not None
-        and prefer_calibrated_classifiers
-        and multilabel_dispatch_config is not None
-    ):
+    if target_type is not None and prefer_calibrated_classifiers and multilabel_dispatch_config is not None:
         from .configs import TargetTypes as _TT
+
         if target_type == _TT.MULTILABEL_CLASSIFICATION:
             if not multilabel_dispatch_config.allow_uncalibrated_multi:
                 raise NotImplementedError(
@@ -5534,9 +5547,7 @@ def configure_training_params(
             _is_object_of_arrays = False
             if target_arr is not None and target_arr.dtype == object and target_arr.ndim == 1 and target_arr.shape[0] > 0:
                 _first = target_arr[0]
-                _is_object_of_arrays = hasattr(_first, "shape") or (
-                    hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
-                )
+                _is_object_of_arrays = hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
             if target_arr is not None and target_arr.ndim == 2:
                 nlabels = target_arr.shape[1] + 1  # treat as ">2" -> multiclass-style metrics
             elif _is_object_of_arrays:
@@ -5638,9 +5649,11 @@ def configure_training_params(
     logger.info("data_fits_gpu_ram=%s, data_fits_cb_gpu_ram=%s, cb_devices=%s", data_fits_gpu_ram, data_fits_cb_gpu_ram, cb_devices)
     if (_t_cpu_cfg + _t_gpu_cfg + _t_mem + _t_gpu) > 0.5:
         logger.info(
-            "configure_training_params timing breakdown: "
-            "cpu_configs=%.2fs, gpu_configs=%.2fs, mem_probe=%.2fs, gpu_probe=%.2fs (total %.2fs)",
-            _t_cpu_cfg, _t_gpu_cfg, _t_mem, _t_gpu,
+            "configure_training_params timing breakdown: " "cpu_configs=%.2fs, gpu_configs=%.2fs, mem_probe=%.2fs, gpu_probe=%.2fs (total %.2fs)",
+            _t_cpu_cfg,
+            _t_gpu_cfg,
+            _t_mem,
+            _t_gpu,
             _t_cpu_cfg + _t_gpu_cfg + _t_mem + _t_gpu,
         )
 
@@ -5738,12 +5751,7 @@ def configure_training_params(
     # an eval_set the inner fit would crash ("at least one dataset and eval
     # metric is required for evaluation").
     def _wrap_for_multilabel_if_needed(estimator, strategy_cls):
-        if (
-            use_regression
-            or target_type is None
-            or not hasattr(target_type, "name")
-            or target_type.name != "MULTILABEL_CLASSIFICATION"
-        ):
+        if use_regression or target_type is None or not hasattr(target_type, "name") or target_type.name != "MULTILABEL_CLASSIFICATION":
             return estimator
         # Disable eval_set-dependent early stopping on the inner estimator.
         try:
@@ -5762,7 +5770,8 @@ def configure_training_params(
             except Exception:
                 pass
         return strategy_cls().wrap_multilabel(
-            estimator, target_type,
+            estimator,
+            target_type,
             multilabel_config=multilabel_dispatch_config,
             n_labels=n_classes,
         )
@@ -5770,6 +5779,7 @@ def configure_training_params(
     hgb_params = None
     if _should_create_model("hgb"):
         from .strategies import HGBStrategy as _HGBS
+
         _hgb_est = (
             HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
             if use_regression
@@ -5795,6 +5805,7 @@ def configure_training_params(
         # XGB sklearn wrapper rejects 2-D y unless we use multi_strategy='multi_output_tree'
         # (WIP in 3.x). Default to MultiOutputClassifier per Session-6 design.
         from .strategies import XGBoostStrategy as _XGBS
+
         xgb_params["model"] = _wrap_for_multilabel_if_needed(xgb_params["model"], _XGBS)
 
     lgb_params = None
@@ -5810,6 +5821,7 @@ def configure_training_params(
         )
         # LGB has no native multilabel -- wrap with MultiOutputClassifier.
         from .strategies import TreeModelStrategy as _LGBS
+
         lgb_params["model"] = _wrap_for_multilabel_if_needed(lgb_params["model"], _LGBS)
 
     mlp_params = None
@@ -5834,12 +5846,11 @@ def configure_training_params(
         # / ranking flags).
         ngb_init_kwargs = dict(configs.NGB_GENERAL_PARAMS)
         from .configs import TargetTypes as _TT
-        if (
-            not use_regression
-            and target_type == _TT.MULTICLASS_CLASSIFICATION
-        ):
+
+        if not use_regression and target_type == _TT.MULTICLASS_CLASSIFICATION:
             try:
                 from ngboost.distns import k_categorical
+
                 # n_classes pulled from the actual y -- NGB needs the
                 # exact K to size the categorical Dist's internal
                 # parameter array. Fall back to inspecting train_target
@@ -5861,10 +5872,7 @@ def configure_training_params(
                     (NGBRegressor(**ngb_init_kwargs) if use_regression else NGBClassifier(**ngb_init_kwargs)),
                 )
             ),
-            fit_params=(
-                {} if config_params.get("early_stopping_rounds") is None
-                else dict(early_stopping_rounds=config_params.get("early_stopping_rounds"))
-            ),
+            fit_params=({} if config_params.get("early_stopping_rounds") is None else dict(early_stopping_rounds=config_params.get("early_stopping_rounds"))),
         )
 
     # Linear models - only create variants that are needed
@@ -5893,6 +5901,7 @@ def configure_training_params(
         _linear_est = create_linear_model(model_type, config, use_regression=use_regression)
         # Linear classifiers reject 2-D y -> MultiOutputClassifier wrapper for multilabel.
         from .strategies import LinearModelStrategy as _LMS
+
         _linear_est = _wrap_for_multilabel_if_needed(_linear_est, _LMS)
         linear_model_params[model_type] = dict(model=metamodel_func(_linear_est))
 
