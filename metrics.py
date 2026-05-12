@@ -265,6 +265,27 @@ def prewarm_numba_cache():
     # make parallel val/test metric evaluation secretly sequential.
     _assert_numba_nogil_active()
 
+    # 2026-05-11 Wave 25: prewarm ``_batch_per_class_ice_kernel`` --
+    # the per-class parallel kernel inside ``compute_probabilistic_
+    # multiclass_error``. Profile of c0011 (1M-row binary-cls, 15 cats,
+    # MRMR order=3, master_seed=20260422) attributed 31.4 s to this
+    # kernel's cold JIT compile INSIDE the suite call. The kernel is
+    # ``@njit(parallel=True)`` and compiles separately from the
+    # sequential ``fast_ice_only`` variant already prewarmed in the
+    # bool+float64 pair above. Prewarm with the same dtype combo the
+    # suite always sends (int8 indicator + float64 probs + K=3).
+    try:
+        from mlframe.metrics import _batch_per_class_ice_kernel  # noqa: F811
+        _yt_nk4_pw = np.zeros((10, 3), dtype=np.int8)
+        _yt_nk4_pw[0, 0] = 1; _yt_nk4_pw[1, 1] = 1; _yt_nk4_pw[2, 2] = 1
+        _yp_nk4_pw = np.random.RandomState(0).rand(10, 3).astype(np.float64)
+        _ = _batch_per_class_ice_kernel(
+            _yt_nk4_pw, _yp_nk4_pw, 10, True,
+            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0,
+        )
+    except Exception:
+        pass
+
     # 2026-05-11: also warm feature_selection numba kernels. Without
     # this, the first MRMR.fit call pays ~60s of cumulative JIT
     # compile (verified on 1M-row regression+MRMR c0089 profile).
