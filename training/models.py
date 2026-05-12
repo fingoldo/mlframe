@@ -40,8 +40,8 @@ LINEAR_MODEL_TYPES = {"linear", "ridge", "lasso", "elasticnet", "huber", "ransac
 TREE_MODEL_TYPES = {"cb", "lgb", "xgb", "hgb", "rf", "et", "gb"}
 """Valid tree-based model type identifiers (CatBoost, LightGBM, XGBoost, etc.)."""
 
-NEURAL_MODEL_TYPES = {"mlp", "nn"}
-"""Valid neural network model type identifiers."""
+NEURAL_MODEL_TYPES = {"mlp", "nn", "lstm", "gru", "rnn", "transformer"}
+"""Neural-network model type identifiers (PyTorch-based, benefit from P95 timeout)."""
 
 VALID_SGD_CLASSIFICATION_LOSSES = {"hinge", "log_loss", "modified_huber", "squared_hinge", "perceptron"}
 """Valid loss functions for SGDClassifier."""

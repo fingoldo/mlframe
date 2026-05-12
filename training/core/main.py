@@ -81,7 +81,7 @@ from ..helpers import (
     get_trainset_features_stats_polars,
 )
 from ..io import load_mlframe_model
-from ..models import LINEAR_MODEL_TYPES, is_linear_model
+from ..models import LINEAR_MODEL_TYPES, is_linear_model, is_neural_model
 from ..phases import format_phase_summary, phase, reset_phase_registry
 from ..pipeline import (
     apply_preprocessing_extensions,
@@ -2123,8 +2123,12 @@ def train_mlframe_models_suite(
                 strategy_by_model = {id(m): get_strategy(m) for m in mlframe_models}
                 sorted_models = sorted(
                     mlframe_models,
-                    key=lambda m: strategy_by_model[id(m)].feature_tier(),
-                    reverse=True,  # (True, True) before (False, False)
+                    key=lambda m: (
+                        is_neural_model(m),  # push neural to end
+                        tuple(
+                            -int(t) for t in strategy_by_model[id(m)].feature_tier()
+                        ),  # rich-feature models first
+                    ),
                 )
                 tier_dfs_cache = {}  # feature_tier -> {train_df, val_df, test_df}
                 # 2026-04-28: Enum-map cache parallel to tier_dfs_cache.
@@ -2137,6 +2141,12 @@ def train_mlframe_models_suite(
                 # (target, tier, strategy) instead of once per model.
                 tier_enum_map_cache: Dict[tuple, Optional[Dict[str, Any]]] = {}
                 prev_tier = None
+
+                # 2026-05-13 (user request): neural max_time defaults to
+                # the 95th percentile of non-neural model train times so
+                # MLP doesn't run 2h while boosting models finish in 5min.
+                # Accumulated as each non-neural model completes.
+                _non_neural_train_times: List[float] = []
 
                 _total_models_in_run = len(list(sorted_models))
                 _model_idx_in_run = 0
@@ -2699,6 +2709,37 @@ def train_mlframe_models_suite(
                             metadata_columns=metadata.get("columns"),
                         )
 
+                        # 2026-05-13 (user request): neural-model max_time
+                        # defaults to the P95 of all prior non-neural model
+                        # train times (seconds). If no non-neural model has
+                        # trained yet, keep the config-level max_time (2h).
+                        _is_neural = is_neural_model(mlframe_model_name)
+                        if _is_neural and _non_neural_train_times:
+                            _p95 = float(np.percentile(_non_neural_train_times, 95))
+                            _max_sec = max(int(round(_p95)), 30)
+                            _dd = _max_sec // 86400
+                            _hh = (_max_sec % 86400) // 3600
+                            _mm = (_max_sec % 3600) // 60
+                            _max_time_dict = {"days": _dd, "hours": _hh, "minutes": _mm}
+                            # MLP is Pipeline(StandardScaler, TTR(PytorchLightningRegressor(...)))
+                            _neural_model = current_model_params.get("model")
+                            if _neural_model is not None:
+                                _inner = getattr(_neural_model, "regressor", None)
+                                if _inner is None and hasattr(_neural_model, "named_steps"):
+                                    for _step in _neural_model.named_steps.values():
+                                        if hasattr(_step, "regressor"):
+                                            _inner = _step.regressor
+                                            break
+                                if _inner is not None and hasattr(_inner, "trainer_params"):
+                                    _inner.trainer_params["max_time"] = _max_time_dict
+                                    if verbose:
+                                        logger.info(
+                                            "  [NeuralTimeout] %s max_time=%dh%02dm "
+                                            "(P95 of %d prior non-neural train times: %.0fs)",
+                                            mlframe_model_name, _hh, _mm,
+                                            len(_non_neural_train_times), _p95,
+                                        )
+
                         t0_model = timer()
                         try:
                             with phase("process_model", model=mlframe_model_name, weight=weight_name):
@@ -2728,6 +2769,8 @@ def train_mlframe_models_suite(
                             continue  # next weight_name in the inner loop
                         if verbose:
                             logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
+                        if not _is_neural and t0_model is not None:
+                            _non_neural_train_times.append(timer() - t0_model)
 
                         # XGB DMatrix-reuse shim cache (2026-04-24, second
                         # half). The cache lives on the cloned_model that
@@ -2965,6 +3008,28 @@ def train_mlframe_models_suite(
 
                     # Clone model for this target
                     model_clone = clone(recurrent_model)
+
+                    # 2026-05-13 (user request): neural max_time from
+                    # P95 of prior non-neural train times (shared with
+                    # the per-model loop above).
+                    if _non_neural_train_times:
+                        _p95_r = float(np.percentile(_non_neural_train_times, 95))
+                        _max_s_r = max(int(round(_p95_r)), 30)
+                        _dd_r = _max_s_r // 86400
+                        _hh_r = (_max_s_r % 86400) // 3600
+                        _mm_r = (_max_s_r % 3600) // 60
+                        _r_inner = getattr(model_clone, "regressor", model_clone)
+                        if hasattr(_r_inner, "trainer_params"):
+                            _r_inner.trainer_params["max_time"] = {
+                                "days": _dd_r, "hours": _hh_r, "minutes": _mm_r,
+                            }
+                            if verbose:
+                                logger.info(
+                                    "  [NeuralTimeout] %s max_time=%dh%02dm "
+                                    "(P95 of %d prior non-neural train times: %.0fs)",
+                                    recurrent_model_name, _hh_r, _mm_r,
+                                    len(_non_neural_train_times), _p95_r,
+                                )
 
                     try:
                         # Fit the model
