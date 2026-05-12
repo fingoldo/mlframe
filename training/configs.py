@@ -661,17 +661,18 @@ class FeatureSelectionConfig(BaseConfig):
     """
 
     use_mrmr_fs: bool = False
-    mrmr_kwargs: Optional[Dict[str, Any]] = None  # keys: features_to_select, show_progress, redundancy_metric
+    mrmr_kwargs: Optional[Dict[str, Any]] = None
     rfecv_models: Optional[List[str]] = None
-    rfecv_kwargs: Optional[Dict[str, Any]] = None  # keys: step, min_features_to_select, cv, scoring
-    # 2026-04-27: pre-pipelines that wrap each model with custom feature
-    # selection / dimensionality reduction (sklearn TransformerMixin).
-    # Keys are pipeline names; values are unfitted transformer instances
-    # (e.g. {"pca50": IncrementalPCA(n_components=50)}). Was a top-level
-    # kwarg of train_mlframe_models_suite (`custom_pre_pipelines`); migrated
-    # into the typed config so visualization/IO/feature-selection knobs
-    # all live alongside their conceptual peers.
+    rfecv_kwargs: Optional[Dict[str, Any]] = None
     custom_pre_pipelines: Dict[str, Any] = Field(default_factory=dict)
+
+    # 2026-05-13: when a feature-selection pipeline (MRMR / RFECV /
+    # custom) is identity-equivalent — keeps every input column and
+    # creates no new ones — training models on it duplicates the
+    # ordinary (no-pipeline) branch. Set False to still train both
+    # (e.g. for ensembling diversities from different random seeds).
+    # Default True: skip the duplicate branch, logging a [Dedup] info.
+    skip_identity_equivalent_pre_pipelines: bool = True
 
 
 class ModelConfig(BaseConfig):

@@ -2069,6 +2069,25 @@ def train_mlframe_models_suite(
                 # Skip CatBoost RFECV pipeline with metamodel_func due to sklearn clone issue
                 if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, behavior_config):
                     continue
+
+                # 2026-05-13 (user request): skip identity-equivalent
+                # pre_pipelines when an ordinary (no-pipeline) branch or
+                # another identity-equivalent selector already covered this
+                # target. The marker is set by _apply_pre_pipeline_transforms
+                # after the first fit-transform.  If the same MRMR/RFECV
+                # instance was identity on a previous target, the marker
+                # survives → skip before any model trains.
+                _pp_name_stripped = pre_pipeline_name.strip()
+                if _pp_name_stripped and getattr(
+                    pre_pipeline, "_mlframe_identity_equivalent", False
+                ):
+                    logger.info(
+                        "[Dedup] Skipping pre_pipeline '%s' -- "
+                        "identity-equivalent to ordinary (cached from "
+                        "prior target/iteration); models already covered.",
+                        _pp_name_stripped,
+                    )
+                    continue
                 ens_models = [] if use_mlframe_ensembles else None
                 orig_pre_pipeline = pre_pipeline
 
@@ -2150,6 +2169,7 @@ def train_mlframe_models_suite(
 
                 _total_models_in_run = len(list(sorted_models))
                 _model_idx_in_run = 0
+                _break_model_loop = False
                 for mlframe_model_name in tqdmu_lazy_start(sorted_models, desc="mlframe model"):
                     # Skip CatBoost model with metamodel_func due to sklearn clone issue
                     if _should_skip_catboost_metamodel(mlframe_model_name, target_type, behavior_config):
@@ -2772,6 +2792,37 @@ def train_mlframe_models_suite(
                         if not _is_neural and t0_model is not None:
                             _non_neural_train_times.append(timer() - t0_model)
 
+                        # 2026-05-13 (user request): after the FIRST model
+                        # under this pre_pipeline completes, check whether
+                        # the pre_pipeline is identity-equivalent (kept all
+                        # columns, created none).  If it is AND ordinary
+                        # models are in the suite, every remaining model
+                        # would train on identical data → skip.
+                        if (
+                            _model_idx_in_run == 1
+                            and _pp_name_stripped
+                            and use_ordinary_models
+                            and feature_selection_config.skip_identity_equivalent_pre_pipelines
+                            and getattr(
+                                pre_pipeline, "_mlframe_identity_equivalent", False
+                            )
+                        ):
+                            _skip_remaining = _total_models_in_run - 1
+                            if _skip_remaining > 0:
+                                logger.info(
+                                    "[Dedup] pre_pipeline '%s' is "
+                                    "identity-equivalent to ordinary (kept "
+                                    "all %d columns); skipping remaining "
+                                    "%d model(s) for this target.",
+                                    _pp_name_stripped,
+                                    train_df_transformed.shape[1]
+                                    if train_df_transformed is not None
+                                    else 0,
+                                    _skip_remaining,
+                                )
+                            _break_model_loop = True
+                            break  # exit weight_schema loop
+
                         # XGB DMatrix-reuse shim cache (2026-04-24, second
                         # half). The cache lives on the cloned_model that
                         # ``process_model`` actually fit. Hand it back to the
@@ -2876,6 +2927,11 @@ def train_mlframe_models_suite(
                     #   * model save goes through pickle / joblib, which
                     #     our ``__getstate__`` override strips the cache
                     #     from anyway.
+                    # 2026-05-13: if the first model under this pre_pipeline
+                    # was identity-equivalent, break the model loop now.
+                    if _break_model_loop:
+                        break
+
                     # The prod log showed a 7.3M x 105 frame holding ~8 GB
                     # of QuantileDMatrix memory per XGB iteration; LGB
                     # Dataset binning is similarly heavy. Releasing this

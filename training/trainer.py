@@ -1502,6 +1502,14 @@ def _apply_pre_pipeline_transforms(
     """
     if model is not None and pre_pipeline:
         t0_pre = timer()
+        # 2026-05-13 (duplicate-pipeline skip): capture input column names
+        # BEFORE transform so we can detect identity-equivalent pipelines
+        # (selected all columns, created none). Set on the pre_pipeline
+        # instance so the suite loop in core/main.py can skip redundant
+        # branches.
+        _input_cols = (
+            list(train_df.columns) if hasattr(train_df, "columns") else None
+        )
         # 2026-05-12: structurally-identical-pipeline cache. When the
         # PER-TARGET loop runs Linear then MLP back-to-back, both build
         # ``SimpleImputer + StandardScaler``; without this short-circuit we
@@ -1654,6 +1662,20 @@ def _apply_pre_pipeline_transforms(
                         "pre_pipeline cache populate skipped: %s",
                         _cache_err,
                     )
+
+        # 2026-05-13 (duplicate-pipeline skip): detect whether this
+        # pre_pipeline left the column set unchanged (identity-equivalent).
+        # Marker is set on the pre_pipeline instance so the suite loop in
+        # core/main.py can skip this branch when an equivalent one
+        # (ordinary or another identity-selector) already ran.
+        if _input_cols is not None and hasattr(train_df, "columns"):
+            _output_cols = list(train_df.columns)
+            try:
+                pre_pipeline._mlframe_identity_equivalent = (
+                    _input_cols == _output_cols
+                )
+            except Exception:
+                pass  # non-writable pre_pipeline (e.g. tuple), safe to ignore
 
     return train_df, val_df
 

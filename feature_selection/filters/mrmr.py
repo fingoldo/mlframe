@@ -1627,6 +1627,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         support = self.support_
         recipes = getattr(self, "_engineered_recipes_", [])
 
+        # 2026-05-13: fast-path — when MRMR selected every input column
+        # AND produced zero engineered recipes, transform() is the
+        # identity function. Return X unchanged to avoid a full-copy
+        # ``X[selected_cols]`` and to let the caller detect that this
+        # selector is a no-op (checked via ``_mlframe_identity_equivalent``
+        # downstream).
+        if not recipes and hasattr(X, "shape"):
+            _support_arr = np.asarray(support)
+            if len(_support_arr) > 0 and isinstance(_support_arr.flat[0], (bool, np.bool_)):
+                _n_selected = int(np.count_nonzero(_support_arr))
+            else:
+                _n_selected = len(_support_arr)
+            if _n_selected == X.shape[1]:
+                return X
+
         # Handle the empty-base-support cases. If there are no base
         # features AND no engineered recipes, return the legacy empty
         # output. If there are recipes but no base, fall through and
