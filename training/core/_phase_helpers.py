@@ -1382,6 +1382,3 @@ def _maybe_dispatch_to_ltr_ranker_suite(
         ltr_panels=_ltr_panels,
         mlp_kwargs=_mlp_kwargs,
     )
-
-
-def _ensure_logging_visible(level: int = logging.INFO) -> None:

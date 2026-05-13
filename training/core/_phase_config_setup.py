@@ -28,6 +28,7 @@ from ..configs import (
     TrainingSplitConfig,
 )
 from ..phases import log_phase
+from ._training_context import TrainingContext
 from .utils import (
     _apply_plot_style_overrides,
     _build_suite_common_params_dict,
@@ -256,35 +257,35 @@ def setup_configuration(
     )
     metadata["schema_version"] = 2  # v2 adds composite_target_specs, baseline_diagnostics
 
-    return {
-        # Processed Pydantic configs
-        "preprocessing_config": preprocessing_config,
-        "pipeline_config": pipeline_config,
-        "feature_types_config": feature_types_config,
-        "split_config": split_config,
-        "hyperparams_config": hyperparams_config,
-        "behavior_config": behavior_config,
-        "reporting_config": reporting_config,
-        "output_config": output_config,
-        "outlier_detection_config": outlier_detection_config,
-        "feature_selection_config": feature_selection_config,
-        "confidence_analysis_config": confidence_analysis_config,
-        "baseline_diagnostics_config": baseline_diagnostics_config,
-        "dummy_baselines_config": dummy_baselines_config,
-        "quantile_regression_config": quantile_regression_config,
-        "composite_target_discovery_config": composite_target_discovery_config,
-        # Scalars
-        "data_dir": data_dir,
-        "models_dir": models_dir,
-        "save_charts": save_charts,
-        "outlier_detector": outlier_detector,
-        "od_val_set": od_val_set,
-        "use_mrmr_fs": use_mrmr_fs,
-        "mrmr_kwargs": mrmr_kwargs,
-        "rfecv_models": rfecv_models,
-        "custom_pre_pipelines": custom_pre_pipelines,
-        # Derived
-        "common_params_dict": common_params_dict,
-        "mlframe_models": mlframe_models,
-        "metadata": metadata,
-    }
+    ctx = TrainingContext(
+        model_name=model_name,
+        target_name=target_name,
+        preprocessing_config=preprocessing_config,
+        pipeline_config=pipeline_config,
+        feature_types_config=feature_types_config,
+        split_config=split_config,
+        hyperparams_config=hyperparams_config,
+        behavior_config=behavior_config,
+        reporting_config=reporting_config,
+        output_config=output_config,
+        outlier_detection_config=outlier_detection_config,
+        feature_selection_config=feature_selection_config,
+        confidence_analysis_config=confidence_analysis_config,
+        baseline_diagnostics_config=baseline_diagnostics_config,
+        dummy_baselines_config=dummy_baselines_config,
+        quantile_regression_config=quantile_regression_config,
+        composite_target_discovery_config=composite_target_discovery_config,
+        data_dir=data_dir,
+        models_dir=models_dir,
+        save_charts=save_charts,
+        outlier_detector=outlier_detector,
+        od_val_set=od_val_set,
+        use_mrmr_fs=use_mrmr_fs,
+        mrmr_kwargs=mrmr_kwargs,
+        rfecv_models=rfecv_models,
+        custom_pre_pipelines=custom_pre_pipelines,
+        common_params_dict=common_params_dict,
+        mlframe_models=mlframe_models,
+        metadata=metadata,
+    )
+    return ctx
