@@ -14,7 +14,7 @@ from pyutilz.system import tqdmu_lazy_start
 from sklearn.base import clone
 
 from ..configs import TargetTypes
-from ..phases import log_phase, log_ram_usage
+from ..utils import log_phase, log_ram_usage
 from ..trainer import _configure_recurrent_params
 
 logger = logging.getLogger(__name__)

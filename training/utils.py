@@ -18,6 +18,11 @@ import re
 import sys
 from typing import Union, Optional
 
+try:
+    import polars as pl
+except ImportError:
+    pl = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 

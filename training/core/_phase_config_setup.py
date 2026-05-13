@@ -27,7 +27,7 @@ from ..configs import (
     TrainingBehaviorConfig,
     TrainingSplitConfig,
 )
-from ..phases import log_phase
+from ..utils import log_phase
 from ._training_context import TrainingContext
 from .utils import (
     _apply_plot_style_overrides,
