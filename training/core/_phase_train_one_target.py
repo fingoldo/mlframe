@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from timeit import default_timer as timer
 
+import numpy as np
+
 from pyutilz.strings import slugify
 
 from ..phases import phase
