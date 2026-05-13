@@ -14,7 +14,16 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 import numpy as np
 import pandas as pd
 
+try:
+    import polars as pl
+except ImportError:
+    pl = None  # type: ignore[assignment]
+
+from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+import category_encoders as ce
 
 from ..configs import (
     FeatureSelectionConfig,
