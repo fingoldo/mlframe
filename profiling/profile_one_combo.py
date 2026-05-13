@@ -143,13 +143,20 @@ def main():
                                     if args.mrmr_interactions_max_order > 1 else None
                                 ),
                                 "fe_max_steps": args.mrmr_fe_max_steps,
+                                # 2026-05-12: cap MRMR at 5 min so profiles
+                                # don't run away on order=3 + 1M combos.
+                                # Production users keep the default (unlimited).
+                                "max_runtime_mins": 5,
                             }.items() if v is not None
                         }
                         if combo.use_mrmr_fs and (
                             args.mrmr_interactions_max_order > 1
                             or args.mrmr_fe_max_steps is not None
                         )
-                        else None
+                        else (
+                            {"max_runtime_mins": 5}
+                            if combo.use_mrmr_fs else None
+                        )
                     ),
                 ),
                 # Force CPU so CatBoost / XGBoost / LightGBM don't trip on
