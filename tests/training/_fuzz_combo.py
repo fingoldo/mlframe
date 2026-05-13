@@ -363,8 +363,21 @@ class FuzzCombo:
         equivalent combos so e.g. ``align_polars_categorical_dicts=True`` with
         pandas input collapses to the False variant."""
         align = self.align_polars_categorical_dicts
-        if self.input_type == "pandas":
-            align = False
+        # 2026-05-12 Wave 30: polars input only reaches models that
+        # support it natively. For non-polars-native models (LGB,
+        # linear, MLP), canonicalise to pandas so the downstream
+        # sklearn pipeline encoder (CatBoostEncoder) / strategies
+        # receive pandas DataFrames they can consume. Without this, a
+        # polars DataFrame hits CatBoostEncoder.fit and raises
+        # ``ValueError: Unexpected input type: <class 'polars...'>``
+        # (surfaced c0002/c0004 fuzz failures).
+        _input_type = self.input_type
+        if _input_type != "pandas":
+            _any_polars_native = any(
+                m in self.models for m in ("cb", "xgb", "hgb")
+            )
+            if not _any_polars_native:
+                _input_type = "pandas"
         null_frac = self.null_fraction_cats if self.cat_feature_count > 0 else 0.0
         # fairness_col is meaningful only if that column exists → None
         # when cat_feature_count == 0 (no cat_0 to reference).
@@ -399,7 +412,7 @@ class FuzzCombo:
             target_carrier = "numpy"
         return (
             tuple(sorted(self.models)),
-            self.input_type,
+            _input_type,
             self.n_rows,
             self.cat_feature_count,
             null_frac,
@@ -1798,7 +1811,16 @@ def build_frame_for_combo(combo: FuzzCombo):
             for j in range(n - tail, n):
                 cat_cols["cat_0"][j] = unseen
 
-    if combo.input_type == "pandas":
+    # 2026-05-12 Wave 30: when no model in the combo supports polars
+    # natively (CB/XGB/HGB), build a pandas frame regardless of the
+    # axis-sampled input_type. CatBoostEncoder and other sklearn-native
+    # transformers reject polars DataFrames with ``ValueError: Unexpected
+    # input type: <class 'polars...'>``. Canonicalised in canonical_key
+    # so dedup collapses these combos correctly.
+    _any_polars_native = any(m in combo.models for m in ("cb", "xgb", "hgb"))
+    _build_input_type = combo.input_type if _any_polars_native else "pandas"
+
+    if _build_input_type == "pandas":
         import pandas as pd
         data = {**num_cols, **extra_num_cols}
         for name, values in cat_cols.items():
@@ -1822,11 +1844,11 @@ def build_frame_for_combo(combo: FuzzCombo):
     import polars as pl
     data_pl: dict[str, Any] = {**num_cols, **extra_num_cols}
     for name, values in cat_cols.items():
-        if combo.input_type == "polars_enum":
+        if _build_input_type == "polars_enum":
             pool_values = [v for v in values if v is not None]
             enum_type = pl.Enum(sorted(set(pool_values)))
             data_pl[name] = pl.Series(values).cast(enum_type)
-        elif combo.input_type == "polars_nullable":
+        elif _build_input_type == "polars_nullable":
             data_pl[name] = pl.Series(values).cast(pl.Categorical)
         else:  # polars_utf8
             data_pl[name] = pl.Series(values, dtype=pl.Utf8)
