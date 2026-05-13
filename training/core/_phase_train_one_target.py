@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 
+from pyutilz.strings import slugify
+
 logger = logging.getLogger(__name__)
 
 
