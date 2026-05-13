@@ -69,7 +69,6 @@ from ..configs import (
     ReportingConfig,
     TargetTypes,
     TrainingBehaviorConfig,
-    TrainingConfig,
     TrainingSplitConfig,
 )
 from ..baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
@@ -123,23 +122,18 @@ from ...ensembling import score_ensemble
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     _apply_outlier_detection_global,
-    _apply_plot_style_overrides,
     _auto_detect_feature_types,
     _augment_with_dropped_high_card_cols,
     _build_common_params_for_target,
     _build_full_column_from_splits,
     _build_pre_pipelines,
     _build_process_model_kwargs,
-    _build_suite_common_params_dict,
     _build_tier_dfs,
     _compute_fairness_subgroups,
     _convert_dfs_to_pandas,
-    _create_initial_metadata,
-    _detect_dataset_reuse_capabilities,
     _df_shape_str,
     _drop_cols_df,
     _elapsed_str,
-    _ensure_config,
     _ensure_logging_visible,
     _entry_metric,
     _filter_polars_cat_features_by_dtype,
@@ -165,6 +159,29 @@ from ._phase_composite_post import run_composite_post_processing
 from ._phase_temporal_audit import run_temporal_audit_batch
 from ._phase_polars_fixes import apply_polars_categorical_fixes
 from ._phase_recurrent import train_recurrent_models
+from ._phase_finalize import finalize_suite
+from ._phase_config_setup import setup_configuration
+from ._phase_dummy_baselines import run_dummy_baselines
+
+
+def _split_preds_probs(arr):
+    """Regression: 1-D preds; classification: 2-D probs + derived 1-D preds via argmax."""
+    if arr is None:
+        return None, None
+    a = np.asarray(arr)
+    if a.ndim == 2:
+        return np.argmax(a, axis=1), a
+    return a, None
+
+
+def _maybe_clear_shim_cache(est):
+    """Clear XGB/LGB shim caches on estimator if present. Duck-typed via callable check."""
+    fn = getattr(est, "clear_cache", None)
+    if callable(fn):
+        try:
+            fn()
+        except Exception:
+            pass
 
 
 def train_mlframe_models_suite(
@@ -363,259 +380,59 @@ def train_mlframe_models_suite(
         raise ValueError("model_name cannot be empty")
     if features_and_targets_extractor is None:
         raise ValueError("features_and_targets_extractor is required")
-
     # ==================================================================================
-    # 1. CONFIGURATION SETUP
+    # 1. CONFIGURATION SETUP -- extracted helper
     # ==================================================================================
-
-    if verbose:
-        log_phase(f"Starting mlframe training suite: {model_name}")
-
-    # Phase Q wiring: when the user passed a FeatureHandlingConfig,
-    # log the resolved plan and validate against the active model
-    # list so config-mismatch errors surface BEFORE any model fit.
-    # The actual consumer-side wiring (replacing the legacy
-    # pipeline_config + feature_types_config path with FHC-driven
-    # handler outputs) lands in phases F-J.
-    if feature_handling_config is not None:
-        try:
-            from mlframe.training.feature_handling import FeatureHandlingConfig as _FHC
-            if isinstance(feature_handling_config, _FHC):
-                if mlframe_models:
-                    feature_handling_config.validate_against_models(list(mlframe_models))
-                if verbose:
-                    logger.info(
-                        "[fhc] FeatureHandlingConfig active; resolved plan: %s",
-                        feature_handling_config.describe(short=True),
-                    )
-        except ImportError:  # pragma: no cover
-            pass
-
-    # Convert dict configs to Pydantic if needed
-    preprocessing_config = _ensure_config(preprocessing_config, PreprocessingConfig, {})
-    pipeline_config = _ensure_config(pipeline_config, PreprocessingBackendConfig, {})
-    feature_types_config = _ensure_config(feature_types_config, FeatureTypesConfig, {})
-    split_config = _ensure_config(split_config, TrainingSplitConfig, {})
-    hyperparams_config = _ensure_config(hyperparams_config, ModelHyperparamsConfig, {})
-    behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
-    reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
-    # 2026-05-11 (user request): propagate the residual-audit toggle from behavior_config into the evaluation module so ``report_model_perf`` callers (which don't carry a behavior_config reference) honor the suite-level setting. Module-level override; subsequent stand-alone calls keep the historical default since the override only flips while a suite run is in progress.
-    from ..evaluation import _set_residual_audit_enabled as _set_resid_audit
-    _set_resid_audit(getattr(behavior_config, "report_residual_audit", True))
-    # 2026-05-10: honor ReportingConfig.plot_inline_display by setting
-    # the process-wide MLFRAME_PLOT_INLINE_DISPLAY env var that
-    # render_and_save consults. ``None`` = clear override (auto-detect
-    # via __IPYTHON__ / sys.ps1 — existing default behavior); ``True`` /
-    # ``False`` = explicit force. Useful for batch jupyter runs
-    # (papermill / nbconvert / scheduled notebooks) that want save-only
-    # despite running inside a kernel — saves ~50-200 ms / figure of
-    # plotly inline render cost on 4-model x VAL+TEST x 6-ensemble
-    # suites (accumulates to seconds).
-    try:
-        from mlframe.reporting.renderers.save import set_inline_display_mode as _set_idm
-        _set_idm(getattr(reporting_config, "plot_inline_display", None))
-    except Exception:
-        pass
-    # 2026-05-13 (user request): apply matplotlib style + rcParams +
-    # plotly template overrides from reporting_config. Process-wide;
-    # ``None`` keeps the user's pre-suite settings intact.
-    _apply_plot_style_overrides(
-        matplotlib_style=getattr(reporting_config, "matplotlib_style", None),
-        matplotlib_rcparams=getattr(reporting_config, "matplotlib_rcparams", None),
-        plotly_template=getattr(reporting_config, "plotly_template", None),
-        verbose=bool(verbose),
-    )
-    output_config = _ensure_config(output_config, OutputConfig, {})
-    outlier_detection_config = _ensure_config(outlier_detection_config, OutlierDetectionConfig, {})
-    feature_selection_config = _ensure_config(feature_selection_config, FeatureSelectionConfig, {})
-    confidence_analysis_config = _ensure_config(confidence_analysis_config, ConfidenceAnalysisConfig, {})
-    baseline_diagnostics_config = _ensure_config(
-        baseline_diagnostics_config, BaselineDiagnosticsConfig, {}
-    )
-    dummy_baselines_config = _ensure_config(
-        dummy_baselines_config, DummyBaselinesConfig, {}
-    )
-    quantile_regression_config = _ensure_config(
-        quantile_regression_config, QuantileRegressionConfig, {}
-    )
-    # 2026-05-10: pre-warm dummy_baselines numba kernels so the first
-    # multi_output_regression call doesn't pay the 6-10s JIT cold-start.
-    # Cost: one-time ~2-5s on first suite invocation per process; cached
-    # afterwards. No-op when numba unavailable or dummy_baselines disabled.
-    if dummy_baselines_config.enabled:
-        try:
-            from ..dummy_baselines import _warmup_numba_kernels
-            _warmup_numba_kernels()
-        except Exception:
-            pass
-    composite_target_discovery_config = _ensure_config(
-        composite_target_discovery_config, CompositeTargetDiscoveryConfig, {}
-    )
-    # Production kill-switch: if the env var is set, force composite
-    # discovery off regardless of the config the caller passed. Lets
-    # ops disable on deployed services without code changes.
-    import os as _os
-    if _os.environ.get("MLFRAME_DISABLE_COMPOSITE", "").lower() in {"1", "true", "yes"}:
-        composite_target_discovery_config = _ensure_config(
-            {"enabled": False}, CompositeTargetDiscoveryConfig, {}
-        )
-        logger.info(
-            "[CompositeTargetDiscovery] disabled by MLFRAME_DISABLE_COMPOSITE env var."
-        )
-
-    # 2026-04-27: pull scalar fields out of the typed configs for the existing
-    # downstream code that takes plain locals. The scalar names match the
-    # pre-refactor top-level kwargs so the ~100 sites of downstream code don't
-    # need any further churn this revision. Deeper refactors (push the typed
-    # configs down through select_target / process_model / train_and_evaluate_model)
-    # are separate PRs.
-    data_dir = output_config.data_dir
-    models_dir = output_config.models_dir
-    save_charts = output_config.save_charts
-
-    # 2026-05-10 (rec e): surface reporting-knob resolution at suite
-    # entry so the reader knows up-front whether plots will be saved /
-    # rendered / short-circuited. Pre-2026-05-10 the cal-plot short-
-    # circuit (no consumer in non-interactive sessions) was invisible
-    # in logs; this line makes the active path explicit.
-    if verbose:
-        try:
-            _is_interactive_logp = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
-        except NameError:
-            import sys as _sys_logp
-            _is_interactive_logp = hasattr(_sys_logp, "ps1")
-        _plot_dir = (
-            f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
-        )
-        _short_circuit_active = (not _is_interactive_logp) and not save_charts
-        # 2026-05-12 Wave 31: _short_circuit_active was previously ONLY logged
-        # ("ACTIVE (renders skipped)") but the flag was NEVER passed to the
-        # rendering code. The suite still rendered 100+ calibration plots and
-        # saved them to a temp dir that was immediately discarded. On a 1M-row
-        # multiclass combo (c0124), this wasted 42 show_calibration_plot calls
-        # × 576 ms = 24 s, plus 46 savefig calls × 383 ms = 17.6 s, plus
-        # 18 s of thread-lock contention from the parallel chart save threads.
-        # All ~60 s of rendering work was thrown away.
-        #
-        # Fix: when short-circuit is active, clear the model-level plot_file
-        # so show_calibration_plot's ``show_plots and not plot_file`` guard
-        # (metrics.py:1559) fires and returns immediately. The output_config
-        # is not mutated (the string "" is semantic, not a path mutation).
-        if _short_circuit_active:
-            output_config.plot_file = ""
-            logger.info(
-                "[reporting] save_charts=%s, interactive=%s -- "
-                "cal-plot short-circuit ACTIVE: clearing plot_file so "
-                "chart rendering is skipped entirely",
-                save_charts, _is_interactive_logp,
-            )
-        else:
-            logger.info(
-                "[reporting] save_charts=%s, plot_dir=%s, interactive=%s -- "
-                "cal-plot short-circuit INACTIVE (charts will render)",
-                save_charts, _plot_dir, _is_interactive_logp,
-            )
-        # 2026-05-10 perf advisory: warn on the kaleido bottleneck combo
-        # (large dataset + plotly[png] default + save_charts on). Profiled
-        # impact: 76s extra wall-time on a single 1M-row regression x lgb
-        # run (4 chart-emitting points x ~12-15s/kaleido reload).
-        # Multi-model x val+test x ensembles can balloon this to minutes.
-        try:
-            _po = getattr(reporting_config, "plot_outputs", "") or ""
-        except NameError:
-            _po = ""
-        if (
-            save_charts and "plotly" in _po and "png" in _po
-        ):
-            logger.warning(
-                "[reporting] plot_outputs=%r emits PNG via kaleido, which "
-                "spawns ~12-15s per chart on Chromium reload (Win/Linux). "
-                "On large datasets (n>=1M, multi-model x val+test x "
-                "ensembles) this can dominate wall-time by minutes. For "
-                "fast runs use plot_outputs='matplotlib[png]' (10-20x "
-                "faster, no Chromium overhead) or 'plotly[html]' (HTML-"
-                "only, no kaleido at all -- HTML is interactive in jupyter "
-                "and shareable as a file).",
-                _po,
-            )
-    outlier_detector = outlier_detection_config.detector
-    od_val_set = outlier_detection_config.apply_to_val
-    use_mrmr_fs = feature_selection_config.use_mrmr_fs
-    mrmr_kwargs = feature_selection_config.mrmr_kwargs
-    rfecv_models = feature_selection_config.rfecv_models
-    custom_pre_pipelines = feature_selection_config.custom_pre_pipelines if feature_selection_config.custom_pre_pipelines else None
-
-    # 2026-05-12: build common_params_dict (the dict that ferries ReportingConfig
-    # + PreprocessingConfig.{scaler,imputer,category_encoder} + ConfidenceAnalysisConfig
-    # fields down to the deep dict-key consumers in trainer.py) via a dedicated
-    # helper. Pure read-only extraction of values from the three configs.
-    common_params_dict = _build_suite_common_params_dict(
-        reporting_config=reporting_config,
+    _cfg = setup_configuration(
         preprocessing_config=preprocessing_config,
+        pipeline_config=pipeline_config,
+        feature_types_config=feature_types_config,
+        split_config=split_config,
+        hyperparams_config=hyperparams_config,
+        behavior_config=behavior_config,
+        reporting_config=reporting_config,
+        output_config=output_config,
+        outlier_detection_config=outlier_detection_config,
+        feature_selection_config=feature_selection_config,
         confidence_analysis_config=confidence_analysis_config,
-    )
-
-    # Opt-in: install SIGSEGV/SIGABRT handler + suppress Windows WER
-    # popup so native crashes (e.g. XGBoost bad_malloc on too-large
-    # frames) surface as Python tracebacks in Jupyter instead of hanging
-    # the kernel on a modal dialog.
-    if behavior_config.enable_crash_reporting:
-        from mlframe.training.crash_reporting import enable_crash_reporting as _enable_crash_reporting
-        _enable_crash_reporting()
-
-    # Fix 9.4.2: report dataset-reuse capability of the installed GBDT
-    # libraries. CB Pool.set_label/set_weight + CB wrapper's Pool-as-X
-    # short-circuit enable reuse across weight schemas and same-type
-    # targets. XGB/LGB sklearn wrappers currently lack the equivalent
-    # (upstream FRs pending) -- only the per-build logging applies there.
-    _dataset_reuse_caps = _detect_dataset_reuse_capabilities()
-    logger.info("Dataset-reuse capabilities: %s", _dataset_reuse_caps)
-    if not _dataset_reuse_caps.get("cb_pool_label_swap"):
-        logger.warning(
-            "  CatBoost Pool.set_label/set_weight not available in installed build -- "
-            "mlframe will fall back to rebuilding the Pool on every weight schema and "
-            "same-type target. Upgrade CatBoost to pick up the Pool label-swap PR."
-        )
-
-    # Fix 9.4.3: clear the process-wide CB Pool cache at every suite
-    # entry. The cache is keyed on ``id(train_df)`` + column/shape
-    # signature; across independent suite invocations (e.g. successive
-    # pytest tests that each build their own train_df) Python can reuse
-    # ids after GC, and if a later frame happens to have the same
-    # columns + shape, we'd wrongly reuse a stale Pool built from
-    # different underlying data. Clearing per-suite gives us per-run
-    # locality without threading a session token through every strategy.
-    try:
-        from mlframe.training.trainer import (
-            _CB_POOL_CACHE as _cb_cache,
-            _CB_VAL_POOL_CACHE as _cb_val_cache,
-        )
-        _cb_cache.clear()
-        _cb_val_cache.clear()
-    except Exception:
-        pass
-
-    # Default models
-    if mlframe_models is None:
-        mlframe_models = ["cb", "lgb", "xgb", "mlp", "linear"]
-
-    # Metadata for tracking
-    metadata = _create_initial_metadata(
+        baseline_diagnostics_config=baseline_diagnostics_config,
+        dummy_baselines_config=dummy_baselines_config,
+        quantile_regression_config=quantile_regression_config,
+        composite_target_discovery_config=composite_target_discovery_config,
+        feature_handling_config=feature_handling_config,
         model_name=model_name,
         target_name=target_name,
         mlframe_models=mlframe_models,
-        preprocessing_config=preprocessing_config,
-        pipeline_config=pipeline_config,
-        split_config=split_config,
+        verbose=verbose,
     )
-    # 2026-05-10: schema bump for composite-target discovery integration.
-    # v1 = no composite-target keys. v2 adds:
-    # ``composite_target_specs``, ``composite_target_failures``,
-    # ``baseline_diagnostics``. Existing v1 loaders that ``.get(...)``
-    # the new keys with a default continue to work; loaders that hard-
-    # require all-known keys must check ``schema_version >= 2``.
-    metadata["schema_version"] = 2
-
+    # Unpack returned state
+    preprocessing_config = _cfg["preprocessing_config"]
+    pipeline_config = _cfg["pipeline_config"]
+    feature_types_config = _cfg["feature_types_config"]
+    split_config = _cfg["split_config"]
+    hyperparams_config = _cfg["hyperparams_config"]
+    behavior_config = _cfg["behavior_config"]
+    reporting_config = _cfg["reporting_config"]
+    output_config = _cfg["output_config"]
+    outlier_detection_config = _cfg["outlier_detection_config"]
+    feature_selection_config = _cfg["feature_selection_config"]
+    confidence_analysis_config = _cfg["confidence_analysis_config"]
+    baseline_diagnostics_config = _cfg["baseline_diagnostics_config"]
+    dummy_baselines_config = _cfg["dummy_baselines_config"]
+    quantile_regression_config = _cfg["quantile_regression_config"]
+    composite_target_discovery_config = _cfg["composite_target_discovery_config"]
+    data_dir = _cfg["data_dir"]
+    models_dir = _cfg["models_dir"]
+    save_charts = _cfg["save_charts"]
+    outlier_detector = _cfg["outlier_detector"]
+    od_val_set = _cfg["od_val_set"]
+    use_mrmr_fs = _cfg["use_mrmr_fs"]
+    mrmr_kwargs = _cfg["mrmr_kwargs"]
+    rfecv_models = _cfg["rfecv_models"]
+    custom_pre_pipelines = _cfg["custom_pre_pipelines"]
+    common_params_dict = _cfg["common_params_dict"]
+    mlframe_models = _cfg["mlframe_models"]
+    metadata = _cfg["metadata"]
     # ==================================================================================
     # 2. DATA LOADING & PREPROCESSING (extracted 2026-05-12 into a helper)
     # ==================================================================================
@@ -1005,335 +822,34 @@ def train_mlframe_models_suite(
                         cur_target_name, target_type, _bd_err,
                     )
 
-                # 2026-05-10: dummy / trivial-baseline floor (sit-alongside
-                # BaselineDiagnostics). One verdict line at INFO, full table
-                # at DEBUG; per-strongest overlay plot. Wrapped in try/except
-                # — failure to compute the floor must never block training.
-                # D7: phase qualifier per-target_type for [wall-share]
-                # debuggability.
-                try:
-                    if dummy_baselines_config.enabled and (
-                        str(target_type) in dummy_baselines_config.apply_to_target_types
-                    ):
-                        from ..dummy_baselines import compute_dummy_baselines
-
-                        _ts_train = (
-                            timestamps[filtered_train_idx]
-                            if timestamps is not None and filtered_train_idx is not None
-                            else None
-                        )
-                        _ts_val = (
-                            timestamps[filtered_val_idx]
-                            if timestamps is not None and filtered_val_idx is not None
-                            else None
-                        )
-                        _ts_test = (
-                            timestamps[test_idx]
-                            if timestamps is not None and test_idx is not None
-                            else None
-                        )
-                        # Re-attach high-card cat cols dropped earlier so per_group_mean
-                        # can use them as group keys (e.g. well_id with 623 unique values).
-                        _dummy_train_X = filtered_train_df
-                        _dummy_val_X = filtered_val_df
-                        _dummy_test_X = test_df_pd
-                        _dummy_cat_features = list(cat_features or [])
-                        if _dropped_high_card_data:
-                            try:
-                                _dummy_train_X, _dummy_val_X, _dummy_test_X, _added = _augment_with_dropped_high_card_cols(
-                                    _dropped_high_card_data,
-                                    filtered_train_df, filtered_val_df, test_df_pd,
-                                    train_od_idx=train_od_idx, val_od_idx=val_od_idx,
-                                )
-                                if _added:
-                                    _dummy_cat_features.extend(_added)
-                                    logger.debug(
-                                        "[dummy-baselines] re-attached %d auto-dropped high-card cat col(s) for per_group_mean: %s",
-                                        len(_added), _added,
-                                    )
-                            except Exception as _aug_err:
-                                logger.debug(
-                                    "[dummy-baselines] failed to re-attach dropped high-card cat cols (%s); per_group_mean may be missing",
-                                    _aug_err,
-                                )
-                        # Auto-pick quantile_alphas from QuantileRegressionConfig
-                        # so the operator doesn't have to restate them per call.
-                        # Only fires when target_type matches; for non-quantile
-                        # targets the kwarg is ignored by compute_dummy_baselines.
-                        _q_alphas = None
-                        if str(target_type) == "quantile_regression":
-                            _q_alphas = list(getattr(
-                                quantile_regression_config, "alphas", ()
-                            ) or ())
-                            if not _q_alphas:
-                                _q_alphas = None
-                        with phase(f"dummy_baselines:{str(target_type)}", target=cur_target_name):
-                            _db_report = compute_dummy_baselines(
-                                target_type=str(target_type),
-                                target_name=cur_target_name,
-                                train_X=_dummy_train_X,
-                                val_X=_dummy_val_X,
-                                test_X=_dummy_test_X,
-                                train_y=current_train_target,
-                                val_y=current_val_target,
-                                test_y=current_test_target,
-                                timestamps_train=_ts_train,
-                                timestamps_val=_ts_val,
-                                timestamps_test=_ts_test,
-                                cat_features=_dummy_cat_features,
-                                quantile_alphas=_q_alphas,
-                                config=dummy_baselines_config,
-                                plot_file_prefix=(plot_file or ""),
-                            )
-                        logger.info(_db_report.format_text())
-                        logger.debug(
-                            "[dummy-baselines] target='%s' full table:\n%s",
-                            cur_target_name, _db_report.table.to_string(),
-                        )
-                        # 2026-05-11 (round 2): report the strongest
-                        # dummy baseline through the SAME
-                        # ``report_model_perf`` pipeline that all
-                        # real models go through. Yields the same
-                        # text report (MAE/RMSE/MaxError/R2 +
-                        # residual_audit verdict) AND the same chart
-                        # (regression scatter + residual hist for
-                        # regression; calibration + prob-hist for
-                        # classification) as cb/xgb/lgb/linear. The
-                        # earlier standalone overlay helper was
-                        # cosmetically different from the model
-                        # reports; user wants ONE format. Gated on
-                        # ``dummy_baselines_config.plot_strongest``
-                        # (default ON).
-                        if (getattr(dummy_baselines_config,
-                                    "plot_strongest", True)
-                                and _db_report.strongest is not None):
-                            try:
-                                from ..evaluation import report_model_perf
-                                _strongest_val_raw = _db_report.extras.get(
-                                    "strongest_val_preds",
-                                )
-                                _strongest_test_raw = _db_report.extras.get(
-                                    "strongest_test_preds",
-                                )
-                                # 2026-05-12 (user request): mirror the real-
-                                # model title format so plots are not
-                                # anonymous. Real models hit
-                                # ``{ModelClass} {target_name} {model_name} {target_col} {MT*-tag}``
-                                # (see train_eval._build_chart_title);
-                                # the dummy gets the same suffix so the
-                                # operator can see which target / experiment
-                                # the scatter belongs to.
-                                from .._format import format_metric as _dummy_fmt
-                                from ..composite_transforms import is_composite_target_name
-                                _dummy_is_composite = is_composite_target_name(cur_target_name)
-                                _dummy_mt_tag = (
-                                    "MTRESID" if _dummy_is_composite else "MTTR"
-                                )
-                                try:
-                                    if current_train_target is not None and len(current_train_target) > 0:
-                                        _dummy_mt_val = float(
-                                            np.asarray(current_train_target).mean()
-                                        )
-                                        _dummy_mt_suffix = (
-                                            f" {_dummy_mt_tag}={_dummy_fmt(_dummy_mt_val)}"
-                                        )
-                                    else:
-                                        _dummy_mt_suffix = ""
-                                except Exception:
-                                    _dummy_mt_suffix = ""
-                                _dummy_name = (
-                                    f"DummyBaseline:{_db_report.strongest} "
-                                    f"{target_name} {model_name} {cur_target_name}"
-                                    f"{_dummy_mt_suffix}"
-                                )
-
-                                def _split_preds_probs(arr):
-                                    """Regression: 1-D ``preds``;
-                                    classification: 2-D ``probs`` +
-                                    derived 1-D ``preds`` via argmax."""
-                                    if arr is None:
-                                        return None, None
-                                    a = np.asarray(arr)
-                                    if a.ndim == 2:
-                                        # Classification dummy: arr
-                                        # is per-class probability.
-                                        return np.argmax(a, axis=1), a
-                                    return a, None
-
-                                _common = dict(
-                                    columns=list(
-                                        getattr(filtered_train_df,
-                                                "columns", []) or []
-                                    ),
-                                    df=None, model=None,
-                                    model_name=_dummy_name,
-                                    plot_outputs=getattr(
-                                        reporting_config,
-                                        "plot_outputs", None,
-                                    ),
-                                    plot_dpi=getattr(
-                                        reporting_config,
-                                        "plot_dpi", None,
-                                    ),
-                                    show_fi=False,
-                                    target_type=str(target_type),
-                                )
-                                if (_strongest_val_raw is not None
-                                        and current_val_target is not None):
-                                    _vp, _vpr = _split_preds_probs(
-                                        _strongest_val_raw,
-                                    )
-                                    _common_val = dict(_common)
-                                    if plot_file:
-                                        _common_val["plot_file"] = (
-                                            f"{plot_file}"
-                                            f"_dummy_{_db_report.strongest}_val"
-                                        )
-                                    report_model_perf(
-                                        targets=current_val_target,
-                                        preds=_vp, probs=_vpr,
-                                        report_title="VAL (DUMMY) ",
-                                        **_common_val,
-                                    )
-                                if (_strongest_test_raw is not None
-                                        and current_test_target is not None):
-                                    _tp, _tpr = _split_preds_probs(
-                                        _strongest_test_raw,
-                                    )
-                                    _common_test = dict(_common)
-                                    if plot_file:
-                                        _common_test["plot_file"] = (
-                                            f"{plot_file}"
-                                            f"_dummy_{_db_report.strongest}_test"
-                                        )
-                                    report_model_perf(
-                                        targets=current_test_target,
-                                        preds=_tp, probs=_tpr,
-                                        report_title="TEST (DUMMY) ",
-                                        **_common_test,
-                                    )
-                            except Exception as _plot_err:
-                                logger.warning(
-                                    "[dummy-baselines] target='%s' "
-                                    "report_model_perf for dummy "
-                                    "failed: %s. Training continues "
-                                    "without pre-training floor "
-                                    "report.",
-                                    cur_target_name, _plot_err,
-                                )
-                        metadata.setdefault("dummy_baselines", {}) \
-                            .setdefault(str(target_type), {})[cur_target_name] = _db_report.to_dict()
-                        # 2026-05-11: y-scale dummy for composite targets.
-                        # If ``cur_target_name`` matches a composite spec,
-                        # the dummy report above is on the T-scale (e.g.
-                        # ``median(T_train)``) which is apples-to-oranges
-                        # vs raw-target dummy (median(y_train)) and ALSO
-                        # vs the wrapped composite model whose RMSE is
-                        # reported y-scale post-wrap. Invert the strongest
-                        # dummy predictions to y-scale via the spec's
-                        # ``transform.inverse`` and recompute RMSE / MAE
-                        # against the raw y so the suite-end verdict block
-                        # compares both numbers on the same scale.
-                        _specs_for_tt = (
-                            metadata.get("composite_target_specs", {})
-                            .get(str(target_type), {})
-                        )
-                        _matching_spec = None
-                        for _tname_specs in _specs_for_tt.values():
-                            for _s in _tname_specs or []:
-                                if _s.get("name") == cur_target_name:
-                                    _matching_spec = _s
-                                    break
-                            if _matching_spec is not None:
-                                break
-                        if (_matching_spec is not None
-                                and _db_report.strongest is not None
-                                and _db_report.extras.get("strongest_val_preds")
-                                is not None):
-                            try:
-                                from ..composite import get_transform
-                                _tf = get_transform(
-                                    _matching_spec["transform_name"]
-                                )
-                                _fp = _matching_spec["fitted_params"]
-                                _base_col = _matching_spec["base_column"]
-                                _raw_target_col = _matching_spec["target_col"]
-                                _raw_y_full = target_by_type.get(
-                                    target_type, {}
-                                ).get(_raw_target_col)
-                                _y_scale_dummy_metrics: Dict[str, Dict[str, float]] = {}
-                                for _split_name, _split_df, _split_idx, _T_preds_key in (
-                                    ("val", filtered_val_df, filtered_val_idx,
-                                     "strongest_val_preds"),
-                                    ("test", test_df_pd, test_idx,
-                                     "strongest_test_preds"),
-                                ):
-                                    _T_preds = _db_report.extras.get(_T_preds_key)
-                                    if (_T_preds is None or _split_df is None
-                                            or _split_idx is None
-                                            or _raw_y_full is None
-                                            or _base_col not in _split_df.columns):
-                                        continue
-                                    _base_split = np.asarray(
-                                        _split_df[_base_col], dtype=np.float64,
-                                    )
-                                    _y_dummy_split = _tf.inverse(
-                                        np.asarray(_T_preds, dtype=np.float64),
-                                        _base_split, _fp,
-                                    )
-                                    _y_true_split = np.asarray(
-                                        _raw_y_full, dtype=np.float64,
-                                    )[_split_idx]
-                                    _diff = (
-                                        _y_dummy_split.astype(np.float64)
-                                        - _y_true_split
-                                    )
-                                    _finite = np.isfinite(_diff)
-                                    if _finite.sum() == 0:
-                                        continue
-                                    _y_scale_dummy_metrics[_split_name] = {
-                                        "RMSE": float(np.sqrt(np.mean(
-                                            _diff[_finite] * _diff[_finite]
-                                        ))),
-                                        "MAE": float(np.mean(np.abs(
-                                            _diff[_finite]
-                                        ))),
-                                        "n_rows_finite": int(_finite.sum()),
-                                    }
-                                if _y_scale_dummy_metrics:
-                                    metadata["dummy_baselines"][str(target_type)][
-                                        cur_target_name
-                                    ]["y_scale_strongest_metrics"] = (
-                                        _y_scale_dummy_metrics
-                                    )
-                                    _ys_log_parts = [
-                                        f"{k.upper()}=RMSE_y:{v['RMSE']:.4g} "
-                                        f"MAE_y:{v['MAE']:.4g}"
-                                        for k, v in _y_scale_dummy_metrics.items()
-                                    ]
-                                    logger.info(
-                                        "[DUMMY_BASELINES] composite='%s' "
-                                        "strongest='%s' y-scale metrics "
-                                        "(inverted from T via %s): %s",
-                                        cur_target_name, _db_report.strongest,
-                                        _matching_spec["transform_name"],
-                                        " | ".join(_ys_log_parts),
-                                    )
-                            except Exception as _yscale_err:
-                                logger.warning(
-                                    "[DUMMY_BASELINES] failed to compute "
-                                    "y-scale dummy for composite '%s': %s. "
-                                    "T-scale metrics remain in metadata.",
-                                    cur_target_name, _yscale_err,
-                                )
-                except Exception as _db_err:
-                    logger.warning(
-                        "[DUMMY_BASELINES] FAILED target='%s' (%s): %s. "
-                        "Training continues without baseline floor.",
-                        cur_target_name, target_type, _db_err,
-                    )
-                    metadata.setdefault("dummy_baselines_failures", {}) \
-                        .setdefault(str(target_type), {})[cur_target_name] = str(_db_err)
+                # Dummy baselines diagnostic -- extracted helper
+                metadata = run_dummy_baselines(
+                    target_type=target_type,
+                    cur_target_name=cur_target_name,
+                    target_name=target_name,
+                    model_name=model_name,
+                    current_train_target=current_train_target,
+                    current_val_target=current_val_target,
+                    current_test_target=current_test_target,
+                    filtered_train_df=filtered_train_df,
+                    filtered_val_df=filtered_val_df,
+                    test_df_pd=test_df_pd,
+                    filtered_train_idx=filtered_train_idx,
+                    filtered_val_idx=filtered_val_idx,
+                    test_idx=test_idx,
+                    timestamps=timestamps,
+                    cat_features=cat_features,
+                    dummy_baselines_config=dummy_baselines_config,
+                    quantile_regression_config=quantile_regression_config,
+                    reporting_config=reporting_config,
+                    _dropped_high_card_data=_dropped_high_card_data,
+                    train_od_idx=train_od_idx,
+                    val_od_idx=val_od_idx,
+                    plot_file=plot_file,
+                    metadata=metadata,
+                    target_by_type=target_by_type,
+                    _split_preds_probs=_split_preds_probs,
+                )
 
                 # Look up the precomputed temporal audit (built ONCE
                 # for all targets above the loop via the batch API).
@@ -2303,13 +1819,6 @@ def train_mlframe_models_suite(
                     # Duck-typed: only the shims expose ``clear_cache()``.
                     # CB / sklearn estimators skip harmlessly via the
                     # ``callable`` check.
-                    def _maybe_clear_shim_cache(est):
-                        fn = getattr(est, "clear_cache", None)
-                        if callable(fn):
-                            try:
-                                fn()
-                            except Exception:
-                                pass
                     # Template held under models_params; release its cache.
                     _maybe_clear_shim_cache(original_model)
                     # Each previously-fitted model snapshot parked in
@@ -2350,9 +1859,7 @@ def train_mlframe_models_suite(
                     #   >4        -> "[N=5]" (avoid bloated titles)
                     # 2026-05-11 (user request): delegate to the shared ``short_model_tag`` helper, which ALSO strips the internal shim suffixes (``WithDMatrixReuse`` / ``WithDatasetReuse``) so ``LinearRegression`` stays as ``LinearRegression`` in the label, but ``XGBRegressorWithDMatrixReuse`` collapses to ``xgb`` (was already correct for tree families via prefix match; this also handles any future shimmed non-tree class cleanly).
                     from .._format import short_model_tag as _short_tag_fn
-                    def _short_model_tag(ns):
-                        return _short_tag_fn(getattr(ns, "model", ns))
-                    _member_tags = [_short_model_tag(m) for m in ens_models]
+                    _member_tags = [_short_tag_fn(getattr(m, "model", m)) for m in ens_models]
                     if len(_member_tags) <= 4:
                         _members_label = "[" + "+".join(_member_tags) + "]"
                     else:
@@ -2392,27 +1899,9 @@ def train_mlframe_models_suite(
     if verbose:
         log_phase(f"Training suite completed for {model_name}, {sum(len(v) for targets in models.values() for v in targets.values())} models.")
         log_ram_usage()
-
-    # Aggregate per-model fairness_report into metadata so callers can access it without
-    # re-walking the models dict. Trainer stores fairness_report in model.metrics[split].
-    # Fix date 2026-04-15: bug B (fairness_report not propagated into suite metadata).
-    fairness_reports: Dict[str, Any] = {}
-    for _ttype, _targets in models.items():
-        for _tname, _model_list in _targets.items():
-            for _m in _model_list:
-                _m_metrics = getattr(_m, "metrics", None)
-                if not isinstance(_m_metrics, dict):
-                    continue
-                for _split in ("test", "val", "train"):
-                    _split_metrics = _m_metrics.get(_split)
-                    if isinstance(_split_metrics, dict) and "fairness_report" in _split_metrics:
-                        _key = f"{_ttype}__{_tname}__{getattr(_m, 'model_name', type(getattr(_m, 'model', _m)).__name__)}__{_split}"
-                        fairness_reports[_key] = _split_metrics["fairness_report"]
-    if fairness_reports:
-        metadata["fairness_report"] = fairness_reports
-
-    # Save metadata again with slug-to-original name mappings (for load_mlframe_suite)
-    _finalize_and_save_metadata(
+    # Suite-end finalization (fairness reports, phase summaries, selected features) -- extracted helper
+    metadata = finalize_suite(
+        models=models,
         metadata=metadata,
         outlier_detector=outlier_detector,
         outlier_detection_result=outlier_detection_result,
@@ -2421,97 +1910,11 @@ def train_mlframe_models_suite(
         models_dir=models_dir,
         target_name=target_name,
         model_name=model_name,
-        verbose=0,  # Silent to avoid duplicate log messages
         slug_to_original_target_type=slug_to_original_target_type,
         slug_to_original_target_name=slug_to_original_target_name,
+        _finalize_and_save_metadata=_finalize_and_save_metadata,
+        verbose=bool(verbose),
     )
-
-    if verbose:
-        logger.info("[phases] Top phases by wall-clock time:\n%s", format_phase_summary())
-
-        # 2026-05-10 (rec f): top-N wall-share so the reader immediately
-        # sees where the time went vs total. Reads from the same phase
-        # registry as ``format_phase_summary``; percentages computed
-        # against the longest-running phase (effectively the suite root).
-        # Helps spot plot/render-bound vs train-bound runs at a glance.
-        try:
-            from ..phases import phase_snapshot
-            _snap = phase_snapshot()
-            if _snap:
-                _root_wall = _snap[0][1] if _snap else 0.0
-                if _root_wall > 0:
-                    _share_str = ", ".join(
-                        f"{p}={tot/_root_wall*100:.1f}%"
-                        for p, tot, _ in _snap[:8]
-                    )
-                    logger.info("[wall-share] top: %s", _share_str)
-        except Exception:
-            pass
-
-        # Kaleido oneshot fallback summary (rec b cont'd): if any plotly
-        # PNG/SVG/PDF saves took the slow oneshot path, surface the
-        # cumulative cost so the reader knows the ROI of upgrading
-        # kaleido. The per-call warning was suppressed (idempotent),
-        # so this is the canonical place to learn about it.
-        try:
-            from mlframe.reporting.renderers.plotly import (
-                get_kaleido_oneshot_stats, reset_kaleido_oneshot_stats,
-            )
-            _kal_n, _kal_wall = get_kaleido_oneshot_stats()
-            if _kal_n > 0:
-                logger.info(
-                    "[plotly-render] kaleido oneshot fallback fired %d times "
-                    "(cumulative %.1fs wall, %.0fms/call avg). Persistent "
-                    "sync-server path would be ~10-100x faster -- upgrade "
-                    "kaleido (>=1.x ships ``start_sync_server``) to enable.",
-                    _kal_n, _kal_wall, (_kal_wall / _kal_n) * 1000,
-                )
-            reset_kaleido_oneshot_stats()
-        except Exception:
-            pass
-
-    # Surface the selected-features list per trained model so callers
-    # can introspect feature-selection outputs (MRMR / RFECV) without
-    # walking the nested entry namespace. Aggregate every entry's
-    # ``columns`` (post-pipeline feature list) under
-    # ``metadata['selected_features']`` keyed by ``f"{target_type}/{target_name}/{model_name}"``
-    # plus a flat ``metadata['all_selected_features']`` union for the
-    # common bizvalue pattern of "did any model keep the informative
-    # feature?". 2026-04-27 (batch 3): unblocks the three xfails in
-    # ``tests/training/test_bizvalue_feature_selection.py`` that
-    # previously said "selected features not surfaced on suite outputs".
-    _selected_features_per_model: dict = {}
-    _selected_features_union: set = set()
-    for _tt, _by_name in (models or {}).items():
-        if not isinstance(_by_name, dict):
-            continue
-        for _tn, _entries in _by_name.items():
-            if not isinstance(_entries, list):
-                continue
-            for _entry in _entries:
-                _cols = getattr(_entry, "columns", None)
-                _mn = getattr(_entry, "model_name", None) or ""
-                if _cols is None:
-                    continue
-                _key = f"{_tt}/{_tn}/{_mn}" if _mn else f"{_tt}/{_tn}"
-                _selected_features_per_model[_key] = list(_cols)
-                _selected_features_union.update(_cols)
-                # Also expose ``selected_features_`` directly on the
-                # entry so the standard sklearn-style probe finds it
-                # (matches ``getattr(entry, 'selected_features_')``).
-                try:
-                    _entry.selected_features_ = list(_cols)
-                except Exception:
-                    pass
-    if _selected_features_per_model:
-        # Flat sorted union (column names) -- matches the existing
-        # ``_collect_selected_features`` probe in the bizvalue tests
-        # which does ``list(metadata['selected_features'])`` and
-        # checks INFORMATIVE_NAMES membership. Per-model breakdown
-        # surfaces under a separate key so callers wanting the
-        # diagnostic detail can find it.
-        metadata["selected_features"] = sorted(_selected_features_union)
-        metadata["selected_features_per_model"] = _selected_features_per_model
 
     # ==================================================================================
     # 6-7. COMPOSITE POST-PROCESSING (wrapping + cross-target ensemble + suite-end summary) -- extracted helper

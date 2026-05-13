@@ -16,7 +16,9 @@ import pandas as pd
 
 from sklearn.utils.validation import check_is_fitted
 
-from mlframe.helpers import ensure_no_infinity, ensure_dir_exists, slugify
+from mlframe.helpers import ensure_no_infinity
+from pyutilz.system import ensure_dir_exists
+from pyutilz.strings import slugify
 from mlframe.config import TABNET_MODEL_TYPES
 
 from ._pipeline_helpers import _extract_feature_selector, _prepare_test_split

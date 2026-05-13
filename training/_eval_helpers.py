@@ -1,6 +1,7 @@
 """Evaluation helpers extracted from ``trainer.py``.
 
 Post-training evaluation: metric computation, feature importance,
+import re
 confidence analysis, XGB category alignment, column decategorisation.
 """
 

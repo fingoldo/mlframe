@@ -22,6 +22,7 @@ from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
 from sklearn.preprocessing import LabelEncoder
 
 from .phases import phase
+from .configs import DEFAULT_REPORT_NDIGITS, DEFAULT_FIGSIZE, DEFAULT_NBINS, DEFAULT_PLOT_SAMPLE_SIZE
 
 logger = logging.getLogger(__name__)
 

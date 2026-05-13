@@ -61,6 +61,49 @@ try:
 except ImportError:  # pragma: no cover
     LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
 
+# 2026-05-13 refactor: extracted modules
+from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
+from ._pipeline_helpers import (  # noqa: E402,F401
+    _apply_pre_pipeline_transforms, _extract_feature_selector,
+    _is_fitted, _multilabel_target_to_1d_for_supervised_encoders,
+    _passthrough_cols_fit_transform, _prepare_test_split,
+)
+from ._cb_pool import (  # noqa: E402,F401
+    _cached_gpu_info, _maybe_get_or_build_cb_pool,
+    _maybe_rewrite_eval_set_as_cb_pool, _polars_fill_null_in_categorical,
+    _polars_schema_diagnostic,
+)
+from ._eval_helpers import (  # noqa: E402,F401
+    _align_xgb_cat_categories, _append_split_rate_suffix,
+    _compute_split_metrics, _decategorise_float_cat_columns,
+    _filter_categorical_features, run_confidence_analysis,
+)
+from ._training_loop import (  # noqa: E402,F401
+    _SigmoidAdapter, _PostHocCalibratedModel,
+    _PostHocMultiCalibratedModel, _PerClassIsotonicCalibrator,
+    _maybe_apply_posthoc_calibration, _train_model_with_fallback,
+    _handle_oom_error, _setup_eval_set, _setup_early_stopping_callback,
+)
+from ._model_factories import (  # noqa: E402,F401
+    MODELS_SUBDIR, _get_flaml_zeroshot, _get_neural_components,
+    _lgb_classifier_cls, _lgb_regressor_cls,
+    _patch_dataset_constructors_with_logging,
+    _patch_lgb_feature_names_in_setter,
+    _xgb_classifier_cls, _xgb_regressor_cls,
+)
+from ._data_helpers import (  # noqa: E402,F401
+    _disable_xgboost_early_stopping_if_needed, _extract_target_subset,
+    _extract_targets_from_indices, _initialize_mutable_defaults,
+    _normalize_multilabel_target, _prepare_df_for_model,
+    _prepare_train_df_for_fitting, _setup_model_info_and_paths,
+    _setup_sample_weight, _strip_internal_model_suffixes,
+    _subset_dataframe, _update_model_name_after_training,
+    _validate_infinity_and_columns, _validate_target_values,
+    _validate_trusted_path, get_function_param_names,
+)
+
+_CB_POOL_CACHE: "Dict[tuple, Any]" = {}
+
 
 def _build_configs_from_params(
     # Data params
