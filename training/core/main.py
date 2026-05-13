@@ -2757,11 +2757,15 @@ def train_mlframe_models_suite(
                         _is_neural = is_neural_model(mlframe_model_name)
                         if _is_neural and _non_neural_train_times:
                             _p95 = float(np.percentile(_non_neural_train_times, 95))
-                            _max_sec = max(int(round(_p95)), 30)
+                            # Floor: 5 min (300 s) so LightGBM/CB don't
+                            # produce a sub-minute P95 that rounds to
+                            # 0h0m → Lightning stops immediately.
+                            _max_sec = max(int(round(_p95)), 300)
                             _dd = _max_sec // 86400
                             _hh = (_max_sec % 86400) // 3600
                             _mm = (_max_sec % 3600) // 60
-                            _max_time_dict = {"days": _dd, "hours": _hh, "minutes": _mm}
+                            _ss = _max_sec % 60
+                            _max_time_dict = {"days": _dd, "hours": _hh, "minutes": _mm, "seconds": _ss}
                             # MLP is Pipeline(StandardScaler, TTR(PytorchLightningRegressor(...)))
                             _neural_model = current_model_params.get("model")
                             if _neural_model is not None:
@@ -2775,9 +2779,9 @@ def train_mlframe_models_suite(
                                     _inner.trainer_params["max_time"] = _max_time_dict
                                     if verbose:
                                         logger.info(
-                                            "  [NeuralTimeout] %s max_time=%dh%02dm "
+                                            "  [NeuralTimeout] %s max_time=%dh%02dm%02ds "
                                             "(P95 of %d prior non-neural train times: %.0fs)",
-                                            mlframe_model_name, _hh, _mm,
+                                            mlframe_model_name, _hh, _mm, _ss,
                                             len(_non_neural_train_times), _p95,
                                         )
 
@@ -3091,20 +3095,22 @@ def train_mlframe_models_suite(
                     # the per-model loop above).
                     if _non_neural_train_times:
                         _p95_r = float(np.percentile(_non_neural_train_times, 95))
-                        _max_s_r = max(int(round(_p95_r)), 30)
+                        _max_s_r = max(int(round(_p95_r)), 300)
                         _dd_r = _max_s_r // 86400
                         _hh_r = (_max_s_r % 86400) // 3600
                         _mm_r = (_max_s_r % 3600) // 60
+                        _ss_r = _max_s_r % 60
                         _r_inner = getattr(model_clone, "regressor", model_clone)
                         if hasattr(_r_inner, "trainer_params"):
                             _r_inner.trainer_params["max_time"] = {
-                                "days": _dd_r, "hours": _hh_r, "minutes": _mm_r,
+                                "days": _dd_r, "hours": _hh_r,
+                                "minutes": _mm_r, "seconds": _ss_r,
                             }
                             if verbose:
                                 logger.info(
-                                    "  [NeuralTimeout] %s max_time=%dh%02dm "
+                                    "  [NeuralTimeout] %s max_time=%dh%02dm%02ds "
                                     "(P95 of %d prior non-neural train times: %.0fs)",
-                                    recurrent_model_name, _hh_r, _mm_r,
+                                    recurrent_model_name, _hh_r, _mm_r, _ss_r,
                                     len(_non_neural_train_times), _p95_r,
                                 )
 

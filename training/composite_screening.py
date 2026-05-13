@@ -282,8 +282,14 @@ def _mi_to_target_prebinned(
     np.clip(t_idx, 0, nbins - 1, out=t_idx)
     per_feat = np.empty(fb_f.shape[1], dtype=np.float64)
     for j in range(fb_f.shape[1]):
+        col_b = fb_f[:, j]
+        # Filter out -1 sentinel (non-finite feature rows) for this column
+        col_valid = col_b >= 0
+        if col_valid.sum() < 5 * nbins:
+            per_feat[j] = 0.0
+            continue
         per_feat[j] = _mi_from_binned_pair(
-            fb_f[:, j], t_idx, nbins=nbins,
+            col_b[col_valid], t_idx[col_valid], nbins=nbins,
         )
     if aggregation == "sum":
         return float(np.sum(per_feat))

@@ -2539,21 +2539,27 @@ def _predict_with_fallback(
             raise
         logger.warning(
             "[NaN-guard] %s X contains NaN; applying one-shot "
-            "SimpleImputer before predict (n_rows=%s).",
+            "SimpleImputer + StandardScaler before predict "
+            "(n_rows=%s).  This is a safety net for the cache-hit "
+            "path where the strategy pre_pipeline was skipped.",
             type(model).__name__, n_rows,
         )
         from sklearn.impute import SimpleImputer as _SI
+        from sklearn.preprocessing import StandardScaler as _SS
         if hasattr(X, "to_numpy"):
             _arr = X.to_numpy(dtype=np.float64)
         elif hasattr(X, "values"):
             _arr = np.asarray(X.values, dtype=np.float64)
         else:
             _arr = np.asarray(X, dtype=np.float64)
-        _arr = _SI(strategy="mean").fit_transform(_arr)
+        _arr = _SS().fit_transform(_SI(strategy="mean").fit_transform(_arr))
         # Re-wrap as DataFrame if X was one.
         if hasattr(X, "columns"):
             import pandas as pd
-            X_clean = pd.DataFrame(_arr, columns=list(X.columns), index=getattr(X, "index", None))
+            X_clean = pd.DataFrame(
+                _arr, columns=list(X.columns),
+                index=getattr(X, "index", None),
+            )
         else:
             X_clean = _arr
         return fn(X_clean)
