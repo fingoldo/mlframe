@@ -147,6 +147,11 @@ def main():
                                 # don't run away on order=3 + 1M combos.
                                 # Production users keep the default (unlimited).
                                 "max_runtime_mins": 5,
+                                # n_jobs=1 runs FE in the MAIN process so
+                                # cProfile sees the actual FE kernel cost.
+                                # Default (n_jobs=-1) fans out to joblib
+                                # workers whose work is invisible to cProfile.
+                                "n_jobs": getattr(args, "mrmr_n_jobs", None) or 1,
                             }.items() if v is not None
                         }
                         if combo.use_mrmr_fs and (
@@ -154,7 +159,7 @@ def main():
                             or args.mrmr_fe_max_steps is not None
                         )
                         else (
-                            {"max_runtime_mins": 5}
+                            {"max_runtime_mins": 5, "n_jobs": getattr(args, "mrmr_n_jobs", None) or 1}
                             if combo.use_mrmr_fs else None
                         )
                     ),
