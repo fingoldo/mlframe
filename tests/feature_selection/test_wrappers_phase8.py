@@ -15,7 +15,14 @@ from sklearn.datasets import make_classification, make_regression
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 from sklearn.model_selection import TimeSeriesSplit, KFold, StratifiedKFold
 
-from mlframe.feature_selection.wrappers import RFECV
+# Lazy import — RFECV pulls in heavy training modules that OOM
+# during collection when loaded alongside filters/* tests.
+# from mlframe.feature_selection.wrappers import RFECV
+
+
+def _rfecv(**kw):
+    from mlframe.feature_selection.wrappers import RFECV
+    return _rfecv(**kw)
 
 
 # ----------------------------------------------------------------------------
@@ -23,14 +30,14 @@ from mlframe.feature_selection.wrappers import RFECV
 # ----------------------------------------------------------------------------
 class TestSklearnTags:
     def test_classifier_estimator_marks_classifier(self):
-        rfecv = RFECV(estimator=LogisticRegression(max_iter=200))
+        rfecv = _rfecv(estimator=LogisticRegression(max_iter=200))
         tags = rfecv.__sklearn_tags__()
         assert tags.estimator_type == "classifier", (
             f"RFECV around a classifier should report estimator_type='classifier'; got {tags.estimator_type}"
         )
 
     def test_regressor_estimator_marks_regressor(self):
-        rfecv = RFECV(estimator=Ridge())
+        rfecv = _rfecv(estimator=Ridge())
         tags = rfecv.__sklearn_tags__()
         assert tags.estimator_type == "regressor", (
             f"RFECV around a regressor should report estimator_type='regressor'; got {tags.estimator_type}"
@@ -38,7 +45,7 @@ class TestSklearnTags:
 
     def test_multi_estimator_uses_first(self):
         """When ``estimators=[clf1, clf2]`` is set, tags follow the first."""
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=None,
             estimators=[LogisticRegression(max_iter=200), LogisticRegression(max_iter=200)],
         )
@@ -46,8 +53,8 @@ class TestSklearnTags:
         assert tags.estimator_type == "classifier"
 
     def test_no_estimator_returns_default_tags(self):
-        """Bare RFECV() (no estimator yet) should still return a Tags dataclass."""
-        rfecv = RFECV()
+        """Bare _rfecv() (no estimator yet) should still return a Tags dataclass."""
+        rfecv = _rfecv()
         tags = rfecv.__sklearn_tags__()
         # Type check only - default should be the parent's tags (no crash).
         assert tags is not None
@@ -74,7 +81,7 @@ class TestCvAutoDetect:
             columns=[f"f{i}" for i in range(5)],
             index=pd.date_range("2024-01-01", periods=n, freq="D"),
         )
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LinearRegression(),
             cv=3, max_refits=3, verbose=1, random_state=0,
         )
@@ -99,7 +106,7 @@ class TestCvAutoDetect:
             columns=[f"f{i}" for i in range(5)],
             index=idx[rng.permutation(n)],
         )
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LinearRegression(),
             cv=3, max_refits=3, verbose=1, random_state=0,
         )
@@ -122,7 +129,7 @@ class TestCvAutoDetect:
             index=pd.date_range("2024-01-01", periods=n, freq="D"),
         )
         explicit_cv = KFold(n_splits=3, shuffle=False)
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LinearRegression(),
             cv=explicit_cv, max_refits=3, verbose=0, random_state=0,
         )
@@ -140,7 +147,7 @@ class TestCvResultsDataFrame:
             n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
         ).fit(Xdf, y)
@@ -154,7 +161,7 @@ class TestCvResultsDataFrame:
             n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
         ).fit(Xdf, y)
@@ -164,7 +171,7 @@ class TestCvResultsDataFrame:
             assert df[col].tolist() == list(rfecv.cv_results_[col]), col
 
     def test_property_raises_before_fit(self):
-        rfecv = RFECV(estimator=LogisticRegression())
+        rfecv = _rfecv(estimator=LogisticRegression())
         with pytest.raises(ValueError, match="cv_results_df_"):
             _ = rfecv.cv_results_df_
 
@@ -175,7 +182,7 @@ class TestCvResultsDataFrame:
             n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
         ).fit(Xdf, y)
@@ -195,7 +202,7 @@ class TestSffsSwap:
             n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
             # swap_top_k default = 0
@@ -214,7 +221,7 @@ class TestSffsSwap:
             n_redundant=0, random_state=0, shuffle=False, class_sep=3.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=300, random_state=0),
             cv=3, max_refits=6, verbose=1, random_state=0,
             swap_top_k=3,
@@ -236,11 +243,11 @@ class TestSffsSwap:
             n_redundant=0, random_state=0, shuffle=False, class_sep=3.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
-        baseline = RFECV(
+        baseline = _rfecv(
             estimator=LogisticRegression(max_iter=300, random_state=0),
             cv=3, max_refits=6, verbose=0, random_state=0,
         ).fit(Xdf, y)
-        swapped = RFECV(
+        swapped = _rfecv(
             estimator=LogisticRegression(max_iter=300, random_state=0),
             cv=3, max_refits=6, verbose=0, random_state=0,
             swap_top_k=3,
@@ -259,7 +266,7 @@ class TestSffsSwap:
             random_state=0, shuffle=False, noise=1.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(6)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LinearRegression(),
             cv=3, max_refits=4, verbose=0, random_state=0,
             swap_top_k=2,
@@ -282,7 +289,7 @@ class TestAdaptiveOptimizerSurrogate:
             random_state=0, noise=0.5,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=Ridge(random_state=0),
             cv=3, max_refits=8, verbose=0, random_state=0,
             # optimizer_config left as None -> auto-tune kicks in
@@ -303,7 +310,7 @@ class TestAdaptiveOptimizerSurrogate:
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         # Force CatBoost surrogate even on a tiny budget.
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=Ridge(random_state=0),
             cv=3, max_refits=8, verbose=0, random_state=0,
             optimizer_config={"model_name": "CBQ", "model_params": {"iterations": 30}},
@@ -314,7 +321,7 @@ class TestAdaptiveOptimizerSurrogate:
         """When the user passes model_name='CBQ' with explicit
         iterations, RFECV must NOT auto-fill the iterations field."""
         # This is a lightweight white-box check via the constructor only.
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=Ridge(random_state=0),
             optimizer_config={"model_name": "CBQ", "model_params": {"iterations": 7}},
         )
@@ -337,21 +344,21 @@ class TestAdaptiveOptimizerSurrogate:
         cv = KFold(n_splits=3, shuffle=True, random_state=0)
         # Warm both code paths once.
         for cfg in (None, {"model_name": "CBQ", "model_params": {"iterations": 150}}):
-            RFECV(
+            _rfecv(
                 estimator=Ridge(random_state=0),
                 cv=cv, max_refits=2, verbose=0, random_state=0,
                 optimizer_config=cfg,
             ).fit(Xdf, y)
         # Measure
         t0 = time.perf_counter()
-        RFECV(
+        _rfecv(
             estimator=Ridge(random_state=0),
             cv=cv, max_refits=8, verbose=0, random_state=0,
         ).fit(Xdf, y)
         t_auto = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        RFECV(
+        _rfecv(
             estimator=Ridge(random_state=0),
             cv=cv, max_refits=8, verbose=0, random_state=0,
             optimizer_config={"model_name": "CBQ", "model_params": {"iterations": 150}},

@@ -22,7 +22,13 @@ from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
 from sklearn.preprocessing import LabelEncoder
 
 from .phases import phase
-from .evaluation import DEFAULT_CALIB_REPORT_NDIGITS, DEFAULT_FIGSIZE, DEFAULT_NBINS, DEFAULT_PLOT_SAMPLE_SIZE, DEFAULT_REPORT_NDIGITS
+
+# Inline to avoid circular import (_reporting <- evaluation <- _reporting)
+DEFAULT_PLOT_SAMPLE_SIZE = 500
+DEFAULT_REPORT_NDIGITS = 2
+DEFAULT_CALIB_REPORT_NDIGITS = 2
+DEFAULT_NBINS = 10
+DEFAULT_FIGSIZE = (15, 5)
 
 logger = logging.getLogger(__name__)
 
