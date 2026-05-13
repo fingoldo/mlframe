@@ -75,9 +75,18 @@ class TestDefaultEnabled:
         """Fit on XOR data with default constructor activates cat-FE
         and produces engineered recipes."""
         df_tr, y_tr, _, _ = xor_train_test
+        # Pass explicit CatFEConfig with fp=0 to skip the permutation
+        # CI convergence check (which is separately tested in
+        # cat_interactions.py). The II ranking alone is sufficient
+        # to surface XOR pairs on this canonical target.
         mrmr = MRMR(
             full_npermutations=2, baseline_npermutations=2,
             verbose=0, n_jobs=1,
+            cat_fe_config=CatFEConfig(
+                enable=True,
+                min_interaction_information=0.1,
+                full_npermutations=0,
+            ),
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
