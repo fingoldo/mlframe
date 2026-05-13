@@ -84,7 +84,7 @@ jobs:
           - "1.6.1"  # validation changes; LightGBM 4.5+ polars edge
           - "1.7.2"  # current most-installed across user base
           - "1.8.0"  # tested locally (also user's dev env)
-          - "1.9.0"  # latest stable (2026-05)
+          - "1.5.2"  # LTS-era; still in production at many sites
 
     steps:
       - name: Checkout
