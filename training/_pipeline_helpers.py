@@ -18,6 +18,9 @@ import contextlib
 import logging
 import os
 from timeit import default_timer as timer
+
+from sklearn.exceptions import NotFittedError
+from sklearn.utils.validation import check_is_fitted
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np

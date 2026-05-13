@@ -378,7 +378,16 @@ def _predict_with_fallback(
     # ── 4. Normal path (with NaN guard + CB Polars fallback) ──────────
     try:
         with phase(method, model=_model_type, n_rows=n_rows):
-            return fn(X)
+            result = fn(X)
+        if hasattr(result, "dtype") and not np.all(np.isfinite(result)):
+            logger.warning(
+                "[NaN-guard] %s.%s returned non-finite predictions "
+                "(likely NaN input silently propagated).  Applying "
+                "one-shot imputation + scaling before retry.",
+                _model_type, method,
+            )
+            return _apply_nan_guard(model, X, fn, n_rows)
+        return result
     except ValueError:
         return _apply_nan_guard(model, X, fn, n_rows)
     except TypeError as e:
