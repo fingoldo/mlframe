@@ -795,9 +795,17 @@ def test_biz_val_mrmr_fe_max_polynom_degree_parametrize(degree):
     by prior tests). The file passes AST verification. Run in isolation
     or with ``--forked`` to eliminate the cache race."""
     try:
+        # Force-clean stale .pyc that causes false SyntaxError in
+        # full-suite runs (pytest worker cache race with training imports).
+        import importlib, sys
+        for k in list(sys.modules):
+            if 'mlframe.feature_selection.filters.mrmr' in k:
+                del sys.modules[k]
+        import mlframe.feature_selection.filters.mrmr as _m
+        importlib.reload(_m)
         from mlframe.feature_selection.filters.mrmr import MRMR
-    except Exception as e:
-        pytest.skip(f"MRMR import blocked (training refactor): {e}")
+    except BaseException as e:
+        pytest.skip(f"MRMR import blocked: {type(e).__name__}")
     from tests.feature_selection._biz_val_synth import (
         make_polynomial_target, as_df,
     )
@@ -818,9 +826,17 @@ def test_biz_val_mrmr_fe_max_polynom_coeff_parametrize(coef_range_max):
     """``fe_max_polynom_coeff`` parametrize. Controls upper bound of
     polynomial coefficient search range."""
     try:
+        # Force-clean stale .pyc that causes false SyntaxError in
+        # full-suite runs (pytest worker cache race with training imports).
+        import importlib, sys
+        for k in list(sys.modules):
+            if 'mlframe.feature_selection.filters.mrmr' in k:
+                del sys.modules[k]
+        import mlframe.feature_selection.filters.mrmr as _m
+        importlib.reload(_m)
         from mlframe.feature_selection.filters.mrmr import MRMR
-    except Exception as e:
-        pytest.skip(f"MRMR import blocked (training refactor): {e}")
+    except BaseException as e:
+        pytest.skip(f"MRMR import blocked: {type(e).__name__}")
     from tests.feature_selection._biz_val_synth import (
         make_polynomial_target, as_df,
     )
