@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 import numpy as np
 import pandas as pd
+import psutil
 
 try:
     import polars as pl
