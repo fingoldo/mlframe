@@ -139,6 +139,7 @@ jobs:
             "xgboost" \
             "catboost" \
             "portalocker" \
+            "pympler" \
             "tqdm" \
             "pytest>=7.0" \
             "pytest-cov" \

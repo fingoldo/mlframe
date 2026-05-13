@@ -467,13 +467,31 @@ class MRMR(BaseEstimator, TransformerMixin):
                 dups = [c for c, n in _C(cols).items() if n > 1]
                 raise ValueError(f"MRMR.fit: duplicate column names not supported: {dups}")
         # Infinite values in numeric data.
-        if hasattr(X, "to_numpy"):
+        # 2026-05-12 Wave 28: the old ``X.to_numpy()`` converted the ENTIRE
+        # frame (numeric + categorical/string columns) into a single object-
+        # dtype array (1-2.3s wall at 1M rows). That object array has
+        # ``dtype.kind != "f"`` so the inf check was silently SKIPPED for
+        # every mixed-type frame -- the common case in the suite (cat
+        # features + numerics). Fix: only scan numeric columns so the
+        # result is a genuine float array whose inf values we can detect.
+        # Cost drops to ~0.3s (pandas) / materialisation-only (polars).
+        try:
             try:
-                arr_check = X.to_numpy()
-                if arr_check.dtype.kind == "f" and np.isinf(arr_check).any():
-                    _w.warn("MRMR.fit: input contains +/-inf values; downstream discretization may produce undefined bins")
-            except Exception:
-                pass
+                import polars as _pl
+                if isinstance(X, _pl.DataFrame):
+                    _num_cols = [n for n, d in X.schema.items() if d.is_numeric()]
+                    if _num_cols:
+                        _arr = X.select(_num_cols).to_numpy()
+                elif hasattr(X, "select_dtypes"):
+                    _arr = X.select_dtypes(include=["number"]).to_numpy()
+                else:
+                    _arr = X.to_numpy()
+            except ImportError:
+                _arr = X.to_numpy() if hasattr(X, "to_numpy") else None
+            if _arr is not None and _arr.dtype.kind == "f" and np.isinf(_arr).any():
+                _w.warn("MRMR.fit: input contains +/-inf values; downstream discretization may produce undefined bins")
+        except Exception:
+            pass
         # All-same y check. P1-H37 (audit): raise instead of warn -
         # symmetric with RFECV.fit's single-class y validation. A constant
         # y has H(y)=0 so every MI(X_j, y) is 0; the entire MRMR pipeline

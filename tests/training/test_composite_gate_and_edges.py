@@ -1047,8 +1047,8 @@ class TestIntegrationEdges:
         # Sub-target names propagate into spec names.
         assert all(s.target_col == "multi_y_out0" for s in d0.specs_)
         assert all(s.target_col == "multi_y_out1" for s in d1.specs_)
-        assert all("multi_y_out0__" in s.name for s in d0.specs_)
-        assert all("multi_y_out1__" in s.name for s in d1.specs_)
+        assert all("multi_y_out0-" in s.name for s in d0.specs_)
+        assert all("multi_y_out1-" in s.name for s in d1.specs_)
 
     # ----------------------------------------------------------------------
     # R10b improvement #6: collapse linear_residual -> diff when alpha~1
