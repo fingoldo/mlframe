@@ -53,6 +53,8 @@ from .composite_screening import (
     _is_numeric_column,
     _mi_pair_bin,
     _mi_to_target,
+    _mi_to_target_prebinned,
+    _prebin_feature_columns,
     _per_bin_rmse,
     _residualise,
     _safe_abs_corr_all,
@@ -280,18 +282,40 @@ class CompositeTargetDiscovery:
                 df, x_remaining, train_idx_screen,
             )
 
+            # 2026-05-13 (perf): pre-bin feature columns for this base
+            # so all transforms evaluated against it reuse the same
+            # quantile edges + bin indices (~50 % of MI wall time).
+            _x_prebinned = (
+                _prebin_feature_columns(
+                    x_remaining_matrix, nbins=int(self.config.mi_nbins),
+                )
+                if self.config.mi_estimator == "bin" else None
+            )
+
             # MI(y, X_remaining) -- baseline for THIS base. The model
             # trained on raw y from X_remaining (base dropped from
             # features) sets the bar; a composite target only earns
             # its keep if MI(T, X_remaining) > this.
-            mi_y_for_base = _mi_to_target(
-                x_remaining_matrix, y_screen,
-                n_neighbors=self.config.mi_n_neighbors,
-                random_state=self.config.random_state,
-                estimator=self.config.mi_estimator,
-                nbins=self.config.mi_nbins,
+            _mi_fn = (
+                _mi_to_target_prebinned
+                if _x_prebinned is not None else _mi_to_target
+            )
+            _mi_kwargs: Dict[str, Any] = dict(
+                nbins=int(self.config.mi_nbins),
                 aggregation=getattr(self.config, "mi_aggregation", "mean"),
             )
+            if _x_prebinned is not None:
+                mi_y_for_base = _mi_to_target_prebinned(
+                    _x_prebinned, y_screen, **_mi_kwargs,
+                )
+            else:
+                mi_y_for_base = _mi_to_target(
+                    x_remaining_matrix, y_screen,
+                    n_neighbors=self.config.mi_n_neighbors,
+                    random_state=self.config.random_state,
+                    estimator=self.config.mi_estimator,
+                    **_mi_kwargs,
+                )
 
             for transform_name in self.config.transforms:
                 try:
@@ -330,28 +354,37 @@ class CompositeTargetDiscovery:
                 # MI(T, X_remaining) on the same valid rows -- comparable
                 # to mi_y_for_base computed on the same x_remaining.
                 x_screen_valid = x_remaining_matrix[valid_screen]
-                mi_t = _mi_to_target(
-                    x_screen_valid, t_screen,
-                    n_neighbors=self.config.mi_n_neighbors,
-                    random_state=self.config.random_state,
-                    estimator=self.config.mi_estimator,
-                    nbins=self.config.mi_nbins,
-                aggregation=getattr(self.config, "mi_aggregation", "mean"),
-                )
+                if _x_prebinned is not None:
+                    _x_pb_valid = _x_prebinned[valid_screen]
+                    mi_t = _mi_to_target_prebinned(
+                        _x_pb_valid, t_screen, **_mi_kwargs,
+                    )
+                else:
+                    mi_t = _mi_to_target(
+                        x_screen_valid, t_screen,
+                        n_neighbors=self.config.mi_n_neighbors,
+                        random_state=self.config.random_state,
+                        estimator=self.config.mi_estimator,
+                        **_mi_kwargs,
+                    )
                 # When the screening sample shrunk after domain
                 # filtering (logratio with negative rows in train),
                 # the mi_y baseline for THIS base must also be
                 # recomputed on the same valid_screen subset to keep
                 # comparison fair.
                 if valid_screen.sum() < y_screen.size:
-                    mi_y_compare = _mi_to_target(
-                        x_screen_valid, y_screen[valid_screen],
-                        n_neighbors=self.config.mi_n_neighbors,
-                        random_state=self.config.random_state,
-                        estimator=self.config.mi_estimator,
-                        nbins=self.config.mi_nbins,
-                aggregation=getattr(self.config, "mi_aggregation", "mean"),
-                    )
+                    if _x_prebinned is not None:
+                        mi_y_compare = _mi_to_target_prebinned(
+                            _x_pb_valid, y_screen[valid_screen], **_mi_kwargs,
+                        )
+                    else:
+                        mi_y_compare = _mi_to_target(
+                            x_screen_valid, y_screen[valid_screen],
+                            n_neighbors=self.config.mi_n_neighbors,
+                            random_state=self.config.random_state,
+                            estimator=self.config.mi_estimator,
+                            **_mi_kwargs,
+                        )
                 else:
                     mi_y_compare = mi_y_for_base
                 mi_gain = mi_t - mi_y_compare
@@ -381,26 +414,29 @@ class CompositeTargetDiscovery:
                         t_boot = t_screen[idx_b]
                         y_boot = y_screen[valid_screen][idx_b]
                         try:
-                            mi_t_b = _mi_to_target(
-                                x_boot, t_boot,
-                                n_neighbors=self.config.mi_n_neighbors,
-                                random_state=self.config.random_state,
-                                estimator=self.config.mi_estimator,
-                                nbins=self.config.mi_nbins,
-                                aggregation=getattr(
-                                    self.config, "mi_aggregation", "mean",
-                                ),
-                            )
-                            mi_y_b = _mi_to_target(
-                                x_boot, y_boot,
-                                n_neighbors=self.config.mi_n_neighbors,
-                                random_state=self.config.random_state,
-                                estimator=self.config.mi_estimator,
-                                nbins=self.config.mi_nbins,
-                                aggregation=getattr(
-                                    self.config, "mi_aggregation", "mean",
-                                ),
-                            )
+                            if _x_prebinned is not None:
+                                _x_pb_boot = _x_prebinned[valid_screen][idx_b]
+                                mi_t_b = _mi_to_target_prebinned(
+                                    _x_pb_boot, t_boot, **_mi_kwargs,
+                                )
+                                mi_y_b = _mi_to_target_prebinned(
+                                    _x_pb_boot, y_boot, **_mi_kwargs,
+                                )
+                            else:
+                                mi_t_b = _mi_to_target(
+                                    x_boot, t_boot,
+                                    n_neighbors=self.config.mi_n_neighbors,
+                                    random_state=self.config.random_state,
+                                    estimator=self.config.mi_estimator,
+                                    **_mi_kwargs,
+                                )
+                                mi_y_b = _mi_to_target(
+                                    x_boot, y_boot,
+                                    n_neighbors=self.config.mi_n_neighbors,
+                                    random_state=self.config.random_state,
+                                    estimator=self.config.mi_estimator,
+                                    **_mi_kwargs,
+                                )
                             boot_gains[b] = mi_t_b - mi_y_b
                         except Exception:
                             boot_gains[b] = float("nan")

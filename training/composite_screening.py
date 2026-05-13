@@ -214,6 +214,87 @@ def _mi_pair_bin(
     return max(0.0, mi)
 
 
+def _prebin_feature_columns(
+    feature_matrix: np.ndarray, *, nbins: int,
+) -> np.ndarray:
+    """Pre-compute quantile edges and bin indices for every feature column.
+
+    Returns an (n_samples, n_features) int64 array of bin indices
+    (0..nbins-1).  Call once per screening pass; reuse across all
+    candidate targets via ``_mi_to_target_prebinned``.  This saves
+    the ``np.quantile`` + ``np.searchsorted`` cost per column per
+    candidate -- for the typical 8-candidate × 25-feature sweep,
+    roughly half the MI wall time.
+    """
+    finite_mask = np.all(np.isfinite(feature_matrix), axis=1)
+    if finite_mask.sum() < 5 * nbins:
+        return np.zeros((0, feature_matrix.shape[1]), dtype=np.int64)
+    fm_f = feature_matrix[finite_mask]
+    n_rows, n_cols = fm_f.shape
+    q_edges = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
+    binned = np.empty((n_rows, n_cols), dtype=np.int64)
+    for j in range(n_cols):
+        col = fm_f[:, j]
+        cut = np.quantile(col, q_edges)
+        idx = np.searchsorted(cut, col, side="right").astype(np.int64)
+        np.clip(idx, 0, nbins - 1, out=idx)
+        binned[:, j] = idx
+    return binned
+
+
+def _mi_to_target_prebinned(
+    feature_binned: np.ndarray,
+    target: np.ndarray,
+    *,
+    nbins: int,
+    aggregation: str = "mean",
+) -> float:
+    """MI between pre-binned feature columns and ``target``.
+
+    ``feature_binned`` is the output of ``_prebin_feature_columns`` --
+    integer bin indices (0..nbins-1) per column.  Only the target
+    is binned here (once), saving the per-column quantile + searchsorted
+    cost compared to ``_mi_to_target(estimator="bin")``.
+    """
+    if feature_binned.shape[0] == 0 or feature_binned.shape[1] == 0:
+        return 0.0
+    finite = np.isfinite(target)
+    if finite.sum() < 5 * nbins:
+        return 0.0
+    t_f = target[finite]
+    n_rows = min(feature_binned.shape[0], t_f.shape[0])
+    qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
+    t_edges = np.quantile(t_f[:n_rows], qs)
+    t_idx = np.searchsorted(t_edges, t_f[:n_rows], side="right").astype(np.int64)
+    np.clip(t_idx, 0, nbins - 1, out=t_idx)
+    per_feat = np.empty(feature_binned.shape[1], dtype=np.float64)
+    for j in range(feature_binned.shape[1]):
+        per_feat[j] = _mi_from_binned_pair(
+            feature_binned[:n_rows, j], t_idx, nbins=nbins,
+        )
+    if aggregation == "sum":
+        return float(np.sum(per_feat))
+    return float(np.mean(per_feat))
+
+
+def _mi_from_binned_pair(
+    x_idx: np.ndarray, y_idx: np.ndarray, *, nbins: int,
+) -> float:
+    """MI from two already-binned integer arrays (0..nbins-1)."""
+    combo = x_idx * nbins + y_idx
+    joint_counts = np.bincount(combo, minlength=nbins * nbins).reshape(nbins, nbins)
+    n_total = float(joint_counts.sum())
+    if n_total <= 0:
+        return 0.0
+    pxy = joint_counts.astype(np.float64) / n_total
+    px = pxy.sum(axis=1, keepdims=True)
+    py = pxy.sum(axis=0, keepdims=True)
+    nz = pxy > 0
+    log_terms = np.zeros_like(pxy)
+    log_terms[nz] = np.log(pxy[nz] / (px * py)[nz])
+    return max(0.0, float((pxy * log_terms).sum()))
+
+
 def _mi_to_target(
     feature_matrix: np.ndarray,
     target: np.ndarray,
