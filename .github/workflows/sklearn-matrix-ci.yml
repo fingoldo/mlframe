@@ -141,6 +141,7 @@ jobs:
             "portalocker" \
             "pympler" \
             "psycopg2-binary" \
+            "expiringdict" \
             "tqdm" \
             "pytest>=7.0" \
             "pytest-cov" \
