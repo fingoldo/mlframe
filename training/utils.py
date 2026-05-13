@@ -282,6 +282,8 @@ def get_pandas_view_of_polars_df(
     if not isinstance(df, (pl.DataFrame, pl.Series)):
         raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
 
+    import pyarrow as pa
+
     # Capture timing + RAM around the conversion. Long conversions (multi-GB
     # frames) on prod were silent black boxes -- operators couldn't tell whether
     # the 35-min stall was here or downstream. Log when the conversion crosses
