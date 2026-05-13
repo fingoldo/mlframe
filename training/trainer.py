@@ -6,8 +6,8 @@ This module contains:
 - train_and_evaluate_model_v2: Config-based wrapper
 - configure_training_params: Training parameter configuration
 - _build_configs_from_params: Config object builder
-- Helper functions for training
 """
+from __future__ import annotations
 
 import copy
 import inspect
