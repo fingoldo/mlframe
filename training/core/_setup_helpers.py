@@ -31,6 +31,7 @@ from ..configs import (
     TargetTypes,
 )
 from ..splitting import make_train_test_split
+from .._ram_helpers import maybe_clean_ram_and_gpu
 
 logger = logging.getLogger(__name__)
 
