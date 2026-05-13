@@ -292,9 +292,9 @@ class TestStreamingCache:
 
 
 class TestBanditPermBudget:
-    def test_perm_budget_strategy_fixed_default(self):
+    def test_perm_budget_strategy_bandit_default(self):
         cfg = CatFEConfig()
-        assert cfg.perm_budget_strategy == "fixed"
+        assert cfg.perm_budget_strategy == "bandit_ucb1"
 
     def test_perm_budget_strategy_ucb1_accepted(self):
         cfg = CatFEConfig(perm_budget_strategy="bandit_ucb1")
