@@ -142,6 +142,7 @@ jobs:
             "pympler" \
             "psycopg2-binary" \
             "expiringdict" \
+            "astropy" \
             "tqdm" \
             "pytest>=7.0" \
             "pytest-cov" \
