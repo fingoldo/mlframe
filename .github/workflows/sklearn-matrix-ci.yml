@@ -138,6 +138,7 @@ jobs:
             "numba" \
             "xgboost" \
             "catboost" \
+            "portalocker" \
             "tqdm" \
             "pytest>=7.0" \
             "pytest-cov" \

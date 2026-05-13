@@ -800,7 +800,7 @@ class TestIntegrationEdges:
         # they both eliminate base linearly (linear_residual fits an
         # alpha which is ~1.0 here, so behaves like diff).
         rep = sorted(
-            [r for r in disc.report() if r.get("name", "").startswith("y__")],
+            [r for r in disc.report() if r.get("name", "").startswith("y-")],
             key=lambda r: -r.get("mi_gain", -np.inf),
         )
         assert rep, f"no candidates evaluated; report={disc.report()}"
@@ -846,7 +846,7 @@ class TestIntegrationEdges:
                  feature_cols=["base", "x1", "x2"],
                  train_idx=np.arange(1200))
         rep = sorted(
-            [r for r in disc.report() if r.get("name", "").startswith("y__")],
+            [r for r in disc.report() if r.get("name", "").startswith("y-")],
             key=lambda r: -r.get("mi_gain", -np.inf),
         )
         assert rep
@@ -893,7 +893,7 @@ class TestIntegrationEdges:
                  feature_cols=["base", "x1", "x2"],
                  train_idx=np.arange(1200))
         rep = sorted(
-            [r for r in disc.report() if r.get("name", "").startswith("y__")],
+            [r for r in disc.report() if r.get("name", "").startswith("y-")],
             key=lambda r: -r.get("mi_gain", -np.inf),
         )
         lr_gain = next((r["mi_gain"] for r in rep
@@ -929,7 +929,7 @@ class TestIntegrationEdges:
                  feature_cols=["base", "x1", "x2"],
                  train_idx=np.arange(1200))
         rep = {r["transform_name"]: r["mi_gain"] for r in disc.report()
-               if r.get("name", "").startswith("y__")}
+               if r.get("name", "").startswith("y-")}
         assert "diff" in rep and "linear_residual" in rep
         # alpha is fitted to ~1.0 so the two T sequences are nearly
         # identical; their mi_gain values should differ only by MI
