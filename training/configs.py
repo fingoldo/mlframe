@@ -502,6 +502,10 @@ class PreprocessingExtensionsConfig(BaseConfig):
     tree models will then consume the shared transformed frame.
 
     Order of application (each step is optional):
+      0. PySR symbolic regression (``pysr_enabled``) -- generates
+         new numeric features from discovered equations. Runs FIRST
+         so downstream scalers / polynomial features can consume
+         the engineered columns.
       1. TF-IDF on declared text columns.
       2. Scaler (overrides the Polars-ds scaler when set).
       3. Binarizer OR KBinsDiscretizer (mutually exclusive).
@@ -537,6 +541,16 @@ class PreprocessingExtensionsConfig(BaseConfig):
     dim_n_components: int = 50
     memory_safety_max_features: int = 100_000
     verbose_logging: bool = True
+    # PySR symbolic regression -- discovers human-readable equations
+    # from the data and adds their output as new numeric features.
+    # Requires Julia + SymbolicRegression.jl (installed automatically
+    # via PySR / juliacall). Off by default; enable with
+    # pysr_enabled=True plus a pysr_params dict for budget control.
+    pysr_enabled: bool = False
+    pysr_params: Optional[Dict] = Field(
+        default=None,
+        description="passed to PySRRegressor() as constructor kwargs"
+    )
 
     @model_validator(mode="after")
     def _check_mutual_exclusion(self) -> "PreprocessingExtensionsConfig":

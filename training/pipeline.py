@@ -14,6 +14,7 @@ Handles Polars-ds and sklearn pipeline creation, fitting, and transformation.
 
 import logging
 from timeit import default_timer as timer
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,111 @@ def _build_dim_reducer(name: str, n_components: int, random_state: int):
     return factories[name]()
 
 
+def _apply_pysr_fe(
+    *,
+    train_df: "pd.DataFrame",
+    val_df,
+    test_df,
+    y_train,
+    config: "PreprocessingExtensionsConfig",
+    verbose: int = 1,
+) -> list:
+    """Run PySR symbolic regression on train, apply top equations to all
+    splits, and add predictions as new numeric columns in-place. Returns
+    the list of added column names.
+
+    Gracefully skips on ImportError (Julia/PySR not installed) or
+    when ``y_train`` is None (target not available at this stage).
+    """
+    if y_train is None:
+        return []
+    try:
+        from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
+    except (ImportError, OSError, subprocess.CalledProcessError):
+        if verbose:
+            import logging
+            logging.getLogger(__name__).warning(
+                "PySR feature engineering is enabled but the pysr / Julia "
+                "runtime is not importable. Skipping."
+            )
+        return []
+    import numpy as np
+
+    pysr_params = getattr(config, "pysr_params", None) or {}
+    # Merge sensible defaults so the user doesn't need to specify
+    # every knob. Low budget defaults keep the extension fast.
+    defaults = dict(
+        niterations=5,
+        populations=5,
+        population_size=20,
+        tournament_selection_n=8,
+        maxdepth=4,
+        binary_operators=["+", "-", "*", "/"],
+        unary_operators=["square", "exp", "log_abs"],
+        procs=1,
+        verbosity=0,
+    )
+    defaults.update(pysr_params)
+    # Use a shallow copy so underlying YAML/dict config isn't mutated.
+    merged_params = dict(defaults)
+
+    top_k = min(5, merged_params.get("population_size", 20) // 2)
+    sample_n = min(len(train_df), 20000)
+    temp_target_col = "_pysr_y_"
+
+    # Inject y_train as a temporary column (bruteforce expects target
+    # as a column in the DataFrame). Remove after PySR fit.
+    existing_y = train_df.columns.tolist()
+    while temp_target_col in existing_y:
+        temp_target_col = "_" + temp_target_col
+    train_df[temp_target_col] = np.asarray(y_train).ravel()
+
+    try:
+        model = run_pysr_feature_engineering(
+            df=train_df,
+            target_col=temp_target_col,
+            sample_size=sample_n,
+            encode_categoricals=False,
+            verbose=0,
+            pysr_params_override=merged_params,
+        )
+    except Exception:
+        if verbose:
+            logging.getLogger(__name__).warning(
+                "PySR fit failed; skipping symbolic feature engineering.",
+                exc_info=True,
+            )
+        train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")
+        return []
+    finally:
+        train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")
+
+    # Apply top-K equations (by score)
+    eq_df = model.equations_
+    if eq_df is None or len(eq_df) == 0:
+        return []
+    eq_df = eq_df.sort_values(["score"], ascending=[False]).head(top_k)
+
+    new_cols = []
+    for idx in eq_df.index:
+        try:
+            col_name = f"pysr_eq{idx}"
+            if col_name in train_df.columns:
+                continue
+            train_df[col_name] = np.asarray(
+                model.predict(train_df, index=idx), dtype=np.float32)
+            if val_df is not None:
+                val_df[col_name] = np.asarray(
+                    model.predict(val_df, index=idx), dtype=np.float32)
+            if test_df is not None:
+                test_df[col_name] = np.asarray(
+                    model.predict(test_df, index=idx), dtype=np.float32)
+            new_cols.append(col_name)
+        except Exception:
+            continue
+    return new_cols
+
+
 def apply_preprocessing_extensions(
     train_df,
     val_df,
@@ -176,6 +282,19 @@ def apply_preprocessing_extensions(
     test = _to_pandas(test_df)
     if train is None:
         return train_df, val_df, test_df, None
+
+    # PySR symbolic regression (step 0). Runs BEFORE TF-IDF and the sklearn
+    # pipeline so that discovered equation features benefit from downstream
+    # scaling, polynomial expansion, etc.
+    if getattr(config, "pysr_enabled", False):
+        _pysr_cols = _apply_pysr_fe(
+            train_df=train, val_df=val, test_df=test,
+            y_train=y_train,
+            config=config,
+            verbose=verbose,
+        )
+        # _pysr_cols are the names of the new columns; already added to
+        # train/val/test in-place inside _apply_pysr_fe.
 
     # TF-IDF preflight: vectorize declared text columns and replace them with
     # numeric features before downstream sklearn steps (which expect numeric).

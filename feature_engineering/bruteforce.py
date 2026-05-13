@@ -31,6 +31,17 @@ from category_encoders import CatBoostEncoder
 
 from pyutilz.system import clean_ram
 
+import threading as _threading
+
+# Module-level lock serialising Julia access across concurrent joblib
+# workers. PySR spawns Julia subprocesses internally; two parallel
+# fit() calls would contend for the same .julia/ precompile cache and
+# shared memory. The lock keeps them sequential per-process (not ideal
+# for throughput, but safe). Users who want PySR per-model should
+# set ``pysr_enabled=True`` in the SHARED PreprocessingExtensionsConfig
+# so the single fit-and-transform runs once before model training.
+_PYSR_LOCK = _threading.Lock()
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -198,7 +209,12 @@ def run_pysr_feature_engineering(
 
     fe_model = PySRRegressor(**final_params)
 
-    fe_model.fit(tmp_df, target)
+    # Serialise Julia access across concurrent joblib workers. PySR
+    # spawns Julia subprocesses that contend for the same .julia/
+    # precompile cache and shared memory. The lock ensures only one
+    # worker invokes Julia at a time.
+    with _PYSR_LOCK:
+        fe_model.fit(tmp_df, target)
     clean_ram()
 
     if verbose > 0:
