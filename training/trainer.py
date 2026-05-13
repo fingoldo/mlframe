@@ -2366,13 +2366,26 @@ def _recover_cb_feature_names(model: Any) -> Tuple[List[str], List[str]]:
 def _predict_with_fallback(
     model: Any,
     X: Any,
-    method: str = "predict_proba",
+    method: str = "predict",
     verbose: bool = False,
 ) -> np.ndarray:
-    """Call ``model.{method}(X)`` with automatic Polars -> pandas fallback
-    on CatBoost's Polars-fastpath dispatcher misses.
+    """Call ``model.{method}(X)`` with automatic guards for common edge-cases.
 
-    Symmetric to ``_train_model_with_fallback``. CatBoost 1.2.x's Polars
+    Guards applied in order:
+    1. **LGBM polars → pandas auto-convert** — LGB's sklearn wrapper
+       crashes on Polars DataFrames (pd.Categorical→numpy object).
+    2. **CB val Pool cache hit** — reuses the Pool built at fit time
+       instead of rebuilding from X (saves 50-70 s on large frames).
+    3. **CB sticky-pandas short-circuit** — if a previous predict call
+       already fell back to pandas, skip the Polars dispatch entirely.
+    4. **NaN safety net** — for NaN-intolerant models whose strategy
+       pre_pipeline was skipped (cache-hit path), applies one-shot
+       SimpleImputer + StandardScaler.
+    5. **CB Polars dispatch-miss fallback** — catches ``TypeError``
+       from CB's Polars fastpath when it can't handle specific dtypes,
+       converts to pandas and retries.
+
+    Symmetric to ``_train_model_with_fallback`` for the CB paths.
     fastpath in ``_set_features_order_data_polars_categorical_column`` is
     a Cython fused cpdef; certain column-dtype combinations raise the
     opaque ``TypeError: No matching signature found``. When training
@@ -2395,26 +2408,72 @@ def _predict_with_fallback(
     """
     fn = getattr(model, method)
     n_rows = len(X) if hasattr(X, "__len__") else None
+    _model_type: str = type(model).__name__
 
-    # Self-heal for LGB / sklearn / linear: their sklearn wrappers receive
-    # the X arg through _LGBMValidateData -> check_array which converts
-    # pd.Categorical to numpy object arrays of strings -- crashes on the first
-    # non-numeric cell. Convert Polars -> pandas up front so the wrapper takes
-    # its native pandas fastpath. (Mirrors the model.fit self-heal in
-    # _train_model_with_fallback.)
-    _model_type = type(model).__name__
-    if isinstance(X, pl.DataFrame) and "LGBM" in _model_type:
-        from .utils import get_pandas_view_of_polars_df
+    # ── Import the guard helpers ──────────────────────────────────────
+    from ._predict_guards import (
+        _apply_nan_guard,
+        _cb_polars_to_pandas,
+        _cb_val_pool_cache_lookup,
+        _ensure_lgbm_gets_pandas,
+        _pl_DataFrame,
+    )
 
+    # ── 1. LGBM Polars → pandas auto-convert ──────────────────────────
+    X = _ensure_lgbm_gets_pandas(model, X, method)
+
+    # ── 2. CB val Pool cache lookup ────────────────────────────────────
+    if _model_type in CATBOOST_MODEL_TYPES and hasattr(X, "columns") and hasattr(X, "shape"):
+        try:
+            _hit = _cb_val_pool_cache_lookup(X, method)
+            if _hit is not None:
+                logger.info(
+                    "[cb-val-pool-reuse] %s hit on cached val Pool -- "
+                    "skipping redundant Pool rebuild.", method,
+                )
+                with phase(method, model=_model_type, n_rows=n_rows):
+                    return fn(_hit)
+        except Exception as _exc:
+            logger.debug(
+                "[cb-val-pool-reuse] %s cache probe failed (%s: %s); "
+                "falling through.", method, type(_exc).__name__, _exc,
+            )
+
+    # ── 3. Sticky-pandas short-circuit (previous Polars miss) ──────────
+    _pl_df = _pl_DataFrame()
+    _is_cb = _model_type in CATBOOST_MODEL_TYPES
+    if (
+        _pl_df is not type(None)
+        and isinstance(X, _pl_df)
+        and _is_cb
+        and getattr(model, "_mlframe_polars_fastpath_broken", False)
+    ):
+        X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
+        with phase(method, model=_model_type, n_rows=n_rows):
+            return fn(X_pd)
+
+    # ── 4. Normal path (with NaN guard + CB Polars fallback) ──────────
+    try:
+        with phase(method, model=_model_type, n_rows=n_rows):
+            return fn(X)
+    except ValueError:
+        return _apply_nan_guard(model, X, fn, n_rows)
+    except TypeError as e:
+        if not (_is_cb and _pl_df is not type(None) and isinstance(X, _pl_df)
+                and "No matching signature found" in str(e)):
+            raise
         logger.warning(
-            "  [predict] %s.%s received pl.DataFrame; converting to pandas " "so LGB's sklearn wrapper takes the pandas-native fastpath.",
-            _model_type,
-            method,
+            "CatBoost %s Polars fastpath rejected the data (%s); "
+            "converting to pandas and retrying.",
+            method, str(e).splitlines()[-1][:240],
         )
-        X = get_pandas_view_of_polars_df(X)
-
-    # Fix 9.4.3 correction (2026-04-22): reuse the cached CatBoost val
-    # Pool for predict-path calls too. The fit path already stored a
+        try:
+            model._mlframe_polars_fastpath_broken = True
+        except Exception:
+            pass
+        X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
+        with phase(method, model=_model_type, n_rows=n_rows):
+            return fn(X_pd) The fit path already stored a
     # Pool in ``_CB_VAL_POOL_CACHE`` keyed on
     # ``(id(val_df), cols, shape, cat_features, text_features,
     #   embedding_features)``. Prior to this fix the metrics path
@@ -2429,205 +2488,6 @@ def _predict_with_fallback(
     #
     # 2026-04-24 hardening: lookup originally required exact ``id(X)``
     # match, which silently missed when the val_df Python object was
-    # replaced between fit and metrics phases (mlframe's pre_pipeline
-    # transforms can return a fresh frame). Prod log observed both
-    # CB uniform AND CB recency rebuilding the val Pool on metrics
-    # despite the fit-side cache having stored an entry for the same
-    # shape+columns frame. Two-stage lookup: try ``id(X)`` first
-    # (fast path), fall back on a content signature (cols + shape +
-    # dtypes) when no id match. The content fallback is safe for
-    # predict-only reuse -- the comment above already documented
-    # "stale cache entry ... is still fine for predict (they don't
-    # read the label)". Adding dtypes to the fingerprint guards
-    # against a same-shape-different-content collision (rare but
-    # possible if user reuses the same outer frame across different
-    # preprocessing pipelines in the same process).
-    try:
-        _model_type = type(model).__name__
-        if _model_type in CATBOOST_MODEL_TYPES and hasattr(X, "columns") and hasattr(X, "shape"):
-            _cols = tuple(X.columns) if not isinstance(X.columns, tuple) else X.columns
-            try:
-                _shape = X.shape
-                _shape_sig = (int(_shape[0]), int(_shape[1]))
-            except Exception:
-                _shape_sig = None
-            try:
-                # dtypes signature for collision-safe content fallback
-                if hasattr(X, "dtypes"):
-                    _dtypes_sig = tuple(str(d) for d in X.dtypes) if not hasattr(X.dtypes, "items") else tuple(str(d) for d in X.dtypes)
-                elif hasattr(X, "schema"):
-                    _dtypes_sig = tuple(str(d) for d in X.schema.values())
-                else:
-                    _dtypes_sig = None
-            except Exception:
-                _dtypes_sig = None
-            _id = id(X)
-            _hit = None
-            _hit_via = None
-            # Stage 1: id-based exact match (fast).
-            for key, pool in _CB_VAL_POOL_CACHE.items():
-                if key[0] == _id and key[1] == _cols and key[2] == _shape_sig:
-                    _hit = pool
-                    _hit_via = "id"
-                    break
-            # Stage 2: content-based fallback (id miss but cols + shape +
-            # dtypes match -> predict_proba is safe to short-circuit, see
-            # comment above).
-            if _hit is None and _shape_sig is not None and _dtypes_sig is not None:
-                for key, pool in _CB_VAL_POOL_CACHE.items():
-                    cached_dtypes_sig = getattr(pool, "_mlframe_dtypes_sig", None)
-                    if key[1] == _cols and key[2] == _shape_sig and cached_dtypes_sig == _dtypes_sig:
-                        _hit = pool
-                        _hit_via = "content"
-                        break
-            if _hit is not None:
-                logger.info(
-                    "[cb-val-pool-reuse] %s hit on cached val Pool via %s -- " "skipping redundant Pool rebuild (saves the 53-66s " "observed on 7M-row prod)",
-                    method,
-                    _hit_via,
-                )
-                with phase(method, model=_model_type, n_rows=n_rows):
-                    return fn(_hit)
-    except Exception as _exc:
-        # Any lookup failure is benign -- fall through to normal path.
-        logger.debug(
-            "[cb-val-pool-reuse] %s cache probe failed (%s: %s); falling through.",
-            method,
-            type(_exc).__name__,
-            _exc,
-        )
-
-    # Short-circuit: if this model already made a Polars-fastpath predict
-    # call fail and fell back to pandas (via the except block below, or the
-    # parallel path in _train_model_with_fallback), remember it and pre-
-    # convert on every subsequent call. Otherwise VAL + TEST + ensemble
-    # predict paths each re-hit the same Cython dispatch miss, each emitting
-    # a "No matching signature found" WARN + 1-2s wasted conversion. The flag
-    # is set on the model instance (not module-level) so different models in
-    # the same suite each get their own cache state.
-    _sticky_pandas = isinstance(X, pl.DataFrame) and type(model).__name__ in CATBOOST_MODEL_TYPES and getattr(model, "_mlframe_polars_fastpath_broken", False)
-    if _sticky_pandas:
-        from mlframe.training.utils import get_pandas_view_of_polars_df
-        from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
-
-        cat_feat, text_feat = _recover_cb_feature_names(model)
-        X_pd = get_pandas_view_of_polars_df(X)
-        if text_feat:
-            for col in text_feat:
-                if col in X_pd.columns and isinstance(X_pd[col].dtype, pd.CategoricalDtype):
-                    X_pd[col] = X_pd[col].astype("object").fillna("")
-        X_pd = _prep_cb(X_pd, cat_features=list(cat_feat), text_features=list(text_feat))
-        with phase(method, model=type(model).__name__, n_rows=n_rows):
-            return fn(X_pd)
-
-    try:
-        with phase(method, model=type(model).__name__, n_rows=n_rows):
-            return fn(X)
-    except ValueError as e:
-        # 2026-05-13: NaN safety net. When the model is NaN-intolerant
-        # (raw LinearRegression / Ridge / ... without a SimpleImputer
-        # wrapper) and X contains NaN, apply a one-shot SimpleImputer
-        # on the fly.  Handles the cache-hit case where
-        # skip_pre_pipeline_transform stripped the imputation step.
-        if "Input X contains NaN" not in str(e):
-            raise
-        _has_nan = bool(
-            hasattr(X, "isna") and X.isna().any().any()
-            or (hasattr(X, "isnull") and X.isnull().any().any())
-        )
-        if not _has_nan:
-            raise
-        logger.warning(
-            "[NaN-guard] %s X contains NaN; applying one-shot "
-            "SimpleImputer + StandardScaler before predict "
-            "(n_rows=%s).  This is a safety net for the cache-hit "
-            "path where the strategy pre_pipeline was skipped.",
-            type(model).__name__, n_rows,
-        )
-        from sklearn.impute import SimpleImputer as _SI
-        from sklearn.preprocessing import StandardScaler as _SS
-        if hasattr(X, "to_numpy"):
-            _arr = X.to_numpy(dtype=np.float64)
-        elif hasattr(X, "values"):
-            _arr = np.asarray(X.values, dtype=np.float64)
-        else:
-            _arr = np.asarray(X, dtype=np.float64)
-        _arr = _SS().fit_transform(_SI(strategy="mean").fit_transform(_arr))
-        # Re-wrap as DataFrame if X was one.
-        if hasattr(X, "columns"):
-            import pandas as pd
-            X_clean = pd.DataFrame(
-                _arr, columns=list(X.columns),
-                index=getattr(X, "index", None),
-            )
-        else:
-            X_clean = _arr
-        return fn(X_clean)
-    except TypeError as e:
-        model_type_name = type(model).__name__
-        err_str = str(e)
-        # Only catch the specific Polars fastpath dispatch miss on a CB
-        # model with a pl.DataFrame input. Everything else bubbles up
-        # -- otherwise we'd mask real type bugs.
-        if model_type_name not in CATBOOST_MODEL_TYPES or not isinstance(X, pl.DataFrame) or "No matching signature found" not in err_str:
-            raise
-
-        logger.warning(
-            "CatBoost %s Polars fastpath rejected the data (%s); " "converting to pandas and retrying.",
-            method,
-            err_str.splitlines()[-1][:240],
-        )
-
-        # Mark this model instance as "Polars-broken" so the next predict/
-        # predict_proba/predict_log_proba call skips the retry dance.
-        try:
-            model._mlframe_polars_fastpath_broken = True
-        except Exception:
-            # Non-settable classes (frozen dataclasses, slots) -- we simply
-            # keep paying the TypeError-retry cost. Not fatal.
-            pass
-
-        # Recover cat/text feature names from the fitted model so
-        # prepare_df_for_catboost can keep dtypes consistent with fit.
-        cat_feat, text_feat = _recover_cb_feature_names(model)
-        if verbose or not (cat_feat or text_feat):
-            logger.info(
-                "  [predict fallback] recovered from model: cat=%d, text=%d",
-                len(cat_feat),
-                len(text_feat),
-            )
-
-        from mlframe.training.utils import get_pandas_view_of_polars_df
-        from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
-
-        t0 = timer()
-        shape_str = f"{X.shape[0]:_}x{X.shape[1]}" if hasattr(X, "shape") else "?"
-        X_pd = get_pandas_view_of_polars_df(X)
-        logger.info(
-            "  [predict fallback] polars->pandas(%s) %s in %.1fs",
-            method,
-            shape_str,
-            timer() - t0,
-        )
-
-        # Decategorize text columns BEFORE prepare_df_for_catboost
-        # (same ordering as _train_model_with_fallback -- prep_cb would
-        # otherwise hit the CategoricalDtype text cols and either rebuild
-        # them via the slow astype path or reject them outright).
-        if text_feat:
-            for col in text_feat:
-                if col in X_pd.columns and isinstance(X_pd[col].dtype, pd.CategoricalDtype):
-                    X_pd[col] = X_pd[col].astype("object").fillna("")
-
-        t0 = timer()
-        X_pd = _prep_cb(X_pd, cat_features=list(cat_feat), text_features=list(text_feat))
-        logger.info(
-            "  [predict fallback] prepare_df_for_catboost(%s) in %.1fs",
-            method,
-            timer() - t0,
-        )
-
-        return fn(X_pd)
 
 
 # Fix 9.4.3 + Fix Orch-1: process-wide CatBoost Pool cache. Keys: tuple
@@ -2641,8 +2501,12 @@ def _predict_with_fallback(
 # explicitly cleared at suite entry in core.py). Deliberate plain dict
 # (not WeakValueDictionary) so transient GC between weight iterations
 # doesn't flush the Pool we're about to reuse.
+# 2026-05-13 refactor: _CB_VAL_POOL_CACHE lives in _predict_guards.py
+# (shared between fit-time populate in _maybe_get_or_build_cb_pool and
+# predict-time lookup in _predict_with_fallback).
+from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
+
 _CB_POOL_CACHE: "Dict[tuple, Any]" = {}
-_CB_VAL_POOL_CACHE: "Dict[tuple, Any]" = {}
 _CB_POOL_CACHE_MAX_ENTRIES = 16  # hard cap per cache; ring-buffer eviction oldest-first
 
 
