@@ -103,7 +103,18 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install scientific stack
+      - name: Clone & install pyutilz (private dependency)
+        # pyutilz is not published to PyPI; clone from GitHub and
+        # install from local checkout. Cloned into the workspace
+        # root (next to mlframe/) so the PYTHONPATH layout used
+        # in local dev (mlframe/ + pyutilz/ siblings) is replicated.
+        # A GITHUB_TOKEN with repo-read scope is sufficient; the
+        # repo is public (fingoldo/pyutilz).
+        run: |
+          git clone https://github.com/fingoldo/pyutilz.git
+          pip install ./pyutilz
+
+      - name: Install remaining scientific stack
         # Minimal install for composite tests: numpy / pandas / scipy /
         # polars (frame variants), lightgbm (default screening model),
         # pydantic (configs), dill (wrapper serialization), matplotlib
@@ -124,7 +135,6 @@ jobs:
             "matplotlib" \
             "joblib" \
             "psutil" \
-            "pyutilz>=1.0.0" \
             "tqdm" \
             "pytest>=7.0" \
             "pytest-cov" \
