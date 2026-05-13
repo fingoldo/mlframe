@@ -171,7 +171,16 @@ def render_and_save(
                 _ex.submit(_do_backend, backend, fmts)
                 for backend, fmts in output.backends
             ]
-            _results = [f.result() for f in _futures]
+            _results = []
+            for f in _futures:
+                try:
+                    _results.append(f.result(timeout=60))
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "render_and_save: backend future timed out or failed; "
+                        "skipping one render output.", exc_info=True,
+                    )
     else:
         # Single-backend path: skip the thread pool overhead.
         _results = [_do_backend(backend, fmts) for backend, fmts in output.backends]
