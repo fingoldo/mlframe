@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 from ._ram_helpers import _caller_logger, log_ram_usage, maybe_clean_ram_adaptive, clean_ram_and_gpu, estimate_df_size_mb, get_process_rss_mb, should_clean_ram, maybe_clean_ram_and_gpu  # noqa: E402,F401
+from pyutilz.system import get_own_memory_usage
 def filter_existing(df, cols) -> list:
     """Return only the column names from `cols` that exist in `df.columns`.
 
