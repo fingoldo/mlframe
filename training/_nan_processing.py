@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
+from .utils import filter_existing
+
 logger = logging.getLogger(__name__)
 
 try:
