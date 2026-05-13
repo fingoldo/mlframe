@@ -592,9 +592,15 @@ def _extract_target_subset(
     if idx is None:
         return target
     if isinstance(target, pd.Series):
-        return target.iloc[idx]
+        # 2026-05-12 Wave 32: ``.values[idx]`` is 9× faster than
+        # ``.iloc[idx]`` for numeric targets (bench: 0.036s vs 0.324s
+        # per 100k-row subset on 1M-row Series × 100 iterations).
+        # Target is always numeric (float for regression, int for
+        # classification/rank), so .values is safe.
+        return target.values[idx]
     elif isinstance(target, pl.Series):
         return target.gather(idx)
+    # numpy: ``target[idx]`` is already fast — 0.033s vs np.take 0.049s
     return target[idx]
 
 
@@ -946,31 +952,42 @@ def _prepare_test_split(
         if test_target is None:
             test_target = _extract_target_subset(target, test_idx)
 
-        if model is not None and pre_pipeline and not skip_pre_pipeline_transform:
-            # 2026-05-13: when the pre_pipeline is identity-equivalent
-            # (kept every input column on train, created none), its
-            # transform() is a no-op. Skip the call — saves a full
-            # copy AND dodges the NotFittedError that fires when the
-            # train-side cache (line 1526) returned cached DFs without
-            # fitting the pre_pipeline (the cache saves fit_TRANSFORM
-            # cost but the fitted state lives on the PREVIOUS call's
-            # pre_pipeline instance, not this one).
+        if model is not None and pre_pipeline:
+            # 2026-05-13: even when the train/val path took a cache hit
+            # (``skip_pre_pipeline_transform=True``), test_df MUST be
+            # transformed if the pre_pipeline is fitted AND changes the
+            # data (not identity-equivalent).  The 2026-05-13 prod crash
+            # hit this precisely: ``cached_dfs`` carried raw test_df
+            # with NaN; ``skip_pre_pipeline_transform`` was True;
+            # LinearRegression received NaN -> ValueError.  Tree models
+            # (CB/XGB/LGB) handle NaN natively, so they were fine.
+            #
+            # The guard: if the pre_pipeline is identity-equivalent
+            # (kept all columns, no recipes), transform is a no-op AND
+            # we dodge NotFittedError from an unfitted instance (train
+            # cache returned data without fitting).  Otherwise, ALWAYS
+            # apply transform when the pre_pipeline IS fitted.
             _id_equiv = getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
             if not _id_equiv:
-                if skip_preprocessing:
-                    feature_selector = _extract_feature_selector(pre_pipeline)
-                    if feature_selector is not None:
+                _do_transform = (
+                    not skip_pre_pipeline_transform
+                    or _is_fitted(pre_pipeline)
+                )
+                if _do_transform:
+                    if skip_preprocessing:
+                        feature_selector = _extract_feature_selector(pre_pipeline)
+                        if feature_selector is not None:
+                            test_df = _passthrough_cols_fit_transform(
+                                feature_selector.transform,
+                                test_df,
+                                passthrough_cols=selector_passthrough_cols,
+                            )
+                    else:
                         test_df = _passthrough_cols_fit_transform(
-                            feature_selector.transform,
+                            pre_pipeline.transform,
                             test_df,
                             passthrough_cols=selector_passthrough_cols,
                         )
-                else:
-                    test_df = _passthrough_cols_fit_transform(
-                        pre_pipeline.transform,
-                        test_df,
-                        passthrough_cols=selector_passthrough_cols,
-                    )
         columns = list(test_df.columns) if hasattr(test_df, "columns") else []
     else:
         columns = []
