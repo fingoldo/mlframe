@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
+from textwrap import shorten
 from typing import Union, Optional
 
 try:
