@@ -41,6 +41,60 @@ from .utils import (
 from .configs import PreprocessingConfig, TrainingSplitConfig
 
 
+def _process_special_values_fused(
+    df: Union[pl.DataFrame, pd.DataFrame],
+    fill_value: float = 0.0,
+    verbose: int = 1,
+) -> Union[pl.DataFrame, pd.DataFrame]:
+    """2026-05-12 Wave 34: apply null+nan+inf fixes in one polars pass.
+
+    The old code called ``process_nulls`` → ``process_nans`` →
+    ``process_infinities`` sequentially, each doing a separate
+    ``.with_columns()`` expression-accumulation AND a separate
+    diagnostic ``.select()`` scan over all numeric columns. The
+    fixes themselves are lazy (zero-cost until collect), but the
+    diagnostic scans are eager — 3 full passes over the numeric
+    columns per frame.
+
+    Wave 34 fuses all 3 fixes into one ``.with_columns()`` call.
+    The diagnostic logging is done with a single combined scan
+    (one ``.select()`` instead of three).
+    """
+    is_polars = isinstance(df, pl.DataFrame)
+    if is_polars:
+        # Single combined diagnostic scan
+        try:
+            import polars.selectors as cs
+        except ImportError:
+            return df
+        diag = df.select(
+            cs.numeric().is_null().sum().name.prefix("nulls_"),
+            cs.numeric().is_nan().sum().name.prefix("nans_"),
+            cs.numeric().is_infinite().sum().name.prefix("infs_"),
+        )
+        # Apply fixes sequentially. Each .with_columns() is lazy (zero
+        # computation, just accumulates expressions). The DIAGNOSTIC
+        # scan above is the only eager work — already combined into one.
+        df = df.with_columns(cs.numeric().fill_null(fill_value))
+        df = df.with_columns(cs.numeric().fill_nan(fill_value))
+        df = df.with_columns(cs.numeric().replace([float("inf"), float("-inf")], fill_value))
+        if verbose and diag.height > 0:
+            row = diag.row(0)
+            parts = []
+            for kind, vals in [("null", row[:len(row)//3]), ("NaN", row[len(row)//3:2*len(row)//3]), ("inf", row[2*len(row)//3:])]:
+                if hasattr(vals, 'max') and vals.max() > 0:
+                    parts.append(f"{kind}={vals.max()}")
+            if parts:
+                logger.info("Preprocessing (fused): %s", ", ".join(parts))
+    else:
+        # Pandas: per-column operations (already vectorized, no easy fusion)
+        num_cols = df.select_dtypes(include="number").columns
+        if len(num_cols) > 0:
+            df[num_cols] = df[num_cols].fillna(fill_value)
+            df[num_cols] = df[num_cols].replace([float("inf"), float("-inf")], fill_value)
+    return df
+
+
 def _frame_contains_inf(df) -> bool:
     """Cheap O(numeric_cols * n_rows) scan that returns True iff ``df``
     contains any ``+inf`` / ``-inf`` in a numeric column.
@@ -170,46 +224,25 @@ def preprocess_dataframe(
     if config.ensure_float32_dtypes:
         df = ensure_dataframe_float32_convertability(df)
 
-    # Process nulls
+    # 2026-05-12 Wave 34: fused null+nan+inf in one pass per frame.
+    # The old code called ``process_nulls`` → ``process_nans`` →
+    # ``process_infinities`` sequentially — 3 separate diagnostic
+    # scans + 3 separate fix applications per frame. For polars the
+    # fixes are lazy (zero-cost until collect) but each diagnostic
+    # ``.select()`` scan is eager. Wave 34 fuses all three into a
+    # single ``.with_columns()`` call + combined diagnostic log.
     if config.fillna_value is not None:
-        df = process_nulls(df, fill_value=config.fillna_value, verbose=verbose)
-        df = process_nans(df, fill_value=config.fillna_value, verbose=verbose)
-
-    # Process infinities
-    # 2026-04-24: fix_infinities was double-gated on fillna_value — but
-    # fillna_value defaults to None (many callers never set it), making
-    # fix_infinities=True a silent no-op. XGB then crashes with
-    # "Input data contains `inf` or a value too large, while `missing`
-    # is not set to `inf`" when the frame has any np.inf in a numeric
-    # column. Decouple: when fillna_value is set, honor the explicit
-    # user value; otherwise default the inf-replacement to 0.0 (safe
-    # neutral — inf is pathological and the model can't learn from it
-    # regardless). The separate flag fix_infinities still gates the
-    # action so a caller who genuinely wants inf pass-through can
-    # set fix_infinities=False.
-    if config.fix_infinities:
-        inf_fill = config.fillna_value if config.fillna_value is not None else 0.0
-        df = process_infinities(df, fill_value=inf_fill, verbose=verbose)
-    else:
-        # 2026-04-27 (batch 2): fix_infinities=False is intentional inf
-        # pass-through (e.g. NGBoost, robust regression, custom losses
-        # that handle inf). But XGB / HistGradientBoosting / sklearn
-        # linear all reject inf at fit time deep in C++ with opaque
-        # ``Input data contains 'inf' or a value too large`` errors.
-        # If we detect any inf in numeric columns AND the user has any
-        # of those backends in the model list, auto-fix the inf with a
-        # 0.0 fill and log an ERROR. Better than the silent C++ crash
-        # downstream. Caller can silence this by either flipping
-        # fix_infinities=True (canonical) or pre-cleaning the inf
-        # values before the suite (NGBoost path).
-        if _frame_contains_inf(df):
-            logger.error(
-                "fix_infinities=False but data contains np.inf in numeric "
-                "columns. Auto-fixing to 0.0 to avoid an opaque XGB / HGB / "
-                "sklearn crash later. Set fix_infinities=True explicitly to "
-                "silence this error, or pre-clean the inf values upstream."
-            )
-            df = process_infinities(df, fill_value=0.0, verbose=verbose)
+        df = _process_special_values_fused(df, fill_value=config.fillna_value, verbose=verbose)
+    elif config.fix_infinities:
+        df = process_infinities(df, fill_value=0.0, verbose=verbose)
+    elif _frame_contains_inf(df):
+        logger.error(
+            "fix_infinities=False but data contains np.inf in numeric "
+            "columns. Auto-fixing to 0.0 to avoid an opaque XGB / HGB / "
+            "sklearn crash later. Set fix_infinities=True explicitly to "
+            "silence this error, or pre-clean the inf values upstream."
+        )
+        df = process_infinities(df, fill_value=0.0, verbose=verbose)
 
     if verbose:
         logger.info("Preprocessing: %s -> %s", original_shape, df.shape)
