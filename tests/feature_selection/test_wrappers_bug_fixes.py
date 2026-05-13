@@ -37,24 +37,27 @@ class TestF1_UnwiredSearchMethods:
         "method",
         [OptimumSearch.ScipyLocal, OptimumSearch.ScipyGlobal, OptimumSearch.ExhaustiveDichotomic],
     )
-    def test_unwired_search_method_raises_clearly(self, method):
-        """Pre-fix: UnboundLocalError (next_nfeatures_to_check). Post-fix: NotImplementedError
-        with explicit message naming the unwired enum value."""
-        with pytest.raises(NotImplementedError, match=str(method.value)):
-            get_next_features_subset(
-                nsteps=1,
-                original_features=list(range(10)),
-                feature_importances={"5_0": {0: 0.1, 1: 0.2}},
-                evaluated_scores_mean={0: 0.1, 5: 0.2},
-                evaluated_scores_std={0: 0.0, 5: 0.0},
-                use_all_fi_runs=True,
-                use_last_fi_run_only=False,
-                use_one_freshest_fi_run=False,
-                use_fi_ranking=False,
-                top_predictors_search_method=method,
-                votes_aggregation_method=VotesAggregation.Borda,
-                Optimizer=None,
-            )
+    def test_unwired_search_method_now_implemented(self, method):
+        """Pre-2815c08: these methods raised NotImplementedError.
+        Post-2815c08: all 5 enum values implemented and return a
+        valid next-N suggestion (list of feature indices)."""
+        result = get_next_features_subset(
+            nsteps=1,
+            original_features=list(range(10)),
+            feature_importances={"5_0": {0: 0.1, 1: 0.2}},
+            evaluated_scores_mean={0: 0.1, 5: 0.2},
+            evaluated_scores_std={0: 0.0, 5: 0.0},
+            use_all_fi_runs=True,
+            use_last_fi_run_only=False,
+            use_one_freshest_fi_run=False,
+            use_fi_ranking=False,
+            top_predictors_search_method=method,
+            votes_aggregation_method=VotesAggregation.Borda,
+            Optimizer=None,
+        )
+        assert isinstance(result, list), (
+            f"expected list, got {type(result).__name__} for {method.value}"
+        )
 
 
 # ----------------------------------------------------------------------------
