@@ -21,6 +21,7 @@ from pyutilz.strings import slugify
 from ..phases import phase
 from ..utils import log_ram_usage
 from ._misc_helpers import _elapsed_str
+from ._phase_diagnostics import run_per_target_diagnostics
 from ._setup_helpers import _setup_model_directories
 from ..strategies import PipelineCache
 
