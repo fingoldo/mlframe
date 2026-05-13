@@ -12,10 +12,19 @@ from sklearn.datasets import make_classification, make_regression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 
-from mlframe.feature_selection.wrappers import (
-    RFECV,
-    get_feature_importances,
-)
+# Lazy imports — RFECV pulls in heavy training modules that OOM
+# during collection when loaded alongside filters/* tests.
+# from mlframe.feature_selection.wrappers import RFECV, get_feature_importances
+
+
+def _rfecv(**kw):
+    from mlframe.feature_selection.wrappers import RFECV as _RFECV
+    return _RFECV(**kw)
+
+
+def _get_feature_importances(*a, **kw):
+    from mlframe.feature_selection.wrappers import get_feature_importances as _gfi
+    return _gfi(*a, **kw)
 
 
 # ----------------------------------------------------------------------------
@@ -41,7 +50,7 @@ class TestT1_CoefZScoring:
         # Continuous y so we can use LinearRegression (no logistic asymmetry).
         y = signal + rng.standard_normal(n) * 0.1
         model = LinearRegression().fit(X, y)
-        result = get_feature_importances(
+        result = _get_feature_importances(
             model=model,
             current_features=list(X.columns),
             importance_getter="coef_",
@@ -68,7 +77,7 @@ class TestT2_MustExclude:
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((150, 6)), columns=list("abcdef"))
         y = (X["a"] + X["b"] > 0).astype(int).values
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=400, random_state=0),
             cv=3, max_refits=4, verbose=0,
             must_exclude=["c", "d"],
@@ -83,7 +92,7 @@ class TestT2_MustExclude:
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 4)), columns=list("abcd"))
         y = (X["a"] > 0).astype(int).values
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=2, verbose=0,
             must_exclude=["nonexistent", "a"],
@@ -106,7 +115,7 @@ class TestT3_LeakageDetection:
         X["leak"] = y.astype(float) + rng.standard_normal(n) * 0.01
 
         with caplog.at_level(logging.WARNING):
-            rfecv = RFECV(
+            rfecv = _rfecv(
                 estimator=LogisticRegression(max_iter=200, random_state=0),
                 cv=3, max_refits=2, verbose=0,
                 leakage_corr_threshold=0.95,
@@ -124,7 +133,7 @@ class TestT3_LeakageDetection:
         y = (X["a"] > 0).astype(int).values
         X["leak"] = y.astype(float)
         with caplog.at_level(logging.WARNING):
-            rfecv = RFECV(
+            rfecv = _rfecv(
                 estimator=LogisticRegression(max_iter=200, random_state=0),
                 cv=3, max_refits=2, verbose=0,
                 leakage_corr_threshold=None,
@@ -151,7 +160,7 @@ class TestT4_FeatureGroups:
             columns=[f"dup{i}" for i in range(5)] + [f"noise{i}" for i in range(5)],
         )
         y = (driver > 0).astype(int)
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=400, random_state=0),
             cv=3, max_refits=4, verbose=0,
             feature_groups={"dup_group": [f"dup{i}" for i in range(5)]},
@@ -174,7 +183,7 @@ class TestT5_BootstrapCI:
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((200, 8)), columns=list("abcdefgh"))
         y = (X["a"] + X["b"] > 0).astype(int).values
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
         )
@@ -194,7 +203,7 @@ class TestT6_StabilitySelection:
             n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(30)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=400, random_state=0),
             stability_selection=True,
             stability_n_bootstrap=30,
@@ -215,7 +224,7 @@ class TestT6_StabilitySelection:
             n_samples=200, n_features=10, n_informative=3, random_state=0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             stability_selection=True,
             stability_n_bootstrap=20,
@@ -239,9 +248,9 @@ class TestT6_StabilitySelection:
             stability_n_bootstrap=20,
             verbose=0, random_state=0,
         )
-        r_low = RFECV(stability_threshold=0.3, **common)
+        r_low = _rfecv(stability_threshold=0.3, **common)
         r_low.fit(Xdf, y)
-        r_high = RFECV(stability_threshold=0.9, **common)
+        r_high = _rfecv(stability_threshold=0.9, **common)
         r_high.fit(Xdf, y)
         assert r_high.n_features_ <= r_low.n_features_, (
             f"Higher threshold (0.9) should select <= than lower (0.3); "
@@ -261,7 +270,7 @@ class TestT7_MultiEstimator:
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         # Singular path: should get cv * n_iter runs in feature_importances_
-        r_one = RFECV(
+        r_one = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=2, verbose=0, random_state=0,
         )
@@ -269,7 +278,7 @@ class TestT7_MultiEstimator:
         n_runs_one = len(r_one.feature_importances_)
 
         # Two estimators: should get 2x the runs
-        r_two = RFECV(
+        r_two = _rfecv(
             estimators=[
                 LogisticRegression(max_iter=200, random_state=0),
                 RandomForestClassifier(n_estimators=10, random_state=0, n_jobs=1),
@@ -293,7 +302,7 @@ class TestT7_MultiEstimator:
             n_redundant=0, random_state=0, shuffle=False, class_sep=2.5,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimators=[
                 LogisticRegression(max_iter=400, random_state=0),
                 RandomForestClassifier(n_estimators=30, random_state=0, n_jobs=1),
@@ -309,7 +318,7 @@ class TestT7_MultiEstimator:
         """When both estimator= and estimators= are passed, estimators wins."""
         X, y = make_classification(n_samples=120, n_features=6, n_informative=3, random_state=0)
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(6)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),  # ignored
             estimators=[
                 LogisticRegression(max_iter=200, random_state=0),
@@ -332,7 +341,7 @@ class TestT8_StabilityPlusMultiEstimator:
             n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(25)])
-        rfecv = RFECV(
+        rfecv = _rfecv(
             estimator=None,
             estimators=[
                 LogisticRegression(max_iter=400, random_state=0),

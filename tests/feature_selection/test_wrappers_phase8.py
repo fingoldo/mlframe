@@ -21,8 +21,8 @@ from sklearn.model_selection import TimeSeriesSplit, KFold, StratifiedKFold
 
 
 def _rfecv(**kw):
-    from mlframe.feature_selection.wrappers import RFECV
-    return _rfecv(**kw)
+    from mlframe.feature_selection.wrappers import RFECV as _RFECV
+    return _RFECV(**kw)
 
 
 # ----------------------------------------------------------------------------
