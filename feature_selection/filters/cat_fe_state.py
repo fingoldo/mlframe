@@ -283,13 +283,15 @@ class CatFEConfig:
     Less biased than plug-in for high-cardinality joints; alternative
     to Miller-Madow. Reference: Krichevsky & Trofimov 1981."""
 
-    perm_budget_strategy: Literal["fixed", "bandit_ucb1"] = "fixed"
+    perm_budget_strategy: Literal["fixed", "bandit_ucb1"] = "bandit_ucb1"
     """Tier 4.1: permutation budget allocation.
-    'fixed' (default): each pair gets ``full_npermutations`` shuffles.
-    'bandit_ucb1': UCB1 allocates more shuffles to ambiguous pairs
-    (those with II close to the floor); saves 2-5x total perms on
-    typical workloads where some pairs are clearly significant or
-    clearly noise. Reference: Auer 2002."""
+    ``"bandit_ucb1"`` (default since 2026-05-12 Wave 29): UCB1 allocates
+    more shuffles to ambiguous pairs (those with II close to the floor);
+    saves 2-5× total perms on typical workloads where some pairs are
+    clearly significant or clearly noise, while maintaining the same
+    FWER-guaranteed statistical power on borderlines. Reference: Auer 2002.
+    ``"fixed"``: each pair gets ``full_npermutations`` shuffles (legacy
+    behaviour, still available for reproducibility of old runs)."""
 
     refine_passes: int = 0
     """Tier 4.2: coordinate-ascent refinement passes on k-way results.
