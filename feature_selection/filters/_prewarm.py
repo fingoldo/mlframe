@@ -63,7 +63,7 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         # JIT-compile cost on first call (~17s on c0121 profile, dominating
         # MRMR.fit's wall time). Pre-warming shifts that out of the
         # user-visible timer.
-        from .permutation import parallel_mi_prange, parallel_mi
+        from .permutation import parallel_mi_prange, parallel_mi, shuffle_arr
         # 2026-05-11 Wave 17b: info-theory primitives used by screen.py.
         # ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` /
         # ``entropy_miller_madow`` each pay 1-3s JIT compile on first
@@ -245,6 +245,15 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             classes_y=classes_y, freqs_y=freqs_y,
             npermutations=2, original_mi=0.0, max_failed=10, dtype=dtype,
         )
+    except Exception:
+        pass
+    # 2026-05-12 Wave 33: prewarm ``shuffle_arr`` — the njit wrapper
+    # around ``np.random.shuffle`` used in ``mi_direct``'s sequential
+    # fallback path (n_workers=1). c0144 n_jobs=1 profile showed 42
+    # calls at 3.9s JIT compile from this single function.
+    try:
+        _test = classes_y.copy()
+        shuffle_arr(_test)
     except Exception:
         pass
 
