@@ -3350,7 +3350,7 @@ def _initialize_training_defaults(
         mrmr_kwargs = dict(
             n_workers=max(1, psutil.cpu_count(logical=False)),
             verbose=2,
-            fe_max_steps=0,
+            fe_max_steps=1,
         )
 
     return (
