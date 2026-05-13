@@ -220,25 +220,35 @@ def _prebin_feature_columns(
     """Pre-compute quantile edges and bin indices for every feature column.
 
     Returns an (n_samples, n_features) int64 array of bin indices
-    (0..nbins-1).  Call once per screening pass; reuse across all
-    candidate targets via ``_mi_to_target_prebinned``.  This saves
-    the ``np.quantile`` + ``np.searchsorted`` cost per column per
-    candidate -- for the typical 8-candidate × 25-feature sweep,
-    roughly half the MI wall time.
+    (0..nbins-1, with -1 marking non-finite rows).  Call once per
+    screening pass; reuse across all candidate targets via
+    ``_mi_to_target_prebinned``.  This saves the ``np.quantile`` +
+    ``np.searchsorted`` cost per column per candidate -- for the
+    typical 8-candidate × 25-feature sweep, roughly half the MI wall
+    time.
+
+    Uses ``np.nanquantile`` so NaN values don't corrupt the cut
+    points; non-finite rows get sentinel -1 and are skipped by the
+    downstream ``_mi_to_target_prebinned``.
     """
-    finite_mask = np.all(np.isfinite(feature_matrix), axis=1)
-    if finite_mask.sum() < 5 * nbins:
-        return np.zeros((0, feature_matrix.shape[1]), dtype=np.int64)
-    fm_f = feature_matrix[finite_mask]
-    n_rows, n_cols = fm_f.shape
+    n_rows, n_cols = feature_matrix.shape
+    if n_rows < 5 * nbins:
+        return np.full((n_rows, n_cols), -1, dtype=np.int64)
     q_edges = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
     binned = np.empty((n_rows, n_cols), dtype=np.int64)
     for j in range(n_cols):
-        col = fm_f[:, j]
-        cut = np.quantile(col, q_edges)
-        idx = np.searchsorted(cut, col, side="right").astype(np.int64)
-        np.clip(idx, 0, nbins - 1, out=idx)
-        binned[:, j] = idx
+        col = feature_matrix[:, j]
+        col_finite = np.isfinite(col)
+        if col_finite.sum() < 5 * nbins:
+            binned[:, j] = -1
+            continue
+        cut = np.nanquantile(col, q_edges)
+        col_idx = np.full(n_rows, -1, dtype=np.int64)
+        col_idx[col_finite] = np.searchsorted(
+            cut, col[col_finite], side="right",
+        ).astype(np.int64)
+        np.clip(col_idx, 0, nbins - 1, out=col_idx, where=col_idx >= 0)
+        binned[:, j] = col_idx
     return binned
 
 
@@ -252,25 +262,28 @@ def _mi_to_target_prebinned(
     """MI between pre-binned feature columns and ``target``.
 
     ``feature_binned`` is the output of ``_prebin_feature_columns`` --
-    integer bin indices (0..nbins-1) per column.  Only the target
-    is binned here (once), saving the per-column quantile + searchsorted
-    cost compared to ``_mi_to_target(estimator="bin")``.
+    integer bin indices (0..nbins-1, -1 for non-finite rows) with the
+    SAME number of rows as ``target``.  Only the target is binned here
+    (once), saving the per-column quantile + searchsorted cost.
     """
     if feature_binned.shape[0] == 0 or feature_binned.shape[1] == 0:
         return 0.0
-    finite = np.isfinite(target)
+    if feature_binned.shape[0] != target.shape[0]:
+        return 0.0
+    # Rows valid for MI: target finite AND first feature column not sentinel
+    finite = np.isfinite(target) & (feature_binned[:, 0] >= 0)
     if finite.sum() < 5 * nbins:
         return 0.0
     t_f = target[finite]
-    n_rows = min(feature_binned.shape[0], t_f.shape[0])
+    fb_f = feature_binned[finite]
     qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
-    t_edges = np.quantile(t_f[:n_rows], qs)
-    t_idx = np.searchsorted(t_edges, t_f[:n_rows], side="right").astype(np.int64)
+    t_edges = np.nanquantile(t_f, qs)
+    t_idx = np.searchsorted(t_edges, t_f, side="right").astype(np.int64)
     np.clip(t_idx, 0, nbins - 1, out=t_idx)
-    per_feat = np.empty(feature_binned.shape[1], dtype=np.float64)
-    for j in range(feature_binned.shape[1]):
+    per_feat = np.empty(fb_f.shape[1], dtype=np.float64)
+    for j in range(fb_f.shape[1]):
         per_feat[j] = _mi_from_binned_pair(
-            feature_binned[:n_rows, j], t_idx, nbins=nbins,
+            fb_f[:, j], t_idx, nbins=nbins,
         )
     if aggregation == "sum":
         return float(np.sum(per_feat))

@@ -2523,6 +2523,40 @@ def _predict_with_fallback(
     try:
         with phase(method, model=type(model).__name__, n_rows=n_rows):
             return fn(X)
+    except ValueError as e:
+        # 2026-05-13: NaN safety net. When the model is NaN-intolerant
+        # (raw LinearRegression / Ridge / ... without a SimpleImputer
+        # wrapper) and X contains NaN, apply a one-shot SimpleImputer
+        # on the fly.  Handles the cache-hit case where
+        # skip_pre_pipeline_transform stripped the imputation step.
+        if "Input X contains NaN" not in str(e):
+            raise
+        _has_nan = bool(
+            hasattr(X, "isna") and X.isna().any().any()
+            or (hasattr(X, "isnull") and X.isnull().any().any())
+        )
+        if not _has_nan:
+            raise
+        logger.warning(
+            "[NaN-guard] %s X contains NaN; applying one-shot "
+            "SimpleImputer before predict (n_rows=%s).",
+            type(model).__name__, n_rows,
+        )
+        from sklearn.impute import SimpleImputer as _SI
+        if hasattr(X, "to_numpy"):
+            _arr = X.to_numpy(dtype=np.float64)
+        elif hasattr(X, "values"):
+            _arr = np.asarray(X.values, dtype=np.float64)
+        else:
+            _arr = np.asarray(X, dtype=np.float64)
+        _arr = _SI(strategy="mean").fit_transform(_arr)
+        # Re-wrap as DataFrame if X was one.
+        if hasattr(X, "columns"):
+            import pandas as pd
+            X_clean = pd.DataFrame(_arr, columns=list(X.columns), index=getattr(X, "index", None))
+        else:
+            X_clean = _arr
+        return fn(X_clean)
     except TypeError as e:
         model_type_name = type(model).__name__
         err_str = str(e)
