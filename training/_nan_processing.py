@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Union
+import logging
+from typing import Callable, Optional, Union
 
 import numpy as np
 import pandas as pd
 import polars as pl
+
+logger = logging.getLogger(__name__)
+
+try:
+    import polars.selectors as cs
+except ImportError:  # pragma: no cover
+    cs = None
+
 
 def _process_special_values(
     df: Union[pl.DataFrame, pd.DataFrame],
