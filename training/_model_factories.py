@@ -483,6 +483,12 @@ from ._pipeline_helpers import (  # noqa: E402,F401
     _prepare_test_split,
 )
 from ._cb_pool import (  # noqa: E402,F401
+    _cached_gpu_info,
+    _maybe_get_or_build_cb_pool,
+    _maybe_rewrite_eval_set_as_cb_pool,
+    _polars_fill_null_in_categorical,
+    _polars_schema_diagnostic,
+)
 from ._eval_helpers import (  # noqa: E402,F401
     _align_xgb_cat_categories,
     _append_split_rate_suffix,
@@ -490,12 +496,6 @@ from ._eval_helpers import (  # noqa: E402,F401
     _decategorise_float_cat_columns,
     _filter_categorical_features,
     run_confidence_analysis,
-)
-    _cached_gpu_info,
-    _maybe_get_or_build_cb_pool,
-    _maybe_rewrite_eval_set_as_cb_pool,
-    _polars_fill_null_in_categorical,
-    _polars_schema_diagnostic,
 )
 
 
