@@ -486,12 +486,33 @@ def train_mlframe_models_suite(
             f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
         )
         _short_circuit_active = (not _is_interactive_logp) and not save_charts
-        logger.info(
-            "[reporting] save_charts=%s, plot_dir=%s, interactive=%s -- "
-            "cal-plot short-circuit %s",
-            save_charts, _plot_dir, _is_interactive_logp,
-            "ACTIVE (renders skipped, no consumer)" if _short_circuit_active else "INACTIVE",
-        )
+        # 2026-05-12 Wave 31: _short_circuit_active was previously ONLY logged
+        # ("ACTIVE (renders skipped)") but the flag was NEVER passed to the
+        # rendering code. The suite still rendered 100+ calibration plots and
+        # saved them to a temp dir that was immediately discarded. On a 1M-row
+        # multiclass combo (c0124), this wasted 42 show_calibration_plot calls
+        # × 576 ms = 24 s, plus 46 savefig calls × 383 ms = 17.6 s, plus
+        # 18 s of thread-lock contention from the parallel chart save threads.
+        # All ~60 s of rendering work was thrown away.
+        #
+        # Fix: when short-circuit is active, clear the model-level plot_file
+        # so show_calibration_plot's ``show_plots and not plot_file`` guard
+        # (metrics.py:1559) fires and returns immediately. The output_config
+        # is not mutated (the string "" is semantic, not a path mutation).
+        if _short_circuit_active:
+            output_config.plot_file = ""
+            logger.info(
+                "[reporting] save_charts=%s, interactive=%s -- "
+                "cal-plot short-circuit ACTIVE: clearing plot_file so "
+                "chart rendering is skipped entirely",
+                save_charts, _is_interactive_logp,
+            )
+        else:
+            logger.info(
+                "[reporting] save_charts=%s, plot_dir=%s, interactive=%s -- "
+                "cal-plot short-circuit INACTIVE (charts will render)",
+                save_charts, _plot_dir, _is_interactive_logp,
+            )
         # 2026-05-10 perf advisory: warn on the kaleido bottleneck combo
         # (large dataset + plotly[png] default + save_charts on). Profiled
         # impact: 76s extra wall-time on a single 1M-row regression x lgb
