@@ -11,6 +11,11 @@ from timeit import default_timer as timer
 
 import numpy as np
 
+try:
+    import polars as pl
+except ImportError:
+    pl = None  # type: ignore[assignment]
+
 from pyutilz.strings import slugify
 
 from ..phases import phase
