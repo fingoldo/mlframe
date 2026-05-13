@@ -196,7 +196,7 @@ class LightGBMCallback(UniversalCallback):
             raise lgb.callback.EarlyStopException(best_iter, [(dataset, metric, self.best_metric, False)])
 
 
-class XGBoostCallback(UniversalCallback, TrainingCallback):
+class XGBoostCallback(UniversalCallback):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.monitor_dataset = self.monitor_dataset or "validation_0"
