@@ -717,6 +717,13 @@ def _make_dispatch(name):
     return _d
 
 
+# Registry of polynomial + non-polynomial basis families. Each entry
+# is a dict with keys: eval (numpy), eval_njit (numba), eval_dispatch
+# (size-aware router), fit/apply (preprocessing), coef_size_func,
+# canonical_seeds_func, and optionally eval_njit_factory for data-
+# dependent bases (RBF, Sigmoid). Merged from ``bases.EXTRA_BASES``
+# at import time. Module-private: externals use ``optimise_hermite_pair``
+# or ``polyeval_dispatch``, not the raw registry.
 _POLY_BASES = {
     "hermite": dict(eval=hermeval, eval_njit=_hermeval_njit,
                      eval_dispatch=None,  # populated below after dispatcher exists
@@ -1068,6 +1075,11 @@ def _select_diverse_topm(history: list, top_m: int,
     desc, greedily keep entries whose joint coefficient vector is
     >= ``min_l2_distance`` from all previously kept entries (after
     L2 normalization, so the comparison is direction-only).
+
+    Privacy boundary: called only from ``optimise_pair_multimode``.
+    Not part of the public pair-FE API -- use the public
+    ``optimise_pair_multimode(top_m=...)`` instead.
+    """
 
     Coefficient vectors of different lengths (e.g. degree 2 has
     coef-size 3, degree 4 has 5) are zero-padded to the max length

@@ -67,6 +67,10 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.nda
         Leave NaN in place (legacy polars behaviour). The numba kernel
         will route them to the lowest bin or raise depending on its
         bounds-checking; only safe when the caller is OK with that.
+
+    Private — external callers should use the public ``discretize_*``
+    family (``discretize_array``, ``discretize_2d_array``,
+    ``categorize_dataset``), which call this internally.
     """
     if not np.isnan(arr).any():
         return arr

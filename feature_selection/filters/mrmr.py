@@ -1009,6 +1009,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # (e.g. higher-order interaction whose parents are themselves
         # engineered) is recorded by name only and dropped from transform
         # output -- mirrors the legacy behaviour for those cases.
+        # ``_engineered_features_`` tracks synthetic column NAMES that exist
+        # in ``data`` but not in ``self.feature_names_in_``. During
+        # ``transform()``, these are silently dropped so the output
+        # matches the original schema. Internal; set by ``_run_fe_step``
+        # during fit and consumed by ``transform``.
         self._engineered_features_ = []
         self._engineered_recipes_ = []
         original_indices = []
@@ -1195,6 +1200,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         ``(data, cols, nbins, X, selected_vars, n_recommended_features)``
         with the updated state. ``n_recommended_features == 0`` signals
         the outer loop to stop iterating.
+
+        Private — called from ``MRMR.fit`` only. External callers
+        should use ``MRMR.fit()`` or ``MRMR.fit_transform()``, not
+        this internal method directly.
         """
         if verbose:
             logger.info("MRMR+ selected %d out of %d features before the Feature Engineering step.", len(selected_vars), self.n_features_in_)

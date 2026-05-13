@@ -220,7 +220,13 @@ compute_joint_hist_multi_pair_cuda: Any = None
 
 def _ensure_kernels_inited() -> None:
     """Double-checked init guard. Cheap on the hot path, race-free on the
-    first call across any combination of threads and joblib workers."""
+    first call across any combination of threads and joblib workers.
+
+    Private — external callers should use ``mi_direct_gpu`` or
+    ``mi_direct_gpu_batched``, which call this internally. Direct
+    invocation is only needed when pre-warming CUDA kernels before
+    a parallel joblib run.
+    """
     if (compute_joint_hist_cuda is not None
             and compute_mi_from_classes_cuda is not None
             and compute_joint_hist_batched_cuda is not None):
