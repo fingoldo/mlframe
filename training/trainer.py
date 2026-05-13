@@ -66,11 +66,16 @@ from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
 from ._pipeline_helpers import (  # noqa: E402,F401
     _apply_pre_pipeline_transforms, _extract_feature_selector,
     _is_fitted, _multilabel_target_to_1d_for_supervised_encoders,
-    _passthrough_cols_fit_transform, _prepare_test_split,
+    _passthrough_cols_fit_transform, _pipeline_signature_for_cache,
+    _pre_pipeline_cache_clear, _pre_pipeline_cache_get,
+    _pre_pipeline_cache_set, _prepare_test_split,
 )
 from ._cb_pool import (  # noqa: E402,F401
     _cached_gpu_info, _maybe_get_or_build_cb_pool,
-    _maybe_rewrite_eval_set_as_cb_pool, _polars_fill_null_in_categorical,
+    _maybe_rewrite_eval_set_as_cb_pool,
+    _polars_df_has_null_in_categorical,
+    _polars_fill_null_in_categorical,
+    _polars_nullable_categorical_cols,
     _polars_schema_diagnostic,
 )
 from ._eval_helpers import (  # noqa: E402,F401
