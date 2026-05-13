@@ -660,7 +660,7 @@ class CompositeTargetDiscovery:
                 # Upgrade: fit the linear_residual_multi joint OLS on the kept base set and stamp a NEW spec with extra_base_columns populated.
                 _base_matrix = np.column_stack([_pool_arrays[n] for n in _kept_bases])
                 _multi_params = _linear_residual_multi_fit(_y_train_local, _base_matrix)
-                _new_name = f"{target_col}__linear_residual_multi__{'+'.join(_kept_bases)}"
+                _new_name = compose_target_name(target_col, "linear_residual_multi", "+".join(_kept_bases))
                 _upgraded_spec = CompositeSpec(
                     name=_new_name,
                     target_col=target_col,

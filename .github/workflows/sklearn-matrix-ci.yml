@@ -140,6 +140,7 @@ jobs:
             "catboost" \
             "portalocker" \
             "pympler" \
+            "psycopg2-binary" \
             "tqdm" \
             "pytest>=7.0" \
             "pytest-cov" \

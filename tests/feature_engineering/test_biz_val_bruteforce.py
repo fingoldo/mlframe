@@ -2,13 +2,17 @@
 ``run_pysr_feature_engineering``.
 
 Per CLAUDE.md: each test asserts a SYNTHETIC measurable WIN.
-PySR symbolic regression discovers human-readable equations from
-data. Tests use minimal budget so they complete in seconds.
+PySR symbolic regression discovers human-readable equations.
 
-Requires Julia runtime on PATH (D:/Julia/bin).
+Requires Julia runtime. The module-level ``_check_julia`` gate
+skips with a clear message when Julia is unavailable or the bridge
+fails to initialize -- so CI without Julia isn't blocked.
 """
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import warnings
 
 import numpy as np
@@ -16,6 +20,23 @@ import pandas as pd
 import pytest
 
 warnings.filterwarnings("ignore")
+
+
+def _check_julia():
+    """Return True if Julia is available AND import succeeds."""
+    # Prefer the D: install.
+    for bindir in ("D:/Julia/bin",):
+        julia_exe = os.path.join(bindir, "julia.exe")
+        if os.path.isfile(julia_exe):
+            os.environ["JULIA_EXE"] = julia_exe
+            os.environ.setdefault("PATH", bindir + os.pathsep + os.environ.get("PATH", ""))
+            break
+    # Smoke: can pysr import at all?
+    try:
+        import pysr  # noqa: F401
+        return True
+    except (ImportError, subprocess.CalledProcessError, OSError):
+        return False
 
 
 _MINI_PYSR = {
@@ -40,15 +61,17 @@ def _make_synth(n=200, seed=42):
     return pd.DataFrame({"x0": x0, "x1": x1, "x2": x2, "y": y})
 
 
-# ---------------------------------------------------------------------------
-# run_pysr_feature_engineering
-# ---------------------------------------------------------------------------
+# Gate the whole module.
+pytestmark = pytest.mark.skipif(
+    not _check_julia(),
+    reason="Julia runtime not available (D:/Julia/bin/julia.exe missing "
+           "or pysr import failed)",
+)
 
 
 def test_biz_val_bruteforce_pysr_runs_and_returns_equations():
     """Minimal PySR fit must produce a non-None ``.equations_``
     DataFrame after training."""
-    pytest.importorskip("pysr")
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     df = _make_synth(n=80, seed=42)
     model = run_pysr_feature_engineering(
@@ -60,10 +83,7 @@ def test_biz_val_bruteforce_pysr_runs_and_returns_equations():
 
 
 def test_biz_val_bruteforce_pysr_accepts_polars():
-    """PySR via bruteforce must accept polars DataFrames (converts
-    to pandas internally)."""
-    pytest.importorskip("pysr")
-    pytest.importorskip("polars")
+    """PySR via bruteforce must accept polars DataFrames."""
     import polars as pl
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     df = _make_synth(n=60, seed=42)
@@ -77,7 +97,6 @@ def test_biz_val_bruteforce_pysr_accepts_polars():
 
 def test_biz_val_bruteforce_pysr_drop_columns_excludes_feature():
     """``drop_columns=['x2']`` must exclude the noise column."""
-    pytest.importorskip("pysr")
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     df = _make_synth(n=60, seed=42)
     model = run_pysr_feature_engineering(
@@ -89,9 +108,7 @@ def test_biz_val_bruteforce_pysr_drop_columns_excludes_feature():
 
 
 def test_biz_val_bruteforce_pysr_reserved_names_smoke():
-    """Default ``reserved_names=['im']`` renames conflicting columns
-    without crashing."""
-    pytest.importorskip("pysr")
+    """Default ``reserved_names=['im']`` renames conflicting columns."""
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     df = _make_synth(n=50, seed=42)
     df["im"] = np.random.default_rng(0).normal(size=50)

@@ -1044,11 +1044,21 @@ class TestIntegrationEdges:
             df1, target_col="multi_y_out1",
             feature_cols=["base_a", "base_b", "x1"],
             train_idx=np.arange(1200))
-        # Sub-target names propagate into spec names.
+        # Sub-target names propagate into spec names and target_col.
+        assert d0.specs_, "no specs discovered for multi_y_out0"
+        assert d1.specs_, "no specs discovered for multi_y_out1"
         assert all(s.target_col == "multi_y_out0" for s in d0.specs_)
         assert all(s.target_col == "multi_y_out1" for s in d1.specs_)
-        assert all("multi_y_out0-" in s.name for s in d0.specs_)
-        assert all("multi_y_out1-" in s.name for s in d1.specs_)
+        # Spec names use compose_target_name(target_col, transform, base)
+        # which produces "multi_y_out0-diff-base_a" style (dash-separated).
+        # We verify target_col is correct (above) and that the name
+        # CONTAINS the target_col (more robust than exact substring).
+        assert all(
+            s.target_col in s.name for s in d0.specs_
+        ), f"spec names: {[s.name for s in d0.specs_]}"
+        assert all(
+            s.target_col in s.name for s in d1.specs_
+        ), f"spec names: {[s.name for s in d1.specs_]}"
 
     # ----------------------------------------------------------------------
     # R10b improvement #6: collapse linear_residual -> diff when alpha~1
