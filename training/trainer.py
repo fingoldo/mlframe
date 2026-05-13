@@ -82,7 +82,9 @@ from ._training_loop import (  # noqa: E402,F401
     _SigmoidAdapter, _PostHocCalibratedModel,
     _PostHocMultiCalibratedModel, _PerClassIsotonicCalibrator,
     _maybe_apply_posthoc_calibration, _train_model_with_fallback,
-    _handle_oom_error, _setup_eval_set, _setup_early_stopping_callback,
+)
+from ._data_helpers import (  # noqa: E402,F401
+    _setup_eval_set, _setup_early_stopping_callback,
 )
 from ._model_factories import (  # noqa: E402,F401
     MODELS_SUBDIR, _get_flaml_zeroshot, _get_neural_components,

@@ -29,6 +29,28 @@ from ._predict_guards import _recover_cb_feature_names
 
 logger = logging.getLogger(__name__)
 
+
+def _handle_oom_error(model_obj, model_type_name: str) -> bool:
+    """2026-05-12: migrated from _eval_helpers refactor fallout.
+    Attempts to recover from an OOM error by clearing caches and
+    returning True if the caller should retry the fit.
+    """
+    import gc
+    gc.collect()
+    # Clear LGB/XGB/CB internal caches if accessible.
+    for _attr in ("_Booster", "_cached_train_features", "_cached_val_features"):
+        if hasattr(model_obj, _attr):
+            try:
+                delattr(model_obj, _attr)
+            except Exception:
+                pass
+    logger.warning(
+        "OOM during %s.fit; cleared caches and will retry once.",
+        model_type_name,
+    )
+    return True
+
+
 class _SigmoidAdapter:
     """Thin adapter giving a fitted LogisticRegression an IsotonicRegression-
     style .predict() API that returns positive-class probabilities."""

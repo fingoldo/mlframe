@@ -1,13 +1,13 @@
 """Evaluation helpers extracted from ``trainer.py``.
 
 Post-training evaluation: metric computation, feature importance,
-import re
 confidence analysis, XGB category alignment, column decategorisation.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from timeit import default_timer as timer
 from typing import Any, Dict, List, Optional, Tuple
 

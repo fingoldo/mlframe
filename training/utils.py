@@ -3,6 +3,7 @@ Utility functions for mlframe training pipeline.
 
 Functions for RAM management, file I/O, dataframe conversions, and data cleaning.
 """
+from __future__ import annotations
 
 # *****************************************************************************************************************************************************
 # IMPORTS
@@ -13,7 +14,9 @@ Functions for RAM management, file I/O, dataframe conversions, and data cleaning
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import re
 import sys
+from typing import Union, Optional
 
 logger = logging.getLogger(__name__)
 

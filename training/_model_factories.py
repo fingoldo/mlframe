@@ -484,17 +484,6 @@ from ._pipeline_helpers import (  # noqa: E402,F401
 )
 from ._cb_pool import (  # noqa: E402,F401
 from ._eval_helpers import (  # noqa: E402,F401
-from ._training_loop import (  # noqa: E402,F401
-    _SigmoidAdapter,
-    _PostHocCalibratedModel,
-    _PostHocMultiCalibratedModel,
-    _PerClassIsotonicCalibrator,
-    _maybe_apply_posthoc_calibration,
-    _train_model_with_fallback,
-    _handle_oom_error,
-    _setup_eval_set,
-    _setup_early_stopping_callback,
-)
     _align_xgb_cat_categories,
     _append_split_rate_suffix,
     _compute_split_metrics,
