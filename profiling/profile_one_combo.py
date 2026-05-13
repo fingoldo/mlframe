@@ -122,7 +122,10 @@ def main():
                 target_type=fte._resolve_target_type(),
                 mlframe_models=list(combo.models),
                 hyperparams_config={"iterations": max(combo.iterations, 30)},
-                output_config=OutputConfig(data_dir=tmpdir, models_dir="models"),
+                # 2026-05-12 Wave 31: save_charts=False gives a 7x speedup on
+            # multiclass combos by skipping wasted chart rendering to a
+            # temp dir. Profiler measures training cost, not chart-render cost.
+            output_config=OutputConfig(data_dir=tmpdir, models_dir="models", save_charts=False),
                 use_mlframe_ensembles=combo.use_ensembles,
                 # 2026-05-11: thread combo.use_mrmr_fs through. Previously
                 # the script reported `mrmr=True` in the header but never
