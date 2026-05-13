@@ -17,6 +17,13 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Lazy-loaded module-level references — populated on first call to
+# ``_lgb_classifier_cls`` / ``_lgb_regressor_cls``. Placed here
+# (not inside the functions) so the ``is None`` fast-path on
+# subsequent calls works.
+LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
+
+
 def _patch_lgb_feature_names_in_setter() -> None:
     """Install a no-op setter for ``LGBMModel.feature_names_in_``.
 
