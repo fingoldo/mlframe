@@ -635,6 +635,10 @@ def train_mlframe_models_suite(
         df_size_mb=df_size_mb,
         verbose=verbose,
     )
+    # 2026-05-14 fix: store cached sizes on ctx BEFORE per-target loop
+    # so _train_one_target can read them via ctx.train_df_size_bytes_cached.
+    ctx.train_df_size_bytes_cached = train_df_size_bytes_cached
+    ctx.val_df_size_bytes_cached = val_df_size_bytes_cached
 
     # ==================================================================================
     # 4.5 OUTLIER DETECTION (once, before model training loops) -- extracted helper
