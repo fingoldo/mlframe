@@ -70,7 +70,7 @@ class TestEvalFoldClosureCapture:
     def _find_eval_fold(self) -> ast.FunctionDef:
         """Locate the ``_eval_fold`` FunctionDef inside ``RFECV.fit`` by AST-walking ``_rfecv.py``."""
         import mlframe.feature_selection.wrappers._rfecv as mod_rfecv
-        with open(mod_rfecv.__file__, "r", encoding="utf-8") as f:
+        with open(mod_rfecv.__file__, encoding="utf-8") as f:
             tree = ast.parse(f.read())
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold":

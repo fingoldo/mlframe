@@ -45,7 +45,7 @@ def _verify_sidecar(path: str) -> bool:
     sidecar = path + ".sha256"
     if not isfile(sidecar):
         return True
-    with open(sidecar, "r", encoding="utf-8") as f:
+    with open(sidecar, encoding="utf-8") as f:
         expected = f.read().strip().split()[0].lower()
     actual = _sha256_of_file(path).lower()
     return expected == actual
@@ -69,7 +69,7 @@ def _load_features_file(features_file: str):
                     data = orjson.loads(f.read())
             except ImportError:
                 import json
-                with open(candidate, "r", encoding="utf-8") as f:
+                with open(candidate, encoding="utf-8") as f:
                     data = json.load(f)
             if isinstance(data, list):
                 return [str(c) for c in data]

@@ -15,7 +15,7 @@ File-naming policy:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from mlframe.reporting.output import PlotOutputSpec
 from mlframe.reporting.renderers.base import get_renderer

@@ -41,7 +41,7 @@ def _verify_sidecar(path: str) -> bool:
     sidecar = path + ".sha256"
     if not os.path.isfile(sidecar):
         return True
-    with open(sidecar, "r", encoding="utf-8") as f:
+    with open(sidecar, encoding="utf-8") as f:
         expected = f.read().strip().split()[0].lower()
     return _sha256_of_file(path).lower() == expected
 

@@ -201,7 +201,7 @@ class TestPlotlyRenderer:
         renderer.save(fig, out, "html")
         assert os.path.exists(out)
         # Sanity: contains plotly.js include.
-        with open(out, "r", encoding="utf-8") as f:
+        with open(out, encoding="utf-8") as f:
             content = f.read()
         assert "plotly" in content.lower()
 
@@ -214,7 +214,7 @@ class TestPlotlyRenderer:
         assert os.path.exists(out)
         # Valid JSON with data + layout.
         import json
-        with open(out, "r", encoding="utf-8") as f:
+        with open(out, encoding="utf-8") as f:
             obj = json.load(f)
         assert "data" in obj
         assert "layout" in obj
