@@ -52,8 +52,8 @@ def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
     abs_path = _os.path.abspath(path)
     try:
         common = _os.path.commonpath([abs_root, abs_path])
-    except ValueError:
-        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
+    except ValueError as exc:
+        raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}") from exc
     if common != abs_root:
         raise ValueError(f"Path {abs_path} is not inside trusted_root {abs_root}")
 

@@ -348,7 +348,7 @@ def train_mlframe_ranker_suite(
             dt = df_X[col].dtype
             if str(dt).startswith("datetime"):
                 df_X = df_X.drop(columns=[col])
-            elif dt == object:
+            elif dt is object:
                 # 2026-05-08: object-dtype columns can contain either
                 # scalar strings (cat features -> astype('category') OK)
                 # OR nested arrays/lists (embedding features from

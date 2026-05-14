@@ -1358,10 +1358,10 @@ def get_transform(name: str) -> Transform:
     """Lookup helper. Raises :exc:`UnknownTransformError` for typos."""
     try:
         return _TRANSFORMS_REGISTRY[name]
-    except KeyError:
+    except KeyError as exc:
         raise UnknownTransformError(
             f"Unknown transform '{name}'. Registered: {sorted(_TRANSFORMS_REGISTRY)}"
-        )
+        ) from exc
 
 
 # Short-name aliases for composite-target naming. Used in

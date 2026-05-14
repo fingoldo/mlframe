@@ -55,3 +55,6 @@ ignore = [
 "__init__.py" = ["F401"]  # unused imports OK in __init__
 # Test class names follow an audit-tag convention (TestA1_SingleClassY, TestB6_FooBar) where the underscore separates a structured tag from a descriptive suffix.
 "tests/**" = ["N801"]
+# Profile / benchmark scripts use `_bench("label", lambda: f(loop_var, ...))` -- the lambda is consumed synchronously by _bench within the same iteration so the
+# late-binding capture is safe. Adding default-arg defenses to every benchmark lambda is pure noise.
+"training/_profile_*.py" = ["B023"]

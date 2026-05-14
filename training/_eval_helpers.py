@@ -557,7 +557,7 @@ def run_confidence_analysis(
                 _dt = test_df[_c].dtype
             except Exception:
                 continue
-            if _dt == object or str(_dt) in ("string", "string[python]", "string[pyarrow]"):
+            if _dt is object or str(_dt) in ("string", "string[python]", "string[pyarrow]"):
                 _drop_for_conf.append(_c)
     elif isinstance(test_df, pl.DataFrame):
         # 2026-04-26 Session 7 batch 5: polars-side auto-detect. The
