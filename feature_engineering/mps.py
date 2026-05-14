@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union  # noqa: F401
 
 import numba
 import numpy as np

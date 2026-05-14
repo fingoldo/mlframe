@@ -1177,7 +1177,7 @@ def compute_dummy_baselines(
 # ---------------------------------------------------------------------
 
 
-def _compute_quantile_baselines(
+def _compute_quantile_baselines(  # noqa: F811 -- shadows import at line 90 from ._dummy_baseline_compute; parallel-session extract WIP, both versions kept until equivalence is verified
     target_name: str,
     train_y: np.ndarray,
     val_y: np.ndarray | None,

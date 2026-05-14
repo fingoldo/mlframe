@@ -1195,7 +1195,7 @@ class CompositeTargetDiscovery:
             # features k where |corr(j, k)| > 0.75. If that
             # neighbourhood (including j) is size 3-6 AND has mean
             # within-pair corr > 0.80, demote ALL members.
-            for j, col_name in enumerate(usable_features):
+            for j, _col_name in enumerate(usable_features):
                 tight_neighbours = np.where(corr_matrix[j] > 0.75)[0]
                 if not (2 <= len(tight_neighbours) <= 5):
                     continue
@@ -1560,7 +1560,7 @@ class CompositeTargetDiscovery:
         # Aggregate -> single score per spec.
         consensus = self.config.tiny_consensus
         agg_scores: list[float] = []
-        for i, spec in enumerate(kept_specs):
+        for i, _spec in enumerate(kept_specs):
             family_rmses = [per_family_scores[f][i] for f in families]
             finite = [r for r in family_rmses if math.isfinite(r)]
             if not finite:
@@ -1614,7 +1614,7 @@ class CompositeTargetDiscovery:
             # per-bin reuses fold predictions). For simplicity we just
             # rerun the inner loop with the same params; future
             # optimization can cache predictions from the first pass.
-            for i, spec in enumerate(kept_specs):
+            for _i, spec in enumerate(kept_specs):
                 cached = _per_base_cache.get(spec.base_column)
                 if cached is None:
                     continue

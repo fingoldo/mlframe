@@ -155,7 +155,7 @@ def _make_compute_simple_stats(use_kahan: bool, use_fastmath: bool):
             minval, maxval = 0.0, 0.0
 
         std_compensation = 0.0
-        for i, next_value in enumerate(arr):
+        for _i, next_value in enumerate(arr):
             if np.isfinite(next_value):
                 d = next_value - mean_value
                 summand = d * d
@@ -1118,7 +1118,10 @@ def compute_moments_slope_mi(
     )
 
 
-def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = np.array([], dtype=np.float32)) -> float:
+_EMPTY_FLOAT32 = np.array([], dtype=np.float32)
+
+
+def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = _EMPTY_FLOAT32) -> float:
     if len(xvals):
         mi = mutual_info_regression(xvals.reshape(-1, 1), arr, n_neighbors=2)
     else:

@@ -1209,7 +1209,7 @@ def get_strategy(model_name) -> ModelPipelineStrategy:
     if isinstance(model_name, str):
         strategy = MODEL_STRATEGIES.get(model_name.lower())
         if strategy is None:
-            warnings.warn(f"Unknown model '{model_name}', defaulting to TreeModelStrategy")
+            warnings.warn(f"Unknown model '{model_name}', defaulting to TreeModelStrategy", stacklevel=2)
             return _TREE_STRATEGY
         return strategy
 

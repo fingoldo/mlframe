@@ -340,7 +340,8 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
 
         # Balance proxy training (mandatory in skewed-s regime)
         if self.balance_proxy:
-            n0 = int((s == 0).sum()); n1 = int((s == 1).sum())
+            n0 = int((s == 0).sum())
+            n1 = int((s == 1).sum())
             if n0 == 0:
                 raise ValueError(
                     "elkan_noto requires at least one s=0 row (i.e. an "
