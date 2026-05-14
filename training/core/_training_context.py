@@ -41,6 +41,7 @@ class TrainingContext:
     composite_target_discovery_config: Any = None
 
     # ── Scalar settings ─────────────────────────────────────────
+    verbose: int = 1
     data_dir: str = ""
     models_dir: str = ""
     save_charts: bool = False
