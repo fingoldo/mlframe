@@ -18,26 +18,40 @@ __all__ = [
     "cont_entropy",
 ]
 
+# pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# LOGGING
+# ----------------------------------------------------------------------------------------------------------------------------
+
 import logging
-import warnings
-from contextlib import contextmanager
-from typing import Sequence, Tuple
-
-import numba
-import numpy as np
-import pandas as pd
-import psutil
-from antropy import detrended_fluctuation, katz_fd, perm_entropy, petrosian_fd, sample_entropy, svd_entropy
-from astropy.stats import histogram
-from joblib import delayed
-from scipy import stats
-from scipy.stats import kstest
-from sklearn.feature_selection import mutual_info_regression
-
-from mlframe.feature_engineering.hurst import compute_hurst_exponent
-from pyutilz.parallel import parallel_run
 
 logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------------------------------------------------------------------
+# Normal Imports
+# ----------------------------------------------------------------------------------------------------------------------------
+
+from typing import *
+
+import numba
+import numpy as np, pandas as pd
+from antropy import *
+from astropy.stats import histogram
+from entropy_estimators import continuous
+from sklearn.feature_selection import mutual_info_regression
+
+import psutil
+from joblib import delayed
+
+from pyutilz.parallel import parallel_run
+from mlframe.feature_engineering.hurst import compute_hurst_exponent
+
+from scipy.stats import entropy, kstest
+from scipy import stats
+
+import warnings
+from contextlib import contextmanager
 
 
 @contextmanager
@@ -59,6 +73,7 @@ def _suppress_numeric_warnings():
 # ----------------------------------------------------------------------------------------------------------------------------
 
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
+empty_float32_array = np.array([], dtype=np.float32)
 
 
 def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
@@ -78,10 +93,6 @@ distributions = (stats.levy_l,)  # stats.logistic, stats.pareto
 default_dist_responses = dict(levy_l=(np.nan, np.nan), logistic=(np.nan, np.nan), pareto=(np.nan, np.nan, np.nan))
 
 LARGE_CONST = 1e3
-# Geometric-mean overflow / underflow thresholds. When the running product crosses either, the
-# kernel switches to log-mode accumulation to avoid float64 over/underflow.
-GEOMEAN_OVERFLOW_HI: float = 1e100
-GEOMEAN_OVERFLOW_LO: float = 1e-100
 
 
 def get_distributions_features_names() -> list:
@@ -96,124 +107,69 @@ def get_distributions_features_names() -> list:
 
 distributions_features_names = get_distributions_features_names()
 
-default_quantiles: Tuple[float, ...] = (0.1, 0.25, 0.5, 0.75, 0.9)  # tuple is hashable + immutable; list vs ndarray is ~10% faster (125 µs vs 140 µs per loop) so callers convert via list(default_quantiles) where needed
+default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
 
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Factory: macro-equivalent in Python via numba dead-code-elimination.
-#
-# Numba treats closure-captured Python bools as COMPILE-TIME CONSTANTS and DCE'es the unused
-# branch. This lets us write ONE function body containing `if KAHAN:` checkpoints and
-# specialize it into TWO compiled kernels (compensated/fast) at module import time, with
-# zero runtime dispatch overhead. Single source of truth, dual implementation.
-# ----------------------------------------------------------------------------------------------------------------------------
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
+    minval, maxval, argmin, argmax = 0.0, 0.0, 0, 0
+    for i, next_value in enumerate(arr):
+        if np.isfinite(next_value):
+            minval, maxval, argmin, argmax = arr[i], arr[i], i, i
+            break
+    size = 0
+    total, std_val = 0.0, 0.0
+
+    for i, next_value in enumerate(arr):
+        if np.isfinite(next_value):
+            size += 1
+            total += next_value
+            # Independent if/if (not if/elif): on a flat array like [5, 5, 5, 5] the `elif` branch
+            # would keep argmax at 0 (first scan) while argmin stayed at 0 too — but a value equal
+            # to minval could never reach the max-update branch. Separate branches keep both
+            # indices consistently updatable.
+            if next_value < minval:
+                minval = next_value
+                argmin = i
+            if next_value > maxval:
+                maxval = next_value
+                argmax = i
+
+    if size == 0:
+        size = len(arr)
+
+    if size:
+        mean_value = total / size
+    else:
+        mean_value = 0.0
+        minval, maxval = 0.0, 0.0
+
+    # 2026-04-24 numerical stability: Kahan-Babuška-Neumaier compensated
+    # accumulator for the squared-deviation sum. Recovers 1-2 orders of
+    # magnitude on ill-conditioned inputs (e.g. 1e9 + N(0, 1e-3) where
+    # naive uncompensated sum loses ~5 digits of precision; Kahan recovers
+    # to numerical exactness). See docs/NUMERICAL_STABILITY_REPORT.md.
+    std_compensation = 0.0
+    for i, next_value in enumerate(arr):
+        if np.isfinite(next_value):
+            d = next_value - mean_value
+            summand = d * d
+            t = std_val + summand
+            if abs(std_val) >= abs(summand):
+                std_compensation += (std_val - t) + summand
+            else:
+                std_compensation += (summand - t) + std_val
+            std_val = t
+    if size:
+        std_val = np.sqrt((std_val + std_compensation) / size)
+    else:
+        std_val = 0.0
+    return minval, maxval, argmin, argmax, mean_value, std_val
 
 
-def _make_compute_simple_stats(use_kahan: bool, use_fastmath: bool):
-    """Factory producing an njit-compiled simple-stats kernel; pass ``use_kahan=False`` +
-    ``use_fastmath=True`` for the fast variant.
-
-    The fast variant uses full ``fastmath=True`` (LLVM ``nnan``/``ninf`` flags ON) - it assumes
-    the caller has pre-filtered NaN/inf. The Python wrapper enforces this contract via an
-    ``np.isfinite(arr).all()`` gate that routes NaN-containing input to the compensated kernel.
-    """
-    KAHAN = use_kahan
-    njit_kwargs = dict(NUMBA_NJIT_PARAMS)
-    njit_kwargs["fastmath"] = use_fastmath
-
-    @numba.njit(**njit_kwargs)
-    def kernel(arr: np.ndarray) -> tuple:
-        minval, maxval, argmin, argmax = 0.0, 0.0, 0, 0
-        for i, next_value in enumerate(arr):
-            if np.isfinite(next_value):
-                minval, maxval, argmin, argmax = arr[i], arr[i], i, i
-                break
-        size = 0
-        total, std_val = 0.0, 0.0
-
-        for i, next_value in enumerate(arr):
-            if np.isfinite(next_value):
-                size += 1
-                total += next_value
-                # Independent if/if (not if/elif): on a flat array like [5, 5, 5, 5] the `elif`
-                # branch would keep argmax at 0 (first scan) while argmin stayed at 0 too - but
-                # a value equal to minval could never reach the max-update branch.
-                if next_value < minval:
-                    minval = next_value
-                    argmin = i
-                if next_value > maxval:
-                    maxval = next_value
-                    argmax = i
-
-        if size == 0:
-            size = len(arr)
-
-        if size:
-            mean_value = total / size
-        else:
-            mean_value = 0.0
-            minval, maxval = 0.0, 0.0
-
-        std_compensation = 0.0
-        for i, next_value in enumerate(arr):
-            if np.isfinite(next_value):
-                d = next_value - mean_value
-                summand = d * d
-                if KAHAN:
-                    # Kahan-Babuska-Neumaier compensated accumulator. DCE'd when KAHAN=False.
-                    t = std_val + summand
-                    if abs(std_val) >= abs(summand):
-                        std_compensation += (std_val - t) + summand
-                    else:
-                        std_compensation += (summand - t) + std_val
-                    std_val = t
-                else:
-                    std_val += summand
-        if size:
-            std_val = np.sqrt((std_val + std_compensation) / size)
-        else:
-            std_val = 0.0
-        return minval, maxval, argmin, argmax, mean_value, std_val
-
-    return kernel
-
-
-# Private specializations: njit-callable from other numba kernels in this module. The fast path
-# is the default in the public wrapper because two-pass deviation form already gives ~14 digits
-# of accuracy on float64 N<=1e7 - Kahan buys nothing observable there for ~1.4x extra cost.
-_compute_simple_stats_compensated = _make_compute_simple_stats(use_kahan=True, use_fastmath=False)
-_compute_simple_stats_fast = _make_compute_simple_stats(use_kahan=False, use_fastmath=True)
-
-
-def compute_simple_stats_numba(arr: np.ndarray, compensated: bool = False) -> tuple:
-    """Return ``(min, max, argmin, argmax, mean, std)`` over the finite elements of ``arr``.
-
-    Parameters
-    ----------
-    arr
-        1D numeric array. Non-finite values (NaN, +/-inf) are skipped.
-    compensated
-        ``False`` (default) prefers the fastmath+no-Kahan kernel, but falls back to the
-        compensated kernel when ``arr`` contains any NaN/inf (the fastmath kernel sets LLVM
-        ``nnan``/``ninf`` flags and would silently mishandle non-finite inputs). On all-finite
-        float64 N<=1e7 the fast path is 1.3-1.5x faster and matches Kahan to 1e-12.
-        ``True`` forces the Kahan kernel unconditionally - use for float32 with N>=1e6 or
-        known ill-conditioned (uncentered, large-magnitude) data.
-
-    Returns an all-zero tuple when ``arr`` contains no finite element. ``std`` is biased (ddof=0).
-    """
-    if compensated:
-        return _compute_simple_stats_compensated(arr)
-    # Pre-flight finiteness check: O(N) vectorised in C, ~2us per 100k. Cheap insurance against
-    # the LLVM `nnan`/`ninf` assumptions in the fast kernel.
-    if not np.isfinite(arr).all():
-        return _compute_simple_stats_compensated(arr)
-    return _compute_simple_stats_fast(arr)
-
-
-def compute_simple_stats_numba_arr(arr: np.ndarray, dtype=np.float32, compensated: bool = False) -> np.ndarray:
-    """``compute_simple_stats_numba`` packed into an ndarray of ``dtype`` for column-stacking."""
-    return np.array(compute_simple_stats_numba(arr, compensated=compensated), dtype=dtype)
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def compute_simple_stats_numba_arr(arr: np.ndarray, dtype=np.float32):
+    return np.array(compute_simple_stats_numba(arr), dtype=dtype)
 
 
 def get_simple_stats_names() -> list:
@@ -265,13 +221,10 @@ def compute_numerical_aggregates_numba(
     """
 
     size = len(arr)
-    # Empty input would IndexError on arr[0] / arr[-1]; callers usually guard upstream (compute_numaggs short-circuits at len<=1) but the kernel is exported in __all__ so accept the corner.
-    if size == 0:
-        return [0.0]
 
     first = arr[0]
     last = arr[-1]
-    if first != 0.0:
+    if first:
         last_to_first = last / first
     else:
         last_to_first = LARGE_CONST * np.sign(last)
@@ -407,16 +360,12 @@ def compute_numerical_aggregates_numba(
                         geometric_mean *= next_value
                         if weights is not None:
                             weighted_geometric_mean *= next_value**next_weight
-                        # Check BOTH unweighted and weighted products: either can underflow / overflow independently.
-                        # A weighted product can hit the tail much faster when |next_weight| > 1.
-                        unweighted_oor = geometric_mean >= GEOMEAN_OVERFLOW_HI or geometric_mean <= GEOMEAN_OVERFLOW_LO
-                        weighted_oor = (weights is not None) and (weighted_geometric_mean >= GEOMEAN_OVERFLOW_HI or weighted_geometric_mean <= GEOMEAN_OVERFLOW_LO)
-                        if unweighted_oor or weighted_oor:
-                            # convert to log mode (geometric_mean strictly positive here; log is finite)
+                        if geometric_mean > 1e100 or geometric_mean < 1e-100:
+                            # convert to log mode
                             geomean_log_mode = True
-                            geometric_mean = np.log(float(geometric_mean)) if geometric_mean > 0 else -np.inf
+                            geometric_mean = np.log(float(geometric_mean))
                             if weights is not None:
-                                weighted_geometric_mean = np.log(float(weighted_geometric_mean)) if weighted_geometric_mean > 0 else -np.inf
+                                weighted_geometric_mean = np.log(float(weighted_geometric_mean))
                     else:
                         addend = np.log(next_value)
                         geometric_mean += addend
@@ -578,11 +527,6 @@ def get_basic_feature_names(
     return_exotic_means: bool = True,
     return_unsorted_stats: bool = True,
 ):
-    """Feature names produced by ``compute_numerical_aggregates_numba`` under the same kwargs.
-
-    Length and order are guaranteed to match the kernel's return tuple. ``has_weights`` is
-    conveyed via ``weights is not None`` only - the actual weight values are not inspected here.
-    """
     basic_fields = ["arimean"]
     if weights is not None:
         basic_fields.append("warimean")
@@ -621,7 +565,7 @@ def get_basic_feature_names(
 
 
 def compute_nunique_modes_quantiles_numpy(
-    arr: np.ndarray, q: Sequence[float] = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10, return_unsorted_stats: bool = True
+    arr: np.ndarray, q: list = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10, return_unsorted_stats: bool = True
 ) -> list:
     """For a 1d array, computes aggregates:
     nunique
@@ -680,10 +624,6 @@ def compute_nunique_modes_quantiles_numpy(
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np.ndarray:
-    """Count sign-changes in ``(arr[i] - mark)`` for each ``mark`` in ``marks``.
-
-    Returns one integer per mark; useful as a quantile-crossing feature on time series.
-    """
     n_crossings = np.zeros(len(marks), dtype=dtype)
     prev_ds = np.full(len(marks), dtype=np.float32, fill_value=np.nan)
 
@@ -699,7 +639,7 @@ def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: Sequence[float] = default_quantiles) -> tuple:
+def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quantiles) -> tuple:
     """
     NOT RECOMMENDED. use compute_nunique_modes_quantiles_numpy instead, it's faster and more functional.
     numUnique and mode calculation from sorted array
@@ -729,393 +669,302 @@ def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: Sequence[float] = d
     factor = len(arr)
     quantiles = []
     for quantile in q:
-        # Clamp index >= 0: at quantile=0.0 the formula yields -1 which would wrap to the LAST element (max) instead of the first (min).
-        idx = int(np.ceil(quantile * factor)) - 1
-        if idx < 0:
-            idx = 0
-        elif idx >= factor:
-            idx = factor - 1
-        quantiles.append(xsorted[idx])
+        quantiles.append(xsorted[int(np.ceil(quantile * factor)) - 1])
+
+    # if size % 2 == 0:
+    #    sent = int(size / 2)
+    #    median = xsorted[sent - 1] + xsorted[sent]
+    # else:
+    #    median = xsorted[int(size // 2)]
 
     if times_occured == 1:
         mode = np.nan
     return numUnique, mode, quantiles
 
 
-def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
-    """Factory producing an njit-compiled moments/slope/MI kernel.
-
-    Single source of truth for both compensated and fast variants. ``KAHAN`` is a closure-
-    captured Python bool: numba treats it as a compile-time constant and DCE's the unused
-    branch in each ``if KAHAN: ... else: ...`` block, so the generated code for each variant is
-    the same as if it had been hand-written separately.
-    """
-    KAHAN = use_kahan
-    njit_kwargs = dict(NUMBA_NJIT_PARAMS)
-    njit_kwargs["fastmath"] = use_fastmath
-
-    @numba.njit(**njit_kwargs)
-    def kernel(
-        arr: np.ndarray,
-        mean_value: float,
-        weights: np.ndarray = None,
-        weighted_mean_value: float = None,
-        xvals: np.ndarray = None,
-        directional_only: bool = False,
-        return_lintrend_approx_stats: bool = True,
-    ) -> list:
-        slope_over, slope_under = 0.0, 0.0
-        mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
-        # Kahan compensation counters. When KAHAN=False these stay 0.0 and get DCE'd along with
-        # every `if KAHAN: ... else: ...` block in the loop, so the fast variant pays nothing.
-        slope_over_c = 0.0
-        slope_under_c = 0.0
-        r_sum_c = 0.0
-        mad_c = 0.0
-        std_c = 0.0
-        skew_c = 0.0
-        kurt_c = 0.0
-        if weights is not None:
-            sum_weights = 0.0
-            weighted_mad, weighted_std, weighted_skew, weighted_kurt = mad, std, skew, kurt
-            sum_weights_c = 0.0
-            weighted_mad_c = 0.0
-            weighted_std_c = 0.0
-            weighted_skew_c = 0.0
-            weighted_kurt_c = 0.0
-
-        size = len(arr)
-
-        if xvals is None:
-            xvals = np.arange(size, dtype=np.float32)
-        xvals_mean = np.mean(xvals)
-
-        n_mean_crossings = 0.0
-        has_prev_d = False
-        prev_d = 0.0
-        r_sum = 0.0
-
-        for i, next_value in enumerate(arr):
-
-            sl_x = xvals[i] - xvals_mean
-
-            # slope_over += sl_x * next_value
-            _inc = sl_x * next_value
-            if KAHAN:
-                _t = slope_over + _inc
-                if abs(slope_over) >= abs(_inc):
-                    slope_over_c += (slope_over - _t) + _inc
-                else:
-                    slope_over_c += (_inc - _t) + slope_over
-                slope_over = _t
-            else:
-                slope_over += _inc
-
-            # slope_under += sl_x**2
-            _inc = sl_x * sl_x
-            if KAHAN:
-                _t = slope_under + _inc
-                if abs(slope_under) >= abs(_inc):
-                    slope_under_c += (slope_under - _t) + _inc
-                else:
-                    slope_under_c += (_inc - _t) + slope_under
-                slope_under = _t
-            else:
-                slope_under += _inc
-
-            d = next_value - mean_value
-
-            # r_sum += sl_x * d
-            _inc = sl_x * d
-            if KAHAN:
-                _t = r_sum + _inc
-                if abs(r_sum) >= abs(_inc):
-                    r_sum_c += (r_sum - _t) + _inc
-                else:
-                    r_sum_c += (_inc - _t) + r_sum
-                r_sum = _t
-            else:
-                r_sum += _inc
-
-            if has_prev_d:
-                if d * prev_d < 0:
-                    n_mean_crossings += 1
-            prev_d = d
-            has_prev_d = True
-
-            # mad += abs(d)
-            _inc = abs(d)
-            if KAHAN:
-                _t = mad + _inc
-                if abs(mad) >= abs(_inc):
-                    mad_c += (mad - _t) + _inc
-                else:
-                    mad_c += (_inc - _t) + mad
-                mad = _t
-            else:
-                mad += _inc
-
-            if weights is not None:
-                next_weight = weights[i]
-                w_d = next_value - weighted_mean_value
-
-                # sum_weights += next_weight
-                if KAHAN:
-                    _t = sum_weights + next_weight
-                    if abs(sum_weights) >= abs(next_weight):
-                        sum_weights_c += (sum_weights - _t) + next_weight
-                    else:
-                        sum_weights_c += (next_weight - _t) + sum_weights
-                    sum_weights = _t
-                else:
-                    sum_weights += next_weight
-
-                # weighted_mad += abs(w_d) * next_weight
-                _inc = abs(w_d) * next_weight
-                if KAHAN:
-                    _t = weighted_mad + _inc
-                    if abs(weighted_mad) >= abs(_inc):
-                        weighted_mad_c += (weighted_mad - _t) + _inc
-                    else:
-                        weighted_mad_c += (_inc - _t) + weighted_mad
-                    weighted_mad = _t
-                else:
-                    weighted_mad += _inc
-
-            summand = d * d
-            # std += summand
-            if KAHAN:
-                _t = std + summand
-                if abs(std) >= abs(summand):
-                    std_c += (std - _t) + summand
-                else:
-                    std_c += (summand - _t) + std
-                std = _t
-            else:
-                std += summand
-
-            if weights is not None:
-                w_summand = w_d * w_d
-                # weighted_std += w_summand * next_weight
-                _inc = w_summand * next_weight
-                if KAHAN:
-                    _t = weighted_std + _inc
-                    if abs(weighted_std) >= abs(_inc):
-                        weighted_std_c += (weighted_std - _t) + _inc
-                    else:
-                        weighted_std_c += (_inc - _t) + weighted_std
-                    weighted_std = _t
-                else:
-                    weighted_std += _inc
-
-            if not directional_only:
-
-                summand = summand * d
-                # skew += summand (d^3)
-                if KAHAN:
-                    _t = skew + summand
-                    if abs(skew) >= abs(summand):
-                        skew_c += (skew - _t) + summand
-                    else:
-                        skew_c += (summand - _t) + skew
-                    skew = _t
-                else:
-                    skew += summand
-
-                if weights is not None:
-                    w_summand = w_summand * w_d
-                    # weighted_skew += w_summand * next_weight
-                    _inc = w_summand * next_weight
-                    if KAHAN:
-                        _t = weighted_skew + _inc
-                        if abs(weighted_skew) >= abs(_inc):
-                            weighted_skew_c += (weighted_skew - _t) + _inc
-                        else:
-                            weighted_skew_c += (_inc - _t) + weighted_skew
-                        weighted_skew = _t
-                    else:
-                        weighted_skew += _inc
-
-                # kurt += summand * d (d^4)
-                _inc = summand * d
-                if KAHAN:
-                    _t = kurt + _inc
-                    if abs(kurt) >= abs(_inc):
-                        kurt_c += (kurt - _t) + _inc
-                    else:
-                        kurt_c += (_inc - _t) + kurt
-                    kurt = _t
-                else:
-                    kurt += _inc
-
-                if weights is not None:
-                    # Was `weighted_skew +=` here in the original buggy version: double-
-                    # accumulating skew while weighted_kurt stayed 0 -> constant -3.0 feature.
-                    _inc = w_summand * w_d * next_weight
-                    if KAHAN:
-                        _t = weighted_kurt + _inc
-                        if abs(weighted_kurt) >= abs(_inc):
-                            weighted_kurt_c += (weighted_kurt - _t) + _inc
-                        else:
-                            weighted_kurt_c += (_inc - _t) + weighted_kurt
-                        weighted_kurt = _t
-                    else:
-                        weighted_kurt += _inc
-
-        # Apply Kahan corrections once at the end. DCE'd when KAHAN=False.
-        if KAHAN:
-            slope_over += slope_over_c
-            slope_under += slope_under_c
-            r_sum += r_sum_c
-            mad += mad_c
-            std += std_c
-            skew += skew_c
-            kurt += kurt_c
-
-        std = np.sqrt(std / size)
-        if weights is not None:
-            if KAHAN:
-                sum_weights += sum_weights_c
-                weighted_mad += weighted_mad_c
-                weighted_std += weighted_std_c
-                weighted_skew += weighted_skew_c
-                weighted_kurt += weighted_kurt_c
-            weighted_std = np.sqrt(weighted_std / sum_weights)
-
-        if not directional_only:
-            mad = mad / size
-
-            if std == 0:
-                skew, kurt = 0.0, 0.0
-            else:
-                factor = size * std**3
-                if factor:
-                    skew = skew / factor
-
-                    factor = factor * std
-                    kurt = kurt / factor - 3.0
-
-            if weights is not None:
-                weighted_mad = weighted_mad / sum_weights
-                if weighted_std == 0:
-                    weighted_skew, weighted_kurt = 0.0, 0.0
-                else:
-                    factor = size * weighted_std**3
-                    if factor:
-                        weighted_skew = weighted_skew / factor
-
-                        factor = factor * weighted_std
-                        weighted_kurt = weighted_kurt / factor - 3.0
-
-        if np.isclose(slope_under, 0) or np.isnan(slope_under):
-            r = 0.0
-            slope = np.nan
-            intercept = np.nan
-            n_lintrend_crossings = np.nan
-        else:
-            slope = slope_over / slope_under
-
-            # R-value
-            if np.isclose(std, 0):
-                r = 0
-            else:
-                r = r_sum / (np.sqrt(slope_under) * std * np.sqrt(size))
-                # Test for numerical error propagation (make sure -1 < r < 1)
-                if r > 1.0:
-                    r = 1.0
-                elif r < -1.0:
-                    r = -1.0
-
-            # slope crossings & trend approximation errors
-
-            has_prev_d = False
-            prev_d = 0.0
-            intercept = mean_value - slope * xvals_mean
-            n_lintrend_crossings = 0.0
-
-            if return_lintrend_approx_stats:
-                lintrend_data_diffs = np.empty_like(arr)
-            else:
-                lintrend_data_diffs = None
-
-            for i, next_value in enumerate(arr):
-                d = next_value - (slope * xvals[i] + intercept)
-                if has_prev_d:
-                    if d * prev_d < 0:
-                        n_lintrend_crossings += 1
-                prev_d = d
-                has_prev_d = True
-                if return_lintrend_approx_stats:
-                    lintrend_data_diffs[i] = d
-
-        res = []
-        if not directional_only:
-            res.extend((mad, std, skew, kurt))
-            if weights is not None:
-                res.extend((weighted_mad, weighted_std, weighted_skew, weighted_kurt))
-        res.extend((slope, intercept, r, n_mean_crossings, n_lintrend_crossings))
-        return res, lintrend_data_diffs
-
-    return kernel
-
-
-# Private specializations: njit-compiled top-level callables.
-_compute_moments_slope_mi_compensated = _make_compute_moments_slope_mi(use_kahan=True, use_fastmath=False)
-_compute_moments_slope_mi_fast = _make_compute_moments_slope_mi(use_kahan=False, use_fastmath=True)
-
-
+@numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_moments_slope_mi(
     arr: np.ndarray,
     mean_value: float,
     weights: np.ndarray = None,
     weighted_mean_value: float = None,
-    xvals: np.ndarray = None,
+    xvals: np.ndarray = None,  # empty_float32_array,
     directional_only: bool = False,
     return_lintrend_approx_stats: bool = True,
-    compensated: bool = False,
-) -> tuple:
-    """Per-row moments + slope/intercept/r + crossings.
-
-    Parameters
-    ----------
-    compensated
-        ``False`` (default) prefers the fastmath+no-Kahan kernel and falls back to the Kahan
-        kernel when ``arr`` (or ``weights``) contains any NaN/inf. ~1.4x speedup on well-
-        conditioned float64 N>=50k. Switch to ``True`` to force Kahan for float32 with large N
-        or known ill-conditioned data (uncentered prices, extreme outliers).
-
-    Returns ``(stats_list, lintrend_data_diffs)`` - see kernel source for the per-element layout.
+) -> list:
+    """Добавить:
+    ? RANSAC-регрессию или что-то подобное, устойчивое к выбросам?
+    V Количество пересечений не просто среднего, а ещё и квантилей. Для финансовых приложений это мб полезно, тк есть гипотеза,
+        что если цена тестирует уровень много раз в течение дня, она его в итоге пробъёт (https://youtu.be/2DrBc35VLvE?t=129).
+    ? Можно для начала добавить отношение крайних квантилей к макс/мин.
     """
-    if compensated:
-        return _compute_moments_slope_mi_compensated(
-            arr=arr,
-            mean_value=mean_value,
-            weights=weights,
-            weighted_mean_value=weighted_mean_value,
-            xvals=xvals,
-            directional_only=directional_only,
-            return_lintrend_approx_stats=return_lintrend_approx_stats,
-        )
-    # NaN-gate: see compute_simple_stats_numba for rationale.
-    if not np.isfinite(arr).all() or (weights is not None and not np.isfinite(weights).all()):
-        return _compute_moments_slope_mi_compensated(
-            arr=arr,
-            mean_value=mean_value,
-            weights=weights,
-            weighted_mean_value=weighted_mean_value,
-            xvals=xvals,
-            directional_only=directional_only,
-            return_lintrend_approx_stats=return_lintrend_approx_stats,
-        )
-    return _compute_moments_slope_mi_fast(
-        arr=arr,
-        mean_value=mean_value,
-        weights=weights,
-        weighted_mean_value=weighted_mean_value,
-        xvals=xvals,
-        directional_only=directional_only,
-        return_lintrend_approx_stats=return_lintrend_approx_stats,
-    )
+    slope_over, slope_under = 0.0, 0.0
+    mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
+    # 2026-04-24 Session 3: Kahan-Babuška-Neumaier compensation counters
+    # for every accumulator in the per-row loop. Recovers 1-5 orders of
+    # magnitude of precision on ill-conditioned inputs (large mean + small
+    # variance — e.g. financial time series 1e9 + N(0, 1e-3)). Cost ~1.5×
+    # wall-clock; upstream naive sums were catastrophic on such data
+    # (skew flipped sign, 5-digit loss in variance). See
+    # docs/NUMERICAL_STABILITY_REPORT.md for the bench that drove this.
+    slope_over_c = 0.0
+    slope_under_c = 0.0
+    r_sum_c = 0.0
+    mad_c = 0.0
+    std_c = 0.0
+    skew_c = 0.0
+    kurt_c = 0.0
+    if weights is not None:
+        sum_weights = 0.0
+        weighted_mad, weighted_std, weighted_skew, weighted_kurt = mad, std, skew, kurt
+        sum_weights_c = 0.0
+        weighted_mad_c = 0.0
+        weighted_std_c = 0.0
+        weighted_skew_c = 0.0
+        weighted_kurt_c = 0.0
+
+    size = len(arr)
+
+    if xvals is None:  # len(xvals)==0:
+        xvals = np.arange(size, dtype=np.float32)
+        # xvals_mean = 1 / 2 * (2 * 0 + (size - 1) * 1)
+    xvals_mean = np.mean(xvals)
+
+    n_mean_crossings = 0.0
+    has_prev_d = False
+    prev_d = 0.0
+
+    r_sum = 0.0
+
+    for i, next_value in enumerate(arr):
+
+        sl_x = xvals[i] - xvals_mean
+
+        # slope_over += sl_x * next_value (Kahan)
+        _inc = sl_x * next_value
+        _t = slope_over + _inc
+        if abs(slope_over) >= abs(_inc):
+            slope_over_c += (slope_over - _t) + _inc
+        else:
+            slope_over_c += (_inc - _t) + slope_over
+        slope_over = _t
+
+        # slope_under += sl_x**2 (Kahan)
+        _inc = sl_x * sl_x
+        _t = slope_under + _inc
+        if abs(slope_under) >= abs(_inc):
+            slope_under_c += (slope_under - _t) + _inc
+        else:
+            slope_under_c += (_inc - _t) + slope_under
+        slope_under = _t
+
+        d = next_value - mean_value
+
+        # r_sum += sl_x * d (Kahan)
+        _inc = sl_x * d
+        _t = r_sum + _inc
+        if abs(r_sum) >= abs(_inc):
+            r_sum_c += (r_sum - _t) + _inc
+        else:
+            r_sum_c += (_inc - _t) + r_sum
+        r_sum = _t
+
+        if has_prev_d:
+            if d * prev_d < 0:
+                n_mean_crossings += 1
+        prev_d = d
+        has_prev_d = True
+
+        # mad += abs(d) (Kahan)
+        _inc = abs(d)
+        _t = mad + _inc
+        if abs(mad) >= abs(_inc):
+            mad_c += (mad - _t) + _inc
+        else:
+            mad_c += (_inc - _t) + mad
+        mad = _t
+
+        if weights is not None:
+            next_weight = weights[i]
+            w_d = next_value - weighted_mean_value
+
+            # sum_weights += next_weight (Kahan)
+            _t = sum_weights + next_weight
+            if abs(sum_weights) >= abs(next_weight):
+                sum_weights_c += (sum_weights - _t) + next_weight
+            else:
+                sum_weights_c += (next_weight - _t) + sum_weights
+            sum_weights = _t
+
+            # weighted_mad += abs(w_d) * next_weight (Kahan)
+            _inc = abs(w_d) * next_weight
+            _t = weighted_mad + _inc
+            if abs(weighted_mad) >= abs(_inc):
+                weighted_mad_c += (weighted_mad - _t) + _inc
+            else:
+                weighted_mad_c += (_inc - _t) + weighted_mad
+            weighted_mad = _t
+
+        summand = d * d
+        # std += summand (Kahan)
+        _t = std + summand
+        if abs(std) >= abs(summand):
+            std_c += (std - _t) + summand
+        else:
+            std_c += (summand - _t) + std
+        std = _t
+
+        if weights is not None:
+            w_summand = w_d * w_d
+            # weighted_std += w_summand * next_weight (Kahan)
+            _inc = w_summand * next_weight
+            _t = weighted_std + _inc
+            if abs(weighted_std) >= abs(_inc):
+                weighted_std_c += (weighted_std - _t) + _inc
+            else:
+                weighted_std_c += (_inc - _t) + weighted_std
+            weighted_std = _t
+
+        if not directional_only:
+
+            summand = summand * d
+            # skew += summand (Kahan — d^3 squared-deviation cumulant)
+            _t = skew + summand
+            if abs(skew) >= abs(summand):
+                skew_c += (skew - _t) + summand
+            else:
+                skew_c += (summand - _t) + skew
+            skew = _t
+
+            if weights is not None:
+                w_summand = w_summand * w_d
+                # weighted_skew += w_summand * next_weight (Kahan)
+                _inc = w_summand * next_weight
+                _t = weighted_skew + _inc
+                if abs(weighted_skew) >= abs(_inc):
+                    weighted_skew_c += (weighted_skew - _t) + _inc
+                else:
+                    weighted_skew_c += (_inc - _t) + weighted_skew
+                weighted_skew = _t
+
+            # kurt += summand * d (Kahan — d^4)
+            _inc = summand * d
+            _t = kurt + _inc
+            if abs(kurt) >= abs(_inc):
+                kurt_c += (kurt - _t) + _inc
+            else:
+                kurt_c += (_inc - _t) + kurt
+            kurt = _t
+
+            if weights is not None:
+                # Bug fix 2026-04-24 (numaggs audit): was `weighted_skew +=` —
+                # double-accumulating skew and never accumulating kurt. The
+                # downstream normaliser at line 771 then divided an
+                # always-zero `weighted_kurt` by `factor`, producing -3.0
+                # for every row that took the weighted-stats branch.
+                # Affects every caller using `compute_moments_slope_mi` with
+                # weights — silently wrong feature for 4-tuple.
+                _inc = w_summand * w_d * next_weight
+                _t = weighted_kurt + _inc
+                if abs(weighted_kurt) >= abs(_inc):
+                    weighted_kurt_c += (weighted_kurt - _t) + _inc
+                else:
+                    weighted_kurt_c += (_inc - _t) + weighted_kurt
+                weighted_kurt = _t
+
+    # mi = mutual_info_regression(xvals.reshape(-1, 1), arr, n_neighbors=2)  # n_neighbors=2 is strictly needed for short sequences
+
+    # Apply Kahan corrections to final accumulator values
+    slope_over += slope_over_c
+    slope_under += slope_under_c
+    r_sum += r_sum_c
+    mad += mad_c
+    std += std_c
+    skew += skew_c
+    kurt += kurt_c
+
+    std = np.sqrt(std / size)
+    if weights is not None:
+        sum_weights += sum_weights_c
+        weighted_mad += weighted_mad_c
+        weighted_std += weighted_std_c
+        weighted_skew += weighted_skew_c
+        weighted_kurt += weighted_kurt_c
+        weighted_std = np.sqrt(weighted_std / sum_weights)
+
+    if not directional_only:
+        mad = mad / size
+
+        if std == 0:
+            skew, kurt = 0.0, 0.0
+        else:
+            factor = size * std**3
+            if factor:
+                skew = skew / factor
+
+                factor = factor * std
+                kurt = kurt / factor - 3.0
+
+        if weights is not None:
+            weighted_mad = weighted_mad / sum_weights
+            if weighted_std == 0:
+                weighted_skew, weighted_kurt = 0.0, 0.0
+            else:
+                factor = size * weighted_std**3
+                if factor:
+                    weighted_skew = weighted_skew / factor
+
+                    factor = factor * weighted_std
+                    weighted_kurt = weighted_kurt / factor - 3.0
+
+    if np.isclose(slope_under, 0) or np.isnan(slope_under):
+        r = 0.0
+        slope = np.nan
+        intercept = np.nan
+        n_lintrend_crossings = np.nan
+    else:
+        slope = slope_over / slope_under
+
+        # R-value
+        if np.isclose(std, 0):
+            r = 0
+        else:
+            r = r_sum / (np.sqrt(slope_under) * std * np.sqrt(size))
+            # Test for numerical error propagation (make sure -1 < r < 1)
+            if r > 1.0:
+                r = 1.0
+            elif r < -1.0:
+                r = -1.0
+
+        # slope crossings & trend approximation errors
+
+        has_prev_d = False
+        prev_d = 0.0
+        intercept = mean_value - slope * xvals_mean
+        n_lintrend_crossings = 0.0
+
+        if return_lintrend_approx_stats:
+            lintrend_data_diffs = np.empty_like(arr)
+        else:
+            lintrend_data_diffs = None
+
+        for i, next_value in enumerate(arr):
+            d = next_value - (slope * xvals[i] + intercept)
+            if has_prev_d:
+                if d * prev_d < 0:
+                    n_lintrend_crossings += 1
+            prev_d = d
+            has_prev_d = True
+            if return_lintrend_approx_stats:
+                lintrend_data_diffs[i] = d
+
+    res = []
+    if not directional_only:
+        res.extend((mad, std, skew, kurt))
+        if weights is not None:
+            res.extend((weighted_mad, weighted_std, weighted_skew, weighted_kurt))
+    res.extend((slope, intercept, r, n_mean_crossings, n_lintrend_crossings))
+    return res, lintrend_data_diffs
 
 
 def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = np.array([], dtype=np.float32)) -> float:
@@ -1128,11 +977,6 @@ def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = np.array
 
 
 def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spectral_method: str = "welch") -> list:
-    """Apply every function in ``entropy_funcs`` to ``arr`` and return their outputs as a tuple.
-
-    Non-finite values are stripped first; if fewer than 2 finite samples remain, returns zeros.
-    Inf/NaN outputs are collapsed to 0 via ``np.nan_to_num``.
-    """
     # hjorth_mobility, hjorth_complexity = hjorth_params(arr)
     # hjorth_mobility,
     # hjorth_complexity,
@@ -1148,11 +992,6 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
 
 
 def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
-    """Fit a scipy distribution to ``data`` and return parameters + Kolmogorov-Smirnov fit quality.
-
-    Returns the distribution's fitted parameters concatenated with ``(ks_stat, ks_pval)``. On any
-    exception during fitting, returns the predefined fallback tuple from ``default_dist_responses``.
-    """
     try:
         params = dist.fit(data, method=method)
     except Exception as e:
@@ -1165,17 +1004,10 @@ def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
 
 
 def compute_distributional_features(arr: np.ndarray) -> tuple:
-    """Concatenate ``fit_distribution`` outputs across the module-level ``distributions`` tuple.
-
-    Order and length must match ``get_distributions_features_names()``.
-    """
-    # Build via list+extend then convert once - O(n) vs the previous tuple-concat-in-loop which
-    # is O(n^2) over the number of distributions. Current `distributions` has 1 entry so the
-    # impact is moot today, but the pattern stays correct as the roster grows.
-    parts: list = []
+    res = tuple()
     for dist in distributions:
-        parts.extend(fit_distribution(dist=dist, data=arr))
-    return tuple(parts)
+        res = res + fit_distribution(dist=dist, data=arr)
+    return res
 
 
 def compute_numaggs(
@@ -1183,7 +1015,7 @@ def compute_numaggs(
     xvals: np.ndarray = None,
     weights: np.ndarray = None,
     geomean_log_mode: bool = False,
-    q: Sequence[float] = default_quantiles,
+    q: list = default_quantiles,
     quantile_method: str = "median_unbiased",
     max_modes: int = 10,
     sampling_frequency: int = 100,
@@ -1201,15 +1033,9 @@ def compute_numaggs(
     return_exotic_means: bool = True,
     return_unsorted_stats: bool = True,
     return_lintrend_approx_stats: bool = False,
-    compensated: bool = False,
 ):
     """Compute a plethora of numerical aggregates for all values in an array.
-
-    Converts an arbitrarily-length array into a fixed number of aggregates.
-
-    ``compensated=False`` (default) routes the inner moment kernels through the fast (no Kahan,
-    fastmath=True) path - identical to the compensated path within 1e-5 on well-conditioned
-    float64. Set ``True`` for float32 with N>=1e6 or known ill-conditioned data.
+    Converts an arbitrarily length array into fixed number of aggregates.
     """
     if hurst_kwargs is None:
         hurst_kwargs = dict(min_window=10, max_window=None, windows_log_step=0.25, take_diffs=False)
@@ -1265,7 +1091,6 @@ def compute_numaggs(
         xvals=xvals,
         directional_only=directional_only,
         return_lintrend_approx_stats=return_lintrend_approx_stats,
-        compensated=compensated,
     )
     res = res + tuple(moments_slope_mi)
 
@@ -1309,7 +1134,7 @@ def compute_numaggs(
 
 def get_numaggs_names(
     weights: np.ndarray = None,
-    q: Sequence[float] = default_quantiles,
+    q: list = default_quantiles,
     directional_only: bool = False,
     whiten_means: bool = True,
     return_distributional: bool = False,
@@ -1323,12 +1148,6 @@ def get_numaggs_names(
     return_lintrend_approx_stats: bool = False,
     **kwargs
 ) -> tuple:
-    """Feature names produced by ``compute_numaggs`` under the same kwargs.
-
-    Length and order are guaranteed to match the values tuple from ``compute_numaggs``. Excess
-    ``**kwargs`` are accepted (but ignored) so callers can pass the same dict to both functions
-    without filtering it.
-    """
     res = tuple(
         (
             ["arimean", "ratio"]
@@ -1347,6 +1166,7 @@ def get_numaggs_names(
         + ([] if directional_only else (["q" + str(q) for q in q]))
         + ([] if (directional_only or not return_unsorted_stats) else ["ncrs" + str(q) for q in q])
         + get_moments_slope_mi_feature_names(weights=weights, directional_only=directional_only, return_lintrend_approx_stats=return_lintrend_approx_stats)
+        # + ["mutual_info_regression",]
         + (["hursth", "hurstc"] if return_hurst else [])
         + ([] if (directional_only or not return_entropy) else entropy_funcs_names)
         + (distributions_features_names if return_distributional else [])
@@ -1374,7 +1194,6 @@ def get_numaggs_names(
 
 
 def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_only: bool = False, return_lintrend_approx_stats: bool = True):
-    """Feature names produced by ``compute_moments_slope_mi``. ``weights is not None`` toggles weighted variants."""
     res = []
     if not directional_only:
         res.extend("mad,std,skew,kurt".split(","))
@@ -1384,19 +1203,26 @@ def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_o
     return res
 
 
-# fastmath=False is REQUIRED for the Kahan path: the compensator relies on the exact identity
-# `c = (t - sum_window) - y` where `t = sum_window + y`. With fastmath, LLVM is allowed to
-# reassociate `(t - sum_window) - y` -> `t - (sum_window + y)` -> `t - t` -> `0`, nullifying
-# the compensator and reverting the loop to naive sliding-window drift (~n*eps*max_value, several
-# decimal digits on float32 windows). MEASURED cost of disabling fastmath here: ~260% slowdown
-# on Windows / numba 0.59 (LLVM also SIMD-vectorises the cumsum once Kahan is folded out).
-@numba.njit(fastmath=False)
-def _rolling_moving_average_compensated(arr: np.ndarray, n: int) -> np.ndarray:
-    """Kahan-Babuska-Neumaier compensated rolling mean. Slow but precision-stable."""
+# fastmath stays OFF: the Kahan compensator below relies on the exact rounding semantics of
+# `(t - sum_window) - y`. With fastmath=True LLVM is allowed to reassociate that to
+# `t - (sum_window + y)` -> `t - t` -> `0`, silently nullifying the compensation. The fastmath
+# speedup on this loop is <5% (no division, no FMA opportunity, sequential dependency blocks
+# vectorisation) - the correctness/precision win wins outright.
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def rolling_moving_average(arr: np.ndarray, n: int = 2):
+    if n <= 0:
+        raise ValueError("n must be greater than 0")
+    if n > len(arr):
+        raise ValueError("n must be less than or equal to the length of the array")
+
     result = np.empty(len(arr) - n + 1, dtype=arr.dtype)
     sum_window = np.sum(arr[:n])
+
     mult = 1 / n
+
     result[0] = sum_window * mult
+
+    # Kahan compensated summation to minimize float drift on long rolling windows.
     kahan_c = 0.0
     for i in range(1, len(arr) - n + 1):
         y = (arr[i + n - 1] - arr[i - 1]) - kahan_c
@@ -1404,64 +1230,13 @@ def _rolling_moving_average_compensated(arr: np.ndarray, n: int) -> np.ndarray:
         kahan_c = (t - sum_window) - y
         sum_window = t
         result[i] = sum_window * mult
+
     return result
-
-
-@numba.njit(fastmath=True)
-def _rolling_moving_average_fast(arr: np.ndarray, n: int) -> np.ndarray:
-    """Plain sliding-window rolling mean. ~3.5x faster than the compensated variant.
-
-    Use when the input is well-conditioned (magnitudes within ~6 orders of magnitude on float64,
-    ~3 on float32) and accumulated rounding drift is acceptable. Both variants have identical
-    output to within ~n*eps*max(|x|), but on long ill-conditioned windows (e.g. 1e9 + N(0,1))
-    the fast path can lose 7+ digits while the compensated path stays at 1 ULP.
-    """
-    result = np.empty(len(arr) - n + 1, dtype=arr.dtype)
-    sum_window = np.sum(arr[:n])
-    mult = 1 / n
-    result[0] = sum_window * mult
-    for i in range(1, len(arr) - n + 1):
-        sum_window = sum_window + (arr[i + n - 1] - arr[i - 1])
-        result[i] = sum_window * mult
-    return result
-
-
-def rolling_moving_average(arr: np.ndarray, n: int = 2, compensated: bool = True) -> np.ndarray:
-    """Rolling mean over a 1D array. Length of the return is ``len(arr) - n + 1``.
-
-    Parameters
-    ----------
-    arr
-        1D numeric array. dtype is preserved on output.
-    n
-        Window size (>= 1, <= len(arr)).
-    compensated
-        ``True`` (default) uses Kahan-Babuska-Neumaier compensated summation: precision-stable
-        on ill-conditioned and float32 inputs, ~3.5x slower (measured on Windows / numba 0.59).
-        ``False`` uses a plain sliding-window sum with fastmath enabled: faster but accumulates
-        ~n*eps*max(|x|) rounding drift, which can be ~7 digits on long ill-conditioned windows.
-        Pick False when downstream features are robust to that drift (and you're not on float32
-        with a large additive offset).
-
-    Raises
-    ------
-    ValueError
-        If ``n <= 0`` or ``n > len(arr)``.
-    """
-    if n <= 0:
-        raise ValueError("n must be greater than 0")
-    if n > len(arr):
-        raise ValueError("n must be less than or equal to the length of the array")
-    if compensated:
-        return _rolling_moving_average_compensated(arr, n)
-    return _rolling_moving_average_fast(arr, n)
 
 
 def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:
-    """Compute numaggs over rows of a 2D matrix and stack into a (n_rows, n_features) array."""
+    """Computes numaggs on a 2d matrix"""
 
-    # Local copy so the caller's dict is not mutated by the `return_float32` override below.
-    numagg_params = dict(numagg_params)
     numagg_params["return_float32"] = True
     feature_names = get_numaggs_names(**numagg_params)
 
@@ -1496,19 +1271,12 @@ def compute_numaggs_parallel(
     **parallel_kwargs
 ) -> np.ndarray:
     """Computes numaggs over columns of a dataframe, in parallel fashion.
-
-    Example of parallel_kwargs: ``compute_numaggs_parallel(df=X, cols=cols, temp_folder=<temp>)``.
-    Exactly one of ``values`` or ``(df, cols)`` must be supplied.
+    Example of parallel_kwargs: numaggs_over_df_columns_parallel(df=X, cols=cols, temp_folder=r'R:\Temp')
     """
     if numagg_params is None:
         numagg_params = {}
-    if values is None and (df is None or cols is None):
-        raise ValueError(
-            "compute_numaggs_parallel: must provide either `values` or both `df` and `cols`."
-        )
     if n_jobs <= 0:
-        # psutil.cpu_count can return None on container/restricted hosts; fall back to logical.
-        n_jobs = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
+        n_jobs = psutil.cpu_count(logical=False)
 
     if values is None:
         values = df.loc[:, cols].values
