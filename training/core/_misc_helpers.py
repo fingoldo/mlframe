@@ -1010,3 +1010,13 @@ def _split_preds_probs(arr):
         return np.argmax(a, axis=1), a
     return a, None
 
+
+
+def _maybe_clear_shim_cache(est):
+    """Clear XGB/LGB shim caches on estimator if present. Duck-typed via callable check."""
+    fn = getattr(est, "clear_cache", None)
+    if callable(fn):
+        try:
+            fn()
+        except Exception:
+            pass
