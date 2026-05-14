@@ -374,7 +374,7 @@ class FuzzCombo:
         _input_type = self.input_type
         if _input_type != "pandas":
             _any_polars_native = any(
-                m in self.models for m in ("cb", "xgb", "hgb")
+                m in self.models for m in ("cb", "xgb", "hgb", "mlp")
             )
             if not _any_polars_native:
                 _input_type = "pandas"
