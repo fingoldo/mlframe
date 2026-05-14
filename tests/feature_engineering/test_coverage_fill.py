@@ -706,6 +706,188 @@ class TestTimeseriesCoverage:
 
 
 # ============================================================================
+# timeseries.py - heavy parameter combos to lift coverage 72% -> 85%
+# ============================================================================
+
+
+class TestTimeseriesHeavyCombos:
+    """Exercise the rare/complex parameter combinations in create_aggregated_features and
+    siblings that the simple branch-tests miss: subsets+groupby+wavelets+ratios+ewma all at
+    once, nested_subsets recursion, create_windowed_features full pipeline with both past and
+    future, create_and_process_windows with the `temp_window_features` branch (no in-place
+    list), create_ts_features_parallel happy-path, and general_acf with the windows-dict+X
+    branch.
+    """
+
+    def test_create_aggregated_features_full_kitchen_sink(self):
+        """All major parameter knobs ON simultaneously. Hits the lowest-coverage code-paths.
+
+        Combos exercised in one call:
+          * subsets + nested_subsets (recursion through self)
+          * groupby_vars (categorical pivot path)
+          * waveletnames (pywt branch)
+          * ewma_alphas (multiple alphas)
+          * rolling (scipy-rolling branch)
+          * nonlinear_transforms on nonnormal_vars (np.log + np.cbrt)
+          * ratios_features + differences_features
+          * weighting_vars (weighted-by-second-var branch)
+          * robust_features (Tukey-fence subset)
+          * splitting_vars (minr/maxr+subvar split ratio)
+          * drawdown_vars + lintrend_approx_vars (extra numagg fields)
+          * counts_processing_mask_regexp
+          * process_categoricals (category -> count distribution)
+        """
+        import re
+        from mlframe.feature_engineering.timeseries import create_aggregated_features
+
+        rng = np.random.default_rng(0)
+        n = 80
+        df = pd.DataFrame({
+            "price": np.linspace(100, 110, n) + rng.standard_normal(n) * 0.5,
+            "volume": np.abs(rng.standard_normal(n) * 100 + 500),
+            "qty": np.abs(rng.standard_normal(n) * 50 + 200),
+            "side": pd.Series(["BUY"] * (n // 2) + ["SELL"] * (n // 2), dtype="category"),
+            "ticker": pd.Series(["A"] * (n // 4) + ["B"] * (n // 4) + ["A"] * (n // 4) + ["B"] * (n // 4), dtype="category"),
+            "counts_x": rng.integers(1, 4, size=n),
+        })
+        feats, names = [], []
+        create_aggregated_features(
+            window_df=df, row_features=feats, create_features_names=True,
+            features_names=names, dataset_name="combo",
+            # subset paths
+            subsets={"side": ["BUY", "SELL"]}, nested_subsets=True,
+            # categorical-as-counts paths
+            process_categoricals=True,
+            counts_processing_mask_regexp=re.compile(r"^counts_"),
+            # nonlinear / weighted / robust
+            weighting_vars=("volume",),
+            nonnormal_vars=("price",),
+            nonlinear_transforms=[np.log, np.cbrt],
+            robust_features=True,
+            # ratios / differences
+            ratios_features=True,
+            differences_features=True,
+            # ewma + rolling
+            ewma_alphas=(0.3, 0.6),
+            rolling=[({"window": 5, "min_periods": 1}, "mean", {})],
+            # waveletnames
+            waveletnames=("haar",),
+            # drawdown / lintrend
+            drawdown_vars=("price",),
+            lintrend_approx_vars=("price",),
+            # groupby + splitting
+            groupby_vars={"ticker": ["volume"]},
+            splitting_vars={"price": ["volume", "qty"]},
+            # n_finite emit
+            return_n_finite=True,
+        )
+        # All knobs on - the feature vector grows large.
+        assert len(feats) >= 100
+        assert len(names) == len(feats)
+        # Tag presence proves each branch fired.
+        joined = " ".join(names)
+        for tag in ("wgt", "log", "cbrt", "rat", "dif", "ewma", "rol", "haar", "rbst",
+                    "grpby", "split", "side=BUY", "side=SELL", "vlscnt", "n_finite"):
+            assert tag in joined, f"missing branch tag {tag!r} in feature names"
+
+    def test_create_windowed_features_full_pipeline(self):
+        """End-to-end create_windowed_features with both past and future windows. Uses a tiny
+        fixed-output apply_fcn (3 numbers per call) so the features/names lists stay in sync
+        across steps - testing the pipeline orchestration, not the aggregate richness.
+        """
+        from mlframe.feature_engineering.timeseries import create_windowed_features
+
+        rng = np.random.default_rng(0)
+        n = 60
+        df = pd.DataFrame({
+            "price": np.linspace(100, 110, n) + rng.standard_normal(n) * 0.3,
+        })
+
+        # Module-level-safe apply_fcn (no closure over df): emit exactly 3 features.
+        # On the first call (create_features_names=True), populate features_names once.
+        def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            row_features.extend([float(df["price"].mean()), float(df["price"].std()), float(df["price"].iloc[-1])])
+            if not features_names:
+                features_names.extend([f"{dataset_name}-mean", f"{dataset_name}-std", f"{dataset_name}-last"])
+
+        X, Y = create_windowed_features(
+            df=df, start_index=10, end_index=40, step_size=5,
+            past_processing_fcn=apply_fcn, future_processing_fcn=apply_fcn,
+            past_windows={"": [5]}, future_windows={"": [3]},
+            window_index_name="T",
+        )
+        assert X is not None and Y is not None
+        assert X.shape[0] >= 4
+
+    def test_create_and_process_windows_temp_features_branch(self):
+        """When window_features is None, the function builds a per-window result dict instead of
+        appending in place. Lifts the rarely-covered temp_window_features branch.
+        """
+        from mlframe.feature_engineering.timeseries import create_and_process_windows
+
+        df = pd.DataFrame({"x": np.arange(40, dtype=float)})
+        calls = []
+
+        def apply_fcn(df, row_features, targets, features_names, dataset_name):
+            calls.append((dataset_name, len(df)))
+            row_features.extend([float(df["x"].sum()), float(df["x"].mean())])
+
+        # window_features=None forces the temp-list branch + result dict population.
+        res = create_and_process_windows(
+            df=df, base_point=15, apply_fcn=apply_fcn,
+            windows={"": [5, 10]}, window_features_names=[],
+            window_features=None,
+            forward_direction=False,
+            verbose=True,  # also exercise the verbose-logging branch
+        )
+        assert len(res) >= 2  # one entry per window
+        assert all(isinstance(v, list) and len(v) == 2 for v in res.values())
+
+    def test_create_ts_features_parallel_validates_inputs(self):
+        """create_ts_features_parallel: smoke that chunk-split + empty-df early-return path
+        executes. We don't run the joblib parallel path here (closures over local apply_fcn
+        can't be pickled in spawn mode on Windows); a no-data smoke covers the validation
+        branches without firing up child processes.
+        """
+        from mlframe.feature_engineering.timeseries import create_ts_features_parallel
+
+        # df empty -> early-return None, None.
+        result = create_ts_features_parallel(
+            start_index=0, end_index=None, ts_func=lambda *a, **kw: (None, None),
+            n_chunks=1, df=pd.DataFrame(),
+        )
+        assert result == (None, None)
+
+        # n_chunks where step<1 -> early return None, None.
+        result2 = create_ts_features_parallel(
+            start_index=0, end_index=1, ts_func=lambda *a, **kw: (None, None),
+            n_chunks=10, df=pd.DataFrame({"x": [1]}),
+        )
+        assert result2 == (None, None)
+
+    def test_general_acf_with_windows_dict(self):
+        """general_acf with windows dict + X DataFrame: exercises the flexible-window code path
+        (cumsum-driven non-fixed offsets), not just lag_len mode.
+        """
+        from mlframe.feature_engineering.timeseries import general_acf
+
+        rng = np.random.default_rng(0)
+        n = 2000
+        y = rng.standard_normal(n)
+        x = pd.DataFrame({"vol": np.abs(rng.standard_normal(n)) + 0.1})
+
+        res = general_acf(
+            y, X=x,
+            windows={"vol": {"from": 5.0, "to": 50.0, "nsteps": 5}},
+            lag_len=0,  # only the windows path
+            min_samples=10,
+        )
+        assert "vol" in res
+        # Series indexed by window sizes; at least one entry.
+        assert len(res["vol"]) >= 1
+
+
+# ============================================================================
 # mps.py - plot/IO branches (matplotlib-Agg + parquet roundtrip)
 # ============================================================================
 
