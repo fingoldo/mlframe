@@ -173,7 +173,7 @@ def generate_mlp(
             layers.append(nn.Dropout(dropout_prob))
 
         prev_layer_neurons = cur_layer_neurons
-        prev_layer_virt_neurons = cur_layer_virt_neurons
+        prev_layer_virt_neurons = cur_layer_virt_neurons  # noqa: F841  read by next iteration's match block
 
     # Final layer: num_classes None/0 = feature extractor, 1 = regression, >1 = classification.
     if num_classes is None or num_classes == 0:

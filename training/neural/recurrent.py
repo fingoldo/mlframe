@@ -218,7 +218,7 @@ class RecurrentTorchModel(L.LightningModule):
             self._has_metrics = True
         except ImportError:
             self._has_metrics = False
-            warnings.warn("torchmetrics not installed, skipping metric logging")
+            warnings.warn("torchmetrics not installed, skipping metric logging", stacklevel=2)
 
     def _setup_loss_functions(self) -> None:
         """Pre-instantiate loss functions for the active task.
@@ -304,7 +304,6 @@ class RecurrentTorchModel(L.LightningModule):
     def _get_last_hidden(rnn_out: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         """Extract last valid hidden state for each sequence."""
         device = rnn_out.device
-        batch_size = rnn_out.size(0)
         hidden_size = rnn_out.size(2)
 
         last_indices = (lengths - 1).to(device).view(-1, 1, 1).expand(-1, 1, hidden_size)
@@ -716,7 +715,7 @@ class _RecurrentWrapperBase(BaseEstimator):
         torch.save(state, path)
 
     @classmethod
-    def load(cls, path: str | Path) -> "_RecurrentWrapperBase":
+    def load(cls, path: str | Path) -> _RecurrentWrapperBase:
         """Load model from disk."""
         state = torch.load(path, map_location="cpu", weights_only=True)
 
@@ -762,7 +761,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         class_weight: Dict[int, float] | None = None,
         plot: bool = False,
         plot_file: str | Path | None = None,
-    ) -> "RecurrentClassifierWrapper":
+    ) -> RecurrentClassifierWrapper:
         """
         Train the model.
 
@@ -934,7 +933,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         eval_set: tuple | None = None,
         plot: bool = False,
         plot_file: str | Path | None = None,
-    ) -> "RecurrentRegressorWrapper":
+    ) -> RecurrentRegressorWrapper:
         """
         Train the model.
 
@@ -1051,7 +1050,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
 
 
 def extract_sequences(
-    df: "pl_df.DataFrame",
+    df: pl_df.DataFrame,
     indices: np.ndarray | List[int] | None = None,
     columns: Tuple[str, ...] = ("mjd", "mag", "magerr", "norm"),
 ) -> List[np.ndarray]:
@@ -1084,7 +1083,7 @@ def extract_sequences(
 
 
 def extract_sequences_chunked(
-    df: "pl_df.DataFrame",
+    df: pl_df.DataFrame,
     indices: np.ndarray | List[int] | None = None,
     chunk_size: int = 100_000,
     columns: Tuple[str, ...] = ("mjd", "mag", "magerr", "norm"),
