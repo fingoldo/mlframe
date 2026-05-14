@@ -25,7 +25,7 @@ from ..phases import phase
 from ..models import is_neural_model
 from ..strategies import get_strategy
 from ..train_eval import process_model, select_target
-from ..utils import compute_model_input_fingerprint, log_ram_usage
+from ..utils import compute_model_input_fingerprint, get_pandas_view_of_polars_df, log_ram_usage
 from ._misc_helpers import _build_tier_dfs, _elapsed_str, _maybe_clear_shim_cache, _split_preds_probs
 from ._phase_diagnostics import run_per_target_diagnostics
 from ._phase_dummy_baselines import run_dummy_baselines

@@ -22,7 +22,7 @@ import polars as pl
 from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
 from sklearn.preprocessing import LabelEncoder
 
-from mlframe.metrics import fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_root_mean_squared_error
+from mlframe.metrics import compute_fairness_metrics, fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_root_mean_squared_error
 from pyutilz.pythonlib import get_human_readable_set_size
 
 from .evaluation import _get_residual_audit_enabled, _get_cached_plot_idx
