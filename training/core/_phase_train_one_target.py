@@ -53,6 +53,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     dummy_baselines_config = ctx.dummy_baselines_config
     quantile_regression_config = ctx.quantile_regression_config
     composite_target_discovery_config = ctx.composite_target_discovery_config
+    verbose = ctx.verbose
     data_dir = ctx.data_dir
     models_dir = ctx.models_dir
     save_charts = ctx.save_charts
