@@ -113,6 +113,12 @@ from ._model_factories import (  # noqa: E402,F401
 from mlframe.metrics import create_fairness_subgroups_indices, fast_roc_auc
 from mlframe.feature_selection.wrappers import RFECV
 from pyutilz.pandaslib import get_df_memory_consumption
+from .models import create_linear_model
+
+try:
+    import torch
+except ImportError:
+    torch = None  # type: ignore[assignment]
 from .configs import (
     DataConfig, TrainingControlConfig, MetricsConfig, ReportingConfig,
     FeatureImportanceConfig, OutputConfig, NamingConfig,
