@@ -76,7 +76,7 @@ def _validate_ranking_inputs(
 
 def prepare_cb_inputs(
     X: Any, y: np.ndarray, group_ids: np.ndarray
-) -> Tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
     """CatBoost requires rows of one query to be contiguous.
 
     Sorts X / y / group_ids by group_id (stable sort, preserves within-group
@@ -118,7 +118,7 @@ def prepare_cb_inputs(
 
 def prepare_xgb_inputs(
     X: Any, y: np.ndarray, group_ids: np.ndarray
-) -> Tuple[Any, np.ndarray, np.ndarray]:
+) -> tuple[Any, np.ndarray, np.ndarray]:
     """XGBoost ``XGBRanker.fit(X, y, qid=...)`` accepts per-row qid.
 
     No sort required (XGB handles arbitrary qid order internally).
@@ -130,7 +130,7 @@ def prepare_xgb_inputs(
 
 def prepare_lgb_inputs(
     X: Any, y: np.ndarray, group_ids: np.ndarray
-) -> Tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[Any, np.ndarray, np.ndarray, np.ndarray]:
     """LightGBM ``LGBMRanker.fit(X, y, group=per_query_sizes)``.
 
     Sorts by group_id first (LGB's group= shape requires contiguous
@@ -196,14 +196,14 @@ def fit_ranker(
     X_train: Any,
     y_train: np.ndarray,
     group_ids_train: np.ndarray,
-    X_val: Optional[Any] = None,
-    y_val: Optional[np.ndarray] = None,
-    group_ids_val: Optional[np.ndarray] = None,
+    X_val: Any | None = None,
+    y_val: np.ndarray | None = None,
+    group_ids_val: np.ndarray | None = None,
     ranking_config=None,
-    cat_features: Optional[List[Union[str, int]]] = None,
-    model_kwargs: Optional[dict] = None,
-    early_stopping_rounds: Optional[int] = 50,
-    verbose: Union[int, bool] = False,
+    cat_features: list[str | int] | None = None,
+    model_kwargs: dict | None = None,
+    early_stopping_rounds: int | None = 50,
+    verbose: int | bool = False,
 ) -> dict:
     """Fit a native ranker for the given strategy.
 
@@ -452,7 +452,7 @@ def _fit_mlp_ranker(
 # ----------------------------------------------------------------------------------
 
 
-def predict_ranker_scores(fitted: dict, X: Any, group_ids: Optional[np.ndarray] = None) -> np.ndarray:
+def predict_ranker_scores(fitted: dict, X: Any, group_ids: np.ndarray | None = None) -> np.ndarray:
     """Return per-row scores in the SAME order as input rows.
 
     For CB/LGB, the model was trained on sorted-by-group rows; ``predict``
@@ -508,7 +508,7 @@ def _ranks_within_group(scores: np.ndarray, group_starts: np.ndarray, *, descend
     return ranks
 
 
-def _group_starts_from_ids(group_ids: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def _group_starts_from_ids(group_ids: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Sort group_ids and return (sort_idx, group_starts).
 
     ``group_starts`` defines query slices in the SORTED order; callers
@@ -526,7 +526,7 @@ def _group_starts_from_ids(group_ids: np.ndarray) -> Tuple[np.ndarray, np.ndarra
 
 
 def ensemble_ranker_scores(
-    scores_per_model: List[np.ndarray],
+    scores_per_model: list[np.ndarray],
     group_ids: np.ndarray,
     method: str = "rrf",
     rrf_k: int = 60,

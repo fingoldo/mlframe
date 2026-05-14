@@ -33,7 +33,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _filter_models_for_ranking(mlframe_models: Optional[List[str]]) -> List[str]:
+def _filter_models_for_ranking(mlframe_models: list[str] | None) -> list[str]:
     """Drop models without native rankers (HGB, Linear, etc.) with WARN.
 
     Supported: CatBoost / XGBoost / LightGBM ship native rankers; MLP gets
@@ -80,12 +80,12 @@ def _strategy_for_model(model_name: str):
 
 
 def train_mlframe_ranker_suite(
-    df: Union[pd.DataFrame, "pl.DataFrame"],
+    df: pd.DataFrame | pl.DataFrame,
     target_name: str,
     model_name: str,
     features_and_targets_extractor,
     *,
-    mlframe_models: Optional[List[str]] = None,
+    mlframe_models: list[str] | None = None,
     use_mlframe_ensembles: bool = True,
     ranking_config=None,
     test_size: float = 0.15,
@@ -93,17 +93,17 @@ def train_mlframe_ranker_suite(
     iterations: int = 200,
     learning_rate: float = 0.1,
     early_stopping_rounds: int = 30,
-    eval_at: Tuple[int, ...] = (1, 5, 10),
-    ensemble_method: Optional[str] = None,
-    save_dir: Optional[str] = None,
+    eval_at: tuple[int, ...] = (1, 5, 10),
+    ensemble_method: str | None = None,
+    save_dir: str | None = None,
     random_seed: int = 42,
     verbose: int = 1,
-    plot_file: Optional[str] = None,
-    plot_outputs: Optional[str] = None,
-    ltr_panels: Optional[str] = None,
-    mlp_kwargs: Optional[Dict[str, Any]] = None,
+    plot_file: str | None = None,
+    plot_outputs: str | None = None,
+    ltr_panels: str | None = None,
+    mlp_kwargs: dict[str, Any] | None = None,
     dummy_baselines_config=None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Train a suite of native rankers + (optionally) ensemble them.
 
     Parameters
@@ -411,14 +411,14 @@ def train_mlframe_ranker_suite(
     # -------------------------------------------------------------
     selected = _filter_models_for_ranking(mlframe_models)
 
-    models_dict: Dict[str, Any] = {}
-    val_scores_per_model: List[np.ndarray] = []
-    test_scores_per_model: List[np.ndarray] = []
-    flavor_order: List[str] = []
+    models_dict: dict[str, Any] = {}
+    val_scores_per_model: list[np.ndarray] = []
+    test_scores_per_model: list[np.ndarray] = []
+    flavor_order: list[str] = []
 
     # Detect categorical columns for cat_features kwarg (CB/LGB use, XGB
     # uses enable_categorical). Heuristic: pandas object/category cols.
-    cat_features: List[str] = []
+    cat_features: list[str] = []
     if isinstance(X_tr, pd.DataFrame):
         for col in X_tr.columns:
             if isinstance(X_tr[col].dtype, pd.CategoricalDtype) or X_tr[col].dtype == object:
@@ -595,7 +595,7 @@ def train_mlframe_ranker_suite(
         list(X_tr.columns) if hasattr(X_tr, "columns") else
         list(range(X_tr.shape[1])) if hasattr(X_tr, "shape") else []
     )
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "target_type": "learning_to_rank",
         "target_name": target_name,
         "model_name": model_name,

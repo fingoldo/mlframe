@@ -89,6 +89,7 @@ from ._dummy_baseline_compute import (
     _compute_regression_baselines, _compute_classification_baselines,
     _compute_quantile_baselines,
     _safe_metric, _per_group_predict, _pick_per_group_categorical,
+    _per_target_seed,
 )
 
 # Numba acceleration for hot kernels — multilabel macro log-loss (57x
@@ -453,10 +454,10 @@ class BaselineReport(NamedTuple):
     target_type: str
     target_name: str
     table: pd.DataFrame
-    strongest: Optional[str]
-    primary_metric: Optional[str]
-    ts_period_used: Optional[int]
-    plot_path: Optional[str]
+    strongest: str | None
+    primary_metric: str | None
+    ts_period_used: int | None
+    plot_path: str | None
     elapsed_s: float
     n_train: int
     n_val: int
@@ -464,9 +465,9 @@ class BaselineReport(NamedTuple):
     n_train_finite: int
     n_val_finite: int
     n_test_finite: int
-    extras: Dict[str, Any]
+    extras: dict[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """JSON-serializable dict (D14 schema_version + D15 NaN→None)."""
         # D15: replace NaN with None so json.dumps() succeeds.
         def _scrub(v: Any) -> Any:
@@ -475,7 +476,7 @@ class BaselineReport(NamedTuple):
             return v
 
         # Convert table to {baseline_name: {col: value}} with NaN → None
-        table_dict: Dict[str, Dict[str, Any]] = {}
+        table_dict: dict[str, dict[str, Any]] = {}
         for idx, row in self.table.iterrows():
             table_dict[str(idx)] = {col: _scrub(row[col]) for col in self.table.columns}
 
@@ -512,7 +513,7 @@ class BaselineReport(NamedTuple):
         guarantee 1), emit only the verdict line(s) + plot path.
         Promote to ``'DEBUG'`` to get the full table.
         """
-        lines: List[str] = []
+        lines: list[str] = []
         # Header with finite-n summary (D9)
         ts_tag = ""
         if self.ts_period_used is not None:
@@ -665,17 +666,6 @@ def _slugify(s: str) -> str:
     return _SLUG_RE.sub("_", str(s)).strip("_") or "unnamed"
 
 
-def _per_target_seed(base_seed: int, target_name: str) -> int:
-    """Deterministic per-target seed for stochastic baselines (D13).
-
-    ``base_seed + (hash(target_name) & 0xFFFF)`` keeps reproducibility
-    across runs (same target → same seed) while ensuring independence
-    across targets in the same suite (different target → different
-    seed). 0xFFFF mask keeps the offset bounded.
-    """
-    return (base_seed + (hash(target_name) & 0xFFFF)) & 0x7FFFFFFF
-
-
 def _is_finite_mask(y: np.ndarray) -> np.ndarray:
     """Boolean mask of rows with finite numeric / non-null values."""
     if y.dtype.kind in "fc":
@@ -686,7 +676,7 @@ def _is_finite_mask(y: np.ndarray) -> np.ndarray:
     return np.ones(len(y), dtype=bool)
 
 
-def _has_signal(target_type: str, y_ref: np.ndarray, n_min: int = 10) -> Tuple[bool, str]:
+def _has_signal(target_type: str, y_ref: np.ndarray, n_min: int = 10) -> tuple[bool, str]:
     """Per-target non-degeneracy gate for strongest-pick reference split (D10, D2).
 
     Returns ``(has_signal, reason_if_not)``.
@@ -722,7 +712,7 @@ def _has_signal(target_type: str, y_ref: np.ndarray, n_min: int = 10) -> Tuple[b
 # ---------------------------------------------------------------------
 
 
-def _normalize_timestamps(ts: Any) -> Optional[np.ndarray]:
+def _normalize_timestamps(ts: Any) -> np.ndarray | None:
     """Coerce timestamps to a 1-D numpy array (round-3 A#4 + A#17)."""
     if ts is None:
         return None
@@ -755,7 +745,7 @@ def _is_temporally_monotonic(
     )
 
 
-def _infer_ts_step_periods(ts_train: np.ndarray) -> Tuple[str, List[int]]:
+def _infer_ts_step_periods(ts_train: np.ndarray) -> tuple[str, list[int]]:
     """Step-size auto-infer (round-3 A#4: np.unique to handle duplicates).
 
     Returns ``(step_label, default_periods_for_that_step)``.
@@ -789,7 +779,7 @@ def _infer_ts_step_periods(ts_train: np.ndarray) -> Tuple[str, List[int]]:
     return "irregular", [1]
 
 
-def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> List[int]:
+def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> list[int]:
     """ACF-based period detection (round-3 C#6: differencing + stratified sample).
 
     Uses statsmodels.tsa.stattools.acf on first-differenced y_train.
@@ -839,7 +829,7 @@ def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> List[int]:
 
     # Significance threshold ~ 2/sqrt(n) (Bartlett 95% CI under white-noise null).
     threshold = 2.0 / np.sqrt(len(y_diff))
-    peaks: List[Tuple[int, float]] = []
+    peaks: list[tuple[int, float]] = []
     # Lag 0 always ACF=1; skip. Find local maxima above threshold.
     for lag in range(2, len(acf_vals)):
         v = acf_vals[lag]
@@ -850,7 +840,7 @@ def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> List[int]:
                 peaks.append((lag, abs(v)))
     # Top-2 by absolute correlation, filtered by Nyquist-ish constraint.
     peaks.sort(key=lambda kv: -kv[1])
-    candidate_periods: List[int] = []
+    candidate_periods: list[int] = []
     max_period = n_train // 4  # round-3 A#17: 4 cycles minimum
     for lag, _ in peaks[:5]:  # consider top-5, filter, take top-2 surviving
         if 2 <= lag <= max_period:
@@ -864,13 +854,13 @@ def _resolve_ts_periods(
     y_train: np.ndarray,
     ts_train: np.ndarray,
     extra_periods: Sequence[int] = (),
-) -> Tuple[List[int], Dict[str, Any]]:
+) -> tuple[list[int], dict[str, Any]]:
     """Combine step-size + ACF + user-extra periods into final candidate list.
 
     Returns ``(periods, diagnostics_dict)``.
     """
     n_train = len(y_train)
-    diagnostics: Dict[str, Any] = {}
+    diagnostics: dict[str, Any] = {}
 
     # Step inference rejection gates (round-3 A#4).
     unique_ts = np.unique(ts_train)
@@ -894,7 +884,7 @@ def _resolve_ts_periods(
     diagnostics["acf_periods"] = acf_periods
 
     # Combine: step + acf + user-extra, dedup, cap at 5, sort.
-    combined: List[int] = []
+    combined: list[int] = []
     for p in list(step_periods) + list(acf_periods) + list(extra_periods):
         if isinstance(p, (int, np.integer)) and p >= 1 and p not in combined:
             combined.append(int(p))
@@ -930,9 +920,9 @@ def compute_dummy_baselines(
     doc_ids_train: Any = None,
     doc_ids_val: Any = None,
     doc_ids_test: Any = None,
-    cat_features: Optional[Sequence[str]] = None,
+    cat_features: Sequence[str] | None = None,
     target_label_encoder: Any = None,
-    quantile_alphas: Optional[Sequence[float]] = None,
+    quantile_alphas: Sequence[float] | None = None,
     config: Any = None,
     plot_file_prefix: str = "",
 ) -> BaselineReport:
@@ -1005,9 +995,9 @@ def compute_dummy_baselines(
     ts_test = _normalize_timestamps(timestamps_test)
 
     # Dispatch by target_type
-    val_preds: Dict[str, np.ndarray] = {}
-    test_preds: Dict[str, np.ndarray] = {}
-    extras: Dict[str, Any] = {}
+    val_preds: dict[str, np.ndarray] = {}
+    test_preds: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
 
     if target_type == "quantile_regression" and quantile_alphas is not None:
         # Per-alpha empirical-quantile baselines + pinball-loss metric.
@@ -1190,11 +1180,11 @@ def compute_dummy_baselines(
 def _compute_quantile_baselines(
     target_name: str,
     train_y: np.ndarray,
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
     alphas: Sequence[float],
     config: Any,
-) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Any]]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """Per-α empirical-quantile baselines for QUANTILE_REGRESSION.
 
     Emits, per requested α:
@@ -1209,9 +1199,9 @@ def _compute_quantile_baselines(
     plus a ``mean_pinball`` aggregate over non-boundary α (α in
     ``[0.05, 0.95]``; round-3 C#7).
     """
-    val_preds: Dict[str, np.ndarray] = {}
-    test_preds: Dict[str, np.ndarray] = {}
-    extras: Dict[str, Any] = {}
+    val_preds: dict[str, np.ndarray] = {}
+    test_preds: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
     n_val = 0 if val_y is None else len(val_y)
     n_test = 0 if test_y is None else len(test_y)
     K = len(alphas)
@@ -1219,14 +1209,14 @@ def _compute_quantile_baselines(
         return val_preds, test_preds, extras
 
     train_median = float(np.median(train_y))
-    boundary_log: List[Tuple[float, float]] = []  # (orig, clamped)
-    n_eff_val: Dict[float, int] = {}
-    n_eff_test: Dict[float, int] = {}
+    boundary_log: list[tuple[float, float]] = []  # (orig, clamped)
+    n_eff_val: dict[float, int] = {}
+    n_eff_test: dict[float, int] = {}
 
     # Per-α: emit one baseline whose prediction is a constant column for
     # that α only, broadcast across the K-output shape so the metrics
     # table can compute pinball@α uniformly.
-    consts_per_alpha: List[float] = []
+    consts_per_alpha: list[float] = []
     for a in alphas:
         clamped_a = float(min(max(a, 1e-3), 1 - 1e-3))
         if clamped_a != a:
@@ -1287,14 +1277,14 @@ def _compute_quantile_baselines(
 def _compute_multilabel_baselines(
     target_name: str,
     train_y: np.ndarray,
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
     config: Any,
-) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Any]]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """Multilabel: all_zero / all_one / per_label_prior / per_label_most_frequent."""
-    val_preds: Dict[str, np.ndarray] = {}
-    test_preds: Dict[str, np.ndarray] = {}
-    extras: Dict[str, Any] = {}
+    val_preds: dict[str, np.ndarray] = {}
+    test_preds: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
 
     if train_y is None or train_y.ndim != 2:
         return val_preds, test_preds, extras
@@ -1324,19 +1314,19 @@ def _compute_multilabel_baselines(
 def _compute_ltr_baselines(
     target_name: str,
     train_y: np.ndarray,
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
     group_ids_train: Any,
     group_ids_val: Any,
     group_ids_test: Any,
-    ts_train: Optional[np.ndarray],
-    ts_val: Optional[np.ndarray],
-    ts_test: Optional[np.ndarray],
+    ts_train: np.ndarray | None,
+    ts_val: np.ndarray | None,
+    ts_test: np.ndarray | None,
     config: Any,
     doc_ids_train: Any = None,
     doc_ids_val: Any = None,
     doc_ids_test: Any = None,
-) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Any]]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """LTR: random_within_query / identity_input_order / mean_relevance /
     most_recent_first / popularity.
 
@@ -1349,9 +1339,9 @@ def _compute_ltr_baselines(
     val/test row = log(1 + count(doc_id in train)). Unseen docs get
     score = 0 (cold-start cells get the smallest possible score).
     """
-    val_preds: Dict[str, np.ndarray] = {}
-    test_preds: Dict[str, np.ndarray] = {}
-    extras: Dict[str, Any] = {}
+    val_preds: dict[str, np.ndarray] = {}
+    test_preds: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
 
     if group_ids_train is None or group_ids_val is None or group_ids_test is None:
         extras["ltr_skip_reason"] = "group_ids missing"
@@ -1402,8 +1392,8 @@ def _compute_ltr_baselines(
 
     # random_within_query: n_repeats deterministic seeds (round-3 C#5)
     n_repeats = config.random_within_query_n_repeats
-    val_runs: List[np.ndarray] = []
-    test_runs: List[np.ndarray] = []
+    val_runs: list[np.ndarray] = []
+    test_runs: list[np.ndarray] = []
     for r in range(n_repeats):
         rng = np.random.default_rng(seed + r)
         val_runs.append(rng.random(n_val) if n_val > 0 else np.array([]))
@@ -1489,7 +1479,7 @@ def _within_group_descending_index(group_ids: np.ndarray, n: int) -> np.ndarray:
         except Exception:
             pass
     out = np.zeros(n, dtype=np.float64)
-    counts: Dict[Any, int] = {}
+    counts: dict[Any, int] = {}
     for i in range(n):
         g = group_ids[i]
         c = counts.get(g, 0)
@@ -1498,7 +1488,7 @@ def _within_group_descending_index(group_ids: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
-def _coerce_y(y: Any, target_type: str, target_name: str) -> Optional[np.ndarray]:
+def _coerce_y(y: Any, target_type: str, target_name: str) -> np.ndarray | None:
     """Coerce y to numpy with target-type-aware shape (D8 object-dtype gate).
 
     For regression / quantile_regression: 2D ``(N, K)`` inputs preserved
@@ -1570,16 +1560,16 @@ def _empty_report(
 
 def _compute_metrics_table(
     target_type: str,
-    val_preds: Dict[str, np.ndarray],
-    test_preds: Dict[str, np.ndarray],
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
+    val_preds: dict[str, np.ndarray],
+    test_preds: dict[str, np.ndarray],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
     group_ids_val: Any = None,
     group_ids_test: Any = None,
-    extras: Optional[Dict[str, Any]] = None,
-) -> Tuple[pd.DataFrame, str]:
+    extras: dict[str, Any] | None = None,
+) -> tuple[pd.DataFrame, str]:
     """Build the per-baseline x per-split metrics DataFrame (D1, D5)."""
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     baseline_names = sorted(set(val_preds.keys()) | set(test_preds.keys()))
 
     if target_type == "quantile_regression" and (extras or {}).get("quantile_alphas"):
@@ -1589,11 +1579,11 @@ def _compute_metrics_table(
         primary_metric = "val_pinball_mean"
         non_boundary_idx = [i for i, a in enumerate(alphas) if 0.05 <= a <= 0.95]
         for name in baseline_names:
-            row: Dict[str, Any] = {"baseline": name}
+            row: dict[str, Any] = {"baseline": name}
             vp = val_preds.get(name)
             tp = test_preds.get(name)
             for split_name, y, p in [("val", val_y, vp), ("test", test_y, tp)]:
-                pinball_per_a: List[float] = []
+                pinball_per_a: list[float] = []
                 if p is not None and y is not None and len(p) == len(y) and p.ndim == 2 and p.shape[1] == len(alphas):
                     for j, a in enumerate(alphas):
                         v = _safe_metric(mean_pinball_loss, y, p[:, j], alpha=a)
@@ -1623,7 +1613,7 @@ def _compute_metrics_table(
     elif target_type in ("regression", "quantile_regression"):
         primary_metric = "val_RMSE"
         for name in baseline_names:
-            row: Dict[str, Any] = {"baseline": name}
+            row: dict[str, Any] = {"baseline": name}
             vp = val_preds.get(name)
             tp = test_preds.get(name)
             if vp is not None and val_y is not None and len(vp) == len(val_y):
@@ -1704,7 +1694,7 @@ def _compute_metrics_table(
                         row[f"{split_name}_log_loss_micro"] = micro
                     else:
                         # Fallback: sklearn per-label loop.
-                        label_lls: List[float] = []
+                        label_lls: list[float] = []
                         for k in range(K):
                             if len(np.unique(y[:, k])) >= 2:
                                 ll = _safe_metric(log_loss, y[:, k], p[:, k], labels=[0, 1])
@@ -1768,12 +1758,12 @@ def _compute_metrics_table(
 def _pick_strongest(
     target_type: str,
     table: pd.DataFrame,
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
     primary_metric: str,
-    extras: Dict[str, Any],
+    extras: dict[str, Any],
     config: Any,
-) -> Tuple[Optional[str], Optional[int]]:
+) -> tuple[str | None, int | None]:
     """Pick strongest baseline with non-degeneracy + paired-bootstrap gates (D2)."""
     if table.empty or not primary_metric:
         return None, None
@@ -1839,14 +1829,14 @@ def _pick_strongest(
 
 
 def plot_best_dummy_baseline_overlay(
-    report: "BaselineReport",
+    report: BaselineReport,
     *,
-    val_y: Optional[np.ndarray] = None,
-    test_y: Optional[np.ndarray] = None,
-    save_path: Optional[str] = None,
+    val_y: np.ndarray | None = None,
+    test_y: np.ndarray | None = None,
+    save_path: str | None = None,
     show: bool = True,
-    figsize: Tuple[float, float] = (12, 4.5),
-) -> Optional[Any]:
+    figsize: tuple[float, float] = (12, 4.5),
+) -> Any | None:
     """Pre-training overlay for the strongest dummy baseline.
 
     Renders, in one figure, the visual floor your trained models will
@@ -2038,7 +2028,7 @@ def plot_best_dummy_baseline_overlay(
     return fig
 
 
-def _safe_metric_for_title(report: "BaselineReport") -> str:
+def _safe_metric_for_title(report: BaselineReport) -> str:
     """Pull the strongest baseline's primary metric value as a short
     string for the chart title. Falls back to '?' on lookup error."""
     try:
@@ -2056,14 +2046,14 @@ def _paired_bootstrap_vs_runner_up(
     strongest: str,
     primary_metric: str,
     table: pd.DataFrame,
-    val_preds: Dict[str, np.ndarray],
-    test_preds: Dict[str, np.ndarray],
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
+    val_preds: dict[str, np.ndarray],
+    test_preds: dict[str, np.ndarray],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
     *,
     n_resamples: int = 1000,
     seed: int = 0,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """D2 paired-bootstrap robustness check.
 
     Picks the runner-up baseline by primary metric on val (test
@@ -2232,14 +2222,14 @@ def _bootstrap_ci_for_strongest(
     target_type: str,
     strongest: str,
     primary_metric: str,
-    val_preds: Dict[str, np.ndarray],
-    test_preds: Dict[str, np.ndarray],
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
+    val_preds: dict[str, np.ndarray],
+    test_preds: dict[str, np.ndarray],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
     *,
     n_resamples: int = 1000,
     seed: int = 0,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """D16: bootstrap CI on val + test for the strongest baseline only.
 
     Returns ``{"val": (lo, point, hi), "test": (lo, point, hi)}`` or
@@ -2250,7 +2240,7 @@ def _bootstrap_ci_for_strongest(
 
     # Pick the metric callable matching primary_metric. Minimize
     # convention follows _pick_strongest naming.
-    def _resample_metric(y: np.ndarray, p: np.ndarray) -> Optional[Tuple[float, float, float]]:
+    def _resample_metric(y: np.ndarray, p: np.ndarray) -> tuple[float, float, float] | None:
         n = len(y)
         if n < 10:
             return None
@@ -2351,7 +2341,7 @@ def _bootstrap_ci_for_strongest(
         if not np.isfinite(point):
             return None
         # Bootstrap resamples
-        samples: List[float] = []
+        samples: list[float] = []
         for _ in range(n_resamples):
             idx = rng.integers(0, n, size=n)
             try:
@@ -2366,7 +2356,7 @@ def _bootstrap_ci_for_strongest(
         hi = float(np.percentile(samples, 97.5))
         return (lo, point, hi)
 
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     val_p = val_preds.get(strongest)
     test_p = test_preds.get(strongest)
     if val_y is not None and val_p is not None and len(val_y) == len(val_p):
@@ -2386,10 +2376,10 @@ def _compute_multi_output_regression(
     target_name: str,
     train_X: Any, val_X: Any, test_X: Any,
     train_y_arr: np.ndarray,
-    val_y_arr: Optional[np.ndarray],
-    test_y_arr: Optional[np.ndarray],
+    val_y_arr: np.ndarray | None,
+    test_y_arr: np.ndarray | None,
     timestamps_train: Any, timestamps_val: Any, timestamps_test: Any,
-    cat_features: Optional[Sequence[str]],
+    cat_features: Sequence[str] | None,
     config: Any,
     plot_file_prefix: str,
     t0: float,
@@ -2406,8 +2396,8 @@ def _compute_multi_output_regression(
     """
     import time as _time
     K = train_y_arr.shape[1]
-    per_output_strongest: List[Dict[str, Any]] = []
-    sub_reports: List[BaselineReport] = []
+    per_output_strongest: list[dict[str, Any]] = []
+    sub_reports: list[BaselineReport] = []
 
     for k in range(K):
         sub_train = train_y_arr[:, k]
@@ -2448,10 +2438,10 @@ def _compute_multi_output_regression(
 
     # Cross-output normalized strongest-pick: pick the baseline whose mean
     # normalized RMSE across outputs is lowest.
-    cross_output: Optional[Dict[str, Any]] = None
+    cross_output: dict[str, Any] | None = None
     if per_output_strongest:
         # Aggregate per-baseline mean normalized RMSE across all sub-reports.
-        baseline_norm_means: Dict[str, List[float]] = {}
+        baseline_norm_means: dict[str, list[float]] = {}
         for k, sub_rep in enumerate(sub_reports):
             sub_train_k = train_y_arr[:, k]
             std_k = float(np.std(sub_train_k)) if sub_train_k.size > 1 else 1.0
@@ -2500,11 +2490,11 @@ def _compute_multi_output_regression(
 
 
 def format_suite_end_summary(
-    dummy_baselines_metadata: Dict[str, Any],
-    failures_metadata: Optional[Dict[str, Any]] = None,
-    best_model_metrics_by_target: Optional[Dict[Tuple[str, str], Dict[str, float]]] = None,
+    dummy_baselines_metadata: dict[str, Any],
+    failures_metadata: dict[str, Any] | None = None,
+    best_model_metrics_by_target: dict[tuple[str, str], dict[str, float]] | None = None,
     min_lift: float = 1.5,
-    composite_to_raw_target_map: Optional[Dict[Tuple[str, str], str]] = None,
+    composite_to_raw_target_map: dict[tuple[str, str], str] | None = None,
 ) -> str:
     """Format the cross-target verdict block emitted at suite end (D6).
 
@@ -2541,7 +2531,7 @@ def format_suite_end_summary(
         meaningfully beating dummy. Default 1.5 (model must be ≥1.5×
         better than dummy on the primary metric).
     """
-    lines: List[str] = []
+    lines: list[str] = []
     if not dummy_baselines_metadata:
         return ""
 
@@ -2551,7 +2541,7 @@ def format_suite_end_summary(
         f"{'best_model':<12} {'model_metric':<22} {'lift':<8} verdict"
     )
 
-    warn_lines: List[str] = []
+    warn_lines: list[str] = []
     n_total = 0
     n_healthy = 0
 
@@ -2610,7 +2600,7 @@ def format_suite_end_summary(
 
             # Best model metric lookup (optional)
             best_model_name = "-"
-            model_val: Optional[float] = None
+            model_val: float | None = None
             if best_model_metrics_by_target is not None:
                 key = (str(target_type), str(target_name))
                 model_metrics = best_model_metrics_by_target.get(key, {})

@@ -35,15 +35,22 @@ def _make_signal(n=50_000, seed=42):
 
 
 def _warmup():
-    """Warmup CUDA kernel JIT + njit kernels."""
+    """Warmup CUDA kernel JIT + njit kernels.
+
+    Mirrors the perf-test workload (n=10_000, npermutations=500, batch_size=64)
+    so the GPU kernel is compiled and cached at the exact shape the timed call
+    will use. The earlier light warmup (n=2000, npermutations=10) left
+    enough first-call overhead on cold/loaded machines to fail the >=1.5x
+    speedup assertion when this test ran first in a batch.
+    """
     from mlframe.feature_selection.filters.permutation import mi_direct
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched
 
-    factors, factors_nbins = _make_signal(n=2000, seed=0)
-    mi_direct(factors, (0,), (1,), factors_nbins, npermutations=5,
+    factors, factors_nbins = _make_signal(n=10_000, seed=0)
+    mi_direct(factors, (0,), (1,), factors_nbins, npermutations=500,
               parallelism="none")
     mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins,
-                            npermutations=10, batch_size=64)
+                            npermutations=500, batch_size=64)
 
 
 # ---------------------------------------------------------------------------

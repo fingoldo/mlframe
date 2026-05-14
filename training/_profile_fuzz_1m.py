@@ -137,11 +137,11 @@ def _make_synthetic_frame(target_type: str, n_rows: int, seed: int = 42):
 def _run_suite_profiled(
     target_type: str,
     n_rows: int,
-    models: Tuple[str, ...],
+    models: tuple[str, ...],
     seed: int,
     top_n: int,
     save_charts: bool = False,
-) -> Tuple[float, bool, str, str]:
+) -> tuple[float, bool, str, str]:
     """Returns (wall_seconds, ok, suite_status, profile_text)."""
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import (
@@ -236,14 +236,14 @@ def main():
 
     models = tuple(m.strip() for m in args.models.split(",") if m.strip())
 
-    targets: List[str] = (
+    targets: list[str] = (
         ["regression", "binary_classification", "multiclass_classification"]
         if args.target == "all" else [args.target]
     )
 
     print(f"# 1M-row e2e profile (n_rows={args.n_rows:_}, models={models}, "
           f"save_charts={args.save_charts})")
-    summary: List[Tuple[str, float, str]] = []
+    summary: list[tuple[str, float, str]] = []
     for tt in targets:
         label = f"{tt} x {','.join(models)}"
         print(f"\n=== {label} ===")

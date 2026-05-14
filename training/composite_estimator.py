@@ -35,7 +35,7 @@ _Y_CLIP_HIGH_FRAC: float = 10.0
 
 # ----------------------------------------------------------------------
 
-def _y_train_clip_bounds(y_train: np.ndarray) -> Tuple[float, float]:
+def _y_train_clip_bounds(y_train: np.ndarray) -> tuple[float, float]:
     """Compute post-inverse y-clip bounds from train target.
 
     Bounds are extended Q001 / Q999 envelope multiplied by safety
@@ -212,10 +212,10 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         base_column: str = "",
         fallback_predict: str = "y_train_median",
         drop_invalid_rows: bool = True,
-        runtime_stats_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        runtime_stats_callback: Callable[[dict[str, Any]], None] | None = None,
         auto_variance_stabilise: bool = False,
-        base_columns: Optional[Sequence[str]] = None,
-        group_column: Optional[str] = None,
+        base_columns: Sequence[str] | None = None,
+        group_column: str | None = None,
         online_refit_enabled: bool = False,
         online_refit_buffer_n: int = 10_000,
         online_refit_z_threshold: float = 3.0,
@@ -281,11 +281,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         fitted_inner: Any,
         transform_name: str,
         base_column: str,
-        transform_fitted_params: Dict[str, Any],
+        transform_fitted_params: dict[str, Any],
         y_train: np.ndarray,
         fallback_predict: str = "y_train_median",
-        base_columns: Optional[Sequence[str]] = None,
-    ) -> "CompositeTargetEstimator":
+        base_columns: Sequence[str] | None = None,
+    ) -> CompositeTargetEstimator:
         """Build a wrapper around an ALREADY-FITTED inner model.
 
         This is the path used by the suite-level integration: the
@@ -363,7 +363,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     # sklearn API
     # ------------------------------------------------------------------
 
-    def _resolve_base_columns(self) -> Tuple[str, ...]:
+    def _resolve_base_columns(self) -> tuple[str, ...]:
         """Canonical multi-column form of ``base_columns`` / ``base_column``.
 
         Priority order:
@@ -382,7 +382,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         return ()
 
     def _extract_base_for_transform(
-        self, X: Any, base_columns: Tuple[str, ...],
+        self, X: Any, base_columns: tuple[str, ...],
     ) -> np.ndarray:
         """Pull base values; return 1-D when K=1 (so legacy transforms
         with 1-D fit/forward/inverse keep working), 2-D when K>=2."""
@@ -394,9 +394,9 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         self,
         X: Any,
         y: Any,
-        sample_weight: Optional[np.ndarray] = None,
+        sample_weight: np.ndarray | None = None,
         **fit_kwargs: Any,
-    ) -> "CompositeTargetEstimator":
+    ) -> CompositeTargetEstimator:
         if self.base_estimator is None:
             raise ValueError("CompositeTargetEstimator: base_estimator must not be None.")
         base_columns = self._resolve_base_columns()
@@ -452,8 +452,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # transform requires_groups=True, extract group labels from the
         # configured group_column and pass them as kwargs through fit/
         # forward. The transform's own fit signature enforces presence.
-        groups_full: Optional[np.ndarray] = None
-        groups_train: Optional[np.ndarray] = None
+        groups_full: np.ndarray | None = None
+        groups_train: np.ndarray | None = None
         if transform.requires_groups:
             if not self.group_column:
                 raise ValueError(
@@ -467,7 +467,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # the bottom of this method). Only ``groups`` flows into the
         # transform; sample_weight is also threaded through but lives
         # in its own kwarg name.
-        transform_fit_kwargs: Dict[str, Any] = {}
+        transform_fit_kwargs: dict[str, Any] = {}
         if groups_train is not None:
             transform_fit_kwargs["groups"] = groups_train
         try:
@@ -484,7 +484,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
 
         # Compute T on the valid rows. Grouped transforms need the
         # groups kwarg for forward as well.
-        transform_forward_kwargs: Dict[str, Any] = (
+        transform_forward_kwargs: dict[str, Any] = (
             {"groups": groups_train} if groups_train is not None else {}
         )
         t_train = transform.forward(
@@ -605,7 +605,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # inverse call. Unseen groups (not present at fit) fall back to
         # global alpha/beta inside the transform's inverse impl, so no
         # caller-side handling is needed here.
-        inverse_kwargs: Dict[str, Any] = {}
+        inverse_kwargs: dict[str, Any] = {}
         if transform.requires_groups:
             if not self.group_column:
                 raise ValueError(
@@ -789,15 +789,15 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     # ------------------------------------------------------------------
 
     @property
-    def feature_importances_(self) -> Optional[np.ndarray]:
+    def feature_importances_(self) -> np.ndarray | None:
         return getattr(getattr(self, "estimator_", None), "feature_importances_", None)
 
     @property
-    def coef_(self) -> Optional[np.ndarray]:
+    def coef_(self) -> np.ndarray | None:
         return getattr(getattr(self, "estimator_", None), "coef_", None)
 
     @property
-    def intercept_(self) -> Optional[float]:
+    def intercept_(self) -> float | None:
         return getattr(getattr(self, "estimator_", None), "intercept_", None)
 
     def get_booster(self):
@@ -813,7 +813,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         return getattr(getattr(self, "estimator_", None), "booster_", None)
 
     @property
-    def n_features_in_(self) -> Optional[int]:
+    def n_features_in_(self) -> int | None:
         return getattr(getattr(self, "estimator_", None), "n_features_in_", None)
 
     # ------------------------------------------------------------------
@@ -863,7 +863,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     # OPEN-4 (2026-05-11): rolling-buffer streaming alpha refit
     # ------------------------------------------------------------------
 
-    def update(self, y_recent: Any, base_recent: Any) -> Dict[str, Any]:
+    def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
         """Streaming-update interface: append new (y, base) observations to a rolling buffer and run a drift check.
 
         Caller invokes this method on incoming production data; when the buffer fills past ``online_refit_min_buffer_n`` AND the Chow-style z-score crosses ``online_refit_z_threshold``, the wrapper's ``fitted_params_["alpha"]`` / ``["beta"]`` get updated in-place so subsequent predict() calls use the drift-corrected coefficients.
@@ -933,7 +933,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             )
         return info
 
-    def get_buffer_state(self) -> Dict[str, Any]:
+    def get_buffer_state(self) -> dict[str, Any]:
         """Diagnostic: returns the current rolling-buffer state without exposing the deque internals to callers.
 
         Useful for monitoring / unit tests. Returns ``{"buffer_n": int, "buffer_full": bool, "alpha_current": float, "beta_current": float}``.

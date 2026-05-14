@@ -39,7 +39,7 @@ from typing import Callable, Dict, Iterator, Tuple, Any
 from .configs import TargetTypes
 
 
-_REGISTRY: Dict[TargetTypes, Dict[str, Callable]] = {}
+_REGISTRY: dict[TargetTypes, dict[str, Callable]] = {}
 
 
 def register_metric(target_type: TargetTypes, name: str, fn: Callable) -> None:
@@ -58,7 +58,7 @@ def unregister_metric(target_type: TargetTypes, name: str) -> None:
 
 def iter_extra_metrics(
     target_type: TargetTypes, y_true, probs_NK, preds_NK
-) -> Iterator[Tuple[str, Any]]:
+) -> Iterator[tuple[str, Any]]:
     """Yield (name, value) for every registered metric on this target type.
 
     Metrics that fail (raise) are silently skipped — report keeps going.

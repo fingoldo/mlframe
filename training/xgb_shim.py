@@ -166,10 +166,10 @@ class _DMatrixReuseMixin:
 
     # Type stub for static checkers — actual init runs in subclass via
     # super().__init__().
-    _cached_train_dmatrix: Optional[Any]
-    _cached_train_key: Optional[tuple]
-    _cached_val_dmatrix: Optional[Any]
-    _cached_val_key: Optional[tuple]
+    _cached_train_dmatrix: Any | None
+    _cached_train_key: tuple | None
+    _cached_val_dmatrix: Any | None
+    _cached_val_key: tuple | None
 
     # Names of cache attributes. Listed once so ``__getstate__`` /
     # ``clear_cache`` / the forward-/backward-transfer blocks in
@@ -328,7 +328,7 @@ class _DMatrixReuseMixin:
             )
 
         # ---- Eval DMatrix(s): cache-or-build -------------------------
-        evals: List[Tuple[Any, str]] = []
+        evals: list[tuple[Any, str]] = []
         if eval_set:
             # Support eval_set = [(X_val, y_val), ...] form.
             for i, pair in enumerate(eval_set):

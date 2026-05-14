@@ -516,7 +516,7 @@ def _tiny_cv_rmse_raw_y(
     deterministic: bool = False,
     return_per_bin: bool = False,
     n_bins: int = 5,
-    bin_var: Optional[np.ndarray] = None,
+    bin_var: np.ndarray | None = None,
 ):
     """CV-RMSE of a tiny model trained DIRECTLY on raw y (no transform).
 
@@ -559,7 +559,7 @@ def _tiny_cv_rmse_raw_y(
 
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
-    ) -> Tuple[float, Optional[np.ndarray]]:
+    ) -> tuple[float, np.ndarray | None]:
         try:
             model = _build_tiny_model(
                 family,
@@ -787,8 +787,8 @@ def _per_bin_rmse(
 def _tiny_cv_rmse_y_scale(
     y_train: np.ndarray,
     base_train: np.ndarray,
-    transform: "Transform",
-    fitted_params: Dict[str, Any],
+    transform: Transform,
+    fitted_params: dict[str, Any],
     x_train_matrix: np.ndarray,
     *,
     family: str,
@@ -834,7 +834,7 @@ def _tiny_cv_rmse_y_scale(
 
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
-    ) -> Tuple[float, Optional[np.ndarray]]:
+    ) -> tuple[float, np.ndarray | None]:
         """Return (fold_rmse, per_bin_rmse_or_None)."""
         try:
             model = _build_tiny_model(
@@ -932,10 +932,10 @@ def _tiny_cv_rmse_y_scale(
 
 
 def _sample_indices(
-    n: int, sample_n: Optional[int], random_state: int,
+    n: int, sample_n: int | None, random_state: int,
     *,
     strategy: str = "random",
-    y: Optional[np.ndarray] = None,
+    y: np.ndarray | None = None,
     n_strata: int = 10,
 ) -> np.ndarray:
     """Return a sorted array of row indices to use for MI screening.
@@ -995,7 +995,7 @@ def _sample_indices(
     stratum[~finite_mask] = n_strata  # extra "non-finite" bin
 
     per_stratum = max(1, sample_n // n_strata)
-    picked: List[np.ndarray] = []
+    picked: list[np.ndarray] = []
     for s in range(n_strata + 1):
         bin_rows = np.where(stratum == s)[0]
         if bin_rows.size == 0:

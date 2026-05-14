@@ -436,7 +436,7 @@ class FeaturesAndTargetsExtractor:
         df = self.add_features(df)
         if self.verbose:
             logger.info("After add_features")
-            log_ram_usage()        
+            log_ram_usage()
 
         if self.verbose:
             logger.info("build_targets...")
@@ -596,7 +596,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             if self.verbose:
                 logger.info("create_date_features %s over column %s...", self.datetime_features, self.ts_field)
             df = create_date_features(df, cols=[self.ts_field], delete_original_cols=False, methods=self.datetime_features)
-        return df        
+        return df
 
     def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Dict[str, Dict[str, Any]]:
         """Build regression and classification targets from DataFrame columns.

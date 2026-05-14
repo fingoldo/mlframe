@@ -194,10 +194,10 @@ class _DatasetReuseMixin:
 
     # Type stubs for static checkers -- actual init runs in subclass via
     # super().__init__().
-    _cached_train_dataset: Optional[Any]
-    _cached_train_key: Optional[tuple]
-    _cached_val_dataset: Optional[Any]
-    _cached_val_key: Optional[tuple]
+    _cached_train_dataset: Any | None
+    _cached_train_key: tuple | None
+    _cached_val_dataset: Any | None
+    _cached_val_key: tuple | None
 
     # Names of cache attributes. Listed once so ``__getstate__`` /
     # ``clear_cache`` / the forward-/backward-transfer blocks in
@@ -381,8 +381,8 @@ class _DatasetReuseMixin:
             # (DataFrame / ndarray / similar) is the bare-tuple form.
             if len(eval_set) in (2, 3) and not isinstance(eval_set[0], (list, tuple)):
                 eval_set = [eval_set]
-        valid_sets: List[Any] = []
-        valid_names: List[str] = []
+        valid_sets: list[Any] = []
+        valid_names: list[str] = []
         if eval_set:
             for i, pair in enumerate(eval_set):
                 # eval_set items follow LightGBM convention but in
@@ -444,8 +444,8 @@ class _DatasetReuseMixin:
         # LGBMModel.fit's handling.
         feval = None
         if eval_metric is not None:
-            metric_strs: List[str] = []
-            feval_callables: List[Any] = []
+            metric_strs: list[str] = []
+            feval_callables: list[Any] = []
             metrics_iter = eval_metric if isinstance(eval_metric, (list, tuple)) else [eval_metric]
             for m in metrics_iter:
                 if callable(m):

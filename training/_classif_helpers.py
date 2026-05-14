@@ -287,7 +287,6 @@ def _maybe_wrap_multilabel(estimator, target_type, multilabel_config=None,
         )
 
     # Default + "wrapper" + "auto"-without-native: MultiOutputClassifier
-    from sklearn.multioutput import MultiOutputClassifier
     n_jobs = cfg.wrapper_n_jobs
     if n_jobs == "auto":
         # Avoid nested-parallelism thrashing when inner estimator already
@@ -392,8 +391,6 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         self.cv = cv
 
     def fit(self, X, y, **fit_params):
-        from sklearn.multioutput import ClassifierChain
-        from sklearn.base import clone
 
         # Resolve seeds + per-chain orders lazily at fit time so that
         # cloning (which calls __init__ with the params get_params returned)

@@ -61,7 +61,7 @@ class CompositeProvenance:
     stakeholder_description: str
 
     # Fitted parameters (reproducible inversion)
-    fitted_params: Dict[str, Any]
+    fitted_params: dict[str, Any]
 
     # Justification numbers
     mi_y: float
@@ -71,18 +71,18 @@ class CompositeProvenance:
     n_train_rows: int
 
     # Optional: weight in cross-target ensemble (filled at integration time).
-    ensemble_weight: Optional[float] = None
-    ensemble_strategy: Optional[str] = None
+    ensemble_weight: float | None = None
+    ensemble_strategy: str | None = None
 
     @classmethod
     def from_spec(
         cls,
-        spec: "CompositeSpec",
+        spec: CompositeSpec,
         random_state: int,
         *,
-        ensemble_weight: Optional[float] = None,
-        ensemble_strategy: Optional[str] = None,
-    ) -> "CompositeProvenance":
+        ensemble_weight: float | None = None,
+        ensemble_strategy: str | None = None,
+    ) -> CompositeProvenance:
         """Construct provenance from a discovered :class:`CompositeSpec`.
 
         Pulls human-readable formula text from the registered transform
@@ -90,9 +90,7 @@ class CompositeProvenance:
         ``composite_id`` (sha256 prefix) so the same spec recurring in
         future runs is recognisable.
         """
-        from datetime import datetime, timezone
-        import hashlib
-        import json
+        from datetime import timezone
 
         # Stable id derived from (target, transform, base, fitted_params).
         canonical = json.dumps(
@@ -133,7 +131,7 @@ class CompositeProvenance:
             ensemble_strategy=ensemble_strategy,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """JSON-serialisable plain dict (for ``metadata`` storage)."""
         return {
             "composite_id": self.composite_id,
@@ -181,7 +179,7 @@ class CompositeProvenance:
 
 
 # Friendly transform-name-to-paragraph table.
-_TRANSFORM_DESCRIPTIONS: Dict[str, str] = {
+_TRANSFORM_DESCRIPTIONS: dict[str, str] = {
     "diff": ("predicts the residual after subtracting the base feature "
              "from the target"),
     "ratio": ("predicts the multiplicative factor relating target to "
@@ -195,8 +193,8 @@ _TRANSFORM_DESCRIPTIONS: Dict[str, str] = {
 
 def _format_transform_formulas(
     transform_name: str, base_column: str, target_col: str,
-    fitted_params: Dict[str, Any],
-) -> Tuple[str, str, str]:
+    fitted_params: dict[str, Any],
+) -> tuple[str, str, str]:
     """Return (forward_human, inverse_human, description) strings.
 
     Strings interpolate fitted parameter values where applicable. Used
@@ -245,9 +243,9 @@ def _format_transform_formulas(
 def report_to_markdown(
     *,
     target_col: str,
-    specs: Sequence["CompositeSpec"],
-    failures: Sequence[Dict[str, Any]] = (),
-    ensemble_metadata: Optional[Dict[str, Any]] = None,
+    specs: Sequence[CompositeSpec],
+    failures: Sequence[dict[str, Any]] = (),
+    ensemble_metadata: dict[str, Any] | None = None,
     random_state: int = 42,
 ) -> str:
     """Render a stakeholder-ready Markdown report for one target's
@@ -266,7 +264,7 @@ def report_to_markdown(
     default; if the caller renders to HTML elsewhere they should
     escape there.
     """
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"# Composite-target discovery report: `{target_col}`")
     lines.append("")
     lines.append(

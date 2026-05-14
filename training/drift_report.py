@@ -46,7 +46,7 @@ DEFAULT_MULTI_DRIFT_WARN_THRESHOLD_PP: float = 5.0
 rate in any split differs from train's by more than this many pp."""
 
 
-def _to_1d_numpy(arr: Any) -> Optional[np.ndarray]:
+def _to_1d_numpy(arr: Any) -> np.ndarray | None:
     """Coerce target to a numpy array; return None for None inputs."""
     if arr is None:
         return None
@@ -59,7 +59,7 @@ def _to_1d_numpy(arr: Any) -> Optional[np.ndarray]:
     return out
 
 
-def _binary_split_summary(arr: np.ndarray) -> Dict[str, float]:
+def _binary_split_summary(arr: np.ndarray) -> dict[str, float]:
     n = int(arr.shape[0])
     if n == 0:
         return {"n": 0, "n_positive": 0, "p_positive": float("nan")}
@@ -71,7 +71,7 @@ def _binary_split_summary(arr: np.ndarray) -> Dict[str, float]:
     }
 
 
-def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> Dict[str, Any]:
+def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> dict[str, Any]:
     n = int(arr.shape[0])
     counts = {int(c) if isinstance(c, (np.integer, int)) else c:
               int((arr == c).sum()) for c in classes}
@@ -79,7 +79,7 @@ def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> Dict[str, A
     return {"n": n, "counts": counts, "rates": rates}
 
 
-def _multilabel_split_summary(arr: np.ndarray) -> Dict[str, Any]:
+def _multilabel_split_summary(arr: np.ndarray) -> dict[str, Any]:
     """For (N, K) label matrix, compute per-label positive rate.
 
     Handles three input shapes:
@@ -109,7 +109,7 @@ def _multilabel_split_summary(arr: np.ndarray) -> Dict[str, Any]:
     }
 
 
-def _regression_split_summary(arr: np.ndarray) -> Dict[str, float]:
+def _regression_split_summary(arr: np.ndarray) -> dict[str, float]:
     n = int(arr.shape[0])
     if n == 0:
         return {"n": 0, "mean": float("nan"), "std": float("nan"),
@@ -134,7 +134,7 @@ def compute_label_distribution_drift(
     warn_threshold_pp: float = DEFAULT_BINARY_DRIFT_WARN_THRESHOLD_PP,
     regression_mean_z_threshold: float = DEFAULT_REGRESSION_MEAN_Z_WARN_THRESHOLD,
     multi_warn_threshold_pp: float = DEFAULT_MULTI_DRIFT_WARN_THRESHOLD_PP,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute label-distribution drift between train, val, test splits.
 
     The routine is type-aware:
@@ -221,9 +221,9 @@ def compute_label_distribution_drift(
     is_multiclass = (target_type == "multiclass_classification")
     # Default fall-through: binary classification.
 
-    splits: Dict[str, Any] = {}
-    warnings: List[str] = []
-    drifts: Dict[str, Any] = {}
+    splits: dict[str, Any] = {}
+    warnings: list[str] = []
+    drifts: dict[str, Any] = {}
 
     if is_multilabel:
         for name, arr in (("train", train), ("val", val), ("test", test)):
@@ -334,7 +334,7 @@ def compute_label_distribution_drift(
     }
 
 
-def format_drift_report(report: Dict[str, Any], target_name: str = "") -> str:
+def format_drift_report(report: dict[str, Any], target_name: str = "") -> str:
     """One-line-per-split human-readable rendering for log output.
 
     Compact enough to stamp into the log right before training; verbose

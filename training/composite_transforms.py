@@ -76,10 +76,10 @@ class Transform:
     name: str
     forward: Callable[..., np.ndarray]
     inverse: Callable[..., np.ndarray]
-    fit: Callable[..., Dict[str, Any]]
+    fit: Callable[..., dict[str, Any]]
     domain_check: Callable[[np.ndarray, np.ndarray], np.ndarray]
     description: str
-    tags: FrozenSet[str] = field(default_factory=frozenset)
+    tags: frozenset[str] = field(default_factory=frozenset)
     # R10c #3 (2026-05-11): grouped-transform support. When True, the
     # wrapper extracts a ``groups`` array from a configured column and
     # passes it as a keyword argument to ``fit`` / ``forward`` /
@@ -93,19 +93,19 @@ class Transform:
 # diff: T = y - base. Always defined, no params, no domain restrictions.
 # ----------------------------------------------------------------------
 
-def _diff_fit(y: np.ndarray, base: np.ndarray) -> Dict[str, Any]:
+def _diff_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     return {}
 
 
-def _diff_forward(y: np.ndarray, base: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+def _diff_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     return y - base
 
 
-def _diff_inverse(t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+def _diff_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     return t_hat + base
 
 
-def _diff_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.ndarray:
+def _diff_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     base_ok = np.isfinite(base)
     if y is None:
         return base_ok
@@ -116,7 +116,7 @@ def _diff_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.ndarray:
 # ratio: T = y / base. Requires |base| >= eps.
 # ----------------------------------------------------------------------
 
-def _ratio_fit(y: np.ndarray, base: np.ndarray) -> Dict[str, Any]:
+def _ratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     # eps relative to the typical scale of base on train -- small enough
     # not to bias the transform but large enough to keep division
     # numerically clean. Stored in params so predict time uses the
@@ -126,17 +126,17 @@ def _ratio_fit(y: np.ndarray, base: np.ndarray) -> Dict[str, Any]:
     return {"eps": eps}
 
 
-def _ratio_forward(y: np.ndarray, base: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+def _ratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     eps = float(params["eps"])
     safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
     return y / safe_base
 
 
-def _ratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+def _ratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     return t_hat * base
 
 
-def _ratio_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.ndarray:
+def _ratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     base_ok = np.isfinite(base) & (np.abs(base) > 0)
     if y is None:
         return base_ok
@@ -148,7 +148,7 @@ def _ratio_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.ndarray:
 # Inverse uses MAD-soft-cap on T_hat to prevent exp() blow-up.
 # ----------------------------------------------------------------------
 
-def _logratio_fit(y: np.ndarray, base: np.ndarray) -> Dict[str, Any]:
+def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     # T_train computed in the valid domain (caller has already filtered).
     t_train = np.log(y) - np.log(base)
     median_t = float(np.median(t_train))
@@ -168,11 +168,11 @@ def _logratio_fit(y: np.ndarray, base: np.ndarray) -> Dict[str, Any]:
     }
 
 
-def _logratio_forward(y: np.ndarray, base: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+def _logratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     return np.log(y) - np.log(base)
 
 
-def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     median_t = float(params["median_t"])
     mad = float(params["mad_eff"])
     k = float(params["soft_cap_k"])
@@ -185,7 +185,7 @@ def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any
     return base * np.exp(t_capped)
 
 
-def _logratio_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.ndarray:
+def _logratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     base_ok = np.isfinite(base) & (base > 0)
     if y is None:
         return base_ok
@@ -198,8 +198,8 @@ def _logratio_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.ndarray:
 
 def _linear_residual_fit(
     y: np.ndarray, base: np.ndarray,
-    sample_weight: Optional[np.ndarray] = None,
-) -> Dict[str, Any]:
+    sample_weight: np.ndarray | None = None,
+) -> dict[str, Any]:
     """OLS fit with optional sample weights.
 
     Weighted least squares is implemented in closed form via
@@ -242,7 +242,7 @@ def _linear_residual_fit(
 
 
 def _linear_residual_forward(
-    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     alpha = float(params["alpha"])
     beta = float(params["beta"])
@@ -250,14 +250,14 @@ def _linear_residual_forward(
 
 
 def _linear_residual_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     return t_hat + alpha * base + beta
 
 
-def _linear_residual_domain(y: Optional[np.ndarray], base: np.ndarray) -> np.ndarray:
+def _linear_residual_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     base_ok = np.isfinite(base)
     if y is None:
         return base_ok
@@ -294,8 +294,8 @@ _MULTI_BASE_COND_NUMBER_MAX: float = 30.0
 
 def _linear_residual_multi_fit(
     y: np.ndarray, base: np.ndarray,
-    sample_weight: Optional[np.ndarray] = None,
-) -> Dict[str, Any]:
+    sample_weight: np.ndarray | None = None,
+) -> dict[str, Any]:
     """Joint OLS fit for ``T = y - Σⱼ αⱼ·baseⱼ - β``.
 
     Parameters
@@ -395,7 +395,7 @@ def _linear_residual_multi_fit(
 
 
 def _linear_residual_multi_forward(
-    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     if base.ndim == 1:
         base = base.reshape(-1, 1)
@@ -410,7 +410,7 @@ def _linear_residual_multi_forward(
 
 
 def _linear_residual_multi_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     if base.ndim == 1:
         base = base.reshape(-1, 1)
@@ -425,7 +425,7 @@ def _linear_residual_multi_inverse(
 
 
 def _linear_residual_multi_domain(
-    y: Optional[np.ndarray], base: np.ndarray,
+    y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     if base.ndim == 1:
         base = base.reshape(-1, 1)
@@ -509,10 +509,10 @@ def _james_stein_shrinkage_factor(
 
 def _linear_residual_grouped_fit(
     y: np.ndarray, base: np.ndarray,
-    groups: Optional[np.ndarray] = None,
-    sample_weight: Optional[np.ndarray] = None,
+    groups: np.ndarray | None = None,
+    sample_weight: np.ndarray | None = None,
     min_group_size: int = _GROUPED_MIN_GROUP_SIZE,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Per-group OLS fit with James-Stein shrinkage toward global α.
 
     Parameters
@@ -559,9 +559,9 @@ def _linear_residual_grouped_fit(
     beta_global = float(global_params["beta"])
 
     # Per-group OLS.
-    per_group_alphas: Dict[str, float] = {}
-    per_group_betas: Dict[str, float] = {}
-    group_sizes: Dict[str, int] = {}
+    per_group_alphas: dict[str, float] = {}
+    per_group_betas: dict[str, float] = {}
+    group_sizes: dict[str, int] = {}
     unique_groups, inverse_idx = np.unique(groups, return_inverse=True)
 
     # Cache residual squared sum across all groups to estimate σ² for
@@ -570,8 +570,8 @@ def _linear_residual_grouped_fit(
     total_resid_sq = 0.0
     total_n = 0
 
-    alphas_for_shrink: List[float] = []
-    sizes_for_shrink: List[float] = []
+    alphas_for_shrink: list[float] = []
+    sizes_for_shrink: list[float] = []
 
     for i, g in enumerate(unique_groups):
         g_mask = (inverse_idx == i)
@@ -632,8 +632,8 @@ def _linear_residual_grouped_fit(
 
 
 def _row_alpha_beta(
-    groups: np.ndarray, params: Dict[str, Any],
-) -> Tuple[np.ndarray, np.ndarray]:
+    groups: np.ndarray, params: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray]:
     """Materialise per-row (alpha, beta) from the grouped params dict.
 
     Vectorised: ``np.unique`` collapses the n-row groups vector to K
@@ -665,8 +665,8 @@ def _row_alpha_beta(
 
 
 def _linear_residual_grouped_forward(
-    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
-    groups: Optional[np.ndarray] = None,
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    groups: np.ndarray | None = None,
 ) -> np.ndarray:
     if groups is None:
         raise ValueError(
@@ -678,8 +678,8 @@ def _linear_residual_grouped_forward(
 
 
 def _linear_residual_grouped_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
-    groups: Optional[np.ndarray] = None,
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    groups: np.ndarray | None = None,
 ) -> np.ndarray:
     if groups is None:
         raise ValueError(
@@ -691,7 +691,7 @@ def _linear_residual_grouped_inverse(
 
 
 def _linear_residual_grouped_domain(
-    y: Optional[np.ndarray], base: np.ndarray,
+    y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     return _linear_residual_domain(y, base)
 
@@ -717,7 +717,7 @@ def _quantile_residual_fit(
     y: np.ndarray, base: np.ndarray,
     n_bins: int = _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
     min_bin_n: int = _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fit per-bucket median(y) + IQR(y) over ``n_bins`` quantile bins of ``base``.
 
     Returns
@@ -780,7 +780,7 @@ def _quantile_residual_fit(
     bin_idx = np.clip(np.searchsorted(edges[1:-1], base_clean, side="right"), 0, actual_n_bins - 1)
     bin_medians = np.full(actual_n_bins, global_median, dtype=np.float64)
     bin_iqrs = np.full(actual_n_bins, global_iqr, dtype=np.float64)
-    bin_sizes: List[int] = []
+    bin_sizes: list[int] = []
     for b in range(actual_n_bins):
         mask = bin_idx == b
         bin_n = int(mask.sum())
@@ -816,7 +816,7 @@ def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.nd
 
 
 def _quantile_residual_forward(
-    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
     medians = np.asarray(params["bin_medians"], dtype=np.float64)
@@ -826,7 +826,7 @@ def _quantile_residual_forward(
 
 
 def _quantile_residual_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
     medians = np.asarray(params["bin_medians"], dtype=np.float64)
@@ -836,7 +836,7 @@ def _quantile_residual_inverse(
 
 
 def _quantile_residual_domain(
-    y: Optional[np.ndarray], base: np.ndarray,
+    y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
@@ -862,7 +862,7 @@ def _monotonic_residual_fit(
     y: np.ndarray, base: np.ndarray,
     n_knots: int = _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
     min_knot_n: int = _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fit a monotone PCHIP spline g(base) via per-quantile-knot medians and orient by the sign of the global Spearman correlation between y and base. Stores the knot x/y arrays + the global y mean as a fallback. Domain at predict time: base values outside [knots_x[0], knots_x[-1]] are clipped to the edge knots (PCHIP extrapolation is not safe -- it can run off to +/- inf rapidly)."""
     n_knots = max(3, int(n_knots))
     min_knot_n = max(2, int(min_knot_n))
@@ -936,7 +936,7 @@ def _monotonic_residual_fit(
     }
 
 
-def _monotonic_residual_g(base: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
+def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     """Evaluate the monotone PCHIP interpolant at the requested base values. Out-of-range values clip to the edge knot value (NOT extrapolated)."""
     knots_x = np.asarray(params["knots_x"], dtype=np.float64)
     knots_y = np.asarray(params["knots_y"], dtype=np.float64)
@@ -961,19 +961,19 @@ def _monotonic_residual_g(base: np.ndarray, params: Dict[str, Any]) -> np.ndarra
 
 
 def _monotonic_residual_forward(
-    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     return np.asarray(y, dtype=np.float64) - _monotonic_residual_g(base, params)
 
 
 def _monotonic_residual_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     return np.asarray(t_hat, dtype=np.float64) + _monotonic_residual_g(base, params)
 
 
 def _monotonic_residual_domain(
-    y: Optional[np.ndarray], base: np.ndarray,
+    y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
@@ -998,7 +998,7 @@ _FRAC_DIFF_DEFAULT_LAGS: int = 30  # maximum weight tail used in the truncated s
 
 def _ewma_residual_fit(
     y: np.ndarray, base: np.ndarray, k: int = _EWMA_RESIDUAL_DEFAULT_K,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fit stores only the EWMA half-life span ``k``. The EWMA itself is re-computed at forward / inverse time -- this keeps the fitted params JSON-serialisable and stateless (the alternative of storing the full N-row EWMA trace would bloat metadata and break predict-on-new-data). The first-row anchor is the train-base mean: ``ewma[0] = mean(base_train)``."""
     k = max(1, int(k))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -1022,7 +1022,7 @@ def _ewma_compute(base: np.ndarray, k: int, anchor: float) -> np.ndarray:
 
 
 def _ewma_residual_forward(
-    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     return np.asarray(y, dtype=np.float64) - _ewma_compute(
         base, int(params["k"]), float(params["anchor"]),
@@ -1030,7 +1030,7 @@ def _ewma_residual_forward(
 
 
 def _ewma_residual_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     return np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
         base, int(params["k"]), float(params["anchor"]),
@@ -1038,7 +1038,7 @@ def _ewma_residual_inverse(
 
 
 def _ewma_residual_domain(
-    y: Optional[np.ndarray], base: np.ndarray,
+    y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
@@ -1059,7 +1059,7 @@ _ROLLING_QUANTILE_DEFAULT_K: int = 7
 
 def _rolling_quantile_ratio_fit(
     y: np.ndarray, base: np.ndarray, k: int = _ROLLING_QUANTILE_DEFAULT_K,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Stores the window span ``k`` and an eps floor derived from train base scale to keep division safe at predict time on near-zero rolling medians."""
     k = max(1, int(k))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -1087,7 +1087,7 @@ def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
 
 
 def _rolling_quantile_ratio_forward(
-    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     k = int(params["k"])
     eps = float(params["eps"])
@@ -1098,7 +1098,7 @@ def _rolling_quantile_ratio_forward(
 
 
 def _rolling_quantile_ratio_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     k = int(params["k"])
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -1107,7 +1107,7 @@ def _rolling_quantile_ratio_inverse(
 
 
 def _rolling_quantile_ratio_domain(
-    y: Optional[np.ndarray], base: np.ndarray,
+    y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
@@ -1137,7 +1137,7 @@ def _frac_diff_weights(d: float, lags: int) -> np.ndarray:
 def _frac_diff_fit(
     y: np.ndarray, base: np.ndarray,
     d: float = _FRAC_DIFF_DEFAULT_D, lags: int = _FRAC_DIFF_DEFAULT_LAGS,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Store fractional order ``d``, lag truncation ``lags``, and the train-y mean used as a pre-window anchor (rows whose lag history is shorter than ``lags`` need a fallback value for the missing past terms)."""
     d = float(d)
     lags = max(1, int(lags))
@@ -1148,7 +1148,7 @@ def _frac_diff_fit(
 
 
 def _frac_diff_forward(
-    y: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     """T_i = sum_{k=0}^{lags} w_k * y_{i-k}, padding y_{i-k} with the train anchor for k > i."""
     lags = int(params["lags"])
@@ -1169,7 +1169,7 @@ def _frac_diff_forward(
 
 
 def _frac_diff_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: Dict[str, Any],
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction. Past y values are unknown at predict, so we ITERATIVELY reconstruct them: y_0 from T_0 + lag-anchors, y_1 from T_1 + y_0 + lag-anchors, etc."""
     lags = int(params["lags"])
@@ -1189,7 +1189,7 @@ def _frac_diff_inverse(
 
 
 def _frac_diff_domain(
-    y: Optional[np.ndarray], base: np.ndarray,
+    y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
     """Frac-diff is y-only but the contract accepts a base for signature uniformity. Domain: finite y; finite base (when provided)."""
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -1220,7 +1220,7 @@ def _frac_diff_domain(
 # Registry and lookup
 # ----------------------------------------------------------------------
 
-_TRANSFORMS_REGISTRY: Dict[str, Transform] = {
+_TRANSFORMS_REGISTRY: dict[str, Transform] = {
     "diff": Transform(
         name="diff",
         forward=_diff_forward,
@@ -1373,7 +1373,7 @@ def get_transform(name: str) -> Transform:
 # Order: declared transforms only -- if a transform is missing from
 # this map we fall back to the full name in ``compose_target_name`` so
 # adding a new transform never silently breaks naming.
-TRANSFORM_NAME_SHORT: Dict[str, str] = {
+TRANSFORM_NAME_SHORT: dict[str, str] = {
     "diff": "diff",
     "ratio": "ratio",
     "logratio": "logr",
@@ -1440,7 +1440,7 @@ def is_composite_target_name(name: str) -> bool:
     return False
 
 
-def list_transforms(*, tags: Optional[FrozenSet[str]] = None) -> List[str]:
+def list_transforms(*, tags: frozenset[str] | None = None) -> list[str]:
     """Return registered transform names, optionally filtered by tag
     intersection (any-of: a transform passes if it has at least one of
     the requested tags)."""

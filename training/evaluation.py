@@ -67,8 +67,6 @@ def _get_cached_plot_idx(n: int, sample_size: int, seed: int) -> "np.ndarray":
     _PLOT_IDX_CACHE[key] = idx
     return idx
 
-import numpy as np
-import pandas as pd
 import polars as pl
 import matplotlib.pyplot as plt
 

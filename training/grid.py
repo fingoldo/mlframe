@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 GridEntry = Union[Dict[str, Any], Tuple[str, Dict[str, Any]]]
 
 
-def _label_for(entry: GridEntry, idx: int) -> Tuple[str, Dict[str, Any]]:
+def _label_for(entry: GridEntry, idx: int) -> tuple[str, dict[str, Any]]:
     if isinstance(entry, tuple):
         if len(entry) != 2 or not isinstance(entry[0], str) or not isinstance(entry[1], dict):
             raise TypeError(
@@ -29,12 +29,12 @@ def _label_for(entry: GridEntry, idx: int) -> Tuple[str, Dict[str, Any]]:
 
 
 def run_grid(
-    base_kwargs: Dict[str, Any],
+    base_kwargs: dict[str, Any],
     grid: Iterable[GridEntry],
     *,
-    suite_fn: Optional[Callable[..., Any]] = None,
+    suite_fn: Callable[..., Any] | None = None,
     stop_on_error: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run ``suite_fn`` once per grid entry, merging entry over ``base_kwargs``.
 
     Parameters
@@ -55,8 +55,8 @@ def run_grid(
         from .core import train_mlframe_models_suite
         suite_fn = train_mlframe_models_suite
 
-    results: Dict[str, Any] = {}
-    labels: List[str] = []
+    results: dict[str, Any] = {}
+    labels: list[str] = []
     for idx, entry in enumerate(grid):
         label, overrides = _label_for(entry, idx)
         if label in results:

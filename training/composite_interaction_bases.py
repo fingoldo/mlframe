@@ -22,17 +22,17 @@ import pandas as pd
 # - Output is a plain ``dict`` (synthetic_name -> ndarray). Provenance metadata lives in the second return value for downstream tracking (e.g. for the final spec).
 # ----------------------------------------------------------------------
 
-_INTERACTION_OPS_DEFAULT: Tuple[str, ...] = ("mul", "div")
+_INTERACTION_OPS_DEFAULT: tuple[str, ...] = ("mul", "div")
 
 
 def generate_interaction_bases(
-    candidates: Dict[str, np.ndarray],
+    candidates: dict[str, np.ndarray],
     *,
     ops: Sequence[str] = _INTERACTION_OPS_DEFAULT,
     top_k: int = 3,
     eps_div_floor_factor: float = 1e-6,
     forbid_self_pairs: bool = True,
-) -> Tuple[Dict[str, np.ndarray], Dict[str, Dict[str, Any]]]:
+) -> tuple[dict[str, np.ndarray], dict[str, dict[str, Any]]]:
     """Greedy pairwise synthesis of interaction-base columns from ``candidates``.
 
     Parameters
@@ -64,8 +64,8 @@ def generate_interaction_bases(
         )
     selected_names = list(candidates.keys())[:top_k]
     selected_arrays = [np.asarray(candidates[n], dtype=np.float64).reshape(-1) for n in selected_names]
-    synthetics: Dict[str, np.ndarray] = {}
-    provenance: Dict[str, Dict[str, Any]] = {}
+    synthetics: dict[str, np.ndarray] = {}
+    provenance: dict[str, dict[str, Any]] = {}
     for i, name_a in enumerate(selected_names):
         a = selected_arrays[i]
         for j, name_b in enumerate(selected_names):

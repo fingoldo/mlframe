@@ -88,10 +88,10 @@ class BaselineDiagnosticsReport:
     headline_metric_higher_is_better: bool
     sample_n_used: int
 
-    ablation: List[AblationEntry] = field(default_factory=list)
-    dominant_features: List[Dict[str, Any]] = field(default_factory=list)
+    ablation: list[AblationEntry] = field(default_factory=list)
+    dominant_features: list[dict[str, Any]] = field(default_factory=list)
 
-    init_score_baseline: Optional[InitScoreBaseline] = None
+    init_score_baseline: InitScoreBaseline | None = None
 
     composite_recommendation: CompositeRecommendation = "skipped"
     composite_recommendation_reason: str = ""
@@ -100,7 +100,7 @@ class BaselineDiagnosticsReport:
     skipped: bool = False
     skip_reason: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict (for ``metadata`` storage / JSON-dump)."""
         return {
             "target_name": self.target_name,
@@ -174,7 +174,7 @@ def _coerce_to_pandas(df: Any, columns: Sequence[str]) -> pd.DataFrame:
     )
 
 
-def _select_metric(target_type: str) -> Tuple[str, bool]:
+def _select_metric(target_type: str) -> tuple[str, bool]:
     """Pick a quick-eval metric per target_type.
 
     Returns ``(metric_name, higher_is_better)``. Mirrors the conventions
@@ -268,7 +268,7 @@ class BaselineDiagnostics:
         feature_cols: Sequence[str],
         target_type: str,
         target_name: str,
-        cat_features: Optional[Sequence[str]] = None,
+        cat_features: Sequence[str] | None = None,
     ) -> BaselineDiagnosticsReport:
         """Run the diagnostic. Never raises; on internal errors returns
         a ``skipped=True`` report and logs a warning so suite training
@@ -418,7 +418,7 @@ class BaselineDiagnostics:
 
     def _sample(
         self, X: pd.DataFrame, y: np.ndarray,
-    ) -> Tuple[pd.DataFrame, np.ndarray, int]:
+    ) -> tuple[pd.DataFrame, np.ndarray, int]:
         """Random sample to ``sample_n`` rows. No-op when sample_n is None
         or when the frame is already smaller."""
         sample_n = self.config.sample_n
@@ -431,7 +431,7 @@ class BaselineDiagnostics:
         return X.iloc[idx].reset_index(drop=True), y[idx], sample_n
 
     def _make_quick_model(self, target_type: str,
-                          init_score: Optional[np.ndarray] = None,
+                          init_score: np.ndarray | None = None,
                           n_jobs: int = -1):
         """Build a fresh quick LightGBM model. Lazy import keeps the
         diagnostic optional - if LightGBM is unavailable the whole
@@ -467,9 +467,9 @@ class BaselineDiagnostics:
         cat_features: Sequence[str],
         target_type: str,
         metric_name: str,
-        init_score: Optional[np.ndarray] = None,
+        init_score: np.ndarray | None = None,
         inner_n_jobs: int = -1,
-    ) -> Tuple[float, np.ndarray]:
+    ) -> tuple[float, np.ndarray]:
         """Fit quick LightGBM on a holdout split, return ``(metric, fi_array)``.
 
         FI is taken from the LightGBM model.feature_importances_ aligned
@@ -578,7 +578,7 @@ class BaselineDiagnostics:
         raw_metric: float,
         metric_name: str,
         higher_is_better: bool,
-    ) -> List[AblationEntry]:
+    ) -> list[AblationEntry]:
         """Drop top-K features by FI rank, refit, measure delta. Per-feature
         independent drops (NOT cumulative) - we want per-feature
         contribution, not interaction-aware joint impact.
@@ -602,7 +602,7 @@ class BaselineDiagnostics:
         # Build the per-feature work list once. Skipping zero-importance
         # features at this stage avoids both the joblib dispatch and
         # the wasted refit.
-        per_feature_work: List[Tuple[int, int, str, List[str], List[str]]] = []
+        per_feature_work: list[tuple[int, int, str, list[str], list[str]]] = []
         for rank, idx in enumerate(order, start=1):
             feat = feature_cols[idx]
             if raw_fi[idx] <= 0:
@@ -614,7 +614,7 @@ class BaselineDiagnostics:
             per_feature_work.append((rank, int(idx), feat, kept, cat_kept))
 
         def _one_drop(rank: int, idx: int, feat: str,
-                      kept: List[str], cat_kept: List[str]) -> Optional[AblationEntry]:
+                      kept: list[str], cat_kept: list[str]) -> AblationEntry | None:
             X_drop = X.loc[:, kept]
             try:
                 metric_drop, _ = self._fit_quick_and_score(
@@ -634,7 +634,7 @@ class BaselineDiagnostics:
                 rank=rank,
             )
 
-        results: List[Optional[AblationEntry]]
+        results: list[AblationEntry | None]
         if len(per_feature_work) > 1:
             try:
                 from joblib import Parallel, delayed
@@ -650,7 +650,7 @@ class BaselineDiagnostics:
         else:
             results = [_one_drop(*args) for args in per_feature_work]
 
-        entries: List[AblationEntry] = [r for r in results if r is not None]
+        entries: list[AblationEntry] = [r for r in results if r is not None]
         # Sort by absolute dominance descending so dominant_features is
         # ranked by impact, not by raw FI (the two usually agree but FI
         # can mislead on correlated features).
@@ -673,12 +673,12 @@ class BaselineDiagnostics:
         y: np.ndarray,
         feature_cols: Sequence[str],
         cat_features: Sequence[str],
-        ablation: List[AblationEntry],
+        ablation: list[AblationEntry],
         metric_name: str,
         higher_is_better: bool,
         raw_metric: float,
         target_type: str = "regression",
-    ) -> Optional[InitScoreBaseline]:
+    ) -> InitScoreBaseline | None:
         """Refit quick-LightGBM with the top-K dominant features
         combined via OLS (regression) or logistic regression (binary)
         and passed via ``init_score`` so the model learns the residual
@@ -806,9 +806,9 @@ class BaselineDiagnostics:
 
     def _build_recommendation(
         self,
-        ablation: List[AblationEntry],
-        init_score_baseline: Optional[InitScoreBaseline],
-    ) -> Tuple[CompositeRecommendation, str]:
+        ablation: list[AblationEntry],
+        init_score_baseline: InitScoreBaseline | None,
+    ) -> tuple[CompositeRecommendation, str]:
         """Three-way classifier:
 
         * **high_potential** - max(ablation delta%) >= high_potential_min_dominance_pct
@@ -878,7 +878,7 @@ class BaselineDiagnostics:
 def format_baseline_diagnostics_report(
     report: BaselineDiagnosticsReport,
     *,
-    target_name: Optional[str] = None,
+    target_name: str | None = None,
 ) -> str:
     """Render a multi-line human-readable summary suitable for a single
     ``logger.info`` call.
@@ -890,7 +890,7 @@ def format_baseline_diagnostics_report(
     if report.skipped:
         return f"[BaselineDiagnostics] target='{name}' SKIPPED ({report.skip_reason})"
 
-    lines: List[str] = []
+    lines: list[str] = []
     metric = report.headline_metric_name
     lines.append(
         f"[BaselineDiagnostics] target='{name}' ({report.target_type}) "

@@ -228,6 +228,38 @@ to downstream contributors:
   selected_vars, FE is skipped (legacy fell back to running FE on all
   features). Set to `True` to restore legacy behaviour.
 
+### Input-validation contracts (post-2026-05-14)
+
+`MRMR._validate_inputs` rejects malformed input early instead of letting it silently degrade signal downstream:
+
+| Surface | Pre-2026-05-14 | Post |
+|---|---|---|
+| NaN in numeric columns of X | silent (MI estimators treated NaN as a separate category) | `ValueError` with `SimpleImputer` hint |
+| +/-inf in numeric columns of X | warning only (discretization produced undefined bins downstream) | `ValueError` (replace or drop before fitting) |
+| Constant / 1-class y | already raised pre-fix | raises (`H(y)=0 -> all MI=0`) |
+| `use_simple_mode=True` | kept perfectly-correlated duplicate columns silently | trade-off documented in `__init__` docstring; set `False` for dedup |
+
+Post-fit attributes added:
+
+* `self.ran_out_of_time_` -- `True` if the outer FE-loop was cut short by `self.max_runtime_mins`. Inspect after `fit()` to detect budget exhaustion.
+
+### Testing
+
+The filters package has dedicated unit + biz_value tests for every module (1000+ tests in `tests/feature_selection/`). Key suites:
+
+| File | Coverage |
+|---|---|
+| `test_bases.py`, `test_supervised_binning.py`, `test_group_aware.py`, `test_composition.py`, `test_fe_baselines.py`, `test_evaluation.py`, `test_fleuret.py`, `test_estimators.py`, `test_numba_utils.py`, `test_prewarm.py` | per-module unit + 1-2 biz_value tests each |
+| `test_regression_bug_fixes.py` | regression sentinels for previously-fixed bugs (polygamma late-binding, polars `pl` scope, screen `MAX_JOBLIB_NBYTES`, hermite Optuna closure, cat_interactions short-pair MM) |
+| `test_property_mi_entropy_discretize.py` | hypothesis property tests for MI/entropy/discretize invariants (10 properties, no xfail) |
+| `test_perf_regression.py` | calibrated perf sentinels (screen, mi_direct, prewarm cold-start, discretize, GPU-marked) |
+| `test_edge_cases_robustness.py` | NaN/Inf/single-class/all-constant/duplicate-pair/pickle/clone/`_FIT_CACHE` |
+| `test_integration_contract.py` | MRMR↔RFECV pipeline, polars==pandas, cat-FE recipe replay, `get_feature_names_out↔support_` |
+| `test_numerical_stability.py` | MM bias monotone decay, float32==float64, log(0) protection, KL ε-smoothing |
+| `test_concurrency_determinism.py` | seed-locked `n_workers=1==4`, joblib backends, `mi_direct` thread-safe, `_FIT_CACHE` thread-safe |
+
+Fast subset: `pytest tests/feature_selection/ -m fast --no-cov` (~50s).
+
 ### Benchmarking
 
 Profile a representative MRMR.fit:

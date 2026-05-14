@@ -179,7 +179,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         self,
         base_estimator: Any,
         strategy: PUStrategy = "auto",
-        true_prior: Optional[float] = None,
+        true_prior: float | None = None,
         c_estimation_method: CEstimationMethod = "mean_unbiased_pos",
         min_c_warn: float = 0.05,
         min_unbiased_positives: int = 50,
@@ -202,7 +202,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         *,
         is_unbiased: np.ndarray,
         **fit_params: Any,
-    ) -> "PULearningWrapper":
+    ) -> PULearningWrapper:
         """Fit the PU classifier.
 
         Parameters

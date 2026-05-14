@@ -69,11 +69,11 @@ def log_phase(msg: str, n: int = 80) -> None:
 
 
 def drop_columns_from_dataframe(
-    df: Union[pd.DataFrame, pl.DataFrame],
-    additional_columns_to_drop: Optional[list] = None,
-    config_drop_columns: Optional[list] = None,
+    df: pd.DataFrame | pl.DataFrame,
+    additional_columns_to_drop: list | None = None,
+    config_drop_columns: list | None = None,
     verbose: int = 1,
-) -> Union[pd.DataFrame, pl.DataFrame]:
+) -> pd.DataFrame | pl.DataFrame:
     """
     Drop columns from dataframe.
 
@@ -182,10 +182,10 @@ def _canonical_dtype_str(dtype) -> str:
 
 def compute_model_input_fingerprint(
     df_at_fit,
-    cat_features: Optional[list] = None,
-    text_features: Optional[list] = None,
-    embedding_features: Optional[list] = None,
-) -> "tuple[str, list]":
+    cat_features: list | None = None,
+    text_features: list | None = None,
+    embedding_features: list | None = None,
+) -> tuple[str, list]:
     """Compute a 10-char SHA256 fingerprint of a model's fit-time input
     schema (column names + canonical dtypes + roles).
 
@@ -450,10 +450,10 @@ def get_pandas_view_of_polars_df(
 
 
 def save_series_or_df(
-    obj: Union[pd.Series, pd.DataFrame, pl.Series, pl.DataFrame],
+    obj: pd.Series | pd.DataFrame | pl.Series | pl.DataFrame,
     file: str,
     compression: str = "zstd",
-    name: Optional[str] = None,
+    name: str | None = None,
 ) -> None:
     """
     Save a pandas/polars Series or DataFrame to parquet.

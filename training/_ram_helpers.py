@@ -26,9 +26,8 @@ def _caller_logger() -> logging.Logger:
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-import os
 from textwrap import shorten
-from typing import Union, Optional, Callable
+from typing import Union, Callable
 
 import numpy as np
 import pandas as pd
@@ -85,7 +84,6 @@ def clean_ram_and_gpu(verbose: bool = False) -> None:
     Args:
         verbose: If True, log memory stats after cleanup
     """
-    import gc
 
     # Clean CPU RAM first
     clean_ram()

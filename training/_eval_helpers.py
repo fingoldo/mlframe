@@ -20,13 +20,9 @@ from sklearn.pipeline import Pipeline
 
 from .utils import log_ram_usage, filter_existing
 
-import numpy as np
-import pandas as pd
 
-from sklearn.pipeline import Pipeline
 
 from ._data_helpers import _prepare_df_for_model
-from .utils import log_ram_usage
 
 logger = logging.getLogger(__name__)
 
@@ -388,15 +384,15 @@ def _compute_split_metrics(
     show_prob_histogram: bool = True,
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
-    title_metrics_tokens: Optional[Tuple[str, ...]] = None,
-    plot_outputs: Optional[str] = None,
-    plot_dpi: Optional[int] = None,
-    multiclass_panels: Optional[str] = None,
-    multilabel_panels: Optional[str] = None,
-    ltr_panels: Optional[str] = None,
-    quantile_panels: Optional[str] = None,
-    quantile_alphas: Optional[Tuple[float, ...]] = None,
-    target_type: Optional[str] = None,
+    title_metrics_tokens: tuple[str, ...] | None = None,
+    plot_outputs: str | None = None,
+    plot_dpi: int | None = None,
+    multiclass_panels: str | None = None,
+    multilabel_panels: str | None = None,
+    ltr_panels: str | None = None,
+    quantile_panels: str | None = None,
+    quantile_alphas: tuple[float, ...] | None = None,
+    target_type: str | None = None,
 ):
     """Unified metrics computation for train/val/test splits."""
     # Derive columns from df if available (for feature importance)
@@ -482,9 +478,9 @@ def run_confidence_analysis(
     test_df: pd.DataFrame,
     test_target: np.ndarray,
     test_probs: np.ndarray,
-    cat_features: List[str] = None,
-    text_features: List[str] = None,
-    embedding_features: List[str] = None,
+    cat_features: list[str] = None,
+    text_features: list[str] = None,
+    embedding_features: list[str] = None,
     confidence_model_kwargs: dict = None,
     fit_params: dict = None,
     use_shap: bool = True,
@@ -493,7 +489,7 @@ def run_confidence_analysis(
     alpha: float = 0.5,
     title: str = "Confidence Analysis",
     ylabel: str = "Prediction Confidence",
-    figsize: Tuple[float, float] = (10, 6),
+    figsize: tuple[float, float] = (10, 6),
     verbose: bool = False,
 ) -> Any:
     """Analyze which features most affect prediction confidence."""

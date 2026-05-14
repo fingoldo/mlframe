@@ -28,14 +28,14 @@ _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN: float = 0.02
 
 def forward_stepwise_multi_base(
     y_train: np.ndarray,
-    candidate_bases: Dict[str, np.ndarray],
+    candidate_bases: dict[str, np.ndarray],
     *,
-    seed_bases: Optional[Sequence[str]] = None,
+    seed_bases: Sequence[str] | None = None,
     max_k: int = _MULTI_BASE_DEFAULT_MAX_K,
     min_marginal_rmse_gain: float = _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
     cv_folds: int = 3,
     random_state: int = 42,
-) -> Tuple[List[str], List[Dict[str, Any]]]:
+) -> tuple[list[str], list[dict[str, Any]]]:
     """Greedy forward-stepwise base selection for ``linear_residual_multi``.
 
     Parameters
@@ -86,9 +86,9 @@ def forward_stepwise_multi_base(
         # Empty candidates + seeds -> nothing to greedily add; return seeds verbatim.
         return list(seeds), []
     kept = list(seeds)
-    diagnostics: List[Dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
 
-    def _cv_rmse(base_names: List[str]) -> float:
+    def _cv_rmse(base_names: list[str]) -> float:
         if not base_names:
             # No bases -> predict mean of y; RMSE = std(y).
             return float(np.std(y))

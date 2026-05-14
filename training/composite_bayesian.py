@@ -34,8 +34,8 @@ def bayesian_alpha_fit(
     n_bootstrap: int = _BAYESIAN_ALPHA_DEFAULT_N_BOOTSTRAP,
     ci_level: float = _BAYESIAN_ALPHA_DEFAULT_CI_LEVEL,
     random_state: int = 42,
-    subsample_n: Optional[int] = None,
-) -> Dict[str, Any]:
+    subsample_n: int | None = None,
+) -> dict[str, Any]:
     """Bootstrap posterior for linear_residual (alpha, beta).
 
     Parameters

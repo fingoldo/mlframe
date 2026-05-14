@@ -25,8 +25,8 @@ import pandas as pd
 
 
 def residual_correlation_matrix(
-    transform_residuals: Dict[str, np.ndarray],
-) -> Tuple[np.ndarray, List[str]]:
+    transform_residuals: dict[str, np.ndarray],
+) -> tuple[np.ndarray, list[str]]:
     """Pairwise Pearson correlation between transform residuals.
 
     Parameters
@@ -82,11 +82,11 @@ def max_off_diagonal_correlation(corr_matrix: np.ndarray) -> float:
 
 
 def stacking_aware_gate(
-    transform_predictions: Dict[str, np.ndarray],
+    transform_predictions: dict[str, np.ndarray],
     y_train: np.ndarray,
     *,
     min_weight: float = 0.05,
-) -> Tuple[List[str], Dict[str, float]]:
+) -> tuple[list[str], dict[str, float]]:
     """NNLS-weight-based gate: keep only transforms whose stacking weight clears ``min_weight``.
 
     Parameters

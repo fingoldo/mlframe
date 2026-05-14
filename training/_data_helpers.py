@@ -32,7 +32,7 @@ from .utils import filter_existing
 
 logger = logging.getLogger(__name__)
 
-def _validate_trusted_path(path: str, trusted_root: Optional[str]) -> None:
+def _validate_trusted_path(path: str, trusted_root: str | None) -> None:
     """Raise ValueError if ``path`` is not inside ``trusted_root`` (absolute commonpath check).
 
     Matches the convention used in ``mlframe.inference.read_trained_models``. Callers that
@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def get_function_param_names(func: Callable) -> List[str]:
+def get_function_param_names(func: Callable) -> list[str]:
     """Get parameter names from a function signature.
 
     Parameters
@@ -86,9 +86,9 @@ def get_function_param_names(func: Callable) -> List[str]:
 
 
 def _extract_target_subset(
-    target: Optional[Union[pd.Series, pl.Series, np.ndarray]],
-    idx: Optional[np.ndarray],
-) -> Optional[Union[pd.Series, pl.Series, np.ndarray]]:
+    target: pd.Series | pl.Series | np.ndarray | None,
+    idx: np.ndarray | None,
+) -> pd.Series | pl.Series | np.ndarray | None:
     """Extract target subset handling pandas Series, polars Series, and numpy arrays.
 
     Parameters
@@ -119,10 +119,10 @@ def _extract_target_subset(
 
 
 def _subset_dataframe(
-    df: Optional[Union[pd.DataFrame, pl.DataFrame]],
-    idx: Optional[np.ndarray],
-    drop_columns: Optional[List[str]] = None,
-) -> Optional[Union[pd.DataFrame, pl.DataFrame]]:
+    df: pd.DataFrame | pl.DataFrame | None,
+    idx: np.ndarray | None,
+    drop_columns: list[str] | None = None,
+) -> pd.DataFrame | pl.DataFrame | None:
     """Subset DataFrame with optional column dropping, handling pandas and polars.
 
     Parameters
@@ -447,12 +447,12 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
 
 def _setup_eval_set(
     model_type_name: str,
-    fit_params: Dict[str, Any],
-    val_df: Union[pd.DataFrame, np.ndarray],
-    val_target: Union[pd.Series, np.ndarray],
-    callback_params: Optional[Dict[str, Any]] = None,
-    model_obj: Optional[Any] = None,
-    model_category: Optional[str] = None,
+    fit_params: dict[str, Any],
+    val_df: pd.DataFrame | np.ndarray,
+    val_target: pd.Series | np.ndarray,
+    callback_params: dict[str, Any] | None = None,
+    model_obj: Any | None = None,
+    model_category: str | None = None,
 ) -> None:
     """Configure eval_set/validation data for different model types.
 

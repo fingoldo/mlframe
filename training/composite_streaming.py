@@ -34,7 +34,7 @@ def streaming_alpha_check_and_refit(
     *,
     z_threshold: float = _STREAMING_DEFAULT_Z_THRESHOLD,
     min_buffer_n: int = _STREAMING_DEFAULT_MIN_BUFFER_N,
-) -> Tuple[float, float, Dict[str, Any]]:
+) -> tuple[float, float, dict[str, Any]]:
     """Chow-style drift check + optional refit on the recent buffer.
 
     Parameters

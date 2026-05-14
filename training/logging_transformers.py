@@ -29,9 +29,9 @@ logger = logging.getLogger("mlframe.training.logging_transformers")
 
 def log_resources(
     *,
-    stage: Optional[str] = None,
+    stage: str | None = None,
     level: int = logging.INFO,
-    extra_factory: Optional[Callable[..., dict]] = None,
+    extra_factory: Callable[..., dict] | None = None,
 ):
     """Decorator logging wall-time and ΔRSS around the wrapped callable.
 
@@ -133,7 +133,7 @@ class _LoggingProxy:
 def wrap_with_logging(
     obj: Any,
     *,
-    stage: Optional[str] = None,
+    stage: str | None = None,
     methods: Iterable[str] = ("fit", "transform", "fit_transform"),
 ) -> Any:
     """Return a proxy around ``obj`` that logs resources around ``methods``.

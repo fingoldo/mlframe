@@ -871,6 +871,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._engineered_features_ = []
         self._engineered_recipes_ = []
         original_indices = []
+        engineered_without_recipe = []
         for col in selected_vars_names:
             if col in self.feature_names_in_:
                 original_indices.append(self.feature_names_in_.index(col))
@@ -879,7 +880,19 @@ class MRMR(BaseEstimator, TransformerMixin):
                 recipe = engineered_recipes.get(col)
                 if recipe is not None:
                     self._engineered_recipes_.append(recipe)
-        selected_vars = original_indices  # !TODO! failing when fe_max_steps>1. need other source.
+                else:
+                    engineered_without_recipe.append(col)
+        if engineered_without_recipe and verbose:
+            # Happens with fe_max_steps>1 when a higher-order interaction's parents are themselves engineered features. The recipe replay path can only
+            # reconstruct 1-deep engineering; deeper nests are recorded in self._engineered_features_ but DROPPED from transform output. Surface the cost.
+            logger.warning(
+                "MRMR.fit: %d engineered feature(s) selected without replayable recipe (nested-engineered parents at fe_max_steps=%d); they will be DROPPED from transform output: %s",
+                len(engineered_without_recipe), self.fe_max_steps, engineered_without_recipe[:8],
+            )
+        # ``selected_vars`` is downstream re-bound to the integer indices of the RAW columns only; engineered features are appended in transform() via
+        # ``_append_engineered`` using ``self._engineered_recipes_``. This split mirrors the on-disk contract: support_ indexes feature_names_in_; engineered output
+        # columns come from the recipes list. n_features_ counts BOTH (see assignment below).
+        selected_vars = original_indices
 
         # ---------------------------------------------------------------------------------------------------------------
         # additional_rfecv run
@@ -931,8 +944,11 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         self.support_ = np.array(selected_vars)
         self.fallback_used_ = False
-        if selected_vars:
-            self.n_features_ = len(selected_vars)
+        # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
+        # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
+        n_engineered_out = len(self._engineered_recipes_)
+        if selected_vars or n_engineered_out:
+            self.n_features_ = len(selected_vars) + n_engineered_out
         else:
             self.n_features_ = 0
             # Empty support_ fallback: rank by raw MI(X_j, y) so downstream pipelines don't crash on 0-feature

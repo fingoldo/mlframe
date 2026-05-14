@@ -27,7 +27,6 @@ from mlframe.metrics import compute_fairness_metrics, fast_calibration_report, f
 from pyutilz.pythonlib import get_human_readable_set_size
 
 from .evaluation import _get_residual_audit_enabled, _get_cached_plot_idx
-from .evaluation import _get_residual_audit_enabled
 from .phases import phase
 
 # Inline to avoid circular import (_reporting <- evaluation <- _reporting)
@@ -100,48 +99,48 @@ def _canonical_multilabel_y(targets) -> np.ndarray:
 
 
 def report_model_perf(
-    targets: Union[np.ndarray, pd.Series],
+    targets: np.ndarray | pd.Series,
     columns: Sequence[str],
     model_name: str,
-    model: Optional[Union[ClassifierMixin, RegressorMixin]],
-    subgroups: Optional[Dict[str, np.ndarray]] = None,
-    subset_index: Optional[np.ndarray] = None,
+    model: ClassifierMixin | RegressorMixin | None,
+    subgroups: dict[str, np.ndarray] | None = None,
+    subset_index: np.ndarray | None = None,
     report_ndigits: int = DEFAULT_REPORT_NDIGITS,
-    figsize: Tuple[int, int] = DEFAULT_FIGSIZE,
+    figsize: tuple[int, int] = DEFAULT_FIGSIZE,
     report_title: str = "",
     use_weights: bool = True,
     calib_report_ndigits: int = DEFAULT_CALIB_REPORT_NDIGITS,
     verbose: bool = False,
-    classes: Optional[Sequence] = None,
-    preds: Optional[np.ndarray] = None,
-    probs: Optional[np.ndarray] = None,
-    df: Optional[pd.DataFrame] = None,
-    target_label_encoder: Optional[LabelEncoder] = None,
+    classes: Sequence | None = None,
+    preds: np.ndarray | None = None,
+    probs: np.ndarray | None = None,
+    df: pd.DataFrame | None = None,
+    target_label_encoder: LabelEncoder | None = None,
     nbins: int = DEFAULT_NBINS,
     print_report: bool = True,
     show_perf_chart: bool = True,
     show_fi: bool = True,
-    fi_kwargs: Optional[Dict[str, Any]] = None,
+    fi_kwargs: dict[str, Any] | None = None,
     plot_file: str = "",
-    custom_ice_metric: Optional[Callable] = None,
-    custom_rice_metric: Optional[Callable] = None,
-    metrics: Optional[Dict[str, Any]] = None,
-    group_ids: Optional[np.ndarray] = None,
-    n_features: Optional[int] = None,
+    custom_ice_metric: Callable | None = None,
+    custom_rice_metric: Callable | None = None,
+    metrics: dict[str, Any] | None = None,
+    group_ids: np.ndarray | None = None,
+    n_features: int | None = None,
     show_prob_histogram: bool = True,
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
-    title_metrics_tokens: Optional[Tuple[str, ...]] = None,
-    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
-    plot_outputs: Optional[str] = None,
-    plot_dpi: Optional[int] = None,
-    target_type: Optional[str] = None,
-    multiclass_panels: Optional[str] = None,
-    multilabel_panels: Optional[str] = None,
-    ltr_panels: Optional[str] = None,
-    quantile_panels: Optional[str] = None,
-    quantile_alphas: Optional[Sequence[float]] = None,
-) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    title_metrics_tokens: tuple[str, ...] | None = None,
+    multilabel_dispatch_config: MultilabelDispatchConfig | None = None,
+    plot_outputs: str | None = None,
+    plot_dpi: int | None = None,
+    target_type: str | None = None,
+    multiclass_panels: str | None = None,
+    multilabel_panels: str | None = None,
+    ltr_panels: str | None = None,
+    quantile_panels: str | None = None,
+    quantile_alphas: Sequence[float] | None = None,
+) -> tuple[np.ndarray, np.ndarray | None]:
     """
     Generate a unified performance report for both classifiers and regressors.
 
@@ -331,28 +330,28 @@ def report_model_perf(
 
 
 def report_regression_model_perf(
-    targets: Union[np.ndarray, pd.Series],
+    targets: np.ndarray | pd.Series,
     columns: Sequence[str],
     model_name: str,
-    model: Optional[RegressorMixin],
-    subgroups: Optional[Dict[str, np.ndarray]] = None,
-    subset_index: Optional[np.ndarray] = None,
+    model: RegressorMixin | None,
+    subgroups: dict[str, np.ndarray] | None = None,
+    subset_index: np.ndarray | None = None,
     report_ndigits: int = DEFAULT_REPORT_NDIGITS,
-    figsize: Tuple[int, int] = DEFAULT_FIGSIZE,
+    figsize: tuple[int, int] = DEFAULT_FIGSIZE,
     report_title: str = "",
     verbose: bool = False,
-    preds: Optional[np.ndarray] = None,
-    df: Optional[pd.DataFrame] = None,
+    preds: np.ndarray | None = None,
+    df: pd.DataFrame | None = None,
     print_report: bool = True,
     show_perf_chart: bool = True,
     plot_file: str = "",
     plot_marker: str = "o",
     plot_sample_size: int = DEFAULT_PLOT_SAMPLE_SIZE,
-    metrics: Optional[Dict[str, Any]] = None,
-    n_features: Optional[int] = None,
-    plot_outputs: Optional[str] = None,
-    plot_dpi: Optional[int] = None,
-) -> Tuple[np.ndarray, None]:
+    metrics: dict[str, Any] | None = None,
+    n_features: int | None = None,
+    plot_outputs: str | None = None,
+    plot_dpi: int | None = None,
+) -> tuple[np.ndarray, None]:
     """
     Generate a detailed performance report for regression models.
 
@@ -685,39 +684,39 @@ def report_regression_model_perf(
 
 
 def report_probabilistic_model_perf(
-    targets: Union[np.ndarray, pd.Series],
+    targets: np.ndarray | pd.Series,
     columns: Sequence[str],
     model_name: str,
-    model: Optional[ClassifierMixin],
-    subgroups: Optional[Dict[str, np.ndarray]] = None,
-    subset_index: Optional[np.ndarray] = None,
+    model: ClassifierMixin | None,
+    subgroups: dict[str, np.ndarray] | None = None,
+    subset_index: np.ndarray | None = None,
     report_ndigits: int = DEFAULT_REPORT_NDIGITS,
-    figsize: Tuple[int, int] = DEFAULT_FIGSIZE,
+    figsize: tuple[int, int] = DEFAULT_FIGSIZE,
     report_title: str = "",
     use_weights: bool = True,
     calib_report_ndigits: int = DEFAULT_CALIB_REPORT_NDIGITS,
     verbose: bool = False,
-    classes: Optional[Sequence] = None,
-    preds: Optional[np.ndarray] = None,
-    probs: Optional[np.ndarray] = None,
-    df: Optional[pd.DataFrame] = None,
-    target_label_encoder: Optional[LabelEncoder] = None,
+    classes: Sequence | None = None,
+    preds: np.ndarray | None = None,
+    probs: np.ndarray | None = None,
+    df: pd.DataFrame | None = None,
+    target_label_encoder: LabelEncoder | None = None,
     nbins: int = DEFAULT_NBINS,
     print_report: bool = True,
     show_perf_chart: bool = True,
     plot_file: str = "",
-    custom_ice_metric: Optional[Callable] = None,
-    custom_rice_metric: Optional[Callable] = None,
-    metrics: Optional[Dict[str, Any]] = None,
-    group_ids: Optional[np.ndarray] = None,
-    n_features: Optional[int] = None,
+    custom_ice_metric: Callable | None = None,
+    custom_rice_metric: Callable | None = None,
+    metrics: dict[str, Any] | None = None,
+    group_ids: np.ndarray | None = None,
+    n_features: int | None = None,
     show_prob_histogram: bool = True,
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
-    title_metrics_tokens: Optional[Tuple[str, ...]] = None,
-    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
-    plot_dpi: Optional[int] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+    title_metrics_tokens: tuple[str, ...] | None = None,
+    multilabel_dispatch_config: MultilabelDispatchConfig | None = None,
+    plot_dpi: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a detailed performance report for probabilistic classification models.
 
@@ -914,7 +913,7 @@ def report_probabilistic_model_perf(
     # Only valid when group_ids is None (per-group AUCs need the full
     # function path). Empirical wins documented in ``bench_gpu_metrics.py``:
     # at N=1M K=20 PR AUC alone, GPU = 170 ms vs CPU loop = 2016 ms.
-    _precomputed_aucs_per_class: Optional[List[Optional[Tuple[float, float]]]] = None
+    _precomputed_aucs_per_class: list[tuple[float, float] | None] | None = None
     if group_ids is None and len(classes) >= 2:
         try:
             from mlframe.metrics import compute_batch_aucs

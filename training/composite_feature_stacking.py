@@ -27,8 +27,8 @@ def composite_predictions_as_feature(
     wrapper: Any,
     df: Any,
     *,
-    column_name: Optional[str] = None,
-    fallback_value: Optional[float] = None,
+    column_name: str | None = None,
+    fallback_value: float | None = None,
 ) -> Any:
     """Attach a fitted composite wrapper's predictions to ``df`` as a new column.
 
@@ -80,7 +80,7 @@ def composite_oof_predictions(
     *,
     n_splits: int = 5,
     random_state: int = 42,
-    fit_kwargs: Optional[Dict[str, Any]] = None,
+    fit_kwargs: dict[str, Any] | None = None,
 ) -> np.ndarray:
     """Out-of-fold composite predictions via K-fold CV.
 

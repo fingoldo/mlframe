@@ -76,7 +76,7 @@ DEFAULT_ZSCORE_WINDOW: int = 7
 Wider windows = smoother baseline, less sensitive to short anomalies.
 7 catches month-long dips on a monthly-binned series."""
 
-DEFAULT_TARGET_BINS_RANGE: Tuple[int, int] = (30, 50)
+DEFAULT_TARGET_BINS_RANGE: tuple[int, int] = (30, 50)
 """Granularity auto-picker aims for this many non-empty bins."""
 
 DEFAULT_PELT_MODEL: str = "l2"
@@ -93,10 +93,10 @@ outlier, not a regime). Raise to 3+ to filter out short transients."""
 ChangePointMethod = Literal["pelt", "zscore"]
 
 Granularity = Literal["minute", "hour", "day", "week", "month", "quarter", "year"]
-_GRANULARITY_ORDER: List[Granularity] = [
+_GRANULARITY_ORDER: list[Granularity] = [
     "minute", "hour", "day", "week", "month", "quarter", "year",
 ]
-_GRANULARITY_SECONDS: Dict[Granularity, float] = {
+_GRANULARITY_SECONDS: dict[Granularity, float] = {
     "minute": 60.0,
     "hour": 3600.0,
     "day": 86_400.0,
@@ -124,14 +124,14 @@ class TemporalAuditResult:
     target_type: str
     timestamp_col: str
     granularity: Granularity
-    bins: List[TimeBin]
-    change_point_indices: List[int]  # indices into kept-bin list
-    segments: List[Dict[str, Any]]   # [{start: ..., end: ..., mean_rate: ..., n_obs: ..., n_bins: ...}, ...]
-    warnings: List[str]
-    actionable: Dict[str, Any] = field(default_factory=dict)
-    plot_path: Optional[str] = None  # filled in if plot_target_over_time saves a file
+    bins: list[TimeBin]
+    change_point_indices: list[int]  # indices into kept-bin list
+    segments: list[dict[str, Any]]   # [{start: ..., end: ..., mean_rate: ..., n_obs: ..., n_bins: ...}, ...]
+    warnings: list[str]
+    actionable: dict[str, Any] = field(default_factory=dict)
+    plot_path: str | None = None  # filled in if plot_target_over_time saves a file
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """JSON-safe round-trip-friendly dict (for metadata storage)."""
         return {
             "target_name": self.target_name,
@@ -204,7 +204,7 @@ class TemporalAuditResult:
             ts = pd.to_datetime(pd.Series(timestamps))
             return np.zeros(len(ts), dtype=bool)
 
-        chosen_segs: List[Dict[str, Any]]
+        chosen_segs: list[dict[str, Any]]
         if segment == "most_recent_stable":
             chosen_segs = []
             for s in reversed(self.segments):
@@ -262,7 +262,7 @@ class TemporalAuditResult:
 
 def _pick_granularity(
     timestamps: Sequence,
-    target_bins_range: Tuple[int, int] = DEFAULT_TARGET_BINS_RANGE,
+    target_bins_range: tuple[int, int] = DEFAULT_TARGET_BINS_RANGE,
 ) -> Granularity:
     """Choose a bin width that yields ~30-50 non-empty bins.
 
@@ -279,7 +279,7 @@ def _pick_granularity(
         return "month"
 
     target_geomean = math.sqrt(target_bins_range[0] * target_bins_range[1])
-    best: Optional[Granularity] = None
+    best: Granularity | None = None
     best_score = math.inf
 
     for g in _GRANULARITY_ORDER:
@@ -299,7 +299,7 @@ def _pick_granularity(
 # Aggregation
 # -----------------------------------------------------------------------------
 
-_POLARS_BIN_TRUNCATE: Dict[Granularity, str] = {
+_POLARS_BIN_TRUNCATE: dict[Granularity, str] = {
     "minute": "1m",
     "hour": "1h",
     "day": "1d",
@@ -310,7 +310,7 @@ _POLARS_BIN_TRUNCATE: Dict[Granularity, str] = {
 }
 
 
-def _polars_rate_expr(target_col: str, target_type: str, alias: str) -> "pl.Expr":
+def _polars_rate_expr(target_col: str, target_type: str, alias: str) -> pl.Expr:
     """Build a polars aggregation expr for one target's per-bin rate."""
     if target_type == "binary_classification":
         # P(y=1): treat null as 0, then mean over (val > 0)
@@ -319,7 +319,7 @@ def _polars_rate_expr(target_col: str, target_type: str, alias: str) -> "pl.Expr
 
 
 def _aggregate_by_time_polars(
-    df: "pl.DataFrame",
+    df: pl.DataFrame,
     timestamp_col: str,
     target_col: str,
     granularity: Granularity,
@@ -347,9 +347,9 @@ def _aggregate_by_time_polars(
 
 
 def _aggregate_by_time_polars_multi(
-    df: "pl.DataFrame",
+    df: pl.DataFrame,
     timestamp_col: str,
-    target_specs: List[Tuple[str, str, str]],
+    target_specs: list[tuple[str, str, str]],
     granularity: Granularity,
 ) -> pd.DataFrame:
     """Polars multi-target group-by-time aggregation: one pass over the
@@ -464,10 +464,10 @@ def find_change_points_pelt(
     rates: np.ndarray,
     *,
     model: str = DEFAULT_PELT_MODEL,
-    penalty: Optional[float] = None,
+    penalty: float | None = None,
     min_segment_size: int = DEFAULT_PELT_MIN_SEGMENT_SIZE,
-    weights: Optional[np.ndarray] = None,
-) -> List[int]:
+    weights: np.ndarray | None = None,
+) -> list[int]:
     """Find change points via PELT (Killick et al. 2012) using
     ``ruptures.Pelt``.
 
@@ -559,7 +559,7 @@ def find_change_points_pelt(
     # boundaries — convert directly.
     if not bkps or len(bkps) <= 1:
         return []
-    boundaries: List[int] = []
+    boundaries: list[int] = []
     prev = 0
     for end in bkps:
         if end > prev:
@@ -579,7 +579,7 @@ def find_change_points_pelt(
         return []
     # Build pairs [c0, c1, c1, c2, ...] so segments[0]=[0:c0],
     # segments[1]=[c0:c1], etc.
-    pairs: List[int] = []
+    pairs: list[int] = []
     for c in inner:
         pairs.append(int(c))
         pairs.append(int(c))
@@ -593,12 +593,12 @@ def find_change_points_pelt(
 def find_change_points_zscore(
     rates: np.ndarray,
     *,
-    weights: Optional[np.ndarray] = None,
+    weights: np.ndarray | None = None,
     z_threshold: float = DEFAULT_ZSCORE_THRESHOLD,
     min_anomaly_run: int = 1,
-    window: Optional[int] = None,
+    window: int | None = None,
     abs_min_spread: float = 0.05,
-) -> List[int]:
+) -> list[int]:
     """Find indices where ``rates`` departs from a baseline by more
     than ``z_threshold`` modified-z-score units (or by an absolute
     minimum spread when the baseline MAD is degenerate).
@@ -709,7 +709,7 @@ def find_change_points_zscore(
                 )
 
     # Group consecutive flags into runs; report run boundaries.
-    boundaries: List[int] = []
+    boundaries: list[int] = []
     in_run = False
     run_start = -1
     for i, f in enumerate(flagged):
@@ -734,9 +734,9 @@ def find_change_points(
     rates: np.ndarray,
     *,
     method: ChangePointMethod = "pelt",
-    weights: Optional[np.ndarray] = None,
+    weights: np.ndarray | None = None,
     **method_kwargs: Any,
-) -> List[int]:
+) -> list[int]:
     """Top-level dispatcher: ``method="pelt"`` (default) or
     ``method="zscore"``.
 
@@ -759,9 +759,9 @@ def find_change_points(
 def _segments_from_change_points(
     rates: np.ndarray,
     weights: np.ndarray,
-    boundaries: List[int],
-    bin_labels: List[str],
-) -> List[Dict[str, Any]]:
+    boundaries: list[int],
+    bin_labels: list[str],
+) -> list[dict[str, Any]]:
     """Split [0..n) into intervals by the change-point boundaries.
 
     Boundaries from `find_change_points_zscore` come in pairs
@@ -770,7 +770,7 @@ def _segments_from_change_points(
     """
     n = len(rates)
     edges = sorted(set([0, n] + list(boundaries)))
-    segments: List[Dict[str, Any]] = []
+    segments: list[dict[str, Any]] = []
     for s, e in zip(edges[:-1], edges[1:]):
         if e <= s:
             continue
@@ -802,16 +802,16 @@ def audit_target_over_time(
     timestamp_col: str,
     target_col: str,
     *,
-    target_name: Optional[str] = None,
+    target_name: str | None = None,
     target_type: str = "binary_classification",
     granularity: str = "auto",
     min_bin_fraction: float = DEFAULT_MIN_BIN_FRACTION_FOR_FILTER,
     method: ChangePointMethod = "pelt",
     pelt_model: str = DEFAULT_PELT_MODEL,
-    pelt_penalty: Optional[float] = None,
+    pelt_penalty: float | None = None,
     pelt_min_segment_size: int = DEFAULT_PELT_MIN_SEGMENT_SIZE,
     z_threshold: float = DEFAULT_ZSCORE_THRESHOLD,
-    z_window: Optional[int] = None,
+    z_window: int | None = None,
     min_anomaly_run: int = 2,
     drift_warn_threshold: float = 0.10,
 ) -> TemporalAuditResult:
@@ -912,19 +912,19 @@ def audit_target_over_time(
 def audit_targets_over_time(
     df: Any,
     timestamp_col: str,
-    targets: Dict[str, Any],
+    targets: dict[str, Any],
     *,
     granularity: str = "auto",
     min_bin_fraction: float = DEFAULT_MIN_BIN_FRACTION_FOR_FILTER,
     method: ChangePointMethod = "pelt",
     pelt_model: str = DEFAULT_PELT_MODEL,
-    pelt_penalty: Optional[float] = None,
+    pelt_penalty: float | None = None,
     pelt_min_segment_size: int = DEFAULT_PELT_MIN_SEGMENT_SIZE,
     z_threshold: float = DEFAULT_ZSCORE_THRESHOLD,
-    z_window: Optional[int] = None,
+    z_window: int | None = None,
     min_anomaly_run: int = 2,
     drift_warn_threshold: float = 0.10,
-) -> Dict[str, TemporalAuditResult]:
+) -> dict[str, TemporalAuditResult]:
     """Audit MULTIPLE targets in ONE pass over the data.
 
     Equivalent to calling :func:`audit_target_over_time` once per
@@ -986,8 +986,8 @@ def audit_targets_over_time(
         return {}
 
     # Normalize target specs.
-    target_specs: List[Tuple[str, str, str]] = []  # (col, type, alias)
-    name_to_alias: Dict[str, str] = {}
+    target_specs: list[tuple[str, str, str]] = []  # (col, type, alias)
+    name_to_alias: dict[str, str] = {}
     for name, spec in targets.items():
         if isinstance(spec, str):
             col, ttype = spec, "binary_classification"
@@ -1036,7 +1036,7 @@ def audit_targets_over_time(
             agg[alias] = sub["target_rate"].values
 
     # 3. Per-target downstream pipeline.
-    results: Dict[str, TemporalAuditResult] = {}
+    results: dict[str, TemporalAuditResult] = {}
     for name, spec in targets.items():
         col, ttype = (spec, "binary_classification") if isinstance(spec, str) else (spec[0], spec[1])
         alias = name_to_alias[name]
@@ -1075,10 +1075,10 @@ def _audit_from_agg(
     min_bin_fraction: float,
     method: ChangePointMethod,
     pelt_model: str,
-    pelt_penalty: Optional[float],
+    pelt_penalty: float | None,
     pelt_min_segment_size: int,
     z_threshold: float,
-    z_window: Optional[int],
+    z_window: int | None,
     min_anomaly_run: int,
     drift_warn_threshold: float,
 ) -> TemporalAuditResult:
@@ -1142,7 +1142,7 @@ def _audit_from_agg(
         )
     segments = _segments_from_change_points(rates, weights, boundaries, labels)
 
-    warnings: List[str] = []
+    warnings: list[str] = []
     if len(segments) >= 2:
         mean_rates = [s["mean_rate"] for s in segments if s["mean_rate"] == s["mean_rate"]]
         if mean_rates and max(mean_rates) - min(mean_rates) > drift_warn_threshold:
@@ -1170,14 +1170,14 @@ def _audit_from_agg(
             "if this number is large, consider a wider granularity."
         )
 
-    most_recent_stable: Optional[Dict[str, Any]] = None
+    most_recent_stable: dict[str, Any] | None = None
     if segments:
         for s in reversed(segments):
             if s["n_bins"] >= 3:
                 most_recent_stable = s
                 break
 
-    actionable: Dict[str, Any] = {
+    actionable: dict[str, Any] = {
         "n_segments": len(segments),
         "most_recent_stable_segment": most_recent_stable,
     }
@@ -1205,12 +1205,12 @@ def _audit_from_agg(
 def plot_target_over_time(
     result: TemporalAuditResult,
     *,
-    save_path: Optional[str] = None,
+    save_path: str | None = None,
     show: bool = False,
-    figsize: Tuple[float, float] = (12, 4.5),
-    plot_outputs: Optional[str] = None,
-    base_path: Optional[str] = None,
-) -> Optional[Any]:
+    figsize: tuple[float, float] = (12, 4.5),
+    plot_outputs: str | None = None,
+    base_path: str | None = None,
+) -> Any | None:
     """Render the time-series plot of target rate over bins.
 
     Mirrors the user's polars-rendered chart (year-month index, line

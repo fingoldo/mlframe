@@ -511,7 +511,7 @@ def _select_scalable_numeric_columns(
 
     try:
         stats_row = train_df.lazy().select(select_exprs).collect()
-    except Exception as exc:
+    except Exception:
         # Fall back to per-col loop on any batched-eval failure.
         stats_row = None
 

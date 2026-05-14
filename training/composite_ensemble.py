@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------
 
 
-def derive_seeds(random_state: int, components: Sequence[str]) -> Dict[str, int]:
+def derive_seeds(random_state: int, components: Sequence[str]) -> dict[str, int]:
     """Derive deterministic per-component seeds from a master seed.
 
     Uses sha256 truncation to keep the values stable across Python /
@@ -41,16 +41,15 @@ def derive_seeds(random_state: int, components: Sequence[str]) -> Dict[str, int]
     Sub-seeds break the correlation while keeping reproducibility:
     same master seed -> same sub-seeds -> same downstream randomness.
     """
-    import hashlib
     import struct
-    out: Dict[str, int] = {}
+    out: dict[str, int] = {}
     for c in components:
-        h = hashlib.sha256(f"{random_state}::{c}".encode("utf-8")).digest()
+        h = hashlib.sha256(f"{random_state}::{c}".encode()).digest()
         out[c] = struct.unpack("<I", h[:4])[0]
     return out
 
 
-def detect_gpu_in_use(mlframe_models: Sequence[str]) -> List[str]:
+def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
     """Return list of model families that may be using GPU.
 
     Best-effort detection: imports each library only if it appears in
@@ -63,7 +62,7 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> List[str]:
     by K composite-model fits and can surface as ensemble weight
     drift across runs even when ``random_state`` is fixed.
     """
-    detected: List[str] = []
+    detected: list[str] = []
     families = {str(m).lower() for m in mlframe_models}
     if any(f in families for f in ("lgb", "lightgbm")):
         try:
@@ -96,14 +95,14 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> List[str]:
     return detected
 
 
-def env_signature() -> Dict[str, Optional[str]]:
+def env_signature() -> dict[str, str | None]:
     """Snapshot of library versions relevant to composite-target
     discovery + serialisation. Stored on metadata so a pickle saved
     today can be reload-validated tomorrow against version drift.
 
     Returns ``None`` for any library not installed.
     """
-    sig: Dict[str, Optional[str]] = {}
+    sig: dict[str, str | None] = {}
     for libname in ("numpy", "pandas", "polars", "sklearn", "lightgbm",
                     "xgboost", "catboost", "scipy", "dill"):
         try:
@@ -115,15 +114,15 @@ def env_signature() -> Dict[str, Optional[str]]:
 
 
 def compute_oof_holdout_predictions(
-    component_models: List[Any],
-    component_names: List[str],
-    component_specs: List[Optional[Dict[str, Any]]],
+    component_models: list[Any],
+    component_names: list[str],
+    component_specs: list[dict[str, Any] | None],
     train_X: Any,
     y_train_full: np.ndarray,
-    base_train_full_per_spec: Dict[str, np.ndarray],
+    base_train_full_per_spec: dict[str, np.ndarray],
     holdout_frac: float,
     random_state: int,
-) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute honest holdout predictions for each component.
 
     Approach: take a single random ``holdout_frac`` slice of train,
@@ -145,7 +144,6 @@ def compute_oof_holdout_predictions(
       re-fit succeeded (any failures are dropped from the matrix
       so callers can re-align weight vectors).
     """
-    from sklearn.base import clone
     from sklearn.model_selection import train_test_split
 
     n_train = len(y_train_full)
@@ -176,8 +174,8 @@ def compute_oof_holdout_predictions(
     y_stack = y_train_full[train_idx].astype(np.float64)
     y_holdout = y_train_full[holdout_idx].astype(np.float64)
 
-    holdout_cols: List[np.ndarray] = []
-    surviving_names: List[str] = []
+    holdout_cols: list[np.ndarray] = []
+    surviving_names: list[str] = []
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
             if isinstance(model, CompositeTargetEstimator):
@@ -268,11 +266,11 @@ class CompositeCrossTargetEnsemble:
 
     def __init__(
         self,
-        component_models: List[Any],
-        component_names: List[str],
+        component_models: list[Any],
+        component_names: list[str],
         weights: np.ndarray,
         strategy: str,
-        notes: Optional[Dict[str, Any]] = None,
+        notes: dict[str, Any] | None = None,
     ) -> None:
         if len(component_models) == 0:
             raise ValueError("CompositeCrossTargetEnsemble: empty component list.")
@@ -302,9 +300,9 @@ class CompositeCrossTargetEnsemble:
     @classmethod
     def from_uniform_weights(
         cls,
-        component_models: List[Any],
-        component_names: List[str],
-    ) -> "CompositeCrossTargetEnsemble":
+        component_models: list[Any],
+        component_names: list[str],
+    ) -> CompositeCrossTargetEnsemble:
         """Equal-weight average: ``w_k = 1/K`` for all components."""
         n = len(component_models)
         return cls(
@@ -317,12 +315,12 @@ class CompositeCrossTargetEnsemble:
     @classmethod
     def from_linear_stack(
         cls,
-        component_models: List[Any],
-        component_names: List[str],
+        component_models: list[Any],
+        component_names: list[str],
         component_predictions: np.ndarray,  # (n_train, K) y-scale predictions
         y_train: np.ndarray,
         ridge_alpha: float = 1.0,
-    ) -> "CompositeCrossTargetEnsemble":
+    ) -> CompositeCrossTargetEnsemble:
         """Linear stacking via Ridge regression.
 
         Fits a Ridge model ``y_train ~ X @ w + b`` where ``X`` is the
@@ -399,11 +397,11 @@ class CompositeCrossTargetEnsemble:
     @classmethod
     def from_nnls_stack(
         cls,
-        component_models: List[Any],
-        component_names: List[str],
+        component_models: list[Any],
+        component_names: list[str],
         component_predictions: np.ndarray,
         y_train: np.ndarray,
-    ) -> "CompositeCrossTargetEnsemble":
+    ) -> CompositeCrossTargetEnsemble:
         """Non-negative least squares stacking.
 
         Fits ``y = X @ w`` subject to ``w >= 0`` via
@@ -459,11 +457,11 @@ class CompositeCrossTargetEnsemble:
     @classmethod
     def from_train_metrics(
         cls,
-        component_models: List[Any],
-        component_names: List[str],
+        component_models: list[Any],
+        component_names: list[str],
         component_train_rmse: Sequence[float],
-        baseline_train_rmse: Optional[float] = None,
-    ) -> Union["CompositeCrossTargetEnsemble", Any]:
+        baseline_train_rmse: float | None = None,
+    ) -> Union[CompositeCrossTargetEnsemble, Any]:
         """Build an ensemble weighted by *gain over a naive baseline*.
 
         The gain-over-naive convention defends against the trivial
@@ -602,7 +600,7 @@ class CompositeCrossTargetEnsemble:
             weights = weights / weights.sum()
         return (preds_matrix * weights[None, :]).sum(axis=1)
 
-    def export_metadata(self) -> Dict[str, Any]:
+    def export_metadata(self) -> dict[str, Any]:
         """Plain-dict snapshot for ``metadata`` storage."""
         return {
             "strategy": self.strategy,
@@ -613,7 +611,7 @@ class CompositeCrossTargetEnsemble:
 
     def cap_inference_components(
         self, max_components: int,
-    ) -> "CompositeCrossTargetEnsemble":
+    ) -> CompositeCrossTargetEnsemble:
         """Return a NEW ensemble holding only the top-N components by
         absolute weight.
 

@@ -120,7 +120,7 @@ class CompositeTargetDiscovery:
             from .configs import CompositeTargetDiscoveryConfig
             config = CompositeTargetDiscoveryConfig(**config)
         self.config = config
-        self._patterns_compiled: List[re.Pattern] = [
+        self._patterns_compiled: list[re.Pattern] = [
             re.compile(p) for p in config.forbidden_base_patterns
         ]
 
@@ -134,9 +134,9 @@ class CompositeTargetDiscovery:
         target_col: str,
         feature_cols: Sequence[str],
         train_idx: np.ndarray,
-        val_idx: Optional[np.ndarray] = None,
-        test_idx: Optional[np.ndarray] = None,
-    ) -> "CompositeTargetDiscovery":
+        val_idx: np.ndarray | None = None,
+        test_idx: np.ndarray | None = None,
+    ) -> CompositeTargetDiscovery:
         """Discover composite-target specs.
 
         Parameters
@@ -157,8 +157,8 @@ class CompositeTargetDiscovery:
             touched during fit.
         """
         if not self.config.enabled:
-            self.specs_: List[CompositeSpec] = []
-            self.report_: List[Dict[str, Any]] = []
+            self.specs_: list[CompositeSpec] = []
+            self.report_: list[dict[str, Any]] = []
             self.train_idx_ = np.asarray(train_idx)
             self._df_ref = df
             self._target_col = target_col
@@ -267,10 +267,10 @@ class CompositeTargetDiscovery:
         # set: X without the base column.
 
         # OPEN-1 integration (2026-05-12): stash the per-candidate base arrays so the multi-base forward-stepwise extension (run after kept_specs is finalised) can pick from the SAME pool of MI-ranked bases that the single-base discovery considered. Keyed by column name; values are train-row-restricted ndarrays.
-        self._auto_base_pool: Dict[str, np.ndarray] = {}
+        self._auto_base_pool: dict[str, np.ndarray] = {}
 
         # Score each (base, transform).
-        candidates: List[Dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
         for base in base_candidates:
             base_train = _extract_column_array(df, base)[train_idx]
             self._auto_base_pool[base] = base_train
@@ -300,7 +300,7 @@ class CompositeTargetDiscovery:
                 _mi_to_target_prebinned
                 if _x_prebinned is not None else _mi_to_target
             )
-            _mi_kwargs: Dict[str, Any] = dict(
+            _mi_kwargs: dict[str, Any] = dict(
                 nbins=int(self.config.mi_nbins),
                 aggregation=getattr(self.config, "mi_aggregation", "mean"),
             )
@@ -464,9 +464,9 @@ class CompositeTargetDiscovery:
                 })
 
         # Filter + sort.
-        kept_specs: List[CompositeSpec] = []
+        kept_specs: list[CompositeSpec] = []
         for entry in candidates:
-            spec: Optional[CompositeSpec] = entry.get("spec")
+            spec: CompositeSpec | None = entry.get("spec")
             if spec is None:
                 continue  # already a reject
             # R10b stat #8: gate compares LCB (lower CI bound), not
@@ -492,7 +492,7 @@ class CompositeTargetDiscovery:
         if (getattr(self.config, "detect_linear_residual_alpha_drift", True)
                 and any(s.transform_name == "linear_residual"
                         for s in kept_specs)):
-            self._alpha_drift_flags: Dict[str, Dict[str, float]] = {}
+            self._alpha_drift_flags: dict[str, dict[str, float]] = {}
             drift_threshold = float(getattr(
                 self.config, "alpha_drift_z_threshold", 3.0,
             ))
@@ -501,8 +501,8 @@ class CompositeTargetDiscovery:
             ))
             half = len(train_idx) // 2
             if half >= 50:
-                drift_dropped: List[Tuple[str, float]] = []
-                drift_kept: List[CompositeSpec] = []
+                drift_dropped: list[tuple[str, float]] = []
+                drift_kept: list[CompositeSpec] = []
                 for s in kept_specs:
                     if s.transform_name != "linear_residual":
                         drift_kept.append(s)
@@ -587,8 +587,8 @@ class CompositeTargetDiscovery:
                 s.base_column for s in kept_specs
                 if s.transform_name == "diff"
             }
-            collapsed: List[CompositeSpec] = []
-            collapsed_dropped: List[Tuple[str, float]] = []
+            collapsed: list[CompositeSpec] = []
+            collapsed_dropped: list[tuple[str, float]] = []
             std_y = float(np.std(y_train[np.isfinite(y_train)])) or 1.0
             for s in kept_specs:
                 if s.transform_name != "linear_residual" \
@@ -661,7 +661,7 @@ class CompositeTargetDiscovery:
                 and getattr(self, "_auto_base_pool", None)):
             _multi_max_k = int(getattr(self.config, "multi_base_max_k", 3))
             _multi_min_gain = float(getattr(self.config, "multi_base_min_marginal_rmse_gain", 0.02))
-            _upgraded_specs: List[CompositeSpec] = []
+            _upgraded_specs: list[CompositeSpec] = []
             for _spec in kept_specs:
                 if _spec.transform_name != "linear_residual":
                     _upgraded_specs.append(_spec)
@@ -763,7 +763,7 @@ class CompositeTargetDiscovery:
         self.elapsed_seconds_ = elapsed
         return self
 
-    def iter_transform(self, df: Any) -> Iterator[Tuple[str, np.ndarray]]:
+    def iter_transform(self, df: Any) -> Iterator[tuple[str, np.ndarray]]:
         """Yield ``(spec_name, T_values)`` per discovered spec, applied
         to ALL rows of ``df``. Streaming generator: we never
         materialise more than one T column at a time -- on a 4M-row
@@ -789,7 +789,7 @@ class CompositeTargetDiscovery:
                 )
             yield spec.name, t
 
-    def export_specs(self) -> List[Dict[str, Any]]:
+    def export_specs(self) -> list[dict[str, Any]]:
         """Plain-dict snapshot of discovered specs for ``metadata`` storage."""
         return [
             {
@@ -807,12 +807,12 @@ class CompositeTargetDiscovery:
             for s in getattr(self, "specs_", [])
         ]
 
-    def report(self) -> List[Dict[str, Any]]:
+    def report(self) -> list[dict[str, Any]]:
         """All evaluated candidates including rejected ones with reasons."""
         return list(getattr(self, "report_", []))
 
     @property
-    def tiny_rerank_scores_(self) -> Dict[str, float]:
+    def tiny_rerank_scores_(self) -> dict[str, float]:
         """Per-spec tiny CV-RMSE on y-scale (after Phase B rerank).
 
         Empty when ``screening="mi"`` or rerank didn't run. Keyed by
@@ -832,7 +832,7 @@ class CompositeTargetDiscovery:
         """
         return float(getattr(self, "_raw_y_baseline_rmse", float("nan")))
 
-    def filter_drops(self) -> List[Dict[str, Any]]:
+    def filter_drops(self) -> list[dict[str, Any]]:
         """Columns that were filtered out before MI ranking, with reason
         and the offending value (corr, ptp, n_finite). Useful for audit
         when discovery seems to "miss" an obvious base candidate -- the
@@ -851,7 +851,7 @@ class CompositeTargetDiscovery:
         feature_cols: Sequence[str],
         y_train: np.ndarray,
         train_idx: np.ndarray,
-    ) -> List[str]:
+    ) -> list[str]:
         """Drop columns that are non-numeric, near-constant on train,
         match a forbidden name pattern, or correlate suspiciously
         highly with y on train (likely derived-from-y leakage).
@@ -868,10 +868,10 @@ class CompositeTargetDiscovery:
         # all survivors in ONE matrix op (2.2x faster vs per-column
         # ``_safe_corr`` loop on 200 cols x 80K rows; benchmarked
         # 2026-05-10).
-        drops: List[Dict[str, Any]] = []
-        corr_drops: List[Tuple[str, float]] = []
-        candidates: List[str] = []
-        candidate_arrays: List[np.ndarray] = []
+        drops: list[dict[str, Any]] = []
+        corr_drops: list[tuple[str, float]] = []
+        candidates: list[str] = []
+        candidate_arrays: list[np.ndarray] = []
         for col in feature_cols:
             if col == self._target_col:
                 continue
@@ -908,7 +908,7 @@ class CompositeTargetDiscovery:
         # ``finite_mask.sum() < 50`` gate above with at least 50
         # finite rows. Acceptable trade-off for the ~600ms saving on
         # 200-feature filter calls.
-        kept: List[str] = []
+        kept: list[str] = []
         if candidates:
             X_train = np.column_stack(candidate_arrays)
             # Impute non-finite cells with per-column mean to keep
@@ -963,7 +963,7 @@ class CompositeTargetDiscovery:
         usable_features: Sequence[str],
         y_train: np.ndarray,
         train_idx: np.ndarray,
-    ) -> List[str]:
+    ) -> list[str]:
         """Return the base candidates to evaluate.
 
         For ``base_candidates="auto"``, rank features by *structural*
@@ -994,7 +994,7 @@ class CompositeTargetDiscovery:
         usable_features: Sequence[str],
         y_train: np.ndarray,
         train_idx: np.ndarray,
-    ) -> List[str]:
+    ) -> list[str]:
         """Rank candidates by per-feature MI with y on the screening
         sample, take the top-K.
 
@@ -1036,8 +1036,8 @@ class CompositeTargetDiscovery:
         # then fill remaining slots with MI-ranked features.
         usable_set = set(usable_features)
         hint_raw = list(getattr(self.config, "dominant_features_hint", None) or [])
-        hint_kept: List[str] = []
-        hint_dropped: List[str] = []
+        hint_kept: list[str] = []
+        hint_dropped: list[str] = []
         for c in hint_raw:
             if c in usable_set and c not in hint_kept:
                 hint_kept.append(c)
@@ -1190,7 +1190,7 @@ class CompositeTargetDiscovery:
                     c = abs(_safe_corr(X_screen[:, j], X_screen[:, k]))
                     corr_matrix[j, k] = c
                     corr_matrix[k, j] = c
-            spatial_demoted: List[str] = []
+            spatial_demoted: list[str] = []
             # For each feature j, find its "tight neighbourhood":
             # features k where |corr(j, k)| > 0.75. If that
             # neighbourhood (including j) is size 3-6 AND has mean
@@ -1300,7 +1300,7 @@ class CompositeTargetDiscovery:
                 null_stds, 1e-9,
             )
             passes_null = mi_per_feature > null_threshold
-            null_dropped: List[Tuple[str, float, float]] = []
+            null_dropped: list[tuple[str, float, float]] = []
             for j, (mi_val, col_name) in enumerate(
                 zip(mi_per_feature.tolist(), usable_features)
             ):
@@ -1353,9 +1353,9 @@ class CompositeTargetDiscovery:
             self.config, "auto_base_dedup_corr_threshold", 0.95,
         ))
         if 0 < dedup_threshold < 1.0 and len(ranked) > 1:
-            kept_ranked: List[Tuple[float, str]] = []
-            kept_arrays: Dict[str, np.ndarray] = {}
-            dedup_dropped: List[Tuple[str, str, float]] = []
+            kept_ranked: list[tuple[float, str]] = []
+            kept_arrays: dict[str, np.ndarray] = {}
+            dedup_dropped: list[tuple[str, str, float]] = []
             # R10c bug #2 fix: hint features are IMMUNE from dedup.
             # Otherwise on geological data with high feature
             # cross-correlation (e.g. Z ~ TVT_prev at |corr|=0.974),
@@ -1369,7 +1369,7 @@ class CompositeTargetDiscovery:
             hint_set = set(hint_kept)
             for mi_score, col in ranked:
                 col_arr = x_matrix[finite, usable_features.index(col)]
-                drop_due_to: Optional[Tuple[str, float]] = None
+                drop_due_to: tuple[str, float] | None = None
                 if col in hint_set:
                     # Hint features always pass dedup.
                     pass
@@ -1400,7 +1400,7 @@ class CompositeTargetDiscovery:
         # Combine hint (priority) + MI-ranked tail. Hint always wins
         # the leading slots; MI fills up to auto_base_top_k.
         if hint_kept:
-            mi_tail: List[str] = []
+            mi_tail: list[str] = []
             for _, c in ranked:
                 if c in hint_kept:
                     continue
@@ -1433,13 +1433,13 @@ class CompositeTargetDiscovery:
 
     def _tiny_model_rerank(
         self,
-        kept_specs: List["CompositeSpec"],
+        kept_specs: list[CompositeSpec],
         df: Any,
         target_col: str,
         usable_features: Sequence[str],
         train_idx: np.ndarray,
         y_full: np.ndarray,
-    ) -> List["CompositeSpec"]:
+    ) -> list[CompositeSpec]:
         """Phase B: re-rank MI-survivors by CV-RMSE on y-scale.
 
         For each surviving spec:
@@ -1481,8 +1481,8 @@ class CompositeTargetDiscovery:
         # are recomputable from the same inputs. Cache them by base
         # to avoid K redundant builds (each ~50 ndarray copies on a
         # 200K-row sample).
-        per_family_scores: Dict[str, List[float]] = {f: [] for f in families}
-        _per_base_cache: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+        per_family_scores: dict[str, list[float]] = {f: [] for f in families}
+        _per_base_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for spec in kept_specs:
             cached = _per_base_cache.get(spec.base_column)
             if cached is None:
@@ -1559,7 +1559,7 @@ class CompositeTargetDiscovery:
 
         # Aggregate -> single score per spec.
         consensus = self.config.tiny_consensus
-        agg_scores: List[float] = []
+        agg_scores: list[float] = []
         for i, spec in enumerate(kept_specs):
             family_rmses = [per_family_scores[f][i] for f in families]
             finite = [r for r in family_rmses if math.isfinite(r)]
@@ -1585,7 +1585,7 @@ class CompositeTargetDiscovery:
         # via :attr:`CompositeTargetDiscovery.tiny_rerank_scores_`.
         # CompositeSpec is frozen; we keep the per-spec scoring on the
         # discovery instance instead of mutating the spec.
-        self._tiny_rerank_scores: Dict[str, float] = {
+        self._tiny_rerank_scores: dict[str, float] = {
             kept_specs[i].name: float(agg_scores[i])
             for i in range(len(kept_specs))
         }
@@ -1606,7 +1606,7 @@ class CompositeTargetDiscovery:
             and getattr(self.config, "require_beats_raw_baseline", True)
         )
         # Per-spec per-bin RMSE: spec_name -> ndarray(n_bins,)
-        spec_per_bin_rmse: Dict[str, np.ndarray] = {}
+        spec_per_bin_rmse: dict[str, np.ndarray] = {}
         if per_bin_enabled:
             # Recompute per-spec scores with return_per_bin=True. This
             # is a SECOND pass; cost is the per-bin breakdown only
@@ -1648,11 +1648,11 @@ class CompositeTargetDiscovery:
         # any composite whose tiny RMSE >= raw_baseline * tolerance.
         # Configured via ``require_beats_raw_baseline`` /
         # ``raw_baseline_tolerance``.
-        raw_rmse_per_family: Dict[str, float] = {}
-        raw_per_bin_per_base: Dict[str, np.ndarray] = {}
+        raw_rmse_per_family: dict[str, float] = {}
+        raw_per_bin_per_base: dict[str, np.ndarray] = {}
         raw_baseline: float = float("nan")
-        gate_rejected_names: List[Tuple[str, float, float]] = []
-        per_bin_rejected_names: List[Tuple[str, str, float, float]] = []
+        gate_rejected_names: list[tuple[str, float, float]] = []
+        per_bin_rejected_names: list[tuple[str, str, float, float]] = []
         if getattr(self.config, "require_beats_raw_baseline", True):
             # Build a feature matrix using ALL usable_features on the
             # screening sample (raw-y training has no special "base"
@@ -1666,7 +1666,7 @@ class CompositeTargetDiscovery:
             use_wilcoxon = bool(getattr(
                 self.config, "use_wilcoxon_gate", False,
             ))
-            raw_per_seed_per_family: Dict[str, np.ndarray] = {}
+            raw_per_seed_per_family: dict[str, np.ndarray] = {}
             for family in families:
                 if use_wilcoxon:
                     res = _tiny_cv_rmse_raw_y_multiseed(
@@ -1754,7 +1754,7 @@ class CompositeTargetDiscovery:
                 gate_alpha = float(getattr(
                     self.config, "gate_alpha", 0.05,
                 ))
-                wilcoxon_rejected: List[Tuple[str, float]] = []
+                wilcoxon_rejected: list[tuple[str, float]] = []
                 for i, spec in enumerate(kept_specs):
                     score = agg_scores[i]
                     if math.isfinite(score) and score >= threshold:
@@ -1923,7 +1923,7 @@ class CompositeTargetDiscovery:
     def _reject(
         self, base: str, transform_name: str, mi_y: float, valid_frac: float,
         reason: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {
             "spec": None,
             "kept": False,
@@ -1935,7 +1935,7 @@ class CompositeTargetDiscovery:
             "reason": reason,
         }
 
-    def _entry_to_report(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _entry_to_report(self, entry: dict[str, Any]) -> dict[str, Any]:
         spec = entry.get("spec")
         if spec is None:
             return {
@@ -1972,46 +1972,27 @@ class CompositeTargetDiscovery:
 # clearer dependency boundaries.
 # ----------------------------------------------------------------------
 from .composite_auto_detect import (  # noqa: E402,F401
-    detect_time_column_candidates,
-    sort_df_by_time_column,
-    detect_group_column_candidates,
     _GROUP_DETECT_DEFAULT_MIN_UNIQUE,
     _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
     _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO,
 )
 from .composite_cache import (  # noqa: E402,F401
-    DiscoveryCache,
-    data_signature,
-    make_discovery_cache_key,
     _DISCOVERY_SIGNATURE_SAMPLE_N,
 )
-from .composite_stacking import (  # noqa: E402,F401
-    residual_correlation_matrix,
-    max_off_diagonal_correlation,
-    stacking_aware_gate,
-)
 from .composite_interaction_bases import (  # noqa: E402,F401
-    generate_interaction_bases,
     _INTERACTION_OPS_DEFAULT,
 )
 
 # Phase 2 re-exports.
 from .composite_forward_stepwise import (  # noqa: E402,F401
-    forward_stepwise_multi_base,
     _MULTI_BASE_DEFAULT_MAX_K,
     _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
 )
 from .composite_streaming import (  # noqa: E402,F401
-    streaming_alpha_check_and_refit,
     _STREAMING_DEFAULT_Z_THRESHOLD,
     _STREAMING_DEFAULT_MIN_BUFFER_N,
 )
-from .composite_feature_stacking import (  # noqa: E402,F401
-    composite_predictions_as_feature,
-    composite_oof_predictions,
-)
 from .composite_bayesian import (  # noqa: E402,F401
-    bayesian_alpha_fit,
     _BAYESIAN_ALPHA_DEFAULT_N_BOOTSTRAP,
     _BAYESIAN_ALPHA_DEFAULT_CI_LEVEL,
 )

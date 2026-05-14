@@ -14,12 +14,23 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
+def _per_target_seed(base_seed: int, target_name: str) -> int:
+    """Deterministic per-target seed for stochastic baselines (D13).
+
+    ``base_seed + (hash(target_name) & 0xFFFF)`` keeps reproducibility
+    across runs (same target → same seed) while ensuring independence
+    across targets in the same suite (different target → different
+    seed). 0xFFFF mask keeps the offset bounded.
+    """
+    return (base_seed + (hash(target_name) & 0xFFFF)) & 0x7FFFFFFF
+
 def _pick_per_group_categorical(
     train_X: Any,
-    cat_features: Optional[Sequence[str]],
+    cat_features: Sequence[str] | None,
     n_train: int,
     max_cardinality_ratio: float,
-) -> Optional[str]:
+) -> str | None:
     """Pick the highest-cardinality categorical that PASSES the cap.
 
     Returns column name or None if no cat passes the gate.
@@ -58,7 +69,7 @@ def _per_group_predict(
     train_y: np.ndarray,
     cat_col: str,
     target_type: str,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict[str, float]]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, float]]:
     """Compute per-group baseline predictions on val + test (D1).
 
     Handles polars Categorical / Enum / pandas categorical / object
@@ -163,22 +174,22 @@ def _compute_regression_baselines(
     val_X: Any,
     test_X: Any,
     train_y: np.ndarray,
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
-    timestamps_train: Optional[np.ndarray],
-    timestamps_val: Optional[np.ndarray],
-    timestamps_test: Optional[np.ndarray],
-    cat_features: Optional[Sequence[str]],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
+    timestamps_train: np.ndarray | None,
+    timestamps_val: np.ndarray | None,
+    timestamps_test: np.ndarray | None,
+    cat_features: Sequence[str] | None,
     config: Any,
     target_type: str = "regression",
-) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Any]]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """Build {baseline_name: val_pred} + {baseline_name: test_pred} dicts.
 
     Returns ``(val_preds, test_preds, extras)``.
     """
-    val_preds: Dict[str, np.ndarray] = {}
-    test_preds: Dict[str, np.ndarray] = {}
-    extras: Dict[str, Any] = {}
+    val_preds: dict[str, np.ndarray] = {}
+    test_preds: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
 
     # --- Constant baselines (mean / median / quantile) ---
     n_val = 0 if val_y is None else len(val_y)
@@ -344,22 +355,22 @@ def _compute_classification_baselines(
     val_X: Any,
     test_X: Any,
     train_y: np.ndarray,
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
-    timestamps_train: Optional[np.ndarray],
-    cat_features: Optional[Sequence[str]],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
+    timestamps_train: np.ndarray | None,
+    cat_features: Sequence[str] | None,
     config: Any,
     target_type: str,
     n_classes: int,
-) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Any]]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """Build {baseline: probs} dicts for binary / multiclass.
 
     Returns ``(val_probs, test_probs, extras)`` where probs are
     ``(N, K)`` matrices.
     """
-    val_probs: Dict[str, np.ndarray] = {}
-    test_probs: Dict[str, np.ndarray] = {}
-    extras: Dict[str, Any] = {}
+    val_probs: dict[str, np.ndarray] = {}
+    test_probs: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
 
     n_val = 0 if val_y is None else len(val_y)
     n_test = 0 if test_y is None else len(test_y)
@@ -403,8 +414,8 @@ def _compute_classification_baselines(
     # stratified: n_repeats over different seeds (D-inline / round-3 C#2)
     # Predicted class sampled from prior; probs = one-hot of sampled class.
     n_repeats = config.stratified_n_repeats
-    val_strat_runs: List[np.ndarray] = []
-    test_strat_runs: List[np.ndarray] = []
+    val_strat_runs: list[np.ndarray] = []
+    test_strat_runs: list[np.ndarray] = []
     for r in range(n_repeats):
         rng = np.random.default_rng(seed + r)
         if n_val > 0:
@@ -482,9 +493,9 @@ def compute_dummy_baselines(
     doc_ids_train: Any = None,
     doc_ids_val: Any = None,
     doc_ids_test: Any = None,
-    cat_features: Optional[Sequence[str]] = None,
+    cat_features: Sequence[str] | None = None,
     target_label_encoder: Any = None,
-    quantile_alphas: Optional[Sequence[float]] = None,
+    quantile_alphas: Sequence[float] | None = None,
     config: Any = None,
     plot_file_prefix: str = "",
 ) -> BaselineReport:
@@ -557,9 +568,9 @@ def compute_dummy_baselines(
     ts_test = _normalize_timestamps(timestamps_test)
 
     # Dispatch by target_type
-    val_preds: Dict[str, np.ndarray] = {}
-    test_preds: Dict[str, np.ndarray] = {}
-    extras: Dict[str, Any] = {}
+    val_preds: dict[str, np.ndarray] = {}
+    test_preds: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
 
     if target_type == "quantile_regression" and quantile_alphas is not None:
         # Per-alpha empirical-quantile baselines + pinball-loss metric.
@@ -742,11 +753,11 @@ def compute_dummy_baselines(
 def _compute_quantile_baselines(
     target_name: str,
     train_y: np.ndarray,
-    val_y: Optional[np.ndarray],
-    test_y: Optional[np.ndarray],
+    val_y: np.ndarray | None,
+    test_y: np.ndarray | None,
     alphas: Sequence[float],
     config: Any,
-) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, Any]]:
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
     """Per-α empirical-quantile baselines for QUANTILE_REGRESSION.
 
     Emits, per requested α:
@@ -761,9 +772,9 @@ def _compute_quantile_baselines(
     plus a ``mean_pinball`` aggregate over non-boundary α (α in
     ``[0.05, 0.95]``; round-3 C#7).
     """
-    val_preds: Dict[str, np.ndarray] = {}
-    test_preds: Dict[str, np.ndarray] = {}
-    extras: Dict[str, Any] = {}
+    val_preds: dict[str, np.ndarray] = {}
+    test_preds: dict[str, np.ndarray] = {}
+    extras: dict[str, Any] = {}
     n_val = 0 if val_y is None else len(val_y)
     n_test = 0 if test_y is None else len(test_y)
     K = len(alphas)
@@ -771,14 +782,14 @@ def _compute_quantile_baselines(
         return val_preds, test_preds, extras
 
     train_median = float(np.median(train_y))
-    boundary_log: List[Tuple[float, float]] = []  # (orig, clamped)
-    n_eff_val: Dict[float, int] = {}
-    n_eff_test: Dict[float, int] = {}
+    boundary_log: list[tuple[float, float]] = []  # (orig, clamped)
+    n_eff_val: dict[float, int] = {}
+    n_eff_test: dict[float, int] = {}
 
     # Per-α: emit one baseline whose prediction is a constant column for
     # that α only, broadcast across the K-output shape so the metrics
     # table can compute pinball@α uniformly.
-    consts_per_alpha: List[float] = []
+    consts_per_alpha: list[float] = []
     for a in alphas:
         clamped_a = float(min(max(a, 1e-3), 1 - 1e-3))
         if clamped_a != a:

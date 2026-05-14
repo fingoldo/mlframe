@@ -49,11 +49,11 @@ def _is_windows() -> bool:
 
 def resolve_mlp_dataloader_defaults(
     *,
-    user_overrides: Optional[Dict[str, Any]] = None,
-    cpu_count: Optional[int] = None,
-    cuda_available: Optional[bool] = None,
-    force_windows: Optional[bool] = None,
-) -> Dict[str, Any]:
+    user_overrides: dict[str, Any] | None = None,
+    cpu_count: int | None = None,
+    cuda_available: bool | None = None,
+    force_windows: bool | None = None,
+) -> dict[str, Any]:
     """Return safe DataLoader kwargs given the host + user overrides.
 
     Parameters
@@ -153,9 +153,9 @@ _BF16_MIN_CC_MAJOR: int = 8
 
 def resolve_mlp_precision_default(
     *,
-    user_override: Optional[str] = None,
-    cuda_available: Optional[bool] = None,
-    cuda_compute_capability_major: Optional[int] = None,
+    user_override: str | None = None,
+    cuda_available: bool | None = None,
+    cuda_compute_capability_major: int | None = None,
 ) -> str:
     """Return a Lightning ``precision=`` string.
 
@@ -248,7 +248,7 @@ _TRAIN_MEM_FRACTION: float = 0.10
 _TRAIN_DTYPE_BYTES: int = 4
 
 
-def _probe_available_memory_bytes(*, cuda_available: Optional[bool] = None) -> Optional[int]:
+def _probe_available_memory_bytes(*, cuda_available: bool | None = None) -> int | None:
     """Return available memory (GPU free if CUDA, else CPU available).
 
     Returns ``None`` when the probe fails -- caller falls back to a constant.
@@ -279,11 +279,11 @@ def _probe_available_memory_bytes(*, cuda_available: Optional[bool] = None) -> O
 
 def resolve_mlp_predict_batch_size(
     *,
-    user_override: Optional[int] = None,
-    train_batch_size: Optional[int] = None,
-    n_features: Optional[int] = None,
-    available_memory_bytes: Optional[int] = None,
-    cuda_available: Optional[bool] = None,
+    user_override: int | None = None,
+    train_batch_size: int | None = None,
+    n_features: int | None = None,
+    available_memory_bytes: int | None = None,
+    cuda_available: bool | None = None,
     dtype_bytes: int = _PREDICT_DTYPE_BYTES,
     activation_multiplier: int = _PREDICT_ACTIVATION_MULTIPLIER,
     mem_fraction: float = _PREDICT_MEM_FRACTION,
@@ -360,10 +360,10 @@ def resolve_mlp_predict_batch_size(
 
 def resolve_mlp_train_batch_size(
     *,
-    user_override: Optional[int] = None,
-    n_features: Optional[int] = None,
-    available_memory_bytes: Optional[int] = None,
-    cuda_available: Optional[bool] = None,
+    user_override: int | None = None,
+    n_features: int | None = None,
+    available_memory_bytes: int | None = None,
+    cuda_available: bool | None = None,
     dtype_bytes: int = _TRAIN_DTYPE_BYTES,
     activation_multiplier: int = _TRAIN_ACTIVATION_MULTIPLIER,
     mem_fraction: float = _TRAIN_MEM_FRACTION,

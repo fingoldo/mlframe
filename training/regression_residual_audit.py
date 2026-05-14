@@ -102,10 +102,10 @@ class ResidualAudit:
     y_pred_all_nonneg: bool             # True if min(y_pred) >= 0
     hypothesis: str                     # short distribution name (e.g. "Gaussian", "LogNormal")
     suggested_loss: str                 # e.g. "MSE", "MAE", "Huber"
-    rationale: List[str] = field(default_factory=list)
-    warnings_: List[str] = field(default_factory=list)
+    rationale: list[str] = field(default_factory=list)
+    warnings_: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "n": self.n,
             "n_total": self.n_total,
@@ -163,9 +163,9 @@ def _diagnose(
     pct_outliers_3sigma: float,
     y_true_all_nonneg: bool,
     y_pred_all_nonneg: bool,
-) -> Tuple[str, str, List[str]]:
+) -> tuple[str, str, list[str]]:
     """Map diagnostics -> (hypothesis, suggested_loss, rationale lines)."""
-    rationale: List[str] = []
+    rationale: list[str] = []
     abs_skew = abs(skew)
     abs_hetero = abs(hetero_spearman)
 
@@ -271,7 +271,7 @@ def audit_residuals(
     y_true: Any,
     y_pred: Any,
     *,
-    sample_size: Optional[int] = DEFAULT_DIAG_SAMPLE_SIZE,
+    sample_size: int | None = DEFAULT_DIAG_SAMPLE_SIZE,
     seed: int = 0,
 ) -> ResidualAudit:
     """Compute residual-distribution diagnostics + noise hypothesis.
@@ -309,7 +309,7 @@ def audit_residuals(
     # Filter NaN / inf - common with degenerate model outputs.
     finite_mask = np.isfinite(y_true) & np.isfinite(y_pred)
     n_finite = int(finite_mask.sum())
-    warnings: List[str] = []
+    warnings: list[str] = []
     if n_finite < n_total:
         n_dropped = n_total - n_finite
         warnings.append(
@@ -431,18 +431,18 @@ def format_residual_audit_report(audit: ResidualAudit, *, ndigits: int = 4) -> s
 def plot_residual_diagnostics(
     y_true: Any,
     y_pred: Any,
-    audit: Optional[ResidualAudit] = None,
+    audit: ResidualAudit | None = None,
     *,
     ax_hist: Any = None,
     ax_resid_vs_pred: Any = None,
     plot_sample_size: int = 5_000,
     seed: int = 0,
-    plot_outputs: Optional[str] = None,
-    base_path: Optional[str] = None,
+    plot_outputs: str | None = None,
+    base_path: str | None = None,
     header_str: str = "",
     metrics_str: str = "",
-    dpi: Optional[int] = None,
-) -> Optional[ResidualAudit]:
+    dpi: int | None = None,
+) -> ResidualAudit | None:
     """Render the residual histogram + residuals-vs-predicted plot
     on the supplied matplotlib axes.
 

@@ -27,8 +27,8 @@ import pandas as pd
 def detect_time_column_candidates(
     df: Any,
     *,
-    candidate_columns: Optional[Sequence[str]] = None,
-) -> List[Tuple[str, Dict[str, Any]]]:
+    candidate_columns: Sequence[str] | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
     """Scan ``df`` for columns that look like chronological time keys (suitable for EWMA / rolling / frac_diff transforms that require ordered input).
 
     Returns list of ``(column_name, info_dict)`` sorted by score descending. ``info_dict`` carries:
@@ -58,7 +58,7 @@ def detect_time_column_candidates(
     else:
         raise TypeError(f"detect_time_column_candidates: unsupported df type {type(df).__name__}")
 
-    results: List[Tuple[str, Dict[str, Any]]] = []
+    results: list[tuple[str, dict[str, Any]]] = []
     for col in candidate_columns:
         try:
             dtype_str = get_dtype(col).lower()
@@ -68,7 +68,7 @@ def detect_time_column_candidates(
         is_datetime = ("datetime" in dtype_str
                        or "timestamp" in dtype_str
                        or dtype_str.startswith("date"))
-        info: Dict[str, Any] = {
+        info: dict[str, Any] = {
             "dtype": dtype_str,
             "is_datetime": is_datetime,
             "is_monotonic": False,
@@ -139,11 +139,11 @@ _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO: float = 0.01
 def detect_group_column_candidates(
     df: Any,
     *,
-    candidate_columns: Optional[Sequence[str]] = None,
+    candidate_columns: Sequence[str] | None = None,
     min_unique: int = _GROUP_DETECT_DEFAULT_MIN_UNIQUE,
     max_unique: int = _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
     min_size_ratio: float = _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO,
-) -> List[Tuple[str, Dict[str, Any]]]:
+) -> list[tuple[str, dict[str, Any]]]:
     """Scan ``df`` for columns that look like group keys (suitable for ``linear_residual_grouped``).
 
     Returns
@@ -178,7 +178,7 @@ def detect_group_column_candidates(
 
     n_rows = len(df)
     min_size_floor = max(1, int(min_size_ratio * n_rows))
-    results: List[Tuple[str, Dict[str, Any]]] = []
+    results: list[tuple[str, dict[str, Any]]] = []
     for col in candidate_columns:
         try:
             arr = get_col(col)

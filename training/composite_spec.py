@@ -41,7 +41,7 @@ class CompositeSpec:
     target_col: str
     transform_name: str
     base_column: str
-    fitted_params: Dict[str, Any]
+    fitted_params: dict[str, Any]
     mi_gain: float
     mi_y: float
     mi_t: float
@@ -53,4 +53,4 @@ class CompositeSpec:
     # full base list is ``(base_column,) + tuple(extra_base_columns)``
     # and the wrapper materialises a (n, 1+len(extra)) matrix at
     # predict time. Stored as a tuple so the dataclass remains frozen.
-    extra_base_columns: Tuple[str, ...] = ()
+    extra_base_columns: tuple[str, ...] = ()

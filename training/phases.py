@@ -38,14 +38,14 @@ class _PhaseRegistry:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._totals: Dict[str, float] = {}
-        self._counts: Dict[str, int] = {}
+        self._totals: dict[str, float] = {}
+        self._counts: dict[str, int] = {}
         # 2026-05-10 (rec d): per-phase cumulative RAM delta (GB).
         # Phase-level RAM growth surfaces leaks that the per-call ``Done.
         # RAM usage: NGB`` line can't show -- e.g. "compute_split_metrics
         # +1.2GB across 32 calls" tells the operator which phase to
         # investigate when total RSS climbs unexpectedly.
-        self._ram_deltas_gb: Dict[str, float] = {}
+        self._ram_deltas_gb: dict[str, float] = {}
 
     def record(self, name: str, seconds: float, ram_delta_gb: float = 0.0) -> None:
         with self._lock:
@@ -54,14 +54,14 @@ class _PhaseRegistry:
             if ram_delta_gb:
                 self._ram_deltas_gb[name] = self._ram_deltas_gb.get(name, 0.0) + ram_delta_gb
 
-    def snapshot(self) -> List[Tuple[str, float, int]]:
+    def snapshot(self) -> list[tuple[str, float, int]]:
         with self._lock:
             return sorted(
                 ((n, self._totals[n], self._counts[n]) for n in self._totals),
                 key=lambda kv: -kv[1],
             )
 
-    def ram_delta_snapshot(self) -> Dict[str, float]:
+    def ram_delta_snapshot(self) -> dict[str, float]:
         """Per-phase cumulative RAM delta in GB. Sorted by absolute
         magnitude to surface biggest leaks/releases first."""
         with self._lock:
@@ -92,12 +92,12 @@ def record_phase(name: str, seconds: float, ram_delta_gb: float = 0.0) -> None:
     _registry.record(name, seconds, ram_delta_gb=ram_delta_gb)
 
 
-def phase_snapshot() -> List[Tuple[str, float, int]]:
+def phase_snapshot() -> list[tuple[str, float, int]]:
     """Return list of ``(name, total_seconds, call_count)`` sorted by total desc."""
     return _registry.snapshot()
 
 
-def phase_ram_snapshot() -> Dict[str, float]:
+def phase_ram_snapshot() -> dict[str, float]:
     """Return ``{phase_name: cumulative_ram_delta_gb}`` sorted by abs magnitude."""
     return _registry.ram_delta_snapshot()
 
@@ -141,7 +141,7 @@ def format_phase_summary(top: int = 30) -> str:
     return "\n".join(lines)
 
 
-def _format_ctx(context: Dict[str, Any], max_val_len: int = 120) -> str:
+def _format_ctx(context: dict[str, Any], max_val_len: int = 120) -> str:
     """Format phase-context kwargs for log output with value truncation.
 
     Truncation rationale (added 2026-04-19): callers may pass large

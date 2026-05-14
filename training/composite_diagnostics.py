@@ -58,7 +58,7 @@ def plot_target_distribution(
     *,
     title: str = "Target distribution: y vs T",
     bins: int = 60,
-    figsize: Tuple[float, float] = (8, 5),
+    figsize: tuple[float, float] = (8, 5),
 ):
     """Overlay histograms of ``y`` and ``T = transform(y, base)``.
 
@@ -108,7 +108,7 @@ def plot_qq(
     t: np.ndarray,
     *,
     title: str = "Q-Q plot of T vs standard normal",
-    figsize: Tuple[float, float] = (6, 6),
+    figsize: tuple[float, float] = (6, 6),
 ):
     """Q-Q plot of ``T`` quantiles against the standard normal.
 
@@ -142,10 +142,10 @@ def plot_linear_fit(
     y: np.ndarray,
     base: np.ndarray,
     *,
-    alpha: Optional[float] = None,
-    beta: Optional[float] = None,
+    alpha: float | None = None,
+    beta: float | None = None,
     title: str = "Linear residual fit",
-    figsize: Tuple[float, float] = (8, 5),
+    figsize: tuple[float, float] = (8, 5),
 ):
     """Scatter of ``y`` against ``base`` with the fitted
     ``alpha * base + beta`` line overlaid. R^2 annotated in the
@@ -206,11 +206,11 @@ def plot_linear_fit(
 
 
 def plot_mi_gain_with_ci(
-    specs: Sequence[Dict[str, Any]],
+    specs: Sequence[dict[str, Any]],
     *,
     n_bootstrap: int = 200,
     title: str = "MI gain per composite spec (bootstrap 95% CI)",
-    figsize: Tuple[float, float] = (10, 5),
+    figsize: tuple[float, float] = (10, 5),
     random_state: int = 42,
 ):
     """Bar chart of per-spec ``mi_gain`` with bootstrap 95%
@@ -272,11 +272,11 @@ def plot_mi_gain_with_ci(
 
 
 def plot_per_fold_tiny_rmse(
-    per_fold_rmses: Dict[str, Sequence[float]],
+    per_fold_rmses: dict[str, Sequence[float]],
     *,
-    raw_baseline: Optional[float] = None,
+    raw_baseline: float | None = None,
     title: str = "Per-fold tiny CV-RMSE per composite spec",
-    figsize: Tuple[float, float] = (10, 5),
+    figsize: tuple[float, float] = (10, 5),
 ):
     """Boxplot of per-fold tiny CV-RMSE (y-scale, after inverse) per
     composite spec. Shows the cross-fold variance directly so a spec
@@ -319,11 +319,11 @@ def plot_per_fold_tiny_rmse(
 
 
 def plot_per_family_disagreement(
-    per_family_scores: Dict[str, Sequence[float]],
+    per_family_scores: dict[str, Sequence[float]],
     spec_names: Sequence[str],
     *,
     title: str = "Per-family rerank rank-correlation",
-    figsize: Tuple[float, float] = (6, 5),
+    figsize: tuple[float, float] = (6, 5),
 ):
     """Heatmap of Spearman rank-correlation between tiny-model
     families' rerank rankings.
@@ -395,10 +395,10 @@ def plot_per_family_disagreement(
 def plot_alpha_stability(
     alpha_per_window: Sequence[float],
     *,
-    window_indices: Optional[Sequence[Any]] = None,
+    window_indices: Sequence[Any] | None = None,
     title: str = "linear_residual alpha stability over windows",
-    figsize: Tuple[float, float] = (10, 4),
-    expected_alpha: Optional[float] = None,
+    figsize: tuple[float, float] = (10, 4),
+    expected_alpha: float | None = None,
 ):
     """Line plot of fitted ``alpha`` (linear_residual coefficient)
     across rolling windows of the train data.
@@ -456,10 +456,10 @@ def plot_alpha_stability(
 
 def plot_predictions_vs_actual(
     y_true: np.ndarray,
-    y_pred_per_spec: Dict[str, np.ndarray],
+    y_pred_per_spec: dict[str, np.ndarray],
     *,
     title: str = "Predictions vs actual per composite",
-    figsize: Tuple[float, float] = (12, 4),
+    figsize: tuple[float, float] = (12, 4),
     sample_n: int = 5000,
     random_state: int = 42,
 ):

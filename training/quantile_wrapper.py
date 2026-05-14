@@ -87,7 +87,7 @@ def _probe_alpha_param_name(base_estimator: BaseEstimator) -> str:
     )
 
 
-def _resolve_n_jobs(requested: Union[int, str], k: int) -> int:
+def _resolve_n_jobs(requested: int | str, k: int) -> int:
     """Resolve ``n_jobs="auto"`` to ``min(K, cpu_count // 2)``.
 
     Avoids nested-parallelism thrashing when the inner estimator already
@@ -132,7 +132,7 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
         base_estimator: BaseEstimator,
         alphas: Sequence[float] = (0.1, 0.5, 0.9),
         crossing_fix: str = "sort",
-        n_jobs: Union[int, str] = "auto",
+        n_jobs: int | str = "auto",
     ):
         self.base_estimator = base_estimator
         self.alphas = tuple(alphas)

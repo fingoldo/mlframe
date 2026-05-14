@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
+from .phases import phase
 
 try:
     import polars as pl
@@ -49,7 +50,7 @@ from collections import OrderedDict as _OD  # noqa: E402
 import threading as _threading  # noqa: E402
 
 _PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
-_PRE_PIPELINE_CACHE: "_OD[tuple, tuple]" = _OD()
+_PRE_PIPELINE_CACHE: _OD[tuple, tuple] = _OD()
 _PRE_PIPELINE_CACHE_MAX: int = 2
 
 
@@ -321,7 +322,7 @@ from collections import OrderedDict as _OD
 import threading as _threading
 
 _PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
-_PRE_PIPELINE_CACHE: "_OD[tuple, tuple]" = _OD()
+_PRE_PIPELINE_CACHE: _OD[tuple, tuple] = _OD()
 _PRE_PIPELINE_CACHE_MAX: int = 2
 
 
