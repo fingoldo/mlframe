@@ -9,12 +9,15 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import (
-    Any, Dict, List, Optional, Sequence, Tuple,
+    TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple,
 )
 
 import numpy as np
 
 from .composite_transforms import _TRANSFORMS_REGISTRY
+
+if TYPE_CHECKING:
+    from .composite_spec import CompositeSpec  # used as a forward annotation in CompositeProvenance.from_spec; importing at runtime is unnecessary and risks circular load.
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +204,6 @@ def _format_transform_formulas(
     by :class:`CompositeProvenance` to render audit-friendly formula
     descriptions without forcing the caller to know the registry.
     """
-    desc = _TRANSFORMS_REGISTRY.get(transform_name)
     description = _TRANSFORM_DESCRIPTIONS.get(transform_name, "")
     if transform_name == "diff":
         return (

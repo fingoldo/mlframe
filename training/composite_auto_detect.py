@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from .composite_screening import _is_numeric_column
+
 
 # ----------------------------------------------------------------------
 # detect_time_column + sort_df_by_time (OPEN-3 from R10c follow-up; auto-sort for EWMA / rolling / frac_diff transforms which assume chronological row order).

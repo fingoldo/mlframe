@@ -11,7 +11,7 @@ import sys
 import warnings
 from timeit import default_timer as timer
 from typing import (
-    Any, Callable, Dict, List, Optional, Sequence, Tuple, Union,
+    TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union,
 )
 
 import numpy as np
@@ -20,6 +20,9 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from .composite_estimator import CompositeTargetEstimator, _y_train_clip_bounds
 from .composite_transforms import get_transform
+
+if TYPE_CHECKING:
+    from .composite_transforms import Transform  # used as forward annotation in _tiny_cv_rmse_y_scale signature
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +110,6 @@ def _safe_abs_corr_all(
         return np.zeros(X.shape[1])
     y_f = y[y_finite]
     X_f = X[y_finite]
-    n = y_f.size
     y_dev = y_f - y_f.mean()
     var_y = float(np.dot(y_dev, y_dev))
     if var_y < 1e-24:

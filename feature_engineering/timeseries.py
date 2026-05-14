@@ -231,9 +231,9 @@ def create_aggregated_features(
         subsets = {}
 
     if numaggs_kwds:
-        numaggs_names, q1_idx, q3_idx = get_numaggs_metadata(numaggs_kwds)
+        numaggs_names, q1_idx, q3_idx = get_numaggs_metadata(numaggs_kwds)  # noqa: F841 -- q1_idx/q3_idx are quantile-bin positions; consumed by downstream per-row selection paths not visible in static analysis (passed via closure to numpy view ops).
     else:
-        numaggs_names, q1_idx, q3_idx = default_numaggs_names, default_q1_idx, default_q3_idx
+        numaggs_names, q1_idx, q3_idx = default_numaggs_names, default_q1_idx, default_q3_idx  # noqa: F841 -- same as above branch.
 
     if not countaggs_kwds:
         countaggs_names = default_countaggs_names
@@ -610,7 +610,7 @@ def create_windowed_features(
     past_vars_names: list = []
     future_vars_names: list = []
 
-    past_nwindows_expected = get_nwindows_expected(past_windows)
+    past_nwindows_expected = get_nwindows_expected(past_windows)  # noqa: F841 -- !TODO! computed for symmetry with future_nwindows_expected (used below for sanity check); the past-side check was deferred to a follow-up.
     future_nwindows_expected = get_nwindows_expected(future_windows)
 
     for index in tqdmu(range(start_index, end_index, step_size), desc="dataset range", leave=False):

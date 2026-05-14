@@ -22,6 +22,13 @@ except ImportError:
 import pandas as pd
 import polars as pl
 
+try:
+    from catboost import CatBoostRegressor
+except ImportError:
+    CatBoostRegressor = None  # type: ignore[assignment] -- only used when CB is the chosen model; guarded at call site
+
+# CUDA_IS_AVAILABLE / get_categorical_columns / _maybe_clean_ram all sit in modules that ALSO import from this file -- lazy local imports at call sites.
+
 from sklearn.pipeline import Pipeline
 
 from .utils import log_ram_usage, filter_existing
@@ -518,6 +525,8 @@ def run_confidence_analysis(
     confidence_model_kwargs.setdefault("iterations", 200)
     confidence_model_kwargs.setdefault("early_stopping_rounds", 30)
 
+    # Lazy import: _model_factories <-> _eval_helpers circular load; resolved at call time.
+    from ._model_factories import CUDA_IS_AVAILABLE
     confidence_task_type = "GPU" if CUDA_IS_AVAILABLE else "CPU"
     confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=confidence_task_type, **confidence_model_kwargs)
 
@@ -601,6 +610,7 @@ def run_confidence_analysis(
     if cat_features is not None:
         fit_params_copy["cat_features"] = cat_features
     elif "cat_features" not in fit_params_copy:
+        from ._nan_processing import get_categorical_columns  # lazy import: circular load with .utils
         fit_params_copy["cat_features"] = get_categorical_columns(test_df, include_string=False)
 
     fit_params_copy["plot"] = False
@@ -682,6 +692,7 @@ def run_confidence_analysis(
         )
         return None
 
+    from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram  # lazy: utils imports from _nan_processing which transitively cycles back
     _maybe_clean_ram()
     try:
         confidence_model.fit(test_df, confidence_targets, **fit_params_copy)

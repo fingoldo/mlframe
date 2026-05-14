@@ -22,10 +22,17 @@ from sklearn.pipeline import Pipeline
 from sklearn.utils.validation import check_is_fitted
 
 from mlframe.helpers import ensure_no_infinity
-from pyutilz.pythonlib import get_human_readable_set_size
+from pyutilz.pythonlib import get_human_readable_set_size, prefix_dict_elems
 from pyutilz.system import ensure_dir_exists
 from pyutilz.strings import slugify
-from mlframe.config import TABNET_MODEL_TYPES
+from mlframe.config import TABNET_MODEL_TYPES, XGBOOST_MODEL_TYPES
+
+from ._callbacks import LightGBMCallback, CatBoostCallback, XGBoostCallback
+
+try:
+    from xgboost.callback import TrainingCallback as XGBTrainingCallback
+except ImportError:
+    XGBTrainingCallback = None  # type: ignore[assignment] -- only used when xgboost is the chosen backend
 
 from ._pipeline_helpers import _extract_feature_selector, _prepare_test_split
 from .utils import filter_existing

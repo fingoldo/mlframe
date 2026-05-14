@@ -1810,7 +1810,7 @@ class CompositeTargetDiscovery:
                             and spec.base_column in raw_per_bin_per_base):
                         spec_pb = spec_per_bin_rmse[spec.name]
                         raw_pb = raw_per_bin_per_base[spec.base_column]
-                        per_bin_threshold = raw_pb * per_bin_tol
+                        per_bin_threshold = raw_pb * per_bin_tol  # noqa: F841 -- !TODO! threshold is computed but the per-bin comparison below uses raw_ratio against per_bin_tol directly; either drop this or wire it into the comparison.
                         # Element-wise compare, ignoring NaN bins.
                         worst_ratio = 0.0
                         worst_bin_idx = -1

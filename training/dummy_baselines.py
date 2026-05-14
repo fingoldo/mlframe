@@ -1069,7 +1069,6 @@ def compute_dummy_baselines(
     # Gated on the same n-threshold as bootstrap CI (D16) — at large n the
     # point-estimate signal-to-noise is high enough that paired bootstrap
     # is just expensive ceremony (~3-4s on n=10^5).
-    tie_flag = False
     n_ref_for_paired = min(
         n_val_finite if n_val_finite > 0 else 10_000_000,
         n_test_finite if n_test_finite > 0 else 10_000_000,
@@ -1091,7 +1090,6 @@ def compute_dummy_baselines(
                 if paired.get("p_strongest_beats") is not None and (
                     paired["p_strongest_beats"] < config.strongest_min_beat_runner_up_prob
                 ):
-                    tie_flag = True
                     extras["tie"] = True
         except Exception as e:
             logger.debug(

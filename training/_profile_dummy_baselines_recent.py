@@ -116,7 +116,6 @@ def bench_paired_bootstrap():
     bootstrap_ci_threshold cutoff at exactly 2000)."""
     print("\n=== _paired_bootstrap_vs_runner_up (D2, gated n<2000) ===")
     rng = np.random.default_rng(0)
-    cfg = DummyBaselinesConfig()
     for n in (100, 500, 1500):
         y = rng.normal(size=n)
         # Two predictions of similar quality (close metric values)

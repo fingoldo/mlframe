@@ -138,7 +138,7 @@ def compute_area_profits(prices, positions):  # pragma: no cover
         # For longs (pos == 1), profit is price_diff
         # For shorts (pos == -1), profit is reversed: prices[start] - prices[end+1]
         # But can write uniformly: pos * price_diff
-        run_profit = pos * price_diff
+        run_profit = pos * price_diff  # noqa: F841 -- !TODO! intended for the per-index profit-assign block below but the loop was rewritten to compute profit inline; keep this expression as documentation of the uniform-formula identity (the next loop uses pos * (prices[end+1] - prices[i]) which is mathematically equivalent at i=start).
 
         # Assign profit for each index in run from i=start..end
         # profit[i] = profit from prices[i] to prices[end+1] in direction pos
@@ -600,7 +600,6 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
 
     # Create date range
     dates = [start_date + timedelta(days=i) for i in range(n_days)]
-    dates_array = np.array(dates)
 
     # Generate more realistic price data with trends and volatility
 

@@ -68,6 +68,8 @@ def _prepare_test_split(
     selector_passthrough_cols=None,
 ):
     """Prepare test DataFrame and target for evaluation."""
+    # Lazy import: _data_helpers and _pipeline_helpers depend on each other; importing at top-level creates a circular load.
+    from ._data_helpers import _subset_dataframe, _extract_target_subset
     if (df is not None) or (test_df is not None):
         if test_df is None:
             test_df = _subset_dataframe(df, test_idx, real_drop_columns)

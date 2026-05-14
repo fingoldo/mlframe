@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 from timeit import default_timer as timer
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -38,6 +38,9 @@ from pyutilz.pythonlib import get_human_readable_set_size
 
 from .evaluation import _get_residual_audit_enabled, _get_cached_plot_idx
 from .phases import phase
+
+if TYPE_CHECKING:
+    from .configs import MultilabelDispatchConfig  # forward annotation only; importing at runtime is unnecessary
 
 # Inline to avoid circular import (_reporting <- evaluation <- _reporting)
 DEFAULT_PLOT_SAMPLE_SIZE = 500
@@ -326,6 +329,8 @@ def report_model_perf(
             model=type(model).__name__,
             n_cols=len(columns) if columns else 0,
         ):
+            # Lazy import: _reporting <- evaluation <- _reporting cycle (see comment at top of file).
+            from .evaluation import plot_model_feature_importances
             feature_importances = plot_model_feature_importances(
                 model=model,
                 columns=columns,
@@ -521,9 +526,8 @@ def report_regression_model_perf(
             f" MaxError={_fmt(MaxError, report_ndigits)}"
             f" R2={_fmt(R2, report_ndigits)}"
         )
-        # ``title`` retained for the (deprecated) print-report path that
-        # still concatenates everything for stdout. Charts use the split.
-        title = header_str + "\n " + metrics_str
+        # ``title`` retained for the (deprecated) print-report path that still concatenates everything for stdout. Charts use the split.
+        title = header_str + "\n " + metrics_str  # noqa: F841 -- see comment above
 
         # 2026-04-27 (batch 3): for (N, K) multilabel-as-regression
         # targets the scatter plot below would do

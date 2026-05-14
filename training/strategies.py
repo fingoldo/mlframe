@@ -876,7 +876,6 @@ class HGBStrategy(ModelPipelineStrategy):
 
         casts = []
         for col in existing:
-            dtype = df[col].dtype
             n_unique = df[col].n_unique()
             high_card = n_unique > self._MAX_CATEGORICAL_CARDINALITY
             if category_map is not None and col in category_map:
