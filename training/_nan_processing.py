@@ -20,14 +20,14 @@ except ImportError:  # pragma: no cover
 
 
 def _process_special_values(
-    df: Union[pl.DataFrame, pd.DataFrame],
-    expr_func: Optional[Callable[[], pl.Expr]] = None,
-    fill_func_name: Optional[str] = None,
+    df: pl.DataFrame | pd.DataFrame,
+    expr_func: Callable[[], pl.Expr] | None = None,
+    fill_func_name: str | None = None,
     kind: str = "",
-    fill_value: Optional[float] = None,
+    fill_value: float | None = None,
     drop_columns: bool = False,
     verbose: int = 1,
-) -> Union[pl.DataFrame, pd.DataFrame]:
+) -> pl.DataFrame | pd.DataFrame:
     """
     Generic handler for NaNs, nulls, infinities, or constant columns in numeric columns.
 
@@ -137,13 +137,15 @@ def _process_special_values(
                 elif "infinite" in kind:
                     df[num_cols] = df[num_cols].replace([float("inf"), float("-inf")], fill_value)
             if verbose:
+                from ._ram_helpers import log_ram_usage  # local import: ._ram_helpers <-> .utils <-> ._nan_processing cycle
+
                 logger.info(f"{kind.capitalize()}s filled with {fill_value} value.")
                 log_ram_usage()
 
     return df
 
 
-def process_nans(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
+def process_nans(df: pl.DataFrame | pd.DataFrame, fill_value: float = 0.0, verbose: int = 1) -> pl.DataFrame | pd.DataFrame:
     """
     Process NaN values in numeric columns by filling them with a specified value.
 
@@ -165,7 +167,7 @@ def process_nans(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0,
     )
 
 
-def process_nulls(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
+def process_nulls(df: pl.DataFrame | pd.DataFrame, fill_value: float = 0.0, verbose: int = 1) -> pl.DataFrame | pd.DataFrame:
     """
     Process NULL values in numeric columns by filling them with a specified value.
 
@@ -187,7 +189,7 @@ def process_nulls(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0
     )
 
 
-def process_infinities(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float = 0.0, verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
+def process_infinities(df: pl.DataFrame | pd.DataFrame, fill_value: float = 0.0, verbose: int = 1) -> pl.DataFrame | pd.DataFrame:
     """
     Process infinite values in numeric columns by replacing them with a specified value.
 
@@ -209,7 +211,7 @@ def process_infinities(df: Union[pl.DataFrame, pd.DataFrame], fill_value: float 
     )
 
 
-def get_numeric_columns(df: Union[pl.DataFrame, pd.DataFrame]) -> list:
+def get_numeric_columns(df: pl.DataFrame | pd.DataFrame) -> list:
     """
     Get list of numeric column names from DataFrame schema without scanning data.
 
@@ -230,7 +232,7 @@ def get_numeric_columns(df: Union[pl.DataFrame, pd.DataFrame]) -> list:
         return df.select_dtypes(include="number").columns.tolist()
 
 
-def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_string: bool = True) -> list:
+def get_categorical_columns(df: pl.DataFrame | pd.DataFrame, include_string: bool = True) -> list:
     """
     Get list of categorical column names from DataFrame schema without scanning data.
 
@@ -268,7 +270,7 @@ def get_categorical_columns(df: Union[pl.DataFrame, pd.DataFrame], include_strin
             return df.select_dtypes(include=["category"]).columns.tolist()
 
 
-def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int = 1) -> Union[pl.DataFrame, pd.DataFrame]:
+def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -> pl.DataFrame | pd.DataFrame:
     """
     Remove constant columns from DataFrame.
 
@@ -344,16 +346,6 @@ def remove_constant_columns(df: Union[pl.DataFrame, pd.DataFrame], verbose: int 
 
 
 __all__ = [
-    "log_ram_usage",
-    "log_phase",
-    "clean_ram_and_gpu",
-    "estimate_df_size_mb",
-    "get_process_rss_mb",
-    "should_clean_ram",
-    "maybe_clean_ram_and_gpu",
-    "drop_columns_from_dataframe",
-    "get_pandas_view_of_polars_df",
-    "save_series_or_df",
     "process_nans",
     "process_nulls",
     "process_infinities",
