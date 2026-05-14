@@ -25,6 +25,7 @@ from ._cb_pool import _maybe_get_or_build_cb_pool, _maybe_rewrite_eval_set_as_cb
 from ._predict_guards import _recover_cb_feature_names
 from ._eval_helpers import _align_xgb_cat_categories
 from ._pipeline_helpers import _passthrough_cols_fit_transform
+from .phases import phase
 from sklearn.isotonic import IsotonicRegression
 
 from mlframe.helpers import get_model_best_iter
@@ -33,6 +34,45 @@ from mlframe.config import CATBOOST_MODEL_TYPES, XGBOOST_MODEL_TYPES
 from ._predict_guards import _recover_cb_feature_names
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
+    """When target is multilabel-shaped but CatBoost lacks loss_function,
+    set loss_function='MultiLogloss' pre-fit."""
+    if model is None:
+        return
+    if type(model).__name__ != "CatBoostClassifier":
+        return
+    try:
+        get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
+        params = get() if callable(get) else {}
+    except Exception:
+        params = {}
+    if params.get("loss_function") is not None:
+        return
+    label_arr = None
+    if pool is not None:
+        try:
+            label_arr = np.asarray(pool.get_label())
+        except Exception:
+            label_arr = None
+    if label_arr is None:
+        label_arr = np.asarray(train_target) if train_target is not None else None
+        if label_arr is not None and label_arr.dtype == object and label_arr.ndim == 1 and label_arr.shape[0] > 0:
+            try:
+                label_arr = np.stack([np.asarray(c) for c in label_arr], axis=0)
+            except Exception:
+                label_arr = None
+    if label_arr is None or label_arr.ndim != 2:
+        return
+    try:
+        model.set_params(loss_function="MultiLogloss", eval_metric="HammingLoss")
+    except Exception:
+        try:
+            model._init_params["loss_function"] = "MultiLogloss"
+            model._init_params["eval_metric"] = "HammingLoss"
+        except Exception:
+            pass
 
 
 def _handle_oom_error(model_obj, model_type_name: str) -> bool:
