@@ -39,6 +39,7 @@ class TrainingContext:
     dummy_baselines_config: Any = None
     quantile_regression_config: Any = None
     composite_target_discovery_config: Any = None
+    linear_model_config: Any = None
 
     # ── Scalar settings ─────────────────────────────────────────
     verbose: int = 1

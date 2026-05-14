@@ -55,6 +55,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     quantile_regression_config = ctx.quantile_regression_config
     composite_target_discovery_config = ctx.composite_target_discovery_config
     verbose = ctx.verbose
+    linear_model_config = ctx.linear_model_config
     data_dir = ctx.data_dir
     models_dir = ctx.models_dir
     save_charts = ctx.save_charts
