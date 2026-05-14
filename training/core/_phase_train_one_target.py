@@ -17,6 +17,7 @@ except ImportError:
     pl = None  # type: ignore[assignment]
 
 from pyutilz.strings import slugify
+from pyutilz.system import tqdmu_lazy_start
 
 from ..phases import phase
 from ..train_eval import select_target
