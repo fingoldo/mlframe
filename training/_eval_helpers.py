@@ -25,6 +25,7 @@ import pandas as pd
 
 from sklearn.pipeline import Pipeline
 
+from ._data_helpers import _prepare_df_for_model
 from .utils import log_ram_usage
 
 logger = logging.getLogger(__name__)

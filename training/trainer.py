@@ -29,6 +29,7 @@ import joblib
 
 from pyutilz.system import compute_total_gpus_ram
 from mlframe.metrics import compute_probabilistic_multiclass_error
+from .phases import phase
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
 # Heavy optional deps: defer failures to first actual use so `import mlframe.training`

@@ -22,6 +22,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.utils.validation import check_is_fitted
 
 from mlframe.helpers import ensure_no_infinity
+from pyutilz.pythonlib import get_human_readable_set_size
 from pyutilz.system import ensure_dir_exists
 from pyutilz.strings import slugify
 from mlframe.config import TABNET_MODEL_TYPES
