@@ -658,8 +658,9 @@ def _auto_detect_feature_types(
     """
     import polars as pl
 
-    text_features = list(feature_types_config.text_features or [])
-    embedding_features = list(feature_types_config.embedding_features or [])
+    _ftc = feature_types_config
+    text_features = list(_ftc.text_features or []) if _ftc is not None else []
+    embedding_features = list(_ftc.embedding_features or []) if _ftc is not None else []
     # Auto-detected high-cardinality text-like columns that the caller
     # should DROP entirely from the training df when ``use_text_features=
     # False``. Semantic:
@@ -685,7 +686,7 @@ def _auto_detect_feature_types(
     # tests that pass an explicit list AND expect no auto-promotion on
     # top. The ``promote_text`` flag below is the real gate.)
 
-    if not feature_types_config.auto_detect_feature_types:
+    if feature_types_config is None or not feature_types_config.auto_detect_feature_types:
         return text_features, embedding_features, auto_detected_high_card_to_drop
 
     # Defensive: callers sometimes pass ``cat_features=None`` (e.g. after a
