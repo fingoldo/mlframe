@@ -129,23 +129,22 @@ def generate_mlp(
     for layer in range(nlayers):
 
         if layer > 0:
-            match neurons_by_layer_arch:
-                case MLPNeuronsByLayerArchitecture.Constant:
-                    cur_layer_virt_neurons = prev_layer_virt_neurons
-                case MLPNeuronsByLayerArchitecture.Declining:
-                    cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-                case MLPNeuronsByLayerArchitecture.Expanding:
+            if neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Constant:
+                cur_layer_virt_neurons = prev_layer_virt_neurons
+            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Declining:
+                cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
+            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Expanding:
+                cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
+            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.ExpandingThenDeclining:
+                if layer <= mid_layer:
                     cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
-                case MLPNeuronsByLayerArchitecture.ExpandingThenDeclining:
-                    if layer <= mid_layer:
-                        cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
-                    else:
-                        cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-                case MLPNeuronsByLayerArchitecture.Autoencoder:
-                    if layer <= mid_layer:
-                        cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
-                    else:
-                        cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
+                else:
+                    cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
+            elif neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder:
+                if layer <= mid_layer:
+                    cur_layer_virt_neurons = prev_layer_virt_neurons / consec_layers_neurons_ratio
+                else:
+                    cur_layer_virt_neurons = prev_layer_virt_neurons * consec_layers_neurons_ratio
 
             cur_layer_neurons = int(cur_layer_virt_neurons)
 
