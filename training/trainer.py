@@ -32,12 +32,10 @@ from mlframe.metrics import compute_probabilistic_multiclass_error
 from .phases import phase
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
-# Heavy optional deps: defer failures to first actual use so `import mlframe.training`
-# stays cheap and does not crash when a given backend is not installed. Mirrors the
-# lazy-loading style in `mlframe.training.__init__.__getattr__`.
+# Heavy optional deps: defer failures to first actual use so `import mlframe.training` stays cheap and does not crash when a given backend is not installed.
 try:
-    import matplotlib.pyplot as plt  # only used in a handful of plotting branches
-except ImportError:  # pragma: no cover -- optional backend
+    import matplotlib.pyplot as plt
+except ImportError:  # pragma: no cover
     plt = None  # type: ignore[assignment]
 
 from sklearn.base import ClassifierMixin, RegressorMixin, TransformerMixin, is_classifier
@@ -56,7 +54,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor, HistGradientBoosting
 from sklearn.utils.validation import check_is_fitted
 from sklearn.exceptions import NotFittedError
 
-# Optional model backends -- lazy/tolerant of missing deps, matching __init__.py style.
+# Optional model backends: lazy/tolerant of missing deps.
 try:
     from catboost import CatBoostRegressor, CatBoostClassifier
 except ImportError:  # pragma: no cover
@@ -70,7 +68,6 @@ try:
 except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
 
-# 2026-05-13 refactor: extracted modules
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
 from ._pipeline_helpers import (  # noqa: E402,F401
     _PRE_PIPELINE_CACHE, _PRE_PIPELINE_CACHE_LOCK, _PRE_PIPELINE_CACHE_MAX,
@@ -110,7 +107,7 @@ from ._model_factories import (  # noqa: E402,F401
     _patch_lgb_feature_names_in_setter,
     _xgb_classifier_cls, _xgb_regressor_cls,
 )
-from mlframe.metrics import create_fairness_subgroups_indices, fast_roc_auc
+from mlframe.metrics import create_fairness_subgroups, create_fairness_subgroups_indices, fast_roc_auc
 from mlframe.feature_selection.wrappers import RFECV
 from pyutilz.pandaslib import get_df_memory_consumption
 from .models import create_linear_model
@@ -122,13 +119,25 @@ try:
 except ImportError:
     torch = None  # type: ignore[assignment]
     nn = None  # type: ignore[assignment]
+
+try:
+    from ngboost import NGBClassifier, NGBRegressor
+except ImportError:
+    NGBClassifier = None  # type: ignore[assignment]
+    NGBRegressor = None  # type: ignore[assignment]
+
+try:
+    import flaml.default as flaml_zeroshot
+except ImportError:
+    flaml_zeroshot = None  # type: ignore[assignment]
+
 from .configs import (
     DataConfig, TrainingControlConfig, MetricsConfig, ReportingConfig,
     FeatureImportanceConfig, OutputConfig, NamingConfig,
     ConfidenceAnalysisConfig, PredictionsContainer, LinearModelConfig,
-    MultilabelDispatchConfig, VALID_LINEAR_MODEL_TYPES as LINEAR_MODEL_TYPES,
+    MultilabelDispatchConfig, VALID_LINEAR_MODEL_TYPES as LINEAR_MODEL_TYPES, TargetTypes,
 )
-from .helpers import get_training_configs
+from .helpers import get_training_configs, parse_catboost_devices
 
 from ._data_helpers import (  # noqa: E402,F401
     _disable_xgboost_early_stopping_if_needed, _extract_target_subset,
@@ -166,13 +175,10 @@ def _build_configs_from_params(
     target_label_encoder=None,
     skip_infinity_checks=False,
     n_features=None,
-    target_type=None,  # 2026-05-10: thread through for downstream chart dispatch gate
+    target_type=None,  # threaded through for downstream chart dispatch gate
     # Control params
     verbose=False,
-    # 2026-04-27: use_cache default flipped False -> True for consistency
-    # with TrainingControlConfig.use_cache=True and the de-facto behavior
-    # of train_eval.py:664's .get("use_cache", True). Cache loading is
-    # almost always faster than retraining; force retrain via explicit False.
+    # use_cache=True: cache loading is almost always faster than retraining; force retrain via explicit False.
     use_cache=True,
     just_evaluate=False,
     compute_trainset_metrics=False,
@@ -192,11 +198,7 @@ def _build_configs_from_params(
     train_details="",
     val_details="",
     test_details="",
-    # Reporting / display params (the pre-2026-04-27 display config is now
-    # ReportingConfig - filesystem paths moved to OutputConfig; per-metric
-    # title toggles collapsed into the ordered string template
-    # `title_metrics_template`; histogram subplot toggles added; old fi_kwargs
-    # dict replaced by typed FeatureImportanceConfig).
+    # Reporting / display params
     figsize=(15, 5),
     print_report=True,
     show_perf_chart=True,
@@ -347,11 +349,6 @@ def _build_configs_from_params(
     return data_config, control_config, metrics_config, reporting_config, naming_config, confidence_config, predictions_container, output_config
 
 
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
-# Main Training Functions
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-
 def train_and_evaluate_model(
     model: object,
     data: DataConfig,
@@ -380,9 +377,7 @@ def train_and_evaluate_model(
     metrics : MetricsConfig
         Metrics configuration (nbins, custom metrics, subgroups).
     reporting : ReportingConfig
-        Reporting / display configuration (figsize, plot settings, title-metrics
-        template, histogram subplot, feature-importance config). Was
-        the pre-2026-04-27 display config (now renamed and slimmed).
+        Reporting / display configuration (figsize, plot settings, title-metrics template, histogram subplot, feature-importance config).
     naming : NamingConfig
         Model naming configuration.
     confidence : ConfidenceAnalysisConfig, optional
@@ -410,9 +405,6 @@ def train_and_evaluate_model(
     if predictions is None:
         predictions = PredictionsContainer()
 
-    # ---------------------------------------------------------------------------
-    # Unpack data config
-    # ---------------------------------------------------------------------------
     df = data.df
     train_df = data.train_df
     val_df = data.val_df
@@ -431,9 +423,6 @@ def train_and_evaluate_model(
     skip_infinity_checks = data.skip_infinity_checks
     n_features = data.n_features
 
-    # ---------------------------------------------------------------------------
-    # Unpack control config
-    # ---------------------------------------------------------------------------
     verbose = control.verbose
     use_cache = control.use_cache
     just_evaluate = control.just_evaluate
@@ -447,9 +436,6 @@ def train_and_evaluate_model(
     callback_params = control.callback_params
     model_category = control.model_category
 
-    # ---------------------------------------------------------------------------
-    # Unpack metrics config
-    # ---------------------------------------------------------------------------
     nbins = metrics.nbins
     custom_ice_metric = metrics.custom_ice_metric
     custom_rice_metric = metrics.custom_rice_metric
@@ -458,12 +444,6 @@ def train_and_evaluate_model(
     val_details = metrics.val_details
     test_details = metrics.test_details
 
-    # ---------------------------------------------------------------------------
-    # Unpack reporting config (the pre-2026-04-27 display config). Filesystem paths read from
-    # control.* / direct trainer state now (data_dir/models_subdir/plot_file no
-    # longer live on the reporting config). FI plotting reads from a typed
-    # FeatureImportanceConfig instead of a stringly-typed dict.
-    # ---------------------------------------------------------------------------
     figsize = reporting.figsize
     print_report = reporting.print_report
     show_perf_chart = reporting.show_perf_chart
@@ -488,34 +468,20 @@ def train_and_evaluate_model(
     multilabel_panels = reporting.multilabel_panels
     ltr_panels = reporting.ltr_panels
     quantile_panels = reporting.quantile_panels
-    # ``quantile_alphas`` arrives via fit_params (per-fit context),
-    # not via ReportingConfig -- it depends on which alphas the model
-    # was trained on, not on display preference. Resolved at the
-    # _compute_split_metrics call site.
+    # ``quantile_alphas`` arrives via fit_params (per-fit context), not via ReportingConfig - it depends on which alphas the model was trained on, not on display preference. Resolved at the _compute_split_metrics call site.
     quantile_alphas = None
     if hasattr(model, "_mlframe_quantile_alphas"):
         quantile_alphas = getattr(model, "_mlframe_quantile_alphas", None)
 
-    # ---------------------------------------------------------------------------
-    # Unpack output config (was bundled into the display config pre-refactor). Default-construct
-    # if the caller didn't pass one - keeps train_eval.py:_run_v2_path callers
-    # that haven't migrated yet working with empty paths.
-    # ---------------------------------------------------------------------------
     if output is None:
         output = OutputConfig()
     plot_file = output.plot_file
     data_dir = output.data_dir
     models_subdir = output.models_dir
 
-    # ---------------------------------------------------------------------------
-    # Unpack naming config
-    # ---------------------------------------------------------------------------
     model_name = naming.model_name
     model_name_prefix = naming.model_name_prefix
 
-    # ---------------------------------------------------------------------------
-    # Unpack confidence config
-    # ---------------------------------------------------------------------------
     include_confidence_analysis = confidence.include
     confidence_analysis_use_shap = confidence.use_shap
     confidence_analysis_max_features = confidence.max_features
@@ -525,9 +491,6 @@ def train_and_evaluate_model(
     confidence_analysis_title = confidence.title
     confidence_model_kwargs = dict(confidence.model_kwargs) if confidence.model_kwargs else {}
 
-    # ---------------------------------------------------------------------------
-    # Unpack predictions container
-    # ---------------------------------------------------------------------------
     train_preds = predictions.train_preds
     train_probs = predictions.train_probs
     val_preds = predictions.val_preds
@@ -535,9 +498,6 @@ def train_and_evaluate_model(
     test_preds = predictions.test_preds
     test_probs = predictions.test_probs
 
-    # ---------------------------------------------------------------------------
-    # Begin original function logic
-    # ---------------------------------------------------------------------------
     _maybe_clean_ram()
 
     columns = []
@@ -592,9 +552,7 @@ def train_and_evaluate_model(
         if val_df is None and val_idx is not None:
             val_df = _subset_dataframe(df, val_idx, real_drop_columns)
 
-    # Decategorise float-typed pandas categorical columns BEFORE the
-    # pre_pipeline runs (RFECV inner CB / XGB inside the pre_pipeline
-    # would otherwise reject them -- fuzz c0102, see helper docstring).
+    # Decategorise float-typed pandas categorical columns BEFORE the pre_pipeline runs (RFECV inner CB / XGB inside the pre_pipeline would otherwise reject them; see helper docstring).
     train_df, val_df, test_df = _decategorise_float_cat_columns(
         train_df,
         val_df=val_df,
@@ -697,15 +655,7 @@ def train_and_evaluate_model(
             if val_target is not None:
                 _validate_target_values(val_target, "val", is_classification=_is_clf)
 
-            # XGB cat-category alignment (no-op for non-XGB models): align
-            # the ``categories`` list across train / val / test so
-            # val/test rows whose category wasn't seen in train don't
-            # trip XGBoost's ``Found a category not in the training set``
-            # rejection at predict time (fuzz seed=2024 c0060). Done AFTER
-            # pre_pipeline so the alignment uses the actual cat layout
-            # the model.fit + model.predict will see (pre_pipeline can
-            # rename / re-cast cat columns; aligning before that would
-            # be undone).
+            # XGB cat-category alignment (no-op for non-XGB models): align the ``categories`` list across train / val / test so val/test rows whose category wasn't seen in train don't trip XGBoost's ``Found a category not in the training set`` rejection at predict time. Done AFTER pre_pipeline so the alignment uses the actual cat layout the model.fit + model.predict will see (pre_pipeline can rename / re-cast cat columns; aligning before that would be undone).
             train_df, val_df, test_df = _align_xgb_cat_categories(
                 model_type_name,
                 train_df,
@@ -714,16 +664,7 @@ def train_and_evaluate_model(
             )
 
             if not just_evaluate:
-                # 2026-05-13 (user request): nest Lightning checkpoints +
-                # CSV logger output under the per-model directory
-                # (``{dirname(model_file_name)}/{basename_no_ext}/``) so
-                # different (target, model, schema_hash) combos don't
-                # collide in a shared project-root ``logs/`` folder.
-                # Only applies to TTR-wrapped Lightning regressors --
-                # tree models ignore this attribute. Set on the inner
-                # regressor (under TTR's ``.regressor``) when present,
-                # falling back to the model itself for direct Lightning
-                # regressors.
+                # Nest Lightning checkpoints + CSV logger output under the per-model directory (``{dirname(model_file_name)}/{basename_no_ext}/``) so different (target, model, schema_hash) combos don't collide in a shared project-root ``logs/`` folder. Only applies to TTR-wrapped Lightning regressors; tree models ignore this attribute. Set on the inner regressor (under TTR's ``.regressor``) when present, falling back to the model itself for direct Lightning regressors.
                 try:
                     if model_file_name:
                         _ckpt_dir = os.path.splitext(model_file_name)[0]
@@ -919,10 +860,7 @@ def train_and_evaluate_model(
                 **common_metrics_params,
             )
 
-        # Note: concurrent ThreadPoolExecutor was tried but matplotlib figure creation
-        # from concurrent threads races on pyplot's shared state even with Agg backend,
-        # producing "Argument must be an image or collection" errors in calibration plots.
-        # Sequential path is correct; the earlier _prepare_test_split refactor still stands.
+        # Concurrent ThreadPoolExecutor was tried but matplotlib figure creation from concurrent threads races on pyplot's shared state even with Agg backend, producing "Argument must be an image or collection" errors in calibration plots. Sequential path is correct.
         with phase("compute_split_metrics", split="val"):
             val_res = _run_val()
         with phase("compute_split_metrics", split="test"):
@@ -982,11 +920,6 @@ def train_and_evaluate_model(
         _orig_val_df,
         _orig_test_df,
     )
-
-
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
-# Configure Training Params Helper Functions
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 def _configure_xgboost_params(
@@ -1058,10 +991,7 @@ def _configure_mlp_params(
 ) -> dict:
     """Configure MLP (PyTorch Lightning) model parameters.
 
-    2026-05-07: when ``target_type`` is supplied (multiclass / multilabel),
-    consult ``NeuralNetStrategy.get_classif_objective_kwargs`` for the
-    correct loss_fn + labels_dtype + task_type. Falls back to legacy
-    ``use_regression`` boolean for back-compat.
+    When ``target_type`` is supplied (multiclass / multilabel), consult ``NeuralNetStrategy.get_classif_objective_kwargs`` for the correct loss_fn + labels_dtype + task_type. Falls back to the legacy ``use_regression`` boolean for back-compat.
     """
     mlp_kwargs = config_params.get("mlp_kwargs", {})
 
@@ -1072,24 +1002,8 @@ def _configure_mlp_params(
             "(lightning + torchmetrics). Install via "
             "``pip install mlframe[neural]`` or omit ``mlp`` from mlframe_models."
         )
-    # 2026-05-11 (user feedback): default architecture trimmed. Previous (nlayers=20, ratio=1.5) generated a 14-layer monster like 100->66->44->29->19->13->8->5->3->2->1->1->1 -- absurd funnel that collapses representational capacity to 1 neuron by mid-network. New defaults: nlayers=4 + ratio=2.0 -> 128->64->32->16->1, a classic shallow tabular MLP. Caller can still override via mlp_kwargs["network_params"] when a different topology is needed.
-    #
-    # 2026-05-13 (TVT-failure root cause): defaults switched to ZERO dropout +
-    # NO batchnorm. The previous defaults (``dropout_prob=0.15`` +
-    # ``inputs_dropout_prob=0.002`` + ``use_batchnorm=True``) catastrophically
-    # killed the MLP on near-linear targets like TVT (y ~= 0.95 * TVT_prev +
-    # tiny residual), where linear regression is the MLE estimator and the
-    # MLP's job is to match it. Four hidden layers of dropout=0.15 means
-    # ~52% of the signal (0.85^4) is destroyed on every forward pass; the
-    # network simply cannot find the strong linear mapping. Production
-    # symptom: 2-hour MLP run on 4M-row TVT collapsed predictions to a
-    # narrow band [11k, 11.7k] around the mean, R2=0.33 vs linear R2=0.85.
-    #
-    # New defaults: dropout=0 + batchnorm=False. Tabular regression with
-    # strong linear / additive signal does NOT benefit from dropout (none
-    # of the big tabular libs -- CB / XGB / LGB -- use it either). Users
-    # whose dataset is truly noise-dominated can opt in via
-    # ``mlp_kwargs["network_params"]["dropout_prob"]=0.15``.
+    # Defaults: nlayers=4 + ratio=2.0 -> 128->64->32->16->1, a classic shallow tabular MLP. Caller can override via ``mlp_kwargs["network_params"]`` when a different topology is needed.
+    # Zero dropout + no batchnorm: dropout catastrophically kills the MLP on near-linear targets (y ~= 0.95 * x_prev + tiny residual) - four hidden layers of dropout=0.15 destroy ~52% of the signal (0.85^4) on every forward pass and the network cannot find the strong linear mapping. Tabular regression with strong linear / additive signal does not benefit from dropout (none of the big tabular libs - CB / XGB / LGB - use it either). Users with truly noise-dominated data can opt in via ``mlp_kwargs["network_params"]["dropout_prob"]=0.15``.
     mlp_network_params = dict(
         nlayers=4,
         first_layer_num_neurons=128,
@@ -1112,8 +1026,8 @@ def _configure_mlp_params(
         mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()
         mlp_general_params["datamodule_params"]["labels_dtype"] = torch.float32
         mlp_model = _reg_cls(network_params=mlp_network_params, **mlp_general_params)
-        # F1 fix (2026-05-11): auto-standardise the regression target for MLP. A kaiming-init network outputs ~0 at init; on a target with mean=11500 the network takes many epochs to learn just the constant offset.
-        # F7 fix (2026-05-11): the initial F1 fix used sklearn's stock ``TransformedTargetRegressor`` which standardises ONLY the ``y`` arg of fit(), leaving ``eval_set=(X_val, y_val)`` unchanged. PyTorch-Lightning consumes ``eval_set`` for its val_dataloader and computes ``val_loss`` against RAW y_val while the model predicts on STANDARDISED scale -- train_loss=0.16 (std units) vs val_loss=1.3e+8 (raw units) gap observed in the 2026-05-12 run. New subclass intercepts ``eval_set`` in fit_kwargs and transforms its y component too, keeping train + val on the SAME scale so early-stop / val_MSE callbacks see meaningful numbers.
+        # Auto-standardise the regression target for MLP: a kaiming-init network outputs ~0 at init, so on a target with mean=11500 the network takes many epochs just to learn the constant offset.
+        # Stock sklearn ``TransformedTargetRegressor`` standardises ONLY the ``y`` arg of fit(), leaving ``eval_set=(X_val, y_val)`` unchanged; PyTorch-Lightning consumes ``eval_set`` for its val_dataloader and computes ``val_loss`` against RAW y_val while the model predicts on STANDARDISED scale (gap of train_loss=0.16 std-units vs val_loss=1.3e+8 raw-units). The subclass below intercepts ``eval_set`` in fit_kwargs and transforms its y component too, keeping train + val on the same scale so early-stop / val_MSE callbacks see meaningful numbers.
         from sklearn.compose import TransformedTargetRegressor
         from sklearn.preprocessing import StandardScaler
 
@@ -1121,7 +1035,7 @@ def _configure_mlp_params(
             """``TransformedTargetRegressor`` extension that ALSO standardises any ``eval_set`` / ``X_val`` + ``y_val`` arrays in fit_params. Required for inner estimators (PyTorch-Lightning MLP, LightGBM, etc.) that consume eval_set for their own val-loss / early-stopping. Without this, train sees standardised y and val sees raw y, making the early-stop metric nonsensical."""
 
             def fit(self, X, y, **fit_params):
-                # Fit the transformer FIRST on y so we have the same scale to apply to eval_set's y_val. Mirrors what ``TransformedTargetRegressor.fit`` does internally (line 167 in sklearn 1.5+).
+                # Fit the transformer FIRST on y so we have the same scale to apply to eval_set's y_val. Mirrors what ``TransformedTargetRegressor.fit`` does internally.
                 import numpy as _np
                 from sklearn.base import clone as _clone
 
@@ -1160,9 +1074,7 @@ def _configure_mlp_params(
 
         mlp_model = _TTRWithEvalSetScaling(regressor=mlp_model, transformer=StandardScaler())
     else:
-        # 2026-05-07: target-type-aware loss / dtype / task_type for multi-*
-        # classification. Strategy method returns the dispatch dict;
-        # empty for binary (defaults already correct).
+        # Target-type-aware loss / dtype / task_type for multi-* classification. Strategy method returns the dispatch dict; empty for binary (defaults already correct).
         if target_type is not None:
             from .strategies import NeuralNetStrategy
             from .configs import TargetTypes as _TT
@@ -1245,19 +1157,7 @@ def _configure_recurrent_params(
     if recurrent_config is None:
         recurrent_config = RecurrentConfig()
 
-    # Infer dimensions from data
-    if has_sequences:
-        seq_input_dim = sequences_train[0].shape[-1] if sequences_train[0].ndim > 1 else 1
-    else:
-        seq_input_dim = 0
-
-    if has_features:
-        if hasattr(features_train, "shape"):
-            features_dim = features_train.shape[1]
-        else:
-            features_dim = len(features_train.columns)
-    else:
-        features_dim = 0
+    # seq_input_dim / features_dim are computed at fit-time by _RecurrentWrapperBase from input shapes (see neural/recurrent.py _aux_input_size / _seq_input_size).
 
     result = {}
 
@@ -1276,24 +1176,7 @@ def _configure_recurrent_params(
 
         rnn_type = rnn_type_map[model_name_lower]
 
-        # Create model-specific config.
-        # 2026-04-24 (test_recurrent_lstm_smoke surfaced 4 bugs):
-        #   * ``seq_input_dim`` / ``features_dim`` were passed as
-        #     RecurrentConfig kwargs but the dataclass has no such
-        #     fields. The wrapper computes both internally during
-        #     ``fit`` from input shapes (see ``_RecurrentWrapperBase``
-        #     in neural/recurrent.py:1041-1042: ``_aux_input_size``
-        #     and ``_seq_input_size`` populated at fit-time). The
-        #     dimensions captured at lines 3274-3284 above are now
-        #     unused; left in place because future config-time
-        #     validation may want them.
-        #   * ``num_heads`` was a typo for ``n_heads`` (RecurrentConfig
-        #     declares ``n_heads`` at neural/recurrent.py:170).
-        #   * ``mlp_hidden_dims`` was a typo for ``mlp_hidden_sizes``
-        #     (declared at neural/recurrent.py:174).
-        # Without this fix every recurrent model (LSTM/GRU/RNN/
-        # Transformer) crashes immediately with TypeError /
-        # AttributeError on construction.
+        # RecurrentConfig field names are exact: n_heads (not num_heads) and mlp_hidden_sizes (not mlp_hidden_dims); seq/features dims are inferred at fit-time.
         config = RecurrentConfig(
             input_mode=input_mode,
             rnn_type=rnn_type,
@@ -1319,11 +1202,6 @@ def _configure_recurrent_params(
         result[model_name_lower] = dict(model=metamodel_func(wrapper))
 
     return result
-
-
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
-# Configure Training Parameters
-# -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 def configure_training_params(
@@ -1426,15 +1304,7 @@ def configure_training_params(
     if cb_fit_params is None:
         cb_fit_params = {}
 
-    # ---- multilabel + post-hoc calibration safety gate ----
-    # ``CalibratedClassifierCV`` is single-output only; combining it with a
-    # MULTILABEL target silently fails inside the wrapper (label-list shape
-    # mismatch deep in sklearn). Honour ``MultilabelDispatchConfig.
-    # allow_uncalibrated_multi``: when False (default -- strict), refuse the
-    # combo loudly so the misconfiguration is visible at config time; when
-    # True, drop the calibration request with a warning and continue. No-op
-    # when target is not multilabel or no MultilabelDispatchConfig was
-    # supplied (legacy call path stays unchanged).
+    # Multilabel + post-hoc calibration safety gate. ``CalibratedClassifierCV`` is single-output only; combining it with a MULTILABEL target silently fails inside the wrapper (label-list shape mismatch deep in sklearn). Honour ``MultilabelDispatchConfig.allow_uncalibrated_multi``: when False (default, strict), refuse the combo loudly so the misconfiguration is visible at config time; when True, drop the calibration request with a warning and continue. No-op when target is not multilabel or no MultilabelDispatchConfig was supplied.
     if target_type is not None and prefer_calibrated_classifiers and multilabel_dispatch_config is not None:
         from .configs import TargetTypes as _TT
 
@@ -1455,19 +1325,12 @@ def configure_training_params(
             )
             prefer_calibrated_classifiers = False
 
-    # 2026-04-24 Session 6: route target_type/n_classes into get_training_configs
-    # so the per-strategy classification dispatch (CB MultiLogloss, XGB
-    # multi:softprob+num_class, LGB multiclass+num_class) gets injected.
-    # Without this, multilabel targets reach CB without loss_function set,
-    # and CB's _get_loss_function_for_train tries len(set(label)) on the 2-D
-    # ndarray and crashes with TypeError: unhashable type: 'numpy.ndarray'.
+    # Route target_type / n_classes into get_training_configs so per-strategy classification dispatch (CB MultiLogloss, XGB multi:softprob+num_class, LGB multiclass+num_class) gets injected. Without this, multilabel targets reach CB without loss_function set and CB's _get_loss_function_for_train tries len(set(label)) on the 2-D ndarray and crashes with TypeError: unhashable type: 'numpy.ndarray'.
     if target_type is not None and "target_type" not in config_params:
         config_params["target_type"] = target_type
     if n_classes is not None and "n_classes" not in config_params:
         config_params["n_classes"] = n_classes
-    # 2026-05-08 perf: thread mlframe_models -> get_training_configs so
-    # the MLP config block (and its ~14s pytorch / lightning import on
-    # first call) is skipped when no neural model is requested.
+    # Thread mlframe_models -> get_training_configs so the MLP config block (and its ~14s pytorch / lightning import on first call) is skipped when no neural model is requested.
     if mlframe_models is not None and "enabled_models" not in config_params:
         config_params["enabled_models"] = list(mlframe_models)
 
@@ -1480,8 +1343,7 @@ def configure_training_params(
             # each cell is itself an array (the polars ``pl.List(pl.Int8)``
             # roundtrip lands here). Without the second clause,
             # ``np.unique(target_arr)`` raised ``truth value of array
-            # ambiguous`` on the per-cell-array comparison surfaced fuzz
-            # 3-way c0000 (cb / pandas / multilabel target).
+            # ambiguous`` on the per-cell-array comparison (cb / pandas / multilabel target).
             _is_object_of_arrays = False
             if target_arr is not None and target_arr.dtype == object and target_arr.ndim == 1 and target_arr.shape[0] > 0:
                 _first = target_arr[0]
@@ -1528,14 +1390,7 @@ def configure_training_params(
     else:
         indexed_subgroups = None
 
-    # 2026-04-27 Session 7 batch 6: per-section timers in
-    # configure_training_params. Surfaced when a 9M-row prod run showed
-    # ``select_target done in 18.2s`` vs ~0.5s on smaller earlier
-    # runs. Three candidate hot-spots: get_training_configs (called
-    # twice — CPU + GPU), get_df_memory_consumption(deep=False), and
-    # the GPU probe (cached nvidia-smi subprocess). The timers below
-    # localise the spend so the operator can see the breakdown
-    # without instrumenting by hand.
+    # Per-section timers. Three candidate hot-spots: get_training_configs (called twice - CPU + GPU), get_df_memory_consumption(deep=False), and the GPU probe (cached nvidia-smi subprocess). The timers below localise the spend so the operator can see the breakdown without instrumenting by hand.
     _t0_cfg = timer()
     cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
     _t_cpu_cfg = timer() - _t0_cfg
@@ -1622,13 +1477,7 @@ def configure_training_params(
         group_ids=group_ids,
         model_name=model_name,
         callback_params=callback_params,
-        # 2026-05-10: thread target_type through so the ensemble path
-        # (score_ensemble -> _process_single_ensemble_method ->
-        # _build_configs_from_params) can gate render_multi_target_panels
-        # via DataConfig.target_type. Without this the ensemble report
-        # block goes through report_model_perf with target_type=None and
-        # auto_dispatch falls back to "fire LTR/multilabel/multiclass
-        # panels for any target with group_ids set" — wrong on regression.
+        # Thread target_type through so the ensemble path (score_ensemble -> _process_single_ensemble_method -> _build_configs_from_params) can gate render_multi_target_panels via DataConfig.target_type. Without this the ensemble report block goes through report_model_perf with target_type=None and auto_dispatch falls back to firing LTR / multilabel / multiclass panels for any target with group_ids set, which is wrong on regression.
         target_type=str(target_type) if target_type is not None else None,
     )
     if common_params:
@@ -1643,32 +1492,12 @@ def configure_training_params(
         else:
             _cb_classif_params = cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF
             _cb_model = CatBoostClassifier(**_cb_classif_params)
-        # Defensively pre-set the polars-fastpath sticky flag (2026-04-24).
-        # Background: ``_predict_with_fallback`` lazily flips this attribute
-        # to True after the FIRST polars-fastpath dispatch miss, so the
-        # short-circuit fires only on the SECOND predict call onward.
-        # That's fine for re-using a single fitted model (VAL -> TEST), but
-        # in a suite each weight-schema iteration calls ``sklearn.clone()``
-        # on this base ``_cb_model`` -- and clone strips non-param attrs,
-        # giving every fresh CB instance a blank flag. The 2026-04-24 prod
-        # log captured the symptom: CB uniform AND CB recency BOTH paid
-        # the polars-miss + 2-3 s pandas-conversion roundtrip on their
-        # first TEST predict, with WARN noise on each.
-        # We know empirically (every prod run since 2026-04-19) that CB
-        # 1.2.x's ``_set_features_order_data_polars_categorical_column``
-        # has dispatch gaps on our nullable-Categorical / Enum schema, so
-        # opting CB into pandas at predict time is bestthing -- bypasses
-        # the doomed retry on success, costs nothing on failure. Set on
-        # the base instance so ``clone()`` carries the param-equivalent
-        # state forward (sklearn.clone preserves ``get_params()`` keys;
-        # for the attr to survive clone we re-assert it inside
-        # ``train_eval.py:process_model``'s clone call too -- but writing
-        # it here is the ergonomic source of truth).
+        # Defensively pre-set the polars-fastpath sticky flag. ``_predict_with_fallback`` lazily flips this attribute to True after the FIRST polars-fastpath dispatch miss, so the short-circuit fires only on the SECOND predict call onward. That works for re-using a single fitted model (VAL -> TEST), but in a suite each weight-schema iteration calls ``sklearn.clone()`` on this base ``_cb_model`` and clone strips non-param attrs, giving every fresh CB instance a blank flag.
+        # CB 1.2.x's ``_set_features_order_data_polars_categorical_column`` has dispatch gaps on our nullable-Categorical / Enum schema, so opting CB into pandas at predict time bypasses the doomed retry on success and costs nothing on failure. Set on the base instance so ``clone()`` carries the param-equivalent state forward; for the attr to survive clone we also re-assert it inside ``train_eval.py:process_model``'s clone call.
         try:
             _cb_model._mlframe_polars_fastpath_broken = True
         except Exception:
-            # CB Python class is permissive about attributes; slot-only
-            # forks could refuse -- degrade to "pay first-call retry".
+            # CB Python class is permissive about attributes; slot-only forks could refuse - degrade to "pay first-call retry".
             pass
         cb_params = dict(
             model=_cb_model,
@@ -1681,13 +1510,7 @@ def configure_training_params(
             ),
         )
 
-    # 2026-04-24 Session 6: per-strategy multilabel-wrap helper. Strategies
-    # without native (N, K) target support (HGB, XGB-via-MultiOutputClassifier,
-    # LGB, Linear) need MultiOutputClassifier when target is multilabel.
-    # Inner-estimator early_stopping that depends on eval_set must be disabled
-    # because the outer wrapper doesn't slice eval_set per label -- without
-    # an eval_set the inner fit would crash ("at least one dataset and eval
-    # metric is required for evaluation").
+    # Per-strategy multilabel-wrap helper. Strategies without native (N, K) target support (HGB, XGB-via-MultiOutputClassifier, LGB, Linear) need MultiOutputClassifier when target is multilabel. Inner-estimator early_stopping that depends on eval_set must be disabled because the outer wrapper doesn't slice eval_set per label; without an eval_set the inner fit would crash ("at least one dataset and eval metric is required for evaluation").
     def _wrap_for_multilabel_if_needed(estimator, strategy_cls):
         if use_regression or target_type is None or not hasattr(target_type, "name") or target_type.name != "MULTILABEL_CLASSIFICATION":
             return estimator
@@ -1740,8 +1563,7 @@ def configure_training_params(
             xgboost_verbose=xgboost_verbose,
             metamodel_func=metamodel_func,
         )
-        # XGB sklearn wrapper rejects 2-D y unless we use multi_strategy='multi_output_tree'
-        # (WIP in 3.x). Default to MultiOutputClassifier per Session-6 design.
+        # XGB sklearn wrapper rejects 2-D y unless we use multi_strategy='multi_output_tree' (WIP in 3.x). Default to MultiOutputClassifier instead.
         from .strategies import XGBoostStrategy as _XGBS
 
         xgb_params["model"] = _wrap_for_multilabel_if_needed(xgb_params["model"], _XGBS)
@@ -1774,14 +1596,7 @@ def configure_training_params(
 
     ngb_params = None
     if _should_create_model("ngb"):
-        # 2026-05-07: target-type-aware Dist for NGBClassifier.
-        # Default ``Dist=Bernoulli`` (binary only) crashes on K>2 with
-        # ``IndexError: index out of bounds``. For multiclass we need
-        # ``Dist=k_categorical(K)``. NGBoost has no native multilabel /
-        # ranker, so those target types fall through to the default
-        # (likely with a downstream error if reached -- they should be
-        # filtered earlier when the suite checks per-strategy multilabel
-        # / ranking flags).
+        # Target-type-aware Dist for NGBClassifier. Default ``Dist=Bernoulli`` (binary only) crashes on K>2 with ``IndexError: index out of bounds``; for multiclass we need ``Dist=k_categorical(K)``. NGBoost has no native multilabel / ranker, so those target types fall through to the default (likely with a downstream error if reached - they should be filtered earlier when the suite checks per-strategy multilabel / ranking flags).
         ngb_init_kwargs = dict(configs.NGB_GENERAL_PARAMS)
         from .configs import TargetTypes as _TT
 
@@ -1789,11 +1604,7 @@ def configure_training_params(
             try:
                 from ngboost.distns import k_categorical
 
-                # n_classes pulled from the actual y -- NGB needs the
-                # exact K to size the categorical Dist's internal
-                # parameter array. Fall back to inspecting train_target
-                # via config_params (where train_target lives at this
-                # call layer).
+                # n_classes pulled from the actual y - NGB needs the exact K to size the categorical Dist's internal parameter array. Fall back to inspecting train_target via config_params (where train_target lives at this call layer).
                 _train_target = config_params.get("train_target")
                 if _train_target is not None:
                     _y = np.asarray(_train_target).ravel()
@@ -1842,15 +1653,6 @@ def configure_training_params(
 
         _linear_est = _wrap_for_multilabel_if_needed(_linear_est, _LMS)
         linear_model_params[model_type] = dict(model=metamodel_func(_linear_est))
-
-    # Get individual params (may be None if not in mlframe_models)
-    linear_params = linear_model_params.get("linear")
-    ridge_params = linear_model_params.get("ridge")
-    lasso_params = linear_model_params.get("lasso")
-    elasticnet_params = linear_model_params.get("elasticnet")
-    huber_params = linear_model_params.get("huber")
-    ransac_params = linear_model_params.get("ransac")
-    sgd_params = linear_model_params.get("sgd")
 
     # RFECV setup
     rfecv_params = configs.COMMON_RFECV_PARAMS.copy()

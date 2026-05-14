@@ -14,22 +14,41 @@ from __future__ import annotations
 
 import logging
 import os
-
-from .phases import phase
 from timeit import default_timer as timer
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from mlframe.config import CATBOOST_MODEL_TYPES
-from .phases import phase
+import numpy as np
+import polars as pl
 
+from mlframe.config import CATBOOST_MODEL_TYPES
 from pyutilz.system import get_gpuinfo_gpu_info
 
-import numpy as np
+from .phases import phase
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_label_for_cb_pool(target):
+    """Convert target to dtype/shape CatBoost Pool expects.
+    CB infers loss family from first label cell; crashes on Python list cells (polars List->pandas object roundtrip).
+    Stack object-of-arrays into 2-D (N,K), cast to float32. Falls through on failure."""
+    arr = np.asarray(target)
+    if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
+        _first = arr[0]
+        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
+            try:
+                arr = np.stack([np.asarray(c) for c in arr], axis=0)
+            except Exception:
+                pass
+    if arr.dtype.kind in ("i", "u", "b"):
+        arr = arr.astype(np.float32)
+    elif arr.dtype.kind == "f" and arr.dtype != np.float32:
+        arr = arr.astype(np.float32)
+    return arr
+
+
 def _polars_schema_diagnostic(
-    df: "pl.DataFrame",
+    df: pl.DataFrame,
     cat_features: Optional[List[str]] = None,
     text_features: Optional[List[str]] = None,
     max_cols_logged: int = 30,

@@ -21,18 +21,23 @@ except ImportError:
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
-from ._cb_pool import _maybe_get_or_build_cb_pool, _maybe_rewrite_eval_set_as_cb_pool
-from ._predict_guards import _recover_cb_feature_names
-from ._eval_helpers import _align_xgb_cat_categories
-from ._pipeline_helpers import _passthrough_cols_fit_transform
-from .phases import phase
-from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 from sklearn.isotonic import IsotonicRegression
 
 from mlframe.helpers import get_model_best_iter
 from mlframe.config import CATBOOST_MODEL_TYPES, XGBOOST_MODEL_TYPES
 
+from ._cb_pool import (
+    _coerce_label_for_cb_pool,
+    _maybe_get_or_build_cb_pool,
+    _maybe_rewrite_eval_set_as_cb_pool,
+    _polars_schema_diagnostic,
+)
+from ._eval_helpers import _align_xgb_cat_categories
+from ._pipeline_helpers import _passthrough_cols_fit_transform
 from ._predict_guards import _recover_cb_feature_names
+from .helpers import CB_DEFAULT_OCCURRENCE_LOWER_BOUND, compute_cb_text_processing
+from .phases import phase
+from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +141,7 @@ class _PostHocCalibratedModel:
         try:
             base = object.__getattribute__(self, "__dict__")["base"]
         except KeyError:
-            raise AttributeError(name)
+            raise AttributeError(name) from None
         return getattr(base, name)
 
     def __getstate__(self):
@@ -224,7 +229,6 @@ class _PerClassIsotonicCalibrator:
         target_type : TargetTypes
         """
         import numpy as _np
-        from sklearn.isotonic import IsotonicRegression
         from .configs import TargetTypes
 
         probs = _np.asarray(probs_NK, dtype=_np.float64)
@@ -299,7 +303,7 @@ class _PostHocMultiCalibratedModel:
         try:
             base = object.__getattribute__(self, "__dict__")["base"]
         except KeyError:
-            raise AttributeError(name)
+            raise AttributeError(name) from None
         return getattr(base, name)
 
     def __getstate__(self):
@@ -887,21 +891,6 @@ def _ensure_xgb_classification_objective(model, train_target) -> None:
     elif arr.ndim == 1:
         n_unique = len(np.unique(arr))
         if n_unique > 2: model.set_params(objective="multi:softprob", num_class=n_unique)
-
-def _coerce_label_for_cb_pool(target):
-    """Convert target to dtype/shape CatBoost Pool expects.
-    CB infers loss family from first label cell; crashes on Python list cells
-    (polars List->pandas object roundtrip). Stack object-of-arrays into 2-D (N,K),
-    cast to float32 (CB's preferred internal dtype). Falls through on failure."""
-    arr = np.asarray(target)
-    if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
-        _first = arr[0]
-        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
-            try: arr = np.stack([np.asarray(c) for c in arr], axis=0)
-            except Exception: pass
-    if arr.dtype.kind in ("i", "u", "b"): arr = arr.astype(np.float32)
-    elif arr.dtype.kind == "f" and arr.dtype != np.float32: arr = arr.astype(np.float32)
-    return arr
 
 def _maybe_wrap_for_2d_target(model, train_target):
     """When ``train_target`` is 2-D ``(N, K)`` but ``model`` is a single-
