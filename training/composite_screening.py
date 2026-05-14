@@ -398,16 +398,16 @@ def _silence_tiny_model_output():
     _prev_level = _lgb_logger.level
     _lgb_logger.setLevel(_logging.ERROR)
     try:
-        from sklearn.exceptions import ConvergenceWarning as _CW
+        from sklearn.exceptions import ConvergenceWarning
     except Exception:  # pragma: no cover - sklearn always installed in our deps
-        _CW = UserWarning  # type: ignore[assignment]
+        ConvergenceWarning = UserWarning  # type: ignore[assignment]
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
             message=".*feature names.*",
             category=UserWarning,
         )
-        warnings.filterwarnings("ignore", category=_CW)
+        warnings.filterwarnings("ignore", category=ConvergenceWarning)
         warnings.filterwarnings("ignore", category=RuntimeWarning)
         try:
             yield

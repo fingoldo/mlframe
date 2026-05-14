@@ -328,9 +328,9 @@ def get_training_configs(
     # classification target types, replace the binary defaults with the
     # native multi-output objective. Binary path is a no-op (helper
     # returns the same kwargs as the explicit defaults above).
-    from .configs import TargetTypes as _TT
+    from .configs import TargetTypes
 
-    _resolved_tt = target_type if target_type is not None else _TT.BINARY_CLASSIFICATION
+    _resolved_tt = target_type if target_type is not None else TargetTypes.BINARY_CLASSIFICATION
     if _resolved_tt.is_classification and not _resolved_tt.is_binary:
         # Non-binary classification: inject native objective per library.
         cb_obj = _classif_objective_kwargs("catboost", _resolved_tt, n_classes)

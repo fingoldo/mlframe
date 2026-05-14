@@ -263,8 +263,8 @@ def _apply_nan_guard(
         type(model).__name__, n_rows,
     )
 
-    from sklearn.impute import SimpleImputer as _SI
-    from sklearn.preprocessing import StandardScaler as _SS
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
 
     # Convert to numpy, impute NaN with mean, standardise
     if hasattr(X, "to_numpy"):
@@ -274,7 +274,7 @@ def _apply_nan_guard(
     else:
         _arr = np.asarray(X, dtype=np.float64)
 
-    _arr = _SS().fit_transform(_SI(strategy="mean").fit_transform(_arr))
+    _arr = StandardScaler().fit_transform(SimpleImputer(strategy="mean").fit_transform(_arr))
 
     # Re-wrap as the original container type
     if hasattr(X, "columns"):

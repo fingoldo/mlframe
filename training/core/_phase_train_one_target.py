@@ -815,8 +815,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     else cur_target_values.iloc[_train_idx]
                 )
                 try:
-                    from ..configs import TargetTypes as _TT
-                    if target_type == _TT.MULTILABEL_CLASSIFICATION:
+                    from ..configs import TargetTypes
+                    if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
                         _record["n_classes"] = (
                             int(train_y.shape[1])
                             if hasattr(train_y, "shape") and train_y.ndim == 2
@@ -825,7 +825,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         _record["multilabel_strategy"] = "native" if (
                             hasattr(strategy, "supports_native_multilabel") and strategy.supports_native_multilabel
                         ) else "wrapper"
-                    elif target_type == _TT.MULTICLASS_CLASSIFICATION:
+                    elif target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
                         _record["n_classes"] = (
                             int(len(np.unique(np.asarray(train_y))))
                             if hasattr(train_y, "shape") else None

@@ -1077,7 +1077,6 @@ def _configure_mlp_params(
         # Target-type-aware loss / dtype / task_type for multi-* classification. Strategy method returns the dispatch dict; empty for binary (defaults already correct).
         if target_type is not None:
             from .strategies import NeuralNetStrategy
-            from .configs import TargetTypes as _TT
 
             n_cls = 0  # not used by NeuralNetStrategy.get_classif_objective_kwargs
             mlp_obj = NeuralNetStrategy().get_classif_objective_kwargs(target_type, n_cls)
@@ -1306,9 +1305,7 @@ def configure_training_params(
 
     # Multilabel + post-hoc calibration safety gate. ``CalibratedClassifierCV`` is single-output only; combining it with a MULTILABEL target silently fails inside the wrapper (label-list shape mismatch deep in sklearn). Honour ``MultilabelDispatchConfig.allow_uncalibrated_multi``: when False (default, strict), refuse the combo loudly so the misconfiguration is visible at config time; when True, drop the calibration request with a warning and continue. No-op when target is not multilabel or no MultilabelDispatchConfig was supplied.
     if target_type is not None and prefer_calibrated_classifiers and multilabel_dispatch_config is not None:
-        from .configs import TargetTypes as _TT
-
-        if target_type == _TT.MULTILABEL_CLASSIFICATION:
+        if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
             if not multilabel_dispatch_config.allow_uncalibrated_multi:
                 raise NotImplementedError(
                     "prefer_calibrated_classifiers=True is incompatible with "
@@ -1539,14 +1536,14 @@ def configure_training_params(
 
     hgb_params = None
     if _should_create_model("hgb"):
-        from .strategies import HGBStrategy as _HGBS
+        from .strategies import HGBStrategy
 
         _hgb_est = (
             HistGradientBoostingRegressor(**configs.HGB_GENERAL_PARAMS)
             if use_regression
             else _wrap_for_multilabel_if_needed(
                 HistGradientBoostingClassifier(**configs.HGB_GENERAL_PARAMS),
-                _HGBS,
+                HGBStrategy,
             )
         )
         hgb_params = dict(model=metamodel_func(_hgb_est))
@@ -1564,9 +1561,9 @@ def configure_training_params(
             metamodel_func=metamodel_func,
         )
         # XGB sklearn wrapper rejects 2-D y unless we use multi_strategy='multi_output_tree' (WIP in 3.x). Default to MultiOutputClassifier instead.
-        from .strategies import XGBoostStrategy as _XGBS
+        from .strategies import XGBoostStrategy
 
-        xgb_params["model"] = _wrap_for_multilabel_if_needed(xgb_params["model"], _XGBS)
+        xgb_params["model"] = _wrap_for_multilabel_if_needed(xgb_params["model"], XGBoostStrategy)
 
     lgb_params = None
     if _should_create_model("lgb"):
@@ -1580,9 +1577,9 @@ def configure_training_params(
             metamodel_func=metamodel_func,
         )
         # LGB has no native multilabel -- wrap with MultiOutputClassifier.
-        from .strategies import TreeModelStrategy as _LGBS
+        from .strategies import TreeModelStrategy
 
-        lgb_params["model"] = _wrap_for_multilabel_if_needed(lgb_params["model"], _LGBS)
+        lgb_params["model"] = _wrap_for_multilabel_if_needed(lgb_params["model"], TreeModelStrategy)
 
     mlp_params = None
     if _should_create_model("mlp"):
@@ -1598,9 +1595,7 @@ def configure_training_params(
     if _should_create_model("ngb"):
         # Target-type-aware Dist for NGBClassifier. Default ``Dist=Bernoulli`` (binary only) crashes on K>2 with ``IndexError: index out of bounds``; for multiclass we need ``Dist=k_categorical(K)``. NGBoost has no native multilabel / ranker, so those target types fall through to the default (likely with a downstream error if reached - they should be filtered earlier when the suite checks per-strategy multilabel / ranking flags).
         ngb_init_kwargs = dict(configs.NGB_GENERAL_PARAMS)
-        from .configs import TargetTypes as _TT
-
-        if not use_regression and target_type == _TT.MULTICLASS_CLASSIFICATION:
+        if not use_regression and target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
             try:
                 from ngboost.distns import k_categorical
 
@@ -1649,9 +1644,9 @@ def configure_training_params(
         config = LinearModelConfig(**linear_config_kwargs)
         _linear_est = create_linear_model(model_type, config, use_regression=use_regression)
         # Linear classifiers reject 2-D y -> MultiOutputClassifier wrapper for multilabel.
-        from .strategies import LinearModelStrategy as _LMS
+        from .strategies import LinearModelStrategy
 
-        _linear_est = _wrap_for_multilabel_if_needed(_linear_est, _LMS)
+        _linear_est = _wrap_for_multilabel_if_needed(_linear_est, LinearModelStrategy)
         linear_model_params[model_type] = dict(model=metamodel_func(_linear_est))
 
     # RFECV setup

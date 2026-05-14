@@ -622,9 +622,9 @@ class XGBoostStrategy(TreeModelStrategy):
         Otherwise falls back to the base dispatcher (which returns ``{}``
         for multilabel -- wrapper path takes over).
         """
-        from .configs import TargetTypes as _TT, MultilabelDispatchConfig
+        from .configs import TargetTypes, MultilabelDispatchConfig
         if (
-            target_type == _TT.MULTILABEL_CLASSIFICATION
+            target_type == TargetTypes.MULTILABEL_CLASSIFICATION
             and multilabel_config is not None
             and getattr(multilabel_config, "force_native_xgb_multilabel", False)
         ):
@@ -646,9 +646,9 @@ class XGBoostStrategy(TreeModelStrategy):
         ``get_classif_objective_kwargs`` already configured the native
         multi-output tree path.
         """
-        from .configs import TargetTypes as _TT
+        from .configs import TargetTypes
         if (
-            target_type == _TT.MULTILABEL_CLASSIFICATION
+            target_type == TargetTypes.MULTILABEL_CLASSIFICATION
             and multilabel_config is not None
             and getattr(multilabel_config, "force_native_xgb_multilabel", False)
         ):
@@ -1013,19 +1013,19 @@ class NeuralNetStrategy(ModelPipelineStrategy):
         ``mlp_kwargs.datamodule_params.labels_dtype``. Returns the empty
         dict for binary (default ``F.cross_entropy`` already correct).
         """
-        from .configs import TargetTypes as _TT
+        from .configs import TargetTypes
 
         # Lazy import torch so a non-MLP run doesn't pay for PL/torch import.
         import torch
         import torch.nn.functional as F
 
-        if target_type is None or target_type == _TT.BINARY_CLASSIFICATION:
+        if target_type is None or target_type == TargetTypes.BINARY_CLASSIFICATION:
             return {}  # default cross_entropy is correct for binary
-        if target_type == _TT.MULTICLASS_CLASSIFICATION:
+        if target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
             # Default ``F.cross_entropy`` + ``int64`` labels already
             # handle K>2 -- explicit return for symmetry with other strategies.
             return {"loss_fn": F.cross_entropy, "labels_dtype": torch.int64}
-        if target_type == _TT.MULTILABEL_CLASSIFICATION:
+        if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
             # Per-label sigmoid: BCE with logits is numerically stable
             # and accepts (N, K) float32 labels.
             return {
@@ -1133,9 +1133,9 @@ class RecurrentModelStrategy(ModelPipelineStrategy):
         the default (None / 'multiclass') already uses CrossEntropy +
         softmax -- empty return suffices.
         """
-        from .configs import TargetTypes as _TT
+        from .configs import TargetTypes
 
-        if target_type == _TT.MULTILABEL_CLASSIFICATION:
+        if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
             return {"task_type": "multilabel"}
         # binary / multiclass / None -> defaults are correct
         return {}

@@ -847,7 +847,7 @@ def report_probabilistic_model_perf(
         if _targets_2d:
             # MultiOutputClassifier returns list[(N,2)] for predict_proba -- canonicalize to (N, K).
             from .helpers import _canonical_predict_proba_shape, _predict_from_probs
-            from .configs import TargetTypes as _TT
+            from .configs import TargetTypes
             probs = _canonical_predict_proba_shape(probs)
             # Honour MultilabelDispatchConfig.per_label_thresholds when
             # supplied: per-column decision threshold tuned for label
@@ -861,7 +861,7 @@ def report_probabilistic_model_perf(
                 else 0.5
             )
             preds = _predict_from_probs(
-                probs, _TT.MULTILABEL_CLASSIFICATION, threshold=_per_label_thr,
+                probs, TargetTypes.MULTILABEL_CLASSIFICATION, threshold=_per_label_thr,
             )
         elif probs.shape[1] == 2:
             # For binary classification, use threshold=0.5 on class 1 probability

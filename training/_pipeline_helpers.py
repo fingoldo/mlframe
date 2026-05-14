@@ -46,11 +46,11 @@ logger = logging.getLogger(__name__)
 # Pipeline structural-identity cache
 # ═══════════════════════════════════════════════════════════════════
 
-from collections import OrderedDict as _OD  # noqa: E402
+from collections import OrderedDict  # noqa: E402
 import threading as _threading  # noqa: E402
 
 _PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
-_PRE_PIPELINE_CACHE: _OD[tuple, tuple] = _OD()
+_PRE_PIPELINE_CACHE: OrderedDict[tuple, tuple] = OrderedDict()
 _PRE_PIPELINE_CACHE_MAX: int = 2
 
 
@@ -320,11 +320,11 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
 #     so two models that build a structurally identical pipeline collide.
 # Bounded LRU (max 2 entries) keeps the memory footprint within 2 x the
 # size of one transformed train+val frame -- bounded even on huge data.
-from collections import OrderedDict as _OD
+from collections import OrderedDict
 import threading as _threading
 
 _PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
-_PRE_PIPELINE_CACHE: _OD[tuple, tuple] = _OD()
+_PRE_PIPELINE_CACHE: OrderedDict[tuple, tuple] = OrderedDict()
 _PRE_PIPELINE_CACHE_MAX: int = 2
 
 

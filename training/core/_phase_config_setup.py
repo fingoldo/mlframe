@@ -64,8 +64,8 @@ def setup_configuration(
 
     if feature_handling_config is not None:
         try:
-            from mlframe.training.feature_handling import FeatureHandlingConfig as _FHC
-            if isinstance(feature_handling_config, _FHC):
+            from mlframe.training.feature_handling import FeatureHandlingConfig
+            if isinstance(feature_handling_config, FeatureHandlingConfig):
                 if mlframe_models:
                     feature_handling_config.validate_against_models(list(mlframe_models))
                 if verbose:
@@ -203,11 +203,11 @@ def setup_configuration(
     # Python reuses ids across independent suite invocations - clear cache to prevent stale Pool reuse.
     try:
         from mlframe.training.trainer import (
-            _CB_POOL_CACHE as _cb_cache,
-            _CB_VAL_POOL_CACHE as _cb_val_cache,
+            _CB_POOL_CACHE,
+            _CB_VAL_POOL_CACHE,
         )
-        _cb_cache.clear()
-        _cb_val_cache.clear()
+        _CB_POOL_CACHE.clear()
+        _CB_VAL_POOL_CACHE.clear()
     except Exception:
         pass
 

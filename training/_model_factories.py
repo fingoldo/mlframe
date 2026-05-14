@@ -404,15 +404,12 @@ def _get_neural_components():
     global MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier
     if MLPNeuronsByLayerArchitecture is None:
         try:
+            # `global` above makes the import bindings update module-level names directly; no rebind step needed.
             from mlframe.training.neural import (
-                MLPNeuronsByLayerArchitecture as _arch,
-                PytorchLightningRegressor as _reg,
-                PytorchLightningClassifier as _cls,
+                MLPNeuronsByLayerArchitecture,
+                PytorchLightningRegressor,
+                PytorchLightningClassifier,
             )
-
-            MLPNeuronsByLayerArchitecture = _arch
-            PytorchLightningRegressor = _reg
-            PytorchLightningClassifier = _cls
         except ImportError:  # pragma: no cover
             return None, None, None
     return MLPNeuronsByLayerArchitecture, PytorchLightningRegressor, PytorchLightningClassifier

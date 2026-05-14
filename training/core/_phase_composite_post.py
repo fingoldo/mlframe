@@ -10,13 +10,13 @@ Phase 6-7: composite-target post-processing.
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace as _SN
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from .._format import format_metric as _fmt, short_model_tag as _short_tag_fn, strip_shim_suffix as _strip
-from ..composite import CompositeCrossTargetEnsemble as _CrossEns, CompositeTargetEstimator as _CTE
+from ..composite import CompositeCrossTargetEnsemble as _CrossEns, CompositeTargetEstimator
 from ..composite import compute_oof_holdout_predictions, get_transform
 from ..composite_transforms import is_composite_target_name
 from ..dummy_baselines import format_suite_end_summary
@@ -89,7 +89,7 @@ def _run_composite_target_wrapping(
                 if not hasattr(_inner, "predict"):
                     continue
                 try:
-                    _wrapper = _CTE.from_fitted_inner(
+                    _wrapper = CompositeTargetEstimator.from_fitted_inner(
                         fitted_inner=_inner,
                         transform_name=_spec["transform_name"],
                         base_column=_spec["base_column"],
@@ -693,8 +693,7 @@ def run_composite_post_processing(
                         int(_max_components)
                     )
                 # SimpleNamespace shim for downstream iterators expecting .model/.columns; columns=None since each component knows its own.
-                from types import SimpleNamespace as _SN
-                _ens_entry = _SN(
+                _ens_entry = SimpleNamespace(
                     model=_ensemble,
                     model_name="CT_ENSEMBLE",
                     columns=None,
