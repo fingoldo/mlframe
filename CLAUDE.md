@@ -493,6 +493,60 @@ ladder buys you nothing. Cache the result, use numpy, move on.
 The `feedback_perf_measure_first.md` rule applies first: measure,
 then optimize, then dispatch.
 
+### `fastmath=True` + Python-level NaN-gate beats selective fastmath flags
+
+When a numba kernel needs both (a) speed from `fastmath=True` and
+(b) correct NaN/inf handling for its callers, the **right pattern is
+full `fastmath=True` on the kernel + an `np.isfinite(arr).all()` gate
+at the Python wrapper level**, not a selective fastmath flag set.
+
+**Why selective flags fail in practice** (verified empirically
+2026-05-14 on `compute_simple_stats_numba`):
+
+`fastmath=True` in numba enables the full LLVM fast-math flag set:
+`nnan, ninf, nsz, arcp, contract, afn, reassoc`. Two of those —
+`nnan` and `ninf` — let LLVM assume the input contains no NaN/inf,
+which lets it elide `np.isfinite()` checks. If your kernel uses
+`if np.isfinite(x):` to skip non-finite entries, `fastmath=True`
+silently breaks that contract.
+
+The intuitive fix is `fastmath={'reassoc', 'arcp', 'contract', 'afn',
+'nsz'}` — everything EXCEPT `nnan`/`ninf`. **This does not work for
+hot loops**: without `nnan` the compiler must preserve NaN-propagation
+order across the reduction, which blocks SIMD vector reductions on
+the accumulator. The "safe-fastmath" kernel ran ~14% SLOWER than a
+plain `fastmath=False` kernel with Kahan compensation in our test.
+
+**Working pattern**:
+
+```python
+@numba.njit(fastmath=True, cache=True)  # full fastmath
+def _kernel_fast(arr): ...               # assumes finite-only input
+
+@numba.njit(fastmath=False, cache=True)  # NaN-aware
+def _kernel_compensated(arr): ...        # handles non-finite
+
+def public_wrapper(arr, compensated: bool = False):
+    if compensated:
+        return _kernel_compensated(arr)
+    # Vectorised C check, ~2us per 100k elements. Cheap insurance
+    # against the LLVM nnan/ninf assumptions in the fast kernel.
+    if not np.isfinite(arr).all():
+        return _kernel_compensated(arr)
+    return _kernel_fast(arr)
+```
+
+Result on `compute_simple_stats_numba` / `compute_moments_slope_mi`
+(float64, N=50k, all-finite input — the common case): 1.28x and
+1.50x speedup respectively over the Kahan path, with full NaN-safety
+preserved via the gate. NaN-containing input automatically falls back
+to the compensated kernel.
+
+The `np.isfinite(arr).all()` cost is amortised over the kernel work:
+~2us per 100k vs ~100-1000us inner-loop cost. For very short arrays
+(N<1k) the gate is a larger fraction; in those cases the Kahan path
+is probably the better default anyway.
+
 ## Accuracy / performance over legacy / compat / deps
 
 When choosing **defaults** or making **API decisions** in mlframe,
