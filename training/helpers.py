@@ -35,7 +35,7 @@ from sklearn.model_selection import TimeSeriesSplit
 
 from pyutilz.system import get_gpuinfo_gpu_info, tqdmu, get_own_memory_usage
 from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
-from ._gpu_probe import XGB_GPU_AVAILABLE
+from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE
 from mlframe.metrics import (
     compute_probabilistic_multiclass_error,
     robust_mlperf_metric,
