@@ -1294,6 +1294,88 @@ class TestPerGroupAUCEdgeCases:
         )
 
 
+class TestFastAucsOverallParity:
+    """Invariant: ``fast_aucs(y, score)`` must return the same overall ROC / PR AUC
+    as ``fast_aucs_per_group_optimized(y, score, group_ids=None)[:2]``.
+
+    ``fast_ice_only`` was refactored to call ``fast_aucs`` directly instead of the
+    grouped variant (the grouped variant did the same overall-AUC work plus dispatcher
+    overhead and returned an empty per-group dict that was always discarded). These
+    tests lock in the equivalence so a future change to either function that breaks
+    the invariant fires immediately.
+    """
+
+    @pytest.mark.parametrize(
+        "y_true, y_score",
+        [
+            # Balanced binary, mid-range scores.
+            ([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], [0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.45, 0.55]),
+            # Imbalanced (1:4 positive:negative), separated scores.
+            ([0] * 16 + [1] * 4, list(np.linspace(0.05, 0.45, 16)) + list(np.linspace(0.6, 0.95, 4))),
+            # Random but reproducible.
+            (list((np.random.default_rng(0).random(200) > 0.7).astype(np.int8)),
+             list(np.random.default_rng(1).random(200))),
+            # Perfect separation - both AUCs == 1.
+            ([0, 0, 0, 1, 1, 1], [0.1, 0.2, 0.3, 0.7, 0.8, 0.9]),
+            # Random scoring - both AUCs near 0.5; lock the equivalence anyway.
+            ([0, 1] * 50, [0.5] * 100),
+        ],
+    )
+    def test_fast_aucs_matches_per_group_overall(self, y_true, y_score):
+        from mlframe.metrics import fast_aucs, fast_aucs_per_group_optimized
+        y_true_arr = np.asarray(y_true, dtype=np.int8)
+        y_score_arr = np.asarray(y_score, dtype=np.float64)
+        roc_direct, pr_direct = fast_aucs(y_true_arr, y_score_arr)
+        roc_grouped, pr_grouped, per_group = fast_aucs_per_group_optimized(y_true_arr, y_score_arr, group_ids=None)
+        # NaN-equality semantics: both NaN -> equivalent.
+        if np.isnan(roc_direct) or np.isnan(roc_grouped):
+            assert np.isnan(roc_direct) and np.isnan(roc_grouped)
+        else:
+            np.testing.assert_allclose(roc_direct, roc_grouped, rtol=1e-12, atol=1e-12)
+        if np.isnan(pr_direct) or np.isnan(pr_grouped):
+            assert np.isnan(pr_direct) and np.isnan(pr_grouped)
+        else:
+            np.testing.assert_allclose(pr_direct, pr_grouped, rtol=1e-12, atol=1e-12)
+        assert per_group == {}, "group_ids=None must yield an empty per-group dict"
+
+    def test_fast_ice_only_matches_manual_recomputation(self):
+        """End-to-end sensor for the ``fast_ice_only`` AUC-call swap: recompute
+        ICE manually using the same parts and assert equality."""
+        from mlframe.metrics import (
+            fast_aucs,
+            fast_brier_score_loss,
+            fast_calibration_binning,
+            fast_ice_only,
+            calibration_metrics_from_freqs,
+            integral_calibration_error_from_metrics,
+        )
+        rng = np.random.default_rng(42)
+        y_true = (rng.random(500) > 0.6).astype(np.int8)
+        y_score = (y_true * 0.5 + rng.random(500) * 0.5).astype(np.float64)
+
+        actual = fast_ice_only(y_true=y_true, y_pred=y_score, nbins=10, use_weights=True)
+
+        brier = fast_brier_score_loss(y_true=y_true, y_prob=y_score)
+        freqs_p, freqs_t, hits = fast_calibration_binning(y_true=y_true, y_pred=y_score, nbins=10)
+        cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(
+            freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits, nbins=10, array_size=len(y_true), use_weights=True,
+        )
+        roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_score)
+        expected = integral_calibration_error_from_metrics(
+            calibration_mae=cal_mae, calibration_std=cal_std, calibration_coverage=cal_cov,
+            brier_loss=brier, roc_auc=roc_auc, pr_auc=pr_auc,
+        )
+        np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+
+    def test_fast_ice_only_empty_input_returns_one(self):
+        """The empty-input early-return is the only branch that does NOT go through
+        ``fast_aucs``; lock its contract."""
+        from mlframe.metrics import fast_ice_only
+        empty_y = np.array([], dtype=np.int8)
+        empty_p = np.array([], dtype=np.float64)
+        assert fast_ice_only(y_true=empty_y, y_pred=empty_p) == 1.0
+
+
 try:
     import cupy as _cupy_test_marker  # noqa: F401
     _cupy_available = True
