@@ -16,6 +16,8 @@ import logging
 from timeit import default_timer as timer
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from pyutilz.system import get_gpuinfo_gpu_info
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
