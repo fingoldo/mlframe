@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-05-14 — `feature_selection/filters/mrmr.py`: close pre-existing `!TODO! failing when fe_max_steps>1` + README testing matrix
+
+Root-cause analysis of the legacy `# !TODO! failing when fe_max_steps>1. need other source.` annotation at `mrmr.py:867` (pre-dating this session): when `fe_max_steps>1`, the FE loop can select engineered features whose parents are themselves engineered (nested). The recipe-replay path (`_append_engineered`) only reconstructs 1-deep engineering, so deeper nests were recorded in `self._engineered_features_` but silently DROPPED from transform output. Symptoms: `n_features_` mis-counted (only raw, not raw+replayable engineered); higher-order interactions vanished without warning.
+
+Fix:
+- `n_features_` now equals `len(raw_selected) + len(_engineered_recipes_)` (transform's actual output column count).
+- When a selected engineered feature has no replayable recipe (nested-engineered parents), `logger.warning` surfaces the dropped names so the silent-loss case is visible.
+- Inline comment block at the original `!TODO!` site rewritten to document the contract (`support_` indexes raw cols; engineered cols appended via recipes in transform()).
+
+README:
+- Added `### Input-validation contracts (post-2026-05-14)` table documenting the new NaN/Inf-raise / `use_simple_mode` / `ran_out_of_time_` surfaces.
+- Added `### Testing` section enumerating the 17 dedicated test files + which areas each covers.
+
+Verification:
+- Coverage measured on the 17 new test files: 43% line coverage on `feature_selection/filters/` (5617 stmts, 3187 uncovered). Untested code is mostly GPU paths (gpu.py 16%, info_theory.py 12%), `cat_interactions.py` deep branches (21%), `stability.py` (0%). High-coverage modules: `_legacy.py` 100%, `group_aware.py` 95%, `cat_fe_state.py` 90%, `fe_baselines.py` 86%, `supervised_binning.py` 83%.
+- Full `pytest tests/feature_selection/ -m "not gpu and not slow"`: 1032 passed, 4 skipped, 16 deselected, 0 failed (14:54 wall).
+- GPU-marked perf test: 1 passed (cupy 14.0.1, CUDA device 0).
+- Out-of-scope: ruff sweep across `training/`, `feature_engineering/`, `feature_selection/wrappers/` surfaces 456 findings (UP* 269 modernization, F821 71 undefined, F811 26 redef, B023 26 late-binding, B007/F841/N* misc) -- these directories are pre-existing WIP from parallel sessions; not touched here.
+
 ## 2026-05-14 — `feature_selection/filters/`: close 5 suspected !TODO! bugs + 3 contract surfaces
 
 Follow-up to the test wave: each `# !TODO!` annotated during test authoring is either FIXED, removed (when confirmed dead), or has its surface tightened with explicit validation.
