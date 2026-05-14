@@ -1,5 +1,79 @@
 # Changelog
 
+## 2026-05-14 — `metrics.py` + `training/configs.py` + `training/trainer.py`: phase/audit-junk strip + 3 small fixes
+
+Same-rule cleanup as the `wrappers/` entry below, applied to the three heaviest junk-density modules outside `feature_selection/`.
+
+### Comment hygiene
+
+Stripped phase/wave/session markers, audit-finding IDs, date stamps (e.g. `2026-04-25 Session 6 polish:`, `2026-05-08 perf:`), fuzz seeds, banner-comment separators, refactor-history rationale, AI-justifying parentheticals - per the new [CLAUDE.md "Comments: no audit / phase / refactor junk; default to minimalism"](CLAUDE.md) rule.
+
+### Bug fixes (real, found while cleaning)
+
+- `metrics.py`: moved `_PARALLEL_REDUCTION_THRESHOLD` + `_PARALLEL_MULTILABEL_THRESHOLD` from line ~2970 to the top of the file (right after `NUMBA_NJIT_PARAMS`). The constants are read from function bodies (lines 311 / 364 / 2143 / ...); lazy name resolution made it work at runtime, but the layout was load-order fragile - a future module-level call would NameError.
+- `metrics.py:2557` (`_fast_ice_only`): called `fast_aucs_per_group_optimized(y_true=..., y_score=..., group_ids=None)` only to extract overall ROC/PR AUCs. Switched to direct `fast_aucs(...)` which does the same work without the per-group dispatcher overhead and discarded empty dict return.
+- `training/trainer.py:1285`: inner helper `_should_create_model(model_name: str)` shadowed the outer `configure_training_params(..., model_name: str = "")` parameter. Renamed inner param to `name`; 6 call sites use string literals so the rename is safe.
+
+### Investigated, NOT changed (false positives)
+
+- `metrics.py:1299` `x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)`: agent flagged as unused, but they ARE used at line 1487 in the plotly branch (`go.Scatter(x=[x_min, x_max], y=[x_min, x_max])` for the perfect-calibration diagonal).
+- `training/trainer.py:537-540`: agent flagged `try: model,*_,pre_pipeline = joblib.load(...)` as partial-mutation risk on cache-load failure. Python tuple-unpacking is atomic with the RHS expression - if `joblib.load` raises, neither `model` nor `pre_pipeline` is touched. The existing comment "Continue to training - model remains as originally passed" is accurate.
+
+### Stats
+
+| File | Before | After | Δ |
+|---|---|---|---|
+| `metrics.py` | 4545 | 3943 | -602 (-13%) |
+| `training/configs.py` | 3064 | 2672 | -392 (-13%) |
+| `training/trainer.py` | 1917 | 1757 | -160 (-8%) |
+| **Total** | **9526** | **8372** | **-1154 (-12%)** |
+
+`py_compile` clean on all three. ruff parity preserved.
+
+## 2026-05-14 — `feature_selection/wrappers/`: phase/audit-junk strip + small bug fixes + B023 closure-capture fix
+
+Cleanup pass on the 4 modules in `feature_selection/wrappers/` plus the docs (`TODO.md`, `USAGE.md`). Removed ~810 lines (19% of the package) of refactor-process commentary that belongs in git history, not in source.
+
+### Comment hygiene
+
+Stripped phase/wave markers, audit-finding IDs (`P0-A1..G34`, `PR-4/5/6`, `Perf #5`, `F5..F41`), date stamps (`2026-04-21 fix 9.8`), fuzz seed refs (`c0093/c0095`), banner separators, refactor-history rationale ("was 4 star imports, now explicit", "(kept for downstream callers)" prose beside `# noqa: F401`), AI-justifying parentheticals (`(natural Python idiom)`, `(idiomatic)`). New [CLAUDE.md "Comments: no audit / phase / refactor junk; default to minimalism (CRITICAL)"](CLAUDE.md) rule formalises this for the project.
+
+### Bug fixes (real, found while cleaning)
+
+- `_rfecv.py`: 4 dead imports removed (`random`, `warnings`, `Enum`, `Leaderboard`); none `# noqa: F401`-marked, none re-imported through this module path by callers (verified by grep across the whole codebase).
+- `_rfecv.py:1332`: dead local `model_type_name = type(fitted_estimator).__name__` - the post-PR-4 multi-estimator loop re-derives the type as `_model_type_name` per estimator (lines 1378-79); the unprefixed original was no longer read.
+- `_rfecv.py:1413`, `_rfecv.py:1641`: two dead locals (`key`, `must_set`) flagged by ruff F841, removed.
+- `_rfecv.py:1731`: half-finished diagnostic `all_per_bootstrap_freqs = []  # for diagnostics` (added in PR-4, never appended to, never exposed). The real per-feature diagnostic already lives in `self.stability_selection_freq_`; removed the dead init per "no half-finished implementations".
+- `_rfecv.py:1207` (`_eval_fold`): ruff B023 flagged loop-variable capture of `current_features` and `scores` from the enclosing scope. The bug doesn't manifest here (closure is fresh per outer iter and consumed within that iter), but standardised via default-arg pattern (`def _eval_fold(..., current_features=current_features, scores=scores)`) to make the safety explicit at def-time and silence the linter.
+- `_helpers.py:57`: added one-line WHY note above the `Can't optimze method` warning-filter pattern. The typo `optimze` is verbatim from catboost's upstream `_catboost.pyx::_jit_common_checks()` (verified against live catboost source); "fixing" the typo here would break the filter.
+
+### Modernisation
+
+- `_helpers.py`: 8 × `Union[X, Y]` → `X | Y` per ruff UP007 (file has `from __future__ import annotations`, so safe even on py38 target).
+
+### Docs
+
+- `TODO.md` rewritten 290 → 69 lines. Removed all "DONE in PR-X" status logs (those belong in git, not in a TODO file); kept only actual future-work items (mRMR pre-screening, Boruta, Group LASSO, drop-column importance, SDP/Model-X knockoffs SKIP-with-rationale).
+- `USAGE.md`: 2 line edits (stripped `(Phase 9)` from a section header; replaced `PR-12/13 profile` with a content-based description of the file's purpose).
+
+### Verification
+
+- All 4 .py files: `py_compile` clean; `ruff check feature_selection/wrappers/` → **0 findings** under the project profile.
+- pytest: 199/199 passed on the 10-file smoke subset (`test_wrappers*.py` minus heavy biz_value/h2h/phase8/stress).
+
+### Stats
+
+| File | Before | After | Δ |
+|---|---|---|---|
+| `__init__.py` | 49 | 35 | -14 |
+| `_enums.py` | 21 | 21 | 0 |
+| `_helpers.py` | 922 | 836 | -86 |
+| `_rfecv.py` | 2652 | 2162 | -490 |
+| `TODO.md` | 290 | 69 | -221 |
+| `USAGE.md` | 321 | 321 | 0 |
+| **Package total** | **4255** | **3444** | **-811 (~19%)** |
+| ruff findings | 22 | **0** | |
+
 ## 2026-05-14 — `feature_selection/filters/`: comment compression + ruff cleanup
 
 Two-wave refactor of the 26-module package extracted from the legacy 4187-LOC monolith.

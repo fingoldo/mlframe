@@ -1,27 +1,12 @@
 """Feature selection within ML pipelines. Wrappers methods. Currently includes recursive feature elimination."""
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
-import logging
-
-logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import Callable, Sequence, Union
-
 import copy
-import random
+import logging
 import textwrap
-import warnings
 from contextlib import nullcontext
-from enum import Enum
 from os.path import exists
 from timeit import default_timer as timer
+from typing import Callable, Sequence, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,7 +14,7 @@ import pandas as pd
 import polars as pl
 
 from pyutilz.system import clean_ram, tqdmu
-from pyutilz.numbalib import set_numba_random_seed  # noqa: F401  (kept for downstream callers)
+from pyutilz.numbalib import set_numba_random_seed  # noqa: F401
 from pyutilz.pythonlib import (
     get_parent_func_args,
     store_params_in_object,
@@ -43,22 +28,19 @@ from sklearn.base import (
     is_classifier,
     is_regressor,
 )
-from sklearn.dummy import DummyClassifier, DummyRegressor  # noqa: F401  (kept for downstream callers)
+from sklearn.dummy import DummyClassifier, DummyRegressor  # noqa: F401
 from sklearn.metrics import make_scorer, mean_squared_error
 from sklearn.model_selection import (
     GroupKFold,
-    GroupShuffleSplit,  # noqa: F401  (re-exported for callers)
+    GroupShuffleSplit,  # noqa: F401
     KFold,
     StratifiedGroupKFold,
     StratifiedKFold,
-    StratifiedShuffleSplit,  # noqa: F401  (re-exported for callers)
+    StratifiedShuffleSplit,  # noqa: F401
     TimeSeriesSplit,
 )
 from sklearn.pipeline import Pipeline
 
-# Project imports - was 4 star imports, now explicit. Star imports forced
-# every reader to grep for symbol origin and broke linters; replace with the
-# concrete set of names actually consumed below.
 from mlframe.config import CATBOOST_MODEL_TYPES
 from mlframe.optimization import (
     CandidateSamplingMethod,
@@ -66,7 +48,6 @@ from mlframe.optimization import (
     OptimizationDirection,
     OptimizationProgressPlotting,
 )
-from mlframe.votenrank import Leaderboard
 from mlframe.utils import set_random_seed
 from mlframe.baselines import get_best_dummy_score
 from mlframe.helpers import has_early_stopping_support
@@ -74,9 +55,6 @@ from mlframe.training.helpers import compute_cb_text_processing
 from mlframe.preprocessing import pack_val_set_into_fit_params
 from mlframe.metrics import compute_probabilistic_multiclass_error
 
-# Phase 3 module split: enums and standalone helper functions live in
-# sibling modules; we import them here so the RFECV class body can call
-# them as before.
 from ._enums import OptimumSearch, VotesAggregation
 from ._helpers import (
     _detect_multithreaded,
@@ -90,23 +68,7 @@ from ._helpers import (
     suppress_irritating_3rdparty_warnings,
 )
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Inits
-# ----------------------------------------------------------------------------------------------------------------------------
-
-
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------------------------------------------------------------
-
-
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Core
-# ----------------------------------------------------------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 class RFECV(BaseEstimator, TransformerMixin):
@@ -231,129 +193,56 @@ class RFECV(BaseEstimator, TransformerMixin):
         #
         special_feature_indices: list = None,
         conduct_final_voting: bool = False,
-        # Phase 4 N5: must_include hybrid. List of feature names (or
-        # integer indices for ndarray X) that MUST end up in support_.
-        # The optimiser only searches over the remaining features; the
-        # final support_ is the union of must_include and the optimiser's
-        # pick. Differs from special_feature_indices which forces a fixed
-        # subset and short-circuits the search after one iteration.
+        # must_include: feature names (or integer indices for ndarray X) that MUST end up in support_. The optimiser only searches over the remaining features;
+        # the final support_ is the union of must_include and the optimiser's pick. Differs from special_feature_indices which forces a fixed subset and short-circuits search.
         must_include: Union[Sequence, None] = None,
-        # Phase 4 N3: parallel CV folds. n_jobs=1 (default) keeps the
-        # current sequential behaviour. n_jobs>1 spawns joblib workers,
-        # one per fold. CRITICAL: gradient-boosting estimators (CatBoost,
-        # LightGBM, XGBoost) and tree ensembles (RandomForest) already
-        # use native multi-threading. Parallelising folds on top of that
-        # over-subscribes cores and SLOWS DOWN the run. When n_jobs>1
-        # AND a multi-threaded estimator is detected, we either auto-
-        # fallback to sequential (if force_parallel=False) or pin the
-        # estimator's thread_count/n_jobs/n_threads to 1 on each fold's
-        # clone (if force_parallel=True).
+        # n_jobs>1 spawns joblib workers, one per fold. CRITICAL: gradient-boosting estimators (CatBoost, LightGBM, XGBoost) and tree ensembles (RandomForest)
+        # already use native multi-threading; parallelising folds on top over-subscribes cores and SLOWS DOWN the run. When n_jobs>1 AND a multi-threaded estimator
+        # is detected, we either auto-fallback to sequential (force_parallel=False) or pin the estimator's thread_count/n_jobs/n_threads to 1 (force_parallel=True).
         n_jobs: int = 1,
         force_parallel: bool = False,
-        # PR-4 tactical: must_exclude is the symmetric counterpart of
-        # must_include. Features named here are dropped at fit entry so
-        # they never enter the optimiser's universe and cannot end up in
-        # support_. Use case: known target-leak columns (IDs, timestamps,
-        # post-hoc enrichments) that the operator wants to guarantee
-        # excluded from the model.
+        # must_exclude: symmetric counterpart of must_include. Named features are dropped at fit entry so they never enter the optimiser's universe and cannot
+        # end up in support_. Use case: known target-leak columns (IDs, timestamps, post-hoc enrichments) the operator wants guaranteed excluded.
         must_exclude: Union[Sequence, None] = None,
-        # PR-4 tactical: target-leakage early warning. At fit entry,
-        # check Pearson correlation between each numeric feature and y;
-        # log a WARNING for any feature with |corr| >= threshold (default
-        # 0.95). This catches the most common leak (post-hoc enrichments,
-        # ID columns that encode the target) before the model sees the
-        # leaked column. Set None to disable.
+        # leakage_corr_threshold: at fit entry, check |Pearson(X_i, y)| against this. Catches the most common leak (post-hoc enrichments, ID columns that encode
+        # the target) before the model sees the leaked column. Set None to disable.
         leakage_corr_threshold: Union[float, None] = 0.95,
-        # P0-C18: action on detected leak. 'warn' (legacy) only logs;
-        # 'exclude' auto-drops the column (treats it like must_exclude);
-        # 'raise' aborts the fit. 'exclude' is the safest production
-        # default but 'warn' is preserved as backward-compat.
+        # leakage_action: 'warn' only logs; 'exclude' auto-drops the column (treats it like must_exclude); 'raise' aborts the fit.
         leakage_action: str = "warn",
-        # PR-4 tactical: feature_groups for one-hot expansions or other
-        # logically-grouped column sets. Maps group_name -> list of column
-        # names. RFECV's support_ then reflects an all-or-nothing decision
-        # at the group level: either all members in, or all members out.
-        # Resolves the docstring's "5 collinear copies" problem at
-        # configuration level when the operator knows the groups.
+        # feature_groups: maps group_name -> list of column names; support_ then reflects an all-or-nothing decision at the group level (all members in, or all out).
+        # Resolves the "5 collinear copies" caveat at configuration level when the operator knows the groups (e.g. one-hot expansions).
         feature_groups: Union[dict, None] = None,
-        # PR-6: rule for picking n_features_ from cv_results_. 'argmax' is
-        # the legacy behaviour - argmax of (mean - lambda*std - feature_cost*N).
-        # When the score curve is FLAT around the optimum (common with multi-
-        # estimator + class_sep>=2 + few informative features), argmax
-        # collapses to the FIRST N visited that hits near-max, often
-        # under-selecting. 'one_se_max' picks the LARGEST N within 1 SE of
-        # the best mean - more robust on plateau, less likely to drop
-        # marginally-informative features. 'one_se_min' is the sklearn
-        # canonical "smallest N within 1 SE" (parsimonious, but vulnerable
-        # to plateau collapse). 'auto' uses 'one_se_max' when estimators=
-        # is a list (multi-estimator path is plateau-prone), else 'argmax'.
+        # n_features_selection_rule: rule for picking n_features_ from cv_results_.
+        #   'argmax' - argmax of (mean - lambda*std - feature_cost*N). On FLAT score curves around the optimum this collapses to the FIRST N visited near-max, often under-selecting.
+        #   'one_se_max' - LARGEST N within 1 SE of the best mean; more robust on plateau, less likely to drop marginally-informative features.
+        #   'one_se_min' - sklearn-canonical smallest N within 1 SE; parsimonious but vulnerable to plateau collapse.
+        #   'auto' - 'one_se_max' when estimators= is a list (multi-estimator is plateau-prone), else 'argmax'.
         n_features_selection_rule: str = "auto",
-        # PR-4: Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
-        # When True, replaces the MBH+CV-fold-voting search with bootstrap
-        # subsampling: B replicates of the data (n/2 sample, no replacement),
-        # fit estimator on each, count how often each feature appears in
-        # the top-K importance ranks. Feature is selected if appearance
-        # frequency >= stability_threshold. Provable error control on
-        # family-wise error rate. Strongly preferred over CV-fold voting
-        # on small n / high p problems (more robust, less variance).
+        # Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B). When True, replaces MBH+CV-fold-voting with bootstrap subsampling: B replicates of n/2 (no
+        # replacement), fit estimator on each, count how often each feature appears in the top-K importance ranks. Feature is selected if frequency >= stability_threshold.
+        # Provable family-wise error rate control. Preferred over CV-fold voting on small n / high p.
         stability_selection: bool = False,
         stability_n_bootstrap: int = 50,
         stability_threshold: float = 0.6,
         stability_top_k: Union[int, None] = None,  # default n_features // 4
-        # PR-4 multi-estimator voting. Accept list of BaseEstimators; on
-        # each CV fold fit ALL of them, gather FI from each, aggregate via
-        # the existing voting layer (Leaderboard treats each per-estimator
-        # FI run as a separate column). Robust to single-estimator FI bias
-        # (LR favours scale, RF favours high-cardinality, CB favours
-        # continuous). Supersedes ``estimator`` when set. Estimators must
-        # all be of the same type-family (classifier or regressor).
-        # Critical: do NOT parallelise across estimators - they each use
-        # native multi-threading, and parallel folds is the layer where
-        # joblib lives.
+        # estimators: list of BaseEstimators; on each CV fold fit ALL of them, gather FI from each, aggregate via the existing voting layer (Leaderboard treats each
+        # per-estimator FI run as a separate column). Robust to single-estimator FI bias (LR favours scale, RF favours high-cardinality, CB favours continuous).
+        # Supersedes ``estimator`` when set. Must all be the same type-family (classifier or regressor).
+        # Do NOT parallelise across estimators - they use native multi-threading, and parallel folds is the layer where joblib lives.
         estimators: Union[Sequence, None] = None,
-        # Phase 7: resume-from-checkpoint. When set, RFECV pickles its
-        # outer-loop state (evaluated_scores_*, optimizer, counters,
-        # best-so-far) to ``checkpoint_path`` after every iter; on a
-        # subsequent fit() with a matching (X.shape, y.shape, columns)
-        # signature the loop resumes where it left off instead of
-        # restarting from iter 0. Long runs (10k feat * 100 iter) are
-        # otherwise unrecoverable on crash. The fitted-estimators dict is
-        # NOT persisted (would dominate the file size on CB / RF
-        # ensembles). Atomic write: tmpfile + os.replace, so a crash
-        # mid-write cannot corrupt the previous checkpoint.
+        # checkpoint_path: when set, RFECV pickles outer-loop state (evaluated_scores_*, optimizer, counters, best-so-far) after every iter; on a subsequent fit()
+        # with a matching (X.shape, y.shape, columns) signature the loop resumes where it left off. The fitted-estimators dict is NOT persisted (CB / RF ensembles
+        # would dominate file size). Atomic write: tmpfile + os.replace, so a crash mid-write cannot corrupt the previous checkpoint.
         checkpoint_path: Union[str, None] = None,
-        # Phase 8: truncated SFFS final-pass swap (TODO #5).
-        # After the main MBH loop converges, run K paired swap evaluations
-        # on the best subset found: replace each of the K worst-FI features
-        # currently kept with each of the K best-FI features that were
-        # dropped. Accept any swap that improves the CV score. Cost is
-        # O(K) extra CV evaluations at the END of the run only, not
-        # per-iter (classical SFFS would run after every backward step
-        # but that's O(K) per iter * iter_count, often impractical).
-        # Default 0 = disabled (matches prior behaviour).
-        # Swap evaluations use sklearn.cross_val_score directly and so
-        # do NOT honour fit_params / val_cv / early stopping. Use it as
-        # a final-mile refinement on a converged result.
+        # swap_top_k: after the main MBH loop converges, run K paired swap evaluations on the best subset - replace each of the K worst-FI features kept with each
+        # of the K best-FI features dropped, accept any swap that improves the CV score. Cost: O(K) extra CV evaluations at the END only (classical SFFS would run
+        # after every backward step but that's O(K)*iter_count, often impractical). Default 0 = disabled.
+        # Swap evaluations use sklearn.cross_val_score directly and do NOT honour fit_params / val_cv / early stopping; use as a final-mile refinement.
         swap_top_k: int = 0,
-        # Phase 9: adaptive MBH surrogate config + escape hatch.
-        # MBH fits an internal surrogate (default: CatBoost with 150
-        # trees) to predict score-per-nfeatures and pick the next
-        # candidate. On small problems (p<=30 with cheap outer
-        # estimators like Ridge / LR) the 150-tree surrogate is the
-        # dominant cost: ~600ms-1s per fit * max_refits = 10-15s of
-        # MBH overhead vs <1s of actual CV work. cProfile pass on
-        # the h2h bench's reg_easy + clf_easy slow cases attributes
-        # 76-78% of wall-clock to the MBH surrogate fit.
-        # Auto-tune: when ``optimizer_config`` is left as None and
-        # the effective max-evaluations budget is small, use a
-        # right-sized CatBoost surrogate (20 trees for budgets up to
-        # 30, 50 trees up to 100, 150 trees above). 20 trees on 1D
-        # data with <30 score samples is ample expressive power and
-        # cuts surrogate-fit cost ~5-7x.
-        # Escape hatch: pass an explicit dict (e.g.
-        # ``{"model_name": "CBQ", "model_params": {"iterations": 50}}``
-        # or any other MBHOptimizer kwarg subset) to override the
-        # auto-tuned defaults.
+        # optimizer_config: MBH fits an internal surrogate to predict score-per-nfeatures and pick the next candidate. On small problems (p<=30 with cheap outer
+        # estimators like Ridge / LR) a 150-tree CatBoost surrogate dominates wall-clock. Auto-tune: when left None and the max-evaluations budget is small, use
+        # a right-sized surrogate (ETR n_estimators=20 for budgets up to 30; CB iterations=50 up to 100; CB iterations=150 above).
+        # Escape hatch: pass an explicit dict (e.g. ``{"model_name": "CBQ", "model_params": {"iterations": 50}}`` or any other MBHOptimizer kwarg subset) to override.
         optimizer_config: Union[dict, None] = None,
     ):
 
@@ -364,23 +253,20 @@ class RFECV(BaseEstimator, TransformerMixin):
             if verbose:
                 logger.info("Using %s fraction of the training dataset.", frac)
 
-        # P1-F25 (audit): max_refits semantics. ``0`` was silently ignored
-        # by the legacy ``if max_refits and nsteps >= max_refits`` check
-        # (because 0 is falsy). Reject explicitly.
+        # max_refits=0 would be silently ignored by ``if max_refits and ...`` (0 is falsy). Reject explicitly.
         if max_refits is not None and max_refits < 1:
             raise ValueError(
                 f"max_refits must be >= 1 (or None for unlimited); got {max_refits}. "
                 f"To run zero iterations, just don't call fit()."
             )
 
-        # P1-F27 (audit): cv=1 is degenerate (no train/test split possible).
+        # cv=1 is degenerate (no train/test split possible).
         if isinstance(cv, int) and cv < 2:
             raise ValueError(
                 f"cv must be >= 2 (or a CV splitter object); got cv={cv}. "
                 f"k-fold CV requires at least 2 splits."
             )
 
-        # P1-F31/F32 (audit): stability selection guards.
         if stability_selection:
             if not (0.0 < stability_threshold <= 1.0):
                 raise ValueError(
@@ -398,7 +284,6 @@ class RFECV(BaseEstimator, TransformerMixin):
                     f"stability_n_bootstrap must be >= 1; got {stability_n_bootstrap}."
                 )
 
-        # P1-F29 (audit): feature_groups validation - warn on missing names.
         if feature_groups:
             for _gname, _gmembers in feature_groups.items():
                 if not _gmembers:
@@ -408,31 +293,22 @@ class RFECV(BaseEstimator, TransformerMixin):
                             "will have no effect on selection.", _gname,
                         )
 
-        # P1-C18b (audit symmetry): leakage_action validation.
         if leakage_action not in ("warn", "exclude", "raise"):
             raise ValueError(
                 f"leakage_action must be 'warn', 'exclude', or 'raise'; "
                 f"got {leakage_action!r}."
             )
 
-        # P1-N3b (audit symmetry): n_features_selection_rule validation.
         if n_features_selection_rule not in ("auto", "argmax", "one_se_min", "one_se_max"):
             raise ValueError(
                 f"n_features_selection_rule must be 'auto', 'argmax', "
                 f"'one_se_min', or 'one_se_max'; got {n_features_selection_rule!r}."
             )
 
-        # assert isinstance(estimator, (BaseEstimator,))
-
-        # save params
-
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
         self.signature = None
 
-    # ------------------------------------------------------------------------
-    # Phase 8: truncated SFFS final-pass swap (TODO #5)
-    # ------------------------------------------------------------------------
     def _sffs_swap_pass(
         self, X, y, estimator, cv, scoring,
         best_nfeatures: int, best_score_ref: float,
@@ -440,11 +316,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         original_features, evaluated_scores_mean: dict,
         evaluated_scores_std: dict, verbose: int, ndigits: int,
     ) -> None:
-        """Replace each of the K worst-FI kept features with each of the
-        K best-FI dropped features and accept any swap that improves the
-        CV score. Mutates selected_features_per_nfeatures /
-        evaluated_scores_* in place. Cost: O(K) extra CV evaluations
-        executed via sklearn.model_selection.cross_val_score.
+        """Replace each of the K worst-FI kept features with each of the K best-FI dropped features and accept any swap that improves the
+        CV score. Mutates selected_features_per_nfeatures / evaluated_scores_* in place. Cost: O(K) extra CV evaluations executed via
+        sklearn.model_selection.cross_val_score.
         """
         from sklearn.model_selection import cross_val_score
 
@@ -465,11 +339,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                     continue
         fi_mean = {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
 
-        # Worst K kept (lowest FI). Features with no FI history go to the
-        # bottom (treated as 0 importance).
+        # Worst K kept (features with no FI history get 0).
         kept_sorted = sorted(best_set, key=lambda f: fi_mean.get(f, 0.0))
         swap_out = kept_sorted[:K]
-        # Best K dropped (highest FI among features NOT in best_set).
+        # Best K dropped.
         not_in_set = [f for f in original_features if f not in set(best_set)]
         not_sorted = sorted(not_in_set, key=lambda f: fi_mean.get(f, 0.0), reverse=True)
         swap_in = not_sorted[:K]
@@ -479,8 +352,6 @@ class RFECV(BaseEstimator, TransformerMixin):
         n_swaps_accepted = 0
         for out_f, in_f in zip(swap_out, swap_in):
             trial_set = [in_f if f == out_f else f for f in cur_set]
-            # Build the trial-X view. DataFrame: column-by-name slice;
-            # ndarray: integer-index slice via the original_features lookup.
             try:
                 if isinstance(X, pd.DataFrame):
                     trial_X = X[trial_set]
@@ -511,9 +382,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 cur_set = trial_set
                 cur_score = trial_mean
                 n_swaps_accepted += 1
-                # Persist the swap into the standard tracking dicts. Since
-                # |trial_set| == |best_set|, this overwrites the entry for
-                # that nfeatures count.
+                # |trial_set| == |best_set|, so this overwrites the entry for that nfeatures count.
                 _n = len(trial_set)
                 selected_features_per_nfeatures[_n] = trial_set
                 evaluated_scores_mean[_n] = trial_mean
@@ -525,18 +394,11 @@ class RFECV(BaseEstimator, TransformerMixin):
                 f"swaps accepted (best score {cur_score:.{ndigits}f})."
             )
 
-    # ------------------------------------------------------------------------
-    # Phase 8: tabular access to cv_results_ via DataFrame property
-    # ------------------------------------------------------------------------
-    # cv_results_ stays a dict-of-arrays (sklearn parity: sklearn.RFECV uses
-    # the same shape). The DataFrame property below is purely additive and
-    # avoids the silent semantics change that "0 in series" would introduce
-    # vs "0 in list" (Series.__contains__ checks the INDEX, not values).
+    # cv_results_ stays a dict-of-arrays for sklearn parity. The DataFrame property below is purely additive and avoids the silent semantics
+    # change that "0 in series" introduces vs "0 in list" (Series.__contains__ checks the INDEX, not values).
     @property
     def cv_results_df_(self) -> "pd.DataFrame":
-        """Return cv_results_ as a pd.DataFrame for tabular operations
-        (sort_values, query, plot, to_csv). Built lazily on access; raises
-        if fit() has not run."""
+        """Return cv_results_ as a pd.DataFrame for tabular operations (sort_values, query, plot, to_csv). Built lazily on access; raises if fit() has not run."""
         if not hasattr(self, "cv_results_") or "nfeatures" not in self.cv_results_:
             raise ValueError(
                 "cv_results_df_ requires fit() to have been called and "
@@ -544,23 +406,13 @@ class RFECV(BaseEstimator, TransformerMixin):
             )
         return pd.DataFrame(self.cv_results_)
 
-    # ------------------------------------------------------------------------
-    # sklearn-1.6+ tag protocol
-    # ------------------------------------------------------------------------
-    # sklearn 1.6 deprecated _get_tags / _more_tags in favour of the
-    # __sklearn_tags__ method, which returns a sklearn.utils.Tags dataclass
-    # carrying classifier/regressor type info, input contract, and request
-    # metadata. Without overriding it, downstream sklearn helpers
-    # (estimator_html_repr, check_is_fitted, set_config(transform_output=...))
-    # see RFECV as a generic transformer with no estimator-type tag and may
-    # mis-route routing requests. We delegate to the wrapped estimator's
-    # tags so downstream code knows whether RFECV is acting on a classifier
-    # or a regressor.
+    # sklearn 1.6 deprecated _get_tags / _more_tags in favour of __sklearn_tags__, which returns a sklearn.utils.Tags dataclass carrying
+    # classifier/regressor type info, input contract, and request metadata. Without overriding it, downstream sklearn helpers
+    # (estimator_html_repr, check_is_fitted, set_config(transform_output=...)) see RFECV as a generic transformer with no estimator-type
+    # tag and may mis-route routing requests. Delegate to the wrapped estimator's tags.
     def __sklearn_tags__(self):
         tags = super().__sklearn_tags__()
-        # Resolve the inner estimator (multi-estimator path uses self.estimators[0]
-        # as the type-determining estimator; single-estimator path uses
-        # self.estimator). Default to whatever super() returned otherwise.
+        # Multi-estimator path uses self.estimators[0] as the type-determining estimator; single-estimator path uses self.estimator.
         inner = None
         if getattr(self, "estimators", None):
             try:
@@ -577,25 +429,18 @@ class RFECV(BaseEstimator, TransformerMixin):
                 tags.regressor_tags = inner_tags.regressor_tags
                 tags.target_tags = inner_tags.target_tags
             except (AttributeError, TypeError):
-                # Inner estimator's tags failed to surface; keep super()'s defaults.
                 pass
         return tags
 
-    # ------------------------------------------------------------------------
-    # Phase 7: resume-from-checkpoint
-    # ------------------------------------------------------------------------
-    # Schema version of the on-disk checkpoint dict. Bump on any breaking
-    # change to the keys saved by _save_checkpoint; _load_checkpoint refuses
-    # mismatched versions and starts fresh (with a warning).
+    # Schema version of the on-disk checkpoint dict. Bump on any breaking change to the keys saved by _save_checkpoint; _load_checkpoint
+    # refuses mismatched versions and starts fresh.
     _CHECKPOINT_VERSION = 1
 
     def _save_checkpoint(self, state: dict) -> None:
         """Atomically dump RFECV outer-loop state to ``self.checkpoint_path``.
 
-        Atomicity: write to a sibling tempfile then ``os.replace`` it onto
-        the target path. ``os.replace`` is atomic on POSIX and on Windows
-        (Python >=3.3), so a crash mid-write cannot corrupt the prior
-        checkpoint.
+        Atomicity: write to a sibling tempfile then ``os.replace`` it onto the target path. ``os.replace`` is atomic on POSIX and on
+        Windows (Python >=3.3), so a crash mid-write cannot corrupt the prior checkpoint.
         """
         import os
         import pickle
@@ -619,11 +464,9 @@ class RFECV(BaseEstimator, TransformerMixin):
             raise
 
     def _load_checkpoint(self) -> Union[dict, None]:
-        """Return the checkpoint dict iff present, version-compatible, and
-        signature-matching the current self.signature; otherwise return None.
+        """Return the checkpoint dict iff present, version-compatible, and signature-matching self.signature; otherwise return None.
 
-        On any pickle error (truncated file, missing class, etc.) log a
-        warning and return None so the caller starts fresh.
+        On any pickle error (truncated file, missing class, etc.) log a warning and return None so the caller starts fresh.
         """
         import os
         import pickle
@@ -656,33 +499,21 @@ class RFECV(BaseEstimator, TransformerMixin):
 
     def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Polars -> pandas at entry. The whole RFECV path uses pandas /
-        # numpy idioms (KFold.split, current_features.index(...), pd-style
-        # passthrough_cols handling). Inner estimators run via .fit(X)
-        # also expect pandas; CatBoost on a polars Enum raises
-        # ``Unsupported data type Enum(categories=['', 'B', 'C',
-        # '__MISSING__']) for a numerical feature column`` (fuzz c0103 /
-        # c0102 / c0114 / c0147). Convert once here so every downstream
-        # caller sees pandas.
-        # ----------------------------------------------------------------------------------------------------------------------------
+        # Polars -> pandas at entry. RFECV uses pandas / numpy idioms throughout (KFold.split, current_features.index(...), passthrough_cols).
+        # Inner estimators (notably CatBoost) crash on polars Enum columns, so convert once here and let every downstream caller see pandas.
         if isinstance(X, pl.DataFrame):
             X = X.to_pandas()
         if isinstance(y, pl.Series):
             y = y.to_pandas()
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # PR-6 audit: reject pathological y / X early instead of letting
-        # sklearn raise opaque errors deep in the splitter or estimator.
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # P0-A2: y must be finite for regression / numeric for classification.
+        # Reject pathological y / X early instead of letting sklearn raise opaque errors deep in the splitter or estimator.
         try:
             y_arr = np.asarray(y)
         except Exception as exc:
             raise ValueError(f"y must be array-like; got {type(y).__name__}: {exc}") from exc
         if y_arr.size == 0:
             raise ValueError("y is empty; nothing to fit.")
-        # P0-A2/A3: NaN / Inf in y are silent miscompute traps in sklearn folds.
+        # NaN / Inf in y are silent miscompute traps in sklearn folds.
         if y_arr.dtype.kind in "fc":
             n_nan_y = int(np.isnan(y_arr).sum())
             n_inf_y = int(np.isinf(y_arr).sum())
@@ -692,7 +523,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     f"sklearn CV splitters silently mishandle these. Drop or "
                     f"impute these rows before passing y to RFECV."
                 )
-        # P0-A1: single-class y for classification is a fold-collapse trap.
+        # Single-class y for classification is a fold-collapse trap.
         if is_classifier(self.estimator if self.estimator is not None
                          else (self.estimators[0] if self.estimators else None)):
             unique_y = np.unique(y_arr)
@@ -703,7 +534,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     f"least 2 classes. Check that y is not constant or that "
                     f"upstream filtering didn't drop the minority class."
                 )
-            # P0-A5: minority-class size must support the requested CV.
+            # Minority-class size must support the requested CV.
             class_counts = np.bincount(y_arr.astype(int)) if y_arr.dtype.kind in "iu" else None
             if class_counts is not None and len(class_counts) > 0:
                 min_class = int(class_counts[class_counts > 0].min())
@@ -715,7 +546,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                         f"class. Reduce cv or oversample the minority class."
                     )
 
-        # P0-F30: must_include + must_exclude intersection is a confusing config error.
+        # must_include + must_exclude intersection is a confusing config error.
         if self.must_include and self.must_exclude:
             mi_set = set(self.must_include)
             me_set = set(self.must_exclude)
@@ -726,11 +557,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                     f"Resolve the conflict in your config."
                 )
 
-        # P1 audit X-side input checks. Run after y validation so common
-        # operator mistakes surface clearly at fit entry.
+        # X-side input checks. Run after y validation so common operator mistakes surface clearly at fit entry.
         if isinstance(X, pd.DataFrame):
-            # P1-B9: detect Inf cells in numeric columns. Estimator behaviour
-            # on Inf is undefined - LR crashes, CB silently treats as huge.
+            # Estimator behaviour on Inf is undefined - LR crashes, CB silently treats as huge.
             try:
                 _num = X.select_dtypes(include="number")
                 if _num.size > 0:
@@ -746,8 +575,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if "+/-Inf" in str(exc):
                     raise
 
-            # P1-B10: scattered NaN in cells (not whole columns) - warn so
-            # the operator knows a downstream estimator may crash.
+            # Tree-based estimators handle NaN; linear models don't.
             if getattr(self, "verbose", 0):
                 _nan_count = int(X.isna().to_numpy().sum())
                 if _nan_count > 0:
@@ -759,7 +587,6 @@ class RFECV(BaseEstimator, TransformerMixin):
                         "linear estimators.", _nan_count,
                     )
 
-            # P1-B13: object columns without explicit cat_features - warn.
             _obj_cols = X.select_dtypes(include=["object", "string", "category"]).columns.tolist()
             if _obj_cols:
                 _user_cats = set(self.cat_features or [])
@@ -773,8 +600,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                         len(_unhandled), _unhandled[:10],
                     )
 
-        # P1-B11: degenerate small-sample. n_samples < 2 * cv breaks every
-        # k-fold split. Reject cleanly.
+        # n_samples < 2 * cv breaks every k-fold split.
         cv_n = self.cv if isinstance(self.cv, int) else getattr(self.cv, "n_splits", 3)
         if X.shape[0] < 2 * cv_n:
             raise ValueError(
@@ -782,8 +608,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 f"have <2 train samples. Reduce cv or get more data."
             )
 
-        # P1-B12: p >> n with no max_nfeatures cap - the candidate space
-        # is len(features) so MBH can iterate forever. Warn loudly.
+        # p >> n with no max_nfeatures cap - MBH search space is O(p) and each iter is a CV fit, so runtime is unbounded.
         if X.shape[1] >= 5000 and self.max_nfeatures is None and getattr(self, "verbose", 0):
             logger.warning(
                 "RFECV: p=%d features with no max_nfeatures cap. The "
@@ -794,8 +619,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 X.shape[1],
             )
 
-        # P1-F26: max_runtime_mins below 1 second is almost certainly a
-        # mistake (units confusion - user passed seconds instead of mins).
+        # max_runtime_mins below 1 second is almost certainly a units-confusion mistake.
         if self.max_runtime_mins is not None:
             if self.max_runtime_mins < 0:
                 raise ValueError(f"max_runtime_mins must be >= 0; got {self.max_runtime_mins}")
@@ -807,8 +631,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     self.max_runtime_mins,
                 )
 
-        # P1-F28: cv >= n_samples (LeaveOneOut on small data) gives 1-sample
-        # test folds where most metrics are undefined.
+        # cv >= n_samples (LeaveOneOut on small data) gives 1-sample test folds where most metrics are undefined.
         if isinstance(self.cv, int) and self.cv >= X.shape[0] and getattr(self, "verbose", 0):
             logger.warning(
                 "RFECV: cv=%d >= n_samples=%d (effectively LeaveOneOut). "
@@ -818,37 +641,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                 self.cv, X.shape[0],
             )
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Zero-variance / all-null column filter (2026-04-28 batch 4 followup)
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Drop columns RFECV cannot meaningfully evaluate BEFORE we record
-        # ``feature_names_in_``. Without this, an all-NaN or single-value
-        # column entered ``feature_names_in_`` and could end up in
-        # ``support_`` (the inner CB ranker doesn't reject zero-info
-        # columns deterministically). Then a downstream pipeline step
-        # whose ``transform`` silently dropped the column (e.g.
-        # ``SimpleImputer(strategy='mean')`` with ``keep_empty_features=False``,
-        # the sklearn 1.x default) left ``RFECV.transform`` looking for a
-        # column the caller's frame no longer has - which surfaced as
-        # ``RFECV.transform: 1/N selected columns missing from input X``
-        # on fuzz seed=42 c0093 / c0095 (polars_nullable + cb_rfecv +
-        # inject_all_nan_col=True). The fix at the wrapper level is
-        # immune to whether upstream ``remove_constant_columns`` ran;
-        # zero-info columns simply never enter the selector's universe.
+        # Drop zero-variance / all-null columns BEFORE recording ``feature_names_in_``. Otherwise a constant column can land in support_ and
+        # downstream pipeline steps that silently drop it (e.g. SimpleImputer with keep_empty_features=False) cause transform-time column-set
+        # drift. Vectorised across ALL dtypes via DataFrame.nunique() so constant categorical / string / bool columns are also caught.
         if isinstance(X, pd.DataFrame) and X.shape[1] > 0:
-            # F14 fix + Perf #5 fix: vectorised across ALL dtypes (was only
-            # ``select_dtypes(include="number")`` so a constant categorical /
-            # string / bool column slipped through and could leak into
-            # ``support_``). ``DataFrame.nunique(dropna=True)`` handles every
-            # dtype pandas exposes and is one C-level pass instead of the
-            # per-column Python loop. Replaces the prior loop's ~30-300 s
-            # overhead on 10k-col x 1M-row inputs with a single nunique scan.
             try:
                 nunique = X.nunique(dropna=True)
                 degenerate = nunique[nunique <= 1].index.tolist()
             except TypeError:
-                # Fallback for exotic dtypes that nunique() can't hash; loop
-                # column-by-column and skip non-hashable ones quietly.
+                # Fallback for exotic dtypes that nunique() can't hash.
                 degenerate = []
                 for col in X.columns:
                     series = X[col]
@@ -870,20 +671,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                     )
                 X = X.drop(columns=degenerate)
 
-        # P0-B6 (audit): detect duplicate columns. After zero-variance filter,
-        # check for exact-duplicate numeric columns and drop all but one per
-        # equivalence class. Without this, RFECV's voting splits the
-        # importance of a duplicated feature across all copies, biasing
-        # selection toward isolated noise features whose FI isn't diluted.
-        # Detection: hash each column's values to bytes; group by hash.
+        # Drop exact-duplicate numeric columns. Without this, RFECV's voting splits the importance of a duplicated feature across all copies,
+        # biasing selection toward isolated noise features whose FI isn't diluted.
         if isinstance(X, pd.DataFrame) and X.shape[1] > 1:
             try:
                 _hashes = {}
                 _to_drop = []
                 for _col in X.select_dtypes(include="number").columns:
                     _arr = X[_col].values
-                    # Use bytes hash for exact equality. NaN-tolerant via
-                    # nan_to_num replacement before hashing.
+                    # Bytes hash; NaN-tolerant via nan_to_num replacement.
                     _key = np.nan_to_num(_arr, nan=-1.234e308).tobytes()
                     if _key in _hashes:
                         _to_drop.append(_col)
@@ -900,11 +696,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                         )
                     X = X.drop(columns=_to_drop)
             except (TypeError, ValueError):
-                # Non-hashable dtype - skip dedup; selector can deal with it.
+                # Non-hashable dtype - skip dedup.
                 pass
 
-        # PR-4 tactical: must_exclude. Drop named columns at fit entry so
-        # they never enter the optimiser's universe.
+        # must_exclude: drop named columns at fit entry so they never enter the optimiser's universe.
         if self.must_exclude and isinstance(X, pd.DataFrame):
             _drop = [c for c in self.must_exclude if c in X.columns]
             if _drop:
@@ -915,14 +710,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                     )
                 X = X.drop(columns=_drop)
             _missing = [c for c in self.must_exclude if c not in (list(X.columns) + _drop)]
-            # Note: missing names are silently ignored (the column is already
-            # absent so the exclusion goal is satisfied).
+            # Missing names are silently ignored: the column is already absent so the exclusion goal is satisfied.
 
-        # PR-4 tactical: target-leakage early warning. Pearson correlation
-        # between each numeric feature and y; flag any with |corr| above
-        # threshold. Common leak shapes: ID columns that encode the target,
-        # post-hoc enrichments, target-encoded categoricals computed on the
-        # full set instead of train-only.
+        # Target-leakage early warning: Pearson correlation between each numeric feature and y.
+        # Common leak shapes: ID columns that encode the target, post-hoc enrichments, target-encoded categoricals computed on the full set.
         _suspicious: list = []
         if self.leakage_corr_threshold is not None and isinstance(X, pd.DataFrame) and X.shape[0] >= 30:
             try:
@@ -930,11 +721,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if _y_arr.size == X.shape[0] and not np.all(np.isnan(_y_arr)):
                     _y_std = float(np.nanstd(_y_arr))
                     if _y_std > 1e-12:
-                        # P1-B14 (audit): use is_numeric_dtype instead of
-                        # select_dtypes(include="number") so pandas nullable
-                        # extension dtypes (Int8/Int16/Float64/...) and
-                        # boolean dtypes also enter the leakage scan.
-                        # select_dtypes silently skips them.
+                        # Use is_numeric_dtype so pandas nullable extension dtypes (Int8/.../Float64) and boolean dtypes also enter the
+                        # leakage scan; select_dtypes(include="number") silently skips them.
                         from pandas.api.types import is_numeric_dtype, is_bool_dtype
                         _numeric_cols = [c for c in X.columns
                                          if is_numeric_dtype(X[c]) or is_bool_dtype(X[c])]
@@ -949,10 +737,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                             _corr = float(np.corrcoef(_x_arr[_mask], _y_arr[_mask])[0, 1])
                             if abs(_corr) >= float(self.leakage_corr_threshold):
                                 _suspicious.append((_c, round(_corr, 4)))
-                        # Sentinel-based raising: the outer try/except below
-                        # catches only TypeError/ValueError raised by the corr
-                        # computation, NOT our intentional 'raise' action. So
-                        # we collect findings here and raise OUTSIDE the try.
+                        # The outer try/except catches only TypeError/ValueError raised by the corr computation, NOT our intentional 'raise'
+                        # action - so we collect findings here and raise OUTSIDE the try.
             except (TypeError, ValueError):
                 pass
             if _suspicious:
@@ -976,21 +762,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                 else:
                     logger.warning(_msg)
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Compute inputs/outputs signature
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        # Shape alone is not sufficient -- two datasets with identical (n, p) but
-        # different column identities must trigger a retrain; otherwise
-        # `self.support_` silently applies stale column selections.
+        # Inputs/outputs signature. Shape alone isn't enough - two datasets with identical (n, p) but different column identities must
+        # trigger a retrain, otherwise self.support_ silently applies stale column selections.
         if isinstance(X, pd.DataFrame):
             columns_key = tuple(map(str, X.columns.tolist()))
         else:
             columns_key = ("__ndarray__", int(X.shape[1]))
         signature = (X.shape, y.shape, columns_key)
-        # F6 fix: invalidate stale support_/cache at fit entry so a partial-
-        # fit failure cannot leave a previous-fit's selection silently in
-        # place. The cache is rebuilt below only on a successful path.
+        # Invalidate stale support_/cache at fit entry so a partial-fit failure cannot leave a previous-fit's selection silently in place.
+        # The cache is rebuilt below only on a successful path.
         self._selected_cols_cache = None
         if self.skip_retraining_on_same_shape:
             if signature == self.signature:
@@ -998,31 +778,21 @@ class RFECV(BaseEstimator, TransformerMixin):
                     logger.info("Skipping retraining on the same inputs signature %s", signature)
                 return self
 
-        # PR-4 stability selection branch: use bootstrap voting instead of
-        # the MBH+CV-fold-voting search. Returns early after stability
-        # selection sets support_ / n_features_ / cv_results_-shim /
-        # feature_names_in_ etc.
+        # Stability selection branch: uses bootstrap voting instead of the MBH+CV-fold-voting search. Returns early after setting
+        # support_ / n_features_ / cv_results_-shim / feature_names_in_ etc.
         if self.stability_selection:
             return self._fit_stability_selection(X=X, y=y, signature=signature)
 
-        # ---------------------------------------------------------------------------------------------------------------
-        # Inits
-        # ---------------------------------------------------------------------------------------------------------------
-
-        # PR-4 multi-estimator: ``estimators`` (list) supersedes the singular
-        # ``estimator``. We always work with a list internally; singular
-        # path is len-1 list. Score per fold = mean across estimators;
-        # FI runs stored under separate keys so the voting layer treats
-        # each estimator's importance as an independent "run".
+        # ``estimators`` (list) supersedes the singular ``estimator``. Work with a list internally; singular path is a len-1 list.
+        # Score per fold = mean across estimators; FI runs stored under separate keys so the voting layer treats each estimator's
+        # importance as an independent "run".
         estimators_list = list(self.estimators) if self.estimators else (
             [self.estimator] if self.estimator is not None else []
         )
         if not estimators_list:
             raise ValueError("RFECV requires either estimator= or estimators=.")
-        # ``estimator`` retained for legacy code paths inside fit() that need
-        # a single object for type-dispatch (CV stratification, scoring,
-        # importance_getter resolution). Use the first estimator as the
-        # representative for those decisions.
+        # ``estimator`` retained for legacy code paths inside fit() that need a single object for type-dispatch (CV stratification,
+        # scoring, importance_getter resolution). First estimator is the representative.
         estimator = estimators_list[0]
         fit_params = copy.copy(self.fit_params) if self.fit_params else {}
         max_runtime_mins = self.max_runtime_mins
@@ -1040,15 +810,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         use_fi_ranking = self.use_fi_ranking
         importance_getter = self.importance_getter
         random_state = self.random_state
-        # P0-G33 (audit): when random_state is None, derive a stable seed
-        # from the signature so that re-fits on the SAME data are
-        # deterministic. This catches the common reproducibility bug where
-        # users debug an issue and re-fit RFECV without realising self._rng
-        # was reseeded from system entropy. With this fix, calling .fit(X,y)
-        # twice on the same X,y always yields identical support_ even when
-        # random_state is left at its default None.
+        # When random_state is None, derive a stable seed from the signature so re-fits on the SAME data are deterministic. Otherwise
+        # self._rng is reseeded from system entropy on every fit, breaking reproducibility silently.
         if random_state is None:
-            # Hash the signature tuple; trim to 32-bit unsigned for numpy.
             _seed = abs(hash(signature)) % (2 ** 32)
             self._rng = np.random.default_rng(_seed)
         else:
@@ -1057,17 +821,10 @@ class RFECV(BaseEstimator, TransformerMixin):
         verbose = self.verbose
         show_plot = self.show_plot
         cat_features = self.cat_features
-        # Strip cat_features whose columns have already been numerically
-        # encoded by an upstream pipeline step (e.g. CatBoostEncoder in
-        # init_common_params turns cat_0 -> float). With cat_0 still in
-        # cat_features, the inner CatBoost.fit hits the encoded float
-        # column with cat_features=['cat_0'] and raises ``Invalid type
-        # for cat_feature ... =0.49...`` (fuzz c0102 / c0114 / c0147 /
-        # c0056 / c0070 / c0151). Restrict to columns whose dtype is
-        # still categorical/object -- those are the ones CB/XGB can
-        # actually consume as cat_features. LOCAL only -- never mutate
-        # self.cat_features (back-to-back fits across encoded/un-encoded
-        # frames must each pick the right subset for their X).
+        # Strip cat_features whose columns have already been numerically encoded by an upstream pipeline step (e.g. CatBoostEncoder turning
+        # cat_0 -> float). With cat_0 still in cat_features, inner CatBoost.fit raises ``Invalid type for cat_feature``. Restrict to columns
+        # whose dtype is still categorical/object - those are the ones CB/XGB can actually consume. LOCAL only - never mutate
+        # self.cat_features (back-to-back fits across encoded/un-encoded frames must each pick the right subset for their X).
         if cat_features and isinstance(X, pd.DataFrame):
             try:
                 _consumable_kinds = {"O", "U", "S"}
@@ -1097,14 +854,11 @@ class RFECV(BaseEstimator, TransformerMixin):
         best_desired_score = self.best_desired_score
         max_noimproving_iters = self.max_noimproving_iters
 
-        # Phase 4 N3: resolve effective n_jobs. Multi-threaded estimators
-        # (CB/LGB/XGB/RF/...) already use all cores natively; parallelising
-        # folds on top of them oversubscribes and SLOWS DOWN. Auto-fallback
-        # to sequential unless force_parallel=True (in which case we pin
-        # the inner estimator's thread params to 1 inside _eval_fold).
+        # Resolve effective n_jobs. Multi-threaded estimators (CB/LGB/XGB/RF/...) already use all cores natively; parallelising folds on top
+        # oversubscribes and SLOWS DOWN. Auto-fallback to sequential unless force_parallel=True (then pin inner threads to 1 in _eval_fold).
         n_jobs_effective = int(self.n_jobs) if self.n_jobs else 1
         if n_jobs_effective < 0:
-            # Match joblib semantics: -1 = all cores
+            # joblib semantics: -1 = all cores.
             try:
                 import os as _os
                 n_jobs_effective = max(1, (_os.cpu_count() or 1))
@@ -1141,9 +895,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         else:
             original_features = np.arange(X.shape[1])
 
-        # Phase 4 N5: must_include partition. The optimiser only sees the
-        # complement; pinned features are glued back into support_ at the
-        # end (see select_optimal_nfeatures_ ``must_include_resolved``).
+        # must_include partition: the optimiser only sees the complement; pinned features are glued back into support_ at the end.
         # Validate that every requested name is present.
         must_include_resolved: list = []
         if self.must_include:
@@ -1174,20 +926,12 @@ class RFECV(BaseEstimator, TransformerMixin):
                 )
         self._must_include_resolved = must_include_resolved
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Init cv
-        # ----------------------------------------------------------------------------------------------------------------------------
-
         if cv is None or str(cv).isnumeric():
             if cv is None:
                 cv = 3
-            # Phase 8: time-series auto-detect. If X carries a monotonic
-            # DatetimeIndex, KFold-style shuffles will leak future into
-            # past; TimeSeriesSplit is the correct choice. Triggers ONLY
-            # when groups is None (group-aware splits already handle the
-            # common temporal-grouping idiom) and the index is strictly
-            # increasing (so we don't apply TSS to randomly-shuffled
-            # datetime data, which has no ordering meaning).
+            # Time-series auto-detect: a monotonic DatetimeIndex means KFold-style shuffles would leak future into past; TimeSeriesSplit is
+            # the correct choice. Triggers ONLY when groups is None (group-aware splits already handle temporal grouping) and the index is
+            # strictly increasing (avoid TSS on randomly-shuffled datetime data, which has no ordering meaning).
             _is_time_series = False
             if groups is None and isinstance(X, pd.DataFrame):
                 _idx = X.index
@@ -1221,22 +965,16 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         if early_stopping_val_nsplits:
             try:
-                # Pre-clean get_params(): sklearn KFold-family raises ValueError
-                # if random_state is set while shuffle=False. Drop random_state
-                # in that case so we can rebuild the CV cleanly.
+                # sklearn KFold-family raises ValueError if random_state is set while shuffle=False. Drop random_state in that case.
                 _cv_params = dict(cv.get_params())
                 if _cv_params.get("shuffle") is False and _cv_params.get("random_state") is not None:
                     _cv_params["random_state"] = None
                 _cv_params["n_splits"] = early_stopping_val_nsplits
                 val_cv = type(cv)(**_cv_params)
             except (AttributeError, TypeError, ValueError):
-                # F11 fix: warn loudly when we hit the fallback path. For
-                # LeaveOneOut / iterator-based custom CVs, get_params() may
-                # not exist or n_splits is computed from the data, not a
-                # constructor arg. The setattr-style fallback below silently
-                # writes to a meaningless attribute and the CV runs with its
-                # original (often n_samples) split count, ignoring the user's
-                # ``early_stopping_val_nsplits`` request.
+                # Fallback for LeaveOneOut / iterator-based custom CVs whose get_params() may not exist or whose n_splits is computed
+                # from the data. The setattr-style fallback below may silently write to a meaningless attribute and the CV runs with its
+                # original split count, ignoring the user's early_stopping_val_nsplits request - warn loudly.
                 logger.warning(
                     "RFECV: cv=%r does not accept n_splits via get_params(); "
                     "falling back to copy.copy + attribute assignment. The user's "
@@ -1248,7 +986,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 val_cv = copy.copy(cv)
                 val_cv.n_splits = early_stopping_val_nsplits
             if not early_stopping_rounds:
-                early_stopping_rounds = 20  # TODO(2026-04-28): derive as 1/5 of n_estimators
+                early_stopping_rounds = 20
         else:
             val_cv = None
 
@@ -1261,15 +999,10 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         suppress_irritating_3rdparty_warnings()
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Init scoring
-        # ----------------------------------------------------------------------------------------------------------------------------
-
         if scoring is None:
             if is_classifier(estimator):
                 logger.info(f"Scoring omitted, using probabilistic_multiclass_error by default.")
-                # Use response_method='predict_proba' for sklearn 1.4+
-                # (needs_proba is deprecated)
+                # response_method='predict_proba' for sklearn 1.4+ (needs_proba is deprecated).
                 scoring = make_scorer(score_func=compute_probabilistic_multiclass_error, response_method="predict_proba", greater_is_better=False)
             elif is_regressor(estimator):
                 logger.info(f"Scoring omitted, using mean_squared_error by default.")
@@ -1281,27 +1014,15 @@ class RFECV(BaseEstimator, TransformerMixin):
         if verbose:
             logger.info("Scoring=%s", scoring)
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Init importance_getter
-        # ----------------------------------------------------------------------------------------------------------------------------
-
         if isinstance(estimator, Pipeline):
             estimator_type = type(estimator.steps[-1][1]).__name__
         else:
             estimator_type = type(estimator).__name__
 
         if importance_getter is None or importance_getter == "auto":
-            # F38 fix: defer the dispatch to get_feature_importances so it can
-            # look at the FITTED model's attributes. The prior hardcoded
-            # ``LogisticRegression -> coef_, else -> feature_importances_``
-            # crashed on LinearRegression / Ridge / Lasso / SVC(linear) /
-            # SGDClassifier and any other sklearn linear model that exposes
-            # only ``coef_``.
+            # Defer the dispatch to get_feature_importances so it can look at the FITTED model's attributes; a hardcoded
+            # ``LogisticRegression -> coef_, else -> feature_importances_`` crashes on Ridge / Lasso / SVC(linear) / SGDClassifier etc.
             importance_getter = "auto"
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Start evaluating different nfeatures, being guided by the selected search method
-        # ----------------------------------------------------------------------------------------------------------------------------
 
         nsteps = 0
         dummy_scores = []
@@ -1309,12 +1030,8 @@ class RFECV(BaseEstimator, TransformerMixin):
         selected_features_per_nfeatures = {}
 
         if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-            # Default plotting mode: 'No'. The previous default of
-            # OnScoreImprovement called plt.show() inside the optimizer on
-            # every score improvement, which blocks pytest / headless runs
-            # indefinitely (Qt event loop). Users who want plotting must opt
-            # in explicitly via ``optimizer_plotting='OnScoreImprovement'``,
-            # 'Regular', or 'Final'.
+            # Default plotting mode is 'No': OnScoreImprovement calls plt.show() inside the optimizer on every score improvement, which
+            # blocks pytest / headless runs indefinitely (Qt event loop). Users must opt in explicitly.
             _plotting_map = {
                 "No": OptimizationProgressPlotting.No,
                 "Final": OptimizationProgressPlotting.Final,
@@ -1328,28 +1045,17 @@ class RFECV(BaseEstimator, TransformerMixin):
                     self.optimizer_plotting, OptimizationProgressPlotting.No
                 )
 
-            # Phase 9: adaptive MBH surrogate. CatBoost has a fixed
-            # ~500ms per-fit overhead (Python<->C++ marshalling,
-            # roughly independent of n_estimators), which dominates
-            # wall-clock on tiny RFECV problems where the outer
-            # estimator fits in <10ms. The h2h bench's reg_easy and
-            # clf_easy cases attributed 76-78% of wall-clock to the MBH
-            # surrogate. Trimming ``iterations`` only recovers ~16%.
-            # Real fix: switch to a sklearn ExtraTreesRegressor surrogate
-            # when the evaluation budget is small. Pure-Python sklearn
-            # (no FFI), n_estimators=20 fits in ~20ms on the same
-            # workload -- ~27x faster than CatBoost iter=150 with
-            # equivalent quality on the RFECV 1D score curve.
-            # Quantile-style uncertainty via per-tree-prediction std
-            # (Breiman 2001 OOB variance estimate).
+            # Adaptive MBH surrogate. CatBoost has a fixed ~500ms per-fit overhead (Python<->C++ marshalling, roughly independent of
+            # n_estimators), which dominates wall-clock on tiny RFECV problems where the outer estimator fits in <10ms. Switch to a sklearn
+            # ExtraTreesRegressor surrogate when the evaluation budget is small: ETR n_estimators=20 fits in ~20ms with equivalent quality
+            # on the 1D score curve. Quantile-style uncertainty via per-tree-prediction std (Breiman 2001 OOB variance estimate).
             #
             # Decision tree:
-            #   evaluation budget <= 30: ETR n_estimators=20 (fast)
-            #   31..100:                 CatBoost iterations=50
-            #   >100:                    CatBoost iterations=150 (legacy)
+            #   evaluation budget <= 30:  ETR n_estimators=20
+            #   31..100:                  CatBoost iterations=50
+            #   >100:                     CatBoost iterations=150
             #
-            # Users override via ``optimizer_config={"model_name":...,
-            # "model_params": {...}}``.
+            # Users override via ``optimizer_config={"model_name":..., "model_params": {...}}``.
             _search_space_size = (
                 min(self.max_nfeatures, len(original_features)) + 1
                 if self.max_nfeatures
@@ -1373,8 +1079,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 _model_name = _auto_model_name
             else:
                 _model_name = _user_model_name
-                # Only fill iterations default when user picked a
-                # CatBoost-family surrogate.
+                # Only fill iterations default when the user picked a CatBoost-family surrogate.
                 if _model_name in ("CBQ", "CB") and "iterations" not in _user_model_params:
                     _user_model_params["iterations"] = 50 if _max_evals_budget <= 100 else 150
             _mbh_kwargs = dict(
@@ -1392,9 +1097,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 model_name=_model_name,
                 model_params=_user_model_params,
             )
-            # Apply the rest of optimizer_config last so user's explicit
-            # kwargs override anything we set above (e.g. they can pass
-            # plotting=..., direction=..., etc.).
+            # Apply the rest of optimizer_config last so user's explicit kwargs (plotting=..., direction=..., etc.) override our defaults.
             _mbh_kwargs.update(_user_cfg)
             Optimizer = MBHOptimizer(**_mbh_kwargs)
         else:
@@ -1404,18 +1107,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         n_noimproving_iters = 0
         best_nfeatures = 0
         best_iter = 0
-        # F21 fix: -1e6 floor was too high for high-error scorers (negative MSE
-        # on a noisy regression target hits -1e8 routinely). With the old floor
-        # ``final_score > best_score`` was False forever, n_noimproving_iters
-        # incremented every iter, and max_noimproving_iters fired prematurely.
-        # -inf is the only safe initial value for an argmax-style accumulator.
+        # -inf is the only safe initial value for an argmax-style accumulator: any finite floor (e.g. -1e6) is breached routinely by
+        # negative-MSE scorers on noisy regression, leaving ``final_score > best_score`` False forever and tripping max_noimproving_iters
+        # prematurely.
         best_score = -np.inf
 
-        # Phase 7: resume-from-checkpoint. Restore mutable outer-loop state
-        # iff the checkpoint signature matches the current (X.shape, y.shape,
-        # columns_key). The signature mismatch path silently starts fresh so
-        # users can keep the same checkpoint_path across experiments without
-        # cross-contamination.
+        # Resume-from-checkpoint: restore mutable outer-loop state iff the checkpoint signature matches the current
+        # (X.shape, y.shape, columns_key). Mismatch silently starts fresh, so users can keep the same checkpoint_path across experiments.
         if self.checkpoint_path is not None:
             _state = self._load_checkpoint()
             if _state is not None and _state.get("signature") == signature:
@@ -1431,8 +1129,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 best_iter = int(_state.get("best_iter", 0))
                 best_score = _state.get("best_score", -np.inf)
                 dummy_scores = list(_state.get("dummy_scores", []))
-                # MBHOptimizer carries its own evaluation history; restore if
-                # present and current top_predictors_search_method is MBH.
+                # MBHOptimizer carries its own evaluation history; restore if present and current search method is MBH.
                 _saved_optimizer = _state.get("optimizer")
                 if _saved_optimizer is not None and Optimizer is not None:
                     Optimizer = _saved_optimizer
@@ -1452,15 +1149,10 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         while nsteps < len(original_features):
 
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Select current set of features to work on, based on ranking received so far, and the optimum search method
-            # ----------------------------------------------------------------------------------------------------------------------------
+            # Select current set of features to work on, based on ranking received so far and the optimum search method.
 
-            # Perf hotspot fix: clean_ram() (== gc.collect()) cost ~290ms per
-            # call in the cProfile baseline (4.3s / 11% of total wall-clock
-            # on a 15-iter run). Run only every 5th iter; sklearn estimators
-            # don't leak meaningfully between iters and the per-fold clones
-            # are released by Python's reference counting before this point.
+            # clean_ram() (== gc.collect()) cost ~290ms per call in profiling (~11% of wall-clock on a 15-iter run). Run only every 5th
+            # iter; sklearn estimators don't leak meaningfully between iters.
             if nsteps % 5 == 0:
                 clean_ram()
 
@@ -1497,53 +1189,38 @@ class RFECV(BaseEstimator, TransformerMixin):
                 refresh=True,
             )
 
-            # F35 fix: defer the selected_features_per_nfeatures write until
-            # after we know whether this exploration's score beats the
-            # existing best at the same N. The prior unconditional write
-            # silently downgraded a winning subset whenever MBH revisited
-            # the same N with a worse one.
+            # Defer the selected_features_per_nfeatures write until after we know whether this exploration's score beats the existing best
+            # at the same N. An unconditional write silently downgrades a winning subset whenever MBH revisits the same N with a worse one.
 
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Each split better be different. so, even if random_state is provided, random_state to the cv is generated separately
-            # (and deterministically) each time based on the original random_state.
-            # ----------------------------------------------------------------------------------------------------------------------------
-
+            # Each split must be different: even with a fixed random_state, the per-iter CV random_state is derived deterministically.
             scores = []
 
             splitter = cv.split(X=X, y=y, groups=groups)
 
-            # Phase 4 N3: pre-materialise fold args so we can dispatch
-            # sequentially or in parallel from the same code path. Each
-            # fold gets its own pre-derived RNG seed (rather than sharing
-            # self._rng, which would race in a parallel context).
+            # Pre-materialise fold args so we can dispatch sequentially or in parallel from the same code path. Each fold gets its own
+            # pre-derived RNG seed rather than sharing self._rng, which would race in a parallel context.
             _fold_args: list = []
             for _nfold, (_tr_idx, _te_idx) in enumerate(splitter):
                 _fold_seed = int(self._rng.integers(0, 2**31 - 1))
                 _fold_args.append((_nfold, _tr_idx, _te_idx, _fold_seed))
 
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Evaluate currently selected set of features on CV
-            # ----------------------------------------------------------------------------------------------------------------------------
+            def _eval_fold(nfold, train_index, test_index, fold_seed, current_features=current_features, scores=scores):
+                """Per-fold evaluation. Returns a dict or None on skip. Fold-local state (RNG, estimator clone, fit_params) is built fresh inside.
 
-            def _eval_fold(nfold, train_index, test_index, fold_seed):
-                """Per-fold evaluation. Returns a dict or None on skip.
-                Captures loop-invariant state via closure. Fold-local state
-                (RNG, estimator clone, fit_params) is built fresh inside.
+                ``current_features`` and ``scores`` are passed as default args so they bind at def-time to the current outer-iter values; this is
+                safe because the closure is created fresh each outer iter and consumed within that iter (sequentially or via joblib.Parallel).
                 """
                 if self.min_train_size and len(train_index) < self.min_train_size:
                     return None
                 if frac:
                     size = int(len(train_index) * frac)
                     if size > 10:
-                        # Per-fold local RNG seeded deterministically; avoids
-                        # races on self._rng when joblib runs folds in parallel.
+                        # Per-fold local RNG seeded deterministically; avoids races on self._rng when joblib runs folds in parallel.
                         local_rng = np.random.default_rng(fold_seed)
                         train_index = local_rng.choice(train_index, size=size, replace=False)
 
-                # Phase 4 N5: actual fit/score uses must_include + optimiser's
-                # pick. current_features already lives in the search-universe
-                # complement (must_include filtered out at fit entry), so
-                # concatenation never duplicates.
+                # Actual fit/score uses must_include + optimiser's pick. current_features already lives in the search-universe complement
+                # (must_include filtered out at fit entry), so concatenation never duplicates.
                 if must_include_resolved:
                     fit_features = list(must_include_resolved) + list(current_features)
                 else:
@@ -1556,10 +1233,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                 if val_cv and has_early_stopping_support(estimator_type):
 
-                    # ----------------------------------------------------------------------------------------------------------------------------
-                    # Make additional early stopping split from X_train
-                    # ----------------------------------------------------------------------------------------------------------------------------
-
+                    # Additional early-stopping split from X_train.
                     if groups is not None:
                         if isinstance(groups, pd.Series):
                             train_groups = groups.iloc[train_index]
@@ -1575,10 +1249,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     if verbose > 2:
                         print(f"Val set size={len(y_val):_}, val idx sum={val_index.sum():_}")
 
-                    # ----------------------------------------------------------------------------------------------------------------------------
-                    # If estimator is known, apply early stopping to its fit params
-                    # ----------------------------------------------------------------------------------------------------------------------------
-
+                    # If the estimator type is known, craft early-stopping fit params tailored to it.
                     temp_cat_features = [current_features.index(var) for var in cat_features if var in current_features] if cat_features else None
 
                     temp_fit_params = pack_val_set_into_fit_params(
@@ -1587,32 +1258,18 @@ class RFECV(BaseEstimator, TransformerMixin):
                         y_val=y_val,
                         early_stopping_rounds=early_stopping_rounds,
                         cat_features=temp_cat_features,
-                    )  # crafts fit params with early stopping tailored to particular model type.
-                    # Filter feature-list keys (cat_features / text_features /
-                    # embedding_features) coming in via fit_params to only
-                    # columns present in the current selector iteration.
-                    # Without this, names from the outer call reference
-                    # columns dropped by the current iteration, and CB
-                    # raises ``Error while processing column for feature
-                    # 'cat_0'`` (fuzz c0103 / c0102 / c0147 / c0114).
+                    )
+                    # Filter feature-list keys (cat_features / text_features / embedding_features) coming in via fit_params to only columns
+                    # present in the current selector iteration. Otherwise names from the outer call reference columns dropped by the
+                    # current iteration and CB raises ``Error while processing column for feature 'cat_0'``.
                     #
-                    # cat_features handling: ``pack_val_set_into_fit_params``
-                    # above already injected index-based temp_cat_features
-                    # IFF that list was non-empty. When it's empty
-                    # (current_features doesn't intersect self.cat_features)
-                    # we MUST still pass a name-list filtered to current_-
-                    # features so CB doesn't fall back to auto-detect on
-                    # numerically-encoded category columns (target-encoded
-                    # cats look like floats and trip CB's "Invalid type for
-                    # cat_feature ... =0.49..." c0102 / c0147).
-                    # F17 fix: when current_features holds integer indices
-                    # (ndarray X path), set-membership against string column
-                    # names always misses and silently drops every cat_features
-                    # / text_features / embedding_features entry from
-                    # fit_params. In that case the user-supplied lists pass
-                    # through unfiltered (the inner estimator can deal with
-                    # missing column references on its own; we shouldn't
-                    # second-guess via empty filtering).
+                    # cat_features: pack_val_set_into_fit_params above already injected index-based temp_cat_features IFF that list was
+                    # non-empty. When empty (current_features doesn't intersect self.cat_features) we MUST still pass a name-list filtered
+                    # to current_features so CB doesn't fall back to auto-detect on numerically-encoded category columns (target-encoded
+                    # cats look like floats and trip CB's "Invalid type for cat_feature").
+                    # When current_features holds integer indices (ndarray X path), set-membership against string column names always
+                    # misses; in that case the user-supplied lists pass through unfiltered (the inner estimator can deal with missing
+                    # column references on its own).
                     _features_are_integer = (
                         len(current_features) > 0
                         and isinstance(current_features[0], (int, np.integer))
@@ -1645,32 +1302,17 @@ class RFECV(BaseEstimator, TransformerMixin):
                     temp_fit_params = {}
                     X_val = None
 
-                # ----------------------------------------------------------------------------------------------------------------------------
-                # Fit our estimator on current train fold. Score on test & and get its feature importances.
-                # ----------------------------------------------------------------------------------------------------------------------------
+                # Fit on current train fold, score on test, get FI.
 
-                # TODO(2026-04-28): invoke different hyper parameters generation here
-
-                # F32 + F33 fix: always clone per fold via sklearn.base.clone.
-                # The prior ``copy.copy`` was a SHALLOW copy that shared mutable
-                # state (cat_features list, set_params side effects, warm_start
-                # buffers) across folds. The keep_estimators=False branch was
-                # even worse: it reused the SAME instance fold after fold, so
-                # any set_params(text_processing=...) mutation persisted into
-                # the next iter's estimator. clone() returns an unfitted
-                # estimator with the same constructor params and NO fitted
-                # state - the canonical sklearn idiom.
+                # Always clone per fold via sklearn.base.clone. copy.copy is a SHALLOW copy that shares mutable state (cat_features list,
+                # set_params side effects, warm_start buffers) across folds. clone() returns an unfitted estimator with the same
+                # constructor params and NO fitted state.
                 fitted_estimator = clone(estimator)
 
-                # Dynamic CB ``text_processing`` calibration for THIS fold's
-                # clone (not the outer estimator). RFECV folds are typically
-                # much smaller than the outer training set; with CB's default
-                # ``occurrence_lower_bound=50`` words that occur < 50 times
-                # in the fold are pruned, leaving an empty dictionary and
-                # HANGING CB's C++ ``_train`` loop (fuzz c0056 / c0070).
-                # ``compute_cb_text_processing`` returns a config that scales
-                # the floor proportionally to fold rows, or None (no-op) when
-                # the fold is large enough for CB's defaults to work.
+                # Dynamic CB ``text_processing`` calibration for THIS fold's clone (not the outer estimator). RFECV folds are typically
+                # much smaller than the outer training set; with CB's default ``occurrence_lower_bound=50`` words that occur < 50 times in
+                # the fold are pruned, leaving an empty dictionary and HANGING CB's C++ ``_train`` loop. ``compute_cb_text_processing``
+                # returns a config that scales the floor proportionally to fold rows, or None when the fold is large enough.
                 if val_cv and has_early_stopping_support(estimator_type):
                     _temp_text_feats = _filtered_fit_params.get("text_features") or []
                     if _temp_text_feats and "CatBoost" in type(fitted_estimator).__name__:
@@ -1685,25 +1327,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                                     "(fold_rows=%s, exc=%s).", _fold_rows, _tp_exc,
                                 )
 
-                model_type_name = type(fitted_estimator).__name__ if fitted_estimator is not None else ""
-                # Empty-train guard: heavy upstream filtering (small n +
-                # outlier_detection + trainset_aging_limit) can collapse
-                # X_train / y_train to 0 rows on a CV fold; CatBoost then
-                # raises "Labels variable is empty" deep in C++ Pool init
-                # (fuzz c0079). Skip the fold cleanly with a sentinel
-                # score so the FS loop continues; this matches sklearn's
-                # behaviour for degenerate folds.
+                # Empty-train guard: heavy upstream filtering (small n + outlier_detection + trainset_aging_limit) can collapse X_train /
+                # y_train to 0 rows on a CV fold; CatBoost then raises "Labels variable is empty" deep in C++ Pool init. Skip the fold
+                # cleanly with a NaN score; sklearn's RFECV does the same on degenerate inner folds.
                 _x_n = X_train.shape[0] if hasattr(X_train, "shape") else None
                 _y_n = len(y_train) if y_train is not None and hasattr(y_train, "__len__") else None
                 if (_x_n is not None and _x_n == 0) or (_y_n is not None and _y_n == 0):
-                    # Always-on ERROR (was verbose-gated WARNING) so the
-                    # operator sees the empty-fold collapse without
-                    # extra verbosity. Continuing with NaN-score is the
-                    # right behavior -- sklearn's RFECV does the same on
-                    # degenerate inner folds. Root cause is upstream
-                    # filter aggression (OD + trainset_aging_limit
-                    # together can shrink the inner-CV training fraction
-                    # below cv splits); fix that, not this guard.
+                    # Always-on ERROR (not verbose-gated) so the operator sees the empty-fold collapse. Root cause is upstream filter
+                    # aggression (OD + trainset_aging_limit together can shrink the inner-CV training fraction below cv splits) - fix
+                    # that, not this guard.
                     logger.error(
                         "wrappers.fit: skipping fold %s - empty train slice "
                         "(rows=%s, target_len=%s). Upstream filters reduced "
@@ -1714,25 +1346,17 @@ class RFECV(BaseEstimator, TransformerMixin):
                     )
                     scores.append(np.nan)
                     feature_importances[f"{len(current_features)}_{nfold}"] = {}
-                    # Pre-existing bug surfaced by an unrelated refactor:
-                    # this `continue` was written for the outer ``while``
-                    # loop but the body has since been wrapped in a nested
-                    # ``_eval_fold`` function, so ``continue`` is no longer
-                    # legal. Return None to skip the fold cleanly (matches
-                    # the function's documented "or None on skip" contract).
+                    # The body has since been wrapped in a nested ``_eval_fold`` function so an outer-loop ``continue`` is no longer
+                    # legal; return None to skip the fold (matches the function's documented "or None on skip" contract).
                     return None
-                # PR-4 multi-estimator: fit ALL estimators (singular case is
-                # len-1 list, handled by the same loop). Score per fold = mean
-                # across estimators; FI runs stored under separate keys
-                # ("{N}_{fold}" for singular, "{N}_{fold}_e{idx}" for multi)
-                # so the voting layer treats each estimator's importances as
-                # an independent run.
+                # Multi-estimator: fit ALL estimators (singular case is a len-1 list). Score per fold = mean across estimators; FI runs
+                # stored under separate keys ("{N}_{fold}" for singular, "{N}_{fold}_e{idx}" for multi) so the voting layer treats each
+                # estimator's importances as an independent run.
                 _est_scores = []
                 _est_fi_runs = []  # list of (key, fi_dict)
                 for _est_idx, _est_proto in enumerate(estimators_list):
                     if _est_idx == 0:
-                        # First estimator already cloned + text_processing
-                        # tuned above as ``fitted_estimator``.
+                        # First estimator was already cloned + text_processing tuned above as ``fitted_estimator``.
                         _fitted = fitted_estimator
                     else:
                         _fitted = clone(_est_proto)
@@ -1755,7 +1379,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                     _score = scoring(_fitted, X_test, y_test)
                     _est_scores.append(_score)
 
-                    # Phase 4 N5: FI is computed on the actual fit_features.
+                    # FI is computed on the actual fit_features.
                     _fi_full = get_feature_importances(
                         model=_fitted, current_features=fit_features,
                         data=X_test, reference_data=X_val, target=y_test,
@@ -1773,15 +1397,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                     if keep_estimators:
                         fitted_estimators[_key] = _fitted
 
-                # Aggregate fold score (worst-case = min across estimators,
-                # given sklearn convention "higher is better"). Mean would
-                # let one strong estimator (e.g. RF on 2 informative features)
-                # mask the fact that another (e.g. LR) needs more features
-                # to converge - on the bench this collapsed multi-estimator
-                # MBH to a 2-feature solution with recall=0.25. Worst-case
-                # forces N to be where ALL estimators agree it's sufficient.
-                # If only one estimator is in play (singular path), min == mean
-                # so behaviour is unchanged.
+                # Aggregate fold score via worst-case (min) across estimators given sklearn's "higher is better". Mean would let one strong
+                # estimator (e.g. RF on 2 informative features) mask the fact that another (e.g. LR) needs more features to converge;
+                # worst-case forces N to be where ALL estimators agree it's sufficient. For the singular path (len-1 list), min == mean.
                 if _est_scores:
                     valid_scores = [s for s in _est_scores if not np.isnan(s)]
                     score = float(np.min(valid_scores)) if valid_scores else float("nan")
@@ -1791,24 +1409,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                 # Persist every estimator's FI run.
                 for _k, _fi in _est_fi_runs:
                     feature_importances[_k] = _fi
-                # Convenience alias for downstream code that referred to ``key``
-                # in the prior single-estimator path; uses the first entry.
-                key = _est_fi_runs[0][0] if _est_fi_runs else f"{len(current_features)}_{nfold}"
 
                 if 0 not in evaluated_scores_mean:
 
-                    # ----------------------------------------------------------------------------------------------------------------------------
-                    # Dummy baselines must serve as fitness @ 0 features.
-                    # ----------------------------------------------------------------------------------------------------------------------------
-
+                    # Dummy baselines serve as fitness @ 0 features.
                     if not self.nofeatures_dummy_scoring:
-                        # F5 fix: sign-direction agnostic "worse than model" placeholder.
-                        # The previous `score/10` path silently put the dummy ABOVE the model when
-                        # `_sign==1` and the score was negative (e.g. R^2 < 0 on a bad fold). Both
-                        # sklearn conventions agree that subtracting a positive number makes the
-                        # score worse: for sign=+1 lower is worse; for sign=-1 (sklearn-negated)
-                        # more negative is worse. Use magnitude-relative fudge so it scales with
-                        # whatever metric is at play (log-loss ~0.5, MSE ~1e6, R^2 ~1).
+                        # Sign-direction-agnostic "worse than model" placeholder. ``score/10`` silently put the dummy ABOVE the model when
+                        # _sign==+1 and score was negative (e.g. R^2 < 0). Subtracting a positive number always makes the score worse
+                        # under both sklearn conventions; use a magnitude-relative fudge so it scales with the metric in play (log-loss
+                        # ~0.5, MSE ~1e6, R^2 ~1).
                         fudge = max(abs(score), 1e-3) * 9.0
                         dummy_scores.append(score - fudge)
                     else:
@@ -1816,21 +1425,14 @@ class RFECV(BaseEstimator, TransformerMixin):
                             get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
                         )
 
-            # Phase 4 N3: dispatch _eval_fold sequentially or in parallel.
-            # n_jobs_effective>1 path uses prefer="threads" so we don't
-            # pickle X/y across workers (datasets stay in shared memory)
-            # and the closure can keep mutating outer state under the GIL.
-            # When n_jobs>1 AND the estimator is multi-threaded AND
-            # force_parallel=True, pin its inner threads to 1 inside the
-            # fold so we don't oversubscribe cores.
+            # Dispatch _eval_fold sequentially or in parallel. n_jobs>1 uses prefer="threads" so we don't pickle X/y across workers
+            # (datasets stay in shared memory) and the closure can keep mutating outer state under the GIL. When n_jobs>1 AND the
+            # estimator is multi-threaded AND force_parallel=True, pin inner threads to 1.
             if n_jobs_effective > 1 and _is_multithreaded and self.force_parallel:
-                # Wrap the closure to also pin threads on the per-fold clone.
                 _orig_eval_fold = _eval_fold
                 def _eval_fold_pinned(*args, _orig=_orig_eval_fold):
-                    # The closure clones the estimator INSIDE its body so we
-                    # can't reach in. Instead, pin once at the OUTER estimator;
-                    # clone() preserves params so each fold's clone inherits
-                    # thread_count=1 / n_jobs=1 from the outer.
+                    # The closure clones the estimator inside its body so we can't reach in. Pin once on the OUTER estimator; clone()
+                    # preserves params so each fold's clone inherits thread_count=1 / n_jobs=1.
                     _pin_threads_to_one(estimator)
                     return _orig(*args)
                 _fold_runner = _eval_fold_pinned
@@ -1839,8 +1441,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if n_jobs_effective > 1 and len(_fold_args) > 1:
                 from joblib import Parallel, delayed
-                # prefer="threads" - sklearn / CB / LGB / XGB all release GIL
-                # during fit, so threads give true parallelism without the
+                # prefer="threads": sklearn / CB / LGB / XGB all release GIL during fit, so threads give true parallelism without the
                 # serialisation cost of multiprocessing.
                 Parallel(n_jobs=n_jobs_effective, prefer="threads")(
                     delayed(_fold_runner)(*a) for a in _fold_args
@@ -1870,7 +1471,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 evaluated_scores_std=evaluated_scores_std,
                 self=self,
             )
-            # F35: only commit selected_features when this run actually won at its N.
+            # Only commit selected_features when this run actually won at its N.
             if was_stored:
                 selected_features_per_nfeatures[len(current_features)] = current_features
 
@@ -1885,17 +1486,10 @@ class RFECV(BaseEstimator, TransformerMixin):
             prev_nfeatures, prev_score = len(current_features), final_score
             iters_pbar.update(1)
 
-            # ----------------------------------------------------------------------------------------------------------------------------
-            # Checking exit conditions
-            # ----------------------------------------------------------------------------------------------------------------------------
-
             nsteps += 1
 
-            # Phase 7: persist outer-loop state so a crash mid-run is
-            # recoverable. fitted_estimators is intentionally NOT pickled
-            # (CB / RF ensembles dominate the file size); they will be
-            # re-fit on resume when needed by the final voting / refit
-            # path. Save errors are logged but do not abort the fit.
+            # Persist outer-loop state so a crash mid-run is recoverable. fitted_estimators is intentionally NOT pickled (CB / RF
+            # ensembles dominate file size); they are re-fit on resume when needed. Save errors are logged but do not abort the fit.
             if self.checkpoint_path is not None:
                 try:
                     self._save_checkpoint({
@@ -1923,12 +1517,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                         )
 
             if len(evaluated_scores_mean) == 2:
-                # F41 followup: the comment used to claim "0 features & all features",
-                # but iter 1 explores whatever MBH seeded (default seed: 2 features),
-                # NOT the full feature set. The early-stop is really "if the FIRST
-                # explored point is worse than the dummy baseline at 0 features,
-                # there's no point continuing". Keep the safety check, but don't
-                # mislabel what's being compared.
+                # If the first explored subset (whatever MBH seeded; default seed = 2 features) is already worse than the dummy at 0
+                # features, there's no point continuing.
                 if final_score < nofeatures_score:
                     logger.info(
                         f"Stopping RFECV early: dummy baseline at 0 features ({nofeatures_score:.{ndigits}f}) "
@@ -1968,12 +1558,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                     logger.info("Max # of noimproved iters reached: %s", n_noimproving_iters)
                 break
 
-            # P1-E22 (audit): abort early if every iter so far produced a
-            # NaN final_score. The most common cause is a custom scorer
-            # returning NaN on every fold (e.g. ROC AUC on single-class CV
-            # folds). The legacy noimproving counter would consume
-            # max_noimproving_iters worth of useless CV fits before
-            # surrendering. Detect 5 consecutive NaN iters and bail.
+            # Abort early if every iter so far produced a NaN final_score. The most common cause is a custom scorer returning NaN on every
+            # fold (e.g. ROC AUC on single-class CV folds). Without this, the noimproving counter would consume max_noimproving_iters
+            # worth of useless CV fits. Detect 5 consecutive NaN iters and bail.
             if np.isnan(final_score):
                 if not hasattr(self, "_consecutive_nan_iters"):
                     self._consecutive_nan_iters = 0
@@ -1993,15 +1580,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                     logger.info(f"Quitting as special_feature_indices were checked.")
                 break
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Phase 8: truncated SFFS final-pass swap (TODO #5).
-        # Run K paired swaps on the best subset found: replace each of the
-        # K worst-FI kept features with each of the K best-FI dropped
-        # features. Accept any swap that improves the CV score. Uses
-        # sklearn.cross_val_score directly so this is opt-in only and
-        # does NOT honour fit_params / val_cv / early stopping (those
-        # are RFECV-specific knobs that don't pass through cleanly).
-        # ----------------------------------------------------------------------------------------------------------------------------
+        # Truncated SFFS final-pass swap: run K paired swaps on the best subset found - replace each of the K worst-FI kept features with
+        # each of the K best-FI dropped features, accept any swap that improves the CV score. Uses sklearn.cross_val_score directly so it
+        # does NOT honour fit_params / val_cv / early stopping.
         if self.swap_top_k and self.swap_top_k > 0 and best_nfeatures > 0:
             try:
                 self._sffs_swap_pass(
@@ -2024,16 +1605,13 @@ class RFECV(BaseEstimator, TransformerMixin):
                 if verbose:
                     logger.warning("RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Saving best result found so far as final
-        # ----------------------------------------------------------------------------------------------------------------------------
-
+        # Save best result found so far as final.
         self.n_features_in_ = X.shape[1]
         self.feature_names_in_ = X.columns.tolist() if isinstance(X, pd.DataFrame) else list(map(str, np.arange(self.n_features_in_)))
 
-        self.estimators_ = fitted_estimators  # a dict with key=nfeatures_nfold
-        self.feature_importances_ = feature_importances  # a dict with key=nfeatures_nfold
-        self.selected_features_ = selected_features_per_nfeatures  # a dict with key=nfeatures
+        self.estimators_ = fitted_estimators  # dict keyed by nfeatures_nfold
+        self.feature_importances_ = feature_importances  # dict keyed by nfeatures_nfold
+        self.selected_features_ = selected_features_per_nfeatures  # dict keyed by nfeatures
 
         checked_nfeatures = sorted(evaluated_scores_mean.keys())
         cv_std_perf = [evaluated_scores_std[n] for n in checked_nfeatures]
@@ -2055,15 +1633,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             show_plot=show_plot,
         )
 
-        # Phase 4 N5: glue must_include into the final support_. The optimiser
-        # produced a support_ over the search-universe complement only;
-        # must_include features are always in the final selection regardless
-        # of what the optimiser picked.
+        # Glue must_include into the final support_. The optimiser produced support_ over the search-universe complement only;
+        # must_include features are always in the final selection regardless of what the optimiser picked.
         if must_include_resolved and hasattr(self, "support_") and len(self.support_) > 0:
-            must_set = set(must_include_resolved)
             if isinstance(self.support_[0], (bool, np.bool_)):
-                # support_ is bool-mask aligned with feature_names_in_;
-                # set the must_include positions to True.
+                # support_ is bool-mask aligned with feature_names_in_; set the must_include positions to True.
                 support_mask = np.asarray(self.support_, dtype=bool)
                 for col in must_include_resolved:
                     if col in self.feature_names_in_:
@@ -2076,13 +1650,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                 self.support_ = np.asarray(merged)
             self.n_features_ = int(np.sum(self.support_)) if isinstance(self.support_[0], (bool, np.bool_)) else len(self.support_)
 
-        # PR-4 tactical: feature_groups - all-or-nothing decision per group.
-        # If ANY member of group G is in support_, ALL members of G are added;
-        # if NONE, all stay out. Resolves the "5 collinear copies" docstring
-        # caveat at config level when the operator knows the group structure
-        # (e.g. one-hot expansions, correlated clusters).
+        # feature_groups: all-or-nothing decision per group. If ANY member of group G is in support_, ALL members are added; if NONE, all
+        # stay out. Resolves the "5 collinear copies" caveat at config level when the operator knows the group structure.
         if self.feature_groups and hasattr(self, "support_") and len(self.support_) > 0:
-            # Convert support_ to bool-mask form for uniform handling
+            # Convert support_ to bool-mask form for uniform handling.
             if isinstance(self.support_[0], (bool, np.bool_)):
                 support_mask = np.asarray(self.support_, dtype=bool)
             else:
@@ -2126,18 +1697,13 @@ class RFECV(BaseEstimator, TransformerMixin):
     def _fit_stability_selection(self, X, y, signature):
         """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
 
-        Bootstrap-based feature selection. For each of B bootstrap subsamples
-        (n/2, no replacement), fit the estimator(s) and record which features
-        appeared in the top-K by importance. A feature is finally selected
-        if its appearance frequency >= ``stability_threshold`` (typically
-        0.6-0.9). Provable error control: E[V] <= q^2 / ((2*pi - 1) * p),
-        where q is the average number of selected features per bootstrap
-        and pi is the threshold.
+        Bootstrap-based feature selection. For each of B bootstrap subsamples (n/2, no replacement), fit the estimator(s) and record which
+        features appeared in the top-K by importance. A feature is selected if its appearance frequency >= ``stability_threshold``
+        (typically 0.6-0.9). Provable error control: E[V] <= q^2 / ((2*pi - 1) * p), where q is the average number of selected features
+        per bootstrap and pi is the threshold.
 
-        Particularly robust on small-n / high-p problems where per-fold CV
-        voting is dominated by sampling noise. Multi-estimator support: if
-        ``self.estimators`` is set, FI is averaged across them inside each
-        bootstrap.
+        Particularly robust on small-n / high-p problems where per-fold CV voting is dominated by sampling noise. If ``self.estimators`` is
+        set, FI is averaged across them inside each bootstrap.
         """
         estimators_list = list(self.estimators) if self.estimators else [self.estimator]
         importance_getter = self.importance_getter or "auto"
@@ -2149,15 +1715,13 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         top_k = self.stability_top_k
         if top_k is None:
-            # Default: top quartile - generous enough that informative
-            # features clearly above the noise floor will hit threshold.
+            # Top quartile - generous enough that informative features clearly above the noise floor will hit threshold.
             top_k = max(1, n_features // 4)
         top_k = min(int(top_k), n_features)
 
         # Subsample size: n/2, the standard Meinshausen-Buhlmann choice.
         sub_size = max(2, n_samples // 2)
         selection_counts = np.zeros(n_features, dtype=int)
-        all_per_bootstrap_freqs = []  # for diagnostics
 
         if self.verbose:
             logger.info(
@@ -2176,7 +1740,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             y_arr = np.asarray(y)
             y_sub = y_arr[idx]
 
-            # Aggregate FI across estimators within this bootstrap (mean rank).
+            # Aggregate FI across estimators within this bootstrap.
             per_feature_score_sum = np.zeros(n_features, dtype=float)
             for est in estimators_list:
                 est_clone = clone(est)
@@ -2203,12 +1767,12 @@ class RFECV(BaseEstimator, TransformerMixin):
                             b, exc,
                         )
                     continue
-                # Convert to numpy array aligned with feature_names
+                # Align with feature_names.
                 fi_arr = np.array([float(fi_dict.get(n, 0.0)) for n in feature_names])
                 fi_arr = np.where(np.isnan(fi_arr), 0.0, fi_arr)
                 per_feature_score_sum += fi_arr
 
-            # Top-K from this bootstrap (across-estimator mean importance)
+            # Top-K from this bootstrap (across-estimator mean importance).
             if per_feature_score_sum.sum() <= 0:
                 continue
             top_idx = np.argsort(per_feature_score_sum)[::-1][:top_k]
@@ -2217,15 +1781,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         selection_freq = selection_counts / max(1, int(self.stability_n_bootstrap))
         support_mask = selection_freq >= float(self.stability_threshold)
 
-        # Apply must_include: pinned features always in support_.
+        # must_include: pinned features always in support_.
         must_include_resolved = list(self.must_include) if self.must_include else []
         if must_include_resolved:
             for c in must_include_resolved:
                 if c in feature_names:
                     support_mask[feature_names.index(c)] = True
 
-        # Public state: same shape as the regular path so transform/
-        # get_feature_names_out / selection_stability_ all work.
+        # Public state: same shape as the regular path so transform / get_feature_names_out / selection_stability_ all work.
         self.feature_names_in_ = list(feature_names)
         self.n_features_in_ = n_features
         self.support_ = support_mask
@@ -2238,11 +1801,9 @@ class RFECV(BaseEstimator, TransformerMixin):
             "cv_mean_perf": [float(selection_freq[support_mask].mean()) if support_mask.any() else 0.0],
             "cv_std_perf": [0.0],
         }
-        # Surface the per-feature stability frequencies for inspection /
-        # downstream weighting. Aligned with feature_names_in_.
+        # Per-feature stability frequencies for inspection / downstream weighting, aligned with feature_names_in_.
         self.stability_selection_freq_ = selection_freq
 
-        # Cache resolved column list so transform() avoids per-call rebuild.
         self._selected_cols_cache = [c for c, s in zip(feature_names, support_mask) if s]
         self.signature = signature
 
@@ -2284,31 +1845,18 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         ultimate_perf = base_perf - np.array(checked_nfeatures) * feature_cost
 
-        # PR-6: resolve the n_features selection rule.
-        # - multi-estimator (estimators=...) -> 'one_se_max' (avoids the
-        #   collapse-to-2 caveat documented in PR-5 - the strong estimator
-        #   masks a weak estimator's need for more features)
-        # - singular estimator -> 'argmax' (legacy default; benchmark shows
-        #   higher recall on small data than one_se_min because MBH's
-        #   sparse exploration of N values means the 1-SE band can be
-        #   dominated by accidental small-N points)
-        # Users who want parsimonious selection (e.g. on n>>p where score
-        # plateau is wide) should opt into 'one_se_min' explicitly.
+        # Resolve n_features selection rule.
+        #   multi-estimator -> 'one_se_max' (avoids the multi-estimator collapse-to-2: a strong estimator can mask a weak estimator's need for more features)
+        #   singular -> 'argmax' (legacy; on small data the 1-SE band can be dominated by accidental small-N points due to MBH's sparse N exploration)
+        # Users who want parsimonious selection on wide score plateaus should opt into 'one_se_min' explicitly.
         rule = getattr(self, "n_features_selection_rule", "auto")
         if rule == "auto":
             rule = "one_se_max" if getattr(self, "estimators", None) else "argmax"
 
         nfeatures_arr = np.array(checked_nfeatures)
         nonzero_mask = nfeatures_arr > 0
-        # Honor max_nfeatures as a HARD cap on the final pick. The
-        # optimiser is allowed to evaluate larger N values during
-        # search (e.g. an all-features baseline at iter=0), but the
-        # final selection must NEVER exceed ``self.max_nfeatures``
-        # when set. Previously this constraint was only applied to
-        # the MBH search space (lines 1354 / 1382) but not to the
-        # post-search argmax / one_se_* selection -- so a high-N
-        # baseline could win the final selection in violation of the
-        # user's stated cap.
+        # Honour max_nfeatures as a HARD cap on the final pick. The optimiser may evaluate larger N during search (e.g. an all-features
+        # baseline at iter=0), but the final selection must NEVER exceed self.max_nfeatures when set.
         max_nf = getattr(self, "max_nfeatures", None)
         if max_nf is not None:
             nonzero_mask = nonzero_mask & (nfeatures_arr <= max_nf)
@@ -2322,10 +1870,7 @@ class RFECV(BaseEstimator, TransformerMixin):
             return
 
         if rule == "argmax":
-            # Legacy behaviour: pick the index with the highest ultimate_perf
-            # among the candidate N values. ``nonzero_mask`` now also
-            # honours ``max_nfeatures``: only N <= max_nfeatures (and > 0)
-            # are eligible.
+            # Pick the index with the highest ultimate_perf among the candidate N values; nonzero_mask honours max_nfeatures.
             sorted_idx = np.argsort(ultimate_perf)[::-1]
             best_idx = None
             for idx in sorted_idx:
@@ -2333,10 +1878,8 @@ class RFECV(BaseEstimator, TransformerMixin):
                     best_idx = idx
                     break
         else:
-            # one_se_max / one_se_min: build the SE band around the best
-            # mean (cv_mean_perf, the *unadjusted* score so 1-SE has its
-            # standard interpretation), then pick the largest or smallest
-            # N within the band.
+            # one_se_max / one_se_min: build the SE band around the best mean (cv_mean_perf - the *unadjusted* score, so 1-SE has its
+            # standard interpretation), then pick the largest or smallest N within the band.
             mean_arr = np.array(cv_mean_perf)
             std_arr = np.array(cv_std_perf)
             nz_idx = np.where(nonzero_mask)[0]
@@ -2376,17 +1919,13 @@ class RFECV(BaseEstimator, TransformerMixin):
             if plot_file:
                 plt.savefig(plot_file)
             if show_plot:
-                # Non-blocking show: the legacy plt.show() (block=True default)
-                # froze the script behind a modal Qt window. Pair with a tiny
-                # pause to flush the GUI event loop so the figure actually
-                # renders before training continues / exits.
+                # Non-blocking show: plt.show(block=True) (the default) freezes the script behind a modal Qt window. Pair with a tiny pause
+                # to flush the GUI event loop so the figure actually renders before training continues / exits.
                 try:
                     plt.show(block=False)
                     plt.pause(0.001)
                 except Exception:
                     pass
-
-        # after making a cutoff decision:
 
         self.n_features_ = best_top_n
         if best_top_n == 0:
@@ -2395,8 +1934,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             if not self.conduct_final_voting:
 
-                # An obvious solution is to return exact features that we used when measuring scores.
-                # Convert feature_name to string if feature_names_in_ contains strings (ndarray case)
+                # Return exactly the features used when measuring scores.
                 selected = self.selected_features_[best_top_n]
                 # Represent support_ as a boolean mask for consistency with sklearn's RFE API.
                 if self.feature_names_in_ and isinstance(self.feature_names_in_[0], str):
@@ -2408,10 +1946,7 @@ class RFECV(BaseEstimator, TransformerMixin):
 
             else:
 
-                # ----------------------------------------------------------------------------------------------------------------------------
-                # A more advanced alternative would be to last time vote for feature_importances using all info up to date
-                # ----------------------------------------------------------------------------------------------------------------------------
-
+                # Advanced alternative: vote for feature_importances using all info up to date.
                 fi_to_consider = select_appropriate_feature_importances(
                     feature_importances=self.feature_importances_,
                     nfeatures=best_top_n,
@@ -2437,10 +1972,10 @@ class RFECV(BaseEstimator, TransformerMixin):
             )
 
     def get_feature_names_out(self, input_features=None):
-        """sklearn-1.x transformer protocol. Returns the names of the selected
-        features as an ndarray of str, matching what ``transform`` will produce
-        as columns. Compatible with sklearn Pipelines that call this method
-        for downstream feature naming (ColumnTransformer, set_output)."""
+        """sklearn-1.x transformer protocol. Returns the names of the selected features as an ndarray of str, matching what ``transform``
+        produces as columns. Compatible with sklearn Pipelines that call this method for downstream feature naming
+        (ColumnTransformer, set_output).
+        """
         if not hasattr(self, "support_"):
             raise ValueError("RFECV is not fitted; call fit() first.")
         cache = getattr(self, "_selected_cols_cache", None)
@@ -2456,16 +1991,15 @@ class RFECV(BaseEstimator, TransformerMixin):
         return np.asarray([self.feature_names_in_[i] for i in self.support_], dtype=object)
 
     def selection_stability_(self, metric: str = "jaccard") -> float:
-        """Mean pairwise feature-selection stability across CV folds at the
-        chosen ``n_features_``. Free signal extracted from feature_importances_,
-        no extra fits required.
+        """Mean pairwise feature-selection stability across CV folds at the chosen ``n_features_``. Free signal extracted from
+        feature_importances_, no extra fits required.
 
         Args:
             metric: 'jaccard' (default), 'dice', or 'kuncheva'.
 
         Returns:
-            Float in [0, 1] (1 = identical selections across folds, 0 = disjoint).
-            Returns NaN when fewer than 2 folds have FI data at n_features_.
+            Float in [0, 1] (1 = identical selections across folds, 0 = disjoint). Returns NaN when fewer than 2 folds have FI data
+            at n_features_.
         """
         if not hasattr(self, "feature_importances_") or not hasattr(self, "n_features_"):
             raise ValueError("RFECV is not fitted; call fit() first.")
@@ -2494,9 +2028,7 @@ class RFECV(BaseEstimator, TransformerMixin):
                 denom = len(a) + len(b)
                 return (2 * inter) / denom if denom else 1.0
             if metric == "kuncheva":
-                # Kuncheva's index normalises by chance overlap; needs the
-                # universe size N (total features). Range: [-1, 1] but
-                # clamped to [0, 1] here for a uniform interpretation.
+                # Kuncheva's index normalises by chance overlap; needs the universe size N. Range [-1, 1] but clamped to [0, 1] here.
                 k = len(a)  # |a| == |b| == n_features_ by construction
                 N = self.n_features_in_
                 if k == 0 or N == 0 or k == N:
@@ -2514,13 +2046,10 @@ class RFECV(BaseEstimator, TransformerMixin):
         return float(np.mean(pairs)) if pairs else float("nan")
 
     def n_features_one_se_(self) -> int:
-        """1-SE rule: smallest N whose CV mean is within one standard error
-        of the best CV mean. Often selected over n_features_ when the operator
-        wants the most parsimonious model that's not statistically distinguishable
-        from the optimum.
+        """1-SE rule: smallest N whose CV mean is within one standard error of the best CV mean. Often selected over n_features_ when the
+        operator wants the most parsimonious model that's not statistically distinguishable from the optimum.
 
-        Returns the integer count, or n_features_ as a fallback if cv_results_
-        is unavailable.
+        Returns the integer count, or n_features_ as a fallback if cv_results_ is unavailable.
         """
         if not hasattr(self, "cv_results_") or not self.cv_results_.get("nfeatures"):
             return getattr(self, "n_features_", 0)
@@ -2529,16 +2058,15 @@ class RFECV(BaseEstimator, TransformerMixin):
         stds = np.asarray(self.cv_results_["cv_std_perf"], dtype=float)
         if len(means) == 0:
             return getattr(self, "n_features_", 0)
-        # Exclude the 0-features dummy from selection
+        # Exclude the 0-features dummy.
         nonzero = nfeatures > 0
         if not nonzero.any():
             return getattr(self, "n_features_", 0)
         nf, m, s = nfeatures[nonzero], means[nonzero], stds[nonzero]
-        # mean_perf_weight + std_perf_weight already baked into final_score;
-        # for 1-SE we need the *unadjusted* mean. cv_mean_perf is the raw mean.
+        # mean_perf_weight + std_perf_weight are baked into final_score; for 1-SE we need the unadjusted mean - cv_mean_perf is raw.
         best_idx = int(np.argmax(m))
         threshold = m[best_idx] - s[best_idx]
-        # Smallest N whose mean >= threshold
+        # Smallest N whose mean >= threshold.
         eligible = nf[m >= threshold]
         if len(eligible) == 0:
             return int(nf[best_idx])
@@ -2548,16 +2076,12 @@ class RFECV(BaseEstimator, TransformerMixin):
                                   random_state: Union[int, None] = None) -> tuple:
         """Parametric bootstrap CI on the optimal n_features_.
 
-        Draws B bootstrap replicates of the cv_results_ score curve by sampling
-        each (mean, std) pair as Normal(mean, std), recomputes argmax over the
-        non-zero N values for each replicate, returns (low_pct, n_features_,
-        high_pct) where the percentiles bracket ``ci`` mass of the bootstrap
-        distribution.
+        Draws B bootstrap replicates of the cv_results_ score curve by sampling each (mean, std) pair as Normal(mean, std), recomputes
+        argmax over the non-zero N values for each replicate, returns (low_pct, n_features_, high_pct) where the percentiles bracket
+        ``ci`` mass of the bootstrap distribution.
 
-        Use this to gauge whether n_features_=N is meaningfully different from
-        N+5 or N-5 - if the CI is wide the operator should be cautious about
-        the exact N choice. PARAMETRIC bootstrap (no raw per-fold scores
-        retained), so it under-estimates true uncertainty when fold scores are
+        Use this to gauge whether n_features_=N is meaningfully different from N+/-5; a wide CI suggests caution about the exact N
+        choice. Parametric bootstrap (no raw per-fold scores retained), so it under-estimates true uncertainty when fold scores are
         non-Normal.
         """
         if not hasattr(self, "cv_results_") or not self.cv_results_.get("nfeatures"):
@@ -2585,23 +2109,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         return (low, int(n), high)
 
     def transform(self, X, y=None):
-        # 2026-04-28: when ``X`` arrives as a polars DataFrame (callers
-        # like ``_passthrough_cols_fit_transform`` keep the native
-        # frame), the legacy ``X[:, self.support_]`` mask path raises
-        # ``expected N values when selecting columns by boolean mask,
-        # got M`` if the polars schema has more cols than the fit-time
-        # ``support_`` (because ``RFECV.fit`` dropped zero-variance cols
-        # at entry, see line 256). Convert to pandas so the name-keyed
-        # transform path below kicks in and the column-set drift becomes
-        # a clear ``RuntimeError`` instead of an opaque polars index
-        # mismatch. Surfaced default-seed c0016
-        # (cb_hgb_xgb / pl_nullable / confidence_analysis_cfg=True).
+        # Polars X (callers like _passthrough_cols_fit_transform keep the native frame) breaks the legacy ``X[:, self.support_]`` mask
+        # path with ``expected N values when selecting columns by boolean mask, got M`` when the polars schema has more cols than the
+        # fit-time support_ (because RFECV.fit dropped zero-variance cols at entry). Convert to pandas so the name-keyed transform path
+        # kicks in and column-set drift becomes a clear RuntimeError instead of an opaque polars index mismatch.
         if isinstance(X, pl.DataFrame):
             X = X.to_pandas()
-        # P0-G34: sklearn convention - transform on unfitted estimator
-        # raises NotFittedError. Prior code silently returned X unchanged,
-        # which mascaraded a config bug as a successful transform and let
-        # downstream pipelines run on the wrong column set.
+        # transform on an unfitted estimator must raise NotFittedError; silently returning X unchanged masquerades a config bug as a
+        # successful transform and lets downstream pipelines run on the wrong column set.
         if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
             from sklearn.exceptions import NotFittedError
             raise NotFittedError(
@@ -2610,15 +2125,13 @@ class RFECV(BaseEstimator, TransformerMixin):
             )
         support = self.support_
         if len(support) == 0:
-            # Return empty DataFrame/array with same rows but no columns
-            # This signals that feature selection found no useful features
+            # Empty DataFrame/array with same rows but no columns: feature selection found no useful features.
             if isinstance(X, pd.DataFrame):
                 return X.iloc[:, []]
             else:
                 return X[:, np.array([], dtype=np.intp)]
         if isinstance(X, pd.DataFrame):
-            # Use column names (not .iloc) to support Arrow-backed DataFrames
-            # from polars zero-copy conversion - they don't support
+            # Use column names (not .iloc) to support Arrow-backed DataFrames from polars zero-copy conversion - they don't support
             # .iloc[:, integer_array] reliably.
             selected_cols = getattr(self, "_selected_cols_cache", None)
             if selected_cols is None:
@@ -2626,12 +2139,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                     selected_cols = [col for col, selected in zip(self.feature_names_in_, self.support_) if selected]
                 else:
                     selected_cols = [self.feature_names_in_[i] for i in self.support_]
-            # Column-set drift between fit-time and transform-time is a hard
-            # error: the fit-time zero-variance filter ensures
-            # feature_names_in_ never contains columns sklearn pipeline
-            # steps may silently drop. If we still see drift, an upstream
-            # step is mutating the schema between fit and transform - a
-            # real pipeline-order bug we want surfaced loud, not masked.
+            # Column-set drift between fit-time and transform-time is a hard error: the fit-time zero-variance filter ensures
+            # feature_names_in_ never contains columns sklearn pipeline steps may silently drop. If we still see drift, an upstream
+            # step is mutating the schema between fit and transform.
             missing = [c for c in selected_cols if c not in X.columns]
             if missing:
                 raise RuntimeError(

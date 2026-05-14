@@ -1,14 +1,4 @@
-"""Helper functions for the RFECV wrapper module.
-
-Split out of the prior monolithic wrappers.py to keep each layer focused:
-- split_into_train_test: dataframe / ndarray / polars-aware fold splitting
-- store_averaged_cv_scores: NaN-safe per-iter score aggregation with best-stored gating
-- get_feature_importances: importance_getter dispatch (auto / coef_ / feature_importances_ / permutation / shap / callable)
-- select_appropriate_feature_importances + get_actual_features_ranking: voting layer
-- get_next_features_subset: optimiser-driven candidate selection
-- multi-threaded estimator detection helpers (Phase 4 N3)
-- suppress_irritating_3rdparty_warnings
-"""
+"""Helper functions for the RFECV wrapper module."""
 from __future__ import annotations
 
 import logging
@@ -28,15 +18,9 @@ from ._enums import OptimumSearch, VotesAggregation
 logger = logging.getLogger(__name__)
 
 
-# ----------------------------------------------------------------------------
-# Multi-threaded estimator detection (Phase 4 N3)
-# ----------------------------------------------------------------------------
-
 # Class-name fragments for estimators that already use native multi-threading.
-# Parallelising CV folds on top of these over-subscribes cores - one outer
+# Parallelising CV folds on top of these over-subscribes cores: one outer
 # joblib worker per fold * N inner threads per fit = N x core_count > cores.
-# Phase 4 N3 detects this and either auto-falls-back to sequential (default)
-# or pins inner threads to 1 (force_parallel=True path).
 _MULTITHREADED_ESTIMATOR_PATTERNS = (
     "CatBoost", "LGBM", "LightGBM", "XGB", "XGBoost",
     "RandomForest", "ExtraTrees", "GradientBoosting", "HistGradientBoosting",
@@ -48,18 +32,13 @@ _THREAD_PARAMS = ("thread_count", "n_jobs", "n_threads", "nthread", "num_threads
 
 
 def _detect_multithreaded(estimator: object) -> bool:
-    """True if the estimator's class name matches a known multi-threaded
-    pattern (CatBoost / LightGBM / XGBoost / RandomForest / ExtraTrees /
-    GradientBoosting / HistGradientBoosting). Used by Phase 4 N3 to decide
-    whether parallelising CV folds would over-subscribe cores."""
+    """True if the estimator's class name matches a known multi-threaded pattern."""
     name = type(estimator).__name__
     return any(p in name for p in _MULTITHREADED_ESTIMATOR_PATTERNS)
 
 
 def _pin_threads_to_one(estimator: object) -> None:
-    """Attempt to set every known thread-count param to 1 on the estimator's
-    constructor params. Best-effort: some params may not exist on every
-    estimator type; ignore those silently."""
+    """Best-effort: set every known thread-count param to 1 on ``estimator``."""
     if not hasattr(estimator, "set_params"):
         return
     try:
@@ -75,14 +54,10 @@ def _pin_threads_to_one(estimator: object) -> None:
 
 
 def suppress_irritating_3rdparty_warnings() -> None:
+    # "optimze" typo is verbatim from catboost's _catboost.pyx _jit_common_checks(); do not "fix" it or the filter stops matching.
     for message in [r"Can't optimze method \"evaluate\" because self argument is used"]:
-        # Filter out the specific warning message using a substring or regex pattern.
         warnings.filterwarnings("ignore", category=UserWarning, message=message)
 
-
-# ----------------------------------------------------------------------------
-# Knockoffs (Barber & Candes 2015) - high-card-bias-free feature importance
-# ----------------------------------------------------------------------------
 
 def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np.ndarray:
     """Generate fixed-design Gaussian knockoffs (Barber-Candes 2015).
@@ -130,19 +105,16 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
     # Replace any NaNs (from constant columns) with 0
     X_std = np.where(np.isnan(X_std), 0.0, X_std)
 
-    # Sigma = correlation matrix. Add tiny ridge so it's positive definite
-    # even on near-collinear inputs.
+    # Sigma = correlation matrix. Tiny ridge keeps it positive definite on near-collinear inputs.
     Sigma = (X_std.T @ X_std) / max(1, n - 1)
     Sigma = Sigma + 1e-8 * np.eye(p)
 
     # Equicorrelated s: s_j = s for all j, where s = min(2*lambda_min, 1).
-    # This is the standard cheap choice. lambda_min(Sigma) sets the cap.
     eigvals = np.linalg.eigvalsh(Sigma)
     lam_min = float(max(eigvals[0], 1e-8))
-    # P1-B7 (audit): when Sigma is near-singular (e.g. anti-correlated pairs
-    # X_j = -X_k or 100% collinear copies), lam_min ~ 1e-8 -> s_val ~ 2e-8
-    # -> X_tilde becomes ~ X (self-corr ~ 1, useless as knockoff).
-    # Detect this case and warn so the user knows knockoffs won't help here.
+    # When Sigma is near-singular (anti-correlated pairs X_j = -X_k or 100% collinear copies),
+    # lam_min ~ 1e-8 -> s_val ~ 2e-8 -> X_tilde becomes ~ X (self-corr ~ 1, useless as knockoff).
+    # Warn so the user knows knockoffs won't help here.
     if lam_min < 1e-4:
         logger.warning(
             "make_gaussian_knockoffs: input correlation matrix has "
@@ -157,8 +129,8 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
 
     # Knockoff construction:
     #   X_tilde = X_std (I - Sigma^{-1} diag(s)) + Z C^T
-    # where C C^T = 2 diag(s) - diag(s) Sigma^{-1} diag(s) (must be PSD)
-    # Use pseudo-inverse for safety on near-singular Sigma (B7 audit).
+    # where C C^T = 2 diag(s) - diag(s) Sigma^{-1} diag(s) (must be PSD).
+    # Pseudo-inverse is a safety fallback on near-singular Sigma.
     try:
         Sigma_inv = np.linalg.inv(Sigma)
     except np.linalg.LinAlgError:
@@ -167,7 +139,7 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
     A = np.eye(p) - Sigma_inv @ diag_s
 
     M = 2.0 * diag_s - diag_s @ Sigma_inv @ diag_s
-    # Ensure M is symmetric PSD (numerically); add ridge if needed.
+    # Ensure M is symmetric PSD numerically; add ridge if needed.
     M = 0.5 * (M + M.T)
     eigvals_M = np.linalg.eigvalsh(M)
     if eigvals_M[0] < 0:
@@ -177,8 +149,7 @@ def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np
     Z = rng.standard_normal((n, p))
     X_tilde_std = X_std @ A + Z @ C.T
 
-    # Return on the original scale to keep callers' downstream maths sane
-    # (estimators don't typically standardise themselves).
+    # Return on the original scale; estimators don't typically standardise themselves.
     X_tilde = X_tilde_std * stds + means
     return X_tilde
 
@@ -258,7 +229,6 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
         current_features = list(X.columns) if is_df else list(range(p))
 
     X_tilde = make_gaussian_knockoffs(X_arr, random_state=random_state)
-    # Stack [X | X_tilde] - the joint design has 2p columns.
     X_joint = np.hstack([X_arr, X_tilde])
     real_names = [f"_real_{i}" for i in range(p)]
     fake_names = [f"_fake_{i}" for i in range(p)]
@@ -277,7 +247,6 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
         target=y,
         importance_getter=importance_getter,
     )
-    # W_j = importance(real_j) - importance(fake_j)
     W = {}
     for i, fname in enumerate(current_features):
         imp_real = float(fi.get(f"_real_{i}", 0.0))
@@ -286,23 +255,16 @@ def knockoff_importance(model_factory, X, y, current_features=None, random_state
     return W
 
 
-# ----------------------------------------------------------------------------
-# Splitting
-# ----------------------------------------------------------------------------
-
 def split_into_train_test(
-    X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, np.ndarray], train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None
+    X: pd.DataFrame | np.ndarray, y: pd.DataFrame | np.ndarray, train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None
 ) -> tuple:
-    """Split X & y according to indices & dtypes. Accounts for different dtypes (pd.DataFrame, np.ndarray, polars) to perform the same operation."""
+    """Split X & y according to indices & dtypes. Handles pd.DataFrame, np.ndarray, and polars."""
 
     if isinstance(X, pd.DataFrame):
-        # Perf #2 fix: the prior integer-index path did
-        # ``X.iloc[rows].iloc[:, cols]`` (chained), which materialises the
-        # full row-slab BEFORE column selection. On wide tables (200k rows x
-        # 10k cols) that's ~16 GB of intermediate write when only the
-        # K-feature subset (~8 GB) was needed. ``X.iloc[np.ix_(rows, cols)]``
-        # mirrors the numpy branch and selects both axes in one shot, cutting
-        # 2-7% off total wall-clock on wide-table runs.
+        # ``X.iloc[np.ix_(rows, cols)]`` selects both axes in one shot. The chained
+        # ``X.iloc[rows].iloc[:, cols]`` form materialises the full row-slab BEFORE
+        # column selection - on wide tables (200k rows x 10k cols) that's ~16 GB
+        # of intermediate write when only the K-feature subset (~8 GB) is needed.
         if features_indices is None:
             X_train = X.iloc[train_index, :]
             X_test = X.iloc[test_index, :]
@@ -319,9 +281,7 @@ def split_into_train_test(
         y_train = y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[train_index] if isinstance(y, pd.Series) else y[train_index])
         y_test = y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[test_index] if isinstance(y, pd.Series) else y[test_index])
     elif isinstance(X, pl.DataFrame):
-        # Polars branch (2026-04-21 fix 9.8): the generic numpy path below
-        # used ``X[np.ix_(rows, cols)]``, which raises on polars. Polars
-        # selects rows+cols in two steps.
+        # Polars rejects ``X[np.ix_(rows, cols)]``; select rows and cols in two steps.
         tr_idx = list(np.asarray(train_index))
         te_idx = list(np.asarray(test_index))
         if features_indices is None:
@@ -355,18 +315,12 @@ def split_into_train_test(
     return X_train, y_train, X_test, y_test
 
 
-# ----------------------------------------------------------------------------
-# Scoring aggregation (F23 + F35 fixes)
-# ----------------------------------------------------------------------------
-
 def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict, evaluated_scores_std: dict, self: object) -> tuple:
     """Compute (mean, std, final_score) and store at ``pos`` ONLY if the new score
     beats any existing score at the same key. Returns (mean, std, final_score, was_stored).
 
-    F35 fix: the prior version unconditionally overwrote evaluated_scores_mean[pos],
-    so when MBH re-explored the same nfeatures-count with a worse subset, both
-    the curve and the cached selected_features were silently downgraded to the
-    last evaluation rather than the best.
+    Gating on best-so-far avoids silently downgrading the curve and the cached
+    selected_features when MBH re-explores the same nfeatures-count with a worse subset.
     """
     scores = np.array(scores)
     n_nan = int(np.isnan(scores).sum()) if scores.size else 0
@@ -378,8 +332,7 @@ def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict
             pos, n_nan, scores.size,
         )
 
-    # F23 fix: nanmean/nanstd so a single degenerate fold doesn't poison the
-    # entire iter's final_score.
+    # nanmean/nanstd: a single degenerate fold mustn't poison the entire iter's final_score.
     if scores.size and n_nan and n_nan < scores.size:
         scores_mean, scores_std = np.nanmean(scores), np.nanstd(scores)
     else:
@@ -400,14 +353,10 @@ def store_averaged_cv_scores(pos: int, scores: list, evaluated_scores_mean: dict
     return scores_mean, scores_std, final_score, was_stored
 
 
-# ----------------------------------------------------------------------------
-# Feature-importance dispatch (F38 + Phase 4 N6 + Phase 7 conditional perm)
-# ----------------------------------------------------------------------------
-
 def _conditional_permutation_importance(
     model,
-    X: Union[pd.DataFrame, np.ndarray],
-    y: Union[pd.Series, np.ndarray],
+    X: pd.DataFrame | np.ndarray,
+    y: pd.Series | np.ndarray,
     n_repeats: int = 5,
     max_depth: int = 5,
     random_state: int = 0,
@@ -417,7 +366,7 @@ def _conditional_permutation_importance(
     Vanilla permutation (Breiman 2001) shuffles X_j independently of X_{-j},
     creating out-of-distribution combinations on correlated feature sets and
     inflating measured importance. This conditional variant fits a shallow
-    decision tree X_{-j} -> X_j, then permutes X_j WITHIN each leaf — which
+    decision tree X_{-j} -> X_j, then permutes X_j WITHIN each leaf, which
     preserves P(X_j | X_{-j}) and removes the correlation-induced bias.
 
     Cost: ~2-3x vanilla permutation (per-feature shallow tree fit + n_repeats
@@ -449,7 +398,7 @@ def _conditional_permutation_importance(
     importances = np.zeros(p, dtype=float)
 
     def _is_discrete(col: np.ndarray) -> bool:
-        # Integer dtype OR <=10 unique non-null values is a sensible proxy.
+        # Integer dtype OR <=10 unique non-null values: pragmatic proxy.
         if np.issubdtype(col.dtype, np.integer):
             return True
         try:
@@ -464,7 +413,7 @@ def _conditional_permutation_importance(
         Xnotj = np.delete(X_arr, j, axis=1)
 
         if Xnotj.shape[1] == 0:
-            # Single-feature case: no conditioning set, fall back to vanilla shuffle.
+            # Single-feature case: no conditioning set; fall back to vanilla shuffle.
             score_losses = []
             for _ in range(n_repeats):
                 X_perm = X_arr.copy()
@@ -510,21 +459,21 @@ def _conditional_permutation_importance(
 def get_feature_importances(
     model: object,
     current_features: list,
-    importance_getter: Union[str, Callable],
-    data: Union[pd.DataFrame, np.ndarray, None] = None,
-    reference_data: Union[pd.DataFrame, np.ndarray, None] = None,
-    target: Union[pd.Series, np.ndarray, None] = None,
+    importance_getter: str | Callable,
+    data: pd.DataFrame | np.ndarray | None = None,
+    reference_data: pd.DataFrame | np.ndarray | None = None,
+    target: pd.Series | np.ndarray | None = None,
 ) -> dict:
     """Compute per-feature importance for a fitted model.
 
     importance_getter:
         - 'auto': inspect model's attributes (feature_importances_ -> coef_)
         - 'feature_importances_' / 'coef_' / any other attr name
-        - 'permutation' (Phase 4 N6): sklearn.inspection.permutation_importance
-        - 'conditional_permutation' (Phase 7, Strobl 2008): permute X_j WITHIN
+        - 'permutation': sklearn.inspection.permutation_importance
+        - 'conditional_permutation' (Strobl 2008): permute X_j WITHIN
           leaves of a shallow tree X_{-j} -> X_j; preserves P(X_j | X_{-j}) so
           correlated-feature pairs no longer inflate each other's importance.
-        - 'shap' (Phase 4 N6): shap.Explainer mean-abs values
+        - 'shap': shap.Explainer mean-abs values
         - Callable: importance_getter(model, data, reference_data, target)
     """
     if isinstance(importance_getter, str):
@@ -588,19 +537,17 @@ def get_feature_importances(
                 getter_attr = importance_getter
             res = getattr(model, getter_attr)
             if getter_attr == "coef_":
-                # Multi-class: collapse class axis FIRST (sum |coef_| across
-                # classes per feature) before scale-correction.
+                # Multi-class: collapse class axis FIRST (sum |coef_| across classes
+                # per feature) before scale-correction.
                 res = np.abs(res)
                 if res.ndim > 1:
                     res = res.sum(axis=0)
-                # Tactical fix: z-score correction. coef_ is scale-dependent:
-                # if X_j has 100x larger std than X_k, |coef_j| will be ~100x
-                # smaller for the same effect on y. The prior np.abs(coef_)
-                # alone biased selection toward small-variance features.
-                # Multiply by feature std so the resulting "importance" is
-                # the magnitude of effect on y per *standardised* unit of X.
-                # data is X_test in the call site; if absent (callable path),
-                # fall back to unscaled |coef_|.
+                # coef_ is scale-dependent: if X_j has 100x larger std than X_k,
+                # |coef_j| is ~100x smaller for the same effect on y, biasing selection
+                # toward small-variance features. Multiply by feature std so the
+                # resulting "importance" is the magnitude of effect on y per
+                # *standardised* unit of X. data is X_test in the call site; if absent
+                # (callable path), fall back to unscaled |coef_|.
                 if data is not None:
                     try:
                         if hasattr(data, "values"):
@@ -608,13 +555,12 @@ def get_feature_importances(
                         else:
                             _Xarr = np.asarray(data)
                         _stds = np.nanstd(_Xarr, axis=0)
-                        # Avoid blow-up on near-constant cols (stds ~ 0)
+                        # Avoid blow-up on near-constant cols (stds ~ 0).
                         _stds = np.where(_stds > 1e-12, _stds, 1.0)
                         if len(_stds) == len(res):
                             res = res * _stds
                     except (TypeError, ValueError):
-                        # Non-numeric data (object cols, mixed pl frames) -
-                        # skip scaling, keep raw |coef_|
+                        # Non-numeric data (object cols, mixed pl frames): skip scaling.
                         pass
             elif res.ndim > 1:
                 res = res.sum(axis=0)
@@ -640,10 +586,6 @@ def get_feature_importances(
     return {feature_index: feature_importance for feature_index, feature_importance in zip(current_features, res)}
 
 
-# ----------------------------------------------------------------------------
-# Voting layer
-# ----------------------------------------------------------------------------
-
 def select_appropriate_feature_importances(
     feature_importances: dict,
     nfeatures: int,
@@ -660,8 +602,8 @@ def select_appropriate_feature_importances(
             fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) > 1} if n_original_features > 1 else feature_importances
         else:
             if use_one_freshest_fi_run:
-                # F25 fix: range upper-bound was n_original_features (exclusive),
-                # so the FI run on the full feature set was never picked.
+                # Upper bound is inclusive (n_original_features + 1) so the
+                # FI run on the full feature set is also considered.
                 fi_to_consider = {}
                 for possible_nfeatures in range(nfeatures + 1, n_original_features + 1):
                     for key, value in feature_importances.items():
@@ -679,8 +621,9 @@ def select_appropriate_feature_importances(
 
 def get_actual_features_ranking(feature_importances: dict, votes_aggregation_method: VotesAggregation) -> list:
     """Vote-based rank of features given per-run importances.
-    Borda/AM/GM/Dowdall use only ranks (cheap). Copeland needs majority_graph
-    (now lazy-built in Leaderboard - see votenrank Phase 4 fix)."""
+
+    Borda/AM/GM/Dowdall use only ranks (cheap). Copeland needs majority_graph,
+    which Leaderboard builds lazily."""
     lb = Leaderboard(table=pd.DataFrame(feature_importances))
     if votes_aggregation_method == VotesAggregation.Borda:
         ranks = lb.borda_ranking()
@@ -705,10 +648,6 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     return ranks.index.values.tolist()
 
 
-# ----------------------------------------------------------------------------
-# Candidate-search dispatch (F1 + F41 fixes)
-# ----------------------------------------------------------------------------
-
 def get_next_features_subset(
     nsteps: int,
     original_features: list,
@@ -728,7 +667,7 @@ def get_next_features_subset(
     if nsteps == 0:
         return original_features
 
-    # F41 fix: +1 includes the all-features candidate.
+    # +1 on the upper bound includes the all-features candidate.
     remaining = list(set(np.arange(1, len(original_features) + 1)) - set(evaluated_scores_mean.keys()))
     if len(remaining) == 0:
         return []
@@ -738,31 +677,18 @@ def get_next_features_subset(
     elif top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
         next_nfeatures_to_check = Optimizer.suggest_candidate()
     elif top_predictors_search_method == OptimumSearch.ExhaustiveDichotomic:
-        # Binary search over ``remaining``: probe the midpoint of the
-        # remaining-N range, then converge based on which side has
-        # higher score. When ``evaluated_scores_mean`` is empty (first
-        # call after the all-features baseline), probe the midpoint of
-        # the FULL feature range so the optimizer learns the shape.
         next_nfeatures_to_check = _suggest_dichotomic(
             remaining=sorted(remaining),
             evaluated_scores_mean=evaluated_scores_mean,
             n_total=len(original_features),
         )
     elif top_predictors_search_method == OptimumSearch.ScipyLocal:
-        # Local (univariate) optimization via scipy ``minimize_scalar``
-        # Brent. Treats the function ``N -> -score(N)`` as a continuous
-        # 1-D objective; rounds the proposed real-valued ``next_n`` to
-        # the nearest integer in ``remaining``. Best for problems where
-        # the score curve has a single smooth peak.
         next_nfeatures_to_check = _suggest_scipy_local(
             remaining=remaining,
             evaluated_scores_mean=evaluated_scores_mean,
             n_total=len(original_features),
         )
     elif top_predictors_search_method == OptimumSearch.ScipyGlobal:
-        # Global optimization via ``scipy.optimize.differential_evolution``
-        # on a surrogate built from evaluated points. Best when the
-        # score-vs-N curve has multiple plateaus / local maxima.
         next_nfeatures_to_check = _suggest_scipy_global(
             remaining=remaining,
             evaluated_scores_mean=evaluated_scores_mean,
@@ -794,12 +720,6 @@ def get_next_features_subset(
     return ranks[:next_nfeatures_to_check]
 
 
-# ----------------------------------------------------------------------------
-# OptimumSearch candidate suggesters (added 2026-05-12 -- previously
-# declared in the enum but raised NotImplementedError)
-# ----------------------------------------------------------------------------
-
-
 def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
                          n_total: int) -> int:
     """Binary-search-style suggester for ExhaustiveDichotomic.
@@ -814,15 +734,11 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
     if not remaining:
         return None
     if len(evaluated_scores_mean) <= 1:
-        # First-time call (or just-the-baseline): probe the midpoint
-        # of the FULL range. Picks the remaining N closest to N/2.
+        # First-time call (or just-the-baseline): probe the midpoint of the FULL range.
         target = max(1, n_total // 2)
         return min(remaining, key=lambda n: abs(n - target))
-    # Pick best evaluated N as the local peak; probe halfway to the
-    # nearest unevaluated neighbour on either side.
     best_evaluated = max(evaluated_scores_mean.items(), key=lambda kv: kv[1])[0]
-    # Candidates: midpoint towards next-lower and next-higher
-    # unevaluated N. Pick whichever has a wider gap (more information).
+    # Pick whichever side has the wider gap (more information).
     lower = [n for n in remaining if n < best_evaluated]
     higher = [n for n in remaining if n > best_evaluated]
     candidates = []
@@ -833,16 +749,14 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
         gap_hi = min(higher) - best_evaluated
         candidates.append((gap_hi, (best_evaluated + min(higher)) // 2))
     if not candidates:
-        # No unevaluated N adjacent to the best -- fall back to any
-        # remaining N closest to best_evaluated.
+        # No unevaluated N adjacent to the best: fall back to any remaining N closest to it.
         return min(remaining, key=lambda n: abs(n - best_evaluated))
-    # Probe the side with the LARGER gap first (more uncertainty).
     target = max(candidates, key=lambda gc: gc[0])[1]
     return min(remaining, key=lambda n: abs(n - target))
 
 
 def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict,
-                           n_total: int) -> int:
+                         n_total: int) -> int:
     """Local (univariate) suggester via scipy ``minimize_scalar``.
 
     Builds a piecewise-linear interpolant over the evaluated points,
@@ -872,8 +786,8 @@ def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict,
 
     try:
         res = minimize_scalar(_neg_score, bounds=(lo, hi),
-                                method="bounded",
-                                options={"xatol": 0.5})
+                              method="bounded",
+                              options={"xatol": 0.5})
         target = int(round(res.x))
     except Exception:
         return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
@@ -881,7 +795,7 @@ def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict,
 
 
 def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict,
-                            n_total: int) -> int:
+                          n_total: int) -> int:
     """Global suggester via scipy ``differential_evolution`` on a
     spline surrogate of the evaluated points.
 

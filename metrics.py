@@ -1,15 +1,7 @@
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
 import logging
 import sys
 
 logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
 
 from typing import *
 
@@ -30,38 +22,25 @@ from collections import defaultdict
 from pyutilz.pythonlib import sort_dict_by_value
 from mlframe.stats import get_tukey_fences_multiplier_for_quantile
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Inits
-# ----------------------------------------------------------------------------------------------------------------------------
-
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
+
+# Crossover thresholds for parallel kernels. Sum-reduction kernels (brier, log loss, prf1 counts) parallel-win from N~50-100k upwards;
+# multilabel row-loop kernels (subset accuracy, jaccard) win from N~10-50k. Conservative thresholds chosen to avoid the lose-band at low N.
+_PARALLEL_REDUCTION_THRESHOLD: int = 100_000
+_PARALLEL_MULTILABEL_THRESHOLD: int = 50_000
 
 
 def _assert_numba_nogil_active() -> bool:
     """Verify JIT-compiled kernels actually released the GIL (nogil=True took effect).
 
-    Numba silently retains the GIL when a kernel references Python objects it
-    cannot prove safe — the compile succeeds (nopython mode) but parallelism
-    under ThreadPoolExecutor is lost without any warning. Inspect one hot
-    kernel's compiled signatures after prewarm; if the flag didn't stick,
-    log a warning so the degradation is observable.
-
-    Called once at end of prewarm_numba_cache(). Cheap (dict attribute read).
-    Returns True iff every compiled signature on the canary kernel reports
-    `release_gil`.
+    Numba silently retains the GIL when a kernel references Python objects it cannot prove safe - the compile succeeds (nopython mode) but parallelism under ThreadPoolExecutor is lost without any warning. Returns True iff every compiled signature on the canary kernel reports `release_gil`.
     """
     try:
-        # cb_logits_to_probs_binary is forward-declared; pick any @njit symbol
-        # that definitely compiled during prewarm.
         canary = globals().get("fast_roc_auc")
         if canary is None or not hasattr(canary, "signatures"):
-            return True  # nothing to check — don't spam warnings
+            return True
         overloads = getattr(canary, "overloads", {})
         for sig, compile_result in overloads.items():
-            # numba CompileResult has `.targetctx` / `.fndesc`; the nogil flag
-            # lives under `compile_result.type_annotation.ir`. Safer: check
-            # `compile_result.fndesc.release_gil` when present, else trust
-            # the NUMBA_NJIT_PARAMS.
             fndesc = getattr(compile_result, "fndesc", None)
             if fndesc is not None and hasattr(fndesc, "release_gil"):
                 if not fndesc.release_gil:
@@ -83,14 +62,7 @@ def prewarm_numba_cache():
     Calls all @njit functions with small dummy data to trigger JIT compilation
     before timing-sensitive operations. Warms up both float32 and float64 paths.
     """
-    # 2026-05-08 perf: kick the loky/wmic physical-core-count probe in a
-    # background thread BEFORE numba JIT. The probe is a Windows wmic
-    # subprocess (~1.5s wall) that loky caches per-process. Running it
-    # in parallel with the JIT compile (which is THIS-process CPU work,
-    # not subprocess) overlaps the wait, so the suite never pays the
-    # 1.5s when it later asks for cpu_count via joblib. Daemon thread
-    # so it dies with the interpreter if the user interrupts. No-op if
-    # joblib isn't installed (it is, on every supported config).
+    # Kick the loky/wmic physical-core-count probe in a background thread before numba JIT. The probe is a Windows wmic subprocess (~1.5s wall) that loky caches per-process; running it in parallel with the JIT compile overlaps the wait so the suite never pays the 1.5s when it later asks for cpu_count via joblib.
     try:
         import threading
 
@@ -105,35 +77,29 @@ def prewarm_numba_cache():
     except Exception:
         pass
 
-    # Warm up with both float32 and float64 (Numba compiles for each type separately)
+    # Numba compiles for each dtype separately.
     for dtype in [np.float32, np.float64]:
         y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
         y_pred = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=dtype)
 
-        # Core AUC functions
         _ = fast_roc_auc(y_true, y_pred)
         _ = fast_aucs(y_true, y_pred)
 
-        # Calibration functions
         _ = fast_calibration_binning(y_true, y_pred, nbins=10)
         _ = fast_calibration_metrics(y_true, y_pred, nbins=10)
 
-        # Scoring functions
         _ = brier_score_loss(y_true, y_pred)
         _ = fast_brier_score_loss(y_true, y_pred)
         _ = fast_log_loss(y_true, y_pred)
         _ = maximum_absolute_percentage_error(y_true, y_pred)
         _ = probability_separation_score(y_true, y_pred)
 
-        # calibration_metrics_from_freqs: consumes the output of
-        # fast_calibration_binning. Prewarm with matching dtype.
         freqs_p, freqs_t, hits = fast_calibration_binning(y_true, y_pred, nbins=10)
         _ = calibration_metrics_from_freqs(
             freqs_predicted=freqs_p, freqs_true=freqs_t, hits=hits,
             nbins=10, array_size=len(y_true), use_weights=True,
         )
 
-    # Classification functions need integer class labels
     for dtype in [np.int32, np.int64]:
         y_true_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
         y_pred_int = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=dtype)
@@ -141,28 +107,9 @@ def prewarm_numba_cache():
         _ = fast_precision(y_true_int, y_pred_int, nclasses=2)
         _ = compute_pr_recall_f1_metrics(y_true_int, y_pred_int)
 
-    # ICE metric (float parameters)
     _ = integral_calibration_error_from_metrics(0.01, 0.01, 0.9, 0.25, 0.7, 0.7)
 
-    # 2026-05-08: prewarm calibration-report inner kernels that the
-    # original list missed. Each costs ~1-2s of JIT compile on first
-    # call from a fresh process; without prewarm, they all hit on the
-    # first ``fast_calibration_report`` invocation (typically the val
-    # split of model 1, contributing ~5-10s of cold-start latency to
-    # every suite run). Confirmed via cProfile of c0044 (4 models, 80k
-    # rows) where numba compile time was 11.7s before this addition.
-    #
-    # 2026-05-08 cont'd: cover the dominant suite-runtime dtype combo.
-    # In the per-class loop of report_probabilistic_model_perf, y_true
-    # arrives as numpy bool (``targets == class_name``) and y_pred as
-    # float64 (predict_proba column). We only prewarm THIS exact combo
-    # -- prewarming additional dtype-pairs costs ~5-10s each in JIT
-    # compile time (verified empirically) and the suite's hot path is
-    # always (bool, float64) per the per-class slicing convention. Other
-    # callers that need different dtypes (regression, multilabel) hit
-    # the same cold-compile cost on first call but the calibration
-    # report path -- which dominates the 80s c0044 profile -- is now
-    # warm before entering the suite.
+    # Prewarm calibration-report inner kernels using the dominant suite dtype combo. In the per-class loop of report_probabilistic_model_perf, y_true arrives as numpy bool (``targets == class_name``) and y_pred as float64; prewarming additional dtype-pairs costs ~5-10s each in JIT compile time.
     _yt_bool = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.bool_)
     _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
     try:
@@ -172,7 +119,6 @@ def prewarm_numba_cache():
         _ = fast_ice_only(_yt_bool, _yp_f64, nbins=10, use_weights=True)
     except Exception:
         pass
-    # format_classification_report: njit-backed, ~3s cold.
     _yti = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
     _ypi = np.array([0, 1, 0, 0, 1, 1], dtype=np.int64)
     try:
@@ -180,22 +126,13 @@ def prewarm_numba_cache():
     except Exception:
         pass
 
-    # CatBoost logits to probs conversion
     logits_binary = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
     _ = cb_logits_to_probs_binary(logits_binary)
 
     logits_multi = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
     _ = cb_logits_to_probs_multiclass(logits_multi)
 
-    # 2026-05-09: prewarm parallel-numba variants. The public
-    # ``fast_brier_score_loss`` / ``fast_log_loss`` /
-    # ``compute_pr_recall_f1_metrics`` / ``subset_accuracy`` /
-    # ``jaccard_score_multilabel`` wrappers dispatch to ``_par`` kernels
-    # above the per-metric size threshold. Each parallel variant is a
-    # SEPARATE numba compilation that ``cache=True`` writes to disk
-    # only after a successful run; the ``parallel=True`` IR adds
-    # ~1-3s per kernel on first call from a fresh process. Prewarm
-    # them all here so the suite never pays JIT cost during a real run.
+    # Prewarm parallel-numba variants. Each `_par` variant is a separate numba compilation; the `parallel=True` IR adds ~1-3s per kernel on first call from a fresh process.
     try:
         _yt_f64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
         _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
@@ -209,7 +146,6 @@ def prewarm_numba_cache():
         _ = _fast_subset_accuracy_par(_ml_yt, _ml_yp)
         _ = _fast_jaccard_score_par(_ml_yt, _ml_yp)
 
-        # Round 2 par variants (cb_logits + max_abs_pct + probability_sep).
         _logits_b = np.array([-1.0, 0.0, 1.0, 2.0, -0.5, 0.5, 1.5, -1.5, 0.25, -0.25], dtype=np.float64)
         _ = _cb_logits_to_probs_binary_par(_logits_b)
         _logits_mc = np.array([[-1.0, 0.0, 1.0], [0.5, -0.5, 0.0], [0.0, 1.0, -1.0]], dtype=np.float64)
@@ -218,10 +154,6 @@ def prewarm_numba_cache():
         _yt_i64_psep = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
         _ = _probability_separation_score_par(_yt_i64_psep, _yp_f64, 1, 0.5)
 
-        # Round 3: regression-metric par variants. Each kernel adds
-        # ~1-1.5s of cold JIT compile if hit during a real run; prewarm
-        # them here so the regression report path is warm by the time
-        # the suite needs it.
         _reg_y = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64)
         _reg_p = _reg_y + 0.05
         _reg_w = np.ones_like(_reg_y)
@@ -240,40 +172,24 @@ def prewarm_numba_cache():
         _ = _fast_r2_score_weighted_par(_reg_y, _reg_p, _reg_w)
         _ = _fast_r2_variance_seq(_reg_y)
     except Exception:
-        # Parallel kernels cache the same way njit kernels do; a bad
-        # cache or a numba-runtime hiccup is non-fatal — the seq path
-        # still works.
+        # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works.
         pass
 
-    # 2026-04-25 Session 6 polish: prewarm multilabel kernels too. Without
-    # this the first multilabel-aware report path call eats a 1-3s JIT
-    # compile budget per kernel × per dtype, which surprises new users
-    # running the report on small data and shows up in time-sensitive
-    # benchmarks.
     yt_ml = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0], [0, 0, 1]], dtype=np.uint8)
     yp_ml = np.array([[1, 1, 0], [1, 0, 1], [1, 0, 0], [0, 1, 1]], dtype=np.uint8)
     _ = _fast_hamming_loss_seq(yt_ml, yp_ml)
     _ = _fast_hamming_loss_par(yt_ml, yp_ml)
     _ = _fast_subset_accuracy_seq(yt_ml, yp_ml)
     _ = _fast_jaccard_score_seq(yt_ml, yp_ml)
-    # Bitmap variant takes packed uint64 + K — prewarm for K<=64 path.
+    # Bitmap variant takes packed uint64 + K; prewarm K<=64 path.
     yt_packed = np.array([0b011, 0b101, 0b110, 0b001], dtype=np.uint64)
     yp_packed = np.array([0b110, 0b101, 0b100, 0b011], dtype=np.uint64)
     _ = _fast_jaccard_bitmap_seq(yt_packed, yp_packed, 3)
 
-    # Audit hook: verify nogil=True actually stuck. Silent fallback would
-    # make parallel val/test metric evaluation secretly sequential.
+    # Verify nogil=True actually stuck; silent fallback would make parallel val/test metric evaluation secretly sequential.
     _assert_numba_nogil_active()
 
-    # 2026-05-11 Wave 25: prewarm ``_batch_per_class_ice_kernel`` --
-    # the per-class parallel kernel inside ``compute_probabilistic_
-    # multiclass_error``. Profile of c0011 (1M-row binary-cls, 15 cats,
-    # MRMR order=3, master_seed=20260422) attributed 31.4 s to this
-    # kernel's cold JIT compile INSIDE the suite call. The kernel is
-    # ``@njit(parallel=True)`` and compiles separately from the
-    # sequential ``fast_ice_only`` variant already prewarmed in the
-    # bool+float64 pair above. Prewarm with the same dtype combo the
-    # suite always sends (int8 indicator + float64 probs + K=3).
+    # Prewarm `_batch_per_class_ice_kernel`, the per-class parallel kernel inside `compute_probabilistic_multiclass_error`. Compiles separately from the sequential `fast_ice_only` variant prewarmed above; use the dtype combo the suite always sends (int8 indicator + float64 probs + K=3).
     try:
         from mlframe.metrics import _batch_per_class_ice_kernel  # noqa: F811
         _yt_nk4_pw = np.zeros((10, 3), dtype=np.int8)
@@ -286,99 +202,49 @@ def prewarm_numba_cache():
     except Exception:
         pass
 
-    # 2026-05-11: also warm feature_selection numba kernels. Without
-    # this, the first MRMR.fit call pays ~60s of cumulative JIT
-    # compile (verified on 1M-row regression+MRMR c0089 profile).
-    # Hooked here so any caller of ``prewarm_numba_cache`` (incl. the
-    # profile harness in profiling/profile_one_combo.py) gets BOTH
-    # metrics AND FS kernels warmed in one shot. Lazy import keeps
-    # this module's import cost unchanged.
+    # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays ~60s of cumulative JIT compile. Lazy import keeps this module's import cost unchanged.
     try:
         from mlframe.feature_selection.filters._prewarm import (
             prewarm_fs_numba_cache,
         )
         prewarm_fs_numba_cache()
     except Exception:
-        # Non-fatal: FS kernels will JIT-compile on first real call
-        # (current behaviour). Caller bears the cold-start cost then.
         pass
 
-    # 2026-05-11: also warm dummy_baselines kernels. The suite already
-    # calls ``_warmup_numba_kernels`` early in
-    # ``train_mlframe_models_suite``, but that lands INSIDE the suite
-    # wall-time (verified on c0089 W11 profile: 17.7 s inside the
-    # suite call). Pre-warming here shifts the cost to the same
-    # prewarm phase as metrics + FS kernels -- before any
-    # user-visible timer starts. The suite's own call becomes
-    # near-zero after this completes (numba's process-wide JIT cache
-    # carries over).
+    # Warm dummy_baselines kernels. The suite already calls `_warmup_numba_kernels` early in `train_mlframe_models_suite`, but that lands inside the suite wall-time; warming here shifts cost out of the user-visible timer.
     try:
         from mlframe.training.dummy_baselines import _warmup_numba_kernels
         _warmup_numba_kernels()
     except Exception:
-        # Non-fatal: kernels will JIT lazily on first real call.
         pass
 
-    # 2026-05-11 Wave 19: prewarm-import the heavy neural-net stack.
-    # ``mlframe.lightninglib`` / ``mlframe.training.neural`` pulls in
-    # PyTorch Lightning (lightning.fabric, pytorch_lightning, etc.) which
-    # is a 275 s cold-import on Windows (verified 2026-05-11 on c0082
-    # MLP-only regression: ``configure_training_params`` cumtime 275.77 s
-    # of which ~260 s is ``lightning.fabric.__init__``). The cost lands
-    # INSIDE the suite call (in ``select_target`` -> ``get_training_configs``)
-    # because the import is deferred until ``mlp`` is in the model list.
-    # Pre-importing here shifts that cost out of the user-visible suite
-    # timer. Cheaply skipped via try/except for users who don't have
-    # lightning installed (or don't want to pay the 275 s prewarm).
-    #
-    # Triggered ONLY when lightning is already discoverable; otherwise
-    # the import attempt would itself be a 5-10 s "ModuleNotFoundError"
-    # walk through sys.path. Use ``importlib.util.find_spec`` for the
-    # cheap availability check.
+    # Prewarm-import the heavy neural-net stack. `mlframe.lightninglib` / `mlframe.training.neural` pulls in PyTorch Lightning, which is a ~275s cold-import on Windows. The cost otherwise lands inside the suite call because the import is deferred until `mlp` is in the model list. Triggered ONLY when lightning is already discoverable; otherwise the import attempt itself would be a 5-10s ModuleNotFoundError walk through sys.path.
     try:
         import importlib.util as _ilu
         if _ilu.find_spec("lightning") is not None:
             try:
-                import lightning.fabric  # noqa: F401 - import-for-side-effects
+                import lightning.fabric  # noqa: F401
             except Exception:
                 pass
             try:
                 import mlframe.lightninglib  # noqa: F401
             except Exception:
                 pass
-        # 2026-05-11 Wave 19b: ``pytorch_lightning`` is a SEPARATE package
-        # from ``lightning`` (legacy alias kept for back-compat); cold
-        # import is 500 s on Windows for the currently-pinned version.
-        # ``mlframe.training.neural`` reaches it through transitive
-        # dependencies, so the deferred-import cost lands in the suite
-        # call alongside ``lightning.fabric``.
+        # `pytorch_lightning` is a separate package from `lightning` (legacy alias kept for back-compat); cold import is ~500s on Windows for the currently-pinned version.
         if _ilu.find_spec("pytorch_lightning") is not None:
             try:
                 import pytorch_lightning  # noqa: F401
             except Exception:
                 pass
-        # 2026-05-11 Wave 19c: ``shap`` cold import is 228 s on Windows
-        # (includes ``shap.utils.transformers`` walking the local
-        # transformers registry). The suite imports shap inside
-        # ``trainer.py`` when ``use_shap=True`` is in the config -- a
-        # lazy import that lands the 228 s cost inside the suite timer
-        # on first use. Pre-import when available so the cost amortises
-        # via prewarm.
+        # `shap` cold import is ~228s on Windows (includes `shap.utils.transformers` walking the local transformers registry). The suite imports shap inside trainer.py when use_shap=True.
         if _ilu.find_spec("shap") is not None:
             try:
                 import shap  # noqa: F401
                 import shap.utils.transformers  # noqa: F401
-                # Match the runtime monkeypatch so the prewarm leaves
-                # shap in the same state the suite expects.
+                # Match the runtime monkeypatch so prewarm leaves shap in the state the suite expects.
                 shap.utils.transformers.is_transformers_lm = lambda model: False
             except Exception:
                 pass
-        # 2026-05-11 Wave 19d: ``mlframe.training.neural`` cold-imports in
-        # 17 s on top of the lightning prewarm (the neural package brings
-        # in extra modules for callbacks, dataset wrappers, etc.). The
-        # suite reaches it via ``configure_training_params`` only when
-        # MLP / recurrent is in the model list, so the cost stays lazy
-        # for non-NN combos.
         try:
             import mlframe.training.neural  # noqa: F401
         except Exception:
@@ -386,14 +252,7 @@ def prewarm_numba_cache():
     except Exception:
         pass
 
-    # 2026-05-11 Wave 18: warm cupy GPU AUC kernels.
-    # ``compute_batch_aucs`` dispatches to ``gpu_multiple_roc_auc_scores``
-    # / ``gpu_multiple_pr_auc_scores`` when N>=100k AND M>=5. cupy compiles
-    # CUDA kernels via NVRTC on first call -- ~128s of compile latency per
-    # fresh process (measured 2026-05-11 on c0008 1M binary-cls profile:
-    # 127.13s in nvrtc.compileProgram). Pre-warming with a tiny synthetic
-    # input shifts that cost out of the user-visible suite timer.
-    # No-op when cupy isn't installed (`_require_cupy()` raises ImportError).
+    # Warm cupy GPU AUC kernels. `compute_batch_aucs` dispatches to `gpu_multiple_roc_auc_scores` / `gpu_multiple_pr_auc_scores` when N>=100k AND M>=5. cupy compiles CUDA kernels via NVRTC on first call (~128s per fresh process). No-op when cupy isn't installed.
     try:
         from mlframe.metrics import (
             gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores,
@@ -403,25 +262,13 @@ def prewarm_numba_cache():
         _yp_gpu = np.random.RandomState(0).rand(len(_yt_gpu), 3).astype(np.float64)
         _ = gpu_multiple_roc_auc_scores(_yt_gpu, _yp_gpu)
         _ = gpu_multiple_pr_auc_scores(_yt_gpu, _yp_gpu)
-        # gpu_multiple_rmse_scores: separate cupy kernel (ReductionKernel
-        # for the 2-D-actual fallback or numba.cuda for the 1-D fastpath).
-        # Each path's first call compiles a fresh NVRTC kernel; prewarming
-        # both signatures avoids the regression-suite cold-compile cost.
-        _yt_rmse = _yp_gpu[:, 0]  # 1-D path
+        # `gpu_multiple_rmse_scores` has separate cupy kernels for the 2-D fallback and the 1-D fastpath; each path's first call compiles a fresh NVRTC kernel.
+        _yt_rmse = _yp_gpu[:, 0]
         _ = gpu_multiple_rmse_scores(_yt_rmse, _yp_gpu)
     except Exception:
-        # cupy unavailable / CUDA missing / etc. -- non-fatal, the CPU
-        # path keeps working.
         pass
 
-    # 2026-05-11 Wave 16: warm ``ranking_metrics._summary_batched_kernel``
-    # (parallel njit). On LTR combos (c0120 profile: 23.4 s wall, 17.7 s
-    # numba JIT) ``compute_ranking_summary`` is called once per dummy
-    # baseline (~10 calls per target) and the first call eats the entire
-    # JIT-compile budget. Pre-warming shifts the cost out of the user-
-    # visible timer. We compile with the canonical dtype combo
-    # (sorted_y_true float64, sorted_y_score float64, group_starts int64,
-    # eval_ks int64) used by ``compute_ranking_summary`` itself.
+    # Warm `ranking_metrics._summary_batched_kernel` (parallel njit). On LTR combos `compute_ranking_summary` is called once per dummy baseline; the first call eats the entire JIT-compile budget. Compile with the canonical dtype combo used by `compute_ranking_summary` itself.
     try:
         from mlframe.ranking_metrics import _summary_batched_kernel
         _yt_rank = np.array([0.0, 1.0, 2.0, 0.0, 1.0, 0.0], dtype=np.float64)
@@ -430,13 +277,7 @@ def prewarm_numba_cache():
         _ks_rank = np.array([1, 5, 10], dtype=np.int64)
         _ = _summary_batched_kernel(_yt_rank, _ys_rank, _gs_rank, _ks_rank)
     except Exception:
-        # Non-fatal: kernel will JIT lazily on first ranking-metrics call.
         pass
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# CatBoost logits to probabilities conversion
-# ----------------------------------------------------------------------------------------------------------------------------
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -453,7 +294,7 @@ def _cb_logits_to_probs_binary_seq(logits: np.ndarray) -> np.ndarray:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _cb_logits_to_probs_binary_par(logits: np.ndarray) -> np.ndarray:
-    """Parallel sigmoid. ~2.9× faster than seq at N=1M."""
+    """Parallel sigmoid."""
     n = len(logits)
     probs = np.empty((n, 2), dtype=np.float64)
     for i in numba.prange(n):
@@ -498,7 +339,7 @@ def _cb_logits_to_probs_multiclass_seq(logits_list: np.ndarray) -> np.ndarray:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _cb_logits_to_probs_multiclass_par(logits_list: np.ndarray) -> np.ndarray:
-    """Parallel softmax. ~2.3× faster than seq at N=1M (K=5)."""
+    """Parallel softmax."""
     n_classes, n_samples = logits_list.shape
     probs = np.empty((n_samples, n_classes), dtype=np.float64)
     for i in numba.prange(n_samples):
@@ -530,19 +371,12 @@ def cb_logits_to_probs_multiclass(logits_list: np.ndarray) -> np.ndarray:
     return _cb_logits_to_probs_multiclass_seq(logits_list)
 
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Core
-# ----------------------------------------------------------------------------------------------------------------------------
-
-
 def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     """Compute ROC AUC efficiently using numba.
 
     Note: np.argsort needs to stay out of njitted func.
     """
-    # **kwargs needed for sklearn not to break it by passing unexpected params.
-    # We explicitly reject sample_weight here rather than silently ignoring it (previous
-    # behavior would produce unweighted results while callers thought they were weighting).
+    # **kwargs absorbs sklearn's unexpected params. Explicitly reject sample_weight rather than silently ignoring it.
     if "sample_weight" in kwargs and kwargs["sample_weight"] is not None:
         raise NotImplementedError(
             "fast_roc_auc does not support sample_weight; use sklearn.metrics.roc_auc_score"
@@ -585,54 +419,21 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
         return np.nan
 
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# GPU batch metrics: vectorize across multiple prediction columns
-# ----------------------------------------------------------------------------------------------------------------------------
-#
-# Backend: cupy (default). cupy is OPTIONAL — without it, the GPU helpers
-# raise a clear ImportError and callers fall back to CPU (see
-# ``compute_batch_aucs`` and ``compute_batch_rmse`` dispatchers).
-#
-# Why cupy and not numba.cuda? Bench (verified 2026-05-08, GTX 1050 Ti):
-#   - RMSE: cupy ReductionKernel = 3.7× over naive cupy expression and
-#     within 30% of a hand-written numba.cuda kernel. Reusing cupy
-#     primitives (sort/argsort/cumsum) keeps one optional dep.
-#   - AUC : the work is ~80% argsort which is a single cupy call. A
-#     numba.cuda hybrid (cupy sort + custom reduction) tied cupy at
-#     1.02× — the reduction wasn't the bottleneck. So no point adding
-#     a second backend dep for a 0% net win.
-#
-# Crossover with CPU (1M rows, 5 cols, vs CPU/numba per-col loop):
-#   RMSE: GPU 4.2ms / CPU 62ms -> 14×
-#   ROC AUC: GPU 105ms / CPU 477ms -> 4.6×
-#   PR AUC : GPU 93ms  / CPU 435ms -> 4.7×
-#   At 1M × 20 cols, PR AUC widens to **11.8×** (170ms vs 2016ms).
-#   At 5M × 5, PR AUC = **19.5×** (212ms vs 4141ms).
-#
-# Below N=100k the CPU/numba path wins (kernel-launch and host->device
-# transfer dominate sub-ms workloads). The dispatchers below auto-pick
-# the right backend based on N, M, and GPU availability.
+# GPU batch metrics vectorize RMSE / ROC-AUC / PR-AUC across multiple prediction columns. cupy is optional - the helpers raise a clear ImportError when missing and callers fall back to CPU (see `compute_batch_aucs` / `compute_batch_rmse` dispatchers). Below N=100k the CPU/numba path wins (kernel-launch and host->device transfer dominate sub-ms workloads).
 
-# Default crossover thresholds. Tunable via ``mlframe.metrics.set_gpu_thresholds(...)``.
+# Default crossover thresholds. Tunable via `set_gpu_thresholds(...)`.
 _GPU_BATCH_THRESHOLD_N: int = 100_000
-_GPU_BATCH_THRESHOLD_M: int = 1   # M >= 1 works; benefit grows with M.
+_GPU_BATCH_THRESHOLD_M: int = 1
 
-# GPU availability cache (computed lazily on first dispatch call).
-# Sentinels: None = unchecked, True/False = result.
+# Sentinels: None = unchecked, True/False = cached result.
 _GPU_AVAILABLE: Optional[bool] = None
 
-# numba.cuda availability cache. Used by the RMSE fast-path -- 25-30%
-# faster than cupy ReductionKernel above N=1M (verified empirically on
-# GTX 1050 Ti). cupy ReductionKernel stays as the fallback when numba
-# CUDA isn't usable (no toolkit, mismatched runtime, etc.).
+# numba.cuda used by the RMSE fast-path; cupy ReductionKernel stays as fallback when numba CUDA isn't usable (no toolkit, mismatched runtime, etc.).
 _NUMBA_CUDA_AVAILABLE: Optional[bool] = None
 
 
 def set_gpu_thresholds(*, n: Optional[int] = None, m: Optional[int] = None) -> None:
-    """Override the (N, M) thresholds that gate GPU dispatch in
-    ``compute_batch_aucs`` / ``compute_batch_rmse``. Pass ``None`` to
-    leave a threshold unchanged. For tests / benchmarking only —
-    production callers should let auto-dispatch handle this."""
+    """Override the (N, M) thresholds that gate GPU dispatch in `compute_batch_aucs` / `compute_batch_rmse`. Pass `None` to leave a threshold unchanged. For tests / benchmarking only - production callers should let auto-dispatch handle this."""
     global _GPU_BATCH_THRESHOLD_N, _GPU_BATCH_THRESHOLD_M
     if n is not None:
         _GPU_BATCH_THRESHOLD_N = int(n)
@@ -643,16 +444,13 @@ def set_gpu_thresholds(*, n: Optional[int] = None, m: Optional[int] = None) -> N
 def is_gpu_metrics_available() -> bool:
     """True iff cupy is importable AND a CUDA device is visible.
 
-    Result is cached after the first call (the answer doesn't change
-    within a process). Failures during the import path return False
-    silently — the dispatcher uses CPU when GPU is unavailable.
+    Result is cached after the first call. Failures during the import path return False silently - the dispatcher uses CPU when GPU is unavailable.
     """
     global _GPU_AVAILABLE
     if _GPU_AVAILABLE is not None:
         return _GPU_AVAILABLE
     try:
         import cupy as cp  # type: ignore
-        # Probe: device count >= 1
         if cp.cuda.runtime.getDeviceCount() >= 1:
             _GPU_AVAILABLE = True
             return True
@@ -663,8 +461,7 @@ def is_gpu_metrics_available() -> bool:
 
 
 def _is_numba_cuda_available() -> bool:
-    """Probe numba.cuda once. Cached. Used by the RMSE fast-path which
-    runs 25-30% faster than the cupy ReductionKernel fallback at large N."""
+    """Probe numba.cuda once. Cached."""
     global _NUMBA_CUDA_AVAILABLE
     if _NUMBA_CUDA_AVAILABLE is not None:
         return _NUMBA_CUDA_AVAILABLE
@@ -691,13 +488,9 @@ def _require_cupy():
         ) from e
 
 
-# Cached cupy ReductionKernel for fused (y-p)**2 sum-per-col. Built lazily
-# on first call. 3.7× faster than ``cp.sqrt(cp.mean((y-p)**2, axis=0))``
-# because it avoids materializing the (y-p)**2 intermediate (N×M fp64
-# allocations dominate the naive expression). Bit-equivalent to numpy.
-# Used as fallback when numba.cuda is unavailable.
+# Cached cupy ReductionKernel for fused (y-p)**2 sum-per-col, avoids materialising the (y-p)**2 intermediate. Bit-equivalent to numpy. Used as fallback when numba.cuda is unavailable.
 _CUPY_SSE_PER_COL = None
-_NUMBA_RMSE_KERNEL = None  # cached numba.cuda kernel handle
+_NUMBA_RMSE_KERNEL = None
 
 
 def _get_cupy_sse_kernel():
@@ -718,17 +511,14 @@ def _get_cupy_sse_kernel():
 
 
 def _get_numba_rmse_kernel():
-    """Build (or return cached) numba.cuda kernel that computes per-block,
-    per-column SSE via atomic.add. Final reduction + sqrt happens in cupy.
-    25-30% faster than the cupy ReductionKernel at N >= 1M."""
+    """Build (or return cached) numba.cuda kernel that computes per-block, per-column SSE via atomic.add. Final reduction + sqrt happens in cupy."""
     global _NUMBA_RMSE_KERNEL
     if _NUMBA_RMSE_KERNEL is None:
         from numba import cuda  # type: ignore
 
         @cuda.jit
         def _rmse_partial_sum(y, p, partial, N, M):
-            # y: (N,) (broadcast across M cols), p: (N, M)
-            # partial: (grid_x, M) per-block accumulator
+            # y: (N,) broadcast across M cols; p: (N, M); partial: (grid_x, M) per-block accumulator.
             j = cuda.blockIdx.y
             i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
             if j >= M or i >= N:
@@ -743,27 +533,15 @@ def _get_numba_rmse_kernel():
 def gpu_multiple_rmse_scores(actual, predicted):
     """Vectorized RMSE across columns on GPU.
 
-    Computes ``sqrt(mean((actual - predicted)**2, axis=0))`` for an
-    ``(N,)`` or ``(N, M)`` ``actual`` and an ``(N, M)`` ``predicted``,
-    returning ``(M,)`` RMSEs as a cupy array.
+    Computes ``sqrt(mean((actual - predicted)**2, axis=0))`` for an ``(N,)`` or ``(N, M)`` ``actual`` and an ``(N, M)`` ``predicted``, returning ``(M,)`` RMSEs as a cupy array.
 
     Backend selection (auto):
-      - ``numba.cuda`` kernel when ``numba.cuda.is_available()``: fused
-        (subtract, square, atomic-add) in one pass; per-block partials
-        finalised by cupy.sum. **25-30% faster than the cupy fallback at
-        N >= 1M** (verified on GTX 1050 Ti). Tiny fp jitter (~1e-15)
-        from non-deterministic atomic-add accumulation order.
-      - ``cupy.ReductionKernel`` when only cupy is available: fuses
-        subtract+square+reduce into one kernel pass, avoiding the
-        ``(N, M)`` fp64 intermediate that the naive expression allocates.
-        Bit-equivalent to numpy.
+      - `numba.cuda` kernel when available: fused (subtract, square, atomic-add) in one pass; per-block partials finalised by cupy.sum. Tiny fp jitter (~1e-15) from non-deterministic atomic-add accumulation order.
+      - `cupy.ReductionKernel` fallback: fuses subtract+square+reduce into one kernel pass, avoiding the ``(N, M)`` fp64 intermediate. Bit-equivalent to numpy.
 
-    Use when N >= 100k. Below that the numpy path is faster (host
-    overhead). For automatic dispatch (numpy / GPU based on (N, M)
-    + availability) see ``compute_batch_rmse``.
+    Use when N >= 100k. Below that the numpy path is faster. For automatic dispatch see `compute_batch_rmse`.
 
-    Inputs may be cupy or numpy arrays. Output is a cupy array; call
-    ``cp.asnumpy(...)`` to bring back to host.
+    Inputs may be cupy or numpy arrays. Output is a cupy array; call ``cp.asnumpy(...)`` to bring back to host.
     """
     cp = _require_cupy()
     actual = cp.asarray(actual, dtype=cp.float64)
@@ -771,15 +549,13 @@ def gpu_multiple_rmse_scores(actual, predicted):
     if predicted.ndim == 1:
         predicted = predicted[:, cp.newaxis]
 
-    # numba.cuda fast-path expects 1-D y for broadcast. If user passed
-    # 2-D actual, we'd have to write a different kernel. Cheap path:
-    # fall back to ReductionKernel for the 2-D case (rare in practice).
+    # numba.cuda fast-path expects 1-D y for broadcast; fall back to ReductionKernel for 2-D actual.
     can_use_numba = _is_numba_cuda_available() and actual.ndim == 1
     N = predicted.shape[0]
     M = predicted.shape[1]
 
     if can_use_numba:
-        from numba import cuda  # local import for speed
+        from numba import cuda
         kernel = _get_numba_rmse_kernel()
         BLOCK_N = 256
         grid_x = (N + BLOCK_N - 1) // BLOCK_N
@@ -792,7 +568,6 @@ def gpu_multiple_rmse_scores(actual, predicted):
         )
         return cp.sqrt(cp.sum(partial, axis=0) / N)
 
-    # cupy ReductionKernel fallback (also handles 2-D actual case).
     if actual.ndim == 1:
         actual = actual[:, cp.newaxis]
     sse = _get_cupy_sse_kernel()(actual, predicted, axis=0)
@@ -802,32 +577,19 @@ def gpu_multiple_rmse_scores(actual, predicted):
 def gpu_multiple_roc_auc_scores(actual, predicted):
     """Vectorized ROC AUC across columns on GPU (cupy), tie-correct.
 
-    Computes ROC AUC via Mann-Whitney U with FRACTIONAL (average) ranks
-    on tied scores, matching ``sklearn.metrics.roc_auc_score`` and
-    ``mlframe.metrics.fast_roc_auc`` bit-for-bit on continuous data and
-    within fp64 noise on tied data.
+    Computes ROC AUC via Mann-Whitney U with fractional (average) ranks on tied scores, matching ``sklearn.metrics.roc_auc_score`` and ``mlframe.metrics.fast_roc_auc`` bit-for-bit on continuous data and within fp64 noise on tied data.
 
-    Use when N >= 100k AND M >= 5 (roughly: enough rows + enough columns
-    to amortise GPU launch). At N=1M, M=20: ~4.5× over a Python loop;
-    at N=5M, M=5: ~8×. Below N=100k the per-column numba loop is faster.
-    For automatic dispatch see ``compute_batch_aucs``.
+    Use when N >= 100k AND M >= 5. Below N=100k the per-column numba loop is faster. For automatic dispatch see ``compute_batch_aucs``.
 
     Args:
         actual: ``(N,)`` binary 0/1 labels (numpy or cupy).
-        predicted: ``(N, M)`` per-column scores (numpy or cupy). Higher
-            score = more likely positive.
+        predicted: ``(N, M)`` per-column scores (numpy or cupy). Higher score = more likely positive.
 
     Returns:
-        ``(M,)`` cupy array of AUCs. NaN for columns where the label
-        column is degenerate (all 0 or all 1).
+        ``(M,)`` cupy array of AUCs. NaN for columns where the label column is degenerate (all 0 or all 1).
 
     Notes:
-        The naive ``argsort(argsort(x))+1`` Mann-Whitney trick gives
-        strict (not fractional) ranks on tied scores, producing ~1e-5
-        error vs sklearn on calibrated probability bins. This impl
-        replaces the second argsort with a cumsum-based fractional-rank
-        computation: O(N) vs O(N log N), so it's both correct AND
-        faster than the naive double-argsort version.
+        The naive ``argsort(argsort(x))+1`` Mann-Whitney trick gives strict (not fractional) ranks on tied scores, producing ~1e-5 error vs sklearn on calibrated probability bins. This impl replaces the second argsort with a cumsum-based fractional-rank computation: O(N) vs O(N log N).
     """
     cp = _require_cupy()
     actual = cp.asarray(actual)
@@ -839,12 +601,10 @@ def gpu_multiple_roc_auc_scores(actual, predicted):
     n_pos = cp.sum(actual)
     n_neg = N - n_pos
 
-    # Per-column fractional ranks. ``order[:, j]`` = ascending sort indices
-    # of column j; equal-value runs get the average of the strict ranks
-    # they occupy (e.g. three 0.5's at positions 4,5,6 all get rank 5).
+    # Per-column fractional ranks: equal-value runs get the average of the strict ranks they occupy (e.g. three 0.5's at positions 4,5,6 all get rank 5).
     order = cp.argsort(predicted, axis=0)
     ranks = cp.empty((N, M), dtype=cp.float64)
-    for j in range(M):  # M is small (typ. 1-100); loop is cheap on GPU
+    for j in range(M):
         col = predicted[:, j]
         col_sorted = col[order[:, j]]
         # `is_new[i]` True iff position i starts a new run of equal values.
@@ -856,9 +616,7 @@ def gpu_multiple_roc_auc_scores(actual, predicted):
         run_starts = cp.where(is_new)[0]
         run_ends = cp.concatenate([run_starts[1:], cp.array([N])])
         run_sizes = run_ends - run_starts
-        # Average strict rank over each run: start_strict_rank + (size+1)/2 - 1
-        # = run_starts + (size+1)/2  (since strict ranks are 1-based and
-        #   run_starts is 0-based, the offset cancels out).
+        # Average strict rank per run = run_starts + (size+1)/2 (strict ranks are 1-based, run_starts 0-based; offset cancels).
         avg_rank_per_run = run_starts.astype(cp.float64) + (run_sizes + 1) / 2.0
         avg_ranks_sorted = avg_rank_per_run[run_id]
         col_ranks = cp.empty(N, dtype=cp.float64)
@@ -872,26 +630,18 @@ def gpu_multiple_roc_auc_scores(actual, predicted):
 def gpu_multiple_pr_auc_scores(actual, predicted):
     """Vectorized PR AUC (Average Precision) across columns on GPU.
 
-    Computes Riemann-sum AP matching ``sklearn.metrics.average_precision_score``
-    and ``mlframe.metrics.fast_aucs`` bit-for-bit (verified ≤ 5.55e-17 on
-    continuous and tied data).
+    Computes Riemann-sum AP matching ``sklearn.metrics.average_precision_score`` and ``mlframe.metrics.fast_aucs`` bit-for-bit.
 
-    Algorithm: descending-sort by score, build cumulative-TP / FP arrays,
-    detect tie-run boundaries (one threshold per run), sum
-    ``(R_n - R_{n-1}) × P_n`` anchored at R_0 = 0.
+    Algorithm: descending-sort by score, build cumulative-TP / FP arrays, detect tie-run boundaries (one threshold per run), sum ``(R_n - R_{n-1}) * P_n`` anchored at R_0 = 0.
 
-    Use when N >= 100k AND M >= 5. PR AUC is the most GPU-friendly of the
-    three metrics here: at 1M × 20 cols, GPU = 170 ms vs CPU loop = 2016 ms
-    (**11.8× speedup**); at 5M × 5 cols, GPU = 213 ms vs CPU = 4141 ms
-    (**19.5× speedup**). For automatic dispatch see ``compute_batch_aucs``.
+    Use when N >= 100k AND M >= 5. For automatic dispatch see ``compute_batch_aucs``.
 
     Args:
         actual: ``(N,)`` binary 0/1 labels.
         predicted: ``(N,)`` or ``(N, M)`` scores.
 
     Returns:
-        ``(M,)`` cupy array of average-precision scores. NaN for
-        single-class label columns (sklearn behavior would raise).
+        ``(M,)`` cupy array of average-precision scores. NaN for single-class label columns (sklearn behavior would raise).
     """
     cp = _require_cupy()
     actual = cp.asarray(actual).astype(cp.float64)
@@ -903,40 +653,33 @@ def gpu_multiple_pr_auc_scores(actual, predicted):
     aps = cp.empty(M, dtype=cp.float64)
     total_pos = cp.sum(actual)
     if total_pos == 0 or total_pos == N:
-        # Single-class data — AP is undefined for all columns.
         aps.fill(cp.nan)
         return aps
 
     idx = cp.arange(1, N + 1, dtype=cp.float64)
     for j in range(M):
         col = predicted[:, j]
-        order = cp.argsort(col, kind="stable")[::-1]   # descending
+        order = cp.argsort(col, kind="stable")[::-1]
         col_sorted = col[order]
         y_sorted = actual[order]
 
         cumtps = cp.cumsum(y_sorted)
         precision = cumtps / idx
         recall = cumtps / total_pos
-        # Threshold boundaries: i is a boundary iff i == N-1 OR
-        # col_sorted[i] != col_sorted[i+1].
+        # Threshold boundary: i is a boundary iff i == N-1 OR col_sorted[i] != col_sorted[i+1].
         is_boundary = cp.concatenate([
             col_sorted[:-1] != col_sorted[1:],
             cp.array([True]),
         ])
         recall_b = recall[is_boundary]
         precision_b = precision[is_boundary]
-        # delta_recall[0] anchors at recall=0 (matches sklearn AP definition).
+        # delta_recall[0] anchors at recall=0 to match sklearn AP definition.
         delta_recall = cp.concatenate([
             cp.array([recall_b[0]]),
             recall_b[1:] - recall_b[:-1],
         ])
         aps[j] = cp.sum(delta_recall * precision_b)
     return aps
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Auto-dispatching wrappers: pick GPU or CPU based on (N, M) + availability
-# ----------------------------------------------------------------------------------------------------------------------------
 
 
 def _normalize_scores_2d(y_score: np.ndarray) -> np.ndarray:
@@ -970,10 +713,9 @@ def compute_batch_rmse(
 
     use_gpu = _resolve_backend(force_backend, N, yp.shape[1])
     if use_gpu:
-        import cupy as cp  # lazy
+        import cupy as cp
         out = gpu_multiple_rmse_scores(yt, yp)
         return cp.asnumpy(out)
-    # CPU reference
     if yt.ndim == 1:
         yt = yt[:, np.newaxis]
     return np.sqrt(np.mean((yt - yp) ** 2.0, axis=0))
@@ -987,13 +729,9 @@ def compute_batch_aucs(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Both ROC AUC and PR AUC per column, auto GPU/CPU dispatch.
 
-    Returns ``(roc_aucs, pr_aucs)`` as host-side numpy arrays of shape
-    ``(M,)``. NaNs are returned for label columns where ROC/PR is
-    undefined (single-class).
+    Returns ``(roc_aucs, pr_aucs)`` as host-side numpy arrays of shape ``(M,)``. NaNs are returned for label columns where ROC/PR is undefined (single-class).
 
-    Dispatch policy: same as ``compute_batch_rmse`` — GPU when
-    ``cupy`` is present, a CUDA device is visible, and N exceeds the
-    threshold (default 100k). Override via ``force_backend``.
+    Dispatch policy: same as ``compute_batch_rmse`` - GPU when ``cupy`` is present, a CUDA device is visible, and N exceeds the threshold (default 100k). Override via ``force_backend``.
     """
     yt = np.asarray(y_true)
     ys = _normalize_scores_2d(np.asarray(y_score))
@@ -1001,11 +739,10 @@ def compute_batch_aucs(
 
     use_gpu = _resolve_backend(force_backend, N, M)
     if use_gpu:
-        import cupy as cp  # lazy
+        import cupy as cp
         roc = cp.asnumpy(gpu_multiple_roc_auc_scores(yt, ys))
         pr = cp.asnumpy(gpu_multiple_pr_auc_scores(yt, ys))
         return roc, pr
-    # CPU loop over per-column ``fast_aucs`` (returns roc, pr in one pass).
     roc = np.empty(M, dtype=np.float64)
     pr = np.empty(M, dtype=np.float64)
     for j in range(M):
@@ -1027,7 +764,6 @@ def _resolve_backend(force: Optional[str], N: int, M: int) -> bool:
         return False
     if force is not None:
         raise ValueError(f"force_backend must be 'gpu', 'cpu', or None; got {force!r}")
-    # Auto: GPU iff available + over thresholds.
     return (
         is_gpu_metrics_available()
         and N >= _GPU_BATCH_THRESHOLD_N
@@ -1114,25 +850,10 @@ def fast_classification_report(y_true: np.ndarray, y_pred: np.ndarray, nclasses:
     return hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages
 
 
-# ============================================================================
-# Multi-label numba metrics — 2026-04-24
-# ============================================================================
-#
-# All three accept either (N, K) binary indicator matrices or (N,) binary
-# arrays (auto-reshaped to (N, 1) by the public wrappers).
-#
-# Sequential variants are the default. Parallel variants (`@njit(parallel=True)`)
-# are auto-selected by the public wrapper when ``N * K > 1_000_000`` —
-# benchmarked threshold on Win32 where `numba.prange` cold-spawn cost is
-# ~40-80ms (rules out small-frame parallelism).
-#
-# All three follow sklearn semantics:
+# Multi-label numba metrics. All three accept either (N, K) binary indicator matrices or (N,) binary arrays (auto-reshaped to (N, 1) by the public wrappers). Parallel variants (`@njit(parallel=True)`) are auto-selected by the public wrapper when N*K > 1M. All three follow sklearn semantics:
 # - `hamming_loss`: mean fraction of incorrect labels (lower is better)
 # - `subset_accuracy`: fraction of samples where ALL labels match (exact match)
-# - `jaccard_score_multilabel`: per-row averaged |y_true & y_pred| / |y_true | y_pred|;
-#   empty-union row counts as 1.0 (defined as "both empty = perfect" — sklearn
-#   `jaccard_score(average='samples')` raises in that case unless `zero_division`
-#   is explicit; we pick 1.0 as the well-defined choice).
+# - `jaccard_score_multilabel`: per-row averaged |y_true & y_pred| / |y_true | y_pred|; empty-union row counts as 1.0 ("both empty = perfect" - sklearn's `jaccard_score(average='samples')` raises in that case unless `zero_division` is explicit).
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -1179,8 +900,7 @@ def _fast_subset_accuracy_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_subset_accuracy_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Parallel subset accuracy. ~5.6× faster than seq at N=1M.
-    Public ``subset_accuracy`` wrapper auto-selects above N=50k."""
+    """Parallel subset accuracy. Public `subset_accuracy` wrapper auto-selects above N=50k."""
     N, K = y_true.shape
     correct = 0
     for i in numba.prange(N):
@@ -1196,7 +916,7 @@ def _fast_subset_accuracy_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_jaccard_score_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Per-row Jaccard (|A∩B|/|A∪B|), averaged. Empty-union → 1.0."""
+    """Per-row Jaccard (|A&B|/|A|B|), averaged. Empty-union -> 1.0."""
     N, K = y_true.shape
     total = 0.0
     for i in range(N):
@@ -1212,14 +932,13 @@ def _fast_jaccard_score_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         if union > 0:
             total += intersect / union
         else:
-            total += 1.0  # both empty — perfect by definition
+            total += 1.0
     return total / N
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_jaccard_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Parallel per-row Jaccard. ~6.2× faster than seq at N=1M.
-    Public ``jaccard_score_multilabel`` wrapper auto-selects above N=50k."""
+    """Parallel per-row Jaccard. Public `jaccard_score_multilabel` wrapper auto-selects above N=50k."""
     N, K = y_true.shape
     total = 0.0
     for i in numba.prange(N):
@@ -1241,11 +960,9 @@ def _fast_jaccard_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _popcount64(x: np.uint64) -> np.int64:
-    """Population-count for uint64 — Hacker's Delight bit-twiddle.
+    """Population-count for uint64 (Hacker's Delight bit-twiddle).
 
-    Numba doesn't expose `__builtin_popcountll` directly; this 5-instruction
-    sequence is ~as fast as the intrinsic on modern x86-64. Used by the
-    bitmap-Jaccard fast path for K≤64 multilabel arrays.
+    Numba doesn't expose `__builtin_popcountll` directly; this 5-instruction sequence is ~as fast as the intrinsic on modern x86-64. Used by the bitmap-Jaccard fast path for K<=64 multilabel arrays.
     """
     x = x - ((x >> 1) & np.uint64(0x5555555555555555))
     x = (x & np.uint64(0x3333333333333333)) + ((x >> 2) & np.uint64(0x3333333333333333))
@@ -1272,45 +989,33 @@ def _fast_jaccard_bitmap_seq(y_true_packed: np.ndarray, y_pred_packed: np.ndarra
         if union > 0:
             total += intersect / union
         else:
-            total += 1.0  # both empty
+            total += 1.0
     return total / N
 
 
 def _can_use_bitmap_jaccard(K: int) -> bool:
-    """Bitmap Jaccard fits if 16 <= K <= 64 (single uint64 per row).
-
-    K threshold benchmarks (N=200_000, jaccard_score_multilabel, Win32 Anaconda 3.11):
-        K=3  : bitmap 22ms,  elem  4ms — bitmap LOSES 5x (pack overhead)
-        K=16 : bitmap 21ms,  elem 25ms — bitmap wins 1.2x
-        K=32 : bitmap 23ms,  elem 52ms — bitmap wins 2.3x
-        K=64 : bitmap 12ms,  elem 101ms — bitmap wins 8.6x
-
-    Cutoff at K=16 (~breakeven) means the elementwise loop wins for the
-    common 3-5-label case and bitmap kicks in for tag-cloud cases (K>=16).
-    """
+    """Bitmap Jaccard fits if 16 <= K <= 64 (single uint64 per row). Cutoff at K=16 (~breakeven) means the elementwise loop wins for the common 3-5-label case and bitmap kicks in for tag-cloud cases (K>=16)."""
     return 16 <= K <= 64
 
 
 def _pack_for_bitmap(arr: np.ndarray) -> np.ndarray:
     """Pack a (N, K) uint8 binary array into (N,) uint64.
 
-    Handles K not multiple of 8 by zero-padding to next 64-bit boundary.
-    Excess bits are zero — they contribute 0 to popcount, so safe.
+    Handles K not multiple of 8 by zero-padding to next 64-bit boundary. Excess bits are zero so they contribute 0 to popcount.
     """
     N, K = arr.shape
-    # Pad to 64 bits per row (K' = ceil(K, 64) but capped at 64).
     if K < 64:
         padded = np.zeros((N, 64), dtype=np.uint8)
         padded[:, :K] = arr
     else:
-        padded = arr  # K == 64 exactly
+        padded = arr
     # packbits packs into uint8s big-endian within each byte; then view as uint64.
-    packed_u8 = np.packbits(padded, axis=1)  # (N, 8) uint8
-    return packed_u8.view(np.uint64).ravel()  # (N,) uint64
+    packed_u8 = np.packbits(padded, axis=1)
+    return packed_u8.view(np.uint64).ravel()
 
 
 def _coerce_multilabel_array(arr) -> np.ndarray:
-    """Single-pass cast to contiguous uint8 (N, K). Reshape (N,) → (N, 1)."""
+    """Single-pass cast to contiguous uint8 (N, K). Reshape (N,) -> (N, 1)."""
     a = np.ascontiguousarray(np.asarray(arr), dtype=np.uint8)
     if a.ndim == 1:
         return a.reshape(-1, 1)
@@ -1320,12 +1025,7 @@ def _coerce_multilabel_array(arr) -> np.ndarray:
 
 
 def _validate_multilabel_pair(y_true, y_pred) -> tuple:
-    """Coerce + validate y_true / y_pred shape match BEFORE calling numba.
-
-    Numba @njit kernels do not bounds-check inner loops; passing arrays
-    of mismatched second-dimension would silently read garbage memory.
-    Public wrappers MUST validate up-front.
-    """
+    """Coerce + validate y_true / y_pred shape match BEFORE calling numba. Numba @njit kernels do not bounds-check inner loops; mismatched arrays would silently read garbage memory."""
     yt = _coerce_multilabel_array(y_true)
     yp = _coerce_multilabel_array(y_pred)
     if yt.shape != yp.shape:
@@ -1339,10 +1039,7 @@ def _validate_multilabel_pair(y_true, y_pred) -> tuple:
 def hamming_loss(y_true, y_pred) -> float:
     """sklearn-compatible Hamming loss for multilabel targets.
 
-    Accepts (N,) binary or (N, K) multilabel. For N*K > 1M, auto-routes
-    to the parallel numba variant.
-
-    Same return-value semantics as ``sklearn.metrics.hamming_loss``.
+    Accepts (N,) binary or (N, K) multilabel. For N*K > 1M, auto-routes to the parallel numba variant. Same semantics as ``sklearn.metrics.hamming_loss``.
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
     if yt.shape[0] * yt.shape[1] > 1_000_000:
@@ -1353,10 +1050,7 @@ def hamming_loss(y_true, y_pred) -> float:
 def subset_accuracy(y_true, y_pred) -> float:
     """Subset accuracy (a.k.a. exact-match) for multilabel targets.
 
-    Equivalent to ``sklearn.metrics.accuracy_score(y_true, y_pred)`` on
-    multilabel inputs (sklearn does row-wise all-equal under the hood).
-    Auto-dispatches to the parallel kernel above N=50k rows
-    (~5.6× speedup at 1M rows on an 8-thread runtime).
+    Equivalent to ``sklearn.metrics.accuracy_score(y_true, y_pred)`` on multilabel inputs (sklearn does row-wise all-equal under the hood). Auto-dispatches to the parallel kernel above N=50k rows.
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
     if yt.shape[0] >= _PARALLEL_MULTILABEL_THRESHOLD:
@@ -1367,18 +1061,9 @@ def subset_accuracy(y_true, y_pred) -> float:
 def jaccard_score_multilabel(y_true, y_pred, *, force_elementwise: bool = False) -> float:
     """Per-row averaged Jaccard score for multilabel targets.
 
-    Equivalent to ``sklearn.metrics.jaccard_score(y_true, y_pred, average='samples')``
-    with the well-defined choice of 1.0 for empty-union rows
-    (sklearn's default raises a ``DivisionWarning`` on those).
+    Equivalent to ``sklearn.metrics.jaccard_score(y_true, y_pred, average='samples')`` with the well-defined choice of 1.0 for empty-union rows (sklearn's default raises a ``DivisionWarning`` on those).
 
-    Performance: when ``K ≤ 64`` (the common case in multilabel tagging),
-    uses a bitmap-popcount fast path (~10-50× faster than the elementwise
-    loop) — these are sequential because the per-row work is tiny on
-    bit-packed input. For elementwise mode (``force_elementwise=True``
-    or K>64), the parallel kernel kicks in above N=50k rows
-    (~6× speedup at 1M rows). Set ``force_elementwise=True`` to bypass
-    the bitmap path — useful for benchmarks and verifying numerical
-    equivalence between the two paths.
+    When K <= 64 uses a bitmap-popcount fast path; sequential because per-row work is tiny on bit-packed input. For elementwise mode (force_elementwise=True or K>64), the parallel kernel kicks in above N=50k rows. ``force_elementwise=True`` bypasses the bitmap path - useful for benchmarks and verifying numerical equivalence.
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
     K = yt.shape[1]
@@ -1391,12 +1076,7 @@ def jaccard_score_multilabel(y_true, y_pred, *, force_elementwise: bool = False)
     return _fast_jaccard_score_seq(yt, yp)
 
 
-# Closed set of title-metrics tokens recognised by render_title_metrics() and
-# validated by ReportingConfig at construction time. Order in DEFAULT matches
-# the historical title layout (ICE first, then BR with decomposition, ECE between
-# BR and CMAEW per spec, then LL, ROC_AUC, PR_AUC). Adding a new token requires:
-# 1) extending TITLE_METRIC_TOKENS, 2) adding a render_* branch in
-# render_title_metric_token, 3) updating ReportingConfig validator allowed-set.
+# Closed set of title-metrics tokens recognised by render_title_metrics() and validated by ReportingConfig at construction time. Adding a new token requires: 1) extending TITLE_METRIC_TOKENS, 2) adding a render_* branch in render_title_metric_token, 3) updating ReportingConfig validator allowed-set.
 TITLE_METRIC_TOKENS: frozenset = frozenset({
     "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
     "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
@@ -1432,19 +1112,9 @@ def render_title_metric_token(
 ) -> str:
     """Render one calibration-report title fragment for a token.
 
-    Returns the empty string when the token has no usable data (e.g. LL with
-    single-class y_true). Tokens are validated by ReportingConfig at config
-    construction time, so unknown tokens cannot reach this function in practice -
-    the final ``return ""`` is a defence-in-depth against bypassed validation.
+    Returns the empty string when the token has no usable data (e.g. LL with single-class y_true). Tokens are validated by ReportingConfig at config construction time; the final ``return ""`` is defence-in-depth against bypassed validation.
 
-    Percent-suffixed metrics (BR / BR_DECOMP / ECE / CMAEW / PR / RE / F1)
-    render with one fewer decimal than ``ndigits`` -- ``%`` already adds
-    two extra characters per metric and the headline still reads cleanly
-    at ``9.1%`` instead of ``9.10%``. Bare-scalar metrics (ICE, LL,
-    ROC_AUC, PR_AUC) keep ``ndigits`` since precision matters more there
-    (single-decimal AUC squashes 0.974 vs 0.976 to "1.0"). User feedback
-    2026-05-04. ``COV`` derives its own precision from log10(nbins) and
-    is unchanged.
+    Percent-suffixed metrics (BR / BR_DECOMP / ECE / CMAEW / PR / RE / F1) render with one fewer decimal than ``ndigits``; ``%`` adds two extra characters per metric and ``9.1%`` reads cleanly. Bare-scalar metrics (ICE, LL, ROC_AUC, PR_AUC) keep ``ndigits`` since precision matters more there (single-decimal AUC squashes 0.974 vs 0.976 to "1.0"). ``COV`` derives its own precision from log10(nbins) and is unchanged.
     """
     pct_digits = max(0, ndigits - 1)
     if token == "ICE":
@@ -1452,15 +1122,7 @@ def render_title_metric_token(
     if token == "BR":
         return f"BR={brier_loss * 100:.{pct_digits}f}%"
     if token == "BR_DECOMP":
-        # 2026-04-27 Session 7 batch 8 (user feedback): compact form
-        # of the Brier decomposition. The math is BR = REL - RES + UNC
-        # (Murphy 1973), so the most informative compact rendering is
-        # the actual signed-sum: ``BR=X%(RL<rel>%+U<unc>%-RS<res>%)`` where
-        # RL = ReLiability (calibration error, lower is better),
-        # U  = Uncertainty (irreducible noise = base_rate * (1-base_rate)),
-        # RS = ReSolution (subtractive: how well bins separate from base
-        # rate, higher is better). Reads naturally as the formula with
-        # signs preserved, ~30% shorter than the labelled form.
+        # Compact form of the Brier decomposition. Math: BR = REL - RES + UNC (Murphy 1973). RL = ReLiability (calibration error, lower better), U = Uncertainty (irreducible noise = base_rate*(1-base_rate)), RS = ReSolution (subtractive: how well bins separate from base rate, higher better).
         return (
             f"BR={brier_loss * 100:.{pct_digits}f}%"
             f"(RL{brier_reliability * 100:.{pct_digits}f}%"
@@ -1564,30 +1226,17 @@ def _close_unless_interactive(figs, was_shown: bool) -> None:
         their display hooks during ``plt.show()``, so closing right
         after preserves the inline render).
 
-    Detection: a true IPython kernel sets the ``__IPYTHON__`` builtin;
-    the bare REPL sets ``sys.ps1``. The naive ``"IPython" in
-    sys.modules`` heuristic is unreliable -- matplotlib + many ML
-    libraries drag IPython into ``sys.modules`` as a transitive
-    dependency even from plain Python scripts, giving false positives
-    that cause figures to leak across the training-suite calls (~12
-    cal-plots / fit, tripping the matplotlib ``More than 20 figures
-    have been opened`` warning + a real per-fit slowdown).
-
-    Background: 2026-05-09 leak fix on top of show_calibration_plot;
-    extracted as a helper after the same pattern was needed in
-    feature_importance.py and training/evaluation.py.
+    Detection: a true IPython kernel sets the ``__IPYTHON__`` builtin; the bare REPL sets ``sys.ps1``. The naive ``"IPython" in sys.modules`` heuristic is unreliable - matplotlib + many ML libraries drag IPython into ``sys.modules`` as a transitive dependency even from plain Python scripts, giving false positives that cause figures to leak across the training-suite calls.
     """
     try:
         is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
     except NameError:
         is_interactive = hasattr(sys, "ps1")
     if is_interactive and was_shown:
-        return  # let the kernel's inline display keep the rendered figure
-    # Either we never showed (no display happened), OR we're in a
-    # script / GUI session where leaving figures alive just leaks them.
+        return
     if figs is None:
         return
-    if hasattr(figs, "savefig"):  # single Figure
+    if hasattr(figs, "savefig"):
         plt.close(figs)
         return
     for f in figs:
@@ -1617,40 +1266,15 @@ def show_calibration_plot(
     base_path: Optional[str] = None,
     dpi: Optional[int] = None,
 ):
-    """Plots reliability digaram from the binned predictions.
+    """Plots reliability diagram from the binned predictions.
 
-    With ``show_prob_histogram=True`` (default) a probability-distribution
-    histogram is drawn under the reliability scatter, sharing the X axis.
-    Histogram bar heights are bin populations (``hits``) and bars are
-    coloured by population using the same ``RdYlBu`` colormap as the
-    calibration scatter, so the bottom plot reads consistently with the
-    top one (a single bar that matches the colorbar tells you "this bin
-    holds N samples"). Y-scale defaults to ``linear`` -- the legacy
-    ``"auto"`` mode (log iff max/min skew > 100) flipped to log on
-    skewed distributions and made empty bins look populated; pass
-    ``prob_histogram_yscale="log"`` if you genuinely need log.
-    Inline per-bin population annotations (the small text labels next to each
-    scatter point) are independently controlled by
-    ``show_inline_population_labels`` so users can keep both, drop both, or
-    keep only one.
+    With ``show_prob_histogram=True`` (default) a probability-distribution histogram is drawn under the reliability scatter, sharing the X axis. Histogram bar heights are bin populations (``hits``) and bars are coloured by population using the same ``RdYlBu`` colormap as the calibration scatter, so the bottom plot reads consistently with the top one. Y-scale defaults to ``linear``; the legacy ``"auto"`` mode (log iff max/min skew > 100) flipped to log on skewed distributions and made empty bins look populated; pass ``prob_histogram_yscale="log"`` if you genuinely need log. Inline per-bin population annotations are independently controlled by ``show_inline_population_labels``.
     """
 
     assert backend in ("plotly", "matplotlib")
     assert prob_histogram_yscale in ("auto", "log", "linear")
 
-    # 2026-05-09: short-circuit when there is NO plot consumer. The
-    # ``show_plots=True`` default expresses "render if a human can see
-    # it"; in a script / CI / fuzz process (no IPython kernel, no
-    # ``sys.ps1``) that's a contradiction -- ``plt.show()`` is a
-    # documented no-op (UserWarning: ``FigureCanvasAgg is non-
-    # interactive, and thus cannot be shown``) AND nothing is written
-    # to disk because ``plot_file`` is empty. The figure render is
-    # 130-180 ms / call and dominates the warm wall on plot-heavy
-    # multilabel fits (e.g. c0104: 12 cal-plots / fit -> 1.6-2.2 s of
-    # pure waste per fit). Caller can opt back in by passing a real
-    # ``plot_file`` (saves to disk regardless of session) OR by
-    # running inside IPython / Jupyter where the inline display
-    # backends will pick up the figure.
+    # Short-circuit when there is no plot consumer. ``show_plots=True`` default expresses "render if a human can see it"; in a script / CI process (no IPython kernel, no ``sys.ps1``) ``plt.show()`` is a documented no-op AND nothing is written to disk because ``plot_file`` is empty. The figure render is 130-180 ms / call. Caller can opt back in via a real ``plot_file`` or by running inside IPython / Jupyter.
     if show_plots and not plot_file:
         try:
             _is_interactive = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
@@ -1659,10 +1283,7 @@ def show_calibration_plot(
         if not _is_interactive:
             return None
 
-    # 2026-05-08: opt-in DSL render path. When ``plot_outputs`` + ``base_path``
-    # are supplied, route through the shared spec pipeline (matplotlib +
-    # plotly + any future backends via the same DSL). Default behaviour
-    # preserved -- legacy callers see no change.
+    # Opt-in DSL render path: when ``plot_outputs`` + ``base_path`` are supplied, route through the shared spec pipeline (matplotlib + plotly + any future backends via the same DSL).
     if plot_outputs and base_path:
         from mlframe.reporting.charts.calibration import build_calibration_spec
         from mlframe.reporting.output import parse_plot_output_dsl
@@ -1682,10 +1303,7 @@ def show_calibration_plot(
 
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
 
-    # nbins-derived bar width: use the bin centre spacing as the bar width.
-    # When all bins have data this matches fast_calibration_binning's geometry;
-    # if some bins are empty (sparse hits filter at metrics.py:600) we fall back
-    # to the average centre spacing across present bins so bars don't overlap.
+    # nbins-derived bar width via bin-centre spacing. When all bins have data this matches fast_calibration_binning's geometry; if some bins are empty (sparse-hits filter) fall back to the average centre spacing across present bins so bars don't overlap.
     if len(freqs_predicted) > 1:
         _bar_width = float(np.mean(np.diff(np.sort(freqs_predicted))))
     else:
@@ -1716,13 +1334,7 @@ def show_calibration_plot(
         def _draw_calibration_axes(ax, fig, draw_xlabel: bool, *, cbar_ax=None):
             """Render the reliability scatter + perfect-calibration line + colorbar on ``ax``.
 
-            ``cbar_ax`` (optional) is the axes list / single ax the
-            colorbar attaches to. When the calibration plot stacks
-            with a histogram below, pass ``[ax_main, ax_hist]`` so the
-            colorbar spans both — otherwise the colorbar steals
-            horizontal space from only the calibration axes, making
-            the histogram's plot-area visibly wider and breaking the
-            shared-X alignment (2026-04-27 user feedback).
+            ``cbar_ax`` (optional) is the axes list / single ax the colorbar attaches to. When the calibration plot stacks with a histogram below, pass ``[ax_main, ax_hist]`` so the colorbar spans both - otherwise it steals horizontal space from only the calibration axes, making the histogram's plot-area visibly wider and breaking shared-X alignment.
             """
             cm = matplotlib.colormaps["RdYlBu"]
             sc = ax.scatter(
@@ -1750,15 +1362,10 @@ def show_calibration_plot(
         def _draw_histogram_axes(ax):
             """Render the predicted-probability histogram under the calibration axes.
 
-            Bars are coloured by the same ``RdYlBu`` colormap + same
-            normalisation as the top calibration scatter, so the colorbar
-            reads consistently across both subplots: a tall blue bar in
-            the histogram matches the blue scatter bubble at the same X
-            (both encode "this bin is populated").
+            Bars share the ``RdYlBu`` colormap + normalisation with the top calibration scatter, so a tall blue bar in the histogram matches the blue scatter bubble at the same X.
             """
             cm = matplotlib.colormaps["RdYlBu"]
-            # Same normalisation as the scatter (which uses ``c=hits`` and
-            # auto-normalises across the value range). Reproduce that here:
+            # Match the scatter's auto-normalisation (which uses ``c=hits``).
             _h_min = float(np.min(hits)) if len(hits) else 0.0
             _h_max = float(np.max(hits)) if len(hits) else 1.0
             if _h_max <= _h_min:
@@ -1773,39 +1380,12 @@ def show_calibration_plot(
             ax.set_ylabel(label_histogram)
             ax.set_yscale(_resolve_yscale(hits))
 
-        # Save-only fast path: bypass pyplot + GUI backend (Qt init costs ~1.7s per call).
-        # Using Figure + FigureCanvasAgg directly drops this to ~0.2s. Also thread-safe,
-        # which matters for parallel val/test evaluation.
-        #
-        # 2026-05-09: tried extending the guard to also fire for
-        # ``show_plots=True`` outside an IPython kernel, hypothesising
-        # that the GUI-bound path's pyplot+Qt overhead was wasted in
-        # script / CI runs. Two A/B benches on c0104 (5 fits each)
-        # showed 2733 +- 236 ms and 3145 +- 723 ms vs the
-        # close-fix-only baseline of 2275 +- 185 ms -- a regression,
-        # not a win. Revert; keep the original guard. Closing figures
-        # in the interactive path (already done above) is enough.
+        # Save-only fast path bypasses pyplot + GUI backend (Qt init costs ~1.7s per call). Using Figure + FigureCanvasAgg directly drops this to ~0.2s and is thread-safe, which matters for parallel val/test evaluation.
         if plot_file and not show_plots:
             from matplotlib.figure import Figure
             from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-            # 2026-05-11: layout was ``"constrained"`` per 2026-04-27 batch 8
-            # to handle the multi-axis colorbar (``ax=[ax_main, ax_hist]``)
-            # without tight_layout's compat warning. But the Wave 4 1M-row
-            # fuzz aggregate showed 146 s across 108 calls (1.35 s / call)
-            # in this path -- constrained_layout's iterative bbox solver
-            # was a needless ~170 ms / call on the calibration plot
-            # geometry.
-            # Visual A/B on the actual chart (12x6 figsize, 2-line title,
-            # multi-axis colorbar, sharex'd hist below scatter) showed
-            # matplotlib's default geometry fits everything with zero
-            # clipping; the rightmost scatter dot stays inside the
-            # colorbar boundary. Switched to ``layout=None``.
-            # Bench: 430 ms -> 257 ms (1.67x, ~170 ms / call saving).
-            # See profiling/bench_calibration_layout.py for the A/B and
-            # D:/Temp/calib_ab_*.png for visual proof.
-            # 2026-05-11: honour ``dpi`` kwarg so ReportingConfig.plot_dpi
-            # propagates here; ``None`` defers to matplotlib's default.
+            # `layout=None` instead of `"constrained"`: matplotlib's default geometry fits this layout (12x6 figsize, 2-line title, multi-axis colorbar, sharex'd hist below scatter) without clipping, and `constrained_layout`'s iterative bbox solver adds ~170 ms per call. `dpi` kwarg honoured so ReportingConfig.plot_dpi propagates; `None` defers to matplotlib's default.
             _fig_kwargs = {"figsize": figsize, "layout": None}
             if dpi is not None:
                 _fig_kwargs["dpi"] = dpi
@@ -1815,14 +1395,11 @@ def show_calibration_plot(
                 gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.05)
                 ax_main = fig.add_subplot(gs[0, 0])
                 ax_hist = fig.add_subplot(gs[1, 0], sharex=ax_main)
-                # Colorbar spans BOTH axes so each subplot loses the
-                # same horizontal slice -> X-axes stay aligned via
-                # sharex (was: colorbar attached only to ax_main,
-                # making ax_hist visually wider — user feedback 2026-04-27).
+                # Colorbar spans BOTH axes so each subplot loses the same horizontal slice and X-axes stay aligned via sharex.
                 _draw_calibration_axes(ax_main, fig, draw_xlabel=False,
                                        cbar_ax=[ax_main, ax_hist])
                 _draw_histogram_axes(ax_hist)
-                # hide top axes' x tick labels since hist below carries them via sharex
+                # Hide top axes' x tick labels; hist below carries them via sharex.
                 plt.setp(ax_main.get_xticklabels(), visible=False)
                 if plot_title:
                     ax_main.set_title(plot_title)
@@ -1831,15 +1408,10 @@ def show_calibration_plot(
                 _draw_calibration_axes(ax, fig, draw_xlabel=True)
                 if plot_title:
                     ax.set_title(plot_title)
-            # constrained_layout handles spacing automatically — no
-            # tight_layout() (which warns + mis-shapes colorbar).
             fig.savefig(plot_file)
             return fig
 
-        # Interactive path (show_plots=True) — keep pyplot so the GUI window is managed.
-        # 2026-05-11: layout="constrained" -> layout=None (same rationale as the
-        # save-only path above: 1.67x faster, visually equivalent on this
-        # 12x6 figsize + multi-axis colorbar + 2-line title geometry).
+        # Interactive path (show_plots=True): keep pyplot so the GUI window is managed.
         if show_prob_histogram:
             _subplots_kwargs = dict(
                 nrows=2, ncols=1,
@@ -1851,8 +1423,7 @@ def show_calibration_plot(
             if dpi is not None:
                 _subplots_kwargs["dpi"] = dpi
             fig, (ax_main, ax_hist) = plt.subplots(**_subplots_kwargs)
-            # Colorbar spans both subplots — see _draw_calibration_axes
-            # docstring for why (X-axis alignment under sharex).
+            # Colorbar spans both subplots - see _draw_calibration_axes docstring (X-axis alignment under sharex).
             _draw_calibration_axes(ax_main, fig, draw_xlabel=False,
                                    cbar_ax=[ax_main, ax_hist])
             _draw_histogram_axes(ax_hist)
@@ -1869,30 +1440,10 @@ def show_calibration_plot(
             if plot_title:
                 ax.set_title(plot_title)
 
-        # Default geometry fits this layout (verified via visual A/B
-        # against constrained_layout, see bench_calibration_layout.py).
-
         if plot_file:
             fig.savefig(plot_file)
 
-        # 2026-05-09: ``show_plots=True`` previously ran ``plt.ion();
-        # plt.show()`` and left the figure open. In an automated /
-        # headless / fuzz / CI run (no REPL, no Jupyter kernel),
-        # ``plt.show()`` is either a no-op (Agg canvas, with
-        # ``UserWarning: FigureCanvasAgg is non-interactive``) or
-        # opens an unowned Qt window the script cannot dismiss; in
-        # both cases the figure stayed alive in pyplot's registry,
-        # accumulating across the 12+ cal-plot calls per multilabel
-        # fit and tripping ``More than 20 figures have been opened``
-        # plus a real per-fit slowdown (each new ``plt.subplots`` has
-        # to track all live figures). Detect interactive consumer
-        # (Python REPL / IPython / Jupyter kernel) by ``sys.ps1`` and
-        # ``IPython`` in ``sys.modules``; if neither is present, close
-        # the figure right after the (no-op or fire-and-forget)
-        # ``plt.show()``. Inline-display backends (Jupyter inline
-        # ``%matplotlib inline``, ipympl) register the figure with the
-        # display hooks during ``plt.show()`` BEFORE we close it, so
-        # the rendered output is preserved.
+        # In an automated / headless / CI run (no REPL, no Jupyter kernel) `plt.show()` is either a no-op (Agg canvas) or opens an unowned Qt window the script cannot dismiss; either way the figure stayed alive in pyplot's registry, accumulating across many cal-plot calls per fit and tripping `More than 20 figures have been opened`. Close right after `plt.show()` outside an interactive consumer; inline-display backends register the figure with display hooks during `plt.show()` BEFORE we close it, so rendered output is preserved.
         if show_plots:
             plt.ion()
             plt.show()
@@ -2297,16 +1848,9 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
 
 def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray = None) -> Tuple[float, float, Dict[int, Tuple[float, float]]]:
     """
-    More memory-efficient version that groups data by group first.
-    Better for cases with many groups and reasonable group sizes.
+    More memory-efficient version that groups data by group first. Better for cases with many groups and reasonable group sizes.
 
-    Upfront filter (2026-04-21): groups with <2 samples OR single-class
-    y_true are NaN-bound by the underlying formula. We precompute per-group
-    (count, pos_count) once, drop sample rows belonging to doomed groups
-    before calling the numba inner loop, and emit the NaNs directly. On
-    production workloads where 95 %+ of groups are single-sample
-    (fine-grained group_ids), this slashes the per-group sort + iteration
-    to only the valid-group subset.
+    Upfront filter: groups with <2 samples OR single-class y_true are NaN-bound by the underlying formula. Precompute per-group (count, pos_count) once, drop sample rows belonging to doomed groups before the numba inner loop, and emit NaNs directly. On workloads where 95 %+ of groups are single-sample (fine-grained group_ids), this slashes per-group sort + iteration to only the valid-group subset.
     """
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
@@ -2374,14 +1918,7 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
     """
     Compute AUCs for each group from pre-sorted data.
 
-    NOT parallelised. Benched 2026-05-09 against a ``parallel=True`` variant
-    that pre-computes group boundaries + writes to per-thread arrays
-    (avoiding Dict-write contention). Result: ``par/seq`` ratio 1.77-4.80×
-    SLOWER than seq across (n_groups, avg_size) shapes from (100, 10) up
-    to (100_000, 10). Reason: per-group work (argsort + AUC scan on 5-50
-    elements) is microseconds; numba prange thread-spawn overhead per
-    iteration dominates. Bench preserved at
-    ``profiling/bench_grouped_aucs_parallel.py``.
+    Not parallelised: per-group work (argsort + AUC scan on 5-50 elements) is microseconds and numba prange thread-spawn overhead per iteration dominates; a `parallel=True` variant tested 1.77-4.80x SLOWER across (n_groups, avg_size) shapes.
     """
     group_aucs = {}
     n = len(sorted_group_ids)
@@ -2505,22 +2042,9 @@ def format_classification_report(
 ) -> str:
     """Drop-in replacement for ``sklearn.metrics.classification_report``.
 
-    Computes precision / recall / f1 / support per class plus accuracy /
-    macro-avg / weighted-avg via the @njit ``fast_classification_report``
-    kernel and formats the result as the same fixed-width text block
-    sklearn produces. Used by ``evaluation.py`` instead of sklearn's
-    Python-side ``precision_recall_fscore_support`` + multilabel
-    confusion-matrix machinery, which dominated 90 ms of every
-    ``report_probabilistic_model_perf`` warm call (cProfile of fuzz
-    combo c0014: 4 calls * 22ms each, 55 % of the warm 164ms suite cost
-    after the GPU-probe cache landed).
+    Computes precision / recall / f1 / support per class plus accuracy / macro-avg / weighted-avg via the @njit ``fast_classification_report`` kernel and formats the result as the same fixed-width text block sklearn produces. Used by ``evaluation.py`` instead of sklearn's Python-side ``precision_recall_fscore_support`` + multilabel confusion-matrix machinery (which dominated 90 ms of every ``report_probabilistic_model_perf`` warm call).
 
-    The numerics match sklearn's ``classification_report`` for the
-    common single-label classification path; weighted/macro avg
-    formulas mirror sklearn's exactly. The helper drops support for
-    sklearn's multilabel-indicator input (use sklearn directly for that)
-    and ``output_dict=True`` (use ``fast_classification_report`` for the
-    raw arrays).
+    Numerics match sklearn's ``classification_report`` for the common single-label classification path; weighted/macro avg formulas mirror sklearn exactly. Drops support for sklearn's multilabel-indicator input (use sklearn directly) and ``output_dict=True`` (use ``fast_classification_report`` for the raw arrays).
     """
     hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages = (
         fast_classification_report(y_true, y_pred, nclasses=nclasses, zero_division=zero_division)
@@ -2765,11 +2289,7 @@ def fast_calibration_report(
         if rendered:
             fragments.append(rendered)
 
-    # 2026-04-27 Session 7 batch 8 (user feedback): insert a hard line
-    # break after the ``LL=`` fragment so the metrics-string doesn't
-    # render as one ~200-char wall. Two-line layout reads naturally:
-    # line 1 = calibration / loss family (ICE / BR / ECE / CMAEW / LL),
-    # line 2 = ranking / classification family (ROC / PR / PR / RE / F1).
+    # Insert a hard line break after the ``LL=`` fragment so the metrics-string doesn't render as one ~200-char wall. Two-line layout: line 1 = calibration / loss family (ICE / BR / ECE / CMAEW / LL), line 2 = ranking / classification family (ROC / PR / PR / RE / F1).
     metrics_string = ""
     for i, frag in enumerate(fragments):
         sep = ", "
@@ -3028,13 +2548,9 @@ def fast_ice_only(
     use_weights: bool = True,
     **ice_kwargs,
 ) -> float:
-    """Compute only the ICE scalar from y_true/y_pred, skipping the
-    log_loss / precision-recall-f1 / title / plotting work that
-    ``fast_calibration_report`` does for its reporting callers.
+    """Compute only the ICE scalar from y_true/y_pred, skipping the log_loss / precision-recall-f1 / title / plotting work that ``fast_calibration_report`` does for its reporting callers.
 
-    Bit-exact equivalent of ``fast_calibration_report(...)[6]``. Used by
-    the fairness fan-out hot path — verified 1.1-1.7x faster per call
-    (bench_ice_only.py, 2026-04-19) with ICE drift < 1e-9.
+    Bit-exact equivalent of ``fast_calibration_report(...)[6]``.
     """
     if len(y_true) == 0:
         return 1.0
@@ -3043,7 +2559,7 @@ def fast_ice_only(
     cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights,
     )
-    roc_auc, pr_auc, _ = fast_aucs_per_group_optimized(y_true=y_true, y_score=y_pred, group_ids=None)
+    roc_auc, pr_auc = fast_aucs(y_true=y_true, y_score=y_pred)
     return integral_calibration_error_from_metrics(
         calibration_mae=cal_mae, calibration_std=cal_std, calibration_coverage=cal_cov,
         brier_loss=brier_loss, roc_auc=roc_auc, pr_auc=pr_auc, **ice_kwargs,
@@ -3056,11 +2572,6 @@ def predictions_time_instability(preds: pd.Series) -> float:
     For binary classification instability ranges from 0 to 1, for regression from 0 to any value depending on the target stats.
     """
     return np.abs(np.diff(preds)).mean()
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Errors & scorers
-# ----------------------------------------------------------------------------------------------------------------------------
 
 
 def compute_probabilistic_multiclass_error(
@@ -3092,16 +2603,7 @@ def compute_probabilistic_multiclass_error(
     treated as an independent binary target. Single-label (``y_true == class_id``) comparison
     is wrong for multilabel data because a sample can carry multiple positives simultaneously.
 
-    NOT threaded across classes. Benched 2026-05-09 against a
-    ``ThreadPoolExecutor.map`` variant fanning each class to its own
-    thread. Result: ``par/seq`` ratio 2.65-10.65× SLOWER across (N, K)
-    shapes from (10k, 3) to (1M, 5). Reason: per-class work is small
-    (each inner kernel already releases GIL, but Python-level fanout
-    overhead dominates) AND the inner kernels (fast_brier_score_loss,
-    fast_ice_only) already auto-dispatch to par at N>=100k, so threading
-    over classes layers concurrency on top of per-kernel concurrency
-    and produces oversubscription. Bench preserved at
-    ``profiling/bench_multiclass_error_parallel.py``.
+    Not threaded across classes: per-class work is small (inner kernels release the GIL) and inner kernels already auto-dispatch to parallel at N>=100k; threading over classes layers concurrency on top of per-kernel concurrency and produces oversubscription (measured 2.65-10.65x slower across (N, K) shapes from (10k, 3) to (1M, 5)).
     """
 
     assert method in ("multicrit", "brier_score", "precision")
@@ -3120,14 +2622,7 @@ def compute_probabilistic_multiclass_error(
             y_score = np.vstack([1 - y_score, y_score]).T
         probs = [y_score[:, i] for i in range(y_score.shape[1])]
 
-    # Auto-detect multilabel from shape: a 2D y_true with width matching probs count is
-    # an indicator matrix; caller can also set ``multilabel=True`` explicitly.
-    # Object-dtype-of-arrays (``pl.List`` -> pandas roundtrip) presents as 1-D
-    # but each cell is a per-row label vector - stack to 2-D so the shape
-    # check below activates the multilabel branch correctly. Surfaced 3-way
-    # fuzz c0000 / c0008 (cb / multilabel target) - without the stack, the
-    # ``y_true == class_id`` fall-through raised ``truth value of array
-    # ambiguous`` on the cell-array comparison.
+    # Auto-detect multilabel from shape: a 2D y_true with width matching probs count is an indicator matrix; caller can also set ``multilabel=True`` explicitly. Object-dtype-of-arrays (``pl.List`` -> pandas roundtrip) presents as 1-D but each cell is a per-row label vector - stack to 2-D so the shape check activates the multilabel branch; otherwise the ``y_true == class_id`` fall-through raises "truth value of array ambiguous" on the cell-array comparison.
     if (
         isinstance(y_true, np.ndarray)
         and y_true.dtype == object
@@ -3149,15 +2644,7 @@ def compute_probabilistic_multiclass_error(
     total_error = 0.0
     weights_sum = 0
 
-    # 2026-05-11: batched-numba fastpath. When the hot path applies
-    # (method='multicrit' AND not verbose AND probs convert to a clean
-    # (N, K) float64 stack), process all K classes in one numba dispatch
-    # via _batch_per_class_ice_kernel. Eliminates the per-class
-    # Python->numba transition overhead that dominated the K-class
-    # Python loop (cProfile attributed ~60 ms / call avg, of which
-    # ~30 ms was Python glue for K=3 classes). Bit-exact equivalent
-    # of the legacy fast_ice_only K-loop -- verified in
-    # profiling/bench_compute_multiclass_error.py.
+    # Batched-numba fastpath: when the hot path applies (method='multicrit' AND not verbose AND probs convert to a clean (N, K) float64 stack), process all K classes in one numba dispatch via `_batch_per_class_ice_kernel`. Eliminates the per-class Python->numba transition overhead. Bit-exact equivalent of the legacy fast_ice_only K-loop.
     if method == "multicrit" and not verbose:
         # Build the set of class_ids to evaluate (binary case skips 0).
         _class_ids = [
@@ -3246,11 +2733,7 @@ def compute_probabilistic_multiclass_error(
         elif isinstance(correct_class, pl.Series):
             correct_class = correct_class.cast(pl.Int8).to_numpy()
 
-        # Compute class error. When verbose=False (the fairness fan-out
-        # hot path), take the ICE-only / brier-only fastpath and skip the
-        # log_loss + precision/recall/f1 + title work that
-        # fast_calibration_report does for its reporting callers.
-        # Bit-exact equivalent — see bench_ice_only.py (2026-04-19).
+        # When verbose=False (the fairness fan-out hot path), take the ICE-only / brier-only fastpath and skip the log_loss + precision/recall/f1 + title work that fast_calibration_report does for its reporting callers. Bit-exact equivalent.
 
         if method == "multicrit":
             if verbose:
@@ -3271,7 +2754,7 @@ def compute_probabilistic_multiclass_error(
                     min_roc_auc=min_roc_auc, roc_auc_penalty=roc_auc_penalty,
                 )
         elif method == "brier_score":
-            # Only brier_loss is used — skip binning/AUC/ICE entirely.
+            # Only brier_loss is used; skip binning / AUC / ICE entirely.
             class_error = fast_brier_score_loss(y_true=correct_class, y_prob=y_pred)
             if verbose:
                 logger.info(f"\t class_id={class_id}, brier_loss={class_error:.{ndigits}f}")
@@ -3384,28 +2867,7 @@ class ICE:
         return error
 
 
-# -----------------------------------------------------------------------------
-# CatBoost compat: ``__sklearn_clone__`` patch for CB+ICE eval_metric clone bug
-# -----------------------------------------------------------------------------
-# CatBoost's ``__init__`` deep-copies its ``eval_metric`` argument
-# internally, then ``get_params(deep=False)`` returns the deep-copied
-# instance. ``sklearn.base.clone()``'s parametric path verifies that
-# ``new_object.get_params()[name] is param`` for every parameter — and
-# this fails for CB+ICE because ``param`` (post-clone-of-ICE) is the
-# original ICE while ``new_object.get_params()['eval_metric']`` is a CB-
-# internal deep copy. Identity is destroyed by CB, not by ICE.
-#
-# Touching ICE.__deepcopy__ to return self DID restore identity for CB's
-# internal copy but BROKE pickle: sharing ICE across the pre-pickle
-# ``copy.deepcopy(model)`` retains a CatBoost-internal numba JIT
-# cyfunction reference (``_cpu_jit_method_wrap.<locals>.new_method``)
-# that dill cannot serialize.
-#
-# The clean fix lives at the CB level: install ``__sklearn_clone__`` on
-# ``CatBoostClassifier`` / ``CatBoostRegressor`` that reuses the same
-# ``eval_metric`` instance for the cloned estimator, bypassing
-# ``_clone_parametrized``'s identity check entirely. ICE retains its
-# default deepcopy/pickle behaviour, so save/load is unaffected.
+# CatBoost compat patch: install `__sklearn_clone__` on `CatBoostClassifier` / `CatBoostRegressor` that reuses the same `eval_metric` instance for the cloned estimator, bypassing `_clone_parametrized`'s identity check. CB's `__init__` deep-copies its `eval_metric` argument internally, then `get_params(deep=False)` returns the deep-copied instance, so `sklearn.base.clone()`'s identity check (`new_object.get_params()[name] is param`) fails for CB+ICE. Patching ICE.__deepcopy__ would break pickle (CB-internal numba JIT cyfunction reference that dill cannot serialize).
 def _install_catboost_sklearn_clone_patch() -> None:
     try:
         from catboost import CatBoostClassifier, CatBoostRegressor
@@ -3413,21 +2875,17 @@ def _install_catboost_sklearn_clone_patch() -> None:
         return
 
     def _cb_sklearn_clone(self):
-        # Reuse the SAME eval_metric instance to bypass CB's internal
-        # deep-copy of eval_metric on __init__ that breaks identity.
+        # Reuse the SAME eval_metric instance to bypass CB's internal deep-copy of eval_metric on __init__ that breaks identity.
         params = self.get_params(deep=False)
         eval_metric = getattr(self, "_init_params", {}).get("eval_metric")
         if eval_metric is None:
             eval_metric = params.get("eval_metric")
         cls = type(self)
-        # Strip eval_metric from params before re-init so we can attach
-        # the original instance after construction (CB's __init__ would
-        # deep-copy it otherwise).
+        # Strip eval_metric from params before re-init so we can attach the original instance after construction.
         params_no_em = {k: v for k, v in params.items() if k != "eval_metric"}
         new = cls(**params_no_em)
         if eval_metric is not None:
-            # Re-attach by direct assignment — CB stores eval_metric in
-            # ``_init_params`` and the public param map.
+            # CB stores eval_metric in `_init_params` and the public param map.
             try:
                 new._init_params["eval_metric"] = eval_metric
             except (AttributeError, KeyError):
@@ -3472,18 +2930,9 @@ def integral_calibration_error_from_metrics(
     e.g. 0.45 is penalised the same as one at 0.55-epsilon, matching the
     symmetric reward term ``-|roc_auc-0.5|*roc_auc_weight``).
 
-    Keeping ``roc_auc_penalty`` as the "max penalty" knob preserves the
-    prior semantics: old callers that set e.g. 3.0 still get a 3.0 bump at
-    auc=0.5. What changed: the penalty now tapers smoothly to 0 as auc
-    approaches ``min_roc_auc`` instead of dropping off a step cliff — this
-    avoids jumpy early-stopping curves that could fixate just inside the
-    penalty zone when the step was large.
+    Keeping ``roc_auc_penalty`` as the "max penalty" knob preserves prior semantics: old callers that set e.g. 3.0 still get a 3.0 bump at auc=0.5. The penalty tapers smoothly to 0 as auc approaches ``min_roc_auc`` (replaces a step cliff that caused jumpy early-stopping curves).
     """
-    # Guard against NaN roc_auc/pr_auc (single-class eval set, zero-variance
-    # scores, etc. — fast_aucs_per_group_optimized returns NaN in those cases).
-    # Without this guard the entire ICE becomes NaN, which silently breaks
-    # early-stopping comparisons (NaN > best is always False, so the trainer
-    # gets stuck on iteration-1 best instead of failing loud).
+    # Guard against NaN roc_auc / pr_auc (single-class eval set, zero-variance scores - `fast_aucs_per_group_optimized` returns NaN). Without this guard the entire ICE becomes NaN, silently breaking early-stopping comparisons (NaN > best is always False).
     base_loss = (
         brier_loss * brier_loss_weight
         + calibration_mae * mae_weight
@@ -3519,14 +2968,6 @@ def _fast_brier_score_loss_par(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return s / n
 
 
-# Crossover threshold for parallel kernels. Sum-reduction kernels
-# (brier, log loss, prf1 counts) parallel-win from N≈50-100k upwards.
-# Multilabel row-loop kernels (subset accuracy, jaccard) win from N≈10-50k.
-# Conservative thresholds chosen to avoid the lose-band at low N.
-_PARALLEL_REDUCTION_THRESHOLD: int = 100_000
-_PARALLEL_MULTILABEL_THRESHOLD: int = 50_000
-
-
 def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     """Brier score (mean squared error of probabilities), auto seq/par.
 
@@ -3540,34 +2981,11 @@ def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     return _fast_brier_score_loss_seq(y_true, y_prob)
 
 
-# Backward-compat alias — older code and tests import `brier_score_loss` from this module.
-# Keep the name visible but route it to the renamed fast_brier_score_loss so the intent is clear.
+# Backward-compat alias.
 brier_score_loss = fast_brier_score_loss
 
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Regression metrics: numba-accelerated drop-in replacements for sklearn
-# ----------------------------------------------------------------------------------------------------------------------------
-#
-# sklearn input-validation overhead dominates these tiny reductions: at
-# N=1M, sklearn's ``mean_absolute_error`` takes 12 ms while the numba
-# kernel does the same work in ~1.5 ms (8x). Adding parallel=True drops
-# it further to 0.7 ms (17x over sklearn).
-# Speedups vs sklearn at N=1M:
-#   MAE   17x  | MSE   15x  | RMSE  same as MSE | max_error 6x | R2 23x
-#
-# Full sklearn signature support:
-#   - 1-D and 2-D ``y_true`` / ``y_pred`` (multioutput).
-#   - ``sample_weight`` (1-D weights, broadcast across outputs).
-#   - ``multioutput`` in ``'raw_values'``, ``'uniform_average'``, an
-#     array of per-output weights, or (R² only) ``'variance_weighted'``.
-#
-# 1-D unweighted is the fastest path (single numba kernel call). 2-D
-# multioutput loops per column inside Python (M is typically small).
-# Weighted variants use a separate numba kernel.
-
-
-# ---------- 1-D unweighted ----------
+# Regression metrics: numba-accelerated drop-in replacements for sklearn. sklearn's input-validation overhead dominates these tiny reductions. Full signature support: 1-D and 2-D ``y_true`` / ``y_pred`` (multioutput), ``sample_weight`` (1-D weights, broadcast across outputs), ``multioutput`` in ``'raw_values'``, ``'uniform_average'``, an array of per-output weights, or (R2 only) ``'variance_weighted'``. 1-D unweighted is the fastest path (single numba kernel call). 2-D multioutput loops per column inside Python.
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -3673,9 +3091,6 @@ def _fast_r2_variance_seq(y_true: np.ndarray) -> float:
     return ss
 
 
-# ---------- 1-D weighted ----------
-
-
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_mae_weighted_seq(y_true, y_pred, w):
     n = len(y_true)
@@ -3764,9 +3179,6 @@ def _fast_r2_score_weighted_par(y_true, y_pred, w):
     return 1.0 - ss_res / ss_tot
 
 
-# ---------- multioutput aggregation ----------
-
-
 def _aggregate_multioutput(values: np.ndarray, multioutput) -> Union[float, np.ndarray]:
     """Apply sklearn's ``multioutput`` aggregation to a per-output values array.
 
@@ -3775,9 +3187,7 @@ def _aggregate_multioutput(values: np.ndarray, multioutput) -> Union[float, np.n
     - array-like -> ``np.average(values, weights=multioutput)``.
     - other strings / inputs -> ValueError.
     """
-    # Type check FIRST: ``multioutput == "raw_values"`` on an ndarray
-    # broadcasts and raises 'ambiguous truth value'. Handle the
-    # array-weights path before any string compare.
+    # Type check FIRST: ``multioutput == "raw_values"`` on an ndarray broadcasts and raises 'ambiguous truth value'.
     if isinstance(multioutput, (np.ndarray, list, tuple)):
         return float(np.average(values, weights=np.asarray(multioutput, dtype=np.float64)))
     if multioutput == "raw_values":
@@ -3796,9 +3206,6 @@ def _to_2d(arr: np.ndarray) -> np.ndarray:
     return arr
 
 
-# ---------- public wrappers ----------
-
-
 def fast_mean_absolute_error(
     y_true,
     y_pred,
@@ -3808,10 +3215,7 @@ def fast_mean_absolute_error(
 ):
     """Drop-in for ``sklearn.metrics.mean_absolute_error``.
 
-    Faster than sklearn (17× at N=1M) while supporting the full sklearn
-    signature: ``sample_weight`` (1-D, broadcast across outputs) and
-    ``multioutput`` in ``{'raw_values', 'uniform_average'}`` or an
-    array of per-output weights.
+    Supports the full sklearn signature: ``sample_weight`` (1-D, broadcast across outputs) and ``multioutput`` in ``{'raw_values', 'uniform_average'}`` or an array of per-output weights.
     """
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
@@ -3849,8 +3253,7 @@ def fast_mean_squared_error(
     sample_weight=None,
     multioutput: Union[str, np.ndarray] = "uniform_average",
 ):
-    """Drop-in for ``sklearn.metrics.mean_squared_error``. 15× faster at
-    N=1M with full sample_weight + multioutput support."""
+    """Drop-in for ``sklearn.metrics.mean_squared_error`` with full sample_weight + multioutput support."""
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
     if sample_weight is not None:
@@ -4483,11 +3886,6 @@ def robust_mlperf_metric(
                 total_metric_value += bin_metric_value * bin_weight
 
     return total_metric_value / weights_sum
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Salvaged from OldEnsembling.py — combined Brier+precision scorer
-# ----------------------------------------------------------------------------------------------------------------------------
 
 
 def brier_and_precision_score(

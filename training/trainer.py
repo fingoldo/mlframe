@@ -1282,9 +1282,9 @@ def configure_training_params(
     # Helper for lazy model creation
     models_set = set(mlframe_models) if mlframe_models else None
 
-    def _should_create_model(model_name: str) -> bool:
+    def _should_create_model(name: str) -> bool:
         """Check if a model should be created based on mlframe_models filter."""
-        return models_set is None or model_name in models_set
+        return models_set is None or name in models_set
 
     if metamodel_func is None:
         metamodel_func = _identity

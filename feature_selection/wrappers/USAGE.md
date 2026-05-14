@@ -268,7 +268,7 @@ estimator voting). Use as a final-mile refinement on a converged result.
   `df.to_csv(...)`, etc.). Backward-compatible: existing
   `cv_results_["nfeatures"]` access continues to work.
 
-## Adaptive MBH surrogate (Phase 9)
+## Adaptive MBH surrogate
 
 The MBH optimizer fits an internal surrogate model to predict score-vs-nfeatures
 and pick the next candidate. The legacy default (CatBoost with 150 trees) carries
@@ -317,5 +317,5 @@ to override the auto-detect.
 - `feature_selection/_benchmarks/bench_pr4_methods.py --large` — full bench
 - `feature_selection/_benchmarks/bench_rfecv_vs_sklearn.py` — h2h vs sklearn
 - `feature_selection/_benchmarks/profile_rfecv.py` — cProfile hotspot scan
-- `feature_selection/_benchmarks/profile_new_features.py` — PR-12/13 profile
+- `feature_selection/_benchmarks/profile_new_features.py` — cProfile pass over the newer code paths (CPI, knockoffs, SFFS swap, checkpoint, surrogate auto-tune)
 - `tests/feature_selection/test_wrappers_*.py` — comprehensive test suite

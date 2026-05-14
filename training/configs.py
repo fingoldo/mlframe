@@ -11,19 +11,6 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
 
 
-# =============================================================================
-# Preprocessing extensions (Audit #02 phase 3) -- single shared pipeline surface.
-#
-# Wired into `fit_and_transform_pipeline` so every model in the suite reuses one
-# transformed frame. A None config preserves the existing polars-native fastpath
-# byte-for-byte. See `PreprocessingExtensionsConfig` below for field details.
-# =============================================================================
-
-
-# =============================================================================
-# Constants
-# =============================================================================
-
 DEFAULT_RANDOM_SEED = 42
 """Default random seed for reproducibility across all operations."""
 
@@ -108,7 +95,7 @@ class TargetTypes(StrEnum):
 
         Use this instead of `target_type == BINARY_CLASSIFICATION` so new
         classification flavours route correctly without touching every
-        call site (8 sites previously hardcoded the binary equality check).
+        call site.
         """
         return self in (
             TargetTypes.BINARY_CLASSIFICATION,
@@ -212,7 +199,7 @@ class BaseConfig(BaseModel):
         if unknown:
             import logging as _logging
             _logging.getLogger(__name__).warning(
-                "%s received unknown field(s) %s -- these are accepted (extra='allow') "
+                "%s received unknown field(s) %s - these are accepted (extra='allow') "
                 "but NOT declared on the model. If this is a typo for a real field, "
                 "the value will have no effect. Known pass-through extras: %s",
                 type(self).__name__, sorted(unknown), sorted(known) or "(none declared)",
@@ -241,11 +228,7 @@ class PreprocessingConfig(BaseConfig):
     ensure_float32_dtypes: bool = True
     skip_infinity_checks: bool = True
     drop_columns: Optional[List[str]] = None
-    # 2026-04-21: promoted from implicit always-on behaviour to an
-    # explicit toggle. Default True preserves the pre-flag behaviour
-    # (constant columns dropped during preprocess_dataframe). Set False
-    # to keep constant columns -- useful for downstream consumers that
-    # rely on a fixed column layout across train/val/test splits.
+    # Default True drops constant columns during preprocess_dataframe. Set False to keep constant columns - useful for downstream consumers that rely on a fixed column layout across train/val/test splits.
     remove_constant_columns: bool = True
     n_rows: Optional[int] = Field(
         default=None,
@@ -257,15 +240,7 @@ class PreprocessingConfig(BaseConfig):
     )
     columns: Optional[List[str]] = None
 
-    # 2026-04-27: previously the only path to override the suite's default
-    # transformer-selection logic was a dict-typed pass-through that has
-    # been deleted in this revision; these three transformers got a typed
-    # home here. None preserves the suite's
-    # context-aware default selection (different transformers per model
-    # type / cat-feature presence / polars-vs-pandas path) - concrete
-    # defaults can't express that branching honestly, plus sklearn imports
-    # at config-class load are a real cold-start tax we'd pay on every
-    # `import mlframe.training.configs`.
+    # None preserves the suite's context-aware default selection (different transformers per model type / cat-feature presence / polars-vs-pandas path); concrete defaults can't express that branching honestly, and sklearn imports at config-class load are a real cold-start tax we'd pay on every `import mlframe.training.configs`.
     category_encoder: Optional[Any] = None
     imputer: Optional[Any] = None
     scaler: Optional[Any] = None
@@ -302,7 +277,7 @@ class TrainingSplitConfig(BaseConfig):
         (default: "forward"). "forward" = conventional [train][val][test];
         "backward" = [val][train][test] ("First test then train", Mazzanti
         2024). Backward testing gives a better proxy of deployment error
-        under drift but conflicts with recency weighting -- see the field
+        under drift but conflicts with recency weighting - see the field
         comments below for the full trade-off analysis.
 
     Raises
@@ -332,30 +307,19 @@ class TrainingSplitConfig(BaseConfig):
     shuffle_test: bool = False
     val_sequential_fraction: float = Field(default=0.5, ge=0.0, le=1.0)
     test_sequential_fraction: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-    # ``None`` = no aging. When set, must be strictly in (0, 1). Previously
-    # this field was unvalidated, letting -0.5 / 1.5 / 0 propagate silently
-    # to make_train_test_split (which now rejects them too, but the earlier
-    # the better).
+    # ``None`` = no aging. When set, must be strictly in (0, 1); invalid values are rejected at construction rather than propagating silently to make_train_test_split.
     trainset_aging_limit: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
     wholeday_splitting: bool = True
     random_seed: int = DEFAULT_RANDOM_SEED
 
-    # "First test then train" -- Mazzanti 2024 (Medium, 58-dataset benchmark).
+    # "First test then train" - Mazzanti 2024 (Medium, 58-dataset benchmark).
     # When ``val_placement="backward"`` with time-indexed data, val is placed
     # BEFORE train on the timeline:
     #
     #   forward  (default):  [ train ] [ val ]   [ test ]   <- conventional
     #   backward          :  [ val   ] [ train ] [ test ]   <- Mazzanti
     #
-    # Rationale: in forward-testing the val->train temporal gap is ~0 while
-    # the train->prod gap is large (weeks / months), so val-metric is sampled
-    # from the "near" edge of the drift trajectory and overstates prod
-    # performance. The 2026-04-23 prod log on jobsdetails showed this
-    # vividly -- VAL ROC AUC 0.999 vs TEST 0.71. Backward-testing mirrors
-    # the val->train gap against the train->prod gap, so val-metric is
-    # sampled from the same drift-distance regime as deployment -- an
-    # empirically better proxy (38 % vs 51 % mean deviation over 58
-    # datasets in Mazzanti's benchmark).
+    # Rationale: in forward-testing the val->train temporal gap is ~0 while the train->prod gap is large (weeks / months), so val-metric is sampled from the "near" edge of the drift trajectory and overstates prod performance (eg observed VAL ROC AUC 0.999 vs TEST 0.71 on jobsdetails). Backward-testing mirrors the val->train gap against the train->prod gap, so val-metric is sampled from the same drift-distance regime as deployment - an empirically better proxy (38% vs 51% mean deviation over 58 datasets in Mazzanti's benchmark).
     #
     # Trade-offs:
     #   - Conflicts with recency weighting (train weighted toward the most
@@ -376,12 +340,12 @@ class TrainingSplitConfig(BaseConfig):
     # the splitter routes through ``GroupShuffleSplit`` so that no group
     # straddles train/val/test. Critical for non-IID data: wells, users,
     # patients, sessions. Without it, an unlucky shuffle leaks rows from
-    # the same well into both train and val -- the model memorises the
+    # the same well into both train and val - the model memorises the
     # well rather than the underlying signal, val metric inflates, and
     # the gap between val and held-out test (let alone production) is
     # the kind of silent failure that gets caught only after deploy.
     # Set to False to ignore an existing ``group_ids`` and fall back to
-    # the historical IID path -- e.g. when groups are present for some
+    # the historical IID path - eg when groups are present for some
     # downstream purpose (sample weighting) but should not constrain
     # the split.
     use_groups: bool = True
@@ -395,25 +359,16 @@ class TrainingSplitConfig(BaseConfig):
 
 
 class PreprocessingBackendConfig(BaseConfig):
-    """Selects the engine and parameters for *basic* preprocessing -- scaling,
-    imputation, categorical encoding -- and is consumed both by the
-    legacy ``train_mlframe_models_suite`` path and (from phase A onward)
-    by the new ``FeatureHandlingConfig``-driven path.
+    """Selects the engine and parameters for *basic* preprocessing - scaling,
+    imputation, categorical encoding - and is consumed both by the
+    legacy ``train_mlframe_models_suite`` path and by the
+    ``FeatureHandlingConfig``-driven path. The name describes the
+    responsibility (which BACKEND - polars-native vs sklearn - is
+    preferred); ``prefer_polarsds`` is the boolean dispatch flag.
 
-    Renamed from ``PolarsPipelineConfig`` in phase M of the 2026 feature-
-    handling overhaul. The previous name described WHICH library ran the
-    transforms (polars-ds); the new name describes the responsibility
-    (which BACKEND -- polars-native vs sklearn -- is preferred), which is
-    closer to what the field actually controls. ``prefer_polarsds`` is
-    the new boolean dispatch flag (was ``use_polarsds_pipeline``). The
-    rename is greenfield: there are no users beyond the author, no
-    aliases, no deprecation cycle.
-
-    The ``imputer_strategy`` field, declared since 2026-04 but never
-    wired (see ``training/pipeline.py:458-585`` audit), is *now*
-    connected through to the polars-ds ``Blueprint.impute()`` step in
-    ``create_polarsds_pipeline``. Behavioural sensor tests live in
-    ``tests/training/test_imputer_wiring.py``.
+    ``imputer_strategy`` is wired through to the polars-ds
+    ``Blueprint.impute()`` step in ``create_polarsds_pipeline``.
+    Behavioural sensor tests live in ``tests/training/test_imputer_wiring.py``.
 
     Parameters
     ----------
@@ -431,7 +386,7 @@ class PreprocessingBackendConfig(BaseConfig):
     imputer_strategy : str, optional
         Strategy for imputing missing values in *numeric* columns.
         Accepted values: "mean", "median", "most_frequent" (mapped to
-        polars-ds "mode"), or None. Default "mean". Numeric-only -- text
+        polars-ds "mode"), or None. Default "mean". Numeric-only - text
         and string columns are imputed by the categorical encoding step,
         not here. Pass None to skip the imputer entirely.
     categorical_encoding : str, optional
@@ -498,11 +453,11 @@ class PreprocessingExtensionsConfig(BaseConfig):
 
     When ``None`` is passed to ``train_mlframe_models_suite``, no extension runs
     and the Polars-native fastpath is preserved. Setting any field here
-    activates the sklearn bridge inside ``fit_and_transform_pipeline`` -- even
+    activates the sklearn bridge inside ``fit_and_transform_pipeline`` - even
     tree models will then consume the shared transformed frame.
 
     Order of application (each step is optional):
-      0. PySR symbolic regression (``pysr_enabled``) -- generates
+      0. PySR symbolic regression (``pysr_enabled``) - generates
          new numeric features from discovered equations. Runs FIRST
          so downstream scalers / polynomial features can consume
          the engineered columns.
@@ -541,7 +496,7 @@ class PreprocessingExtensionsConfig(BaseConfig):
     dim_n_components: int = 50
     memory_safety_max_features: int = 100_000
     verbose_logging: bool = True
-    # PySR symbolic regression -- discovers human-readable equations
+    # PySR symbolic regression - discovers human-readable equations
     # from the data and adds their output as new numeric features.
     # Requires Julia + SymbolicRegression.jl (installed automatically
     # via PySR / juliacall). Off by default; enable with
@@ -594,29 +549,16 @@ class FeatureTypesConfig(BaseConfig):
         pipeline is the training bottleneck (e.g. ``skills_text`` with 2M
         unique values) and the user prefers cat-feature treatment across
         the whole suite. Same caveat as other flags: changing this between
-        runs invalidates cached models -- see Fix 8 schema fingerprint.
+        runs invalidates cached models - see schema-fingerprint suffix.
     cat_text_cardinality_threshold : int
         String columns with ``n_unique <= threshold`` are treated as categorical
         (existing pipeline). Columns with ``n_unique > threshold`` are treated
         as text features. Only applies when ``auto_detect_feature_types=True``
         (default: 300).
 
-        Default raised from 50 -> 300 on 2026-04-19 after a prod incident
-        (round 12): two columns with ``n_unique`` just above the old
-        50 floor (``job_post_source:71``, ``_raw_countries:2196``) got
-        promoted to text_features, crashing CatBoost's TF-IDF estimator
-        (``Dictionary size is 0``). CatBoost's text pipeline only pays
-        off on actual free-text blobs (hundreds to thousands of tokens
-        like ``skills_text``), not on 50-300-cardinality enumerations
-        like country codes or source categories. Setting the floor at
-        300 keeps the common "enum-like" columns as cat_features where
-        CB handles them efficiently via its native categorical split
-        logic, and reserves text_features for columns where the text
-        estimator's TF-IDF / n-gram extractors actually add signal.
+        The 300 floor keeps "enum-like" columns (country codes, source categories) as cat_features where CB handles them efficiently via its native categorical split logic, and reserves text_features for columns where the text estimator's TF-IDF / n-gram extractors actually add signal. CatBoost's text pipeline only pays off on actual free-text blobs (hundreds to thousands of tokens like ``skills_text``), not on 50-300-cardinality enumerations. A lower floor crashes CatBoost's TF-IDF estimator with ``Dictionary size is 0`` on mid-cardinality enumerations.
 
-        If you have a genuinely mid-cardinality column you want treated
-        as text (100-300 unique tokens with repetitive content), override
-        per-call via ``FeatureTypesConfig(cat_text_cardinality_threshold=100)``.
+        If you have a genuinely mid-cardinality column you want treated as text (100-300 unique tokens with repetitive content), override per-call via ``FeatureTypesConfig(cat_text_cardinality_threshold=100)``.
 
     Notes
     -----
@@ -637,22 +579,7 @@ class FeatureTypesConfig(BaseConfig):
     auto_detect_feature_types: bool = True
     use_text_features: bool = True
     cat_text_cardinality_threshold: int = Field(default=300, ge=1)
-    # 2026-04-21: per-column "honor the user's explicit dtype" signal.
-    # When False (default, current behaviour), any text-like column
-    # (pl.String / pl.Utf8 / pl.Categorical / pl.Enum / pandas object|
-    # string|category) with n_unique > threshold gets auto-promoted to
-    # text_features -- even if the user explicitly cast it to
-    # pl.Categorical / pl.Enum / pd.Categorical. When True, a column
-    # whose incoming dtype ALREADY encodes a categorical intent
-    # (pl.Categorical, pl.Enum, pandas ``category``) is treated as
-    # user-declared: it stays in cat_features regardless of cardinality.
-    # Only raw pl.String / pl.Utf8 / pandas object/string columns remain
-    # candidates for auto-promotion under this flag. Use case: a
-    # high-cardinality column (e.g. 10k-unique ``skills_text`` already
-    # cast to ``pl.Categorical`` upstream) that the operator wants
-    # handled by CatBoost's categorical path, not its TF-IDF text path.
-    # Default stays False to preserve existing behaviour; flip per
-    # config when the workload has user-curated Categorical intent.
+    # Per-column "honor the user's explicit dtype" signal. When False (default), any text-like column (pl.String / pl.Utf8 / pl.Categorical / pl.Enum / pandas object|string|category) with n_unique > threshold gets auto-promoted to text_features even if the user explicitly cast it. When True, a column whose incoming dtype already encodes a categorical intent (pl.Categorical, pl.Enum, pandas ``category``) stays in cat_features regardless of cardinality; only raw pl.String / pl.Utf8 / pandas object/string columns remain candidates for auto-promotion. Use case: a high-cardinality column (eg 10k-unique ``skills_text`` already cast to ``pl.Categorical`` upstream) that the operator wants handled by CatBoost's categorical path, not its TF-IDF text path.
     honor_user_dtype: bool = False
 
 
@@ -680,12 +607,7 @@ class FeatureSelectionConfig(BaseConfig):
     rfecv_kwargs: Optional[Dict[str, Any]] = None
     custom_pre_pipelines: Dict[str, Any] = Field(default_factory=dict)
 
-    # 2026-05-13: when a feature-selection pipeline (MRMR / RFECV /
-    # custom) is identity-equivalent — keeps every input column and
-    # creates no new ones — training models on it duplicates the
-    # ordinary (no-pipeline) branch. Set False to still train both
-    # (e.g. for ensembling diversities from different random seeds).
-    # Default True: skip the duplicate branch, logging a [Dedup] info.
+    # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
     skip_identity_equivalent_pre_pipelines: bool = True
 
 
@@ -1033,9 +955,7 @@ class ModelHyperparamsConfig(BaseConfig):
     })
 
     has_time: bool = False
-    # Range validators added 2026-04-19 -- previously any garbage
-    # (learning_rate=-0.1, iterations=0, etc.) propagated silently to the
-    # tree backends and surfaced as confusing errors much later.
+    # Range validators catch garbage (learning_rate=-0.1, iterations=0, etc.) at construction; otherwise they propagate silently to the tree backends and surface as confusing errors much later.
     learning_rate: float = Field(default=0.2, gt=0.0, le=1.0)
     iterations: int = Field(default=700, ge=1)
     early_stopping_rounds: Optional[int] = Field(default=100, ge=1)
@@ -1054,13 +974,7 @@ class ModelHyperparamsConfig(BaseConfig):
     mlp_kwargs: Optional[Dict[str, Any]] = None
     ngb_kwargs: Optional[Dict[str, Any]] = None
 
-    # 2026-05-12: first-class predict-time MLP batch size. When None (default)
-    # the wrapper auto-adapts to free memory + input width via
-    # ``mlp_runtime_defaults.resolve_mlp_predict_batch_size`` -- replaces the
-    # legacy hardcoded 64 which made 4M-row predict paths spend minutes on
-    # DataLoader overhead. Set explicitly to an int to lock a specific batch
-    # (eg ``mlp_predict_batch_size=512`` on memory-constrained boxes with
-    # wide dataframes; ``8192`` on slim-row narrow-width predictions).
+    # First-class predict-time MLP batch size. When None (default) the wrapper auto-adapts to free memory + input width via ``mlp_runtime_defaults.resolve_mlp_predict_batch_size``; a hardcoded small batch made 4M-row predict paths spend minutes on DataLoader overhead. Set explicitly to an int to lock a specific batch (eg ``mlp_predict_batch_size=512`` on memory-constrained boxes with wide dataframes; ``8192`` on slim-row narrow-width predictions).
     mlp_predict_batch_size: Optional[int] = None
 
 
@@ -1119,7 +1033,7 @@ class TrainingBehaviorConfig(BaseConfig):
         the suite with the next model/weighting instead of aborting
         the whole run. Crashes that kill the process at the OS level
         (access violation in a worker thread that faulthandler can't
-        catch) will still terminate -- for true isolation use subprocess
+        catch) will still terminate - for true isolation use subprocess
         training, which this flag does NOT provide.
     """
 
@@ -1141,7 +1055,7 @@ class TrainingBehaviorConfig(BaseConfig):
     cb_fit_params: Optional[Dict[str, Any]] = None
     use_flaml_zeroshot: bool = False
     # Default True: faulthandler + Windows WER suppression are pure
-    # diagnostics -- they don't change training behavior, only replace
+    # diagnostics - they don't change training behavior, only replace
     # the "Python has stopped working" modal with a Python traceback.
     # Users who rely on the WER popup (rare) can opt out.
     enable_crash_reporting: bool = True
@@ -1153,7 +1067,7 @@ class TrainingBehaviorConfig(BaseConfig):
     # model training. Mechanism not fully understood but empirically
     # prevents a silent process kill on Windows when XGB constructs
     # val IterativeDMatrix with ref=train on large frames (7.3M+ rows,
-    # 15+ cat features) -- observed 2026-04-20 on prod_jobsdetails.
+    # 15+ cat features).
     # Theory: pl.Categorical assigns physical codes per-Series
     # (order-of-first-occurrence), so the same string can have
     # different physical codes in train vs val vs test. XGB's native
@@ -1165,29 +1079,18 @@ class TrainingBehaviorConfig(BaseConfig):
     # cost (O(n_rows) per cat column) is prohibitive.
     align_polars_categorical_dicts: bool = True
 
-    # 2026-05-11 (user request): silencing knobs for verbose report blocks.
+    # Silencing knobs for verbose report blocks.
     #
     # ``report_residual_audit``: when False, ``report_model_perf`` skips the multi-line residual-audit footer (moments / shape / hetero / hypothesis / suggested-loss block). Default True (informative for regression diagnostics); set False on production runs where the block adds 6-8 noisy lines per (model x split).
     #
-    # ``confidence_ensemble_quantile``: top-quantile of MOST-CONFIDENT rows used by the "Conf Ensemble" flavors. Default 0.1 (= top 10%); set 0.0 to disable Conf Ensembles entirely (saves ~6 flavor x 2 split = 12 log blocks + their charts per ensemble pass). The raw ensemble metrics still print -- only the confidence-subset variant is suppressed.
+    # ``confidence_ensemble_quantile``: top-quantile of MOST-CONFIDENT rows used by the "Conf Ensemble" flavors. Default 0.1 (= top 10%); set 0.0 to disable Conf Ensembles entirely (saves ~6 flavor x 2 split = 12 log blocks + their charts per ensemble pass). The raw ensemble metrics still print - only the confidence-subset variant is suppressed.
     report_residual_audit: bool = True
     confidence_ensemble_quantile: float = 0.1
 
-    # Fix 8 (2026-04-21): append a per-model input-schema fingerprint
-    # (``__sch_<10 hex>``) to model filenames so two runs with different
-    # feature-type configs (text vs cat promotion, encoding, alignment)
-    # don't silently overwrite each other. Default True. Set False to
-    # restore the pre-2026-04-21 naming scheme (``{model}_{weight}.dump``);
-    # load-time schema verification is also skipped for those artefacts.
+    # Append a per-model input-schema fingerprint (``__sch_<10 hex>``) to model filenames so two runs with different feature-type configs (text vs cat promotion, encoding, alignment) don't silently overwrite each other. Set False for the bare ``{model}_{weight}.dump`` naming scheme; load-time schema verification is also skipped for those artefacts.
     model_file_hash_suffix: bool = True
 
-    # 2026-04-26 Session 7: temporal target audit. When set, per-target
-    # the suite computes a time-series view of the target (P(y=1) for
-    # binary, mean(y) for regression) at the configured granularity,
-    # detects change points / regime shifts, and warns when the rate
-    # diverges across segments. Saves a chart to the per-target charts
-    # folder. Skipped silently when the timestamp column is absent or
-    # not datetime-typed.
+    # Temporal target audit. When set, per-target the suite computes a time-series view of the target (P(y=1) for binary, mean(y) for regression) at the configured granularity, detects change points / regime shifts, and warns when the rate diverges across segments. Saves a chart to the per-target charts folder. Skipped silently when the timestamp column is absent or not datetime-typed.
     target_temporal_audit_column: Optional[str] = None
     """Column name (datetime-typed) used as the time axis for the
     per-target temporal audit. ``None`` (default) disables the audit.
@@ -1214,10 +1117,10 @@ class MultilabelDispatchConfig(BaseConfig):
 
     Strategy choices
     ----------------
-    auto      : let the strategy pick -- CatBoost uses native MultiLogloss,
+    auto      : let the strategy pick - CatBoost uses native MultiLogloss,
                 everyone else uses ``MultiOutputClassifier(estimator)`` (OvR)
     wrapper   : force ``MultiOutputClassifier(estimator)`` even on CB
-                (degrades CB native to OvR -- useful for A/B vs native)
+                (degrades CB native to OvR - useful for A/B vs native)
     chain     : ``_ChainEnsemble`` of ``n_chains`` random-ordered
                 ``ClassifierChain(estimator, cv=cv)`` instances; averages
                 ``predict_proba`` outputs. Empirically +2-5% Jaccard on
@@ -1232,19 +1135,11 @@ class MultilabelDispatchConfig(BaseConfig):
     chain_order_strategy: str = "random"  # Literal["random","by_frequency","user"]
     chain_order_user: Optional[List[List[int]]] = None  # one ordering per chain
     chain_seeds: Optional[List[int]] = None
-    cv: Optional[int] = 5  # ClassifierChain.cv -- 5 cross-validates chain features
+    cv: Optional[int] = 5  # ClassifierChain.cv - 5 cross-validates chain features
     per_label_thresholds: Optional[List[float]] = None  # decision-rule thresholds
     wrapper_n_jobs: Union[int, str] = "auto"  # MultiOutputClassifier n_jobs
     allow_uncalibrated_multi: bool = False  # downgrade post-hoc calib skip from raise to warn
-    # 2026-04-24 Session-2: opt-in for native XGB multilabel (multi_strategy=
-    # 'multi_output_tree' + objective='binary:logistic'). XGB 3.x ships this
-    # as experimental -- vector-output trees share structure across labels
-    # (smaller model, integrated GPU/SHAP, faster inference). Marked WIP
-    # by upstream until v3.1; default False uses MultiOutputClassifier
-    # wrapper. Set True to opt in (only takes effect with strategy='native'
-    # or 'auto' + XGBoostStrategy with the flag set). Combined with
-    # XGBoostStrategy.supports_native_multilabel which is gated on this
-    # flag at runtime.
+    # Opt-in for native XGB multilabel (``multi_strategy='multi_output_tree'`` + ``objective='binary:logistic'``). XGB 3.x ships this as experimental - vector-output trees share structure across labels (smaller model, integrated GPU/SHAP, faster inference). Marked WIP by upstream until v3.1; default False uses MultiOutputClassifier wrapper. Set True to opt in (only takes effect with strategy='native' or 'auto' + XGBoostStrategy with the flag set). Combined with XGBoostStrategy.supports_native_multilabel which is gated on this flag at runtime.
     force_native_xgb_multilabel: bool = False
 
 
@@ -1266,7 +1161,7 @@ class LearningToRankConfig(BaseConfig):
       user pinned ``rank:map``.
     - **LGB** ``lambdarank`` (default) or ``rank_xendcg``.
 
-    Ensemble: RRF default (TREC standard, scale-invariant — survives
+    Ensemble: RRF default (TREC standard, scale-invariant - survives
     softmax/sigmoid/raw-score divergence across CB/XGB/LGB). Borda is a
     simpler scale-invariant alternative; ``score_mean`` requires the
     user to assert ``assume_comparable_scales=True``.
@@ -1277,7 +1172,7 @@ class LearningToRankConfig(BaseConfig):
 
     xgb_objective: str = "rank:ndcg"
     """XGBoost objective. ``rank:map`` is rejected at fit-time when
-    ``y.max() > 1`` -- use ``rank:ndcg`` for graded relevance."""
+    ``y.max() > 1`` - use ``rank:ndcg`` for graded relevance."""
 
     lgb_objective: str = "lambdarank"
     """LightGBM objective. ``lambdarank`` is robust on both binary and
@@ -1294,7 +1189,7 @@ class LearningToRankConfig(BaseConfig):
     ensemble_method: str = "rrf"
     """Ensembling method for combining ranker scores. ``rrf`` (Reciprocal
     Rank Fusion, TREC default) is invariant to monotone score transforms
-    -- safe for cross-library blends. ``borda`` per-query rank averaging.
+    - safe for cross-library blends. ``borda`` per-query rank averaging.
     ``score_mean`` requires comparable scales (asserted via
     ``assume_comparable_scales``)."""
 
@@ -1312,7 +1207,7 @@ class LearningToRankConfig(BaseConfig):
     ``y.max() > 1`` -> graded (force XGB to ``rank:ndcg``);
     ``y in {0,1}`` -> binary (XGB ``rank:map`` allowed). When False,
     pass user-pinned objectives through unchanged (will crash on
-    mismatched format -- caller takes responsibility)."""
+    mismatched format - caller takes responsibility)."""
 
 
 class QuantileRegressionConfig(BaseConfig):
@@ -1322,19 +1217,19 @@ class QuantileRegressionConfig(BaseConfig):
     crossing-fix strategy, point-estimate alpha, coverage pairs for
     interval reports.
 
-    Library support matrix (verified 2026-05-08 against installed stack
+    Library support matrix (verified against installed stack
     CB 1.2.10 / XGB 3.x / LGB 4.6 / sklearn 1.7+):
 
     - **CatBoost** ``loss_function="MultiQuantile:alpha=0.1,0.5,0.9"``
       single fit, returns (N, K).
     - **XGBoost >=2.0** ``objective="reg:quantileerror",
       quantile_alpha=[0.1,0.5,0.9]`` single fit, returns (N, K).
-    - **LightGBM** ``objective="quantile", alpha=0.5`` -- scalar only;
+    - **LightGBM** ``objective="quantile", alpha=0.5`` - scalar only;
       multi-quantile via K independent fits stacked
       (_QuantileMultiOutputWrapper).
-    - **HGB** ``loss="quantile", quantile=0.5`` -- scalar only; same
+    - **HGB** ``loss="quantile", quantile=0.5`` - scalar only; same
       wrapper path.
-    - **Linear** ``QuantileRegressor(quantile=0.5)`` -- scalar only;
+    - **Linear** ``QuantileRegressor(quantile=0.5)`` - scalar only;
       same wrapper path. Slow on n>100K (LP solver O(n^2)).
     - **MLP / Recurrent** K-output head + summed pinball loss; single
       fit, returns (N, K).
@@ -1347,8 +1242,8 @@ class QuantileRegressionConfig(BaseConfig):
 
     crossing_fix: str = "sort"
     """Post-prediction crossing-fix strategy:
-    - ``sort``: ``np.sort(preds, axis=1)`` -- cheap, idempotent, default
-    - ``isotonic``: per-row IsotonicRegression(increasing=True) -- more
+    - ``sort``: ``np.sort(preds, axis=1)`` - cheap, idempotent, default
+    - ``isotonic``: per-row IsotonicRegression(increasing=True) - more
       accurate when crossings are frequent, slower
     - ``none``: leave predictions unchanged (caller handles crossings)
     No library natively enforces non-crossing; even CB MultiQuantile and
@@ -1358,7 +1253,7 @@ class QuantileRegressionConfig(BaseConfig):
     point_estimate_alpha: float = 0.5
     """Which alpha to use as the point-prediction (for downstream
     consumers that need a single y_hat). Must be present in ``alphas``
-    -- default 0.5 (median). Mean-of-alphas is the alternative if
+    - default 0.5 (median). Mean-of-alphas is the alternative if
     user picks an alpha not in the set; validator enforces membership.
     """
 
@@ -1449,11 +1344,11 @@ class EnsemblingConfig(BaseConfig):
     rows the ensemble is most confident about, which on imbalanced data
     means "almost-all-positive" or "almost-all-negative" subsets.
     Metrics computed on that subset are deceptively pristine
-    (BR=0.026 %, LL=0.002 — observed in one prod log) and easy to
+    (BR=0.026%, LL=0.002 - observed in one prod log) and easy to
     misread as headlines. The marker is a one-glance hint that the
     block is reporting on a degenerate slice.
 
-    Binary classification only — for regression there is no class
+    Binary classification only - for regression there is no class
     balance to check; the flag has no effect."""
 
     degenerate_class_ratio: float = 0.01
@@ -1511,9 +1406,8 @@ class TrainingConfig(BaseConfig):
         Verbosity level (default: 1).
     metamodel_func : Callable, optional
         Function to wrap models (e.g., for target transformation).
-        Note: ``imputer`` / ``scaler`` / ``category_encoder`` overrides moved to
-        ``PreprocessingConfig`` in 2026-04-27 (the dict-typed pass-through that
-        previously held them was deleted).
+        Note: ``imputer`` / ``scaler`` / ``category_encoder`` overrides live on
+        ``PreprocessingConfig``.
 
     Raises
     ------
@@ -1577,11 +1471,6 @@ class TrainingConfig(BaseConfig):
         return self
 
 
-# =====================================================================================
-# train_and_evaluate_model Configuration Classes
-# =====================================================================================
-
-
 class DataConfig(BaseConfig):
     """Input data configuration for train_and_evaluate_model.
 
@@ -1637,13 +1526,7 @@ class DataConfig(BaseConfig):
     val_target: Optional[Any] = None  # np.ndarray or pd.Series
     test_target: Optional[Any] = None  # np.ndarray or pd.Series
 
-    # 2026-05-10: target_type for downstream-correct chart dispatch.
-    # When set (caller knows the target_type), gates
-    # ``render_multi_target_panels`` to fire ONLY the matching branch
-    # (regression suppresses LTR / multilabel / multiclass panels;
-    # learning_to_rank suppresses regression-specific panels; etc.).
-    # Default None preserves shape-based heuristic behavior for
-    # back-compat callers.
+    # When set (caller knows the target_type), gates ``render_multi_target_panels`` to fire ONLY the matching branch (regression suppresses LTR / multilabel / multiclass panels; learning_to_rank suppresses regression-specific panels; etc.). Default None preserves shape-based heuristic behavior for back-compat callers.
     target_type: Optional[str] = None
 
     # Indices
@@ -1698,13 +1581,7 @@ class TrainingControlConfig(BaseConfig):
     """
 
     verbose: Union[bool, int] = False
-    # 2026-04-27: default flipped False -> True. Cache loading is almost
-    # always faster than retraining; the previous False default was
-    # inconsistent with train_eval.py:664 which already read the
-    # internal common_params dict with .get("use_cache", True). Making
-    # both ends agree on True; users who want force-retrain pass False
-    # explicitly via TrainingControlConfig (suite-level wiring deferred -
-    # remains internal-only).
+    # Cache loading is almost always faster than retraining. Users who want force-retrain pass False explicitly via TrainingControlConfig.
     use_cache: bool = True
     just_evaluate: bool = False
 
@@ -1761,53 +1638,27 @@ class MetricsConfig(BaseConfig):
 class FeatureImportanceConfig(BaseConfig):
     """Configuration for feature-importance plots.
 
-    Replaces the dict-typed ``fi_kwargs`` that previously lived on
-    pre-2026-04-27 ``ReportingConfig`` (it was a separate dict field then) and
-    was reachable from the suite layer only via the deleted dict-typed
-    pass-through. Fields mirror the kwargs of
+    Fields mirror the kwargs of
     ``mlframe.training.evaluation.plot_model_feature_importances``.
     """
 
-    # 2026-05-12: default 40 -> 10. Plots/log lines become readable on
-    # the common feature counts (10-50) without horizontal scroll, and
-    # the user can still bump it via FeatureImportanceConfig(num_factors=...)
-    # when they want a wider view.
+    # Default 10 keeps plots/log lines readable on the common feature counts (10-50) without horizontal scroll; bump for a wider view.
     num_factors: int = 10
-    # 2026-05-13 (user request): default figsize reduced to half the
-    # 3-panel regression diagnostic chart (DEFAULT_FIGSIZE=(15, 5)). The
-    # previous unified (15, 5) FI plot still dominated suite reports.
+    # Half the 3-panel regression diagnostic chart (DEFAULT_FIGSIZE=(15, 5)) so the FI plot doesn't dominate suite reports.
     figsize: Tuple[float, float] = (7.5, 2.5)
     positive_fi_only: bool = False
     show_plots: bool = True
-    # 2026-05-12 (user request): cap zero-FI bars so the chart stays
-    # compact when most features were pruned by the model (eg an XGB on a
-    # residual target where ``TVT_prev=0.99`` and everything else is 0).
-    # Shows AT MOST this many bars with |FI| ~ 0 in the magnitude-ranked
-    # plot; non-zero bars always render in full.
+    # Cap zero-FI bars so the chart stays compact when most features were pruned by the model (eg an XGB on a residual target where ``TVT_prev=0.99`` and everything else is 0). Shows AT MOST this many bars with |FI| ~ 0 in the magnitude-ranked plot; non-zero bars always render in full.
     max_zero_fi_to_plot: int = 4
 
 
 class OutputConfig(BaseConfig):
     """Filesystem destinations for saved artifacts.
 
-    Holds path/output knobs that previously lived on the pre-2026-04-27
-    ReportingConfig (``plot_file``) or as top-level kwargs of ``train_mlframe_models_suite``
-    (``data_dir``, ``models_dir``, ``save_charts``). Pulled out so
-    ``ReportingConfig`` covers only "look of the report" and not "where
-    to write things".
-
-    ``models_dir`` was previously named ``models_subdir`` on the report config
-    and ``models_dir`` at the suite level. Renamed to ``models_dir`` for
-    symmetry with ``data_dir`` (both are typed peers of the same noun
-    pattern).
+    ``ReportingConfig`` covers "look of the report"; this covers "where to write things".
     """
 
-    # Optional[str] (not bare str) so callers can pass None to disable saving:
-    # `data_dir=None` -> no charts/artifacts; `models_dir=None` -> no model
-    # files. Falsy paths short-circuit the save_split_artifacts /
-    # _setup_model_directories branches at training-loop level. Was the
-    # established suite-level semantics for the deleted top-level kwargs;
-    # preserved here.
+    # Optional[str] (not bare str) so callers can pass None to disable saving: `data_dir=None` -> no charts/artifacts; `models_dir=None` -> no model files. Falsy paths short-circuit the save_split_artifacts / _setup_model_directories branches at training-loop level.
     data_dir: Optional[str] = ""
     models_dir: Optional[str] = "models"
     plot_file: Optional[str] = ""
@@ -1815,11 +1666,7 @@ class OutputConfig(BaseConfig):
 
 
 class OutlierDetectionConfig(BaseConfig):
-    """Configuration for the once-per-suite outlier-detection pass.
-
-    ``apply_to_val`` was previously named ``od_val_set`` at the suite
-    level - renamed for clarity.
-    """
+    """Configuration for the once-per-suite outlier-detection pass."""
 
     detector: Optional[Any] = None  # sklearn OutlierMixin or None
     apply_to_val: bool = True
@@ -1856,7 +1703,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     base_candidates: Union[List[str], str] = "auto"
     auto_base_top_k: int = 3
 
-    # Priority-base hint -- features that should be treated as base
+    # Priority-base hint - features that should be treated as base
     # candidates regardless of pairwise ``MI(y, x)`` ranking. When
     # populated, ``_auto_base`` puts these first (in given order) and
     # fills remaining slots up to ``auto_base_top_k`` with the top
@@ -1880,16 +1727,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
 
     # Transform names from the registry (mlframe.training.composite).
     #
-    # 2026-05-11 (R10c brainstorm rollout): default extended from the original 4 to include the SINGLE-BASE, DROP-IN transforms shipped in commits 9e05955 + 0894369:
-    #   - ``quantile_residual`` -- conditional-on-bin centering + scaling.
-    #   - ``monotonic_residual`` -- monotone PCHIP spline residual.
-    # These accept the standard ``(y, base)`` signature and need no special orchestration -- discovery evaluates them like ``linear_residual``.
+    # The default set is the SINGLE-BASE, DROP-IN transforms that accept the standard ``(y, base)`` signature and need no special orchestration; discovery evaluates them like ``linear_residual``:
+    #   - ``quantile_residual`` - conditional-on-bin centering + scaling.
+    #   - ``monotonic_residual`` - monotone PCHIP spline residual.
     #
     # NOT in default list (require orchestration the discovery loop does not yet provide):
-    #   - ``linear_residual_multi`` -- needs multi-column base selection (forward stepwise); single-base mode is identical to ``linear_residual``.
-    #   - ``linear_residual_grouped`` -- needs ``group_column`` extraction + groups kwarg through fit/forward/inverse.
-    #   - ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` -- require chronological row order which most datasets lack at the discovery stage.
-    # All four are accessible via explicit user configuration (``CompositeTargetEstimator(...)`` directly) and ship with their own tests; auto-discovery integration is the open item beyond this PR.
+    #   - ``linear_residual_multi`` - needs multi-column base selection (forward stepwise); single-base mode is identical to ``linear_residual``.
+    #   - ``linear_residual_grouped`` - needs ``group_column`` extraction + groups kwarg through fit/forward/inverse.
+    #   - ``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff`` - require chronological row order which most datasets lack at the discovery stage.
+    # All four are accessible via explicit user configuration (``CompositeTargetEstimator(...)`` directly).
     transforms: List[str] = Field(
         default_factory=lambda: [
             "diff", "ratio", "logratio", "linear_residual",
@@ -1897,9 +1743,9 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         ]
     )
 
-    # OPEN-1 integration (2026-05-12): multi-base forward-stepwise auto-promotion of kept ``linear_residual`` specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, Discovery picks each kept linear_residual spec and tries greedily ADDING bases from the auto-base candidate pool. When the marginal CV-RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 2%), the spec is upgraded to ``linear_residual_multi`` with the expanded base list.
+    # Multi-base forward-stepwise auto-promotion of kept ``linear_residual`` specs. After single-base discovery + raw-y baseline gate + tiny-model rerank, Discovery picks each kept linear_residual spec and tries greedily ADDING bases from the auto-base candidate pool. When the marginal CV-RMSE reduction clears ``multi_base_min_marginal_rmse_gain`` (default 2%), the spec is upgraded to ``linear_residual_multi`` with the expanded base list.
     #
-    # Default ON: measure-first benchmark (``benchmarks/composite_multi_base_benchmark.py``) confirms geo-mean gain 83% on positive scenarios (S2: y = b1+b2+eps, S3: y = b1+b2+b3+eps) AND no-harm on negative scenarios (S1: single dominant b1 + noise candidates; S4: collinear b1+b1_dup pool). Decision rule met. Opt-out by setting ``multi_base_enabled=False`` if production data violates the benchmark's assumptions (highly correlated candidate pool, very small n_train, etc.).
+    # Default ON: ``benchmarks/composite_multi_base_benchmark.py`` shows geo-mean gain 83% on positive scenarios (S2: y = b1+b2+eps, S3: y = b1+b2+b3+eps) AND no-harm on negative scenarios (S1: single dominant b1 + noise candidates; S4: collinear b1+b1_dup pool). Opt-out by setting ``multi_base_enabled=False`` if production data violates the benchmark's assumptions (highly correlated candidate pool, very small n_train, etc.).
     multi_base_enabled: bool = True
     multi_base_max_k: int = 3
     multi_base_min_marginal_rmse_gain: float = 0.02
@@ -1909,58 +1755,25 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     mi_sample_n: Optional[int] = 200_000
     top_k_after_mi: int = 8
     # Pre-filter threshold for ``mi_gain = MI(T, X_no_base) - MI(y, X_no_base)``.
-    # Default lowered from +0.01 -> -0.5 on 2026-05-11 (R10c bug #3)
-    # after a production TVT regression run discovered 0 specs despite
-    # BaselineDiagnostics ablation correctly identifying ``TVT_prev``
-    # as the dominant feature. Root cause: pure-lag composite
-    # ``T = y - y_prev = noise`` has ``MI(T, X_no_base) ~ 0`` while
-    # ``MI(y, X_no_base) > 0``, so ``mi_gain`` is structurally
-    # NEGATIVE for the correct composite -- a sign of a clean lag fit,
-    # not a sign the composite is useless. The MI-gain pre-filter
-    # was rejecting LEGITIMATE compositions.
     #
-    # The actual "is this composite predictively useful" decision is
-    # made downstream by the raw-y baseline gate (Phase B; compares
-    # tiny CV-RMSE of composite vs raw-y on the same screening folds).
-    # With ``eps_mi_gain=-0.5`` the pre-filter only drops composites
-    # whose mi_gain is MUCH worse than raw -- typical "transform broke
-    # the target" cases (logratio on negative y, ratio on near-zero
-    # base). Pure-lag composites pass through to the raw-y gate where
-    # they are correctly evaluated.
+    # Pure-lag composite ``T = y - y_prev = noise`` has ``MI(T, X_no_base) ~ 0`` while ``MI(y, X_no_base) > 0``, so ``mi_gain`` is structurally NEGATIVE for the correct composite - a sign of a clean lag fit, not a sign the composite is useless. A non-negative threshold rejects LEGITIMATE compositions on TVT-style lag-dominated targets.
+    #
+    # The actual "is this composite predictively useful" decision is made downstream by the raw-y baseline gate (compares tiny CV-RMSE of composite vs raw-y on the same screening folds). With ``eps_mi_gain=-0.5`` the pre-filter only drops composites whose mi_gain is MUCH worse than raw - typical "transform broke the target" cases (logratio on negative y, ratio on near-zero base). Pure-lag composites pass through to the raw-y gate where they are correctly evaluated.
     eps_mi_gain: float = -0.5
     mi_n_neighbors: int = 3  # sklearn mutual_info_regression k.
 
-    # MI estimator. "knn" uses the Kraskov estimator (sklearn default,
-    # accurate but slow on n>10k); "bin" uses a quantile-binning
-    # estimator (5-10x faster, biased low on heavy-tail).
+    # MI estimator. "knn" uses the Kraskov estimator (sklearn default, accurate but slow on n>10k); "bin" uses a quantile-binning estimator (5-10x faster, biased low on heavy-tail).
     #
-    # Default flipped from "knn" -> "bin" 2026-05-10 after a
-    # statistical review noted that:
-    # 1. kNN is biased high on heavy-tail / mixed-density distributions
-    #    and the bias scales DIFFERENTLY for raw y (potentially fat-
-    #    tailed) vs T = transform(y, base) (sub-Gaussian after
-    #    linear_residual). That asymmetric bias inflates apparent
-    #    mi_gain even when the true gain is zero -- which matches the
-    #    production failure mode where MI passes but RMSE doesn't.
-    # 2. bin (quantile) estimator is approximately bias-free under
-    #    monotone transforms because the bin edges follow the
-    #    transformed distribution -- exactly what the registry's
-    #    transforms (diff/ratio/logratio/linear_residual) do.
-    # 3. bin is 10x faster on the 200K-row screening sample we
-    #    typically run.
+    # Default "bin" because:
+    # 1. kNN is biased high on heavy-tail / mixed-density distributions and the bias scales DIFFERENTLY for raw y (potentially fat-tailed) vs T = transform(y, base) (sub-Gaussian after linear_residual). That asymmetric bias inflates apparent mi_gain even when the true gain is zero - the production failure mode where MI passes but RMSE doesn't.
+    # 2. bin (quantile) estimator is approximately bias-free under monotone transforms because the bin edges follow the transformed distribution - exactly what the registry's transforms (diff/ratio/logratio/linear_residual) do.
+    # 3. bin is 10x faster on the 200K-row screening sample we typically run.
     #
-    # Set to "knn" explicitly for non-monotone transforms or when
-    # n < 5*nbins (bin floor needs ~80 rows at default nbins=16).
+    # Set to "knn" explicitly for non-monotone transforms or when n < 5*nbins (bin floor needs ~80 rows at default nbins=16).
     mi_estimator: str = "bin"
     mi_nbins: int = 16  # Bin count when ``mi_estimator == "bin"``.
 
-    # R10b statistician #1: aggregation across feature columns when
-    # comparing MI(T, X_no_base) against MI(y, X_no_base). Legacy
-    # ``"sum"`` is biased (overcounts shared information when X is
-    # correlated, and the over-count differs between numerator and
-    # denominator). Mean is invariant to feature count and is the
-    # cleaner default; users on existing benchmarks can pin
-    # ``"sum"`` for reproducibility.
+    # Aggregation across feature columns when comparing MI(T, X_no_base) against MI(y, X_no_base). ``"sum"`` overcounts shared information when X is correlated and the over-count differs between numerator and denominator. Mean is invariant to feature count; users on existing benchmarks can pin ``"sum"`` for reproducibility.
     mi_aggregation: str = "mean"
 
     # MI sampling strategy. "random" is the cheap default; switch to
@@ -1972,20 +1785,9 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     mi_sample_strategy: str = "random"
     mi_n_strata: int = 10
 
-    # Phase B: tiny-model rerank. After MI screening narrows to top-K,
-    # train a tiny model (LightGBM or per-family) per surviving
-    # candidate and re-rank by CV-RMSE measured on the y-scale (after
-    # inverse). This is the "true objective" -- MI is a proxy. Skip
-    # by setting ``screening`` = ``"mi"``.
+    # Tiny-model rerank. After MI screening narrows to top-K, train a tiny model (LightGBM or per-family) per surviving candidate and re-rank by CV-RMSE measured on the y-scale (after inverse). This is the "true objective" - MI is a proxy. Skip by setting ``screening`` = ``"mi"``.
     #
-    # Default raised from "mi" -> "hybrid" in 2026-05-10 after a
-    # production case where MI-only screening kept composites whose
-    # bases (spatial coordinates) had trivial pairwise MI(y, x) but
-    # zero structural signal for residual learning. The MI-gain test
-    # passed barely (mi_gain ~ 0.01) but the resulting models had
-    # WORSE OOF RMSE than raw-y because subtracting the base added
-    # noise to the target. Phase B's CV-RMSE-on-y-scale catches this
-    # directly. Cost: ~0.5-2 min per target on a 4M-row dataset.
+    # Default "hybrid" catches the "wrong base" case where MI-only screening keeps composites whose bases (eg spatial coordinates) had trivial pairwise MI(y, x) but zero structural signal for residual learning: MI-gain passes barely (mi_gain ~ 0.01) but the resulting models have WORSE OOF RMSE than raw-y because subtracting the base added noise to the target. CV-RMSE-on-y-scale catches this directly. Cost: ~0.5-2 min per target on a 4M-row dataset.
     screening: str = "hybrid"  # "mi" | "tiny_model" | "hybrid"
     tiny_model_n_estimators: int = 60
     tiny_model_num_leaves: int = 15
@@ -2040,85 +1842,34 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     require_beats_raw_baseline: bool = True
     raw_baseline_tolerance: float = 1.02
 
-    # R10b improvement #1: regime-aware gate. In addition to the
-    # global mean RMSE comparison, also check per-quintile-of-base
-    # RMSE: a spec is rejected if its tiny CV-RMSE in any quintile
-    # exceeds raw_baseline-in-that-quintile by ``raw_baseline_per_bin_tolerance``.
-    # This catches "two-regime" failure modes where logratio is
-    # correct on multiplicative-regime rows but actively wrong on
-    # additive-regime rows; mean RMSE hides this and the spec
-    # ships even though it's miscalibrated half the time.
+    # Regime-aware gate. In addition to the global mean RMSE comparison, also check per-quintile-of-base RMSE: a spec is rejected if its tiny CV-RMSE in any quintile exceeds raw_baseline-in-that-quintile by ``raw_baseline_per_bin_tolerance``. Catches "two-regime" failure modes where logratio is correct on multiplicative-regime rows but actively wrong on additive-regime rows; mean RMSE hides this and the spec ships even though it's miscalibrated half the time.
     #
-    # Tolerance defaults looser than the global gate (1.10 vs 1.02)
-    # because per-bin estimates have higher variance on small
-    # screening samples. Set ``per_bin_n_bins=0`` to disable the
-    # per-bin check.
+    # Tolerance defaults looser than the global gate (1.10 vs 1.02) because per-bin estimates have higher variance on small screening samples. Set ``per_bin_n_bins=0`` to disable the per-bin check.
     raw_baseline_per_bin_tolerance: float = 1.10
     per_bin_n_bins: int = 5
 
-    # R10b improvement #10: median-of-seeds gate. Tiny CV-RMSE with
-    # 3 folds is variance-prone (one unlucky split can drag the mean).
-    # Optionally repeat the K-fold split with multiple seeds and take
-    # the MEDIAN across (folds × seeds) for both raw-y and per-spec
-    # CV-RMSE. The gate then compares median composite vs median raw,
-    # which is more stable than the mean. Default 1 = backwards-
-    # compatible (single-seed). Set to e.g. 3 or 5 on small screening
-    # samples where gate decisions are noisy. Compute scales linearly.
+    # Median-of-seeds gate. Tiny CV-RMSE with 3 folds is variance-prone (one unlucky split can drag the mean). Optionally repeat the K-fold split with multiple seeds and take the MEDIAN across (folds x seeds) for both raw-y and per-spec CV-RMSE. The gate then compares median composite vs median raw, which is more stable than the mean. Default 1 is single-seed; set to eg 3 or 5 on small screening samples where gate decisions are noisy. Compute scales linearly.
     tiny_model_n_seed_repeats: int = 1
 
-    # R10b statistician #4: paired one-sided Wilcoxon signed-rank
-    # test on per-fold-pair RMSE differences (composite minus raw).
-    # Replaces the static ``raw_baseline * tolerance`` threshold with
-    # a non-parametric significance test: spec is rejected unless
-    # the median of per-fold differences is significantly negative
-    # (composite < raw) at level ``gate_alpha``. Scipy must be
-    # available; falls back to threshold-only gate if not.
+    # Paired one-sided Wilcoxon signed-rank test on per-fold-pair RMSE differences (composite minus raw). Replaces the static ``raw_baseline * tolerance`` threshold with a non-parametric significance test: spec is rejected unless the median of per-fold differences is significantly negative (composite < raw) at level ``gate_alpha``. Scipy must be available; falls back to threshold-only gate if not.
     #
-    # Cost: requires per-fold RMSE pairs from BOTH composite and
-    # raw runs, which we already collect when
-    # ``tiny_model_n_seed_repeats > 1``. With n_seed_repeats=1 the
-    # test has 3 fold pairs total -- the test will be too low-power
-    # to reject anything except egregious cases. Recommended:
-    # n_seed_repeats=5 for the test to have meaningful power.
+    # Cost: requires per-fold RMSE pairs from BOTH composite and raw runs, which we already collect when ``tiny_model_n_seed_repeats > 1``. With n_seed_repeats=1 the test has 3 fold pairs total - too low-power to reject anything except egregious cases. Recommended: n_seed_repeats=5 for the test to have meaningful power.
     use_wilcoxon_gate: bool = False
     gate_alpha: float = 0.05
 
-    # R10b statistician #6: detect alpha-drift in linear_residual.
-    # Fit alpha on first half of train and on second half; compare
-    # via Chow-style |Δα| / pooled SE. If the absolute z-score
-    # exceeds ``alpha_drift_z_threshold`` (default 3.0), the
-    # linear_residual spec for that base is flagged in metadata
-    # with reason ``alpha_drift_detected`` and (optionally) rejected.
-    # Catches concept-drift / non-stationary y/base relationships
-    # that LR's point-estimate alpha silently degrades on at test.
+    # Detect alpha-drift in linear_residual. Fit alpha on first half of train and on second half; compare via Chow-style |delta_alpha| / pooled SE. If the absolute z-score exceeds ``alpha_drift_z_threshold`` (default 3.0), the linear_residual spec for that base is flagged in metadata with reason ``alpha_drift_detected`` and (optionally) rejected. Catches concept-drift / non-stationary y/base relationships that LR's point-estimate alpha silently degrades on at test.
     detect_linear_residual_alpha_drift: bool = True
     alpha_drift_z_threshold: float = 3.0
-    # When True, drop linear_residual specs that fail the drift
-    # check; when False, keep them but log a warning + record in
-    # metadata. Default False -- drift is informational only by
-    # default; flag to True on series with known non-stationarity.
+    # When True, drop linear_residual specs that fail the drift check; when False, keep them but log a warning + record in metadata. Default False - drift is informational only; flag to True on series with known non-stationarity.
     reject_on_alpha_drift: bool = False
 
-    # R10b stat #8: bootstrap CI on mi_gain. The point-estimate
-    # mi_gain has noise floor that scales with the screening sample
-    # size and the heaviness of the y-tail; the eps_mi_gain absolute
-    # threshold misses this. Optional bootstrap (resample the
-    # screening sample, recompute MI, take 2.5/97.5 percentiles)
-    # produces an honest CI; the gate then compares ``eps_mi_gain``
-    # against the lower CI bound, not the point estimate.
+    # Bootstrap CI on mi_gain. The point-estimate mi_gain has noise floor that scales with the screening sample size and the heaviness of the y-tail; the eps_mi_gain absolute threshold misses this. Optional bootstrap (resample the screening sample, recompute MI, take 2.5/97.5 percentiles) produces an honest CI; the gate then compares ``eps_mi_gain`` against the lower CI bound, not the point estimate.
     #
-    # Cost: ``mi_gain_bootstrap_n`` extra MI evaluations per spec
-    # (default 0 = disabled; recommended 50 for confidence band).
+    # Cost: ``mi_gain_bootstrap_n`` extra MI evaluations per spec (default 0 = disabled; recommended 50 for confidence band).
     mi_gain_bootstrap_n: int = 0
     mi_gain_bootstrap_random_state: int = 12345
 
-    # R10b stat #8 (continued): boost n_strata on heavy-tail targets
-    # when stratified MI sampling is enabled. Default 10 strata is
-    # too few for tail-driven signal -- tail rows get one bin each
-    # and MI estimates become unstable. Auto-detection: when y skew
-    # > 2.0 OR kurtosis > 5.0, boost ``mi_n_strata`` to
-    # ``mi_n_strata_heavy_tail``. Manual override via setting
-    # ``mi_n_strata`` explicitly.
+    # Boost n_strata on heavy-tail targets when stratified MI sampling is enabled. Default 10 strata is too few for tail-driven signal - tail rows get one bin each and MI estimates become unstable. Auto-detection: when y skew > 2.0 OR kurtosis > 5.0, boost ``mi_n_strata`` to ``mi_n_strata_heavy_tail``. Manual override via setting ``mi_n_strata`` explicitly.
     mi_n_strata_heavy_tail: int = 30
 
     @field_validator("screening", mode="before")
@@ -2186,16 +1937,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Block columns whose Pearson |corr(base, y)| exceeds this threshold.
     # Intent: catch literal copies / trivial linear transforms of y
     # (e.g. ``y_renamed = y``, ``y_scaled = y / 1000``). NOT intended
-    # to catch autoregressive lag features such as ``TVT_prev`` --
+    # to catch autoregressive lag features such as ``TVT_prev`` -
     # those legitimately reach corr ~ 0.999 on slow-moving series due
     # to autocorrelation, and they are exactly the kind of dominant
     # feature composite-target discovery exists to handle.
     #
     # The primary defence against target-encoding leakage is the regex
     # patterns above (``forbidden_base_patterns``); the corr threshold
-    # is just a backstop. Default raised from 0.999 to 0.99999 in
-    # 2026-05-10 after observing it filtered out legitimate
-    # ``TVT_prev`` (lag-1) on a real production run.
+    # is just a backstop. Threshold 0.99999 still lets legitimate
+    # autoregressive ``TVT_prev`` (lag-1) through on slow-moving series.
     forbidden_base_corr_threshold: float = 0.99999
 
     # Block constant or near-constant base columns (zero variance ->
@@ -2211,7 +1961,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Behaviour when no candidate clears eps_mi_gain.
     # - "fallback_raw": warn and emit no composite targets (caller
     #   trains on raw target only).
-    # - "raise": raise RuntimeError -- useful in CI / scripted modes
+    # - "raise": raise RuntimeError - useful in CI / scripted modes
     #   to flag degenerate inputs.
     # - "warn": warn but emit the best-of-bad candidates anyway.
     fail_on_no_gain: str = "fallback_raw"
@@ -2230,13 +1980,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # - "linear_stack": Ridge regression on per-component predictions.
     # - "nnls_stack": non-negative least squares on per-component preds.
     #
-    # Default flipped from "off" -> "oof_weighted" 2026-05-10 (R10b
-    # improvement #5), then "oof_weighted" -> "nnls_stack" 2026-05-10
-    # (R10c) after the wide ensemble shootout
-    # (``mlframe/benchmarks/composite_ensemble_shootout.py``):
-    # 6 scenarios x 3 seeds = 18 (scenario, seed) datapoints, 11
-    # ensemble strategies tested. Results (mean improvement %
-    # vs best_single_by_train, sorted):
+    # Default "nnls_stack" comes from the wide ensemble shootout (``mlframe/benchmarks/composite_ensemble_shootout.py``): 6 scenarios x 3 seeds = 18 (scenario, seed) datapoints, 11 ensemble strategies tested. Results (mean improvement % vs best_single_by_train, sorted):
     #
     #   nnls_stack            +1.24%  (13/18 wins)  <- WINNER
     #   best_single_by_train  +0.00%  (baseline)
@@ -2285,35 +2029,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     use_baseline_diagnostics_hint: bool = True
     baseline_diagnostics_hint_top_k: int = 3
 
-    # R10c bug #5: hint-strength threshold for the adaptive hint cap.
-    # When the top hint feature has BaselineDiagnostics ablation
-    # ``delta_pct >= hint_strength_threshold_pct``, ``_auto_base``
-    # uses the FULL hint list (no cap) instead of capping at
-    # ``max(1, top_k // 2)``. Set to a high value (e.g. 1000) to
-    # effectively disable the strong-hint shortcut.
+    # Hint-strength threshold for the adaptive hint cap. When the top hint feature has BaselineDiagnostics ablation ``delta_pct >= hint_strength_threshold_pct``, ``_auto_base`` uses the FULL hint list (no cap) instead of capping at ``max(1, top_k // 2)``. Set to a high value (eg 1000) to effectively disable the strong-hint shortcut.
     hint_strength_threshold_pct: float = 50.0
 
-    # Cross-base correlation dedup (R10b improvement #9). After
-    # auto-base ranking, drop a candidate base if its absolute Pearson
-    # correlation against any already-kept candidate exceeds this
-    # threshold on the screening sample. Stops near-duplicate lag
-    # variants (``TVT_prev``, ``TVT_prev_lag2``, ``TVT_smooth_3``) from
-    # all surviving into Phase B and inflating ensemble correlation.
-    # Set to 1.0 to disable.
+    # Cross-base correlation dedup. After auto-base ranking, drop a candidate base if its absolute Pearson correlation against any already-kept candidate exceeds this threshold on the screening sample. Stops near-duplicate lag variants (``TVT_prev``, ``TVT_prev_lag2``, ``TVT_smooth_3``) from all surviving into Phase B and inflating ensemble correlation. Set to 1.0 to disable.
     auto_base_dedup_corr_threshold: float = 0.95
 
-    # R10b improvement #2: permutation-MI null distribution test in
-    # ``_auto_base``. For each candidate feature compute MI(y, x) AND
-    # MI(y, shuffle(x)) on ``auto_base_null_perms`` shuffles, then
-    # require the candidate's MI to exceed ``mean_null + n_sigma *
-    # std_null``. Catches features whose MI(y, x) is non-trivial only
-    # because of a shared monotonic component (time/spatial trend),
-    # not structural information about y.
+    # Permutation-MI null distribution test in ``_auto_base``. For each candidate feature compute MI(y, x) AND MI(y, shuffle(x)) on ``auto_base_null_perms`` shuffles, then require the candidate's MI to exceed ``mean_null + n_sigma * std_null``. Catches features whose MI(y, x) is non-trivial only because of a shared monotonic component (time/spatial trend), not structural information about y.
     #
-    # Cost: ``auto_base_null_perms`` extra MI evaluations per
-    # candidate (default 20 × ~1ms each on bin-MI estimator = ~20ms
-    # per feature on the screening sample). Set
-    # ``auto_base_null_perms=0`` to disable.
+    # Cost: ``auto_base_null_perms`` extra MI evaluations per candidate (default 20 x ~1ms each on bin-MI estimator = ~20ms per feature on the screening sample). Set ``auto_base_null_perms=0`` to disable.
     auto_base_null_perms: int = 20
     auto_base_null_z_threshold: float = 3.0
     # Block-shuffle length for temporal datasets so the null
@@ -2322,9 +2046,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # row-level shuffle (i.i.d. assumption).
     auto_base_null_block_length: Union[str, int] = "auto"
 
-    # R10b improvement #7: structural detectors for time-index and
-    # spatial-coordinate features. Demote (push to bottom of MI
-    # ranking) features that look like:
+    # Structural detectors for time-index and spatial-coordinate features. Demote (push to bottom of MI ranking) features that look like:
     # - **Time index**: |Spearman(rank(x), arange(n))| > 0.95.
     #   Catches a row-counter or timestamp masquerading as a base
     #   candidate; on temporal data the row index correlates with
@@ -2340,32 +2062,12 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     auto_base_demote_time_index: bool = True
     auto_base_demote_spatial_coords: bool = True
 
-    # Collapse ``linear_residual`` -> ``diff`` when the fitted alpha
-    # is approximately 1.0 (R10b improvement #6). ``linear_residual``
-    # is a strict generalisation of ``diff`` (diff = linear_residual
-    # with alpha=1, beta=0). When OLS lands at alpha~1 on stationary
-    # lag features, the two transforms produce numerically identical
-    # T columns -- but ``linear_residual`` carries TWO learned
-    # parameters with train-time variance. ``diff`` is the lower-
-    # variance answer. The threshold compares the scale-invariant
-    # ratio ``|alpha - 1| * std(base) / std(y)``; below this value,
-    # the linear_residual spec is considered redundant with diff and
-    # dropped if a diff spec for the same base also kept. Set to 0.0
-    # to disable (always keep both).
+    # Collapse ``linear_residual`` -> ``diff`` when the fitted alpha is approximately 1.0. ``linear_residual`` is a strict generalisation of ``diff`` (diff = linear_residual with alpha=1, beta=0). When OLS lands at alpha~1 on stationary lag features, the two transforms produce numerically identical T columns - but ``linear_residual`` carries TWO learned parameters with train-time variance. ``diff`` is the lower-variance answer. The threshold compares the scale-invariant ratio ``|alpha - 1| * std(base) / std(y)``; below this value, the linear_residual spec is considered redundant with diff and dropped if a diff spec for the same base also kept. Set to 0.0 to disable (always keep both).
     collapse_linear_residual_alpha_eps: float = 0.05
 
-    # R3.18: handling multilabel (multi-output) regression targets,
-    # i.e. ``target_by_type[regression][name]`` is a 2-D array of
-    # shape ``(n_rows, n_outputs)``.
-    # - ``"per_target"`` (default): expand into ``n_outputs`` separate
-    #   1-D regression targets named ``{name}_out{j}``; discovery
-    #   runs independently per output, naming composites
-    #   ``{name}_out{j}__{transform}__{base}``. Per-target training
-    #   loop downstream sees them as ordinary 1-D targets.
-    # - ``"skip"``: legacy behaviour -- mark with metadata note,
-    #   produce no composites for that target. Useful when the
-    #   caller knows they don't want the per-output expansion (e.g.
-    #   the training loop downstream expects the 2-D shape intact).
+    # Handling multilabel (multi-output) regression targets, ie ``target_by_type[regression][name]`` is a 2-D array of shape ``(n_rows, n_outputs)``.
+    # - ``"per_target"`` (default): expand into ``n_outputs`` separate 1-D regression targets named ``{name}_out{j}``; discovery runs independently per output, naming composites ``{name}_out{j}__{transform}__{base}``. Per-target training loop downstream sees them as ordinary 1-D targets.
+    # - ``"skip"``: mark with metadata note, produce no composites for that target. Useful when the caller knows they don't want the per-output expansion (eg the training loop downstream expects the 2-D shape intact).
     multilabel_strategy: str = "per_target"
 
     # Cap the number of components combined at predict time. Useful
@@ -2515,13 +2217,7 @@ class DummyBaselinesConfig(BaseConfig):
 
     enabled: bool = True
 
-    # 2026-05-11: render the pre-training "strongest baseline overlay"
-    # chart (predictions-vs-actual scatter + residual histogram for
-    # regression; class-prior bar for classification). Renders BEFORE
-    # the per-model training loop fires so the operator sees the
-    # no-model floor next to the verdict line. Default ON per the
-    # user's repeated request. Set False to suppress (e.g. headless
-    # CI / fuzz where the chart is irrelevant).
+    # Render the pre-training "strongest baseline overlay" chart (predictions-vs-actual scatter + residual histogram for regression; class-prior bar for classification). Renders BEFORE the per-model training loop fires so the operator sees the no-model floor next to the verdict line. Set False to suppress (eg headless CI / fuzz where the chart is irrelevant).
     plot_strongest: bool = True
 
     # Per-target-type opt-out. Default: every supported target type
@@ -2539,36 +2235,19 @@ class DummyBaselinesConfig(BaseConfig):
     # that the auto-step-size + ACF detector would miss.
     ts_extra_periods: Tuple[int, ...] = ()
 
-    # Per-group baseline (per_group_mean / per_group_prior) leakage
-    # defenses (round-3 audit D1).
-    # - ``per_group_max_cardinality_ratio``: skip the baseline if the
-    #   chosen categorical's unique-count > (n_train * this ratio).
-    #   Default 0.5 catches row-id-like keys (user_id, transaction_id,
-    #   hash) that would silently produce perfect-prediction oracles.
-    # - ``per_group_min_val_coverage_pct``: exclude per_group_* from
-    #   strongest-pick eligibility if val coverage of the chosen cat
-    #   falls below this. Below 50%, the metric is dominated by
-    #   unseen-category fallback (= train_y.mean()) and not by the
-    #   group-conditioning effect.
-    # - ``per_group_high_overlap_threshold``: if more than this fraction
-    #   of val rows have a group with ≥5 train labels, log the
-    #   row-label annotation "(high entity overlap — measures
-    #   re-appearance, not generalization)".
+    # Per-group baseline (per_group_mean / per_group_prior) leakage defenses.
+    # - ``per_group_max_cardinality_ratio``: skip the baseline if the chosen categorical's unique-count > (n_train * this ratio). Default 0.5 catches row-id-like keys (user_id, transaction_id, hash) that would silently produce perfect-prediction oracles.
+    # - ``per_group_min_val_coverage_pct``: exclude per_group_* from strongest-pick eligibility if val coverage of the chosen cat falls below this. Below 50%, the metric is dominated by unseen-category fallback (= train_y.mean()) and not by the group-conditioning effect.
+    # - ``per_group_high_overlap_threshold``: if more than this fraction of val rows have a group with >=5 train labels, log the row-label annotation "(high entity overlap - measures re-appearance, not generalization)".
     per_group_max_cardinality_ratio: float = 0.5
     per_group_min_val_coverage_pct: float = 50.0
     per_group_high_overlap_threshold: float = 0.5
 
-    # n_repeats for stochastic baselines (round-3 audit C#2, C#5).
-    # Single-realization variance dominates the AUC / NDCG estimate at
-    # small n_val; reporting mean ± std across deterministic seeds
-    # gives the operator a noise-floor anchor.
+    # n_repeats for stochastic baselines. Single-realization variance dominates the AUC / NDCG estimate at small n_val; reporting mean +/- std across deterministic seeds gives the operator a noise-floor anchor.
     stratified_n_repeats: int = 20
     random_within_query_n_repeats: int = 10
 
-    # Strongest-pick robustness gate (round-3 D2).
-    # Paired bootstrap on the strongest-vs-runner-up baseline pair;
-    # if P(strongest beats runner-up) falls below this, annotate the
-    # log line as "(TIE)" and suppress the overlay plot.
+    # Strongest-pick robustness gate. Paired bootstrap on the strongest-vs-runner-up baseline pair; if P(strongest beats runner-up) falls below this, annotate the log line as "(TIE)" and suppress the overlay plot.
     paired_bootstrap_n_resamples: int = 1000
     strongest_min_beat_runner_up_prob: float = 0.7
 
@@ -2579,16 +2258,10 @@ class DummyBaselinesConfig(BaseConfig):
     bootstrap_ci_threshold: int = 2000
     bootstrap_ci_n_resamples: int = 1000
 
-    # Auto-WARN trigger: model lift below this multiplier vs strongest
-    # dummy baseline → ``BEST_MODEL_BELOW_DUMMY`` warning emitted in
-    # the suite-end summary. 1.5x is the canonical "your model isn't
-    # better than random" Kaggle threshold; can be tightened or
-    # loosened per deployment.
+    # Auto-WARN trigger: model lift below this multiplier vs strongest dummy baseline emits a ``BEST_MODEL_BELOW_DUMMY`` warning in the suite-end summary. 1.5x is the canonical "your model isn't better than random" Kaggle threshold; can be tightened or loosened per deployment.
     best_model_min_lift: float = 1.5
 
-    # Random seed for stochastic baselines + bootstrap (combined with
-    # per-target hash internally to ensure independence across
-    # targets — round-3 D13).
+    # Random seed for stochastic baselines + bootstrap (combined with per-target hash internally to ensure independence across targets).
     random_state: int = DEFAULT_RANDOM_SEED
 
 
@@ -2606,18 +2279,14 @@ _REPORTING_ALLOWED_TITLE_TOKENS: FrozenSet[str] = frozenset({
 class ReportingConfig(BaseConfig):
     """Look of the calibration / training performance report.
 
-    Renamed from the pre-2026-04-27 display config. Scope is now strictly "report
-    appearance + per-metric title composition + histogram subplot
-    toggles". Filesystem paths moved to ``OutputConfig``; feature-importance
-    plot parameters moved to ``FeatureImportanceConfig`` (referenced via
-    ``feature_importance_config``).
+    Scope: report appearance + per-metric title composition + histogram
+    subplot toggles. Filesystem paths live on ``OutputConfig``;
+    feature-importance plot parameters live on ``FeatureImportanceConfig``
+    (referenced via ``feature_importance_config``).
 
-    The 9 historical ``show_*_in_title`` booleans (show_brier_loss,
-    show_cmaew, show_roc_auc, show_pr_auc, show_logloss, show_coverage,
-    show_points_density, plus the new show_ece and show_brier_decomp from
-    this revision) collapsed into one ordered string template
-    ``title_metrics_template``. The template grammar is validated at
-    config construction time so an invalid template fails before training
+    Title-metric composition is an ordered string template
+    ``title_metrics_template``. The grammar is validated at config
+    construction time so an invalid template fails before training
     starts, not mid-figure.
 
     Token grammar (closed set, case-insensitive on input):
@@ -2666,8 +2335,7 @@ class ReportingConfig(BaseConfig):
 
     # Custom ICE / RICE metric callables (signature: (y_true, y_score) -> float).
     # When None, the trainer falls back to the mlframe-native ICE built from
-    # compute_probabilistic_multiclass_error. Was reachable only via the
-    # deleted dict pass-through pre-2026-04-27.
+    # compute_probabilistic_multiclass_error.
     custom_ice_metric: Optional[Callable] = None
     custom_rice_metric: Optional[Callable] = None
 
@@ -2685,102 +2353,42 @@ class ReportingConfig(BaseConfig):
     # at construction.
     title_metrics_tokens: Tuple[str, ...] = ()
 
-    # 2026-05-08: backend × output-format DSL. Replaces the legacy
-    # ``save_format`` (single-string) knob. See
-    # ``mlframe.reporting.output.parse_plot_output_dsl`` for grammar.
-    # 2026-05-10: default changed from ``"plotly[html,png]"`` to
-    # ``"plotly[html] + matplotlib[png]"`` -- the old default routed PNG
-    # export through kaleido, which spends 12-15s per figure on a
-    # Chromium ``page.reload()``. On a 4-model x VAL+TEST x N-ensemble
-    # suite this ballooned to MINUTES of pure chart-export wall-time.
-    # The new default keeps interactive plotly HTML (for sharing /
-    # jupyter) + matplotlib PNG (10-20x faster, no Chromium). Users who
-    # need plotly PNG explicitly set ``"plotly[html,png]"``.
+    # backend x output-format DSL. See ``mlframe.reporting.output.parse_plot_output_dsl`` for grammar.
+    #
+    # Default keeps interactive plotly HTML (for sharing / jupyter) + matplotlib PNG (10-20x faster, no Chromium). Routing PNG export through kaleido spends 12-15s per figure on a Chromium ``page.reload()``; on a 4-model x VAL+TEST x N-ensemble suite this ballooned to MINUTES of pure chart-export wall-time. Users who need plotly PNG explicitly set ``"plotly[html,png]"``.
     plot_outputs: str = "plotly[html] + matplotlib[png]"
 
-    # 2026-05-10: opt-out for jupyter inline plot display.
-    # ``None`` (default): auto-detect via ``__IPYTHON__`` / ``sys.ps1``
-    # in ``render_and_save`` -- inside a notebook kernel, figures render
-    # inline in the cell output AFTER on-disk save (the saved file is
-    # the artifact; the inline render is the operator-feedback path).
-    # ``True``: force inline display (useful for non-standard runtimes
-    # where auto-detection misfires).
-    # ``False``: save-to-disk only -- skips ``renderer.show(fig)`` even
-    # when running inside a kernel. Use for batch jupyter runs (papermill,
-    # nbconvert, scheduled notebooks) that don't need cell-output renders
-    # AND want to skip the per-figure inline render cost
-    # (~50-200ms / figure for plotly, ~20-50ms for matplotlib;
-    # accumulates to seconds on a 4-model x VAL+TEST x 6-ensemble suite).
-    # Also useful when the inline backend is broken (e.g. plotly.io
-    # renderer misconfigured) and the operator wants the on-disk PNG/HTML
-    # without cell-output errors.
+    # Opt-out for jupyter inline plot display.
+    # ``None`` (default): auto-detect via ``__IPYTHON__`` / ``sys.ps1`` in ``render_and_save`` - inside a notebook kernel, figures render inline in the cell output AFTER on-disk save (the saved file is the artifact; the inline render is the operator-feedback path).
+    # ``True``: force inline display (useful for non-standard runtimes where auto-detection misfires).
+    # ``False``: save-to-disk only - skips ``renderer.show(fig)`` even when running inside a kernel. Use for batch jupyter runs (papermill, nbconvert, scheduled notebooks) that don't need cell-output renders AND want to skip the per-figure inline render cost (~50-200ms / figure for plotly, ~20-50ms for matplotlib; accumulates to seconds on a 4-model x VAL+TEST x 6-ensemble suite). Also useful when the inline backend is broken (eg plotly.io renderer misconfigured) and the operator wants the on-disk PNG/HTML without cell-output errors.
     plot_inline_display: Optional[bool] = None
 
-    # 2026-05-13 (user request): matplotlib style + rcParams override.
+    # Matplotlib style + rcParams override.
     #
     # Use cases:
-    # - ``matplotlib_style="ggplot"`` -> use the "ggplot" style sheet for
-    #   all charts the suite emits. Accepts any name resolvable by
-    #   ``plt.style.use(...)`` (eg ``"seaborn-v0_8-darkgrid"``,
-    #   ``"dark_background"``, ``"fivethirtyeight"``, ``"_classic_test_patch"``,
-    #   or a path to a user-written ``.mplstyle`` file).
-    # - ``matplotlib_style=["seaborn-v0_8", "dark_background"]`` -- list to
-    #   layer multiple styles (matplotlib stacks them; later wins on conflict).
-    # - ``matplotlib_rcparams={"font.size": 12, "axes.grid": True, ...}`` --
-    #   direct rcParams dict; merged ON TOP of any style sheet so the user
-    #   can fine-tune specific keys without writing a full .mplstyle file.
+    # - ``matplotlib_style="ggplot"`` -> use the "ggplot" style sheet for all charts the suite emits. Accepts any name resolvable by ``plt.style.use(...)`` (eg ``"seaborn-v0_8-darkgrid"``, ``"dark_background"``, ``"fivethirtyeight"``, ``"_classic_test_patch"``, or a path to a user-written ``.mplstyle`` file).
+    # - ``matplotlib_style=["seaborn-v0_8", "dark_background"]`` - list to layer multiple styles (matplotlib stacks them; later wins on conflict).
+    # - ``matplotlib_rcparams={"font.size": 12, "axes.grid": True, ...}`` - direct rcParams dict; merged ON TOP of any style sheet so the user can fine-tune specific keys without writing a full .mplstyle file.
     #
-    # Application: both fields are applied to the PROCESS-WIDE matplotlib
-    # state at suite entry (mirrors the existing ``plot_inline_display``
-    # plumbing). When ``None`` (default), the user's script-level
-    # ``plt.style.use(...)`` / ``plt.rcParams`` settings are preserved
-    # untouched -- so a one-line ``plt.style.use("ggplot")`` before the
-    # suite invocation also works for callers who don't want to thread
-    # the field through a config object.
+    # Application: both fields are applied to the PROCESS-WIDE matplotlib state at suite entry (mirrors the existing ``plot_inline_display`` plumbing). When ``None`` (default), the user's script-level ``plt.style.use(...)`` / ``plt.rcParams`` settings are preserved untouched - so a one-line ``plt.style.use("ggplot")`` before the suite invocation also works for callers who don't want to thread the field through a config object.
     #
-    # The fields are NOT reverted on suite exit; matches the
-    # ``plot_inline_display`` semantics (operators expect "set once, see
-    # everywhere" for plot styling in a long-running notebook session).
+    # The fields are NOT reverted on suite exit; matches the ``plot_inline_display`` semantics (operators expect "set once, see everywhere" for plot styling in a long-running notebook session).
     matplotlib_style: Optional[Union[str, List[str]]] = None
     matplotlib_rcparams: Optional[Dict[str, Any]] = None
 
-    # 2026-05-13 (user request): plotly template override -- separate from
-    # the matplotlib style because plotly has its own template system.
-    # Common values: ``"plotly"`` (default), ``"plotly_white"``,
-    # ``"plotly_dark"``, ``"ggplot2"``, ``"seaborn"``, ``"simple_white"``,
-    # ``"presentation"``. Applied via ``plotly.io.templates.default = ...``
-    # at suite entry, process-wide (mirrors matplotlib_style semantics).
-    # ``None`` (default) keeps the user's pre-suite plotly setting.
+    # Plotly template override - separate from the matplotlib style because plotly has its own template system. Common values: ``"plotly"`` (default), ``"plotly_white"``, ``"plotly_dark"``, ``"ggplot2"``, ``"seaborn"``, ``"simple_white"``, ``"presentation"``. Applied via ``plotly.io.templates.default = ...`` at suite entry, process-wide (mirrors matplotlib_style semantics). ``None`` (default) keeps the user's pre-suite plotly setting.
     #
-    # Ergonomic note: to unify the look across both backends, set BOTH
-    # ``matplotlib_style`` and ``plotly_template`` to matching themes,
-    # eg ``matplotlib_style="ggplot"`` + ``plotly_template="ggplot2"``.
-    # There is no single "theme" knob that targets both because the
-    # available style names and rcParams keys differ between backends.
+    # Ergonomic note: to unify the look across both backends, set BOTH ``matplotlib_style`` and ``plotly_template`` to matching themes, eg ``matplotlib_style="ggplot"`` + ``plotly_template="ggplot2"``. There is no single "theme" knob that targets both because the available style names and rcParams keys differ between backends.
     plotly_template: Optional[str] = None
 
-    # 2026-05-11: per-figure DPI for saved PNG / inline rendering.
-    # matplotlib's default is 100. Lowering to 80 cuts savefig wall-time
-    # ~30 % linearly (verified on a 6-panel multiclass figure: 1330 ms ->
-    # ~900 ms) at a visible-but-acceptable resolution loss; raising to
-    # 150 sharpens for publication / slides at a ~2.25x cost.
-    # ``None`` (default) defers to matplotlib's global default so the
-    # behaviour matches the pre-flag world unless the operator opts in.
-    # Honoured by the matplotlib renderer (``MatplotlibRenderer.save``)
-    # and by the legacy ``show_calibration_plot`` save path; plotly path
-    # (``plot_outputs`` with ``[png]``) routes through kaleido which has
-    # its own DPI knob -- when both plotly+matplotlib are emitted, only
-    # the matplotlib PNG honours this flag.
+    # Per-figure DPI for saved PNG / inline rendering. matplotlib's default is 100. Lowering to 80 cuts savefig wall-time ~30% linearly (verified on a 6-panel multiclass figure: 1330ms -> ~900ms) at a visible-but-acceptable resolution loss; raising to 150 sharpens for publication / slides at a ~2.25x cost. ``None`` (default) defers to matplotlib's global default. Honoured by the matplotlib renderer (``MatplotlibRenderer.save``) and by the legacy ``show_calibration_plot`` save path; plotly path (``plot_outputs`` with ``[png]``) routes through kaleido which has its own DPI knob - when both plotly+matplotlib are emitted, only the matplotlib PNG honours this flag.
     plot_dpi: Optional[int] = None
 
-    # 2026-05-08: per-target_type panel templates. Same DSL grammar as
-    # ``title_metrics_template`` (space-separated tokens, validator
-    # checks against frozen allowed set, no duplicates). All-by-default;
-    # operator removes tokens to skip individual panels.
+    # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against frozen allowed set, no duplicates). All-by-default; operator removes tokens to skip individual panels.
     multiclass_panels: str = "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
     multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST"
     ltr_panels: str = "NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL"
-    # 2026-05-08 QR: per-target_type panel template for quantile regression.
     quantile_panels: str = "RELIABILITY PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST"
 
     @field_validator("title_metrics_template")
@@ -2807,7 +2415,7 @@ class ReportingConfig(BaseConfig):
     def _validate_plot_outputs(cls, v: str) -> str:
         # Defer to the DSL parser; it raises ValueError on any malformed
         # / unsupported / duplicate clause. We don't store the parsed
-        # spec on the config -- callers re-parse at render time (cheap;
+        # spec on the config - callers re-parse at render time (cheap;
         # parser is regex-based and runs once per chart).
         from mlframe.reporting.output import parse_plot_output_dsl
         parse_plot_output_dsl(v)
@@ -2863,7 +2471,7 @@ class ReportingConfig(BaseConfig):
         ``type(instance) is FeatureImportanceConfig``. Two practical scenarios
         break that without any code bug on either side:
           1) ``%autoreload 2`` in a Jupyter session re-imports ``configs.py``
-             after a code edit -- new ``FeatureImportanceConfig`` class is
+             after a code edit - new ``FeatureImportanceConfig`` class is
              defined, but ``trainer.py`` (already imported earlier) still
              references the OLD class and instantiates from it.
           2) Two separate working copies of mlframe sit on ``sys.path`` (e.g.
