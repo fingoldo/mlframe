@@ -359,13 +359,29 @@ class ModelPipelineStrategy(ABC):
                     type(self).__name__, len(cat_features),
                 )
 
-        # Add imputation if required
-        if self.requires_imputation and imputer is not None:
-            steps.append(("imp", imputer))
+        # Add imputation if required.
+        # WARN when requires_imputation=True but caller passed imputer=None: silently skipping the step sent raw NaN into LinearRegression.fit (prod log 2026-05-14 4M-row regression suite).
+        # Mirrors the requires_encoding WARN above. Root-cause was in caller (ctx.imputer not propagated from _get_pipeline_components); see ef123ff + regression suite in test_strategy_imputer_propagation.py.
+        if self.requires_imputation:
+            if imputer is not None:
+                steps.append(("imp", imputer))
+            else:
+                logger.warning(
+                    "%s.build_pipeline: requires_imputation=True but imputer is None. Imputation step skipped - downstream model.fit may raise ValueError on NaN input. "
+                    "Supply a sklearn.impute.SimpleImputer or pre-impute upstream.",
+                    type(self).__name__,
+                )
 
-        # Add scaling if required
-        if self.requires_scaling and scaler is not None:
-            steps.append(("scaler", scaler))
+        # Add scaling if required.
+        # Same defence-in-depth: WARN on silent skip when requires_scaling=True but scaler=None (LinearRegression doesn't crash without scaling but regularised variants converge slower; surface the misconfiguration).
+        if self.requires_scaling:
+            if scaler is not None:
+                steps.append(("scaler", scaler))
+            else:
+                logger.warning(
+                    "%s.build_pipeline: requires_scaling=True but scaler is None. Scaling step skipped - Ridge/Lasso/ElasticNet regularisation will be feature-magnitude-dependent. Supply a sklearn.preprocessing.StandardScaler.",
+                    type(self).__name__,
+                )
 
         # Custom transformers go LAST (after preprocessing)
         if base_pipeline is not None and not is_feature_selector:
