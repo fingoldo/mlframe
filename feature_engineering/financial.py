@@ -338,14 +338,16 @@ def add_ohlcv_ta_indicators(
         unnests.extend(_build_unnests(prefix, ta_windows))
 
     for prefix in market_action_prefixes:
-        # Forward-fill prices via .over(ticker_column) so a stale/null bar inherits the previous
-        # valid quote rather than collapsing to 0 (zero-fill on prices produced wildly wrong TA
-        # values for RSI/BBANDS on any series with sporadic nulls).
-        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0)
-        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0)
-        open_col = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0)
-        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0)
-        # Volume genuinely is zero on no-trade bars, so zero-fill is correct here.
+        # Prices are zero-filled here (not forward-filled) because polars-talib indicators apply
+        # their own .over(ticker_column) downstream, and a nested window expression
+        # (forward-fill-over inside `getattr(close.ta, func)()`) raises
+        # `InvalidOperationError: window expression not allowed in aggregation` in polars 1.x.
+        # If your input contains sporadic null prices, forward-fill them on the caller side
+        # BEFORE passing to add_ohlcv_ta_indicators.
+        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(0.0)
+        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(0.0)
+        open_col = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(0.0)
+        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(0.0)
         volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}").fill_null(0.0)
 
         ta_expressions.extend(
