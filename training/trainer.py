@@ -117,6 +117,7 @@ from .models import create_linear_model
 
 try:
     import torch
+    import torch.nn.functional as F
     from torch import nn
 except ImportError:
     torch = None  # type: ignore[assignment]
