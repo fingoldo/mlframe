@@ -23,11 +23,6 @@ import numpy as np
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
 
-# ============================================================================
-# Welford — single-pass mean + variance (numerically stable)
-# ============================================================================
-
-
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def welford_mean_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:  # pragma: no cover
     """Single-pass mean + variance via Welford. Returns ``(mean, var, n)``. Variance is biased (divide by n, not n-1) to match ``np.var(arr, ddof=0)``.
@@ -50,11 +45,6 @@ def welford_mean_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:  # pragma
     else:
         var = 0.0
     return mean, var, n
-
-
-# ============================================================================
-# Welford — single-pass mean + variance + skewness + kurtosis (Pébay)
-# ============================================================================
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -102,11 +92,6 @@ def welford_moments_seq(arr: np.ndarray) -> Tuple[float, float, float, float, in
     return mean, var, skew, kurt, n
 
 
-# ============================================================================
-# Kahan-Babuška-Neumaier compensated sum (cheaper than Welford for plain sum)
-# ============================================================================
-
-
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def kahan_sum_seq(arr: np.ndarray) -> float:  # pragma: no cover
     """Neumaier-improved Kahan compensated sum. Recovers ~log10(N) digits vs naive sum at marginal cost (one extra add/sub per element). Equivalent to ``np.sum`` for well-conditioned inputs; superior for ill-conditioned (mixed-magnitude) sums."""
@@ -143,12 +128,6 @@ def kahan_dot_seq(a: np.ndarray, b: np.ndarray) -> float:  # pragma: no cover
             c += (x - t) + s
         s = t
     return s + c
-
-
-# ============================================================================
-# Naive baseline implementations (matching the patterns in numerical.py)
-# Used by the benchmark script to quantify the improvement.
-# ============================================================================
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

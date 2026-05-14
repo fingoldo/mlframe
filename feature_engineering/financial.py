@@ -585,7 +585,11 @@ def create_ohlcv_wholemarket_features(
         + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs]
         + wcols
     )
-    res = res.with_columns(pllib.clean_numeric(cs.numeric(), nans_filler=nans_filler))
+    # cs.float() (not cs.numeric()) - clean_numeric returns Float64 via pl.when/otherwise, which
+    # would promote integer timestamp columns to f64 and break downstream joins where the
+    # per-ticker frame still has int64 timestamps. Integer columns can't contain NaN/inf
+    # anyway, so cleaning only floats is correct and dtype-preserving.
+    res = res.with_columns(pllib.clean_numeric(cs.float(), nans_filler=nans_filler))
     if cast_f64_to_f32:
         res = pllib.cast_f64_to_f32(res)
 

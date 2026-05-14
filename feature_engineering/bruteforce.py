@@ -27,8 +27,11 @@ _PYSR_LOCK = threading.Lock()
 
 DEFAULT_BINARY_OPERATORS: List[str] = ["+", "*"]
 DEFAULT_UNARY_OPERATORS: List[str] = ["log", "inv(x) = 1/x"]
+# Cap expression complexity: maxsize=14 keeps trees human-readable while still discovering ratios/products of 3-4 features.
 _DEFAULT_PYSR_MAXSIZE = 14
+# 2000 iterations is the empirical knee where PySR loss plateaus on tabular FE search; more iterations rarely improve the Pareto front but linearly cost Julia time.
 _DEFAULT_PYSR_NITERATIONS = 2000
+# 30k rows is enough for stable symbolic-regression fitness on tabular data; larger samples dominate Julia runtime without changing the discovered expressions.
 _DEFAULT_SAMPLE_SIZE = 30_000
 
 
@@ -125,7 +128,6 @@ def run_pysr_feature_engineering(
     """
     # Lazy heavy imports: importing this module shouldn't pay PySR/Julia startup cost.
     from pysr import PySRRegressor
-    from category_encoders import CatBoostEncoder
 
     if reserved_names is None:
         reserved_names = ["im"]
@@ -207,6 +209,8 @@ def run_pysr_feature_engineering(
                 "OOF-encoded path.",
                 stacklevel=2,
             )
+            from category_encoders import CatBoostEncoder
+
             encoder = CatBoostEncoder(cols=cat_cols, return_df=True)
             tmp_df[cat_cols] = encoder.fit_transform(tmp_df[cat_cols], target)
         if verbose > 0:
