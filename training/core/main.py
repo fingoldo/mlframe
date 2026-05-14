@@ -665,6 +665,14 @@ def train_mlframe_models_suite(
         verbose=verbose,
     )
 
+    # Store outlier-detection results on ctx for _train_one_target
+    ctx.filtered_train_df = filtered_train_df
+    ctx.filtered_val_df = filtered_val_df
+    ctx.filtered_train_idx = filtered_train_idx
+    ctx.filtered_val_idx = filtered_val_idx
+    ctx.train_od_idx = train_od_idx
+    ctx.val_od_idx = val_od_idx
+
     # ==================================================================================
     # 4.6 COMPOSITE-TARGET DISCOVERY (opt-in; default OFF) -- extracted helper
     # ==================================================================================

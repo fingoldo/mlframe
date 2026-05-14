@@ -65,6 +65,14 @@ class TrainingContext:
     # ── Data & targets ──────────────────────────────────────────
     df: Any = None  # pl.DataFrame | pd.DataFrame | None (del'd after split)
     target_by_type: Dict = field(default_factory=dict)
+    # Outlier detection results
+    filtered_train_df: Any = None
+    filtered_val_df: Any = None
+    filtered_train_idx: Any = None
+    filtered_val_idx: Any = None
+    train_od_idx: Any = None
+    val_od_idx: Any = None
+    test_df_pd: Any = None
     group_ids_raw: Optional[Any] = None
     group_ids: Optional[Any] = None
     timestamps: Optional[np.ndarray] = None
