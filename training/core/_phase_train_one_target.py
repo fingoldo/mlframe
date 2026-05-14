@@ -152,10 +152,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         )
 
         # Subset targets using pre-filtered indices (OD already applied globally)
+        _train_idx = filtered_train_idx if filtered_train_idx is not None else train_idx
         current_train_target = (
-            cur_target_values[filtered_train_idx]
+            cur_target_values[_train_idx]
             if isinstance(cur_target_values, (np.ndarray, pl.Series))
-            else cur_target_values.iloc[filtered_train_idx]
+            else cur_target_values.iloc[_train_idx]
         )
         current_val_target = None
         if filtered_val_idx is not None:
