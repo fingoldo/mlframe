@@ -20,6 +20,7 @@ from pyutilz.strings import slugify
 from pyutilz.system import tqdmu_lazy_start
 
 from ..phases import phase
+from ..models import is_neural_model
 from ..strategies import get_strategy
 from ..train_eval import select_target
 from ..utils import log_ram_usage
