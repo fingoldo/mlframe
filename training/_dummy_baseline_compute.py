@@ -7,10 +7,14 @@ quantile/multilabel baseline computation.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    # Forward annotation only -- runtime import lives inside compute_dummy_baselines() to break the circular load with dummy_baselines.py.
+    from .dummy_baselines import BaselineReport
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +191,9 @@ def _compute_regression_baselines(
 
     Returns ``(val_preds, test_preds, extras)``.
     """
+    # Lazy local imports: helpers live in dummy_baselines.py which imports our compute funcs (circular load).
+    from .dummy_baselines import _is_temporally_monotonic, _normalize_timestamps, _resolve_ts_periods
+
     val_preds: dict[str, np.ndarray] = {}
     test_preds: dict[str, np.ndarray] = {}
     extras: dict[str, Any] = {}
@@ -507,6 +514,21 @@ def compute_dummy_baselines(
     saves overlay plot for strongest baseline.
     """
     import time as _time
+    # Lazy local imports for circular-load helpers (dummy_baselines.py <- this module).
+    from .dummy_baselines import (
+        BaselineReport,
+        _bootstrap_ci_for_strongest,
+        _coerce_y,
+        _compute_ltr_baselines,
+        _compute_metrics_table,
+        _compute_multi_output_regression,
+        _compute_multilabel_baselines,
+        _empty_report,
+        _is_finite_mask,
+        _normalize_timestamps,
+        _paired_bootstrap_vs_runner_up,
+        _pick_strongest,
+    )
     t0 = _time.time()
 
     if config is None:
