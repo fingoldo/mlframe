@@ -902,8 +902,8 @@ def _phase_fit_pipeline(
         config=pipeline_config,
         ensure_float32=preprocessing_config.ensure_float32_dtypes,
         verbose=verbose,
-        text_features=feature_types_config.text_features,
-        embedding_features=feature_types_config.embedding_features,
+        text_features=feature_types_config.text_features if feature_types_config else [],
+        embedding_features=feature_types_config.embedding_features if feature_types_config else [],
     )
     if verbose:
         logger.info("  fit_and_transform_pipeline done in %s", _elapsed_str(t0_fit_pipeline))
