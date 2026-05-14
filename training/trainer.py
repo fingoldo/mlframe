@@ -100,6 +100,7 @@ from ._data_helpers import (  # noqa: E402,F401
     _setup_eval_set, _setup_early_stopping_callback,
 )
 from ._model_factories import (  # noqa: E402,F401
+    GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
     MODELS_SUBDIR, _get_flaml_zeroshot, _get_neural_components,
     _lgb_classifier_cls, _lgb_regressor_cls,
     _patch_dataset_constructors_with_logging,
