@@ -264,25 +264,6 @@ def train_mlframe_models_suite(
     if isinstance(df, str) and not df.lower().endswith(".parquet"):
         raise ValueError(f"File path must be a .parquet file, got: {df}")
 
-    # LTR opt-in: helper returns None for non-LTR call sites.
-    _ltr_result = _maybe_dispatch_to_ltr_ranker_suite(
-        target_type=target_type,
-        df=df,
-        target_name=target_name,
-        model_name=model_name,
-        features_and_targets_extractor=features_and_targets_extractor,
-        mlframe_models=mlframe_models,
-        use_mlframe_ensembles=use_mlframe_ensembles,
-        ranking_config=ranking_config,
-        split_config=split_config,
-        hyperparams_config=hyperparams_config,
-        reporting_config=reporting_config,
-        output_config=output_config,
-        verbose=verbose,
-    )
-    if _ltr_result is not None:
-        return _ltr_result
-
     if not target_name:
         raise ValueError("target_name cannot be empty")
     if not model_name:
@@ -312,6 +293,19 @@ def train_mlframe_models_suite(
         mlframe_models=mlframe_models,
         verbose=verbose,
     )
+
+    # LTR opt-in: helper returns None for non-LTR call sites. Moved AFTER setup_configuration because the helper now reads
+    # Pydantic-shape configs from ``ctx`` (output / split / hyperparams / reporting); pre-setup the configs may still be
+    # dict-or-None form and would trip ``_cfg_get`` callers downstream.
+    _ltr_result = _maybe_dispatch_to_ltr_ranker_suite(
+        ctx,
+        target_type=target_type,
+        df=df,
+        features_and_targets_extractor=features_and_targets_extractor,
+    )
+    if _ltr_result is not None:
+        return _ltr_result
+
     preprocessing_config = ctx.preprocessing_config
     pipeline_config = ctx.pipeline_config
     feature_types_config = ctx.feature_types_config
@@ -339,30 +333,22 @@ def train_mlframe_models_suite(
     mlframe_models = ctx.mlframe_models
     metadata = ctx.metadata
 
-    (
-        df,
-        target_by_type,
-        group_ids_raw,
-        group_ids,
-        timestamps,
-        artifacts,
-        additional_columns_to_drop,
-        sample_weights,
-        baseline_rss_mb,
-        df_size_mb,
-        sequences,
-    ) = _phase_load_and_preprocess(
-        df=df,
-        preprocessing_config=preprocessing_config,
-        features_and_targets_extractor=features_and_targets_extractor,
-        recurrent_models=recurrent_models,
-        sequences=sequences,
-        verbose=verbose,
-    )
-    for _k in ("df", "target_by_type", "group_ids_raw", "group_ids", "timestamps",
-               "artifacts", "additional_columns_to_drop", "sample_weights",
-               "baseline_rss_mb", "df_size_mb", "sequences"):
-        setattr(ctx, _k, locals()[_k])
+    # ctx-form: parallel-session migrated _phase_load_and_preprocess to read from / write to ctx in place.
+    ctx.df = df
+    ctx.recurrent_models = recurrent_models
+    ctx.sequences = sequences
+    _phase_load_and_preprocess(ctx, features_and_targets_extractor=features_and_targets_extractor)
+    df = ctx.df
+    target_by_type = ctx.target_by_type
+    group_ids_raw = ctx.group_ids_raw
+    group_ids = ctx.group_ids
+    timestamps = ctx.timestamps
+    artifacts = ctx.artifacts
+    additional_columns_to_drop = ctx.additional_columns_to_drop
+    sample_weights = ctx.sample_weights
+    baseline_rss_mb = ctx.baseline_rss_mb
+    df_size_mb = ctx.df_size_mb
+    sequences = ctx.sequences
 
     (
         train_idx, val_idx, test_idx,
@@ -523,27 +509,29 @@ def train_mlframe_models_suite(
     ctx.train_df_size_bytes_cached = train_df_size_bytes_cached
     ctx.val_df_size_bytes_cached = val_df_size_bytes_cached
 
-    (
-        filtered_train_df, filtered_val_df,
-        filtered_train_idx, filtered_val_idx,
-        train_od_idx, val_od_idx,
-        outlier_detection_result,
-        train_df_polars, val_df_polars,
-    ) = _phase_global_outlier_detection(
-        train_df_pd=train_df_pd,
-        val_df_pd=val_df_pd,
-        train_df_polars=train_df_polars,
-        val_df_polars=val_df_polars,
-        train_idx=train_idx,
-        val_idx=val_idx,
-        target_by_type=target_by_type,
-        outlier_detector=outlier_detector,
-        od_val_set=od_val_set,
-        baseline_rss_mb=baseline_rss_mb,
-        df_size_mb=df_size_mb,
-        metadata=metadata,
-        verbose=verbose,
-    )
+    # ctx-form: parallel-session migrated _phase_global_outlier_detection to read from / write to ctx in place.
+    ctx.train_df_pd = train_df_pd
+    ctx.val_df_pd = val_df_pd
+    ctx.train_df_polars = train_df_polars
+    ctx.val_df_polars = val_df_polars
+    ctx.train_idx = train_idx
+    ctx.val_idx = val_idx
+    ctx.target_by_type = target_by_type
+    ctx.outlier_detector = outlier_detector
+    ctx.od_val_set = od_val_set
+    ctx.baseline_rss_mb = baseline_rss_mb
+    ctx.df_size_mb = df_size_mb
+    ctx.metadata = metadata
+    _phase_global_outlier_detection(ctx)
+    filtered_train_df = ctx.filtered_train_df
+    filtered_val_df = ctx.filtered_val_df
+    filtered_train_idx = ctx.filtered_train_idx
+    filtered_val_idx = ctx.filtered_val_idx
+    train_od_idx = ctx.train_od_idx
+    val_od_idx = ctx.val_od_idx
+    outlier_detection_result = ctx.outlier_detection_result
+    train_df_polars = ctx.train_df_polars
+    val_df_polars = ctx.val_df_polars
 
     ctx.filtered_train_df = filtered_train_df
     ctx.filtered_val_df = filtered_val_df

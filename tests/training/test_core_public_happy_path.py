@@ -4,9 +4,8 @@ Companion to ``test_core_public_smoke.py``: the smoke file pins the cheapest rel
 input-validation guards). This file exercises the enabled paths with minimal valid inputs so a real refactor can't silently turn the body
 into a pass-through and still claim coverage.
 
-Skipped here on purpose:
-- ``run_composite_target_discovery`` / ``run_composite_post_processing`` — happy path requires the full training-suite state (fitted models,
-  composite specs in metadata, OOF predictions). Better exercised via the suite-level integration tests already in ``test_core.py``.
+``run_composite_target_discovery`` / ``run_composite_post_processing`` are exercised with feature-flagged-on configs and minimal valid state.
+The full discovery / wrapping algorithms need real fitted models -- they're covered end-to-end by the suite-level tests in ``test_core.py``.
 """
 from __future__ import annotations
 
@@ -17,6 +16,8 @@ import pandas as pd
 import polars as pl
 import pytest
 
+from mlframe.training.core._phase_composite_discovery import run_composite_target_discovery
+from mlframe.training.core._phase_composite_post import run_composite_post_processing
 from mlframe.training.core._phase_config_setup import setup_configuration
 from mlframe.training.core._phase_dummy_baselines import run_dummy_baselines
 from mlframe.training.core._phase_polars_fixes import apply_polars_categorical_fixes
@@ -204,3 +205,90 @@ def test_run_dummy_baselines_enabled_regression_returns_metadata():
     result = run_dummy_baselines(**_dummy_baselines_min_kwargs("REGRESSION", target, metadata, cfg))
     # Same dict reference back, with the function possibly mutating it
     assert result is metadata
+
+
+# ---------------------------------------------------------------------------
+# run_composite_target_discovery — enabled path: REGRESSION target + minimal feature frame
+# ---------------------------------------------------------------------------
+
+def test_run_composite_target_discovery_enabled_regression_initializes_metadata():
+    """``enabled=True`` + REGRESSION target progresses past the early-return gate at line 60 and runs the discovery prologue
+    (``_init_composite_discovery_metadata``) which populates the three metadata buckets even when no composite specs survive screening."""
+    from mlframe.training.configs import TargetTypes
+    rng = np.random.default_rng(0)
+    n = 80
+    feature_df = pd.DataFrame(rng.standard_normal((n, 3)), columns=["a", "b", "c"])
+    target_y = rng.standard_normal(n)
+    target_by_type = {TargetTypes.REGRESSION: {"y": target_y}}
+    metadata: dict = {}
+    cfg = SimpleNamespace(
+        enabled=True,
+        multilabel_strategy="per_target",
+        cross_target_ensemble_strategy="off",
+        oof_random_state=42,
+    )
+
+    new_targets, new_metadata = run_composite_target_discovery(
+        composite_target_discovery_config=cfg,
+        target_by_type=target_by_type,
+        mlframe_models=["cb"],
+        metadata=metadata,
+        filtered_train_df=feature_df,
+        filtered_train_idx=np.arange(n),
+        train_df_pd=feature_df,
+        val_df_pd=feature_df.iloc[: n // 5],
+        test_df_pd=feature_df.iloc[: n // 5],
+        train_idx=np.arange(n),
+        val_idx=np.arange(n // 5),
+        test_idx=np.arange(n // 5),
+        baseline_diagnostics_config=None,
+        cat_features=[],
+        verbose=False,
+    )
+
+    # Prologue populated the three metadata buckets the function unconditionally creates when enabled
+    assert "composite_target_specs" in new_metadata
+    assert "composite_target_failures" in new_metadata
+    assert "composite_target_filter_drops" in new_metadata
+    # target_by_type still contains the original REGRESSION target (possibly more keys after multilabel expansion)
+    assert TargetTypes.REGRESSION in new_targets
+
+
+# ---------------------------------------------------------------------------
+# run_composite_post_processing — enabled path: discovery on + cross-ensemble strategy on, but no specs to act on
+# ---------------------------------------------------------------------------
+
+def test_run_composite_post_processing_enabled_no_specs_runs_all_three_blocks():
+    """``enabled=True`` + ``cross_target_ensemble_strategy != 'off'`` progresses past the early-return gates for Block A (wrap),
+    Block B (cross-target ensemble) and Block C (suite-end summary). With empty ``composite_target_specs`` Blocks A/B no-op cleanly;
+    Block C's wrapped-try keeps the suite alive on any error and always returns the ``(models, metadata)`` tuple."""
+    models: dict = {}
+    metadata = {"composite_target_specs": {}}
+    discovery_cfg = SimpleNamespace(enabled=True, cross_target_ensemble_strategy="mean", oof_random_state=42)
+    dummy_cfg = SimpleNamespace(enabled=False, apply_to_target_types=[], best_model_min_lift=0.05)
+
+    new_models, new_metadata = run_composite_post_processing(
+        models=models,
+        metadata=metadata,
+        target_by_type={},
+        composite_target_discovery_config=discovery_cfg,
+        target_name="y",
+        model_name="m",
+        filtered_train_df=None,
+        filtered_val_df=None,
+        test_df_pd=None,
+        filtered_train_idx=None,
+        filtered_val_idx=None,
+        test_idx=None,
+        train_df_pd=None,
+        val_df_pd=None,
+        train_idx=None,
+        val_idx=None,
+        dummy_baselines_config=dummy_cfg,
+        reporting_config=None,
+        plot_file=None,
+        verbose=False,
+    )
+    # Contract per signature: always returns (models, metadata)
+    assert new_models is models
+    assert new_metadata is metadata
