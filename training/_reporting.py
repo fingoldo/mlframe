@@ -40,6 +40,18 @@ DEFAULT_RANDOM_SEED = 42
 
 logger = logging.getLogger(__name__)
 
+try:
+    from IPython.display import display as _ipython_display
+except ImportError:  # pragma: no cover
+    _ipython_display = None
+
+
+def _maybe_display(obj):
+    """Display ``obj`` in Jupyter; no-op in scripts/CI."""
+    if _ipython_display is not None:
+        _ipython_display(obj)
+
+
 def _canonical_multilabel_y(targets) -> np.ndarray:
     """Coerce a multilabel-shaped target to a clean ``(N, K) ndarray``.
 
@@ -665,11 +677,7 @@ def report_regression_model_perf(
         )
         if fairness_report is not None:
             if print_report:
-                try:
-                    from IPython.display import display as _display
-                    _display(fairness_report)
-                except ImportError:
-                    pass
+                _maybe_display(fairness_report)
             if metrics is not None:
                 metrics.update(dict(fairness_report=fairness_report))
 
@@ -1149,11 +1157,7 @@ def report_probabilistic_model_perf(
             )
         if fairness_report is not None:
             if print_report:
-                try:
-                    from IPython.display import display as _display
-                    _display(fairness_report.style.set_caption("ML perf fairness by group"))
-                except ImportError:
-                    pass
+                _maybe_display(fairness_report.style.set_caption("ML perf fairness by group"))
             if metrics is not None:
                 metrics.update(dict(fairness_report=fairness_report))
 
