@@ -20,7 +20,7 @@ import pandas as pd
 import polars as pl
 
 from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import max_error, mean_absolute_error, r2_score, root_mean_squared_error
 from sklearn.preprocessing import LabelEncoder
 
 from mlframe.metrics import compute_fairness_metrics, fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_root_mean_squared_error
