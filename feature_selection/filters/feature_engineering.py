@@ -23,6 +23,28 @@ from scipy import special as sp
 from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.system import tqdmu
 
+
+# Domain-validity tags for unary transforms produced by ``create_unary_transformations(preset="maximal")``. Consumers that need to clip / reject inputs before
+# applying these transforms can look them up here. Tag vocabulary: ``-1to1``, ``-pi/2topi/2``, ``1toinf``, ``-0.(9)to0.(9)``, ``pos``, ``nonzero``. Transforms not
+# listed are unconstrained on real inputs (e.g. ``sin``, ``exp``, ``squared``).
+UNARY_INPUT_CONSTRAINTS: dict[str, str] = {
+    # reverse trigonometric
+    "arccos": "-1to1",
+    "arcsin": "-1to1",
+    "arctan": "-pi/2topi/2",
+    # reverse hyperbolic
+    "arccosh": "1toinf",
+    "arctanh": "-0.(9)to0.(9)",
+    # powers
+    "sqrt": "pos",
+    "log": "pos",
+    "reciproc": "nonzero",
+    "invsquared": "nonzero",
+    "invqubed": "nonzero",
+    "invcbrt": "nonzero",
+    "invsqrt": "nonzero",
+}
+
 from ._internals import njit_functions_dict, smart_log
 from .discretization import discretize_array
 from .permutation import mi_direct
@@ -532,28 +554,8 @@ def apply_gpu_binary_batched(
 
 
 def create_unary_transformations(preset: str = "minimal"):
-    # !TODO! flagged by ruff F841: ``unary_constraints`` is built but never returned or consumed downstream.
-    # Reads like a half-implemented domain-validity filter (each transform's allowed input range) that should
-    # be applied before sampling values for ``arccos`` / ``log`` / ``invsqrt`` etc. in MRMR's FE step. Verify
-    # whether ``optimise_hermite_pair`` / ``screen_predictors`` should be passed these constraints to clip inputs.
-    unary_constraints = {  # noqa: F841 -- see !TODO! above; not yet wired into the FE-input clipping path.
-        # reverse trigonometric
-        "arccos": "-1to1",
-        "arcsin": "-1to1",
-        "arctan": "-pi/2topi/2",
-        # reverse hyperbolic
-        "arccosh": "1toinf",
-        "arctanh": "-0.(9)to0.(9)",
-        # powers
-        "sqrt": "pos",
-        "log": "pos",
-        "reciproc": "nonzero",
-        "invsquared": "nonzero",
-        "invqubed": "nonzero",
-        "invcbrt": "nonzero",
-        "invsqrt": "nonzero",
-    }
-
+    # Domain-validity tags for each transform live in the module-level ``UNARY_INPUT_CONSTRAINTS`` dict so callers that need to clip / reject inputs can look them up
+    # by transform name (e.g. ``arccos`` requires ``-1to1``).
     unary_transformations = {
         # simplest
         "identity": lambda x: x,

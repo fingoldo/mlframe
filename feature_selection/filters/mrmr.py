@@ -275,7 +275,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         mrmr_relevance_algo: str = "fleuret",
         mrmr_redundancy_algo: str = "fleuret",
         reduce_gain_on_subelement_chosen: bool = True,
-        use_simple_mode: bool = True,  # when true, works very fast but leaves redundant features
+        # ``use_simple_mode=True`` skips the per-candidate conditional-MI redundancy check, which is fast but allows perfectly-correlated duplicate columns to BOTH be
+        # selected (you'll see e.g. ``support_ = [x, 2*x]`` when both are informative). Set to ``False`` when feature deduplication matters more than wall-time.
+        use_simple_mode: bool = True,
         run_additional_rfecv_minutes: bool = False,
         # performance
         extra_x_shuffling: bool = True,
@@ -407,10 +409,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 from collections import Counter
                 dups = [c for c, n in Counter(cols).items() if n > 1]
                 raise ValueError(f"MRMR.fit: duplicate column names not supported: {dups}")
-        # Infinite values in numeric data. Old ``X.to_numpy()`` converted the ENTIRE frame (numeric + cat/string)
-        # into a single object-dtype array (1-2.3s wall at 1M rows); that array has dtype.kind != "f" so the inf
-        # check was silently SKIPPED for every mixed-type frame. Fix: only scan numeric columns so the result is a
-        # genuine float array whose inf values we can detect. Cost drops to ~0.3s pandas / materialisation-only polars.
+        # Numeric-column extraction for NaN / Inf validation. Object-dtype frames (numeric + cat/string mixed) used to slip through because the whole frame was
+        # converted to object-dtype where dtype.kind != "f"; scan numeric columns explicitly instead.
         try:
             try:
                 import polars as _pl
@@ -424,8 +424,17 @@ class MRMR(BaseEstimator, TransformerMixin):
                     _arr = X.to_numpy()
             except ImportError:
                 _arr = X.to_numpy() if hasattr(X, "to_numpy") else None
-            if _arr is not None and _arr.dtype.kind == "f" and np.isinf(_arr).any():
-                _w.warn("MRMR.fit: input contains +/-inf values; downstream discretization may produce undefined bins", stacklevel=3)
+            if _arr is not None and _arr.dtype.kind == "f":
+                if np.isinf(_arr).any():
+                    raise ValueError(
+                        "MRMR.fit: input X contains +/-inf values. Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
+                    )
+                if np.isnan(_arr).any():
+                    raise ValueError(
+                        "MRMR.fit: input X contains NaN values. Impute (e.g. sklearn SimpleImputer) or drop these rows before fitting; downstream MI estimators treat NaN as a separate category which silently degrades signal."
+                    )
+        except ValueError:
+            raise  # re-raise our own ValueError
         except Exception:
             pass
         # All-same y: raise (symmetric with RFECV.fit's single-class y validation). Constant y has H(y)=0 so
@@ -505,12 +514,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Inits
         # ---------------------------------------------------------------------------------------------------------------
 
-        # !TODO! flagged by ruff F841: ``start_time`` + ``ran_out_of_time`` appear to be a never-wired runtime-budget
-        # feature -- start_time is captured but no elapsed check fires anywhere in fit(), and ran_out_of_time is
-        # never read or flipped. Verify whether fit() should honour ``self.max_runtime_mins`` (which IS plumbed
-        # into nested calls at line ~754) by short-circuiting its own loop when start_time exceeds the budget.
-        start_time = timer()  # noqa: F841 -- see !TODO! above; never-wired runtime-budget guard for the top-level fit() loop.
-        ran_out_of_time = False  # noqa: F841 -- see !TODO! above.
+        # Outer FE-loop runtime-budget guard. screen_predictors honours self.max_runtime_mins on its own; here we additionally
+        # short-circuit between FE iterations so a long FE step that finished after the budget elapsed doesn't trigger another.
+        start_time = timer()
+        ran_out_of_time = False
 
         dtype = self.dtype
 
@@ -631,15 +638,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             unary_transformations = create_unary_transformations(preset=fe_unary_preset)
             binary_transformations = create_binary_transformations(preset=fe_binary_preset)
             if fe_max_polynoms:
-                # !TODO! flagged by ruff F841: ``polynomial_transformations`` is created empty and never populated
-                # nor consumed -- the loop below stores the generated coefficient arrays under ``"poly_"+str(coef)``
-                # keys into ``unary_transformations`` instead. Either polynomial_transformations should be the
-                # target dict (and later merged into unary_transformations), or it's a leftover from refactor.
-                # Verify intent: are polynomials supposed to be tracked separately for later filtering?
-                polynomial_transformations = {}  # noqa: F841 -- see !TODO! above; empty dict reserved for future per-poly tracking. 'identity':lambda x: x,
+                # Generated polynomial coefficients are appended directly to unary_transformations under "poly_<coef>" keys;
+                # no separate registry is needed.
                 for _ in range(fe_max_polynoms):
                     length = np.random.randint(3, 9)
-                    # coef=(np.random.random(length)-0.5)*1
                     coef = np.empty(shape=length, dtype=np.float32)
                     for i in range(length):
                         coef[i] = np.random.normal((1.0 if i == 1 else 0.0), scale=0.05)
@@ -778,6 +780,14 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
                 break
+
+            if self.max_runtime_mins is not None:
+                elapsed_min = (timer() - start_time) / 60.0
+                if elapsed_min >= self.max_runtime_mins:
+                    ran_out_of_time = True
+                    if verbose:
+                        logger.info("MRMR.fit: runtime budget %.1f min exceeded at FE step %d; stopping.", self.max_runtime_mins, num_fs_steps)
+                    break
 
             # Feature engineering iteration delegated to ``_run_fe_step`` (testable / experiment-friendly outside
             # the screening loop). Returns updated state + n_recommended_features; zero breaks the outer loop.
@@ -967,6 +977,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             logger.info("MRMR+ selected %d out of %d features: %s", self.n_features_, self.n_features_in_, predictors_str)
 
         self.signature = signature
+        self.ran_out_of_time_ = ran_out_of_time
 
         # Store self in process-wide cache so cloned MRMR instances fit on the same (X, y) arrays can replay
         # this fitted state instead of re-running cat-FE + permutation.

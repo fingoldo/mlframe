@@ -208,7 +208,6 @@ def test_polars_input_matches_pandas_for_mi_direct():
     n = 500
     a = rng.integers(0, 5, n).astype(np.int32)
     b = ((a + rng.integers(0, 2, n)) % 5).astype(np.int32)
-    factors = np.column_stack([a, b]).astype(np.int32)
     nbins = np.array([5, 5], dtype=np.int32)
 
     # mi_direct itself takes a numpy ``factors_data`` matrix (already discretized).

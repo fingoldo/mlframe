@@ -872,20 +872,16 @@ def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray,
 def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
                      bf_names, y, y_njit, mi_estimator, plugin_n_bins,
                      n_neighbors, discrete_target, l2_penalty,
-                     direction_only=False):
-    """Shared inner objective: evaluate one (c_a, c_b) pair across all
-    binary funcs and return the best (regularised score, raw MI, bf idx).
+                     direction_only=False, eval_func_b=None):
+    """Shared inner objective: evaluate one (c_a, c_b) pair across all binary funcs; return best (regularised score, raw MI, bf idx).
 
-    Returns
-    -------
-    score : float -- l2-penalised MI of the best binary func; -inf on failure.
-    raw_mi : float -- unpenalised MI of the best binary func.
-    best_bf_idx : int -- index into bf_callables of the winner.
+    ``eval_func_b`` defaults to ``eval_func`` (single-eval). Factory bases like RBF need per-feature preprocess fns, so the caller passes a separate
+    ``eval_func_b`` closure over ``preprocess_b`` to evaluate ``h_b``. Without this the b-side silently re-used preprocess_a, biasing RBF fits.
     """
     if direction_only:
         coef_a, coef_b = _l2_normalize_pair(coef_a, coef_b, target_norm=1.0)
     h_a = eval_func(z_a, coef_a)
-    h_b = eval_func(z_b, coef_b)
+    h_b = (eval_func_b if eval_func_b is not None else eval_func)(z_b, coef_b)
     if not (np.all(np.isfinite(h_a)) and np.all(np.isfinite(h_b))):
         return -np.inf, 0.0, -1
     cols = []
@@ -1572,12 +1568,8 @@ def optimise_pair_multimode(
     z_a = np.ascontiguousarray(z_a, dtype=np.float64)
     z_b = np.ascontiguousarray(z_b, dtype=np.float64)
 
-    # Pick eval_func via the size-aware ladder (mirrors optimise_hermite_pair).
-    # !TODO! flagged by ruff F841: ``eval_func_b`` is computed in all three branches but the downstream
-    # ``eval_kwargs`` dict (line ~1626) only forwards ``eval_func=eval_func``. The sibling ``optimise_hermite_pair``
-    # (lines 1325-1335) wraps both eval_func and eval_func_b in ``_eval_dual`` so factory bases (RBF) evaluate each
-    # feature with its own preprocess fn. This evaluation-CV function appears to be missing that same wrap,
-    # silently using preprocess_a for the b-side. Verify whether this is a bug for factory bases (RBF in particular).
+    # Pick eval_func via the size-aware ladder (mirrors optimise_hermite_pair). For factory bases (RBF/Sigmoid) eval_func_b is a separate closure over
+    # preprocess_b so the b-side feature evaluates with its OWN centres/thresholds; for njit polynomial bases both are the same callable.
     factory_top = basis_info.get("eval_njit_factory")
     if factory_top is not None:
         eval_func = factory_top(preprocess_a)
@@ -1593,7 +1585,7 @@ def optimise_pair_multimode(
         eval_func_b = eval_func
     else:
         eval_func = basis_info["eval_njit"]
-        eval_func_b = eval_func  # noqa: F841 -- see !TODO! ~1576; mirrors optimise_hermite_pair so RBF/factory dual-eval can be added without re-fitting the basis.
+        eval_func_b = eval_func
 
     n = len(y)
     if n_neighbors is None:
@@ -1627,8 +1619,10 @@ def optimise_pair_multimode(
     for degree in degree_grid:
         ca_size = coef_size_func(degree)
         cb_size = coef_size_func(degree)
+        # ``eval_func_b`` carries the per-feature preprocess fn for factory bases (RBF). For njit bases both eval_func / eval_func_b are the same callable
+        # and ``_eval_coef_pair`` falls back transparently. Plumbing this through prevents the b-side from silently re-using preprocess_a on RBF/factory fits.
         eval_kwargs = dict(
-            z_a=z_a, z_b=z_b, eval_func=eval_func,
+            z_a=z_a, z_b=z_b, eval_func=eval_func, eval_func_b=eval_func_b,
             bf_callables=bf_callables_global, bf_names=bf_names_global,
             y=y, y_njit=y_njit,
             mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,

@@ -1304,17 +1304,8 @@ def _confirm_pairs_via_permutation(
             len(selected_idx), n_perms,
         )
 
-    # Bandit UCB1 budget allocation. When enabled, each pair gets ``min_perms_per_pair`` initial shuffles; then we add shuffles to the pair with the largest UCB1
-    # score (uncertainty + I value) until total budget = n_perms * len(selected_idx) is exhausted. Pairs clearly above floor stop receiving shuffles; ambiguous
-    # pairs get more. Saves 2-5x typical total perms.
-    # !TODO! flagged by ruff F841: ``use_bandit`` computed but never branched on inside the per-pair loop below.
-    # The actual bandit dispatch lives in ``_confirm_pairs_bandit_ucb1`` (called from the top-level cat-FE driver
-    # around line 2822). Likely a half-implemented in-loop bandit path; verify whether this confirm function
-    # should also short-circuit / re-allocate perms when use_bandit is True.
-    use_bandit = (  # noqa: F841 -- see !TODO! above; flag is read by the top-level driver but not yet wired into the per-pair loop here.
-        getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1"
-        and len(selected_idx) > 1
-    )
+    # Bandit UCB1 budget allocation is dispatched upstream (see top-level driver, _confirm_pairs_bandit_ucb1 call ~line 2837): when cfg.perm_budget_strategy ==
+    # "bandit_ucb1" the caller takes the bandit branch and this fixed-budget function is not entered. By the time control reaches here, fixed budget is in effect.
 
     # Conditional permutation null requires per-pair freshly-merged X2 column to shuffle within strata of Y. The joint MI I(X1, X2; Y) after shuffling X2 within strata
     # of Y requires RE-merging X1 with the shuffled X2 -- the joint table can't be reused from cls_pair. So this null is materially more expensive than the joint-

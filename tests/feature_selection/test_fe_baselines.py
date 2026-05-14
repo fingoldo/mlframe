@@ -260,7 +260,7 @@ class TestEdgeCases:
         x_a = np.array([2.5])
         x_b = np.array([0.5])
         feats = trivial_pair_features(x_a, x_b)
-        for name, arr in feats.items():
+        for arr in feats.values():
             assert arr.shape == (1,)
         np.testing.assert_allclose(feats["mul"], [1.25])
 

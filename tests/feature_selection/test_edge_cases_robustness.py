@@ -134,74 +134,31 @@ def test_mrmr_all_constant_column_dropped():
 # ---------------------------------------------------------------------------
 # 4. NaN in X
 # ---------------------------------------------------------------------------
-def test_mrmr_nan_in_X_raises_or_imputes():
-    """Observed behaviour: MRMR's _validate_inputs does NOT explicitly reject
-    NaN (only +/-inf is warned). Downstream discretisation may either silently
-    impute / drop or raise from a numpy routine. Whichever happens, assert it
-    crisply so we notice regressions.
-    """
+def test_mrmr_nan_in_X_raises():
+    """Post-fix contract: NaN in numeric X raises ValueError with a 'NaN' / 'impute' message; caller is expected to impute or drop before fitting."""
     rng = np.random.default_rng(RANDOM_SEED)
     X = pd.DataFrame(rng.standard_normal((N_ROWS, 3)), columns=list("abc"))
     X.iloc[0, 0] = np.nan
     X.iloc[5, 1] = np.nan
     y = (rng.standard_normal(N_ROWS) > 0).astype(int)
     mrmr = _fast_mrmr(min_features_fallback=1)
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            mrmr.fit(X, y)
-    except (ValueError, TypeError) as exc:
-        # If the lib raises, the message must mention NaN/missing.
-        assert any(tok in str(exc).lower() for tok in ("nan", "missing", "null")), (
-            # !TODO! verify exception text without NaN/missing/null token is intended
-            f"unexpected error text: {exc!r}"
-        )
-        return
-    # No exception -> MRMR tolerated NaN (silent impute or downstream binning
-    # handled it). Document the observed behaviour.
-    # !TODO! verify silent NaN-tolerance in MRMR.fit is intended
-    assert hasattr(mrmr, "support_")
-    assert mrmr.n_features_in_ == 3
+    with pytest.raises(ValueError, match=r"NaN|nan"):
+        mrmr.fit(X, y)
 
 
 # ---------------------------------------------------------------------------
 # 5. Inf in X
 # ---------------------------------------------------------------------------
 def test_mrmr_inf_in_X_raises():
-    """Per mrmr.py docstring + _validate_inputs: +/-inf in numeric cols emits a
-    warning, then downstream discretisation typically fails.
-
-    Observed: _validate_inputs only WARNS on inf (doesn't raise). The numeric
-    discretisation step usually raises later. Either path is asserted.
-    """
+    """Post-fix contract: +/-inf in numeric X raises ValueError; downstream discretisation produces undefined bins on inf so we reject upfront."""
     rng = np.random.default_rng(RANDOM_SEED)
     X = pd.DataFrame(rng.standard_normal((N_ROWS, 3)), columns=list("abc"))
     X.iloc[0, 0] = np.inf
     X.iloc[1, 1] = -np.inf
     y = (rng.standard_normal(N_ROWS) > 0).astype(int)
     mrmr = _fast_mrmr(min_features_fallback=1)
-    raised = False
-    raised_exc: BaseException | None = None
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        try:
-            mrmr.fit(X, y)
-        except (ValueError, RuntimeError, FloatingPointError) as exc:
-            raised = True
-            raised_exc = exc
-    if raised:
-        msg = str(raised_exc).lower()
-        # !TODO! verify exception message lacks 'inf' token is intended
-        assert any(tok in msg for tok in ("inf", "infinite", "nan", "finite")), (
-            f"unexpected error text on inf input: {raised_exc!r}"
-        )
-    else:
-        # No raise: per the contract, at least a warning is emitted.
-        msgs = [str(w.message).lower() for w in caught]
-        # !TODO! verify silent inf-tolerance (no warning AND no raise) is intended
-        assert any("inf" in m for m in msgs), (
-            f"inf input was silently accepted with no warning: {msgs!r}"
-        )
+    with pytest.raises(ValueError, match=r"inf|infinite"):
+        mrmr.fit(X, y)
 
 
 # ---------------------------------------------------------------------------

@@ -210,7 +210,7 @@ class TestNsbMi:
             pytest.skip("ndd is installed; ImportError path not exercised")
 
     def test_basic_call_when_ndd_installed(self):
-        ndd = pytest.importorskip("ndd")
+        pytest.importorskip("ndd")
         # Two perfectly correlated discrete vars: MI should be > 0.
         rng = np.random.default_rng(0)
         n = 300

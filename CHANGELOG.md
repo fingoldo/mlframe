@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-05-14 — `feature_selection/filters/`: close 5 suspected !TODO! bugs + 3 contract surfaces
+
+Follow-up to the test wave: each `# !TODO!` annotated during test authoring is either FIXED, removed (when confirmed dead), or has its surface tightened with explicit validation.
+
+### 5 suspected !TODO! bugs
+
+| File:line | Symbol | Resolution |
+|---|---|---|
+| `mrmr.py:639` | `polynomial_transformations` | DEAD — empty dict reserved for never-implemented per-poly tracking; removed (poly coefficients are appended directly to `unary_transformations`) |
+| `mrmr.py:512-513` | `start_time` / `ran_out_of_time` | WIRED — outer FE-loop now honours `self.max_runtime_mins` (was only plumbed into `screen_predictors`); exposes `self.ran_out_of_time_` post-fit |
+| `hermite_fe.py:1596` | `eval_func_b` | WIRED — `_eval_coef_pair` now accepts `eval_func_b` (defaults to `eval_func`); RBF/factory bases get per-feature preprocess fns on the b-side instead of silently re-using preprocess_a |
+| `cat_interactions.py:1314` | `use_bandit` | DEAD — bandit dispatch happens upstream at `_confirm_pairs_bandit_ucb1` call (~line 2837); flag inside the per-pair confirm function is unreachable; removed |
+| `feature_engineering.py:539` | `unary_constraints` | EXPOSED — moved to module-level `UNARY_INPUT_CONSTRAINTS` dict so callers needing input-clipping for `arccos`/`log`/`invsqrt` etc. can look up domain tags by transform name |
+
+### 3 input-validation contract surfaces (MRMR._validate_inputs)
+
+- **NaN in X**: was silent (downstream MI estimators treated NaN as a separate category, silently degrading signal). Now raises `ValueError` matching `/NaN|nan/` with imputation hint.
+- **Inf in X**: was warning-only (caller could fit then hit undefined discretization bins). Now raises `ValueError` matching `/inf|infinite/`.
+- **`use_simple_mode=True` keeping correlated duplicates**: docstring tightened in `__init__` to make the trade-off explicit (fast but redundant; set `False` for dedup).
+
+Edge-case tests `test_mrmr_nan_in_X_raises` / `test_mrmr_inf_in_X_raises` rewritten from "either-or" to strict `pytest.raises(ValueError, match=...)`.
+
+Verified: ruff clean on `feature_selection/filters/` + `tests/feature_selection/`; new tests (edge cases + regression + bases + integration) 47/47 pass.
+
 ## 2026-05-14 — `tests/feature_selection/`: 17 new test files (226 tests) closing the unit-coverage gap on `filters/`
 
 Multi-agent test campaign: 12 parallel agents writing dedicated test files for previously-untested modules + 7 cross-cutting test categories. 226 new tests pass in 3:46 (excluding GPU-marked).

@@ -295,7 +295,7 @@ class TestRegistryMetadata:
             assert name in EXTRA_BASES
 
     def test_kind_field(self):
-        for name, info in EXTRA_BASES.items():
+        for info in EXTRA_BASES.values():
             assert info["kind"] == "non-polynomial"
             assert isinstance(info["dist_note"], str)
             assert len(info["dist_note"]) > 0
