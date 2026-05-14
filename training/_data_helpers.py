@@ -9,11 +9,13 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+from os import sep as os_sep
 from os.path import join
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.pipeline import Pipeline

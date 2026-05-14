@@ -109,7 +109,7 @@ from ._model_factories import (  # noqa: E402,F401
     _patch_lgb_feature_names_in_setter,
     _xgb_classifier_cls, _xgb_regressor_cls,
 )
-from mlframe.metrics import fast_roc_auc
+from mlframe.metrics import create_fairness_subgroups_indices, fast_roc_auc
 from mlframe.feature_selection.wrappers import RFECV
 from pyutilz.pandaslib import get_df_memory_consumption
 from .configs import (

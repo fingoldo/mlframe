@@ -20,6 +20,11 @@ except ImportError:
     pl = None  # type: ignore
 
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+
+from ._cb_pool import _maybe_get_or_build_cb_pool, _maybe_rewrite_eval_set_as_cb_pool
+from ._predict_guards import _recover_cb_feature_names
+from ._eval_helpers import _align_xgb_cat_categories
+from ._pipeline_helpers import _passthrough_cols_fit_transform
 from sklearn.isotonic import IsotonicRegression
 
 from mlframe.helpers import get_model_best_iter
