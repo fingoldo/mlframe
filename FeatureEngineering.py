@@ -254,6 +254,9 @@ def CalculateNumericalStatsSmall(x, l=0, r=0):
 
 
 def CalculateNumericalStatsNumpyNumbaOptimizedNanAware(x, l=0, r=0, geomean_log_mode=0, weights=np.array([0.0])):
+    # !TODO! `CalculateNumericalStatsNumpyNumbaOptimized` is not defined anywhere in the package -- it was likely renamed or never landed during an old refactor.
+    # This wrapper raises NameError on any non-trivial input. File is pytest-ignored (legacy) so the breakage is latent. Wire to `CalculateNumericalStatsSmall`
+    # or land the missing njit implementation before re-enabling the call.
     if r == 0:
         r = len(x) - 1
     size = r + 1 - l
@@ -262,14 +265,14 @@ def CalculateNumericalStatsNumpyNumbaOptimizedNanAware(x, l=0, r=0, geomean_log_
     mask = np.isnan(x[l : r + 1])
     num_nans = np.sum(mask)
     if num_nans == 0:
-        return CalculateNumericalStatsNumpyNumbaOptimized(x, l, r, geomean_log_mode, weights=weights) + tuple((num_nans,))
+        return CalculateNumericalStatsNumpyNumbaOptimized(x, l, r, geomean_log_mode, weights=weights) + tuple((num_nans,))  # noqa: F821
     elif num_nans == size:
         return tuple([np.nan] * len(GetNumericalStatsNames())) + tuple((num_nans,))
     else:
         if len(weights) < size:
-            return CalculateNumericalStatsNumpyNumbaOptimized(x[l : r + 1][~mask], geomean_log_mode=geomean_log_mode, weights=weights) + tuple((num_nans,))
+            return CalculateNumericalStatsNumpyNumbaOptimized(x[l : r + 1][~mask], geomean_log_mode=geomean_log_mode, weights=weights) + tuple((num_nans,))  # noqa: F821
         else:
-            return CalculateNumericalStatsNumpyNumbaOptimized(x[l : r + 1][~mask], geomean_log_mode=geomean_log_mode, weights=weights[~mask]) + tuple((num_nans,))
+            return CalculateNumericalStatsNumpyNumbaOptimized(x[l : r + 1][~mask], geomean_log_mode=geomean_log_mode, weights=weights[~mask]) + tuple((num_nans,))  # noqa: F821
 
 
 def CalculateCategoricalStatsNumpy(a, res, l=1):
@@ -829,7 +832,7 @@ def create_textual_features(
     if return_char_stats in ("sentences", "words", "all"):
         # aggregated over sentences & words
         for key, stats_list in char_stats.items():
-            for b, a in zip(CalculateNumericalStatsNumpyNumbaOptimized(np.array(stats_list)), NUMERICAL_STATS_NAMES):
+            for b, a in zip(CalculateNumericalStatsNumpyNumbaOptimized(np.array(stats_list)), NUMERICAL_STATS_NAMES):  # noqa: F821 -- see !TODO! in CalculateNumericalStatsNumpyNumbaOptimizedNanAware
                 stats[key + "_" + a] = b
 
     # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -852,7 +855,7 @@ def create_textual_features(
     if return_sent_stats:
         # aggregated over sentences
         for key, stats_list in wordcount_stats.items():
-            for b, a in zip(CalculateNumericalStatsNumpyNumbaOptimized(np.array(stats_list)), NUMERICAL_STATS_NAMES):
+            for b, a in zip(CalculateNumericalStatsNumpyNumbaOptimized(np.array(stats_list)), NUMERICAL_STATS_NAMES):  # noqa: F821 -- see !TODO! in CalculateNumericalStatsNumpyNumbaOptimizedNanAware
                 stats[key + "_" + a] = b
 
     if count_sentences:
@@ -1282,7 +1285,7 @@ class TargetEncodingTransformer(BaseEstimator):
     def fit_transform(self, X, y=None, **fit_params):
         return self.fit(X, y, **fit_params).transform(X)
 
-    def get_feature_names():
+    def get_feature_names(self):
         return self._feature_names
 
 

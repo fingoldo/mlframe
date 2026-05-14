@@ -1005,7 +1005,14 @@ def load_data(data_type="classification"):
         y = X.pop("target")
 
     elif data_type == "regression":
-        boston = load_boston()
+        try:
+            from sklearn.datasets import load_boston
+            boston = load_boston()
+        except ImportError:
+            # sklearn >= 1.2 removed load_boston (ethical concerns over the dataset). Fall back to fetch_california_housing,
+            # which exposes the same {"data", "target", "feature_names"} dict-like API and serves the same demo purpose.
+            from sklearn.datasets import fetch_california_housing
+            boston = fetch_california_housing(as_frame=False)
         X = pd.DataFrame(np.c_[boston["data"], boston["target"]], columns=np.append(boston["feature_names"], ["target"]))
         y = X.pop("target")
 

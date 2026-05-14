@@ -15,6 +15,11 @@ from copy import deepcopy
 import numpy as np
 from numpy import arange, argsort
 
+try:
+    import matplotlib.pyplot as plt
+except ImportError:  # pragma: no cover -- legacy plot helpers; module is pytest-ignored
+    plt = None  # type: ignore[assignment]
+
 
 # Feature engineering
 def mode(x):
