@@ -52,7 +52,12 @@ logger = logging.getLogger(__name__)
 
 
 def _pl_DataFrame():
-    """Return ``pl.DataFrame`` or ``type(None)`` if Polars not installed."""
+    """Return ``pl.DataFrame`` or ``type(None)`` if Polars not installed.
+
+    Returns ``type(None)`` (not ``None``) so that ``isinstance(X, _pl_df)``
+    is always safe: when Polars is absent, ``isinstance(X, NoneType)`` only
+    matches ``None`` itself without raising ``TypeError``.
+    """
     try:
         import polars as pl
         return pl.DataFrame

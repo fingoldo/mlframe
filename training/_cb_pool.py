@@ -292,44 +292,21 @@ def _predict_with_fallback(
     method: str = "predict",
     verbose: bool = False,
 ) -> np.ndarray:
-    """Call ``model.{method}(X)`` with automatic guards for common edge-cases.
+    """Call ``model.{method}(X)`` with guards for common edge-cases.
 
-    Guards applied in order:
-    1. **LGBM polars → pandas auto-convert** — LGB's sklearn wrapper
-       crashes on Polars DataFrames (pd.Categorical→numpy object).
-    2. **CB val Pool cache hit** — reuses the Pool built at fit time
-       instead of rebuilding from X (saves 50-70 s on large frames).
-    3. **CB sticky-pandas short-circuit** — if a previous predict call
-       already fell back to pandas, skip the Polars dispatch entirely.
-    4. **NaN safety net** — for NaN-intolerant models whose strategy
-       pre_pipeline was skipped (cache-hit path), applies one-shot
-       SimpleImputer + StandardScaler.
-    5. **CB Polars dispatch-miss fallback** — catches ``TypeError``
-       from CB's Polars fastpath when it can't handle specific dtypes,
-       converts to pandas and retries.
+    Guards (ordered by cost, cheapest first):
+    1. LGBM Polars → pandas auto-convert
+    2. CB val Pool cache hit (saves 50-70s rebuild on large frames)
+    3. CB sticky-pandas short-circuit (skip Polars dispatch after first miss)
+    4. NaN safety net (one-shot impute+scale for NaN-intolerant models)
+    5. CB Polars dispatch-miss fallback (TypeError → pandas retry)
 
-    Symmetric to ``_train_model_with_fallback`` for the CB paths.
-    fastpath in ``_set_features_order_data_polars_categorical_column`` is
-    a Cython fused cpdef; certain column-dtype combinations raise the
-    opaque ``TypeError: No matching signature found``. When training
-    already hit this and fell back to pandas for fit, predict time
-    gets the same treatment: CB's stored cat-feature indices dispatch
-    back through the Polars fastpath when we hand it a pl.DataFrame
-    for prediction, and it fails the same way.
-
-    Prior behavior: the caller's ``except (AttributeError, TypeError,
-    NotImplementedError)`` block caught the predict_proba failure and
-    retried with ``model.predict(X)`` on the SAME pl.DataFrame -- which
-    hit the same dispatcher and raised again. Not a fallback; a retry
-    into the same hole. (2026-04-19 prod log.)
-
-    This helper closes the loop: on a Polars fastpath TypeError with
-    a CatBoost model and a pl.DataFrame input, convert the DF to
-    pandas (using cat/text feature names recovered from the fitted
-    model), run ``prepare_df_for_catboost``, and retry. Non-CatBoost
-    TypeErrors and non-Polars inputs propagate unchanged.
+    Symmetric to ``_train_model_with_fallback`` for CB paths.
+    See ``_predict_guards.py`` for per-guard rationale and incident history.
     """
-    fn = getattr(model, method)
+    fn = getattr(model, method, None)
+    if fn is None or not callable(fn):
+        raise AttributeError(f"{type(model).__name__} has no callable {method!r}")
     n_rows = len(X) if hasattr(X, "__len__") else None
     _model_type: str = type(model).__name__
 
@@ -356,7 +333,7 @@ def _predict_with_fallback(
                 )
                 with phase(method, model=_model_type, n_rows=n_rows):
                     return fn(_hit)
-        except Exception as _exc:
+        except (AttributeError, KeyError, TypeError, ValueError) as _exc:
             logger.debug(
                 "[cb-val-pool-reuse] %s cache probe failed (%s: %s); "
                 "falling through.", method, type(_exc).__name__, _exc,
@@ -379,16 +356,22 @@ def _predict_with_fallback(
     try:
         with phase(method, model=_model_type, n_rows=n_rows):
             result = fn(X)
-        if hasattr(result, "dtype") and not np.all(np.isfinite(result)):
-            logger.warning(
-                "[NaN-guard] %s.%s returned non-finite predictions "
-                "(likely NaN input silently propagated).  Applying "
-                "one-shot imputation + scaling before retry.",
-                _model_type, method,
-            )
-            return _apply_nan_guard(model, X, fn, n_rows)
+        # Sample first 500 rows — non-finite values in output signal
+        # NaN input silently propagated by a NaN-tolerant model.
+        if hasattr(result, "dtype"):
+            _r_sample = result[:500] if hasattr(result, "__getitem__") else result
+            if not np.all(np.isfinite(_r_sample)):
+                logger.warning(
+                    "[NaN-guard] %s.%s returned non-finite predictions "
+                    "(likely NaN input silently propagated).  Applying "
+                    "one-shot imputation + scaling before retry.",
+                    _model_type, method,
+                )
+                return _apply_nan_guard(model, X, fn, n_rows)
         return result
-    except ValueError:
+    except ValueError as e:
+        if "NaN" not in str(e) and "contains NaN" not in str(e):
+            raise
         return _apply_nan_guard(model, X, fn, n_rows)
     except TypeError as e:
         if not (_is_cb and _pl_df is not type(None) and isinstance(X, _pl_df)
@@ -401,26 +384,12 @@ def _predict_with_fallback(
         )
         try:
             model._mlframe_polars_fastpath_broken = True
-        except Exception:
+        except AttributeError:
             pass
         X_pd = _cb_polars_to_pandas(model, X, method, verbose=verbose)
         with phase(method, model=_model_type, n_rows=n_rows):
             return fn(X_pd)
-    # The fit path already stored a
-    # Pool in ``_CB_VAL_POOL_CACHE`` keyed on
-    # ``(id(val_df), cols, shape, cat_features, text_features,
-    #   embedding_features)``. Prior to this fix the metrics path
-    # called ``model.predict_proba(val_df)`` with a raw DataFrame,
-    # which dispatches into CB's sklearn wrapper -> rebuilds a fresh
-    # Pool from the frame -> on 7.3M rows, 53–66 s wasted per metrics
-    # invocation (observed on prod 2026-04-22 log: 53 s at fit, then
-    # another 66.7 s at VAL metrics computation for the identical
-    # frame). CB's sklearn wrapper short-circuits rebuild when it
-    # sees ``isinstance(X, Pool)``, so passing the cached Pool here
-    # skips the second build entirely.
-    #
-    # 2026-04-24 hardening: lookup originally required exact ``id(X)``
-    # match, which silently missed when the val_df Python object was
+
 
 
 # Fix 9.4.3 + Fix Orch-1: process-wide CatBoost Pool cache. Keys: tuple
