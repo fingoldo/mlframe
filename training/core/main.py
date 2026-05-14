@@ -832,6 +832,18 @@ def train_mlframe_models_suite(
         model_name=model_name,
         filtered_train_df=filtered_train_df,
         filtered_val_df=filtered_val_df,
+        test_df_pd=test_df_pd,
+        filtered_train_idx=filtered_train_idx,
+        filtered_val_idx=filtered_val_idx,
+        test_idx=test_idx,
+        train_df_pd=train_df_pd,
+        val_df_pd=val_df_pd,
+        train_idx=train_idx,
+        val_idx=val_idx,
+        dummy_baselines_config=dummy_baselines_config,
+        reporting_config=reporting_config,
+        plot_file=None,  # plot_file was per-target; composite-post uses suite-level
+        verbose=bool(verbose),
     )
     if _pp_result is not None:
         models, metadata = _pp_result
