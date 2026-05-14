@@ -64,6 +64,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     use_mrmr_fs = ctx.use_mrmr_fs
     mrmr_kwargs = ctx.mrmr_kwargs
     rfecv_models = ctx.rfecv_models
+    multilabel_dispatch_config = ctx.multilabel_dispatch_config
+    ranking_config = ctx.ranking_config
+    recurrent_config = ctx.recurrent_config
+    recurrent_models = ctx.recurrent_models
+    sequences = ctx.sequences
     custom_pre_pipelines = ctx.custom_pre_pipelines
     common_params_dict = ctx.common_params_dict
     mlframe_models = ctx.mlframe_models

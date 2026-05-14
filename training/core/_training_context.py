@@ -40,6 +40,11 @@ class TrainingContext:
     quantile_regression_config: Any = None
     composite_target_discovery_config: Any = None
     linear_model_config: Any = None
+    multilabel_dispatch_config: Any = None
+    ranking_config: Any = None
+    recurrent_config: Any = None
+    recurrent_models: Optional[List[str]] = None
+    sequences: Any = None
 
     # ── Scalar settings ─────────────────────────────────────────
     verbose: int = 1
