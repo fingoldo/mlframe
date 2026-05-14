@@ -87,7 +87,7 @@ from mlframe.training.baseline_diagnostics import _to_1d_numpy
 from mlframe.training.evaluation import _canonical_multilabel_y
 from ._dummy_baseline_compute import (
     _compute_regression_baselines, _compute_classification_baselines,
-    _compute_quantile_baselines, _compute_multilabel_baselines,
+    _compute_quantile_baselines,
     _safe_metric, _per_group_predict, _pick_per_group_categorical,
 )
 
