@@ -20,7 +20,7 @@ import pandas as pd
 import polars as pl
 
 from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
-from sklearn.metrics import max_error, mean_absolute_error, r2_score, root_mean_squared_error
+# Metrics: use mlframe's fast njit versions, not sklearn
 from sklearn.preprocessing import LabelEncoder
 
 from mlframe.metrics import compute_fairness_metrics, fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_root_mean_squared_error
@@ -660,7 +660,7 @@ def report_regression_model_perf(
             subset_index=subset_index,
             y_true=targets,
             y_pred=preds,
-            metrics={"MAE": mean_absolute_error, "RMSE": root_mean_squared_error},
+            metrics={"MAE": fast_mean_absolute_error, "RMSE": fast_root_mean_squared_error},
             metrics_higher_is_better={"MAE": False, "RMSE": False},
         )
         if fairness_report is not None:
