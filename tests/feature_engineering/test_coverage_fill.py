@@ -1393,9 +1393,11 @@ class TestBruteforceAdvancedCoverage:
             "y": rng.standard_normal(n),
         })
         df["cat"] = df["cat"].astype("category")
+        # PySR has an internal lower bound on population_size (~12 / tournament selection
+        # buffer). Use 30 with tournament=10 - fast enough but above the BoundsError tripwire.
         mini = {
-            "niterations": 2, "populations": 2, "population_size": 10,
-            "tournament_selection_n": 4, "maxdepth": 3,
+            "niterations": 3, "populations": 3, "population_size": 30,
+            "tournament_selection_n": 10, "maxdepth": 3,
             "binary_operators": ["+", "*"], "unary_operators": [], "procs": 1,
         }
         model = run_pysr_feature_engineering(
@@ -1417,9 +1419,11 @@ class TestBruteforceAdvancedCoverage:
             "y": rng.standard_normal(n),
         })
         df["cat"] = df["cat"].astype("category")
+        # PySR has an internal lower bound on population_size (~12 / tournament selection
+        # buffer). Use 30 with tournament=10 - fast enough but above the BoundsError tripwire.
         mini = {
-            "niterations": 2, "populations": 2, "population_size": 10,
-            "tournament_selection_n": 4, "maxdepth": 3,
+            "niterations": 3, "populations": 3, "population_size": 30,
+            "tournament_selection_n": 10, "maxdepth": 3,
             "binary_operators": ["+", "*"], "unary_operators": [], "procs": 1,
         }
         model = run_pysr_feature_engineering(
@@ -1438,9 +1442,11 @@ class TestBruteforceAdvancedCoverage:
             "y": rng.standard_normal(n),
             "hi_card": [f"id_{i}" for i in range(n)],  # 40 unique values
         })
+        # PySR has an internal lower bound on population_size (~12 / tournament selection
+        # buffer). Use 30 with tournament=10 - fast enough but above the BoundsError tripwire.
         mini = {
-            "niterations": 2, "populations": 2, "population_size": 10,
-            "tournament_selection_n": 4, "maxdepth": 3,
+            "niterations": 3, "populations": 3, "population_size": 30,
+            "tournament_selection_n": 10, "maxdepth": 3,
             "binary_operators": ["+", "*"], "unary_operators": [], "procs": 1,
         }
         model = run_pysr_feature_engineering(

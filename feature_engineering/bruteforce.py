@@ -142,7 +142,14 @@ def run_pysr_feature_engineering(
         tmp_df = sampled.to_pandas()
     elif isinstance(df, pd.DataFrame):
         n = min(sample_size, len(df))
-        tmp_df = df.sample(n, random_state=random_state).fillna(0)
+        tmp_df = df.sample(n, random_state=random_state)
+        # Zero-fill ONLY numeric columns; ``.fillna(0)`` on a Categorical with a NaN raises
+        # ``Cannot setitem on a Categorical with a new category (0)`` because ``0`` is not a
+        # listed category. Categoricals get dropped or encoded downstream anyway, so we leave
+        # their NaNs alone here.
+        numeric_cols = tmp_df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols):
+            tmp_df[numeric_cols] = tmp_df[numeric_cols].fillna(0)
     else:
         raise ValueError("Input must be a pandas or polars DataFrame.")
 
