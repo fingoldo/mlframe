@@ -1609,20 +1609,48 @@ class TestCBValPoolCacheContentFallback:
         _CB_VAL_POOL_CACHE.clear()
 
     def test_dtypes_sig_stored_on_pool_during_eval_set_setup(self):
-        """Structural check: the storage path in
-        ``_maybe_rewrite_eval_set_as_cb_pool`` must stash
-        ``_mlframe_dtypes_sig`` on the val Pool — without it, the
-        content-fallback lookup has nothing to compare."""
-        import inspect
-        from mlframe.training import trainer as tr_mod
+        """Behavioural: call _maybe_rewrite_eval_set_as_cb_pool with a small (val_df, val_target) eval_set and assert the resulting val Pool carries _mlframe_dtypes_sig. Without it the predict-side content-fallback lookup has nothing to compare, and the 2026-04-24 cache-miss regression returns."""
+        try:
+            from catboost import Pool as _Pool  # noqa: F401
+        except ImportError:
+            import pytest
 
-        src = inspect.getsource(tr_mod._maybe_rewrite_eval_set_as_cb_pool)
-        assert "_mlframe_dtypes_sig" in src, (
-            "_maybe_rewrite_eval_set_as_cb_pool must stash a "
-            "_mlframe_dtypes_sig fingerprint on the val Pool so the "
-            "predict-side content-fallback lookup can match across "
-            "id-shifts. See the 2026-04-24 cache-miss fix in trainer.py."
+            pytest.skip("catboost not installed")
+
+        from mlframe.training._cb_pool import (
+            _maybe_rewrite_eval_set_as_cb_pool,
+            _CB_VAL_POOL_CACHE,
         )
+
+        _CB_VAL_POOL_CACHE.clear()
+        val_df = pd.DataFrame({"f0": [0.1, 0.2, 0.3, 0.4], "f1": [1, 2, 3, 4]})
+        val_target = np.array([0, 1, 0, 1])
+        fit_params = {
+            "eval_set": [(val_df, val_target)],
+            "cat_features": [],
+            "text_features": [],
+            "embedding_features": [],
+        }
+
+        _maybe_rewrite_eval_set_as_cb_pool(fit_params)
+
+        rewritten = fit_params["eval_set"]
+        val_pool = rewritten[0] if isinstance(rewritten, list) else rewritten
+        if isinstance(val_pool, tuple):
+            import pytest
+
+            pytest.skip("Pool build skipped (catboost not capable in this env); fingerprint storage path not reached")
+
+        sig = getattr(val_pool, "_mlframe_dtypes_sig", "ATTR_MISSING")
+        assert sig != "ATTR_MISSING", (
+            "_maybe_rewrite_eval_set_as_cb_pool must stash a "
+            "_mlframe_dtypes_sig fingerprint on the val Pool so the predict-side "
+            "content-fallback lookup can match across id-shifts (2026-04-24 cache-miss fix)."
+        )
+        assert sig is not None and len(sig) == 2, (
+            f"expected a 2-element dtype tuple for the 2-column val_df, got {sig!r}"
+        )
+        _CB_VAL_POOL_CACHE.clear()
 
 
 # =====================================================================
