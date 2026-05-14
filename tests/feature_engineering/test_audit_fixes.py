@@ -133,6 +133,54 @@ class TestRollingMovingAverageKahan:
         # Use 1e-10 to absorb LLVM reassociation variability in the fast path.
         np.testing.assert_allclose(slow, fast, atol=1e-10)
 
+    def test_simple_stats_fast_matches_kahan(self):
+        """``compute_simple_stats_numba_fast`` (no Kahan, fastmath=True) must agree with the
+        Kahan-compensated default to ~1e-12 on well-conditioned float64 N=10k input. Generated
+        by the same factory ``_make_compute_simple_stats``, so divergence here signals an
+        accidental dead-code-elimination failure on the KAHAN closure constant.
+        """
+        from mlframe.feature_engineering.numerical import (
+            compute_simple_stats_numba,
+            compute_simple_stats_numba_fast,
+        )
+        rng = np.random.default_rng(0)
+        arr = rng.standard_normal(10_000).astype(np.float64)
+        kahan = compute_simple_stats_numba(arr)
+        fast = compute_simple_stats_numba_fast(arr)
+        # min/max/argmin/argmax must be EXACTLY equal (no float math).
+        assert kahan[0] == fast[0] and kahan[1] == fast[1]
+        assert kahan[2] == fast[2] and kahan[3] == fast[3]
+        # mean / std within machine epsilon.
+        np.testing.assert_allclose(kahan[4:], fast[4:], atol=1e-12)
+
+    def test_moments_slope_mi_fast_matches_kahan(self):
+        """Same invariant for the larger moments/slope/MI kernel."""
+        from mlframe.feature_engineering.numerical import (
+            compute_moments_slope_mi,
+            compute_moments_slope_mi_fast,
+        )
+        rng = np.random.default_rng(1)
+        arr = rng.standard_normal(5_000).astype(np.float64)
+        mean = float(arr.mean())
+        res_kahan, _ = compute_moments_slope_mi(arr, mean_value=mean)
+        res_fast, _ = compute_moments_slope_mi_fast(arr, mean_value=mean)
+        np.testing.assert_allclose(res_kahan, res_fast, atol=1e-10, rtol=1e-10)
+
+    def test_factory_pattern_kahan_is_compile_time_constant(self):
+        """The two factory specializations must be distinct compiled kernels (not the same
+        function dispatched at runtime). Numba returns different ``_numba_compiled`` objects
+        for each closure-bool specialization; we verify the two top-level objects differ.
+        """
+        from mlframe.feature_engineering.numerical import (
+            compute_simple_stats_numba,
+            compute_simple_stats_numba_fast,
+            compute_moments_slope_mi,
+            compute_moments_slope_mi_fast,
+        )
+        # Each call to the factory returns a fresh @njit dispatcher; identity should differ.
+        assert compute_simple_stats_numba is not compute_simple_stats_numba_fast
+        assert compute_moments_slope_mi is not compute_moments_slope_mi_fast
+
     def test_fast_variant_diverges_on_ill_conditioned(self):
         """On a 1e9 + signal series the fast path accumulates measurable drift, while the
         compensated path stays at 1 ULP. This is exactly the regime the audit cared about.
