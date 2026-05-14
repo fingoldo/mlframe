@@ -163,7 +163,8 @@ def detect_group_column_candidates(
                 c for c in df.columns
                 if not _is_numeric_column(df, c)
             ]
-        get_col = lambda c: np.asarray(df.get_column(c).to_numpy())
+        def get_col(c):
+            return np.asarray(df.get_column(c).to_numpy())
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
             # Default: ALL non-numeric columns + low-cardinality numeric (int) ones.
@@ -172,7 +173,8 @@ def detect_group_column_candidates(
                 if not pd.api.types.is_numeric_dtype(df[c])
                 or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
             ]
-        get_col = lambda c: df[c].to_numpy()
+        def get_col(c):
+            return df[c].to_numpy()
     else:
         raise TypeError(f"detect_group_column_candidates: unsupported df type {type(df).__name__}")
 

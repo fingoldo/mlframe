@@ -211,7 +211,7 @@ if _NUMBA_AVAILABLE:
             state = np.uint64(seed) ^ np.uint64(i) * np.uint64(2862933555777941757) + np.uint64(3037000493)
             sse1 = 0.0
             sse2 = 0.0
-            for k in range(n):
+            for _k in range(n):
                 # LCG step + mod n for index in [0, n)
                 state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
                 idx = int(state >> np.uint64(33)) % n
@@ -231,7 +231,7 @@ if _NUMBA_AVAILABLE:
             state = np.uint64(seed) ^ np.uint64(i) * np.uint64(2862933555777941757) + np.uint64(3037000493)
             sae1 = 0.0
             sae2 = 0.0
-            for k in range(n):
+            for _k in range(n):
                 state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
                 idx = int(state >> np.uint64(33)) % n
                 sae1 += abs(y[idx] - p1[idx])
@@ -251,7 +251,7 @@ if _NUMBA_AVAILABLE:
         for i in prange(n_resamples):
             state = np.uint64(seed) ^ np.uint64(i) * np.uint64(2862933555777941757) + np.uint64(3037000493)
             sse = 0.0
-            for k in range(n):
+            for _k in range(n):
                 state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
                 idx = int(state >> np.uint64(33)) % n
                 d = y[idx] - p[idx]
@@ -266,7 +266,7 @@ if _NUMBA_AVAILABLE:
         for i in prange(n_resamples):
             state = np.uint64(seed) ^ np.uint64(i) * np.uint64(2862933555777941757) + np.uint64(3037000493)
             sae = 0.0
-            for k in range(n):
+            for _k in range(n):
                 state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
                 idx = int(state >> np.uint64(33)) % n
                 sae += abs(y[idx] - p[idx])
@@ -291,7 +291,7 @@ if _NUMBA_AVAILABLE:
             state = np.uint64(seed) ^ np.uint64(i) * np.uint64(2862933555777941757) + np.uint64(3037000493)
             ll1 = 0.0
             ll2 = 0.0
-            for k in range(n):
+            for _k in range(n):
                 state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
                 idx = int(state >> np.uint64(33)) % n
                 yi = y_int[idx]
@@ -327,7 +327,7 @@ if _NUMBA_AVAILABLE:
         for i in prange(n_resamples):
             state = np.uint64(seed) ^ np.uint64(i) * np.uint64(2862933555777941757) + np.uint64(3037000493)
             ll = 0.0
-            for k in range(n):
+            for _k in range(n):
                 state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
                 idx = int(state >> np.uint64(33)) % n
                 yi = y_int[idx]
@@ -2171,21 +2171,24 @@ def _paired_bootstrap_vs_runner_up(
         # Fallback path: sklearn metric loop. Used for log_loss and as
         # a safety net if the numba kernel raises.
         if "RMSE" in primary_metric:
-            fn = lambda y, p: float(np.sqrt(mean_squared_error(y, p)))
+            def fn(y, p):
+                return float(np.sqrt(mean_squared_error(y, p)))
         elif "MAE" in primary_metric:
-            fn = lambda y, p: float(mean_absolute_error(y, p))
+            def fn(y, p):
+                return float(mean_absolute_error(y, p))
         elif "log_loss_macro" in primary_metric:
             return None  # multi-output; cost > value at this gate
         elif "log_loss" in primary_metric:
             from sklearn.metrics import log_loss as _ll
-            fn = lambda y, p: float(_ll(y, p))
+            def fn(y, p):
+                return float(_ll(y, p))
         else:
             return None
 
         rng = np.random.default_rng(seed)
         deltas = np.empty(n_resamples, dtype=np.float64)
         valid = 0
-        for i in range(n_resamples):
+        for _i in range(n_resamples):
             idx = rng.integers(0, n, size=n)
             try:
                 v1 = fn(y_ref[idx], p1[idx])
@@ -2303,9 +2306,11 @@ def _bootstrap_ci_for_strongest(
         # variants and as a safety net if the numba kernel raises.
         try:
             if "RMSE" in primary_metric:
-                fn = lambda yi, pi: float(np.sqrt(mean_squared_error(yi, pi)))
+                def fn(yi, pi):
+                    return float(np.sqrt(mean_squared_error(yi, pi)))
             elif "MAE" in primary_metric:
-                fn = lambda yi, pi: float(mean_absolute_error(yi, pi))
+                def fn(yi, pi):
+                    return float(mean_absolute_error(yi, pi))
             elif "log_loss_macro" in primary_metric:
                 # Multilabel macro: average over labels; here we use per-row
                 # log_loss approx (cheap CI is best-effort for multilabel).
@@ -2324,7 +2329,8 @@ def _bootstrap_ci_for_strongest(
             elif "log_loss" in primary_metric:
                 from sklearn.metrics import log_loss as _ll
                 # 1D label, 1D or 2D pred
-                fn = lambda yi, pi: float(_ll(yi, pi))
+                def fn(yi, pi):
+                    return float(_ll(yi, pi))
             else:
                 # Maximize metrics (NDCG / AUC) — bootstrap point estimate
                 # works the same; the CI is naturally returned in metric
