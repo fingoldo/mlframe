@@ -54,6 +54,7 @@ class TrainingContext:
     outlier_detector: Any = None
     od_val_set: bool = False
     use_mrmr_fs: bool = False
+    use_ordinary_models: bool = True
     mrmr_kwargs: Optional[Dict] = None
     rfecv_models: Optional[List[str]] = None
     custom_pre_pipelines: Optional[Any] = None
