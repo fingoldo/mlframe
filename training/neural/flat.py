@@ -7,40 +7,21 @@ This module provides:
 - MLPNeuronsByLayerArchitecture: Enum for architecture patterns
 """
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
 import logging
-
-logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
 import os
+from enum import Enum, auto
+from functools import partial
+from typing import *
 
+import lightning as L
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-import lightning as L
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-from enum import Enum, auto
-from functools import partial
-import numpy as np
-
-
-# Local imports
 from .base import MetricSpec, to_numpy_safe
 
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# ENUMS
-# ----------------------------------------------------------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 class MLPNeuronsByLayerArchitecture(Enum):
@@ -51,21 +32,11 @@ class MLPNeuronsByLayerArchitecture(Enum):
     Autoencoder = auto()
 
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Helper functions
-# ----------------------------------------------------------------------------------------------------------------------------
-
-
 def get_valid_num_groups(num_channels, preferred_num_groups):
     for g in range(preferred_num_groups, 0, -1):
         if num_channels % g == 0:
             return g
     return 1  # Fallback to 1 (LayerNorm-like) if no divisor found
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Network generation
-# ----------------------------------------------------------------------------------------------------------------------------
 
 
 def generate_mlp(
@@ -115,10 +86,6 @@ def generate_mlp(
         verbose: If 1, logs the network architecture (e.g., 100->50->25->1 [R, n=176, w=7.6k])
     """
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Auto inits and parameter setup
-    # ----------------------------------------------------------------------------------------------------------------------------
-
     if layer_norm_kwargs is None:
         layer_norm_kwargs = dict(eps=1e-5)
     if batch_norm_kwargs is None:
@@ -129,12 +96,8 @@ def generate_mlp(
     if not first_layer_num_neurons:
         first_layer_num_neurons = num_features
 
-    # Don't modify min_layer_neurons directly - use effective_min_neurons instead
+    # Don't modify min_layer_neurons directly; use effective_min_neurons instead.
     effective_min_neurons = max(min_layer_neurons, num_classes) if num_classes and num_classes > 1 else min_layer_neurons
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Sanity checks
-    # ----------------------------------------------------------------------------------------------------------------------------
 
     assert dropout_prob >= 0.0
     assert inputs_dropout_prob >= 0.0
@@ -144,14 +107,9 @@ def generate_mlp(
     assert num_classes is None or (num_classes >= 0 and isinstance(num_classes, int))
     assert first_layer_num_neurons >= min_layer_neurons and isinstance(first_layer_num_neurons, int)
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Build network layers
-    # ----------------------------------------------------------------------------------------------------------------------------
-
     layers = []
-    layer_sizes = [num_features]  # Track layer sizes for verbose logging
+    layer_sizes = [num_features]  # tracked for verbose logging
 
-    # Input normalization and dropout
     if inputs_dropout_prob > 0:
         layers.append(nn.Dropout(inputs_dropout_prob))
     if use_layernorm:
@@ -162,7 +120,6 @@ def generate_mlp(
         if num_groups_for_input > 1:
             layers.append(nn.GroupNorm(num_groups=num_groups_for_input, num_channels=num_features, **group_norm_kwargs))
 
-    # Cache mid_layer for architectures that need it
     mid_layer = nlayers // 2
 
     prev_layer_neurons = num_features
@@ -170,10 +127,6 @@ def generate_mlp(
     cur_layer_virt_neurons = first_layer_num_neurons
 
     for layer in range(nlayers):
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Compute # of neurons in current layer using match statement (Python 3.10+)
-        # ----------------------------------------------------------------------------------------------------------------------------
 
         if layer > 0:
             match neurons_by_layer_arch:
@@ -196,63 +149,46 @@ def generate_mlp(
 
             cur_layer_neurons = int(cur_layer_virt_neurons)
 
-        # Check minimum neurons constraint
         if cur_layer_neurons < effective_min_neurons:
             if neurons_by_layer_arch == MLPNeuronsByLayerArchitecture.Autoencoder:
-                # For autoencoder, allow smaller layers for symmetry, but enforce absolute minimum
+                # Autoencoder: allow smaller layers for symmetry, but enforce absolute minimum of 1.
                 if cur_layer_neurons < 1:
                     cur_layer_neurons = 1
             elif layer > 0:
-                # For other architectures, stop adding layers
+                # Other architectures: stop adding layers once below minimum.
                 break
             else:
-                # First layer must meet minimum
                 cur_layer_neurons = effective_min_neurons
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Add linear layer with that many neurons
-        # ----------------------------------------------------------------------------------------------------------------------------
 
         layers.append(nn.Linear(prev_layer_neurons, cur_layer_neurons))
         layer_sizes.append(cur_layer_neurons)
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Add optional bells & whistles - batchnorm, layernorm, activation, dropout
-        # ----------------------------------------------------------------------------------------------------------------------------
 
         if use_batchnorm:
             layers.append(nn.BatchNorm1d(cur_layer_neurons, **batch_norm_kwargs))
         if use_layernorm_per_layer:
             layers.append(nn.LayerNorm(cur_layer_neurons, **layer_norm_kwargs))
         if activation_function:
-            layers.append(activation_function())  # Instantiate activation function
+            layers.append(activation_function())
         if dropout_prob > 0:
             layers.append(nn.Dropout(dropout_prob))
 
         prev_layer_neurons = cur_layer_neurons
         prev_layer_virt_neurons = cur_layer_virt_neurons
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Add final layer based on num_classes (Classification / Regression / Feature Extractor)
-    # ----------------------------------------------------------------------------------------------------------------------------
-
+    # Final layer: num_classes None/0 = feature extractor, 1 = regression, >1 = classification.
     if num_classes is None or num_classes == 0:
-        logger.warning("num_classes is None or 0 - creating feature extractor (no final layer)")
+        logger.warning("num_classes is None or 0; creating feature extractor (no final layer)")
         model_type = "FE"
     elif num_classes == 1:
         layers.append(nn.Linear(prev_layer_neurons, 1))
         layer_sizes.append(1)
         model_type = "R"
-    else:  # num_classes > 1
+    else:
         layers.append(nn.Linear(prev_layer_neurons, num_classes))
         layer_sizes.append(num_classes)
         model_type = "C"
 
     model = nn.Sequential(*layers)
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Log network architecture if verbose is enabled
-    # ----------------------------------------------------------------------------------------------------------------------------
 
     if verbose == 1:
         total_neurons = sum(layer_sizes)
@@ -273,12 +209,8 @@ def generate_mlp(
                 return f"{n/1000:.1f}k"
             return str(n)
 
-        # 2026-05-13: extended architecture log -- the bare layer chain
-        # was hiding regularisation choices (dropout, batchnorm, LN) and
-        # activation / init function, which is exactly the information
-        # needed to debug the TVT-style "MLP collapsed predictions to
-        # narrow band around mean" regression. Now every default that
-        # *could* sabotage training is on the line.
+        # Include regularisation, activation and init in the log; the bare layer chain hides choices that
+        # silently sabotage training (e.g. collapsed predictions when dropout/BN/init misconfigured).
         arch_name = getattr(neurons_by_layer_arch, "name", str(neurons_by_layer_arch))
         if nlayers > 1:
             arch_descr = f"{arch_name}(r={consec_layers_neurons_ratio:g})"
@@ -304,8 +236,7 @@ def generate_mlp(
         if weights_init_fcn is None:
             init_descr = "default"
         else:
-            # ``partial(nn.init.kaiming_normal_, nonlinearity='leaky_relu', a=0.01)``
-            # has ``.func`` set; bare functions / lambdas use __name__.
+            # functools.partial wraps the real callable in .func; bare functions / lambdas expose __name__ directly.
             _wf = getattr(weights_init_fcn, "func", weights_init_fcn)
             init_descr = getattr(_wf, "__name__", type(_wf).__name__)
 
@@ -318,10 +249,6 @@ def generate_mlp(
             f"norm={norm_descr} init={init_descr}"
         )
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Init weights explicitly if weights_init_fcn is set
-    # ----------------------------------------------------------------------------------------------------------------------------
-
     if weights_init_fcn:
 
         def init_weights(m):
@@ -331,7 +258,8 @@ def generate_mlp(
                 else:
                     func_to_check = weights_init_fcn
 
-                # Initialize weights
+                # Xavier/Kaiming inits assume 2D fan-in/fan-out tensors. Applying them to BN's 1D gamma
+                # raises ValueError, so we fall back to N(1.0, 0.02) for BN gamma in those cases.
                 if hasattr(m, "weight") and m.weight is not None:
                     if func_to_check in (
                         torch.nn.init.xavier_normal_,
@@ -339,14 +267,13 @@ def generate_mlp(
                         torch.nn.init.kaiming_normal_,
                         torch.nn.init.kaiming_uniform_,
                     ):
-                        if m.weight.dim() >= 2:  # Only for Linear weights (2D)
+                        if m.weight.dim() >= 2:
                             weights_init_fcn(m.weight)
-                        elif isinstance(m, nn.BatchNorm1d):  # BatchNorm weight (gamma, 1D)
-                            torch.nn.init.normal_(m.weight, mean=1.0, std=0.02)  # Standard for BatchNorm
+                        elif isinstance(m, nn.BatchNorm1d):
+                            torch.nn.init.normal_(m.weight, mean=1.0, std=0.02)
                     else:
                         weights_init_fcn(m.weight)
 
-                # Initialize biases
                 if hasattr(m, "bias") and m.bias is not None:
                     if func_to_check in (
                         torch.nn.init.xavier_normal_,
@@ -354,23 +281,17 @@ def generate_mlp(
                         torch.nn.init.kaiming_normal_,
                         torch.nn.init.kaiming_uniform_,
                     ):
-                        torch.nn.init.constant_(m.bias, 0.0)  # Standard for biases
+                        torch.nn.init.constant_(m.bias, 0.0)
                     else:
                         weights_init_fcn(m.bias)
 
         model.apply(init_weights)
-        # Handle logging for partial functions
         init_name = weights_init_fcn.func.__name__ if isinstance(weights_init_fcn, partial) else weights_init_fcn.__name__
         logger.info("Applied %s initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases", init_name)
 
     model.example_input_array = torch.zeros(1, num_features)
 
     return model
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# MLPTorchModel
-# ----------------------------------------------------------------------------------------------------------------------------
 
 
 class MLPTorchModel(L.LightningModule):
@@ -414,7 +335,6 @@ class MLPTorchModel(L.LightningModule):
         """
         super().__init__()
 
-        # Validation
         if network is None:
             raise ValueError("network must be provided")
         if loss_fn is None:
@@ -424,36 +344,28 @@ class MLPTorchModel(L.LightningModule):
         if lr_scheduler_interval not in ["epoch", "step"]:
             raise ValueError(f"lr_scheduler_interval must be 'epoch' or 'step', got {lr_scheduler_interval}")
 
-        # Set defaults
         optimizer = optimizer or torch.optim.AdamW
         optimizer_kwargs = optimizer_kwargs or {}
         lr_scheduler_kwargs = lr_scheduler_kwargs or {}
 
-        # Save hyperparameters (excluding non-serializable objects)
+        # Skip non-serializable objects so Lightning can pickle hparams.
         self.save_hyperparameters(ignore=["loss_fn", "metrics", "network", "optimizer", "lr_scheduler"])
 
-        # Store components
         self.network = network
         self.loss_fn = loss_fn
         self.metrics = metrics
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
         self.best_epoch = None
-        # 2026-05-07: task_type explicitly chooses predict_step activation
-        # for K>1 outputs. ``None`` (default) keeps legacy behaviour
-        # (softmax for multi-class). ``"multilabel"`` switches to per-label
-        # sigmoid (each output independent binary). Regression and binary
-        # paths are unaffected (handled by output-dim==1 branch).
+        # task_type drives predict_step activation for K>1 outputs: None keeps softmax (multi-class),
+        # "multilabel" switches to per-label sigmoid. Regression/binary go through the dim==1 branch.
         self.task_type = task_type
 
-        # Initialize lists to store outputs during epoch
         self.training_step_outputs = []
         self.validation_step_outputs = []
 
-        # Apply torch.compile if requested
         self._apply_torch_compile()
 
-        # Set example input for ONNX export if available
         if hasattr(network, "example_input_array"):
             self.example_input_array = network.example_input_array
         else:
@@ -462,9 +374,8 @@ class MLPTorchModel(L.LightningModule):
     def _apply_torch_compile(self) -> None:
         """Apply torch.compile to the network if enabled.
 
-        Compiled modles have problems with saving, at least in pytorch 2.8:
-        cannot pickle 'ConfigModuleInstance' object
-        https://github.com/pytorch/pytorch/issues/126154
+        Compiled models cannot be pickled in PyTorch 2.8 ("cannot pickle 'ConfigModuleInstance' object"),
+        which breaks checkpoint saving. See https://github.com/pytorch/pytorch/issues/126154.
         """
         if not self.hparams.compile_network:
             return
@@ -506,24 +417,19 @@ class MLPTorchModel(L.LightningModule):
             Scalar loss tensor
         """
         if sample_weight is None:
-            # No weighting - use original loss function
             return self.loss_fn(predictions, labels)
 
-        # Compute per-sample losses using functional API with reduction='none'
-        # Detect if this is classification (CrossEntropyLoss) or regression (MSELoss)
+        # Per-sample losses via functional API: cross_entropy for multi-class logits, MSE for regression.
         if predictions.dim() == 2 and predictions.shape[1] > 1:
-            # Classification: predictions are logits with shape (batch, num_classes)
             loss_unreduced = F.cross_entropy(predictions, labels, reduction="none")
         else:
-            # Regression: predictions are values
             loss_unreduced = F.mse_loss(predictions, labels, reduction="none")
 
-        # Apply sample weights and normalize by sum of weights
         weight_sum = sample_weight.sum()
         if weight_sum > 0:
             weighted_loss = (loss_unreduced * sample_weight).sum() / weight_sum
         else:
-            # All weights are zero - return zero loss (no contribution from this batch)
+            # All weights zero: this batch contributes nothing; avoid division by zero.
             weighted_loss = torch.tensor(0.0, device=predictions.device, dtype=predictions.dtype)
         return weighted_loss
 
@@ -532,36 +438,31 @@ class MLPTorchModel(L.LightningModule):
         features, labels, sample_weight = self._unpack_batch(batch)
         raw_predictions = self(features)
 
-        # Squeeze predictions for single-output regression to match label shape
+        # Squeeze single-output regression to match label shape.
         if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1:
             raw_predictions_for_loss = raw_predictions.squeeze(1)
         else:
             raw_predictions_for_loss = raw_predictions
 
-        # Compute loss (with optional sample weighting)
         loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
 
-        # Add L1 regularization if enabled
         if self.hparams.l1_alpha > 0:
             l1_norm = sum(p.abs().sum() for p in self.network.parameters())
             loss = loss + self.hparams.l1_alpha * l1_norm
-            # Only log if trainer is attached (avoid warnings in unit tests)
+            # self.log raises RuntimeError when the module is detached from a Trainer (unit-test usage).
             try:
                 self.log("train_l1_norm", l1_norm, on_step=False, on_epoch=True)
             except RuntimeError:
-                pass  # Not attached to trainer (unit tests)
+                pass
 
-        # Only log if trainer is attached (avoid warnings in unit tests)
         try:
             self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
         except RuntimeError:
-            pass  # Not attached to trainer (unit tests)
+            pass
 
-        # Store predictions for metric computation if needed
         result = {"loss": loss}
         if self.hparams.compute_trainset_metrics:
-            # MEMORY OPTIMIZATION: Store outputs on CPU immediately to free GPU memory
-            # This prevents GPU memory accumulation throughout the epoch
+            # Move outputs to CPU immediately; otherwise GPU memory accumulates across the whole epoch.
             output = {"raw_predictions": raw_predictions.detach().cpu(), "labels": labels.detach().cpu()}
             self.training_step_outputs.append(output)
 
@@ -581,38 +482,30 @@ class MLPTorchModel(L.LightningModule):
             logger.warning("No training outputs collected for metric computation")
             return
 
-        # Extract predictions and labels from collected outputs (already on CPU)
         preds_and_labels = [(out["raw_predictions"], out["labels"]) for out in self.training_step_outputs]
-
-        # Compute metrics
         self.compute_metrics(preds_and_labels, prefix="train")
-
-        # Clear outputs to free memory
         self.training_step_outputs.clear()
 
     def validation_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
         """Validation step."""
         features, labels, sample_weight = self._unpack_batch(batch)
 
-        # No gradient computation needed
         raw_predictions = self(features)
 
-        # Squeeze predictions for single-output regression to match label shape
         if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1:
             raw_predictions_for_loss = raw_predictions.squeeze(1)
         else:
             raw_predictions_for_loss = raw_predictions
 
-        # Compute loss without L1 regularization for fair comparison (with optional sample weighting)
+        # Validation loss excludes L1 regularisation so the val curve is comparable across l1_alpha values.
         loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
 
-        # Only log if trainer is attached (avoid warnings in unit tests)
         try:
             self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
         except RuntimeError:
-            pass  # Not attached to trainer (unit tests)
+            pass
 
-        # MEMORY OPTIMIZATION: Store outputs on CPU immediately to free GPU memory
+        # Move outputs to CPU immediately to prevent GPU memory accumulation across the epoch.
         output = {"raw_predictions": raw_predictions.detach().cpu(), "labels": labels.detach().cpu()}
         self.validation_step_outputs.append(output)
 
@@ -624,13 +517,8 @@ class MLPTorchModel(L.LightningModule):
             logger.warning("No validation outputs collected for metric computation")
             return
 
-        # Extract predictions and labels from collected outputs (already on CPU)
         preds_and_labels = [(out["raw_predictions"], out["labels"]) for out in self.validation_step_outputs]
-
-        # Compute metrics
         self.compute_metrics(preds_and_labels, prefix="val")
-
-        # Clear outputs to free memory
         self.validation_step_outputs.clear()
 
     def compute_metrics(self, predictions_and_labels: List[Tuple[torch.Tensor, torch.Tensor]], prefix: str = "val") -> None:
@@ -642,17 +530,14 @@ class MLPTorchModel(L.LightningModule):
             predictions_and_labels: List of (raw_predictions, labels) tuples from each batch (on CPU)
             prefix: Logging prefix ('train' or 'val')
         """
-        # Concatenate all predictions and labels
         raw_predictions, labels = zip(*predictions_and_labels)
         raw_predictions = torch.cat(raw_predictions)
         labels = torch.cat(labels)
 
-        # Determine which transformations are actually needed
         need_argmax = any(m.requires_argmax for m in self.metrics)
         need_softmax = any(m.requires_probs for m in self.metrics)
         need_cpu = any(m.requires_cpu for m in self.metrics)
 
-        # Precompute transforms
         preds_dict = {}
         if need_argmax:
             preds_dict["argmax"] = raw_predictions.argmax(dim=1)
@@ -661,12 +546,10 @@ class MLPTorchModel(L.LightningModule):
 
         labels_cpu = None
         if need_cpu:
-            # Already on CPU from storage optimization
+            # cpu=False: tensors are already on CPU thanks to the per-step .cpu() in *_step.
             labels_cpu = to_numpy_safe(labels, cpu=False)
 
-        # Compute metrics
         for metric in self.metrics:
-            # Select correct prediction type
             if metric.requires_argmax:
                 preds = preds_dict["argmax"]
             elif metric.requires_probs:
@@ -674,11 +557,9 @@ class MLPTorchModel(L.LightningModule):
             else:
                 preds = raw_predictions
 
-            # Convert to CPU/numpy if needed
             if metric.requires_cpu:
                 key = f"cpu_{id(preds)}"
                 if key not in preds_dict:
-                    # Already on CPU from storage optimization
                     preds_dict[key] = to_numpy_safe(preds, cpu=False)
                 preds_np = preds_dict[key]
                 labels_np = labels_cpu
@@ -686,7 +567,6 @@ class MLPTorchModel(L.LightningModule):
                 preds_np = preds
                 labels_np = labels
 
-            # Compute and log
             try:
                 value = metric.fcn(y_true=labels_np, y_score=preds_np)
                 self.log(
@@ -702,20 +582,17 @@ class MLPTorchModel(L.LightningModule):
 
     def configure_optimizers(self):
         """Configure optimizer and optional learning rate scheduler."""
-        # Create optimizer
         optimizer_kwargs = {"lr": self.hparams.learning_rate, **self.hparams.optimizer_kwargs}
         optimizer = self.optimizer(self.parameters(), **optimizer_kwargs)
 
-        # Return optimizer only if no scheduler
         if self.lr_scheduler is None:
             return optimizer
 
-        # Special handling for OneCycleLR
+        # OneCycleLR needs total_steps computed from the trainer; cannot be expressed in static kwargs.
         if self.lr_scheduler.__name__ == "OneCycleLR":
 
             logger.info("Configuring OneCycleLR scheduler")
 
-            # Calculate total steps
             steps_per_epoch = (
                 len(self.trainer.datamodule.train_dataloader())
                 if hasattr(self.trainer, "datamodule") and self.trainer.datamodule
@@ -724,34 +601,30 @@ class MLPTorchModel(L.LightningModule):
 
             total_steps = self.trainer.max_epochs * steps_per_epoch
 
-            logger.info(f"OneCycleLR config:")
+            logger.info("OneCycleLR config:")
             logger.info("  - Steps per epoch: %s", steps_per_epoch)
             logger.info("  - Max epochs: %s", self.trainer.max_epochs)
             logger.info("  - Total steps: %s", total_steps)
             logger.info("  - Interval: %s", self.hparams.lr_scheduler_interval)
 
-            # Update kwargs with calculated values
             scheduler_kwargs = {
                 **self.hparams.lr_scheduler_kwargs,
                 "total_steps": total_steps,
             }
-
-            # Remove epochs/steps_per_epoch if present (use total_steps instead)
+            # OneCycleLR rejects epochs+steps_per_epoch when total_steps is given; strip them.
             scheduler_kwargs.pop("epochs", None)
             scheduler_kwargs.pop("steps_per_epoch", None)
 
             scheduler = self.lr_scheduler(optimizer, **scheduler_kwargs)
         else:
-            # Normal scheduler creation
             scheduler = self.lr_scheduler(optimizer, **self.hparams.lr_scheduler_kwargs)
 
-        # Configure scheduler settings
         scheduler_config = {
             "scheduler": scheduler,
             "interval": self.hparams.lr_scheduler_interval,
         }
 
-        # Add monitor if specified (required for ReduceLROnPlateau)
+        # monitor is required for ReduceLROnPlateau and similar value-driven schedulers.
         if self.hparams.lr_scheduler_monitor:
             scheduler_config["monitor"] = self.hparams.lr_scheduler_monitor
 
@@ -763,11 +636,10 @@ class MLPTorchModel(L.LightningModule):
         if not self.hparams.load_best_weights_on_train_end:
             return
 
-        # Only rank 0 handles checkpoint loading in distributed settings
+        # In distributed runs only rank 0 should touch the checkpoint file.
         if not self.trainer.is_global_zero:
             return
 
-        # Find ModelCheckpoint callback
         checkpoint_callback = None
         for callback in self.trainer.callbacks:
             if isinstance(callback, ModelCheckpoint):
@@ -784,7 +656,6 @@ class MLPTorchModel(L.LightningModule):
             logger.warning(f"No valid checkpoint at {best_model_path}. Using current weights.")
             return
 
-        # Log checkpoint info
         best_score = checkpoint_callback.best_model_score
         score_str = f"{best_score:.4f}" if best_score is not None else "N/A"
         logger.info("Loading best model from %s (score: %s)", best_model_path, score_str)
@@ -796,7 +667,6 @@ class MLPTorchModel(L.LightningModule):
                 logger.error("Checkpoint missing 'state_dict'. Cannot load weights.")
                 return
 
-            # Load state dict
             missing, unexpected = self.load_state_dict(checkpoint["state_dict"], strict=False)
 
             if missing:
@@ -804,7 +674,6 @@ class MLPTorchModel(L.LightningModule):
             if unexpected:
                 logger.warning(f"Unexpected keys in state_dict: {unexpected}")
 
-            # Store best epoch info
             if "epoch" in checkpoint:
                 self.best_epoch = checkpoint["epoch"]
                 logger.info("Loaded weights from epoch %s", self.best_epoch)
@@ -819,31 +688,25 @@ class MLPTorchModel(L.LightningModule):
         Returns raw model output (logits for classification, values for regression).
         Softmax/argmax conversion is handled in the estimator's predict methods.
         """
-        # Ensure model is in eval mode
         if self.training:
             logger.warning(f"Model was in training mode during predict_step at batch {batch_idx}. Switching to eval mode.")
             self.eval()
 
-        # Handle both training/testing format (x, y) and prediction format (x only)
+        # Accept both training/testing format (x, y) and prediction format (x only).
         if isinstance(batch, (tuple, list)):
             x = batch[0]
         else:
             x = batch
 
-        # Forward pass - return raw logits/values
         with torch.no_grad():
             logits = self(x)
 
-        # For classification, apply softmax to get probabilities
-        # (MLPTorchModel doesn't have is_classification attribute, so check network output).
-        # 2026-05-07: ``task_type='multilabel'`` switches to per-label
-        # sigmoid (each output independent binary in [0, 1]). For
-        # multi-class K>1 (default) softmax keeps the rows summing to 1.
+        # task_type='multilabel' returns per-label sigmoid (each output independent binary in [0, 1]);
+        # default multi-class K>1 path returns softmax rows that sum to 1.
         if logits.dim() == 2 and logits.shape[1] > 1:
             if self.task_type == "multilabel":
                 return torch.sigmoid(logits)
-            # Multi-class classification - softmax probabilities (sum=1 per row)
             return torch.softmax(logits, dim=1)
         else:
-            # Regression or binary classification - return raw values
+            # Regression or binary classification: return raw values.
             return logits

@@ -6,32 +6,19 @@ This module provides:
 - TorchDataModule: Lightning DataModule with train/val/test/predict stages
 """
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
 import logging
-
-logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
 from typing import *
 
+import numpy as np
+import pandas as pd
+import polars as pl
 import torch
+from lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 
-from lightning import LightningDataModule
-
-import pandas as pd
-import numpy as np
-import polars as pl
-
-
-# Local imports
 from .base import to_tensor_any
+
+logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -43,53 +30,32 @@ class TorchDataset(Dataset):
     def __init__(
         self,
         features,
-        labels=None,  # Make optional
-        sample_weight=None,  # Optional sample weights
+        labels=None,
+        sample_weight=None,
         features_dtype: torch.dtype = torch.float32,
         labels_dtype: torch.dtype = torch.float32,
         device: Optional[str] = None,
         batch_size: int = 0,
-        # 2026-05-11 Wave 23: zero-copy concurrent-worker access.
         share_memory: bool = True,
     ):
-        """``share_memory``: when True (default) AND the dataset eager-
-        converts the feature/label tensors to CPU memory, call
-        ``tensor.share_memory_()`` so PyTorch DataLoader child workers
-        (``num_workers > 0``) attach to the same backing buffer instead
-        of each pickling+receiving a fresh copy.
+        """``share_memory``: when True (default) AND the dataset eager-converts the feature/label tensors to CPU memory, call ``tensor.share_memory_()``
+        so PyTorch DataLoader child workers (``num_workers > 0``) attach to the same backing buffer instead of each pickling+receiving a fresh copy.
 
-        Rationale (Yuxin Wu, 2022, "Demystify RAM Usage in Multi-Process
-        Data Loaders"): the naive multi-worker DataLoader pattern leaks
-        memory across workers because Linux copy-on-write fails for
-        Python objects -- accessing ANY Python attribute increments its
-        refcount, which is a write, which triggers a per-process copy
-        of the page. The standard mitigation -- already widely adopted
-        in TorchVision / fairseq -- is to put the dataset's hot buffers
-        into ``torch.Tensor`` so PyTorch's custom ``ForkingPickler``
-        moves them to ``/dev/shm`` (Linux) or a SharedMemoryManager
-        handle (Windows) instead of serialising bytes. ``share_memory_()``
-        does that promotion eagerly so the first worker access is
-        zero-copy from the start.
+        Rationale (Yuxin Wu, 2022, "Demystify RAM Usage in Multi-Process Data Loaders"): the naive multi-worker DataLoader pattern leaks memory across
+        workers because Linux copy-on-write fails for Python objects - accessing ANY Python attribute increments its refcount, which is a write, which
+        triggers a per-process copy of the page. The standard mitigation is to put the dataset's hot buffers into ``torch.Tensor`` so PyTorch's custom
+        ``ForkingPickler`` moves them to ``/dev/shm`` (Linux) or a SharedMemoryManager handle (Windows) instead of serialising bytes. ``share_memory_()``
+        does that promotion eagerly so the first worker access is zero-copy from the start.
 
-        Disable (``False``) only for tests or for special tensor types
-        (sparse, MPS) where ``share_memory_()`` raises. Negligible cost
-        at ``num_workers=0``; with ``num_workers >= 2`` and a 1 GB
-        feature buffer the net RAM saving is ``num_workers * 1 GB``.
+        Disable (``False``) only for tests or for special tensor types (sparse, MPS) where ``share_memory_()`` raises. Negligible cost at
+        ``num_workers=0``; with ``num_workers >= 2`` and a 1 GB feature buffer the net RAM saving is ``num_workers * 1 GB``.
 
-        Multi-GPU note: this dataset is single-process / single-GPU.
-        For multi-GPU DDP, designate rank-0 to load data once, then
-        pass the shared-memory tensor handle to ranks 1..N-1 via
-        ``ForkingPickler``. Implementing the DDP wrapper is out of
-        scope for Wave 23; the shared-memory tensor stays compatible
-        when that wrapper lands.
+        Multi-GPU note: this dataset is single-process / single-GPU. For multi-GPU DDP, designate rank-0 to load data once, then pass the shared-memory
+        tensor handle to ranks 1..N-1 via ``ForkingPickler``.
 
-        Note on pinning: PyTorch DataLoader's own ``pin_memory=True``
-        kwarg performs per-batch pinning (which the suite already wires
-        via ``_create_dataloader: dl_params["pin_memory"] = on_gpu``).
-        Pinning the WHOLE feature tensor once would lock the buffer's
-        RAM permanently -- only worth it for small frames AND a GPU
-        target. Out of scope for Wave 23; revisit if profiles show
-        batch-pin cost dominating.
+        Note on pinning: PyTorch DataLoader's own ``pin_memory=True`` kwarg performs per-batch pinning (already wired via
+        ``_create_dataloader: dl_params["pin_memory"] = on_gpu``). Pinning the WHOLE feature tensor once would lock the buffer's RAM permanently - only
+        worth it for small frames AND a GPU target.
         """
         self.features_dtype = features_dtype
         self.labels_dtype = labels_dtype
@@ -97,20 +63,9 @@ class TorchDataset(Dataset):
         self.batch_size = batch_size
         self._share_memory = share_memory
 
-        # 2026-05-11 Wave 22: eliminate per-batch type-check chain.
-        # Previous code did ``isinstance(data, X)`` plus ``.to(dtype, device)``
-        # on EVERY ``__getitem__`` call (~38us/call × ~50k batches per fit
-        # = ~2s of wall-time noise, verified on c0094 profile).
-        # The CUDA-preload path already hoisted the conversion to
-        # ``__init__``; the CPU path didn't.
-        #
-        # Memory-safety: eager conversion to torch.Tensor copies the
-        # underlying buffer. For TYPICAL fits (<10M rows × 100 cols ~= 4GB)
-        # this is fine on a workstation. For HUGE frames (100GB+) the
-        # eager copy would OOM. We threshold on byte-size and fall back
-        # to the legacy per-batch conversion path when above the cap.
-        # Threshold is 2GB which is safely below any typical RAM budget
-        # AND well above the worst-case 10M-row × 100-col fit.
+        # Eager-convert features to torch.Tensor in __init__ to avoid per-batch isinstance + .to(dtype, device) chain (~38us/call) in __getitem__.
+        # Memory-safety: eager conversion copies the underlying buffer. For HUGE frames (100GB+) this would OOM; threshold on byte-size and fall back
+        # to the legacy per-batch path above the cap. 2GB is safely below any typical RAM budget AND well above the worst-case 10M-row x 100-col fit.
         _EAGER_TENSOR_BYTES_CAP = 2 * 1024**3  # 2 GB
         try:
             _bytes_estimate = (
@@ -129,9 +84,8 @@ class TorchDataset(Dataset):
         )
         if self._eager_features:
             self.features = to_tensor_any(features, features_dtype, device)
-            # 2026-05-11 Wave 23: promote to shared memory so DataLoader
-            # workers attach to the same buffer (zero-copy across procs).
-            # Guarded -- some tensor types / devices reject share_memory_().
+            # Promote to shared memory so DataLoader workers attach to the same buffer (zero-copy across procs). Guarded: some tensor types / devices
+            # reject share_memory_().
             if (
                 self._share_memory
                 and isinstance(self.features, torch.Tensor)
@@ -142,8 +96,7 @@ class TorchDataset(Dataset):
                 except (RuntimeError, NotImplementedError):
                     pass
         else:
-            # Above-cap frame: keep original carrier; ``_extract`` will
-            # convert per batch (slow path, but memory-safe).
+            # Above-cap frame: keep original carrier; ``_extract`` will convert per batch (slow path, but memory-safe).
             self.features = features
 
         # Handle labels (optional for prediction)
@@ -155,21 +108,12 @@ class TorchDataset(Dataset):
             elif not isinstance(labels, (np.ndarray, torch.Tensor)):
                 labels = np.asarray(labels)
 
-            # 2026-05-07: preserve 2-D labels for multilabel
-            # ``(N, K)``. Previously ``reshape(-1)`` flattened to
-            # ``(N*K,)`` which silently broke BCEWithLogitsLoss
-            # ``(target.shape != input.shape)``. Pure 1-D labels
-            # (regression / single-label classification) keep their
-            # original shape via the ``_arr.ndim == 1`` no-op branch.
-            # 2026-05-09 (c0103): ``pl.DataFrame.to_numpy()`` on a
-            # single-column frame returns ``(N, 1)`` -- under default
-            # ``labels_dtype=int64`` cross_entropy then sees a 2-D Long
-            # target and errors with ``Expected floating point type for
-            # target with class probabilities, got Long``. Squeeze the
-            # trailing length-1 dim so single-label classification
-            # delivers ``(N,)`` regardless of whether the upstream
-            # carrier was a Series or a 1-col DataFrame. Genuine
-            # multilabel ``(N, K>=2)`` is unaffected.
+            # Preserve 2-D labels for multilabel ``(N, K)``. ``reshape(-1)`` would flatten to ``(N*K,)`` and silently break BCEWithLogitsLoss
+            # (``target.shape != input.shape``). Pure 1-D labels (regression / single-label classification) keep their original shape.
+            # ``pl.DataFrame.to_numpy()`` on a single-column frame returns ``(N, 1)`` - under default ``labels_dtype=int64`` cross_entropy then sees a
+            # 2-D Long target and errors with ``Expected floating point type for target with class probabilities, got Long``. Squeeze the trailing
+            # length-1 dim so single-label classification delivers ``(N,)`` regardless of whether the upstream carrier was a Series or a 1-col
+            # DataFrame. Genuine multilabel ``(N, K>=2)`` is unaffected.
             _arr = np.asarray(labels)
             if _arr.ndim == 1:
                 _arr = _arr.reshape(-1)  # explicit 1-D contiguous (no-op for already-1D)
@@ -177,8 +121,7 @@ class TorchDataset(Dataset):
                 _arr = _arr.reshape(-1)  # collapse (N, 1) -> (N,) for single-label paths
             # 2-D ndarray with K>=2 passes through; ndim>=3 untouched (caller's responsibility)
             self.labels = torch.tensor(_arr, dtype=labels_dtype, device=device)
-            # Wave 23: same shared-memory promotion as features (labels
-            # are accessed per-batch alongside features).
+            # Same shared-memory promotion as features (labels are accessed per-batch alongside features).
             if (
                 self._share_memory
                 and isinstance(self.labels, torch.Tensor)
@@ -212,7 +155,6 @@ class TorchDataset(Dataset):
 
             sample_weight = np.asarray(sample_weight).reshape(-1)
             self.sample_weight = torch.tensor(sample_weight, dtype=torch.float32, device=device)
-            # Wave 23: shared-memory promotion for sample_weight too.
             if (
                 self._share_memory
                 and isinstance(self.sample_weight, torch.Tensor)
@@ -225,7 +167,6 @@ class TorchDataset(Dataset):
         else:
             self.sample_weight = None
 
-        # Determine # of batches if in batch mode
         if batch_size > 0:
             self.num_batches = int(np.ceil(dataset_length / batch_size))
 
@@ -237,15 +178,11 @@ class TorchDataset(Dataset):
     def _extract(self, data, indices):
         """Extract and convert subset to tensor.
 
-        Wave 22: features are now always torch.Tensor (converted once in
-        __init__), so this fastpaths to a single indexing op. The
-        non-Tensor branches stay for the rare case where ``self.features``
-        is replaced post-init by a caller (defensive; not exercised by
-        the mlframe suite).
+        Features are normally torch.Tensor (converted once in __init__), so this fastpaths to a single indexing op. The non-Tensor branches stay for
+        the rare case where ``self.features`` is replaced post-init by a caller (defensive; not exercised by the mlframe suite).
         """
         if isinstance(data, torch.Tensor):
-            # Hot path: features already a tensor of the right dtype/device
-            # from __init__'s to_tensor_any call.
+            # Hot path: features already a tensor of the right dtype/device from __init__'s to_tensor_any call.
             return data[indices]
         if isinstance(data, np.ndarray):
             subset = torch.from_numpy(data[indices])
@@ -259,17 +196,14 @@ class TorchDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.batch_size > 0:
-            # batched mode
             start = idx * self.batch_size
             end = min((idx + 1) * self.batch_size, self.dataset_length)
             indices = slice(start, end)
         else:
-            # sample mode
             indices = idx
 
         x = self._extract(self.features, indices)
 
-        # Return only features if no labels
         if self.labels is None:
             return x
 
@@ -279,7 +213,6 @@ class TorchDataset(Dataset):
         if self.batch_size == 0 and x.ndim == 2 and x.shape[0] == 1:
             x = x.squeeze(0)
 
-        # Return with sample weights if available
         if self.sample_weight is not None:
             w = self.sample_weight[indices]
             return x, y, w
@@ -334,17 +267,14 @@ class TorchDataModule(LightningDataModule):
         dataloader_params: Optional[dict] = None,
     ):
         """
-        Initialize DataModule. Data pre-loading here allows automatic sharing
-        between spawned processes via shared memory when using 'ddp_spawn'.
+        Initialize DataModule. Data pre-loading here allows automatic sharing between spawned processes via shared memory when using 'ddp_spawn'.
         """
         super().__init__()
 
-        # Validate data_placement_device
         if data_placement_device is not None:
             if not data_placement_device.startswith("cuda"):
                 raise ValueError(f"data_placement_device must be None or 'cuda'/'cuda:X', got: {data_placement_device}")
 
-        # Store all parameters
         self.train_features = train_features
         self.train_labels = train_labels
         self.train_sample_weight = train_sample_weight
@@ -362,7 +292,6 @@ class TorchDataModule(LightningDataModule):
         # For dynamic prediction data
         self.predict_features = None
 
-        # Extract batch_size for easy access
         self.batch_size = self.dataloader_params.get("batch_size", 64)
 
     @staticmethod
@@ -455,7 +384,6 @@ class TorchDataModule(LightningDataModule):
             if features is None:
                 continue
 
-            # Convert pandas/numpy to float32 if possible
             if hasattr(features, "astype"):
                 try:
                     setattr(self, feature_name, features.astype("float32"))
@@ -508,46 +436,37 @@ class TorchDataModule(LightningDataModule):
             Configured DataLoader
 
         Note:
-            TorchDataset handles batching internally when batch_size > 0,
-            so DataLoader is created with batch_size=None to iterate over
-            pre-batched data. This enables vectorized extraction and GPU preloading.
+            TorchDataset handles batching internally when batch_size > 0, so DataLoader is created with batch_size=None to iterate over pre-batched
+            data. This enables vectorized extraction and GPU preloading.
         """
         device = self._get_device()
         on_gpu = self.on_gpu()
 
-        # Prepare dataloader params (extract batch_size for TorchDataset)
+        # Extract batch_size for TorchDataset (it handles batching internally)
         dl_params = self.dataloader_params.copy()
         batch_size = dl_params.pop("batch_size", self.batch_size)
         batch_size = self._resolve_batch_size(batch_size, features, split_name)
 
-        # Override shuffle and drop_last
         dl_params["shuffle"] = shuffle
         dl_params["drop_last"] = drop_last
         dl_params["pin_memory"] = on_gpu
 
-        # 2026-05-11 Wave 23: ``persistent_workers=True`` skips the
-        # worker-restart cost between epochs (each restart re-imports
-        # torch / lightning / numpy + re-attaches to the shared-memory
-        # tensor handle, ~100-300 ms / restart on Windows). At our
-        # typical 30-100 epoch fits with num_workers>=2 the saving is
-        # 3-30 s per fit. Only set when num_workers > 0 -- PyTorch
-        # raises a warning if you ask for persistent workers with 0
-        # workers.
+        # ``persistent_workers=True`` skips the worker-restart cost between epochs (each restart re-imports torch / lightning / numpy + re-attaches to
+        # the shared-memory tensor handle, ~100-300 ms / restart on Windows). At typical 30-100 epoch fits with num_workers>=2 the saving is 3-30 s
+        # per fit. Only set when num_workers > 0 - PyTorch warns if you ask for persistent workers with 0 workers.
         if dl_params.get("num_workers", 0) > 0:
             dl_params.setdefault("persistent_workers", True)
 
-        # IMPORTANT: Set batch_size=None since TorchDataset handles batching internally
-        # when its own batch_size parameter > 0
+        # IMPORTANT: Set batch_size=None since TorchDataset handles batching internally when its own batch_size parameter > 0
         dl_params["batch_size"] = None
 
-        # Create dataset with internal batching
         dataset = TorchDataset(
             features=features,
             labels=labels,
             sample_weight=sample_weight,
             features_dtype=self.features_dtype,
             labels_dtype=self.labels_dtype if labels is not None else None,
-            batch_size=batch_size,  # TorchDataset will handle batching
+            batch_size=batch_size,
             device=device,
         )
 
@@ -599,7 +518,7 @@ class TorchDataModule(LightningDataModule):
 
         return self._create_dataloader(
             features=self.predict_features,
-            labels=None,  # No labels for prediction
+            labels=None,
             shuffle=False,
             drop_last=False,
             split_name="predict",
@@ -623,11 +542,9 @@ class TorchDataModule(LightningDataModule):
         """
         self.predict_features = X
 
-        # Update batch size if provided
         if batch_size is not None:
             self.batch_size = batch_size
 
-        # Trigger setup for predict stage
         self.setup(stage="predict")
 
     def has_test_data(self) -> bool:

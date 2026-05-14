@@ -1,4 +1,4 @@
-"""Keras/TensorFlow compatibility wrappers salvaged from OldEnsembling.py.
+"""Keras/TensorFlow compatibility wrappers.
 
 TensorFlow is an optional dependency. This module imports cleanly without it,
 but any instantiation of `build_keras_mlp` or `KerasCompatibleMLP` raises
@@ -30,10 +30,7 @@ def build_keras_mlp(
     loss: str = "mean_squared_logarithmic_error",
     input_dim: int = None,
 ):
-    """Build a Sequential Dense+BatchNorm+Dropout stack (regressor).
-
-    Salvaged from OldEnsembling.GetKerasModel. Compiled with Adam.
-    """
+    """Build a Sequential Dense+BatchNorm+Dropout stack (regressor)."""
     if not _HAS_TF:
         raise ImportError(_INSTALL_MSG)
 
@@ -93,7 +90,7 @@ def build_keras_mlp(
 
 
 class KerasCompatibleMLP(BaseEstimator, RegressorMixin):
-    """sklearn wrapper over a Keras Sequential MLP — surface of the old GetKerasRegressor."""
+    """sklearn wrapper over a Keras Sequential MLP."""
 
     def __init__(
         self,

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Tuple
 
-import math
+import numpy as np
 import torch
 import torch.nn as nn
+
 
 class AttentionPooling(nn.Module):
     """
@@ -38,17 +39,15 @@ class AttentionPooling(nn.Module):
         batch_size, max_len, hidden_size = rnn_output.size()
         device = rnn_output.device
 
-        # Compute attention scores
         scores = self.attention(rnn_output).squeeze(-1)  # (batch, seq_len)
 
-        # Create mask for padded positions
+        # Mask padded positions with -inf so softmax assigns them zero weight
         mask = torch.arange(max_len, device=device).unsqueeze(0) >= lengths.unsqueeze(1)
         scores = scores.masked_fill(mask, float("-inf"))
 
-        # Softmax over valid positions
         attention_weights = torch.softmax(scores, dim=1)  # (batch, seq_len)
 
-        # Weighted sum
+        # Weighted sum over time
         context = torch.bmm(attention_weights.unsqueeze(1), rnn_output).squeeze(1)
 
         return context
@@ -58,15 +57,14 @@ class PositionalEncoding(nn.Module):
     """
     Sinusoidal positional encoding for Transformer.
 
-    Adds position information to input embeddings since Transformers
-    have no inherent notion of sequence order.
+    Adds position information to input embeddings since Transformers have no inherent notion of sequence order.
     """
 
     def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.1) -> None:
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        # Create positional encoding matrix
+        # Precompute sin/cos positional encodings (Vaswani et al., 2017)
         position = torch.arange(max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2) * (-np.log(10000.0) / d_model))
 
@@ -87,8 +85,7 @@ class TransformerSequenceEncoder(nn.Module):
     """
     Transformer encoder for variable-length sequences.
 
-    Projects input to hidden_size, applies positional encoding,
-    then runs through TransformerEncoder layers.
+    Projects input to hidden_size, applies positional encoding, then runs through TransformerEncoder layers.
     """
 
     def __init__(
@@ -102,13 +99,9 @@ class TransformerSequenceEncoder(nn.Module):
     ) -> None:
         super().__init__()
 
-        # Project input to hidden_size
         self.input_projection = nn.Linear(input_size, hidden_size)
-
-        # Positional encoding
         self.pos_encoder = PositionalEncoding(hidden_size, dropout=dropout)
 
-        # Transformer encoder layers
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=hidden_size,
             nhead=n_heads,
@@ -119,7 +112,7 @@ class TransformerSequenceEncoder(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # CLS token for classification (learnable)
+        # Learnable CLS token, pooled from output[:, 0] for classification
         self.cls_token = nn.Parameter(torch.randn(1, 1, hidden_size))
 
         self.hidden_size = hidden_size
@@ -142,32 +135,27 @@ class TransformerSequenceEncoder(nn.Module):
         batch_size, max_len, _ = sequences.size()
         device = sequences.device
 
-        # Project to hidden size
         x = self.input_projection(sequences)  # (batch, seq_len, hidden_size)
 
-        # Prepend CLS token
+        # Prepend CLS token so its final state pools whole-sequence context
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # (batch, 1, hidden_size)
         x = torch.cat([cls_tokens, x], dim=1)  # (batch, seq_len+1, hidden_size)
 
-        # Add positional encoding
         x = self.pos_encoder(x)
 
-        # Create attention mask for padded positions (True = ignore)
+        # src_key_padding_mask convention: True = position is padding and must be ignored.
+        # CLS token sits at index 0 and is always valid; lengths counts real tokens, so positions > lengths are padding.
         seq_positions = torch.arange(max_len + 1, device=device).unsqueeze(0)
         padding_mask = seq_positions > lengths.unsqueeze(1)
 
-        # Run through transformer
         x = self.transformer(x, src_key_padding_mask=padding_mask)
 
-        # Return CLS token representation
-        return x[:, 0, :]  # (batch, hidden_size)
+        return x[:, 0, :]  # (batch, hidden_size) - CLS token output
 
 
 class MLPHead(nn.Module):
     """
-    MLP classification/regression head.
-
-    Used by all input modes for final output.
+    MLP classification/regression head used by all input modes for the final output projection.
     """
 
     def __init__(
@@ -200,10 +188,3 @@ class MLPHead(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass returning logits/predictions."""
         return self.mlp(x)
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Lightning Module
-# ----------------------------------------------------------------------------------------------------------------------------
-
-

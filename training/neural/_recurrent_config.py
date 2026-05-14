@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Tuple
 
-import torch
 
 class RNNType(str, Enum):
     """Supported sequence encoder architectures."""
@@ -20,9 +19,9 @@ class RNNType(str, Enum):
 class InputMode(str, Enum):
     """Input data modes for the classifier/regressor."""
 
-    SEQUENCE_ONLY = "sequence"  # Raw time series only
-    FEATURES_ONLY = "features"  # Tabular features only
-    HYBRID = "hybrid"  # Both sequence + features
+    SEQUENCE_ONLY = "sequence"  # raw time series only
+    FEATURES_ONLY = "features"  # tabular features only
+    HYBRID = "hybrid"  # both sequence + features
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -36,46 +35,46 @@ class RecurrentConfig:
     Configuration for recurrent models (classification and regression).
 
     Attributes:
-        input_mode: Which inputs to use (SEQUENCE_ONLY, FEATURES_ONLY, HYBRID)
-        rnn_type: RNN architecture (LSTM, GRU, RNN, TRANSFORMER) - ignored if FEATURES_ONLY
+        input_mode: which inputs to use (SEQUENCE_ONLY, FEATURES_ONLY, HYBRID)
+        rnn_type: RNN architecture (LSTM, GRU, RNN, TRANSFORMER); ignored if FEATURES_ONLY
         hidden_size: RNN hidden state size
-        num_layers: Number of RNN layers
-        bidirectional: Whether to use bidirectional RNN
-        use_attention: Whether to use attention pooling (vs last hidden)
-        n_heads: Number of attention heads (Transformer only)
-        dim_feedforward: Feedforward dimension in transformer
-        mlp_hidden_sizes: Tuple of MLP hidden layer sizes
-        dropout: Dropout probability
-        learning_rate: Learning rate for optimizer
+        num_layers: number of RNN layers
+        bidirectional: whether to use bidirectional RNN
+        use_attention: whether to use attention pooling (vs last hidden)
+        n_heads: number of attention heads (Transformer only)
+        dim_feedforward: feedforward dimension in Transformer
+        mlp_hidden_sizes: tuple of MLP hidden layer sizes
+        dropout: dropout probability
+        learning_rate: learning rate for optimizer
         weight_decay: L2 regularization weight
-        batch_size: Training batch size
-        max_epochs: Maximum training epochs
-        early_stopping_patience: Epochs to wait before early stopping
-        gradient_clip_val: Gradient clipping value
-        precision: Training precision ("16-mixed" for AMP, "32-true" for full)
-        early_stopping_monitor: Metric to monitor ("val_loss" or "val_auprc")
-        use_stratified_sampler: Use weighted sampling for imbalanced data
-        accelerator: Device to use ("auto", "gpu", "cpu")
+        batch_size: training batch size
+        max_epochs: maximum training epochs
+        early_stopping_patience: epochs to wait before early stopping
+        gradient_clip_val: gradient clipping value
+        precision: training precision ("16-mixed" for AMP, "32-true" for full)
+        early_stopping_monitor: metric to monitor ("val_loss" or "val_auprc")
+        use_stratified_sampler: use weighted sampling for imbalanced data
+        accelerator: device to use ("auto", "gpu", "cpu")
         num_workers: DataLoader workers
-        scale_features: Whether to StandardScaler auxiliary features
-        num_classes: Number of output classes (for classification)
+        scale_features: whether to StandardScaler auxiliary features
+        num_classes: number of output classes (for classification)
     """
 
     # Input mode
     input_mode: InputMode = InputMode.HYBRID
 
-    # Sequence Encoder Architecture (ignored if input_mode=FEATURES_ONLY)
+    # Sequence encoder architecture (ignored if input_mode=FEATURES_ONLY)
     rnn_type: RNNType = RNNType.LSTM
     hidden_size: int = 128
     num_layers: int = 2
-    bidirectional: bool = True  # For RNN/LSTM/GRU only
-    use_attention: bool = True  # For RNN/LSTM/GRU only
+    bidirectional: bool = True  # for RNN/LSTM/GRU only
+    use_attention: bool = True  # for RNN/LSTM/GRU only
 
     # Transformer-specific (only used if rnn_type=TRANSFORMER)
     n_heads: int = 4
     dim_feedforward: int = 256
 
-    # MLP Head
+    # MLP head
     mlp_hidden_sizes: Tuple[int, ...] = (256, 128)
     dropout: float = 0.3
 
@@ -98,7 +97,7 @@ class RecurrentConfig:
     scale_features: bool = True
 
     # Output
-    num_classes: int = 2  # For classification; ignored for regression
+    num_classes: int = 2  # for classification; ignored for regression
 
     def __post_init__(self) -> None:
         """Validate configuration."""
@@ -108,10 +107,3 @@ class RecurrentConfig:
             raise ValueError(f"hidden_size must be positive, got {self.hidden_size}")
         if self.num_layers <= 0:
             raise ValueError(f"num_layers must be positive, got {self.num_layers}")
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Dataset
-# ----------------------------------------------------------------------------------------------------------------------------
-
-

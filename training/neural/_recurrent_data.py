@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
-import lightning as L
 from lightning.pytorch import LightningDataModule
 
-from ._recurrent_config import InputMode
+from .base import _ensure_numpy
+from ._recurrent_config import InputMode  # noqa: F401  # re-exported for callers
+
 
 class RecurrentDataset(Dataset):
     """
@@ -35,25 +37,24 @@ class RecurrentDataset(Dataset):
         Initialize dataset.
 
         Args:
-            sequences: List of (seq_len, n_features) arrays, or None
+            sequences: list of (seq_len, n_features) arrays, or None
             aux_features: (n_samples, n_features) array, or None
             labels: (n_samples,) array of labels
             sample_weights: (n_samples,) array of weights, or None
-            is_regression: Whether this is a regression task (affects label dtype)
+            is_regression: whether this is a regression task (affects label dtype)
         """
         self.sequences = sequences
         self._has_sequences = sequences is not None
         self._is_regression = is_regression
 
-        # Convert labels to appropriate dtype.
-        # 2026-05-07: 2-D labels (multilabel, shape (N, K)) need float32
-        # for BCEWithLogitsLoss; 1-D labels (binary/multiclass) need
-        # int64 for CrossEntropyLoss; regression always float32.
+        # Label dtype rules:
+        #   regression               -> float32 (MSELoss)
+        #   2-D labels (multilabel)  -> float32 (BCEWithLogitsLoss expects float matching logits)
+        #   1-D labels (binary/multiclass) -> int64 (CrossEntropyLoss expects class indices)
         labels_np = np.asarray(labels)
         if is_regression:
             self.labels = torch.as_tensor(labels_np, dtype=torch.float32)
         elif labels_np.ndim == 2:
-            # Multilabel: BCE expects float labels matching logits dtype.
             self.labels = torch.as_tensor(labels_np, dtype=torch.float32)
         else:
             self.labels = torch.as_tensor(labels_np, dtype=torch.long)
@@ -69,7 +70,6 @@ class RecurrentDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        """Get a single sample."""
         item: Dict[str, torch.Tensor] = {"labels": self.labels[idx]}
 
         if self._has_sequences:
@@ -86,12 +86,10 @@ class RecurrentDataset(Dataset):
 
 def recurrent_collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
     """
-    Collate function handling variable-length sequences.
-
-    Pads sequences to max length in batch.
+    Collate function handling variable-length sequences. Pads to max length in batch.
 
     Args:
-        batch: List of sample dicts from dataset
+        batch: list of sample dicts from dataset
 
     Returns:
         Collated batch dict with:
@@ -159,21 +157,21 @@ class RecurrentDataModule(LightningDataModule):
         Initialize DataModule.
 
         Args:
-            train_sequences: Training sequences (list of variable-length arrays)
-            train_features: Training tabular features
-            train_labels: Training labels
-            train_sample_weight: Training sample weights
-            val_sequences: Validation sequences
-            val_features: Validation tabular features
-            val_labels: Validation labels
-            val_sample_weight: Validation sample weights
-            test_sequences: Test sequences
-            test_features: Test tabular features
-            test_labels: Test labels
-            batch_size: Batch size for DataLoaders
-            num_workers: Number of workers for DataLoaders
-            is_regression: Whether this is a regression task
-            use_stratified_sampler: Use weighted sampling for imbalanced data
+            train_sequences: training sequences (list of variable-length arrays)
+            train_features: training tabular features
+            train_labels: training labels
+            train_sample_weight: training sample weights
+            val_sequences: validation sequences
+            val_features: validation tabular features
+            val_labels: validation labels
+            val_sample_weight: validation sample weights
+            test_sequences: test sequences
+            test_features: test tabular features
+            test_labels: test labels
+            batch_size: batch size for DataLoaders
+            num_workers: number of workers for DataLoaders
+            is_regression: whether this is a regression task
+            use_stratified_sampler: use weighted sampling for imbalanced data
         """
         super().__init__()
         self.train_sequences = train_sequences
@@ -197,8 +195,8 @@ class RecurrentDataModule(LightningDataModule):
         self.predict_features = None
 
     def setup(self, stage: Optional[str] = None):
-        """Setup datasets for each stage."""
-        pass  # Data is already provided in __init__
+        """Setup datasets for each stage (data is already provided in __init__)."""
+        pass
 
     def train_dataloader(self) -> DataLoader:
         """Return training DataLoader."""
@@ -213,7 +211,8 @@ class RecurrentDataModule(LightningDataModule):
         sampler = None
         shuffle = True
 
-        # Use stratified sampling for imbalanced classification data
+        # Stratified weighted sampling for imbalanced classification data;
+        # sampler is mutually exclusive with shuffle=True in PyTorch DataLoader, hence shuffle=False when sampler is set.
         if self.use_stratified_sampler and not self.is_regression:
             labels = dataset.labels.numpy()
             class_counts = np.bincount(labels)
@@ -310,13 +309,6 @@ class RecurrentDataModule(LightningDataModule):
         sequences: Optional[List[np.ndarray]] = None,
         features: Optional[np.ndarray] = None,
     ):
-        """Setup data for prediction."""
+        """Stage data for prediction."""
         self.predict_sequences = sequences
         self.predict_features = features
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Model Components
-# ----------------------------------------------------------------------------------------------------------------------------
-
-

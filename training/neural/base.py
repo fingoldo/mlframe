@@ -15,16 +15,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# 2026-05-12 (user request): silence the trio of INFO bullets Lightning emits
-# on every trainer init -- "GPU available: True ... TPU/IPU/HPU available:
-# False ... LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]". With composite-target
-# discovery + multi-model suites, these emit 5+ lines per fit, drowning the
-# real signal in production logs. Useful messages from the same loggers --
-# ``Time limit reached``, ``Metric val_MSE improved``, ``Loading best model``
-# -- are PRESERVED via a substring filter rather than blanket WARNING bump.
+
+# Silence the trio of INFO bullets Lightning emits on every trainer init ("GPU available: True ... TPU/IPU/HPU available: False ...
+# LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]"). With composite-target discovery + multi-model suites these emit 5+ lines per fit,
+# drowning the real signal. Useful messages from the same loggers (``Time limit reached``, ``Metric val_MSE improved``, ``Loading
+# best model``) are PRESERVED via a substring filter rather than blanket WARNING bump.
 class _LightningRankZeroNoiseFilter(logging.Filter):
-    """Drop the device-availability bullets that Lightning emits on every
-    trainer init; let everything else through."""
+    """Drop the device-availability bullets that Lightning emits on every trainer init; let everything else through."""
 
     _PATTERNS = (
         "GPU available",
@@ -46,51 +43,43 @@ for _quiet_logger_name in (
 ):
     _quiet_logger = logging.getLogger(_quiet_logger_name)
     # Idempotent attach: skip if already filtered on a prior module import.
-    if not any(
-        isinstance(f, _LightningRankZeroNoiseFilter)
-        for f in _quiet_logger.filters
-    ):
+    if not any(isinstance(f, _LightningRankZeroNoiseFilter) for f in _quiet_logger.filters):
         _quiet_logger.addFilter(_LIGHTNING_NOISE_FILTER)
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
+# stdlib
+import os
+import operator  # picklable comparison functions (needed by ddp_spawn strategy)
+from copy import deepcopy
 from typing import *
 
-import os
-import operator  # for picklable comparison functions (needed by ddp_spawn strategy)
+# third-party
+import numpy as np
+import pandas as pd
+import polars as pl
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-
-import psutil
 import lightning as L
 from pydantic import BaseModel
-
-from lightning import LightningDataModule
 from lightning.pytorch.tuner import Tuner
-
-from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingLR, ReduceLROnPlateau, LambdaLR
-
-from lightning.pytorch.callbacks import Callback, LearningRateFinder
+from lightning.pytorch.callbacks import (
+    Callback,
+    LearningRateFinder,
+    LearningRateMonitor,
+    ModelCheckpoint,
+    StochasticWeightAveraging,
+    TQDMProgressBar,
+)
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping as EarlyStoppingCallback
-from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelPruning, LearningRateMonitor, LearningRateFinder
-from lightning.pytorch.callbacks import ModelCheckpoint, DeviceStatsMonitor, StochasticWeightAveraging, GradientAccumulationScheduler
-from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
-from lightning.pytorch.utilities import rank_zero_only
+from lightning.pytorch.loggers import CSVLogger
+from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
+from sklearn.metrics import accuracy_score, r2_score, root_mean_squared_error
 
-from enum import Enum, auto
-from functools import partial
-import pandas as pd, numpy as np, polars as pl
-
-from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
-from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
+# local
+from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
 from mlframe.metrics import compute_probabilistic_multiclass_error
-
-from sklearn.metrics import r2_score, accuracy_score, root_mean_squared_error
-from copy import deepcopy
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -151,19 +140,28 @@ def to_numpy_safe(tensor: torch.Tensor, cpu: bool = False) -> np.ndarray:
     if not isinstance(tensor, torch.Tensor):
         raise TypeError(f"Expected torch.Tensor, got {type(tensor)}")
 
-    # Ensure tensor is detached and on CPU
     t = tensor.detach()
     if cpu and t.device.type != "cpu":
         t = t.cpu()
 
-    # Handle NumPy-incompatible dtypes
+    # NumPy-incompatible dtypes
     if t.dtype in (torch.bfloat16, torch.float16):
         t = t.to(torch.float32)
     elif t.dtype == torch.complex32:
         t = t.to(torch.complex64)
 
-    # Direct conversion is now safe
     return t.numpy()
+
+
+def _ensure_numpy(arr, dtype: np.dtype = np.float32) -> np.ndarray | None:
+    """Convert DataFrame/Series/array-like to numpy array; passes None through."""
+    if arr is None:
+        return None
+    if hasattr(arr, "to_numpy"):  # Polars DataFrame/Series
+        return arr.to_numpy().astype(dtype)
+    if hasattr(arr, "values"):  # Pandas DataFrame/Series
+        return arr.values.astype(dtype)
+    return np.asarray(arr, dtype=dtype)
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -191,8 +189,8 @@ class PytorchLightningEstimator(BaseEstimator):
         float32_matmul_precision: str = None,
         early_stopping_rounds: int = 100,
     ):
-        # Note: Don't modify swa_params here (e.g., `swa_params or {}`) because sklearn's
-        # clone() requires that constructor parameters are not modified. Handle None later.
+        # Don't modify swa_params here (e.g., `swa_params or {}`) because sklearn's clone() requires constructor parameters not be
+        # modified. Handle None later.
         store_params_in_object(obj=self, params=get_parent_func_args())
 
     def _fit_common(
@@ -212,37 +210,30 @@ class PytorchLightningEstimator(BaseEstimator):
         if fit_params is None:
             fit_params = {}
 
-        # Enable TF32 for float32 matrix multiplication if on GPU
+        # Enable TF32 for float32 matmul if on GPU
         if self.float32_matmul_precision and torch.cuda.is_available():
             assert self.float32_matmul_precision in "highest high medium".split()
             if hasattr(torch, "set_float32_matmul_precision"):
                 torch.set_float32_matmul_precision(self.float32_matmul_precision)
                 logger.info("Enabled float32_matmul_precision=%s", self.float32_matmul_precision)
 
-        # Check validation availability once
         has_validation = eval_set[0] is not None
 
-        # Extract validation sample weights if provided
         eval_sample_weight = fit_params.get("eval_sample_weight")
 
-        # Create datamodule with sample weights
         dm = self.datamodule_class(
             train_features=X,
             train_labels=y,
-            train_sample_weight=sample_weight,  # NEW
+            train_sample_weight=sample_weight,
             val_features=eval_set[0],
             val_labels=eval_set[1],
-            val_sample_weight=eval_sample_weight,  # NEW
+            val_sample_weight=eval_sample_weight,
             **self.datamodule_params,
         )
 
-        # Set classifier-specific attributes
         if isinstance(self, ClassifierMixin):
-            # 2026-05-07: detect multilabel target (2-D y of shape (N, K)).
-            # Multilabel has independent binary labels -- no single
-            # classes_ array; instead store n_labels_ + skip the
-            # np.unique enumeration (which would collapse all labels'
-            # values into one set).
+            # Detect multilabel target (2-D y of shape (N, K)). Multilabel has independent binary labels - no single classes_ array;
+            # instead store n_labels_ + skip the np.unique enumeration (which would collapse all labels' values into one set).
             _y_check = y.values if isinstance(y, pd.Series) else y
             _y_check = np.asarray(_y_check) if not isinstance(_y_check, np.ndarray) else _y_check
             self._is_multilabel = bool(_y_check.ndim == 2 and _y_check.shape[1] >= 1)
@@ -255,10 +246,8 @@ class PytorchLightningEstimator(BaseEstimator):
                 if is_partial_fit and classes is not None:
                     self.classes_ = np.asarray(classes)
                 elif not hasattr(self, "classes_"):
-                    # 2026-05-07: must be ndarray (not list) for numpy fancy
-                    # indexing in evaluation.py::report_probabilistic_model_perf
-                    # (line ``preds = model.classes_[preds]`` fails on list +
-                    # ndarray index). Sklearn convention is classes_ ndarray.
+                    # Must be ndarray (not list) for numpy fancy indexing in evaluation.py::report_probabilistic_model_perf
+                    # (line ``preds = model.classes_[preds]`` fails on list + ndarray index). Sklearn convention is classes_ ndarray.
                     _y_arr = (y.unique() if isinstance(y, pd.Series) else np.unique(y))
                     self.classes_ = np.asarray(sorted(_y_arr))
                 num_classes = len(self.classes_)
@@ -266,19 +255,16 @@ class PytorchLightningEstimator(BaseEstimator):
             num_classes = 1
             self._is_multilabel = False
 
-        # Reset network on fit() to match sklearn convention (fit resets, partial_fit continues).
-        # This ensures each fit() call creates a fresh network with correct input dimensions,
-        # which is critical when feature counts change between training iterations.
+        # Reset network on fit() to match sklearn convention (fit resets, partial_fit continues). Each fit() call must create a
+        # fresh network with correct input dimensions; critical when feature counts change between training iterations.
         if not is_partial_fit:
             self.network = None
-            self.model = None  # Also reset the LightningModule wrapper
+            self.model = None  # also reset the LightningModule wrapper
 
-        # Initialize model if needed (first call to fit or partial_fit)
-        # Use getattr to handle freshly cloned models that don't have network attribute yet
+        # getattr handles freshly cloned models that don't have network attribute yet
         if getattr(self, 'network', None) is None:
             self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)
 
-        # Configure metrics and monitoring
         if num_classes > 1:
             metric_name = "ICE"
             metrics = [MetricSpec(name=metric_name, fcn=compute_probabilistic_multiclass_error, requires_probs=True)]
@@ -286,46 +272,33 @@ class PytorchLightningEstimator(BaseEstimator):
             metric_name = "MSE"
             metrics = [MetricSpec(name=metric_name, fcn=_rmse_metric)]
 
-        # Setup checkpointing with appropriate monitor
         # When no validation data, monitor train_loss instead of train metrics (which may not be logged)
         if has_validation:
             monitor_metric = f"val_{metric_name}"
         else:
             monitor_metric = "train_loss"
 
-        # 2026-05-13 (user request): nest checkpoints + lightning_logs under
-        # a unique per-fit subdir so concurrent / sequential fits don't dump
-        # into a shared project-root ``logs/`` folder and resolve different
-        # runs only by the (unsafe) ``model-val_MSE=0.7555.ckpt`` filename
+        # Nest checkpoints + lightning_logs under a unique per-fit subdir so concurrent / sequential fits don't dump into a shared
+        # project-root ``logs/`` folder and resolve different runs only by the (unsafe) ``model-val_MSE=0.7555.ckpt`` filename
         # collision via Lightning's version counter.
         #
         # Path resolution (in order of preference):
-        #   1. ``self.checkpoint_dir_override`` -- public attribute the
-        #      suite sets to a target-nested path (eg
-        #      ``data/models/{target}/{exp}/regression/{tgt}/{model_file_basename}/``).
-        #      Honoured verbatim.
-        #   2. Auto-derived ``{default_root_dir}/_run_{id(self)}_{ts}`` --
-        #      unique sub-dir under the root; fully isolates concurrent
+        #   1. ``self.checkpoint_dir_override`` - public attribute the suite sets to a target-nested path (eg
+        #      ``data/models/{target}/{exp}/regression/{tgt}/{model_file_basename}/``). Honoured verbatim.
+        #   2. Auto-derived ``{default_root_dir}/_run_{id(self)}_{ts}`` - unique sub-dir under the root; fully isolates concurrent
         #      runs even when no caller plumbing.
-        # ``CSVLogger`` save_dir resolved the same way -- mirror nesting so
-        # the on-disk layout stays uniform per fit.
+        # ``CSVLogger`` save_dir resolved the same way - mirror nesting so the on-disk layout stays uniform per fit.
         _ckpt_root = getattr(self, "checkpoint_dir_override", None)
         if _ckpt_root is None:
             import time as _time
-            _default_root = (
-                self.trainer_params.get("default_root_dir") or "logs"
-            )
-            _ckpt_root = os.path.join(
-                _default_root,
-                f"_run_{id(self)}_{int(_time.time())}",
-            )
+            _default_root = self.trainer_params.get("default_root_dir") or "logs"
+            _ckpt_root = os.path.join(_default_root, f"_run_{id(self)}_{int(_time.time())}")
         os.makedirs(_ckpt_root, exist_ok=True)
 
         checkpointing = BestEpochModelCheckpoint(
             monitor=monitor_metric,
             dirpath=_ckpt_root,
-            # Filename no longer needs the ``model-`` prefix -- the
-            # enclosing dir already identifies the model uniquely.
+            # Filename no longer needs the ``model-`` prefix - the enclosing dir already identifies the model uniquely.
             filename=f"{{{monitor_metric}:.4f}}",
             enable_version_counter=True,
             save_last=False,
@@ -333,20 +306,16 @@ class PytorchLightningEstimator(BaseEstimator):
             mode="min",
         )
 
-        # Configure trainer params - only modify if needed
         trainer_params = self.trainer_params.copy()
         if not has_validation:
             logger.info("No validation data - training without validation")
             trainer_params.update({"num_sanity_val_steps": 0, "limit_val_batches": 0})
 
-        # Set default logger for LearningRateMonitor compatibility.
-        # CSV logs land in the SAME per-fit subdir as the checkpoint so the
-        # entire run's artifacts (ckpt + metrics + LR-monitor csvs) are
-        # co-located under one path; trivially diffable / archivable.
+        # Default logger for LearningRateMonitor compatibility. CSV logs land in the SAME per-fit subdir as the checkpoint so the
+        # entire run's artifacts (ckpt + metrics + LR-monitor csvs) are co-located under one path; trivially diffable / archivable.
         if "logger" not in trainer_params:
             trainer_params["logger"] = CSVLogger(save_dir=_ckpt_root, name="")
 
-        # Build callbacks list
         callbacks = [
             checkpointing,
             TQDMProgressBar(refresh_rate=10),
@@ -374,7 +343,6 @@ class PytorchLightningEstimator(BaseEstimator):
 
         trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 
-        # Initialize model
         with trainer.init_module():
             self.model = self.model_class(network=self.network, metrics=metrics, **self.model_params)
 
@@ -386,7 +354,6 @@ class PytorchLightningEstimator(BaseEstimator):
             except Exception as e:
                 logger.warning(f"Failed to prepare example_input_array: {e}")
 
-        # Tune parameters if requested
         if self.tune_params and not (is_partial_fit and hasattr(self, "_tuned")):
             tuner = Tuner(trainer)
 
@@ -401,11 +368,10 @@ class PytorchLightningEstimator(BaseEstimator):
             if is_partial_fit:
                 self._tuned = True
 
-        # Train
         trainer.fit(model=self.model, datamodule=dm)
 
-        # Extract best epoch from model (set by checkpoint callback, DDP-safe)
-        # Prefer model.best_epoch over callback.best_epoch for distributed training compatibility
+        # Extract best epoch from model (set by checkpoint callback, DDP-safe). Prefer model.best_epoch over callback.best_epoch
+        # for distributed training compatibility.
         if hasattr(self.model, "best_epoch") and self.model.best_epoch is not None:
             self.best_epoch = self.model.best_epoch
             logger.info("Best epoch recorded: %s", self.best_epoch)
@@ -472,7 +438,7 @@ class PytorchLightningEstimator(BaseEstimator):
         """Sets parameters for scikit-learn compatibility."""
         for key, value in params.items():
             if key in ("model_params", "datamodule_params"):
-                setattr(self, key, deepcopy(value))  # Deep copy nested dicts
+                setattr(self, key, deepcopy(value))  # deep copy nested dicts
             elif hasattr(self, key):
                 setattr(self, key, value)
             else:
@@ -498,30 +464,24 @@ class PytorchLightningEstimator(BaseEstimator):
             numpy.ndarray: Model predictions (probabilities for classification, values for regression)
         """
 
-        # Validate that model has been fitted
         if not hasattr(self, "model") or self.model is None:
             raise RuntimeError("Model has not been fitted yet. Call fit() before predict().")
 
-        # Setup prediction data in the datamodule
         if not hasattr(self, "prediction_datamodule") or self.prediction_datamodule is None:
             # Create a minimal datamodule for prediction if not available
             logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
             datamodule = self.datamodule_class(**self.datamodule_params)
 
         # Determine batch size for prediction. Three layers of precedence:
-        #   1. ``batch_size`` arg explicitly passed to predict() -- always wins.
-        #   2. ``datamodule_params["predict_batch_size"]`` -- the suite-level
-        #      knob plumbed through ``train_mlframe_models_suite`` via
-        #      ``hyperparams_config.mlp_predict_batch_size``.
+        #   1. ``batch_size`` arg explicitly passed to predict() - always wins.
+        #   2. ``datamodule_params["predict_batch_size"]`` - the suite-level knob plumbed through ``train_mlframe_models_suite``
+        #      via ``hyperparams_config.mlp_predict_batch_size``.
         #   3. Adaptive resolver based on free memory + input width.
-        # The legacy ``datamodule_params["batch_size"]`` (train batch) is the
-        # last-resort fallback when the resolver fails.
+        # The legacy ``datamodule_params["batch_size"]`` (train batch) is the last-resort fallback when the resolver fails.
         #
-        # 2026-05-12: the legacy fallback was a hardcoded 64, which made
-        # 4M-row predict paths spend minutes on DataLoader overhead for
-        # microseconds of actual MLP compute. The adaptive resolver picks
-        # the biggest batch that fits 25% of free memory at the input width,
-        # clamped to ``[64, 16384]``.
+        # The legacy fallback was a hardcoded 64, which made 4M-row predict paths spend minutes on DataLoader overhead for
+        # microseconds of actual MLP compute. The adaptive resolver picks the biggest batch that fits 25% of free memory at the
+        # input width, clamped to ``[64, 16384]``.
         if batch_size is not None:
             pred_batch_size = int(batch_size)
             _batch_source = "predict argument"
@@ -532,11 +492,8 @@ class PytorchLightningEstimator(BaseEstimator):
                 _batch_source = "datamodule predict_batch_size"
             else:
                 try:
-                    from mlframe.training.mlp_runtime_defaults import (
-                        resolve_mlp_predict_batch_size,
-                    )
-                    # Probe input width when possible -- cheap on numpy / pandas
-                    # / polars. shape[1] is the standard width on all three.
+                    from mlframe.training.mlp_runtime_defaults import resolve_mlp_predict_batch_size
+                    # Probe input width when possible - cheap on numpy / pandas / polars. shape[1] is the standard width on all three.
                     _n_features: Optional[int] = None
                     try:
                         if hasattr(X, "shape") and len(X.shape) >= 2:
@@ -551,29 +508,17 @@ class PytorchLightningEstimator(BaseEstimator):
                     )
                     _batch_source = f"auto n_features={_n_features if _n_features is not None else 'unknown'}"
                 except Exception:
-                    # Resolver failed for any reason -- fall back to the
-                    # train-time batch size (still vastly better than 64 on
-                    # production setups).
-                    _train_batch_hint = self.datamodule_params.get(
-                        "batch_size", 1024
-                    )
+                    # Resolver failed - fall back to the train-time batch size (still vastly better than 64 on production setups).
+                    _train_batch_hint = self.datamodule_params.get("batch_size", 1024)
                     if isinstance(_train_batch_hint, str):
                         _train_batch_hint = 1024
                     pred_batch_size = int(_train_batch_hint)
                     _batch_source = "fallback train batch_size"
-        logger.info(
-            "MLP prediction batch_size=%s (%s)",
-            pred_batch_size,
-            _batch_source,
-        )
+        logger.info("MLP prediction batch_size=%s (%s)", pred_batch_size, _batch_source)
 
-        # Setup prediction dataset
         datamodule.setup_predict(X, batch_size=pred_batch_size)
 
-        # Create prediction trainer with appropriate settings
         if not hasattr(self, "trainer") or self.trainer is None:
-            # logger.warning("No trainer found from training. Creating temporary trainer for prediction.")
-            # Create minimal trainer for prediction
             trainer_params = {
                 "accelerator": "auto",
                 "devices": 1,
@@ -588,20 +533,18 @@ class PytorchLightningEstimator(BaseEstimator):
                 "accelerator": (
                     self.trainer.accelerator.__class__.__name__.replace("Accelerator", "").lower() if hasattr(self.trainer, "accelerator") else "auto"
                 ),
-                "devices": 1,  # Use single device for prediction
+                "devices": 1,  # single device for prediction
                 "logger": False,
                 "enable_checkpointing": False,
                 "enable_progress_bar": False,
             }
 
-            # Override device if specified
             if device is not None:
                 if device.startswith("cuda"):
                     trainer_params["accelerator"] = "cuda"
                 elif device == "cpu":
                     trainer_params["accelerator"] = "cpu"
 
-            # Override precision if specified
             if precision is not None:
                 trainer_params["precision"] = precision
             elif hasattr(self.trainer, "precision"):
@@ -609,7 +552,6 @@ class PytorchLightningEstimator(BaseEstimator):
 
             prediction_trainer = L.Trainer(**trainer_params)
 
-        # Ensure model is in eval mode and warn if not
         if self.model.training:
             logger.warning("Model was in training mode during prediction. Switching to eval mode.")
             self.model.eval()
@@ -620,7 +562,6 @@ class PytorchLightningEstimator(BaseEstimator):
                 logger.warning("Compiled model's original module was in training mode. Switching to eval mode.")
                 self.model._orig_mod.eval()
 
-        # Run prediction using Lightning's batched prediction
         try:
             predictions = prediction_trainer.predict(
                 model=self.model,
@@ -632,17 +573,14 @@ class PytorchLightningEstimator(BaseEstimator):
 
         self.trainer = None
 
-        # Concatenate batch predictions into single array
         if len(predictions) == 0:
             raise RuntimeError("No predictions were generated. Check your data and model.")
 
         # Handle different return types from predict_step
         if isinstance(predictions[0], torch.Tensor):
-            # Direct tensor outputs
             predictions = torch.cat(predictions, dim=0)
             predictions = to_numpy_safe(predictions, cpu=True)
         elif isinstance(predictions[0], np.ndarray):
-            # Already numpy arrays
             predictions = np.concatenate(predictions, axis=0)
         else:
             raise TypeError(f"Unexpected prediction type: {type(predictions[0])}")
@@ -668,13 +606,11 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # For regression, return raw predictions (squeeze to 1D for single-target regression)
         if isinstance(self, RegressorMixin):
-            # Squeeze last dimension if it's 1 (single-target regression)
             if predictions.ndim == 2 and predictions.shape[1] == 1:
                 predictions = predictions.squeeze(axis=1)
             return predictions
 
-        # For classification in the base class, return probabilities
-        # (PytorchLightningClassifier will override to return labels)
+        # Base class returns probabilities for classification; PytorchLightningClassifier overrides to return labels.
         return predictions
 
     def score(self, X, y, sample_weight: Optional[np.ndarray] = None) -> float:
@@ -775,7 +711,7 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
         self.best_epoch: Optional[int] = None
         self.best_score: Optional[float] = None
 
-        # Determine comparison operator (using operator module for pickling support)
+        # operator module used for pickling support
         if mode == "min":
             self.monitor_op = operator.lt
             self.best_score = float("inf")
@@ -793,18 +729,15 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
         """
         super().on_validation_end(trainer, pl_module)
 
-        # Get the current value of the monitored metric
         current_score = trainer.callback_metrics.get(self.monitor)
 
         if current_score is None:
             logger.warning(f"Monitor metric '{self.monitor}' not found in callback_metrics.")
             return
 
-        # Convert to float in case it's a tensor
         if isinstance(current_score, torch.Tensor):
             current_score = current_score.item()
 
-        # Check if it's the new best
         if self.monitor_op(current_score, self.best_score):
             self.best_score = current_score
             self.best_epoch = trainer.current_epoch
