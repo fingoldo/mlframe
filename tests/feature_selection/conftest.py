@@ -2,11 +2,39 @@
 Shared fixtures for feature_selection tests.
 Used by both test_wrappers.py and test_filters.py
 """
+import os
 
 import pytest
 import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
+
+
+# Fast-mode flag: when MLFRAME_FAST=1 (or "true"/"yes"), parametric / loop-heavy tests collapse to a single representative case so the suite runs
+# in a fraction of full-suite time during local dev iteration. Each fast-mode-aware test still hits every code branch with one input.
+IS_FAST_MODE = os.environ.get("MLFRAME_FAST", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def fast_subset(seq, n: int = 1):
+    """Return the first ``n`` items of ``seq`` when ``MLFRAME_FAST=1``; otherwise return ``seq`` unchanged.
+
+    Use to slim parametric coverage for fast-mode iteration:
+        @pytest.mark.parametrize("cv_n", fast_subset([2, 3, 5, 10]))
+    Returns a list so pytest's parametrize can introspect it; sequences shorter than ``n`` pass through unchanged.
+    """
+    items = list(seq)
+    if IS_FAST_MODE and len(items) > n:
+        return items[:n]
+    return items
+
+
+# Marker for tests that are too slow to run under fast mode (e.g. multi-thousand-row benches, multi-seed h2h vs sklearn). Test bodies stay
+# untouched; the collection hook below skips them when MLFRAME_FAST=1.
+def _register_slow_marker(config):
+    config.addinivalue_line(
+        "markers",
+        "slow: skip when MLFRAME_FAST=1 (heavy bench / multi-seed / etc.)",
+    )
 
 
 # Register `no_xdist` marker. The marker alone is a no-op without the
@@ -18,16 +46,18 @@ def pytest_configure(config):
         "markers",
         "no_xdist: skip when pytest-xdist is collecting workers in parallel",
     )
+    _register_slow_marker(config)
 
 
 def pytest_collection_modifyitems(config, items):
-    dist = getattr(config.option, "dist", "no")
-    if dist == "no":
-        return
     skip_xdist = pytest.mark.skip(reason="requires sequential execution (numba cache lock)")
+    skip_slow = pytest.mark.skip(reason="MLFRAME_FAST=1 set; slow-marked test skipped for fast iteration")
+    dist = getattr(config.option, "dist", "no")
     for item in items:
-        if "no_xdist" in item.keywords:
+        if dist != "no" and "no_xdist" in item.keywords:
             item.add_marker(skip_xdist)
+        if IS_FAST_MODE and "slow" in item.keywords:
+            item.add_marker(skip_slow)
 
 
 # ================================================================================================
