@@ -19,14 +19,14 @@ logger = logging.getLogger(__name__)
 class UniversalCallback:
     def __init__(
         self,
-        time_budget_mins: Optional[float] = None,
-        reporting_interval_mins: Optional[float] = 1.0,
-        patience: Optional[int] = None,
+        time_budget_mins: float | None = None,
+        reporting_interval_mins: float | None = 1.0,
+        patience: int | None = None,
         min_delta: float = 0.0,
-        monitor_dataset: Optional[str] = None,
-        monitor_metric: Optional[str] = None,
-        mode: Optional[str] = None,
-        stop_flag: Optional[Callable[[], bool]] = None,
+        monitor_dataset: str | None = None,
+        monitor_metric: str | None = None,
+        mode: str | None = None,
+        stop_flag: Callable[[], bool] | None = None,
         ndigits: int = 6,
         verbose: int = 1,
     ) -> None:
@@ -38,7 +38,7 @@ class UniversalCallback:
         self.best_metric = None
         self.first_iteration = True
         self.iterations_since_improvement = 0
-        self.metric_history: Dict[str, Dict[str, List[float]]] = {}
+        self.metric_history: dict[str, dict[str, list[float]]] = {}
         self.stop_flag = stop_flag if stop_flag is not None else lambda: False
 
         # Call super().__init__() to ensure proper MRO chain initialization.
@@ -61,7 +61,7 @@ class UniversalCallback:
             self.last_reporting_ts = self.start_time
             logger.info("Training started. Timer initiated. RAM usage %.1fGB.", get_own_memory_usage())
 
-    def update_history(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
+    def update_history(self, metrics_dict: dict[str, dict[str, float]]) -> None:
         for dataset in metrics_dict:
             if dataset not in self.metric_history:
                 self.metric_history[dataset] = {}
@@ -102,7 +102,7 @@ class UniversalCallback:
             logger.warning(f"Unsure about correct optimization mode for metric={name}, using min for now.")
             return "min"  # fallback default
 
-    def set_default_monitor_metric(self, metrics_dict: Dict[str, Dict[str, float]]) -> None:
+    def set_default_monitor_metric(self, metrics_dict: dict[str, dict[str, float]]) -> None:
         if self.monitor_dataset not in metrics_dict:
             raise ValueError(f"Monitor dataset '{self.monitor_dataset}' not found in metrics.")
         available_metrics = list(metrics_dict[self.monitor_dataset].keys())
@@ -206,7 +206,7 @@ class XGBoostCallback(UniversalCallback):
         super().__init__(**kwargs)
         self.monitor_dataset = self.monitor_dataset or "validation_0"
 
-    def after_iteration(self, model: xgb.Booster, epoch: int, evals_log: Dict[str, Dict[str, List[float]]]) -> bool:
+    def after_iteration(self, model: xgb.Booster, epoch: int, evals_log: dict[str, dict[str, list[float]]]) -> bool:
         if self.first_iteration:
             self.on_start()
             self.first_iteration = False

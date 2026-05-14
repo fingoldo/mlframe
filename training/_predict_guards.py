@@ -90,7 +90,7 @@ def _ensure_lgbm_gets_pandas(model: Any, X: Any, method: str) -> Any:
 # 2. CB val Pool cache (shared with trainer._maybe_get_or_build_cb_pool)
 # ═══════════════════════════════════════════════════════════════════════════
 
-_CB_VAL_POOL_CACHE: Dict[tuple, Any] = {}
+_CB_VAL_POOL_CACHE: dict[tuple, Any] = {}
 """Module-level cache: (id, cols, shape) → catboost.Pool for val frames.
 
 Populated at fit time by ``trainer._maybe_get_or_build_cb_pool``;
@@ -99,7 +99,7 @@ is imported by trainer.py so both paths share state.
 """
 
 
-def _cb_val_pool_cache_lookup(X: Any, method: str) -> Optional[Any]:
+def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
     """Two-stage CB val Pool cache lookup.
 
     **Why**: CB's sklearn wrapper short-circuits rebuild on
@@ -151,7 +151,7 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Optional[Any]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _recover_cb_feature_names(model: Any) -> Tuple[List[str], List[str]]:
+def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
     """Extract (cat_features, text_features) from a fitted CatBoost model.
 
     At predict time the original Python-side lists aren't available;
@@ -225,7 +225,7 @@ def _cb_polars_to_pandas(
 
 
 def _apply_nan_guard(
-    model: Any, X: Any, fn: Callable, n_rows: Optional[int],
+    model: Any, X: Any, fn: Callable, n_rows: int | None,
 ) -> np.ndarray:
     """One-shot impute + scale when X contains NaN and the model is
     NaN-intolerant (raw LinearRegression / Ridge without a Pipeline).

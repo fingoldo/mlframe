@@ -49,8 +49,8 @@ def _coerce_label_for_cb_pool(target):
 
 def _polars_schema_diagnostic(
     df: pl.DataFrame,
-    cat_features: Optional[List[str]] = None,
-    text_features: Optional[List[str]] = None,
+    cat_features: list[str] | None = None,
+    text_features: list[str] | None = None,
     max_cols_logged: int = 30,
 ) -> str:
     """Render a per-column diagnostic of a Polars DataFrame for CatBoost
@@ -83,8 +83,8 @@ def _polars_schema_diagnostic(
 
         cat_set = set(cat_features or [])
         text_set = set(text_features or [])
-        lines: List[str] = []
-        enum_cat_cols: List[str] = []  # the smoking-gun list
+        lines: list[str] = []
+        enum_cat_cols: list[str] = []  # the smoking-gun list
 
         cat_cols = [c for c in df.columns if c in cat_set]
         # Prioritise cat_features for full logging (they're the usual
@@ -115,7 +115,7 @@ def _polars_schema_diagnostic(
             lines.append(f"    ... +{len(cat_cols) - max_cols_logged} more cat_features")
 
         # Roll-up of everything else by dtype.
-        other_dtype_counts: Dict[str, int] = {}
+        other_dtype_counts: dict[str, int] = {}
         for col in df.columns:
             if col in cat_set or col in text_set:
                 continue
@@ -127,7 +127,7 @@ def _polars_schema_diagnostic(
 
         if text_set:
             text_cols_in_df = [c for c in df.columns if c in text_set]
-            text_dt_counts: Dict[str, int] = {}
+            text_dt_counts: dict[str, int] = {}
             for col in text_cols_in_df:
                 dt_str = str(df.schema.get(col))
                 text_dt_counts[dt_str] = text_dt_counts.get(dt_str, 0) + 1
@@ -155,7 +155,7 @@ def _polars_schema_diagnostic(
         return f"  (schema diagnostic failed: {_diag_err!r})"
 
 
-def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]] = None) -> "List[str]":
+def _polars_nullable_categorical_cols(df: Any, cat_features: list[str] | None = None) -> list[str]:
     """Return cat_feature column names with ``null_count > 0`` -- the
     set of columns that trigger CatBoost 1.2.x's Polars fastpath
     dispatch miss.
@@ -227,7 +227,7 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: Optional[List[str]]
         return []
 
 
-def _polars_df_has_null_in_categorical(df: Any, cat_features: Optional[List[str]] = None) -> bool:
+def _polars_df_has_null_in_categorical(df: Any, cat_features: list[str] | None = None) -> bool:
     """Boolean wrapper around ``_polars_nullable_categorical_cols`` --
     kept for callers that only need the yes/no answer."""
     return bool(_polars_nullable_categorical_cols(df, cat_features=cat_features))
@@ -235,7 +235,7 @@ def _polars_df_has_null_in_categorical(df: Any, cat_features: Optional[List[str]
 
 def _polars_fill_null_in_categorical(
     df: Any,
-    nullable_cat_cols: "List[str]",
+    nullable_cat_cols: list[str],
     sentinel: str = "__MISSING__",
 ) -> Any:
     """Apply ``pl.col(c).fill_null(sentinel)`` across the listed
@@ -283,7 +283,7 @@ def _polars_fill_null_in_categorical(
         return df
 
 
-def _recover_cb_feature_names(model: Any) -> Tuple[List[str], List[str]]:
+def _recover_cb_feature_names(model: Any) -> tuple[list[str], list[str]]:
     """Extract (cat_features, text_features) as column-name lists from a
     fitted CatBoost model.
 
@@ -450,7 +450,7 @@ from ._pipeline_helpers import (  # noqa: E402,F401
     _PRE_PIPELINE_CACHE_MAX,
 )
 
-_CB_POOL_CACHE: "Dict[tuple, Any]" = {}
+_CB_POOL_CACHE: dict[tuple, Any] = {}
 _CB_POOL_CACHE_MAX_ENTRIES = 16  # hard cap per cache; ring-buffer eviction oldest-first
 
 
@@ -462,7 +462,7 @@ _CB_POOL_CACHE_MAX_ENTRIES = 16  # hard cap per cache; ring-buffer eviction olde
 # doesn't change during a process lifetime (no hot-plug under CUDA), so
 # a one-shot cache is safe. Override with ``MLFRAME_NO_GPU_INFO_CACHE=1``
 # if a future use case needs live re-probing.
-_GPU_INFO_CACHE: "Optional[list]" = None
+_GPU_INFO_CACHE: list | None = None
 
 
 def _cached_gpu_info() -> list:
@@ -496,8 +496,8 @@ def _maybe_get_or_build_cb_pool(
     model: Any,
     train_df: Any,
     train_target: Any,
-    fit_params: Dict[str, Any],
-) -> Optional[Any]:
+    fit_params: dict[str, Any],
+) -> Any | None:
     """Return a cached/freshly-built ``catboost.Pool`` when the CB reuse
     fast-path applies; return None otherwise (caller falls back to
     ``model.fit(train_df, y, **fit_params)``).
@@ -733,7 +733,7 @@ def _maybe_get_or_build_cb_pool(
     return pool
 
 
-def _maybe_rewrite_eval_set_as_cb_pool(fit_params: Dict[str, Any]) -> None:
+def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
     """Fix Orch-1 (2026-04-21): for CatBoost, rewrite
     ``fit_params['eval_set']`` from ``[(val_df, val_target)]`` /
     ``(val_df, val_target)`` to a cached ``catboost.Pool`` in place.

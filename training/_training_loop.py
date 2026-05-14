@@ -291,7 +291,7 @@ class _PostHocMultiCalibratedModel:
     List[(N, 2)] output to (N, K) before calibration.
     """
 
-    def __init__(self, base, calibrator: "_PerClassIsotonicCalibrator", target_type, classes_=None):
+    def __init__(self, base, calibrator: _PerClassIsotonicCalibrator, target_type, classes_=None):
         object.__setattr__(self, "base", base)
         object.__setattr__(self, "_calibrator", calibrator)
         object.__setattr__(self, "_target_type", target_type)
@@ -356,11 +356,11 @@ def _train_model_with_fallback(
     model: Any,
     model_obj: Any,
     model_type_name: str,
-    train_df: Union[pd.DataFrame, np.ndarray],
-    train_target: Union[pd.Series, np.ndarray],
-    fit_params: Dict[str, Any],
+    train_df: pd.DataFrame | np.ndarray,
+    train_target: pd.Series | np.ndarray,
+    fit_params: dict[str, Any],
     verbose: bool = False,
-) -> Tuple[Any, Optional[int]]:
+) -> tuple[Any, int | None]:
     """Train model with automatic GPU->CPU fallback on OOM errors.
 
     Parameters

@@ -150,7 +150,7 @@ from ._data_helpers import (  # noqa: E402,F401
     _validate_trusted_path, get_function_param_names,
 )
 
-_CB_POOL_CACHE: "Dict[tuple, Any]" = {}
+_CB_POOL_CACHE: dict[tuple, Any] = {}
 
 logger = logging.getLogger(__name__)
 
@@ -356,13 +356,13 @@ def train_and_evaluate_model(
     metrics: MetricsConfig,
     reporting: ReportingConfig,
     naming: NamingConfig,
-    output: Optional[OutputConfig] = None,
-    confidence: Optional[ConfidenceAnalysisConfig] = None,
-    predictions: Optional[PredictionsContainer] = None,
-    train_od_idx: Optional[np.ndarray] = None,
-    val_od_idx: Optional[np.ndarray] = None,
-    trainset_features_stats: Optional[dict] = None,
-    trusted_root: Optional[str] = None,
+    output: OutputConfig | None = None,
+    confidence: ConfidenceAnalysisConfig | None = None,
+    predictions: PredictionsContainer | None = None,
+    train_od_idx: np.ndarray | None = None,
+    val_od_idx: np.ndarray | None = None,
+    trainset_features_stats: dict | None = None,
+    trusted_root: str | None = None,
 ):
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
 
@@ -1098,13 +1098,13 @@ def _configure_mlp_params(
 
 
 def _configure_recurrent_params(
-    recurrent_models: List[str],
-    recurrent_config: Optional[Any],
-    sequences_train: Optional[List[np.ndarray]],
-    features_train: Optional[Union[pd.DataFrame, np.ndarray]],
+    recurrent_models: list[str],
+    recurrent_config: Any | None,
+    sequences_train: list[np.ndarray] | None,
+    features_train: pd.DataFrame | np.ndarray | None,
     use_regression: bool,
     metamodel_func: callable = None,
-) -> Dict[str, dict]:
+) -> dict[str, dict]:
     """Configure recurrent model (LSTM, GRU, RNN, Transformer) parameters.
 
     Parameters
@@ -1222,7 +1222,7 @@ def configure_training_params(
     embedding_features: list = None,
     fairness_features: Sequence = None,
     cont_nbins: int = 6,
-    fairness_min_pop_cat_thresh: Union[float, int] = 1000,
+    fairness_min_pop_cat_thresh: float | int = 1000,
     use_robust_eval_metric: bool = False,
     sample_weight: np.ndarray = None,
     prefer_gpu_configs: bool = True,
@@ -1232,7 +1232,7 @@ def configure_training_params(
     rfecv_model_verbose: bool = True,
     prefer_cpu_for_lightgbm: bool = True,
     prefer_cpu_for_xgboost: bool = False,
-    xgboost_verbose: Union[int, bool] = False,
+    xgboost_verbose: int | bool = False,
     cb_fit_params: dict = None,
     prefer_calibrated_classifiers: bool = True,
     default_regression_scoring: dict = None,
@@ -1248,13 +1248,13 @@ def configure_training_params(
     use_flaml_zeroshot: bool = False,
     _precomputed_fairness_subgroups: dict = None,
     mlframe_models: list = None,
-    linear_model_config: "LinearModelConfig" = None,
+    linear_model_config: LinearModelConfig = None,
     callback_params: dict = None,
-    train_df_size_bytes: Optional[float] = None,
-    val_df_size_bytes: Optional[float] = None,
-    target_type: Optional["TargetTypes"] = None,
-    n_classes: Optional[int] = None,
-    multilabel_dispatch_config: Optional["MultilabelDispatchConfig"] = None,
+    train_df_size_bytes: float | None = None,
+    val_df_size_bytes: float | None = None,
+    target_type: TargetTypes | None = None,
+    n_classes: int | None = None,
+    multilabel_dispatch_config: MultilabelDispatchConfig | None = None,
 ):
     """Configure training parameters for all model types.
 
