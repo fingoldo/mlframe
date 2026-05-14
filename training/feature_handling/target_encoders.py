@@ -187,9 +187,9 @@ class LeakageSafeEncoder:
 
     def fit(
         self,
-        X_column: Union[np.ndarray, list, "pd.Series", "pl.Series"],  # noqa: F821
-        y: Union[np.ndarray, list, "pd.Series", "pl.Series"],  # noqa: F821
-    ) -> "LeakageSafeEncoder":
+        X_column: Union[np.ndarray, list, pd.Series, pl.Series],  # noqa: F821
+        y: Union[np.ndarray, list, pd.Series, pl.Series],  # noqa: F821
+    ) -> LeakageSafeEncoder:
         """Fit the FULL-train statistic for transform on held-out rows.
         ``fit_transform`` runs the OOF loop in addition to this.
         """
@@ -217,7 +217,7 @@ class LeakageSafeEncoder:
 
     def transform(
         self,
-        X_column: Union[np.ndarray, list, "pd.Series", "pl.Series"],  # noqa: F821
+        X_column: Union[np.ndarray, list, pd.Series, pl.Series],  # noqa: F821
     ) -> np.ndarray:
         """Encode held-out rows using the full-train statistic.
 

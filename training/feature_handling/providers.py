@@ -131,7 +131,7 @@ class EmbeddingProvider(BaseModel):
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_uri(cls, uri: str) -> "EmbeddingProvider":
+    def from_uri(cls, uri: str) -> EmbeddingProvider:
         """Parse a URL-style URI into the structured form.
 
         Grammar::
@@ -205,7 +205,7 @@ class EmbeddingProvider(BaseModel):
     # Secrets resolution
     # ------------------------------------------------------------------
 
-    def resolve_secrets(self) -> "EmbeddingProvider":
+    def resolve_secrets(self) -> EmbeddingProvider:
         """Return a copy with ``"env:VAR"`` references replaced by the
         actual env var value. Raises ``KeyError`` if any referenced
         env var is unset (loud-failure mode -- silent missing-secret

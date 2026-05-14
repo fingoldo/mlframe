@@ -61,7 +61,7 @@ class FrozenFeaturizerProvider(Protocol):
     @property
     def embedding_dim(self) -> int: ...
 
-    def fit(self, train_texts: Sequence[str]) -> "FrozenFeaturizerProvider":
+    def fit(self, train_texts: Sequence[str]) -> FrozenFeaturizerProvider:
         """No-op for pretrained models; for FastText etc. trains the
         embedding model on the supplied corpus. Returns self for
         chaining."""

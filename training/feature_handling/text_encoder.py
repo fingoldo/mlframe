@@ -152,7 +152,7 @@ class TextColumnEncoder:
     # Fit / transform
     # ------------------------------------------------------------------
 
-    def fit(self, train_df: Any) -> "TextColumnEncoder":
+    def fit(self, train_df: Any) -> TextColumnEncoder:
         """Fit the vectoriser on the column extracted from
         ``train_df``. Returns self."""
         texts = _column_to_string_list(train_df, self.column)
@@ -160,7 +160,7 @@ class TextColumnEncoder:
         self._fitted = True
         return self
 
-    def transform(self, df: Any) -> "sp.csr_matrix":
+    def transform(self, df: Any) -> sp.csr_matrix:
         """Apply the fitted vectoriser to ``df[self.column]``. Returns
         a sparse CSR matrix.
         """
@@ -174,7 +174,7 @@ class TextColumnEncoder:
         # both return scipy.sparse.csr_matrix.
         return self._vectorizer.transform(texts)
 
-    def fit_transform(self, train_df: Any) -> "sp.csr_matrix":
+    def fit_transform(self, train_df: Any) -> sp.csr_matrix:
         texts = _column_to_string_list(train_df, self.column)
         out = self._fit_vectorizer(texts, also_transform=True)
         self._fitted = True

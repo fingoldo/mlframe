@@ -96,7 +96,7 @@ class CustomHandler:
         their workflow."""
         return f"custom:{self.column}:{type(self.params.transformer).__name__}:{self.params.output_kind}"
 
-    def fit(self, df: Any, y: Optional[Any] = None) -> "CustomHandler":
+    def fit(self, df: Any, y: Optional[Any] = None) -> CustomHandler:
         column_data = self._extract_column(df)
         if y is not None:
             try:

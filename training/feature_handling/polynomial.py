@@ -69,7 +69,7 @@ class PolynomialFeatureExpander:
 
     # ------------------------------------------------------------------
 
-    def fit(self, X: Any, feature_names: Optional[List[str]] = None) -> "PolynomialFeatureExpander":
+    def fit(self, X: Any, feature_names: Optional[List[str]] = None) -> PolynomialFeatureExpander:
         """Fit on a numeric ndarray-like (n_samples, n_features)."""
         X_np = np.asarray(X, dtype=np.float32)
         if X_np.ndim != 2:

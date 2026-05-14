@@ -15,7 +15,7 @@ audits:
   Python" generic CUDA error so the halve-batch retry loop doesn't
   spin forever after a driver crash (round-3 chaos C4).
 
-* :func:`long_path_safe` -- prepends the ``\\?\`` UNC marker on
+* :func:`long_path_safe` -- prepends the ``\\?\\`` UNC marker on
   Windows so cache paths longer than 260 chars don't ``FileNotFoundError``
   through ``os.replace`` (round-3 chaos C7).
 """
@@ -55,7 +55,7 @@ def _read_cgroup_memory_limit_bytes() -> Optional[int]:
     # cgroup v2
     if os.path.exists(_CGROUP_V2_MAX):
         try:
-            with open(_CGROUP_V2_MAX, "r") as f:
+            with open(_CGROUP_V2_MAX) as f:
                 value = f.read().strip()
             if value == "max":
                 return None
@@ -65,7 +65,7 @@ def _read_cgroup_memory_limit_bytes() -> Optional[int]:
     # cgroup v1
     if os.path.exists(_CGROUP_V1_LIMIT):
         try:
-            with open(_CGROUP_V1_LIMIT, "r") as f:
+            with open(_CGROUP_V1_LIMIT) as f:
                 limit = int(f.read().strip())
             if limit >= _CGROUP_V1_UNLIMITED_SENTINEL:
                 return None
@@ -186,7 +186,7 @@ _LONG_PATH_PREFIX = "\\\\?\\"
 
 
 def long_path_safe(path: str) -> str:
-    """On Windows, prepend the ``\\?\`` UNC marker to bypass the
+    """On Windows, prepend the ``\\?\\`` UNC marker to bypass the
     260-char ``MAX_PATH`` ceiling so deep cache directories don't
     blow up at ``os.replace`` time. No-op on POSIX.
 

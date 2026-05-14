@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 @dataclass
 class _ProviderEntry:
     """Per-signature registry entry."""
-    provider: "FrozenFeaturizerProvider"
+    provider: FrozenFeaturizerProvider
     refcount: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
     is_loaded: bool = False  # True after first successful acquire()
@@ -67,8 +67,8 @@ class _ProviderEntry:
 # Module-level state
 # =====================================================================
 
-_REGISTRY: "weakref.WeakValueDictionary[str, _ProviderEntry]" = weakref.WeakValueDictionary()
-_LRU_HARD: "OrderedDict[str, _ProviderEntry]" = OrderedDict()
+_REGISTRY: weakref.WeakValueDictionary[str, _ProviderEntry] = weakref.WeakValueDictionary()
+_LRU_HARD: OrderedDict[str, _ProviderEntry] = OrderedDict()
 _REGISTRY_LOCK = threading.Lock()
 _PREWARM_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mlframe-prewarm")
 _PREWARM_FUTURES: dict = {}  # signature -> Future
@@ -157,9 +157,9 @@ def _bump_lru(signature: str, entry: _ProviderEntry, keep_n: int) -> None:
 
 @contextlib.contextmanager
 def acquire_provider(
-    provider: "FrozenFeaturizerProvider",
+    provider: FrozenFeaturizerProvider,
     cache_cfg,
-) -> Iterator["FrozenFeaturizerProvider"]:
+) -> Iterator[FrozenFeaturizerProvider]:
     """Context-manager around provider load + refcount.
 
     Usage::
@@ -213,7 +213,7 @@ def acquire_provider(
 # =====================================================================
 
 
-def prewarm(provider: "FrozenFeaturizerProvider") -> Future:
+def prewarm(provider: FrozenFeaturizerProvider) -> Future:
     """Schedule provider weight load on a background thread.
 
     Round-3 chaos C3: the previous naked ``threading.Thread`` swallowed
@@ -250,7 +250,7 @@ def prewarm(provider: "FrozenFeaturizerProvider") -> Future:
     return new_fut
 
 
-def wait_prewarm(provider: "FrozenFeaturizerProvider", timeout: float = 600.0) -> None:
+def wait_prewarm(provider: FrozenFeaturizerProvider, timeout: float = 600.0) -> None:
     """Block until the prewarm Future for ``provider.signature``
     finishes. Surfaces any exception (with full traceback) to the
     caller. No-op if no prewarm was scheduled.

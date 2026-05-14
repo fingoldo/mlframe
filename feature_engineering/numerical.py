@@ -66,7 +66,7 @@ def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
     try:
         hist, bin_edges = histogram(arr, bins=bins)  # np.histogram(arr, bins=bins, density=True)
         ent = -(hist * np.log(hist + 1e-60)).sum()
-    except Exception as e:
+    except Exception:
         return np.nan
     return ent
 
@@ -1155,7 +1155,7 @@ def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
     """
     try:
         params = dist.fit(data, method=method)
-    except Exception as e:
+    except Exception:
         return default_dist_responses[dist.name] + (np.nan, np.nan)
     else:
         dist_fitted = dist(*params)

@@ -81,7 +81,7 @@ class FrozenEmbeddingParams(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
     kind: Literal["frozen_text_embedding"] = "frozen_text_embedding"
-    provider: Optional["EmbeddingProvider"] = None
+    provider: Optional[EmbeddingProvider] = None
     pool: Literal["cls", "mean", "max"] = "mean"
     max_length: int = 512
     batch_size: Union[int, Literal["auto"]] = "auto"

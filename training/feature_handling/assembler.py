@@ -131,7 +131,7 @@ class AssembledMatrix:
     ``feature_names`` always carries the FULL list of names in the
     final concatenated order (sparse_block names first, then dense_block).
     """
-    sparse_block: Optional["sp.csr_matrix"]
+    sparse_block: Optional[sp.csr_matrix]
     dense_block: Optional[np.ndarray]
     feature_names: List[str]
     routing_applied: List[str]  # human-readable trace for debugging
@@ -151,7 +151,7 @@ class AssembledMatrix:
 
 
 def _apply_svd(
-    sparse_mat: "sp.csr_matrix",
+    sparse_mat: sp.csr_matrix,
     n_components: int,
     column: str,
     model_kind: str,
@@ -238,7 +238,7 @@ def assemble_for_model(
 
     if model_kind in ("cb", "xgb", "lgb") or accepts_sparse(model_kind):
         # ---- Two-track concat -------------------------------------
-        sparse_mat: Optional["sp.csr_matrix"] = None
+        sparse_mat: Optional[sp.csr_matrix] = None
         sparse_names: List[str] = []
         if sparse_blocks:
             stacked = sp.hstack(

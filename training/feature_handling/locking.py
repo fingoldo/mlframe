@@ -83,7 +83,7 @@ class PIDAwareFileLock:
         self._lock: Optional[_BaseFileLock] = None
         self._held = False
 
-    def __enter__(self) -> "PIDAwareFileLock":
+    def __enter__(self) -> PIDAwareFileLock:
         if not _FILELOCK_AVAILABLE:
             # Optional-dep absent path: act as a no-op so the cache layer
             # can still degrade gracefully. The cache layer also has its
@@ -165,7 +165,7 @@ class PIDAwareFileLock:
 
     def _read_holder_pid(self) -> Optional[int]:
         try:
-            with open(self._meta_path(), "r") as f:
+            with open(self._meta_path()) as f:
                 return int(f.read().strip())
         except (FileNotFoundError, ValueError):
             return None

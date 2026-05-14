@@ -128,7 +128,7 @@ class FeatureCache:
     ):
         self._cfg = cache_cfg
         self._content = content_fingerprint  # required only for disk tier
-        self._mem: "OrderedDict[InMemoryKey, _CacheEntry]" = OrderedDict()
+        self._mem: OrderedDict[InMemoryKey, _CacheEntry] = OrderedDict()
         # Map InMemoryKey -> matching DiskKey so we know where to look
         # / write on the disk tier without re-materialising the full
         # DiskKey from the InMemoryKey on every access.

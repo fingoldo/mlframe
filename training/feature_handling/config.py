@@ -253,7 +253,7 @@ class FeatureHandlingConfig(BaseConfig):
 
     # === Per-model / per-target overrides
     per_model: Dict[str, ModelHandlingOverride] = Field(default_factory=dict)
-    per_target: Dict[str, "FeatureHandlingConfig"] = Field(default_factory=dict)  # round-3 F10 reserved
+    per_target: Dict[str, FeatureHandlingConfig] = Field(default_factory=dict)  # round-3 F10 reserved
 
     # === Mode (round-3 F13)
     mode: Literal["fit", "predict"] = "fit"
@@ -289,7 +289,7 @@ class FeatureHandlingConfig(BaseConfig):
     # ------------------------------------------------------------------
 
     @model_validator(mode="after")
-    def _derive_memory_budgets(self) -> "FeatureHandlingConfig":
+    def _derive_memory_budgets(self) -> FeatureHandlingConfig:
         """Resolve ``memory.budget_gb`` / ``cache.ram_max_gb`` /
         ``cache.ram_reserve_gb`` from system probe when None.
 

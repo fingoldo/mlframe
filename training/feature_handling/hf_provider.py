@@ -131,7 +131,7 @@ class HuggingFaceProvider:
             )
         return self._embedding_dim
 
-    def fit(self, train_texts: Sequence[str]) -> "HuggingFaceProvider":
+    def fit(self, train_texts: Sequence[str]) -> HuggingFaceProvider:
         """No-op for pretrained HF models. Returns self for chaining."""
         return self
 
@@ -360,7 +360,7 @@ class HuggingFaceProvider:
 # ---------------------------------------------------------------------
 
 
-def build_provider(embedding_provider: EmbeddingProvider) -> "HuggingFaceProvider":
+def build_provider(embedding_provider: EmbeddingProvider) -> HuggingFaceProvider:
     """Construct the concrete provider instance for an
     :class:`EmbeddingProvider` config. Phase B handles only ``huggingface``;
     phase J adds the rest (sentence-transformers / openai / ...).

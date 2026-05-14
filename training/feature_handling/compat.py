@@ -188,8 +188,8 @@ def validate_handler_for_model(
 
 def validate_fhc_handlers(
     *,
-    text_specs_per_model: Dict[str, List["TextHandlerSpec"]],
-    cat_specs_per_model: Dict[str, List["CatHandlerSpec"]],
+    text_specs_per_model: Dict[str, List[TextHandlerSpec]],
+    cat_specs_per_model: Dict[str, List[CatHandlerSpec]],
     active_models: Iterable[str],
 ) -> None:
     """FHC-level validator. Walks defaults + per_model overrides for
