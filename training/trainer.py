@@ -110,7 +110,12 @@ from ._model_factories import (  # noqa: E402,F401
 from mlframe.metrics import fast_roc_auc
 from mlframe.feature_selection.wrappers import RFECV
 from pyutilz.pandaslib import get_df_memory_consumption
-from .configs import VALID_LINEAR_MODEL_TYPES as LINEAR_MODEL_TYPES
+from .configs import (
+    DataConfig, TrainingControlConfig, MetricsConfig, ReportingConfig,
+    FeatureImportanceConfig, OutputConfig, NamingConfig,
+    ConfidenceAnalysisConfig, PredictionsContainer, LinearModelConfig,
+    MultilabelDispatchConfig, VALID_LINEAR_MODEL_TYPES as LINEAR_MODEL_TYPES,
+)
 from .helpers import get_training_configs
 
 from ._data_helpers import (  # noqa: E402,F401
