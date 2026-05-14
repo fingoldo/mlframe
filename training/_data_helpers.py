@@ -15,6 +15,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.pipeline import Pipeline
 from sklearn.utils.validation import check_is_fitted
 
 from mlframe.helpers import ensure_no_infinity
