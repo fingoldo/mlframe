@@ -6,6 +6,7 @@ validation, infinity checking, and model info/path setup.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 from os.path import join
