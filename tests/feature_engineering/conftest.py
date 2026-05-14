@@ -2,6 +2,13 @@
 Shared pytest fixtures for feature engineering tests.
 """
 
+import matplotlib
+
+# Set the non-GUI matplotlib backend at COLLECTION time, before any test imports plot_positions
+# / fig.show() etc. Without this the mps plotting tests would crash on headless CI machines
+# or pop interactive windows during local runs.
+matplotlib.use("Agg")
+
 import numpy as np
 import pandas as pd
 import polars as pl

@@ -706,6 +706,127 @@ class TestTimeseriesCoverage:
 
 
 # ============================================================================
+# mps.py - plot/IO branches (matplotlib-Agg + parquet roundtrip)
+# ============================================================================
+
+
+class TestMpsPlotAndIo:
+    """Cover plot_positions / show_mps_regions / safely_compute_mps file-IO branches via the
+    matplotlib-Agg backend (set in conftest) and a tempfile parquet roundtrip."""
+
+    def test_plot_positions_matplotlib_with_raw_prices_and_profits(self):
+        from mlframe.feature_engineering.mps import plot_positions
+        prices = np.linspace(100, 110, 50).tolist()
+        raw = (np.array(prices) + 0.5).tolist()
+        profits = np.linspace(0.0, 0.05, 50).tolist()
+        positions = [1] * 20 + [-1] * 20 + [0] * 10
+        fig = plot_positions(
+            prices=prices, positions=positions, raw_prices=raw, profits=profits,
+            use_plotly=False, figsize=(6, 4),
+        )
+        assert fig is not None
+
+    def test_plot_positions_plotly_with_hover_and_raw(self):
+        from mlframe.feature_engineering.mps import plot_positions
+        prices = np.linspace(100, 110, 30).tolist()
+        raw = (np.array(prices) + 0.2).tolist()
+        profits = np.linspace(0.0, 0.03, 30).tolist()
+        positions = [1] * 30
+        fig = plot_positions(
+            prices=prices, positions=positions, raw_prices=raw, profits=profits,
+            use_plotly=True, figsize=(5, 3),
+        )
+        # Plotly Figure has `add_trace` method - sanity check it's a real plotly fig.
+        assert hasattr(fig, "add_trace")
+
+    def test_show_mps_regions_with_explicit_positions_no_chart(self):
+        from mlframe.feature_engineering.mps import show_mps_regions
+        prices = np.linspace(100, 110, 30)
+        positions = np.array([1] * 29, dtype=np.int8)
+        r = show_mps_regions(
+            prices=prices, positions=positions, show_chart=False,
+        )
+        # When positions is preset, the wrapper does NOT recompute -> profit_quantile stays None.
+        assert r["profit_quantile"] is None
+
+    def test_show_mps_regions_with_chart_matplotlib_path(self):
+        # Force fig.show() through matplotlib-Agg backend so plot path is fully exercised.
+        from mlframe.feature_engineering.mps import show_mps_regions
+        prices = np.linspace(100, 110, 30)
+        r = show_mps_regions(prices=prices, show_chart=True, use_plotly=False, tc=1e-4)
+        assert "positions" in r
+
+    def test_compute_mps_targets_via_parquet_file(self, tmp_path):
+        from mlframe.feature_engineering.mps import compute_mps_targets, safely_compute_mps
+        rng = np.random.default_rng(0)
+        n = 25
+        df = pl.DataFrame({
+            "ts": list(range(n)) + list(range(n)),
+            "secid": ["AAPL"] * n + ["MSFT"] * n,
+            "pr_close": list(rng.uniform(100, 110, n)) + list(rng.uniform(200, 210, n)),
+        })
+        fpath = tmp_path / "prices.parquet"
+        df.write_parquet(str(fpath))
+
+        # Direct call via fpath path
+        res = compute_mps_targets(fpath=str(fpath), sma_size=3)
+        assert res is not None and res.height > 0
+
+        # safely_compute_mps wraps + handles missing files / read errors.
+        res2 = safely_compute_mps(str(fpath), sma_size=3)
+        assert res2 is not None and res2.height > 0
+
+    def test_compute_mps_targets_no_smoothing_path(self, tmp_path):
+        from mlframe.feature_engineering.mps import compute_mps_targets
+        rng = np.random.default_rng(0)
+        df = pl.DataFrame({
+            "ts": list(range(20)),
+            "secid": ["X"] * 20,
+            "pr_close": rng.uniform(100, 110, 20),
+        })
+        # sma_size=0 + ewm_alpha=0 -> basic_expr unchanged (no smoothing branch).
+        res = compute_mps_targets(fo_df=df, sma_size=0, ewm_alpha=0)
+        assert res is not None
+
+
+# ============================================================================
+# basic.py - run_pysr_fe path (requires PySR; gated like the biz_val tests)
+# ============================================================================
+
+
+class TestBasicPysrPath:
+    """Exercise run_pysr_fe via a tiny synthetic polars frame. Skipped when Julia is missing."""
+
+    @pytest.fixture(autouse=True)
+    def _gate_julia(self):
+        import os, shutil
+        # Same gate as test_biz_val_bruteforce: prefer PATH julia, fall back to D:/Julia/bin.
+        julia = shutil.which("julia") or "D:/Julia/bin/julia.exe"
+        if not os.path.isfile(julia):
+            pytest.skip("Julia runtime not available")
+        bindir = os.path.dirname(julia)
+        os.environ["JULIA_EXE"] = julia
+        os.environ["PATH"] = bindir + os.pathsep + os.environ.get("PATH", "")
+        try:
+            import pysr  # noqa: F401
+        except Exception:
+            pytest.skip("pysr import failed")
+
+    def test_run_pysr_fe_polars_basic(self):
+        from mlframe.feature_engineering.basic import run_pysr_fe
+        rng = np.random.default_rng(0)
+        n = 60
+        df = pl.DataFrame({
+            "x0": rng.standard_normal(n),
+            "x1": rng.standard_normal(n),
+            "target_y": rng.standard_normal(n),
+        })
+        # Mini PySR run: tiny so test completes in <60s on cold Julia.
+        model = run_pysr_fe(df, nsamples=n, timeout_mins=1, fill_nans=True)
+        assert model is not None and hasattr(model, "equations_")
+
+
+# ============================================================================
 # bruteforce.py - skip PySR-requiring code, test the helper functions
 # ============================================================================
 

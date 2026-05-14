@@ -23,20 +23,36 @@ warnings.filterwarnings("ignore")
 
 
 def _check_julia():
-    """Return True if Julia is available AND import succeeds."""
-    # Prefer the D: install.
-    for bindir in ("D:/Julia/bin",):
+    """Return True if Julia is available AND pysr imports.
+
+    Tries a list of well-known Windows install locations and also `shutil.which("julia")` so
+    Julia in PATH (e.g. juliaup-managed) is honoured. Previously hard-coded `D:/Julia/bin` and
+    used `os.environ.setdefault("PATH", ...)` which never appended (PATH always exists), so the
+    Julia bindir was never actually exposed to pysr's subprocess - check skipped even when
+    Julia was installed in the standard location.
+    """
+    import shutil
+
+    candidate_exes = []
+    julia_from_path = shutil.which("julia")
+    if julia_from_path:
+        candidate_exes.append(julia_from_path)
+    for bindir in ("D:/Julia/bin", r"C:\\Program Files\\Julia\\bin"):
         julia_exe = os.path.join(bindir, "julia.exe")
         if os.path.isfile(julia_exe):
-            os.environ["JULIA_EXE"] = julia_exe
-            os.environ.setdefault("PATH", bindir + os.pathsep + os.environ.get("PATH", ""))
-            break
-    # Smoke: can pysr import at all?
-    try:
-        import pysr  # noqa: F401
-        return True
-    except (ImportError, subprocess.CalledProcessError, OSError):
-        return False
+            candidate_exes.append(julia_exe)
+
+    for julia_exe in candidate_exes:
+        bindir = os.path.dirname(julia_exe)
+        os.environ["JULIA_EXE"] = julia_exe
+        # Prepend (not setdefault) so pysr finds julia.exe in subprocesses.
+        os.environ["PATH"] = bindir + os.pathsep + os.environ.get("PATH", "")
+        try:
+            import pysr  # noqa: F401
+            return True
+        except (ImportError, subprocess.CalledProcessError, OSError):
+            continue
+    return False
 
 
 _MINI_PYSR = {
