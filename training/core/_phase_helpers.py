@@ -1,15 +1,11 @@
-"""Phase helper functions extracted from ``core/utils.py``.
-
-Plot style overrides, composite discovery metadata, outlier detection,
-Polars conversion, cardinality logging, feature type detection,
-pipeline fitting, train/val/test splitting, data loading.
-"""
+"""Phase helper functions for the training suite."""
 
 from __future__ import annotations
 
 import logging
+import os
 from timeit import default_timer as timer
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -17,14 +13,17 @@ import pandas as pd
 from ..phases import phase
 import polars as pl
 
+if TYPE_CHECKING:
+    from ._training_context import TrainingContext
+
 from sklearn.pipeline import Pipeline
 
 from ._misc_helpers import (
-    _auto_detect_feature_types, _df_shape_str, _drop_cols_df,
+    _auto_detect_feature_types, _cfg_get, _df_shape_str, _drop_cols_df,
     _elapsed_str, _validate_feature_type_exclusivity,
 )
 
-from ..configs import TargetTypes
+from ..configs import PreprocessingExtensionsConfig, TargetTypes
 from ..preprocessing import (
     create_split_dataframes, load_and_prepare_dataframe, preprocess_dataframe,
     save_split_artifacts,
@@ -36,10 +35,18 @@ from ..utils import (
 from ..strategies import get_strategy, get_polars_cat_columns
 from ..splitting import make_train_test_split
 from ..pipeline import apply_preprocessing_extensions, fit_and_transform_pipeline, prepare_df_for_catboost
-from ._misc_helpers import _auto_detect_feature_types, _df_shape_str, _elapsed_str, _validate_feature_type_exclusivity
 from ._setup_helpers import _apply_outlier_detection_global, _compute_fairness_subgroups, _convert_dfs_to_pandas
 
 logger = logging.getLogger(__name__)
+
+_DRIFT_SKIP_CARD = 100_000
+_DRIFT_MIN_ABS = 5
+_DRIFT_MIN_FRAC = 0.05
+_DEFAULT_TEST_SIZE = 0.15
+_DEFAULT_VAL_SIZE = 0.15
+_DEFAULT_LTR_ITER = 200
+_DEFAULT_LTR_LR = 0.1
+_DEFAULT_LTR_ES = 30
 
 def _apply_plot_style_overrides(
     *,
@@ -48,34 +55,14 @@ def _apply_plot_style_overrides(
     plotly_template=None,
     verbose: bool = False,
 ) -> None:
-    """Apply ``ReportingConfig.matplotlib_style`` + ``matplotlib_rcparams`` +
-    ``plotly_template`` to the process-wide plot-backend state.
+    """Apply matplotlib/plotly style overrides process-wide.
 
-    Two independent backends:
-    - matplotlib: ``plt.style.use(...)`` + ``plt.rcParams.update(...)``.
-    - plotly:     ``plotly.io.templates.default = ...``.
-
-    Each backend's override is applied independently -- the user can set
-    just matplotlib, just plotly, or both (recommended for a unified look:
-    eg ``matplotlib_style="ggplot"`` + ``plotly_template="ggplot2"``).
-
-    All fields are ``None``-defaultable -- when None, the user's
-    pre-suite settings are preserved untouched. When set, they're
-    applied PROCESS-WIDE (mirrors the ``plot_inline_display`` plumbing
-    semantics: "set once, see everywhere"; not reverted on suite exit so
-    a long-running notebook session sees the override across cells).
-
-    Failures are logged at WARNING level and don't abort the suite --
-    matplotlib raises ``OSError`` on unknown style names, plotly raises
-    ``ValueError`` on unknown template names; both surface as one-line
-    warnings so the operator notices the typo without losing the whole
-    training run.
+    Overrides are not reverted on suite exit. Failures log at WARNING and don't abort.
     """
     if (matplotlib_style is None and not matplotlib_rcparams
             and plotly_template is None):
         return
 
-    # matplotlib branch
     if matplotlib_style is not None or matplotlib_rcparams:
         try:
             import matplotlib.pyplot as plt
@@ -116,7 +103,6 @@ def _apply_plot_style_overrides(
                         matplotlib_rcparams, _rc_err,
                     )
 
-    # plotly branch
     if plotly_template is not None:
         try:
             import plotly.io as pio
@@ -146,27 +132,7 @@ def _defensive_copy_and_expand_multilabel_regression(
     composite_target_discovery_config,
     metadata,
 ):
-    """Defensive copy of ``target_by_type`` + multilabel-target expansion.
-
-    Two responsibilities:
-
-    1. **Defensive shallow copy** of the outer dict + per-type inner dicts so
-       composite-discovery's downstream additions to
-       ``target_by_type[REGRESSION]`` don't mutate the FTE-cached value (FTE
-       can be shared across suite invocations).
-
-    2. **R3.18 multilabel expansion** (per-target strategy). 2-D regression
-       targets of shape ``(n, K)`` get expanded into K independent 1-D
-       targets named ``{target}_out{j}``. Caller can opt out via
-       ``multilabel_strategy="skip"`` to preserve the legacy "skip with
-       metadata note" behaviour. Records the expansion in
-       ``metadata["multilabel_target_expansion"]``.
-
-    Returns
-    -------
-    new_target_by_type: dict
-        Defensive copy with multilabel sub-targets substituted in.
-    """
+    """Defensive copy of ``target_by_type`` with optional 2-D regression target expansion into 1-D sub-targets."""
     new_target_by_type = {
         tt: dict(named) if isinstance(named, dict) else named
         for tt, named in target_by_type.items()
@@ -177,7 +143,7 @@ def _defensive_copy_and_expand_multilabel_regression(
     ))
     if ml_strategy == "per_target":
         expanded = dict(new_target_by_type[TargetTypes.REGRESSION])
-        ml_expanded_map: Dict[str, List[str]] = {}
+        ml_expanded_map: dict[str, list[str]] = {}
         for _tn, _tv in list(new_target_by_type[TargetTypes.REGRESSION].items()):
             _arr = np.asarray(_tv)
             if _arr.ndim == 2 and _arr.shape[1] >= 1:
@@ -189,9 +155,7 @@ def _defensive_copy_and_expand_multilabel_regression(
                 expanded.pop(_tn, None)
                 ml_expanded_map[_tn] = sub_names
                 logger.info(
-                    "[CompositeTargetDiscovery] R3.18: multilabel "
-                    "target '%s' (shape=%s) expanded into %d 1-D "
-                    "sub-targets: %s",
+                    "[CompositeTargetDiscovery] multilabel target '%s' (shape=%s) expanded into %d 1-D sub-targets: %s",
                     _tn, _arr.shape, _arr.shape[1], sub_names,
                 )
         new_target_by_type[TargetTypes.REGRESSION] = expanded
@@ -209,38 +173,20 @@ def _init_composite_discovery_metadata(
     mlframe_models,
     metadata,
 ):
-    """Phase 4.6 (Composite-Target Discovery prologue).
+    """Composite-target discovery prologue: init metadata buckets, snapshot env signature, record skip-reasons for non-regression target types.
 
-    Initialises the three composite-discovery metadata buckets
-    (``composite_target_specs``, ``composite_target_failures``,
-    ``composite_target_filter_drops``), snapshots the env signature when
-    discovery is enabled (so v2-loaded suites can detect package drift),
-    detects which model families are on GPU (for the deferred R10c bug-#6
-    warning that fires only when K > 0), and records skip-reasons for every
-    non-regression target type so callers can tell "considered & rejected"
-    apart from "never looked".
-
-    Mutates ``metadata`` in-place.
-
-    Returns
-    -------
-    (gpu_families, kept_spec_total):
-        ``gpu_families`` -- list of model families detected on GPU (empty
-        when discovery disabled); ``kept_spec_total`` -- always 0 here,
-        returned so the caller can keep the running counter as the
-        per-target discovery loop proceeds.
+    Mutates ``metadata`` in-place. Returns ``(gpu_families, kept_spec_total=0)``.
     """
     metadata["composite_target_specs"] = {}
     metadata["composite_target_failures"] = {}
     metadata["composite_target_filter_drops"] = {}
 
-    gpu_families: List[str] = []
+    gpu_families: list[str] = []
     if composite_target_discovery_config.enabled:
         from ..composite import env_signature as _env_sig, detect_gpu_in_use as _detect_gpu
         metadata["composite_target_env_signature"] = _env_sig()
         gpu_families = _detect_gpu(mlframe_models or [])
 
-    # Skip-reasons for non-regression target types.
     for _tt_skip, _named_skip in target_by_type.items():
         if not isinstance(_named_skip, dict):
             continue
@@ -267,46 +213,25 @@ def _init_composite_discovery_metadata(
     return gpu_families, 0
 
 
-def _phase_global_outlier_detection(
-    *,
-    train_df_pd,
-    val_df_pd,
-    train_df_polars,
-    val_df_polars,
-    train_idx,
-    val_idx,
-    target_by_type,
-    outlier_detector,
-    od_val_set,
-    baseline_rss_mb,
-    df_size_mb,
-    metadata,
-    verbose,
-):
-    """Phase 4.5 (Global Outlier Detection, once before model loops).
+def _phase_global_outlier_detection(ctx: TrainingContext) -> None:
+    """Global outlier detection before the model loops.
 
-    Steps:
-    1. Flatten ``target_by_type`` to ``{target_type/target_name: values}`` for
-       the OD class-balance pre-check (so a detector that would eliminate the
-       entire minority class for any classification target gets rejected
-       upfront).
-    2. Run ``_apply_outlier_detection_global`` (handles pandas OD via sklearn,
-       returns boolean masks for train/val).
-    3. Record metadata: pre/post-OD sizes, n_outliers_dropped per split.
-    4. Apply the same boolean mask to the Polars fastpath frames so the
-       Polars-native training loop and the OD-filtered targets stay aligned.
+    Flattens ``target_by_type`` for the OD class-balance pre-check (so a detector that would
+    eliminate the entire minority class gets rejected upfront), applies the OD masks to both
+    pandas and Polars frames so the fastpath stays aligned.
 
-    Returns
-    -------
-    9-tuple:
-        filtered_train_df, filtered_val_df,
-        filtered_train_idx, filtered_val_idx,
-        train_od_idx, val_od_idx,
-        outlier_detection_result (dict),
-        train_df_polars (filtered), val_df_polars (filtered)
+    Mutates ``ctx`` in place: writes filtered_train_df, filtered_val_df, filtered_train_idx,
+    filtered_val_idx, train_od_idx, val_od_idx, outlier_detection_result, train_df_polars, val_df_polars.
     """
+    train_df_pd = ctx.train_df_pd
+    val_df_pd = ctx.val_df_pd
+    train_df_polars = ctx.train_df_polars
+    val_df_polars = ctx.val_df_polars
+    outlier_detector = ctx.outlier_detector
+    verbose = ctx.verbose
+
     _targets_flat_for_classbalance = {}
-    for _tt, _named in target_by_type.items():
+    for _tt, _named in ctx.target_by_type.items():
         if isinstance(_named, dict):
             for _tn, _tv in _named.items():
                 _targets_flat_for_classbalance[f"{_tt}/{_tn}"] = _tv
@@ -314,13 +239,13 @@ def _phase_global_outlier_detection(
      train_od_idx, val_od_idx) = _apply_outlier_detection_global(
         train_df=train_df_pd,
         val_df=val_df_pd,
-        train_idx=train_idx,
-        val_idx=val_idx,
+        train_idx=ctx.train_idx,
+        val_idx=ctx.val_idx,
         outlier_detector=outlier_detector,
-        od_val_set=od_val_set,
+        od_val_set=ctx.od_val_set,
         verbose=verbose,
-        baseline_rss_mb=baseline_rss_mb,
-        df_size_mb=df_size_mb,
+        baseline_rss_mb=ctx.baseline_rss_mb,
+        df_size_mb=ctx.df_size_mb,
         targets_for_classbalance=_targets_flat_for_classbalance or None,
     )
 
@@ -336,7 +261,7 @@ def _phase_global_outlier_detection(
         n_val_post_od = int(val_od_idx.sum()) if val_od_idx is not None else n_val_pre_od
         n_train_dropped = (n_train_pre_od - n_train_post_od) if n_train_pre_od is not None else 0
         n_val_dropped = (n_val_pre_od - n_val_post_od) if (n_val_pre_od is not None and val_od_idx is not None) else 0
-        metadata["outlier_detection"] = {
+        ctx.metadata["outlier_detection"] = {
             "applied": True,
             "n_outliers_dropped_train": int(n_train_dropped),
             "n_outliers_dropped_val": int(n_val_dropped),
@@ -344,7 +269,7 @@ def _phase_global_outlier_detection(
             "val_size_after_od": int(n_val_post_od) if n_val_post_od is not None else None,
         }
     else:
-        metadata["outlier_detection"] = {"applied": False}
+        ctx.metadata["outlier_detection"] = {"applied": False}
 
     # Keep Polars fastpath DFs in sync with OD-filtered targets.
     if train_od_idx is not None and train_df_polars is not None:
@@ -352,73 +277,51 @@ def _phase_global_outlier_detection(
     if val_od_idx is not None and val_df_polars is not None:
         val_df_polars = val_df_polars.filter(pl.Series(val_od_idx))
 
-    return (
-        filtered_train_df, filtered_val_df,
-        filtered_train_idx, filtered_val_idx,
-        train_od_idx, val_od_idx,
-        outlier_detection_result,
-        train_df_polars, val_df_polars,
-    )
+    ctx.filtered_train_df = filtered_train_df
+    ctx.filtered_val_df = filtered_val_df
+    ctx.filtered_train_idx = filtered_train_idx
+    ctx.filtered_val_idx = filtered_val_idx
+    ctx.train_od_idx = train_od_idx
+    ctx.val_od_idx = val_od_idx
+    ctx.outlier_detection_result = outlier_detection_result
+    ctx.train_df_polars = train_df_polars
+    ctx.val_df_polars = val_df_polars
 
 
 def _phase_pandas_conversion_and_cat_prep(
     *,
-    train_df,
-    val_df,
-    test_df,
-    train_df_polars_pre,
-    val_df_polars_pre,
-    test_df_polars_pre,
-    cat_features,
-    was_polars_input,
-    all_models_polars_native,
-    needs_polars_pre_clone,
-    mlframe_models,
-    recurrent_models,
-    rfecv_models,
-    baseline_rss_mb,
-    df_size_mb,
-    verbose,
-):
-    """Phase 4 pre-loop (pandas conversion + CatBoost cat prep + Polars release).
+    train_df: pl.DataFrame | pd.DataFrame | None,
+    val_df: pl.DataFrame | pd.DataFrame | None,
+    test_df: pl.DataFrame | pd.DataFrame | None,
+    train_df_polars_pre: pl.DataFrame | None,
+    val_df_polars_pre: pl.DataFrame | None,
+    test_df_polars_pre: pl.DataFrame | None,
+    cat_features: list[str],
+    was_polars_input: bool,
+    all_models_polars_native: bool,
+    needs_polars_pre_clone: bool,
+    mlframe_models: list[str],
+    recurrent_models: list[str],
+    rfecv_models: list[str],
+    baseline_rss_mb: float,
+    df_size_mb: float,
+    verbose: bool,
+) -> tuple:
+    """Pandas conversion + CatBoost cat prep + Polars release.
 
-    Two main responsibilities:
-
-    1. **Pandas conversion gating**. Skip the polars->pandas conversion entirely
-       when all models are Polars-native (CB/XGB on supported builds) OR when
-       only non-native sklearn models block the fastpath (those do their own
-       lazy conversion later). Forces conversion when recurrent_models or
-       rfecv_models are requested (those paths predate Polars support).
-
-    2. **CatBoost cat-feature prep + size capture**. Calls
-       ``prepare_df_for_catboost`` on the pandas views when actually needed
-       (i.e. when conversion wasn't skipped). Captures Polars-side estimated
-       sizes BEFORE conversion to avoid the pathological pandas
-       ``memory_usage(deep=True)`` scan downstream.
-
-    3. **Post-pandas Polars release**. When a clone was made, frees the
-       post-pipeline Polars frames after conversion -- the Arrow-backed
-       pandas views hold their own buffer references, so the Polars objects
-       are no longer needed (~100 GB peak saved on the user's 4M-row TVT run).
-
-    Returns
-    -------
-    13-tuple:
-        train_df_pd, val_df_pd, test_df_pd,
-        train_df_polars, val_df_polars, test_df_polars,
-        train_df, val_df, test_df (possibly cleared to None on Polars release),
-        train_df_size_bytes_cached, val_df_size_bytes_cached,
-        can_skip_pandas_conv, baseline_rss_mb_refreshed
+    Skips polars->pandas conversion entirely when all models are Polars-native (or when only
+    non-native sklearn models block the fastpath - those do lazy conversion later). Captures
+    Polars-side sizes BEFORE conversion to avoid pandas ``memory_usage(deep=True)`` scans.
+    Releases post-pipeline Polars frames when a clone was made; Arrow-backed pandas views
+    retain their own buffers.
     """
     if verbose:
         logger.info("Zero-copy conversion to pandas...")
 
-    # Pre-pipeline Polars references for the Polars fastpath.
     train_df_polars = train_df_polars_pre
     val_df_polars = val_df_polars_pre
     test_df_polars = test_df_polars_pre
 
-    # Re-resolve strategies locally -- cheap O(M) lookup.
     strategies_for_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
 
     _has_rfecv = bool(rfecv_models)
@@ -429,9 +332,8 @@ def _phase_pandas_conversion_and_cat_prep(
         and (all_models_polars_native or _has_non_native_mlframe_strategy)
     )
 
-    # Pre-conversion Polars size capture (Fix 3B).
-    train_df_size_bytes_cached: Optional[float] = None
-    val_df_size_bytes_cached: Optional[float] = None
+    train_df_size_bytes_cached: float | None = None
+    val_df_size_bytes_cached: float | None = None
     if was_polars_input:
         try:
             if isinstance(train_df, pl.DataFrame):
@@ -482,7 +384,6 @@ def _phase_pandas_conversion_and_cat_prep(
             )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
 
-    # CatBoost cat-feature prep.
     if cat_features and not can_skip_pandas_conv:
         if verbose:
             logger.info("Preparing %d categorical features for CatBoost: %s", len(cat_features), cat_features)
@@ -496,7 +397,7 @@ def _phase_pandas_conversion_and_cat_prep(
             len(cat_features),
         )
 
-    # B2 -- post-pipeline Polars release.
+    # Post-pipeline Polars release: Arrow-backed pandas views retain their own buffers.
     if was_polars_input and needs_polars_pre_clone:
         train_df = val_df = test_df = None
         baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-pipeline Polars release")
@@ -517,37 +418,25 @@ def _phase_pandas_conversion_and_cat_prep(
 
 def _log_cardinality_and_drift_snapshot(
     *,
-    train_df,
-    val_df,
-    test_df,
-    cat_features,
-    text_features,
-    embedding_features,
+    train_df: pl.DataFrame | pd.DataFrame | None,
+    val_df: pl.DataFrame | pd.DataFrame | None,
+    test_df: pl.DataFrame | pd.DataFrame | None,
+    cat_features: list[str],
+    text_features: list[str],
+    embedding_features: list[str],
 ) -> None:
     """Pre-train cardinality + val/test drift logging (pure side-effect).
 
-    Cardinality: without this, a native XGB/CB crash on high-cardinality
-    categoricals leaves us guessing at the input.
-
-    Drift: for time-ordered splits (the common case here), val and test can
-    contain category values that never appeared in train -- XGB 3.x on
-    Windows crashes silently during val IterativeDMatrix construction when
-    this happens (observed 2026-04-20 on prod_jobsdetails). Helper emits a
-    WARNING for any column with non-trivial train-vs-val drift along with a
-    concrete healing suggestion keyed on the train-side cardinality so the
-    operator sees the crash suspect BEFORE the kernel dies.
-
-    Skip if cardinality > 100k (text-sized columns): the anti-join is
-    expensive and unseen-category semantics don't cleanly apply to free-text
-    columns (CB handles them via TF-IDF, XGB drops them).
-
-    Pure-logging helper -- no return value, no mutation of any inputs.
+    Cardinality surfaces the input shape before any native XGB/CB crash on high-cardinality
+    categoricals. Drift detection: XGB 3.x on Windows can crash silently during val
+    IterativeDMatrix construction when val/test contain categories absent from train; we emit
+    a WARNING with a healing suggestion keyed on train-side cardinality. Columns with
+    cardinality > 100k (free-text) are skipped.
     """
     all_cat_cols = list(cat_features or []) + list(text_features or []) + list(embedding_features or [])
     if not (all_cat_cols and train_df is not None):
         return
     try:
-        _DRIFT_SKIP_CARD = 100_000
         is_polars = isinstance(train_df, pl.DataFrame)
         pairs = []
         for c in all_cat_cols:
@@ -585,14 +474,13 @@ def _log_cardinality_and_drift_snapshot(
                 ) or "(none)"
                 logger.info("  Category drift (val/test values missing from train): %s", drift_summary)
 
-                # WARN + healing-suggestion for non-trivial train-vs-val drift.
-                # Test-side drift reported above for visibility but NOT used
-                # in healing decisions (would leak test info into training).
+                # Test-side drift is reported above but NOT used in healing decisions
+                # (would leak test info into training).
                 for c, card_tr, v_only, t_only in drift_rows:
                     if v_only == 0 and t_only == 0:
                         continue
                     v_frac = v_only / max(card_tr, 1)
-                    if v_only >= 5 or v_frac >= 0.05:
+                    if v_only >= _DRIFT_MIN_ABS or v_frac >= _DRIFT_MIN_FRAC:
                         if card_tr >= 1000:
                             _healing = (
                                 f"        suggested actions (pick one):\n"
@@ -635,51 +523,29 @@ def _log_cardinality_and_drift_snapshot(
 
 def _phase_auto_detect_feature_types(
     *,
-    train_df,
-    val_df,
-    test_df,
-    train_df_polars_pre,
-    val_df_polars_pre,
-    test_df_polars_pre,
-    cat_features,
-    cat_features_polars,
-    was_polars_input,
-    all_models_polars_native,
-    pipeline_config,
-    feature_types_config,
-    metadata,
-    verbose,
-):
-    """Phase 3.5 (Auto-detect text + embedding features) of
-    ``train_mlframe_models_suite``.
+    train_df: pl.DataFrame | pd.DataFrame | None,
+    val_df: pl.DataFrame | pd.DataFrame | None,
+    test_df: pl.DataFrame | pd.DataFrame | None,
+    train_df_polars_pre: pl.DataFrame | None,
+    val_df_polars_pre: pl.DataFrame | None,
+    test_df_polars_pre: pl.DataFrame | None,
+    cat_features: list[str],
+    cat_features_polars: list[str],
+    was_polars_input: bool,
+    all_models_polars_native: bool,
+    pipeline_config: Any,
+    feature_types_config: Any,
+    metadata: dict,
+    verbose: bool,
+) -> tuple:
+    """Auto-detect text + embedding features, optionally drop high-card columns, validate exclusivity, one-time Polars string->Categorical cast.
 
-    Steps:
-    1. Run ``_auto_detect_feature_types`` on the pre-pipeline frame (original
-       dtypes) using the pre-pipeline cat_features list + user-declared
-       Polars categoricals.
-    2. When ``use_text_features=False``, drop the high-card columns from the
-       train/val/test splits AND the pre-pipeline clones; capture pre-drop
-       column data for dummy-baselines ``per_group_mean`` downstream.
-    3. Compute ``effective_cat_features`` (raw cat - text/embedding).
-    4. Validate feature-type exclusivity.
-    5. One-time Polars string -> Categorical cast across all frames so XGB's
-       arrow bridge doesn't choke on ``large_string`` later.
-
-    Mutates ``metadata`` in-place with ``columns`` (post-drop) and
-    ``cat_features`` (post-effective).
-
-    Returns
-    -------
-    11-tuple:
-        train_df, val_df, test_df,
-        train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
-        text_features, embedding_features, cat_features,
-        text_emb_set, dropped_high_card_data
+    Mutates ``metadata`` in-place with ``columns`` and ``cat_features``.
     """
-    # Use pre-pipeline DF for auto-detection (original dtypes preserved).
+    # Use pre-pipeline DF so auto-detection sees original dtypes.
     detect_df = train_df_polars_pre if was_polars_input else train_df
     raw_cat_features = list(set((cat_features or []) + (cat_features_polars or [])))
-    # Honor ONLY strictly-user-declared pl.Categorical columns as already-assigned.
+    # Honor only strictly-user-declared pl.Categorical columns as already-assigned.
     if was_polars_input:
         user_polars_cats = [
             c for c, dt in zip(detect_df.columns, detect_df.dtypes)
@@ -691,9 +557,8 @@ def _phase_auto_detect_feature_types(
         detect_df, feature_types_config, user_polars_cats, verbose=verbose,
     )
 
-    # Capture pre-drop column DATA so dummy_baselines per_group_mean can use
-    # these as group keys downstream. Tree models drop them to avoid XGB
-    # QuantileDMatrix OOM, but a simple groupby gives an excellent baseline.
+    # Capture pre-drop column data so dummy_baselines per_group_mean can use these as group
+    # keys downstream (tree models drop them to avoid XGB QuantileDMatrix OOM).
     dropped_high_card_data = {}
     if auto_high_card_drop:
         for _col in auto_high_card_drop:
@@ -732,7 +597,7 @@ def _phase_auto_detect_feature_types(
     cat_features = effective_cat_features
     metadata["cat_features"] = cat_features
 
-    # One-time Polars string->Categorical cast shared across all models.
+    # One-time Polars string->Categorical cast so XGB's arrow bridge doesn't choke on large_string.
     if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding:
         _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
         _keep_as_string = text_emb_set
@@ -766,46 +631,30 @@ def _phase_auto_detect_feature_types(
 
 def _phase_fit_pipeline(
     *,
-    train_df,
-    val_df,
-    test_df,
-    mlframe_models,
-    pipeline_config,
-    preprocessing_config,
-    feature_types_config,
-    preprocessing_extensions,
-    metadata,
-    verbose,
-):
-    """Phase 3 (Pipeline Fitting & Transformation) of ``train_mlframe_models_suite``.
+    train_df: pl.DataFrame | pd.DataFrame | None,
+    val_df: pl.DataFrame | pd.DataFrame | None,
+    test_df: pl.DataFrame | pd.DataFrame | None,
+    mlframe_models: list[str],
+    pipeline_config: Any,
+    preprocessing_config: Any,
+    feature_types_config: Any,
+    preprocessing_extensions: Any,
+    metadata: dict,
+    verbose: bool,
+) -> tuple:
+    """Pipeline fitting and transformation.
 
-    Decomposes datetime columns BEFORE the pre-pipeline clone, saves
-    Polars originals for the fastpath when needed, runs
-    ``fit_and_transform_pipeline`` (categorical encoding + imputation +
-    scaling + ensure_float32), then applies any
-    ``PreprocessingExtensionsConfig`` (custom scaler / poly / dim-reducer).
-
-    Mutates ``metadata`` in-place with ``pipeline``, ``extensions_pipeline``,
-    ``cat_features``, ``columns``.
-
-    Returns
-    -------
-    15-tuple:
-        train_df, val_df, test_df,
-        pipeline, extensions_pipeline,
-        cat_features, cat_features_polars,
-        was_polars_input, all_models_polars_native, polars_pipeline_applied,
-        train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
-        pipeline_config (possibly updated), preprocessing_extensions (possibly normalised)
+    Decomposes datetime columns BEFORE the pre-pipeline clone (otherwise the cloned frames
+    retain raw datetimes that crash numpy/sklearn/CB downstream), saves Polars originals for
+    the fastpath, runs ``fit_and_transform_pipeline``, then applies any
+    ``PreprocessingExtensionsConfig``. Mutates ``metadata`` in-place.
     """
     t0_phase3 = timer()
     if verbose:
         log_phase("PHASE 3: Pipeline Fitting & Transformation")
 
-    # Track if input is Polars before pipeline transformation
     was_polars_input = isinstance(train_df, pl.DataFrame)
 
-    # Resolve strategies once for subsequent polars-native gating (avoids redundant lookups).
     _strategies_for_polars_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
     all_models_polars_native = bool(_strategies_for_polars_check) and all(
         s.supports_polars for s in _strategies_for_polars_check
@@ -818,11 +667,8 @@ def _phase_fit_pipeline(
             if verbose:
                 logger.info("  All models %s support Polars natively -- skipping categorical encoding in pipeline", mlframe_models)
 
-    # 2026-04-24 (fuzz extension): datetime columns must be decomposed
-    # BEFORE the pre-pipeline clone, otherwise ``train_df_polars_pre`` and
-    # friends retain the raw datetime and reach downstream (linear
-    # pre_pipeline, MRMR, sklearn encoders, CB Pool) where numpy /
-    # sklearn / CB all raise on DateTime64DType.
+    # Datetime columns must be decomposed BEFORE the pre-pipeline clone, otherwise the
+    # cloned frames retain raw datetimes and reach downstream where numpy/sklearn/CB raise.
     def _detect_datetime_cols(df_):
         if df_ is None:
             return []
@@ -868,7 +714,6 @@ def _phase_fit_pipeline(
                     methods=_dt_methods,
                 )
 
-    # Save pre-pipeline Polars originals for the Polars fastpath.
     needs_polars_pre_clone = (
         was_polars_input
         and not pipeline_config.skip_categorical_encoding
@@ -910,7 +755,6 @@ def _phase_fit_pipeline(
 
     polars_pipeline_applied = was_polars_input and pipeline_config.prefer_polarsds and pipeline is not None
 
-    # Apply shared sklearn-based extensions
     if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
         preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
     t0_ext = timer()
@@ -945,43 +789,26 @@ def _phase_fit_pipeline(
 
 def _phase_train_val_test_split(
     *,
-    df,
-    target_by_type,
-    timestamps,
-    group_ids,
-    group_ids_raw,
-    artifacts,
-    sequences,
-    split_config,
-    behavior_config,
-    metadata,
-    data_dir,
-    models_dir,
-    target_name,
-    model_name,
-    df_size_mb,
-    verbose,
-):
-    """Phase 2 (Train/Val/Test Splitting) of ``train_mlframe_models_suite``.
+    df: pl.DataFrame | pd.DataFrame | None,
+    target_by_type: dict,
+    timestamps: np.ndarray | None,
+    group_ids: np.ndarray | pd.Series | None,
+    group_ids_raw: np.ndarray | pd.Series | None,
+    artifacts: Any,
+    sequences: list[np.ndarray] | None,
+    split_config: Any,
+    behavior_config: Any,
+    metadata: dict,
+    data_dir: str,
+    models_dir: str,
+    target_name: str,
+    model_name: str,
+    df_size_mb: float,
+    verbose: bool,
+) -> tuple:
+    """Train/val/test splitting with auto-stratification + group-aware splitting.
 
-    Resolves auto-stratification + group-aware splitting flags from the
-    config + extractor side-channels, calls ``make_train_test_split``, saves
-    split artifacts to disk when ``data_dir`` is set, computes fairness
-    subgroups on the pre-split frame, materialises ``train/val/test`` splits
-    of the dataframe + sequences, frees the original df, refreshes the RSS
-    baseline.
-
-    Mutates ``metadata`` in-place with split sizes + train/val/test details.
-
-    Returns
-    -------
-    15-tuple:
-        train_idx, val_idx, test_idx,
-        train_details, val_details, test_details,
-        train_df, val_df, test_df,
-        fairness_subgroups, fairness_features,
-        train_sequences, val_sequences, test_sequences,
-        baseline_rss_mb_refreshed
+    Mutates ``metadata`` in-place with split sizes + per-split details.
     """
     if verbose:
         log_phase("PHASE 2: Train/Val/Test Splitting")
@@ -989,16 +816,8 @@ def _phase_train_val_test_split(
     t0_phase2 = timer()
     if verbose:
         logger.info(f"Making train_val_test split...")
-    # Auto-stratify by target for classification when no timestamps are
-    # available. Without this, the unstratified shuffle path can hand
-    # an unlucky val/test slice with zero minority-class rows for
-    # rare imbalance ratios (fuzz default-seed c0134, seed=99 c0040 --
-    # rare_1pct + binary class produces 50 positives out of 5000;
-    # random 400-row val_shuf can land all-class-0). Stratification
-    # preserves class proportions across train/val/test. Skipped when
-    # timestamps are present (the splitter prefers temporal ordering
-    # there) or for multitarget setups where picking ONE target as
-    # the stratify key is arbitrary.
+    # Auto-stratify by target for single-target classification when no timestamps are present
+    # (without stratification, rare-imbalance shuffles can produce all-class-0 val slices).
     _stratify_y = None
     if timestamps is None and isinstance(target_by_type, dict):
         _classification_targets = []
@@ -1012,33 +831,23 @@ def _phase_train_val_test_split(
                 for _tn, _tv in _named.items():
                     if _tv is not None:
                         _classification_targets.append(_tv)
-        # Multilabel stratification needs the optional ``iterative-
-        # stratification`` package. Skip it to avoid forcing the dep on
-        # users who don't have it (the ``MultilabelStratifiedShuffleSplit``
-        # branch raises ``ModuleNotFoundError`` deep in the splitter).
-        # Single-label classification (binary / multiclass) uses sklearn's
-        # built-in ``StratifiedShuffleSplit`` which is always available.
+        # Multilabel stratification needs the optional ``iterative-stratification`` dep;
+        # skip rather than force it on every user.
         if _has_multilabel:
             _stratify_y = None
         elif len(_classification_targets) == 1:
             try:
                 _arr = np.asarray(_classification_targets[0])
-                # Guard: only stratify when stratification is meaningful --
-                # all classes have at least 2 rows, otherwise sklearn's
-                # StratifiedShuffleSplit raises "least populated class has
-                # only 1 member". Also limit to 1-D targets -- 2-D would
-                # route to the multilabel splitter (already excluded above
-                # but defense in depth).
+                # Only stratify when meaningful: all classes have >=2 rows (sklearn raises
+                # otherwise) and target is 1-D.
                 if _arr.ndim == 1:
                     _u, _c = np.unique(_arr, return_counts=True)
                     if len(_u) >= 2 and _c.min() >= 2:
                         _stratify_y = _arr
             except Exception:
                 _stratify_y = None
-    # Group-aware splitting opt-in. When the extractor produced ``group_ids``
-    # (e.g. ``SimpleFeaturesAndTargetsExtractor(group_field="well_id")``) and
-    # ``split_config.use_groups`` is True (default), route through
-    # ``GroupShuffleSplit`` so that no well straddles train/val/test.
+    # Group-aware splitting opt-in: when the extractor produced ``group_ids`` and
+    # ``split_config.use_groups`` is set, route through GroupShuffleSplit.
     _groups = group_ids if (split_config.use_groups and group_ids is not None and len(group_ids) > 0) else None
     with phase("split_data"):
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
@@ -1051,7 +860,6 @@ def _phase_train_val_test_split(
     if verbose:
         log_ram_usage()
 
-    # Save artifacts
     if data_dir:
         save_split_artifacts(
             train_idx=train_idx,
@@ -1077,7 +885,7 @@ def _phase_train_val_test_split(
         }
     )
 
-    # Pre-compute fairness subgroups from full df BEFORE splitting
+    # Compute fairness subgroups from full df BEFORE splitting.
     fairness_subgroups, fairness_features = _compute_fairness_subgroups(df, behavior_config)
     if verbose:
         if fairness_features and fairness_subgroups is None:
@@ -1085,7 +893,6 @@ def _phase_train_val_test_split(
         elif fairness_subgroups is not None:
             logger.info("Computed %d fairness subgroups", len(fairness_subgroups))
 
-    # Create split dataframes
     train_df, val_df, test_df = create_split_dataframes(
         df=df,
         train_idx=train_idx,
@@ -1096,7 +903,7 @@ def _phase_train_val_test_split(
         logger.info("  Split shapes -- train: %s, val: %s, test: %s", _df_shape_str(train_df), _df_shape_str(val_df), _df_shape_str(test_df))
         logger.info("  PHASE 2 total: %s", _elapsed_str(t0_phase2))
 
-    # Split sequences by train/val/test indices (for recurrent models)
+    # Split sequences by train/val/test indices (for recurrent models).
     train_sequences, val_sequences, test_sequences = None, None, None
     if sequences is not None:
         train_sequences = [sequences[i] for i in train_idx]
@@ -1105,15 +912,10 @@ def _phase_train_val_test_split(
         if verbose:
             logger.info("Split sequences: train=%d, val=%d, test=%d", len(train_sequences), len(val_sequences) if val_sequences else 0, len(test_sequences))
 
-    # Delete original df to free RAM (caller already did ``del df`` after
-    # we return; we still nudge the GC + arena-release here because the
-    # baseline-RSS refresh is meaningful only AFTER the parent frees df).
     if verbose:
         logger.info("Deleting original DataFrame to free RAM...")
 
-    # Caller's `del df` happens after the return; we refresh baseline using
-    # the current RSS (which will reflect the post-del state on the next
-    # ``maybe_clean_ram_and_gpu`` call inside the caller).
+    # Refresh baseline so the next maybe_clean_ram_and_gpu in the caller sees the post-del state.
     baseline_rss_mb = get_process_rss_mb()
     baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-split (del df)")
     if verbose:
@@ -1130,44 +932,27 @@ def _phase_train_val_test_split(
 
 
 def _phase_load_and_preprocess(
+    ctx: TrainingContext,
     *,
-    df,
-    preprocessing_config,
-    features_and_targets_extractor,
-    recurrent_models,
-    sequences,
-    verbose,
-):
-    """Phase 1 (Data Loading & Preprocessing) of ``train_mlframe_models_suite``.
+    features_and_targets_extractor: Any,
+) -> None:
+    """Data loading + features-and-targets extraction + preprocessing.
 
-    Loads the input dataframe (file path or in-memory), runs the
-    features-and-targets extractor to surface ``target_by_type`` +
-    side-channels (timestamps, group ids, sample weights, artifacts), extracts
-    sequences for any recurrent models, then drops the FTE-flagged columns
-    and runs the final preprocessing pass.
-
-    Captures the RAM baseline + DF-size estimate AFTER the FTE so the
-    downstream ``maybe_clean_ram_and_gpu`` calls have a meaningful
-    pre-transient-allocation reference point.
-
-    Returns
-    -------
-    11-tuple:
-        df, target_by_type, group_ids_raw, group_ids, timestamps, artifacts,
-        additional_columns_to_drop, sample_weights, baseline_rss_mb,
-        df_size_mb, sequences
+    Captures the RAM baseline + DF-size estimate AFTER the FTE so the downstream
+    ``maybe_clean_ram_and_gpu`` calls have a meaningful pre-transient-allocation reference.
+    Mutates ``ctx`` in place: writes df, target_by_type, group_ids_raw, group_ids, timestamps,
+    artifacts, additional_columns_to_drop, sample_weights, baseline_rss_mb, df_size_mb, sequences.
     """
+    verbose = ctx.verbose
     if verbose:
         log_phase("PHASE 1: Data Loading & Preprocessing")
 
-    # Load and prepare dataframe
     t0_phase1 = timer()
     with phase("load_and_prepare_dataframe"):
-        df = load_and_prepare_dataframe(df, preprocessing_config, verbose=verbose)
+        df = load_and_prepare_dataframe(ctx.df, ctx.preprocessing_config, verbose=verbose)
     if verbose:
         logger.info("  load_and_prepare_dataframe done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_phase1))
 
-    # Apply features_and_targets_extractor to extract targets
     if verbose:
         logger.info("Create additional features & extracting targets...")
 
@@ -1178,16 +963,13 @@ def _phase_load_and_preprocess(
     if verbose:
         logger.info("  features_and_targets_extractor done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_fte))
 
-    # Capture baseline RSS + DF size NOW -- before any downstream steps that may allocate
-    # transient state (get_sequences, drop_columns, preprocess). Used by
-    # maybe_clean_ram_and_gpu() at later sites to skip ~0.6s gc calls when memory
-    # pressure is low. On 100GB production DFs the growth/free-RAM thresholds trip and
-    # clean_ram fires; on small test DFs all sites are skipped.
+    # Capture baseline RSS + DF size BEFORE downstream transient allocations
+    # (get_sequences, drop_columns, preprocess) so maybe_clean_ram_and_gpu has a stable ref.
     baseline_rss_mb = get_process_rss_mb()
     df_size_mb = estimate_df_size_mb(df)
 
-    # Extract sequences for recurrent models (if not provided directly)
-    if recurrent_models and sequences is None:
+    sequences = ctx.sequences
+    if ctx.recurrent_models and sequences is None:
         extracted_sequences = features_and_targets_extractor.get_sequences(df)
         if extracted_sequences is not None:
             sequences = extracted_sequences
@@ -1200,26 +982,31 @@ def _phase_load_and_preprocess(
     if verbose:
         log_ram_usage()
 
-    # Drop columns AFTER features_and_targets_extractor (columns might be needed by features_and_targets_extractor or created by it)
+    # Drop columns AFTER the extractor: it may consume or create columns.
     df = drop_columns_from_dataframe(
         df,
         additional_columns_to_drop=additional_columns_to_drop,
-        config_drop_columns=preprocessing_config.drop_columns,
+        config_drop_columns=ctx.preprocessing_config.drop_columns,
         verbose=verbose,
     )
 
-    # Preprocess dataframe (handle nulls, infinities, constants, dtypes)
     t0_preproc = timer()
-    df = preprocess_dataframe(df, preprocessing_config, verbose=verbose)
+    df = preprocess_dataframe(df, ctx.preprocessing_config, verbose=verbose)
     if verbose:
         logger.info("  preprocess_dataframe done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_preproc))
         logger.info("  PHASE 1 total: %s", _elapsed_str(t0_phase1))
 
-    return (
-        df, target_by_type, group_ids_raw, group_ids, timestamps,
-        artifacts, additional_columns_to_drop, sample_weights,
-        baseline_rss_mb, df_size_mb, sequences,
-    )
+    ctx.df = df
+    ctx.target_by_type = target_by_type
+    ctx.group_ids_raw = group_ids_raw
+    ctx.group_ids = group_ids
+    ctx.timestamps = timestamps
+    ctx.artifacts = artifacts
+    ctx.additional_columns_to_drop = additional_columns_to_drop
+    ctx.sample_weights = sample_weights
+    ctx.baseline_rss_mb = baseline_rss_mb
+    ctx.df_size_mb = df_size_mb
+    ctx.sequences = sequences
 
 
 def _build_suite_common_params_dict(
@@ -1227,34 +1014,15 @@ def _build_suite_common_params_dict(
     reporting_config,
     preprocessing_config,
     confidence_analysis_config,
-) -> Dict[str, Any]:
-    """Assemble the ``common_params_dict`` carried down through the suite.
-
-    Three sources feed in:
-    - ``reporting_config`` -- dumped via ``.model_dump(exclude=...)`` with
-      ``title_metrics_tokens`` excluded (derived field auto-recomputed by
-      ``_build_configs_from_params``) and ``plot_inline_display`` excluded
-      (consumed at suite level only).
-    - ``preprocessing_config`` -- conditionally adds ``scaler`` / ``imputer`` /
-      ``category_encoder`` when each is non-None.
-    - ``confidence_analysis_config`` -- 8 scalar fields under the
-      ``confidence_analysis_*`` / ``include_confidence_analysis`` prefix.
-
-    Pure read-only function: no side effects, no mutation of the input
-    configs. Tests can unit-check the output dict without spinning up the
-    full suite.
-    """
-    common: Dict[str, Any] = {}
+) -> dict[str, Any]:
+    """Assemble the ``common_params_dict`` carried down through the suite."""
+    common: dict[str, Any] = {}
     common.update(
         reporting_config.model_dump(exclude={
             "title_metrics_tokens",
             "plot_inline_display",
-            # 2026-05-13: matplotlib / plotly style overrides are
-            # consumed at suite-level only (via
-            # ``_apply_plot_style_overrides``); the deep consumer
-            # ``_build_configs_from_params`` does NOT accept these
-            # kwargs. Excluding here so the dump stays compatible with
-            # the train_eval signature.
+            # matplotlib/plotly style overrides are consumed at suite-level only via
+            # _apply_plot_style_overrides; _build_configs_from_params doesn't accept them.
             "matplotlib_style",
             "matplotlib_rcparams",
             "plotly_template",
@@ -1278,125 +1046,55 @@ def _build_suite_common_params_dict(
 
 
 def _maybe_dispatch_to_ltr_ranker_suite(
+    ctx: TrainingContext,
     *,
-    target_type,
-    df,
-    target_name,
-    model_name,
-    features_and_targets_extractor,
-    mlframe_models,
-    use_mlframe_ensembles,
-    ranking_config,
-    split_config,
-    hyperparams_config,
-    reporting_config,
-    output_config,
-    verbose,
-):
-    """If ``target_type == LEARNING_TO_RANK``, route to the focused ranker suite.
+    target_type: Any,
+    df: pl.DataFrame | pd.DataFrame | None,
+    features_and_targets_extractor: Any,
+) -> tuple | None:
+    """If ``target_type == LEARNING_TO_RANK``, route to ``train_mlframe_ranker_suite``.
 
-    The standard classification/regression machinery in ``train_mlframe_models_suite``
-    doesn't know how to consume per-row scores or per-query metrics, so we hand
-    LTR runs off to ``train_mlframe_ranker_suite`` (CB/XGB/LGB native rankers
-    + RRF/Borda ensembling). Helper inspects the bag of config objects, mirrors
-    the relevant fields onto the ranker-suite signature, and returns its result.
-
-    Returns
-    -------
-    ``None`` when the call site is NOT LTR (caller continues with the standard
-    pipeline); the ranker-suite return tuple otherwise (caller forwards verbatim).
+    Returns ``None`` for non-LTR call sites (caller continues with the standard pipeline);
+    the ranker-suite return tuple otherwise.
     """
     if target_type is None or target_type != TargetTypes.LEARNING_TO_RANK:
         return None
     from mlframe.training.ranker_suite import train_mlframe_ranker_suite
 
-    # Resolve a save_dir from output_config if available, else None.
     _save_dir = None
-    if output_config is not None:
-        _data_dir = (
-            output_config.get("data_dir") if isinstance(output_config, dict)
-            else getattr(output_config, "data_dir", None)
-        )
-        _models_dir = (
-            output_config.get("models_dir") if isinstance(output_config, dict)
-            else getattr(output_config, "models_dir", None)
-        ) or "models"
-        if _data_dir:
-            _save_dir = os.path.join(_data_dir, _models_dir, model_name)
+    _data_dir = _cfg_get(ctx.output_config, "data_dir")
+    _models_dir = _cfg_get(ctx.output_config, "models_dir") or "models"
+    if _data_dir:
+        _save_dir = os.path.join(_data_dir, _models_dir, ctx.model_name)
 
-    # Pull split sizes from split_config if provided.
-    _test_size, _val_size = 0.15, 0.15
-    if split_config is not None:
-        _test_size = (
-            split_config.get("test_size", 0.15) if isinstance(split_config, dict)
-            else getattr(split_config, "test_size", 0.15)
-        )
-        _val_size = (
-            split_config.get("val_size", 0.15) if isinstance(split_config, dict)
-            else getattr(split_config, "val_size", 0.15)
-        )
+    _test_size = _cfg_get(ctx.split_config, "test_size", _DEFAULT_TEST_SIZE)
+    _val_size = _cfg_get(ctx.split_config, "val_size", _DEFAULT_VAL_SIZE)
 
-    # Hyperparams from hyperparams_config if provided.
-    _iter, _lr, _es = 200, 0.1, 30
-    _mlp_kwargs = None
-    if hyperparams_config is not None:
-        _iter = (
-            hyperparams_config.get("iterations", 200) if isinstance(hyperparams_config, dict)
-            else getattr(hyperparams_config, "iterations", 200)
-        )
-        _lr = (
-            hyperparams_config.get("learning_rate", 0.1) if isinstance(hyperparams_config, dict)
-            else getattr(hyperparams_config, "learning_rate", 0.1)
-        )
-        _es = (
-            hyperparams_config.get("early_stopping_rounds", 30) if isinstance(hyperparams_config, dict)
-            else getattr(hyperparams_config, "early_stopping_rounds", 30)
-        )
-        # mlp_kwargs forwarded to MLPRanker.__init__ when LTR + 'mlp'
-        # is in mlframe_models. Mirrors the non-LTR mlp_kwargs path
-        # via _configure_mlp_params; users who want to flip
-        # enable_checkpointing, change hidden_layers, etc. for the
-        # ranker MLP should put those keys in
-        # ``hyperparams_config["mlp_kwargs"]``.
-        _mlp_kwargs = (
-            hyperparams_config.get("mlp_kwargs", None) if isinstance(hyperparams_config, dict)
-            else getattr(hyperparams_config, "mlp_kwargs", None)
-        )
+    _iter = _cfg_get(ctx.hyperparams_config, "iterations", _DEFAULT_LTR_ITER)
+    _lr = _cfg_get(ctx.hyperparams_config, "learning_rate", _DEFAULT_LTR_LR)
+    _es = _cfg_get(ctx.hyperparams_config, "early_stopping_rounds", _DEFAULT_LTR_ES)
+    # Forwarded to MLPRanker.__init__ when LTR + 'mlp' is in mlframe_models.
+    _mlp_kwargs = _cfg_get(ctx.hyperparams_config, "mlp_kwargs")
 
-    # Reporting wiring (auto-emit LTR panel grid per (model, split)).
-    _plot_outputs = None
-    _ltr_panels = None
-    if reporting_config is not None:
-        _plot_outputs = (
-            reporting_config.get("plot_outputs") if isinstance(reporting_config, dict)
-            else getattr(reporting_config, "plot_outputs", None)
-        )
-        _ltr_panels = (
-            reporting_config.get("ltr_panels") if isinstance(reporting_config, dict)
-            else getattr(reporting_config, "ltr_panels", None)
-        )
-    _plot_file = None
-    if output_config is not None:
-        _plot_file = (
-            output_config.get("plot_file") if isinstance(output_config, dict)
-            else getattr(output_config, "plot_file", None)
-        )
+    _plot_outputs = _cfg_get(ctx.reporting_config, "plot_outputs")
+    _ltr_panels = _cfg_get(ctx.reporting_config, "ltr_panels")
+    _plot_file = _cfg_get(ctx.output_config, "plot_file")
 
     return train_mlframe_ranker_suite(
         df=df,
-        target_name=target_name,
-        model_name=model_name,
+        target_name=ctx.target_name,
+        model_name=ctx.model_name,
         features_and_targets_extractor=features_and_targets_extractor,
-        mlframe_models=mlframe_models,
-        use_mlframe_ensembles=use_mlframe_ensembles,
-        ranking_config=ranking_config,
+        mlframe_models=ctx.mlframe_models,
+        use_mlframe_ensembles=ctx.use_mlframe_ensembles,
+        ranking_config=ctx.ranking_config,
         test_size=_test_size,
         val_size=_val_size,
         iterations=_iter,
         learning_rate=_lr,
         early_stopping_rounds=_es,
         save_dir=_save_dir,
-        verbose=verbose,
+        verbose=ctx.verbose,
         plot_file=_plot_file,
         plot_outputs=_plot_outputs,
         ltr_panels=_ltr_panels,

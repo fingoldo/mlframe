@@ -3136,13 +3136,15 @@ class TestPolarsNativeFastpath:
         captured_configs = []
         import mlframe.training.core as core_mod
 
-        original_fit = core_mod.fit_and_transform_pipeline
+        # After the monolith->submodule split, ``fit_and_transform_pipeline`` is called from ``_phase_helpers``.
+        from mlframe.training.core import _phase_helpers as _ph_mod
+        original_fit = _ph_mod.fit_and_transform_pipeline
 
         def _spy_pipeline(**kwargs):
             captured_configs.append(kwargs["config"].skip_categorical_encoding)
             return original_fit(**kwargs)
 
-        monkeypatch.setattr(core_mod, "fit_and_transform_pipeline", _spy_pipeline)
+        monkeypatch.setattr(_ph_mod, "fit_and_transform_pipeline", _spy_pipeline)
 
         train_mlframe_models_suite(
             df=pl_df,
@@ -3469,13 +3471,15 @@ class TestPolarsNativeFastpath:
         captured_configs = []
         import mlframe.training.core as core_mod
 
-        original_fit = core_mod.fit_and_transform_pipeline
+        # After the monolith->submodule split, ``fit_and_transform_pipeline`` is called from ``_phase_helpers``.
+        from mlframe.training.core import _phase_helpers as _ph_mod
+        original_fit = _ph_mod.fit_and_transform_pipeline
 
         def _spy_pipeline(**kwargs):
             captured_configs.append(kwargs["config"].skip_categorical_encoding)
             return original_fit(**kwargs)
 
-        monkeypatch.setattr(core_mod, "fit_and_transform_pipeline", _spy_pipeline)
+        monkeypatch.setattr(_ph_mod, "fit_and_transform_pipeline", _spy_pipeline)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,

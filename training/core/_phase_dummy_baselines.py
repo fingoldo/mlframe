@@ -1,10 +1,4 @@
-"""
-Per-target dummy baselines diagnostic.
-
-Computes trivial-baseline floor (mean / median / prior / most_frequent / per_group /
-TS-naive / LTR random_within_query / multilabel per-label-prior) for a single target.
-Reports strongest baseline through the same ``report_model_perf`` pipeline as real models.
-"""
+"""Per-target dummy baselines diagnostic. Computes trivial-baseline floor and reports the strongest baseline through ``report_model_perf``."""
 from __future__ import annotations
 
 import logging
@@ -37,19 +31,18 @@ def run_dummy_baselines(
     filtered_val_idx,
     test_idx,
     timestamps,
-    cat_features: Optional[List[str]],
+    cat_features: list[str] | None,
     dummy_baselines_config,
     quantile_regression_config,
     reporting_config,
-    _dropped_high_card_data: Optional[Dict],
+    _dropped_high_card_data: dict | None,
     train_od_idx,
     val_od_idx,
     plot_file: str,
-    metadata: Dict,
-    target_by_type: Dict,
+    metadata: dict,
+    target_by_type: dict,
     _split_preds_probs,
-) -> Dict:
-    """Run dummy baselines for one target. Returns updated metadata."""
+) -> dict:
     try:
         if not (dummy_baselines_config.enabled and (
             str(target_type) in dummy_baselines_config.apply_to_target_types
@@ -74,8 +67,7 @@ def run_dummy_baselines(
             else None
         )
 
-        # Re-attach high-card cat cols dropped earlier so per_group_mean can use
-        # them as group keys (e.g. well_id with 623 unique values).
+        # Re-attach high-card cat cols dropped earlier so per_group_mean can use them as group keys.
         _dummy_train_X = filtered_train_df
         _dummy_val_X = filtered_val_df
         _dummy_test_X = test_df_pd
@@ -99,7 +91,6 @@ def run_dummy_baselines(
                     _aug_err,
                 )
 
-        # Auto-pick quantile_alphas from QuantileRegressionConfig
         _q_alphas = None
         if str(target_type) == "quantile_regression":
             _q_alphas = list(getattr(
@@ -133,15 +124,13 @@ def run_dummy_baselines(
             cur_target_name, _db_report.table.to_string(),
         )
 
-        # Report strongest dummy through the SAME report_model_perf pipeline
-        # that all real models use. Gated on plot_strongest (default ON).
+        # Report strongest dummy through the same report_model_perf pipeline as real models. Gated on plot_strongest.
         if (getattr(dummy_baselines_config, "plot_strongest", True)
                 and _db_report.strongest is not None):
             try:
                 _strongest_val_raw = _db_report.extras.get("strongest_val_preds")
                 _strongest_test_raw = _db_report.extras.get("strongest_test_preds")
 
-                # Mirror real-model title format so plots aren't anonymous.
                 _dummy_is_composite = is_composite_target_name(cur_target_name)
                 _dummy_mt_tag = "MTRESID" if _dummy_is_composite else "MTTR"
                 try:
@@ -199,8 +188,7 @@ def run_dummy_baselines(
         metadata.setdefault("dummy_baselines", {}) \
             .setdefault(str(target_type), {})[cur_target_name] = _db_report.to_dict()
 
-        # y-scale dummy for composite targets: invert strongest dummy predictions
-        # to y-scale so suite-end verdict block compares both numbers on the same scale.
+        # Invert strongest dummy preds to y-scale so the verdict block compares both numbers on the same scale.
         _specs_for_tt = metadata.get("composite_target_specs", {}).get(str(target_type), {})
         _matching_spec = None
         for _tname_specs in _specs_for_tt.values():
@@ -220,7 +208,7 @@ def run_dummy_baselines(
                 _base_col = _matching_spec["base_column"]
                 _raw_target_col = _matching_spec["target_col"]
                 _raw_y_full = target_by_type.get(target_type, {}).get(_raw_target_col)
-                _y_scale_dummy_metrics: Dict[str, Dict[str, float]] = {}
+                _y_scale_dummy_metrics: dict[str, dict[str, float]] = {}
                 for _split_name, _split_df, _split_idx, _T_preds_key in (
                     ("val", filtered_val_df, filtered_val_idx, "strongest_val_preds"),
                     ("test", test_df_pd, test_idx, "strongest_test_preds"),

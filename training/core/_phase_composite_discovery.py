@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 def run_composite_target_discovery(
     *,
     composite_target_discovery_config,
-    target_by_type: Dict,
-    mlframe_models: Optional[List[str]],
-    metadata: Dict,
+    target_by_type: dict,
+    mlframe_models: list[str] | None,
+    metadata: dict,
     filtered_train_df,
     filtered_train_idx,
     train_df_pd,
@@ -41,9 +41,9 @@ def run_composite_target_discovery(
     val_idx,
     test_idx,
     baseline_diagnostics_config,
-    cat_features: Optional[List[str]],
+    cat_features: list[str] | None,
     verbose: bool,
-) -> Tuple[Dict, Dict]:
+) -> tuple[dict, dict]:
     """Run composite-target discovery for regression targets.
 
     Defensive: target_by_type is shallow-copied before adding entries so the
@@ -67,14 +67,12 @@ def run_composite_target_discovery(
         metadata=metadata,
     )
 
-    # Feature columns from OD-filtered frame for discovery row alignment.
     try:
         _disc_feature_cols = list(filtered_train_df.columns)
     except Exception:
         _disc_feature_cols = list(train_df_pd.columns)
 
-    # filtered_train_df is row-aligned to filtered_train_idx, so discovery gets
-    # a contiguous range using the filtered frame directly as ``df``.
+    # filtered_train_df is row-aligned to filtered_train_idx, so discovery sees a contiguous range.
     _disc_train_idx = np.arange(len(filtered_train_df))
 
     _auto_skip = bool(getattr(
@@ -96,11 +94,8 @@ def run_composite_target_discovery(
                     }]
                 continue
 
-            # Auto-skip on baseline-optimal recommendation AND/OR ablation hint.
-            # BaselineDiagnostics normally runs INSIDE the per-target loop below,
-            # so on first pass the metadata key isn't populated yet. Run an inline
-            # diagnostic here when either signal is enabled; result is cached so
-            # the per-target loop reuses it (saves ~30-60s duplicate ablation).
+            # BaselineDiagnostics normally runs INSIDE the per-target loop; precompute here when auto_skip
+            # or hint is enabled and cache the result so the per-target loop reuses it.
             _use_hint = bool(getattr(
                 composite_target_discovery_config,
                 "use_baseline_diagnostics_hint", False,
@@ -154,7 +149,6 @@ def run_composite_target_discovery(
                         }]
                     continue
 
-            # Subset y to filtered_train_df rows (post split + OD).
             _y_train_aligned = _y_arr[filtered_train_idx]
             if len(_y_train_aligned) != len(filtered_train_df):
                 logger.warning(
@@ -164,7 +158,6 @@ def run_composite_target_discovery(
                 )
                 continue
 
-            # Build working frame: filtered_train_df + target column.
             if isinstance(filtered_train_df, pd.DataFrame):
                 _disc_df = filtered_train_df.copy(deep=False)
                 _disc_df[_tname_disc] = _y_train_aligned
@@ -173,8 +166,7 @@ def run_composite_target_discovery(
                     pl.Series(_tname_disc, _y_train_aligned)
                 )
 
-            # If hint enabled and BD ran, derive per-target config with
-            # ``dominant_features_hint`` from ablation top-K.
+            # If hint enabled and BD ran, derive per-target config with dominant_features_hint from ablation top-K.
             _disc_cfg = composite_target_discovery_config
             if _use_hint and _diag is not None:
                 _hint_top_k = max(1, int(getattr(
@@ -190,9 +182,7 @@ def run_composite_target_discovery(
                     e["feature"] for e in _ablation_sorted[:_hint_top_k]
                     if e.get("feature")
                 ]
-                # Per-hint ablation strength (delta_pct) so discovery can adapt
-                # cap to hint strength: strong hints take all top_k slots, weak
-                # hints fall back to half-slot cap.
+                # Strong hints get all top_k slots; weak hints fall back to half-slot cap inside discovery.
                 _hint_strengths = [
                     float(e.get("delta_pct", 0.0))
                     for e in _ablation_sorted[:_hint_top_k]
@@ -236,7 +226,6 @@ def run_composite_target_discovery(
                 )
                 continue
 
-            # Persist specs, failures, and pre-MI filter drops.
             metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
             metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = (
                 _disc.export_specs()
@@ -250,11 +239,8 @@ def run_composite_target_discovery(
             metadata["composite_target_filter_drops"][str(_tt_disc)][
                 _tname_disc] = _disc.filter_drops()
 
-            # Apply each discovered spec's transform to the FULL row space
-            # (train+val+test). Discovery fitted params on filtered_train_idx only
-            # (leakage discipline); we apply frozen params to all rows so the
-            # per-target training loop has T values for val/test. NaN rows (domain
-            # violations on val/test) get imputed with median(T_train).
+            # Apply frozen (train-fitted) params to ALL rows so the per-target loop has T for val/test.
+            # NaN rows (domain violations on val/test) get imputed with median(T_train).
             from ..composite import get_transform as _get_transform_local
             for _spec in _disc.specs_:
                 _transform = _get_transform_local(_spec.transform_name)
@@ -285,7 +271,6 @@ def run_composite_target_discovery(
                     "to target_by_type[%s].", _spec.name, _tt_disc,
                 )
 
-    # One-liner summary so operators see impact at suite level.
     n_specs_total = sum(
         len(v) for tt_specs in metadata["composite_target_specs"].values()
         for v in tt_specs.values()

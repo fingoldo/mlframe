@@ -1,9 +1,4 @@
-"""
-Phase 6: recurrent model training (LSTM, GRU, RNN, Transformer).
-
-Handles sequence-based models with variable-length support. Neural max_time
-defaults to P95 of prior non-neural model train times.
-"""
+"""Recurrent model training (LSTM, GRU, RNN, Transformer). Neural max_time defaults to P95 of prior non-neural model train times."""
 from __future__ import annotations
 
 import logging
@@ -16,14 +11,15 @@ from sklearn.base import clone
 from ..configs import TargetTypes
 from ..utils import log_phase, log_ram_usage
 from ..trainer import _configure_recurrent_params
+from ._misc_helpers import _compute_neural_max_time
 
 logger = logging.getLogger(__name__)
 
 
 def train_recurrent_models(
     *,
-    models: Dict,
-    recurrent_models: Optional[List[str]],
+    models: dict,
+    recurrent_models: list[str] | None,
     recurrent_config,
     train_sequences,
     val_sequences,
@@ -31,18 +27,15 @@ def train_recurrent_models(
     train_df,
     train_df_pd,
     val_df_pd,
-    target_by_type: Dict,
+    target_by_type: dict,
     train_idx,
     val_idx,
     test_idx,
-    _non_neural_train_times: List[float],
+    _non_neural_train_times: list[float],
     model_name: str,
     verbose: bool,
-) -> Dict:
-    """Train recurrent models across all target types and targets.
-
-    Returns updated models dict.
-    """
+) -> dict:
+    """Train recurrent models across all target types and targets."""
     if not recurrent_models:
         return models
     if train_sequences is None and train_df is None:
@@ -74,12 +67,10 @@ def train_recurrent_models(
                 if verbose:
                     logger.info("Training %s for target %s...", recurrent_model_name, cur_target_name)
 
-                # Extract train/val/test targets
                 train_target = target_values[train_idx] if hasattr(target_values, '__getitem__') else target_values.iloc[train_idx]
                 val_target = target_values[val_idx] if val_idx is not None and hasattr(target_values, '__getitem__') else None
                 test_target = target_values[test_idx] if hasattr(target_values, '__getitem__') else target_values.iloc[test_idx]
 
-                # Convert to numpy if needed
                 if hasattr(train_target, 'to_numpy'):
                     train_target = train_target.to_numpy()
                 elif hasattr(train_target, 'values'):
@@ -96,29 +87,21 @@ def train_recurrent_models(
                 elif hasattr(test_target, 'values'):
                     test_target = test_target.values
 
-                # Clone model for this target
                 model_clone = clone(recurrent_model)
 
-                # Neural max_time from P95 of prior non-neural train times
-                if _non_neural_train_times:
-                    _p95_r = float(np.percentile(_non_neural_train_times, 95))
-                    _max_s_r = max(int(round(_p95_r)), 300)
-                    _dd_r = _max_s_r // 86400
-                    _hh_r = (_max_s_r % 86400) // 3600
-                    _mm_r = (_max_s_r % 3600) // 60
-                    _ss_r = _max_s_r % 60
+                _timeout = _compute_neural_max_time(_non_neural_train_times)
+                if _timeout is not None:
+                    _max_time_dict, _p95_r, _n = _timeout
                     _r_inner = getattr(model_clone, "regressor", model_clone)
                     if hasattr(_r_inner, "trainer_params"):
-                        _r_inner.trainer_params["max_time"] = {
-                            "days": _dd_r, "hours": _hh_r,
-                            "minutes": _mm_r, "seconds": _ss_r,
-                        }
+                        _r_inner.trainer_params["max_time"] = _max_time_dict
                         if verbose:
                             logger.info(
                                 "  [NeuralTimeout] %s max_time=%dh%02dm%02ds "
                                 "(P95 of %d prior non-neural train times: %.0fs)",
-                                recurrent_model_name, _hh_r, _mm_r, _ss_r,
-                                len(_non_neural_train_times), _p95_r,
+                                recurrent_model_name,
+                                _max_time_dict["hours"], _max_time_dict["minutes"], _max_time_dict["seconds"],
+                                _n, _p95_r,
                             )
 
                 try:

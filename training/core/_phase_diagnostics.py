@@ -1,8 +1,6 @@
-"""
-Per-target pre-training diagnostics: label-distribution drift + baseline diagnostics.
+"""Per-target pre-training diagnostics: label-distribution drift + baseline diagnostics.
 
-Both run BEFORE model training so operators catch selection-bias / temporal-prior-shift
-and get a headline-metric estimate without waiting for full model fits.
+Both run before model training so operators catch selection-bias / temporal-prior-shift and get a headline-metric estimate without waiting for full model fits.
 """
 from __future__ import annotations
 
@@ -24,13 +22,10 @@ def run_per_target_diagnostics(
     current_test_target,
     filtered_train_df,
     baseline_diagnostics_config,
-    cat_features: Optional[List[str]],
-    metadata: Dict,
-) -> Dict:
-    """Run drift report + baseline diagnostics for one target. Returns updated metadata."""
-    # Label-distribution drift: per-split P(y) / per-class rate / mean/std.
-    # Logged BEFORE training so operators catch selection-bias without waiting
-    # hours for a miscalibrated model.
+    cat_features: list[str] | None,
+    metadata: dict,
+) -> dict:
+    """Run drift report + baseline diagnostics for one target."""
     _drift_report = compute_label_distribution_drift(
         train_target=current_train_target,
         val_target=current_val_target,
@@ -41,12 +36,9 @@ def run_per_target_diagnostics(
     metadata.setdefault("label_distribution_drift", {}) \
         .setdefault(str(target_type), {})[cur_target_name] = _drift_report
 
-    # Baseline diagnostics: cheap pre-training pass — headline metric, top-K
-    # feature ablation deltas, init_score native-residual baseline. Stored on
-    # metadata so composite-target discovery can gate on composite_recommendation.
+    # Stored on metadata so composite-target discovery can gate on composite_recommendation.
     try:
-        # Reuse cached result if composite-discovery already computed one for
-        # this (target_type, target_name). Saves ~30-60s duplicate ablation.
+        # Reuse cached result if composite-discovery already computed one for this pair (~30-60s saved).
         _existing_bd = (
             metadata.get("baseline_diagnostics", {})
             .get(str(target_type), {})

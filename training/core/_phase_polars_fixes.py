@@ -1,12 +1,8 @@
-"""
-Polars categorical fixes applied once before model training.
+"""Polars categorical fixes applied once before model training.
 
-1. Null-fill: Polars Categorical columns with nulls get ``__MISSING__`` sentinel
-   to prevent CatBoost 1.2.x fused-cpdef ``TypeError`` on null-bearing cats.
-2. Dict alignment: pl.Enum(union) across train/val/test prevents XGB silent
-   process kill when val has unseen categories (different physical codes).
-3. Utf8 cast: String cat_features cast to Categorical so pandas conversion
-   produces ``category`` dtype (not ``object``) for XGB/LGB.
+1. Null-fill with ``__MISSING__`` sentinel (avoids CatBoost 1.2.x fused-cpdef TypeError on null-bearing cats).
+2. Dict alignment via pl.Enum(union) (avoids XGB silent process kill when val has unseen categories with different physical codes).
+3. Utf8 cast to Categorical (so pandas conversion produces ``category`` dtype, not ``object``, for XGB/LGB).
 """
 from __future__ import annotations
 
@@ -20,8 +16,7 @@ logger = logging.getLogger(__name__)
 _DICT_ALIGN_SKIP_CARD = 50_000
 
 
-def _cast_utf8_cats_to_categorical(df_, cat_features: List[str]):
-    """Cast Utf8/String cat_features to pl.Categorical for pandas compat."""
+def _cast_utf8_cats_to_categorical(df_, cat_features: list[str]):
     if not isinstance(df_, pl.DataFrame):
         return df_
     exprs = []
@@ -33,40 +28,28 @@ def _cast_utf8_cats_to_categorical(df_, cat_features: List[str]):
 
 def apply_polars_categorical_fixes(
     *,
-    train_df_polars,
-    val_df_polars,
-    test_df_polars,
-    train_df_pd,
-    val_df_pd,
-    test_df_pd,
-    filtered_train_df,
-    filtered_val_df,
-    cat_features: Optional[List[str]],
+    train_df_polars: pl.DataFrame | None,
+    val_df_polars: pl.DataFrame | None,
+    test_df_polars: pl.DataFrame | None,
+    train_df_pd: Any,
+    val_df_pd: Any,
+    test_df_pd: Any,
+    filtered_train_df: Any,
+    filtered_val_df: Any,
+    cat_features: list[str] | None,
     align_polars_categorical_dicts: bool,
     can_skip_pandas_conv: bool,
     was_polars_input: bool,
     verbose: bool,
-):
-    """Apply null-fill + dict alignment + utf8 cast to Polars cat features.
-
-    Returns updated frames:
-    (train_df_polars, val_df_polars, test_df_polars, train_df_pd, val_df_pd, test_df_pd,
-     filtered_train_df, filtered_val_df)
-    """
-    # -----------------------------------------------------------------
-    # 1. Null-fill: Polars Categorical cat_features with null values trip
-    #    CatBoost 1.2.10's fused-cpdef dispatcher. Fill once here so every
-    #    polars-native strategy gets the same pre-filled frame.
-    #    Single-pass null detection via ``df.null_count()``; fill expr list
-    #    reused across train/val/test for consistent sentinel codes.
+) -> tuple:
+    """Apply null-fill + dict alignment + utf8 cast to Polars cat features."""
+    # 1. Null-fill. Null values in Polars Categorical cat_features trip CatBoost 1.2.10's fused-cpdef dispatcher.
     if train_df_polars is not None:
         from mlframe.training.trainer import (
             _polars_nullable_categorical_cols,
             _polars_fill_null_in_categorical,
         )
-        # Union train+val+test nullable cats. Previously only inspecting train
-        # missed the bug where val had nulls but train didn't (common on
-        # time-ordered splits) -- union ensures fill if ANY split has nulls.
+        # Union across train/val/test: val-only nulls are common on time-ordered splits and must also trigger the fill.
         train_null_cats = set(_polars_nullable_categorical_cols(
             train_df_polars, cat_features=cat_features,
         ))
@@ -102,15 +85,8 @@ def apply_polars_categorical_fixes(
             if test_df_polars is not None:
                 test_df_polars = _polars_fill_null_in_categorical(test_df_polars, nullable_cats)
 
-    # -----------------------------------------------------------------
-    # 2. Align Polars Categorical dicts across train/val/test via pl.Enum.
-    #    Empirically prevents silent process kill on Windows when XGB 3.x
-    #    constructs val IterativeDMatrix with ref=train on large frames.
-    #    pl.Categorical assigns physical codes per-Series (order-of-first-
-    #    occurrence); XGB's native layer treats val's physical codes as
-    #    indices into train's bin structure without re-reading the Arrow
-    #    dict. pl.Enum(list) enforces a shared dict by construction.
-    #    Opt out via ``align_polars_categorical_dicts=False``.
+    # 2. Align dicts across train/val/test via pl.Enum.
+    # pl.Categorical assigns physical codes per-Series (order-of-first-occurrence) and XGB's native layer treats val's physical codes as indices into train's bin structure without re-reading the Arrow dict. pl.Enum(list) enforces a shared dict by construction. Opt out via ``align_polars_categorical_dicts=False``.
     if (train_df_polars is not None and cat_features
             and align_polars_categorical_dicts):
         aligned_cols: list = []
@@ -126,10 +102,7 @@ def apply_polars_categorical_fixes(
             if not is_cat_like:
                 continue
             try:
-                # ONLY train + val contribute to the Enum vocabulary. test
-                # categories MUST NOT leak back -- the held-out test must
-                # represent "truly unseen" data. Test-only categories are
-                # cast with ``strict=False`` -> OOV values land as nulls.
+                # ONLY train + val contribute to the Enum vocabulary - held-out test must remain "truly unseen". Test-only categories cast with ``strict=False`` so OOV values land as nulls.
                 tr_u = train_df_polars.select(pl.col(col).drop_nulls().unique())[col]
                 v_u = val_df_polars.select(pl.col(col).drop_nulls().unique())[col] if val_df_polars is not None else None
                 union = set(tr_u.to_list())
@@ -172,12 +145,7 @@ def apply_polars_categorical_fixes(
                 len(skipped_cols), _DICT_ALIGN_SKIP_CARD, skipped_summary,
             )
 
-    # -----------------------------------------------------------------
-    # 3. Re-point pandas aliases to filled+aligned polars frames.
-    #    When ``can_skip_pandas_conv=True``, train_df_pd / filtered_train_df
-    #    were aliased to the ORIGINAL polars frames BEFORE fill_null /
-    #    Enum-alignment. Re-point now so downstream consumers see the
-    #    sentinel-filled values.
+    # 3. Re-point pandas aliases to filled+aligned polars frames. With ``can_skip_pandas_conv=True``, train_df_pd / filtered_train_df were aliased to the ORIGINAL polars frames before fill_null / Enum-alignment.
     if can_skip_pandas_conv and train_df_polars is not None:
         train_df_pd = train_df_polars
         filtered_train_df = train_df_polars
@@ -187,13 +155,7 @@ def apply_polars_categorical_fixes(
         if test_df_polars is not None:
             test_df_pd = test_df_polars
 
-    # -----------------------------------------------------------------
-    # 4. Cast remaining Utf8/String cat_features to pl.Categorical.
-    #    When input is polars_utf8 and alignment didn't touch the column,
-    #    cat_features stay as pl.Utf8 -> pandas ``object`` (not ``category``).
-    #    XGBClassifier's sklearn wrapper raises ``ValueError: Invalid
-    #    columns: object``. Cast after fill+align so the pandas conversion
-    #    produces ``category`` dtype. Gate on ``was_polars_input``.
+    # 4. Cast remaining Utf8/String cat_features to pl.Categorical so pandas conversion produces ``category`` dtype (XGBClassifier's sklearn wrapper rejects ``object``).
     if was_polars_input and cat_features:
         train_df_polars = _cast_utf8_cats_to_categorical(train_df_polars, cat_features)
         val_df_polars = _cast_utf8_cats_to_categorical(val_df_polars, cat_features)

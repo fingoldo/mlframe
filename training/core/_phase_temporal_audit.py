@@ -1,10 +1,4 @@
-"""
-Phase: temporal target audit batch precompute.
-
-Precomputes temporal target audit once for ALL (target_type, target_name) pairs
-in a single polars multi-aggregation pass. ~5x faster than per-call for N>1 targets
-on >1M-row datasets (benchmarked: 1Mx5 targets, 6.0s loop -> 1.3s batch).
-"""
+"""Temporal target audit batch precompute. Single polars multi-aggregation pass over all (target_type, target_name) pairs (~5x faster than per-call for N>1 targets on >1M rows)."""
 from __future__ import annotations
 
 import logging
@@ -30,9 +24,9 @@ def run_temporal_audit_batch(
     features_and_targets_extractor,
     df,  # may be None if del'd earlier
     timestamps,  # FTE-returned ndarray, main fallback when df column dropped
-    target_by_type: Dict,
+    target_by_type: dict,
     verbose: bool = True,
-) -> Dict[Any, Dict[str, Any]]:
+) -> dict[Any, dict[str, Any]]:
     """Precompute temporal target audit for all targets.
 
     Timestamp resolution order:
@@ -44,12 +38,11 @@ def run_temporal_audit_batch(
 
     Returns dict keyed by (target_type, target_name) -> audit result.
     """
-    _all_target_audits: Dict[Any, Dict[str, Any]] = {}
+    _all_target_audits: dict[Any, dict[str, Any]] = {}
 
     _audit_ts_override = getattr(behavior_config, "target_temporal_audit_column", None) if behavior_config else None
     if _audit_ts_override is None:
-        # df may have been deleted earlier; the FTE-returned ``timestamps`` ndarray
-        # is the primary fallback.
+        # df may have been deleted earlier; FTE-returned ``timestamps`` ndarray is the primary fallback.
         _fte_ts = getattr(features_and_targets_extractor, "ts_field", None)
         _ts_in_df = (
             df is not None and hasattr(df, "columns") and _fte_ts in df.columns
@@ -66,17 +59,13 @@ def run_temporal_audit_batch(
         else:
             _audit_ts_col = None
     else:
-        # Operator explicitly set override (column name or "" for disable).
         _audit_ts_col = _audit_ts_override
 
     if not _audit_ts_col:
         return _all_target_audits
 
     try:
-        # Resolve timestamp source: prefer df column when present, fall back to
-        # the ``timestamps`` ndarray that FTE.transform returned alongside targets.
-        # The latter is the norm in prod where ts_field is listed in columns_to_drop
-        # (raw datetime shouldn't be a model feature, but split/audit still needs it).
+        # Prefer df column, fall back to the FTE-returned ``timestamps`` ndarray (the prod norm where ts_field is in columns_to_drop).
         _audit_ts_values = None
         _audit_src_kind = None
         if df is not None and hasattr(df, "columns") and _audit_ts_col in df.columns:
@@ -102,12 +91,10 @@ def run_temporal_audit_batch(
             )
             return _all_target_audits
 
-        # Build {audit_key: (col, target_type)} mapping for batch call.
-        # audit_key is unique across target_types so same target_name under
-        # two target_types doesn't collide.
-        _audit_input_cols: Dict[str, np.ndarray] = {}
-        _audit_targets_spec: Dict[str, Tuple[str, str]] = {}
-        _audit_keys_by_pair: Dict[Tuple[Any, str], str] = {}
+        # audit_key is unique across target_types so same target_name under two target_types doesn't collide.
+        _audit_input_cols: dict[str, np.ndarray] = {}
+        _audit_targets_spec: dict[str, tuple[str, str]] = {}
+        _audit_keys_by_pair: dict[tuple[Any, str], str] = {}
         for _tt_outer, _named in target_by_type.items():
             for _tname, _tvals in _named.items():
                 _audit_key = f"{slugify(str(_tt_outer).lower())}__{slugify(_tname)}"

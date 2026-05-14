@@ -816,8 +816,10 @@ class TestRecurrentModels:
         def fake_configure(**kwargs):
             return {"lstm": {"model": mock_model}}
 
+        # Patch where the name is BOUND -- ``_phase_recurrent`` did ``from ..trainer import _configure_recurrent_params``
+        # at module-load, so patching ``mlframe.training.trainer.X`` after import doesn't reach the local alias.
         with unittest.mock.patch(
-            "mlframe.training.trainer._configure_recurrent_params", side_effect=fake_configure
+            "mlframe.training.core._phase_recurrent._configure_recurrent_params", side_effect=fake_configure
         ):
             # Patch clone ONLY for the recurrent section by selectively returning mock
             original_clone = __import__("sklearn.base", fromlist=["clone"]).clone
@@ -827,7 +829,8 @@ class TestRecurrentModels:
                     return mock_model
                 return original_clone(estimator, **kw)
 
-            with unittest.mock.patch("mlframe.training.core.clone", side_effect=selective_clone):
+            # After the monolith->submodule split, recurrent ``clone()`` lives in ``_phase_recurrent``.
+            with unittest.mock.patch("mlframe.training.core._phase_recurrent.clone", side_effect=selective_clone):
                 fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
                 models, metadata = train_mlframe_models_suite(
                     df=df,
@@ -863,8 +866,10 @@ class TestRecurrentModels:
         def fake_configure(**kwargs):
             return {}  # "gru" not configured
 
+        # Patch where the name is BOUND -- ``_phase_recurrent`` did ``from ..trainer import _configure_recurrent_params``
+        # at module-load, so patching ``mlframe.training.trainer.X`` after import doesn't reach the local alias.
         with unittest.mock.patch(
-            "mlframe.training.trainer._configure_recurrent_params", side_effect=fake_configure
+            "mlframe.training.core._phase_recurrent._configure_recurrent_params", side_effect=fake_configure
         ):
             fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
             models, metadata = train_mlframe_models_suite(

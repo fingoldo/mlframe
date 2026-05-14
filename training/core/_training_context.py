@@ -1,29 +1,31 @@
-"""
-TrainingContext — shared state for the training orchestrator.
-
-A single dataclass that carries all mutable state through the training phases,
-eliminating the ~50-parameter function signatures that would otherwise be needed
-to extract the per-target training loop and model training logic.
-"""
+"""TrainingContext - shared mutable state for the training orchestrator phases."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 import polars as pl
 
+if TYPE_CHECKING:
+    from sklearn.base import TransformerMixin
+    from sklearn.pipeline import Pipeline
 
-@dataclass
+
+@dataclass(slots=True)
 class TrainingContext:
-    """Mutable shared state for train_mlframe_models_suite phases."""
+    """Mutable shared state for train_mlframe_models_suite phases.
 
-    # ── Identifiers ──────────────────────────────────────────────
+    ``slots=True`` skips per-instance ``__dict__`` allocation: attribute access reads via fixed-offset slot descriptors
+    instead of a hash-table lookup (~3-5x faster per ``ctx.X``) and the instance footprint shrinks to ~one pointer per field.
+    Adding undeclared attributes raises ``AttributeError`` at runtime, which catches typos that bare-dict instances silently
+    accepted. Requires Python 3.10+ (decorator parameter introduced then).
+    """
+
     model_name: str = ""
     target_name: str = ""
 
-    # ── Configs (Pydantic or dict) ───────────────────────────────
     preprocessing_config: Any = None
     pipeline_config: Any = None
     feature_types_config: Any = None
@@ -43,10 +45,8 @@ class TrainingContext:
     multilabel_dispatch_config: Any = None
     ranking_config: Any = None
     recurrent_config: Any = None
-    recurrent_models: Optional[List[str]] = None
-    sequences: Any = None
+    recurrent_models: list[str] | None = None
 
-    # ── Scalar settings ─────────────────────────────────────────
     verbose: int = 1
     data_dir: str = ""
     models_dir: str = ""
@@ -56,102 +56,84 @@ class TrainingContext:
     use_mrmr_fs: bool = False
     use_ordinary_models: bool = True
     use_mlframe_ensembles: bool = False
-    mrmr_kwargs: Optional[Dict] = None
-    rfecv_models: Optional[List[str]] = None
-    custom_pre_pipelines: Optional[Any] = None
-    common_params_dict: Dict = field(default_factory=dict)
-    mlframe_models: List[str] = field(default_factory=list)
+    mrmr_kwargs: dict | None = None
+    rfecv_models: list[str] | None = None
+    custom_pre_pipelines: Any | None = None
+    common_params_dict: dict = field(default_factory=dict)
+    mlframe_models: list[str] = field(default_factory=list)
 
-    # ── Data & targets ──────────────────────────────────────────
-    df: Any = None  # pl.DataFrame | pd.DataFrame | None (del'd after split)
-    target_by_type: Dict = field(default_factory=dict)
-    # Outlier detection results
-    filtered_train_df: Any = None
-    filtered_val_df: Any = None
-    filtered_train_idx: Any = None
-    filtered_val_idx: Any = None
-    train_od_idx: Any = None
-    val_od_idx: Any = None
-    test_df_pd: Any = None
-    group_ids_raw: Optional[Any] = None
-    group_ids: Optional[Any] = None
-    timestamps: Optional[np.ndarray] = None
-    artifacts: Dict = field(default_factory=dict)
-    additional_columns_to_drop: List[str] = field(default_factory=list)
-    sample_weights: Optional[Dict] = None
+    df: pl.DataFrame | pd.DataFrame | None = None  # del'd after split
+    target_by_type: dict = field(default_factory=dict)
+    group_ids_raw: np.ndarray | pd.Series | None = None
+    group_ids: np.ndarray | pd.Series | None = None
+    timestamps: np.ndarray | None = None
+    artifacts: dict = field(default_factory=dict)
+    additional_columns_to_drop: list[str] = field(default_factory=list)
+    sample_weights: dict | None = None
     baseline_rss_mb: float = 0.0
     df_size_mb: float = 0.0
-    sequences: Optional[List[np.ndarray]] = None
+    sequences: list[np.ndarray] | None = None
 
-    # ── Split indices ───────────────────────────────────────────
-    train_idx: Optional[np.ndarray] = None
-    val_idx: Optional[np.ndarray] = None
-    test_idx: Optional[np.ndarray] = None
-    train_details: Optional[Any] = None
-    val_details: Optional[Any] = None
-    test_details: Optional[Any] = None
-    fairness_subgroups: Optional[Dict] = None
-    fairness_features: Optional[List[str]] = None
+    train_idx: np.ndarray | None = None
+    val_idx: np.ndarray | None = None
+    test_idx: np.ndarray | None = None
+    train_details: Any | None = None
+    val_details: Any | None = None
+    test_details: Any | None = None
+    fairness_subgroups: dict | None = None
+    fairness_features: list[str] | None = None
 
-    # ── Sequence splits ─────────────────────────────────────────
-    train_sequences: Optional[List[np.ndarray]] = None
-    val_sequences: Optional[List[np.ndarray]] = None
-    test_sequences: Optional[List[np.ndarray]] = None
+    train_sequences: list[np.ndarray] | None = None
+    val_sequences: list[np.ndarray] | None = None
+    test_sequences: list[np.ndarray] | None = None
 
-    # ── DataFrames (post-split, pre-pipeline) ───────────────────
-    train_df: Any = None
-    val_df: Any = None
-    test_df: Any = None
+    train_df: pl.DataFrame | pd.DataFrame | None = None
+    val_df: pl.DataFrame | pd.DataFrame | None = None
+    test_df: pl.DataFrame | pd.DataFrame | None = None
 
-    # ── Pipeline ────────────────────────────────────────────────
-    pipeline: Any = None
-    extensions_pipeline: Any = None
+    pipeline: Pipeline | None = None
+    extensions_pipeline: Pipeline | None = None
     was_polars_input: bool = False
     all_models_polars_native: bool = False
     polars_pipeline_applied: bool = False
-    train_df_polars_pre: Any = None
-    val_df_polars_pre: Any = None
-    test_df_polars_pre: Any = None
+    train_df_polars_pre: pl.DataFrame | None = None
+    val_df_polars_pre: pl.DataFrame | None = None
+    test_df_polars_pre: pl.DataFrame | None = None
     preprocessing_extensions: Any = None
 
-    # ── Feature metadata ────────────────────────────────────────
-    cat_features: List[str] = field(default_factory=list)
-    cat_features_polars: List[str] = field(default_factory=list)
-    text_features: List[str] = field(default_factory=list)
-    embedding_features: List[str] = field(default_factory=list)
+    cat_features: list[str] = field(default_factory=list)
+    cat_features_polars: list[str] = field(default_factory=list)
+    text_features: list[str] = field(default_factory=list)
+    embedding_features: list[str] = field(default_factory=list)
     text_emb_set: set = field(default_factory=set)
-    _dropped_high_card_data: Dict = field(default_factory=dict)
+    _dropped_high_card_data: dict = field(default_factory=dict)
 
-    # ── Post-pipeline DataFrames ────────────────────────────────
-    train_df_pd: Any = None
-    val_df_pd: Any = None
-    test_df_pd: Any = None
-    train_df_polars: Any = None
-    val_df_polars: Any = None
-    test_df_polars: Any = None
+    train_df_pd: pd.DataFrame | None = None
+    val_df_pd: pd.DataFrame | None = None
+    test_df_pd: pd.DataFrame | None = None
+    train_df_polars: pl.DataFrame | None = None
+    val_df_polars: pl.DataFrame | None = None
+    test_df_polars: pl.DataFrame | None = None
 
-    # ── OD-filtered frames & indices ────────────────────────────
-    filtered_train_df: Any = None
-    filtered_val_df: Any = None
-    filtered_train_idx: Optional[np.ndarray] = None
-    filtered_val_idx: Optional[np.ndarray] = None
-    train_od_idx: Optional[np.ndarray] = None
-    val_od_idx: Optional[np.ndarray] = None
+    filtered_train_df: pl.DataFrame | pd.DataFrame | None = None
+    filtered_val_df: pl.DataFrame | pd.DataFrame | None = None
+    filtered_train_idx: np.ndarray | None = None
+    filtered_val_idx: np.ndarray | None = None
+    train_od_idx: np.ndarray | None = None
+    val_od_idx: np.ndarray | None = None
     outlier_detection_result: Any = None
 
-    # ── Training intermediates ──────────────────────────────────
-    category_encoder: Any = None
-    imputer: Any = None
-    scaler: Any = None
+    category_encoder: TransformerMixin | None = None
+    imputer: TransformerMixin | None = None
+    scaler: TransformerMixin | None = None
     trainset_features_stats: Any = None
     can_skip_pandas_conv: bool = False
-    train_df_size_bytes_cached: Optional[int] = None
-    val_df_size_bytes_cached: Optional[int] = None
-    _all_target_audits: Dict = field(default_factory=dict)
-    _non_neural_train_times: List[float] = field(default_factory=list)
+    train_df_size_bytes_cached: int | None = None
+    val_df_size_bytes_cached: int | None = None
+    _all_target_audits: dict = field(default_factory=dict)
+    _non_neural_train_times: list[float] = field(default_factory=list)
 
-    # ── Models & metadata ───────────────────────────────────────
-    models: Dict = field(default_factory=lambda: {})
-    metadata: Dict = field(default_factory=dict)
-    slug_to_original_target_type: Dict = field(default_factory=dict)
-    slug_to_original_target_name: Dict = field(default_factory=dict)
+    models: dict = field(default_factory=lambda: {})
+    metadata: dict = field(default_factory=dict)
+    slug_to_original_target_type: dict = field(default_factory=dict)
+    slug_to_original_target_name: dict = field(default_factory=dict)

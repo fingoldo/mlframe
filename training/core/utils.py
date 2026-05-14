@@ -1,15 +1,8 @@
-"""
-Leaf-level utility helpers for mlframe.training.core.
-
-Functions are implemented in sub-modules (_setup_helpers, _phase_helpers, _misc_helpers)
-and re-exported here for backward compatibility.
-"""
+"""Leaf-level utility helpers for mlframe.training.core, re-exported from sub-modules for backward compatibility."""
 from __future__ import annotations
 
-# ── Module-level constants ────────────────────────────────────────────
 DEFAULT_PROBABILITY_THRESHOLD: float = 0.5
 
-# ── Re-exports from sub-modules ───────────────────────────────────────
 from ._setup_helpers import (  # noqa: E402,F401
     _ensure_config,
     _apply_outlier_detection_global,

@@ -354,30 +354,6 @@ def train_mlframe_models_suite(
     if isinstance(df, str) and not df.lower().endswith(".parquet"):
         raise ValueError(f"File path must be a .parquet file, got: {df}")
 
-    # 2026-05-04: LTR opt-in early dispatch.
-    # When ``target_type=TargetTypes.LEARNING_TO_RANK`` is explicit, route
-    # to the focused ranker suite (CB/XGB/LGB native rankers + RRF/Borda
-    # ensembling). Helper returns ``None`` for non-LTR call sites; a
-    # non-None return means the LTR suite was invoked and we forward its
-    # result straight to the caller.
-    _ltr_result = _maybe_dispatch_to_ltr_ranker_suite(
-        target_type=target_type,
-        df=df,
-        target_name=target_name,
-        model_name=model_name,
-        features_and_targets_extractor=features_and_targets_extractor,
-        mlframe_models=mlframe_models,
-        use_mlframe_ensembles=use_mlframe_ensembles,
-        ranking_config=ranking_config,
-        split_config=split_config,
-        hyperparams_config=hyperparams_config,
-        reporting_config=reporting_config,
-        output_config=output_config,
-        verbose=verbose,
-    )
-    if _ltr_result is not None:
-        return _ltr_result
-
     # Validate required parameters
     if not target_name:
         raise ValueError("target_name cannot be empty")
@@ -436,6 +412,19 @@ def train_mlframe_models_suite(
     common_params_dict = ctx.common_params_dict
     mlframe_models = ctx.mlframe_models
     metadata = ctx.metadata
+
+    # LTR opt-in dispatch (post-setup so ctx is populated; helper returns None for non-LTR call sites).
+    ctx.ranking_config = ranking_config
+    ctx.use_mlframe_ensembles = use_mlframe_ensembles
+    _ltr_result = _maybe_dispatch_to_ltr_ranker_suite(
+        ctx,
+        target_type=target_type,
+        df=df,
+        features_and_targets_extractor=features_and_targets_extractor,
+    )
+    if _ltr_result is not None:
+        return _ltr_result
+
     # ==================================================================================
     # 2. DATA LOADING & PREPROCESSING (extracted 2026-05-12 into a helper)
     # ==================================================================================
@@ -642,35 +631,24 @@ def train_mlframe_models_suite(
     # ==================================================================================
     # 4.5 OUTLIER DETECTION (once, before model training loops) -- extracted helper
     # ==================================================================================
-    (
-        filtered_train_df, filtered_val_df,
-        filtered_train_idx, filtered_val_idx,
-        train_od_idx, val_od_idx,
-        outlier_detection_result,
-        train_df_polars, val_df_polars,
-    ) = _phase_global_outlier_detection(
-        train_df_pd=train_df_pd,
-        val_df_pd=val_df_pd,
-        train_df_polars=train_df_polars,
-        val_df_polars=val_df_polars,
-        train_idx=train_idx,
-        val_idx=val_idx,
-        target_by_type=target_by_type,
-        outlier_detector=outlier_detector,
-        od_val_set=od_val_set,
-        baseline_rss_mb=baseline_rss_mb,
-        df_size_mb=df_size_mb,
-        metadata=metadata,
-        verbose=verbose,
-    )
-
-    # Store outlier-detection results on ctx for _train_one_target
-    ctx.filtered_train_df = filtered_train_df
-    ctx.filtered_val_df = filtered_val_df
-    ctx.filtered_train_idx = filtered_train_idx
-    ctx.filtered_val_idx = filtered_val_idx
-    ctx.train_od_idx = train_od_idx
-    ctx.val_od_idx = val_od_idx
+    ctx.train_df_pd = train_df_pd
+    ctx.val_df_pd = val_df_pd
+    ctx.train_df_polars = train_df_polars
+    ctx.val_df_polars = val_df_polars
+    ctx.train_idx = train_idx
+    ctx.val_idx = val_idx
+    ctx.target_by_type = target_by_type
+    ctx.baseline_rss_mb = baseline_rss_mb
+    _phase_global_outlier_detection(ctx)
+    filtered_train_df = ctx.filtered_train_df
+    filtered_val_df = ctx.filtered_val_df
+    filtered_train_idx = ctx.filtered_train_idx
+    filtered_val_idx = ctx.filtered_val_idx
+    train_od_idx = ctx.train_od_idx
+    val_od_idx = ctx.val_od_idx
+    outlier_detection_result = ctx.outlier_detection_result
+    train_df_polars = ctx.train_df_polars
+    val_df_polars = ctx.val_df_polars
 
     # ==================================================================================
     # 4.6 COMPOSITE-TARGET DISCOVERY (opt-in; default OFF) -- extracted helper
@@ -716,17 +694,7 @@ def train_mlframe_models_suite(
 
     # Save metadata EARLY (before training loops) so that if training is interrupted,
     # already-trained models are still usable with the saved pipeline/preprocessing
-    _finalize_and_save_metadata(
-        metadata=metadata,
-        outlier_detector=outlier_detector,
-        outlier_detection_result=outlier_detection_result,
-        trainset_features_stats=trainset_features_stats,
-        data_dir=data_dir,
-        models_dir=models_dir,
-        target_name=target_name,
-        model_name=model_name,
-        verbose=verbose,
-    )
+    _finalize_and_save_metadata(ctx)
 
     models = defaultdict(lambda: defaultdict(list))
 
@@ -802,22 +770,7 @@ def train_mlframe_models_suite(
         log_ram_usage()
 
     # Suite-end finalization -- extracted helper
-    metadata = finalize_suite(
-        models=models,
-        metadata=metadata,
-        outlier_detector=outlier_detector,
-        outlier_detection_result=outlier_detection_result,
-        trainset_features_stats=trainset_features_stats,
-        data_dir=data_dir,
-        models_dir=models_dir,
-        target_name=target_name,
-        model_name=model_name,
-        slug_to_original_target_type=slug_to_original_target_type,
-        slug_to_original_target_name=slug_to_original_target_name,
-        _finalize_and_save_metadata=_finalize_and_save_metadata,
-        verbose=bool(verbose),
-    )
-    ctx.metadata = metadata
+    metadata = finalize_suite(ctx)
 
     # ==================================================================================
     # 6-7. COMPOSITE POST-PROCESSING -- extracted helper

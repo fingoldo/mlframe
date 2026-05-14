@@ -1,43 +1,26 @@
-"""
-Suite-end finalization: fairness reports, phase summaries, selected features.
-
-Runs after all model training completes, before composite post-processing.
-"""
+"""Suite-end finalization: fairness reports, phase summaries, selected features."""
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any
 
 from ..phases import format_phase_summary
+from ._setup_helpers import _finalize_and_save_metadata
+
+if TYPE_CHECKING:
+    from ._training_context import TrainingContext
 
 logger = logging.getLogger(__name__)
 
 
-def finalize_suite(
-    *,
-    models: Dict,
-    metadata: Dict,
-    outlier_detector,
-    outlier_detection_result,
-    trainset_features_stats,
-    data_dir: str,
-    models_dir: str,
-    target_name: str,
-    model_name: str,
-    slug_to_original_target_type: Dict,
-    slug_to_original_target_name: Dict,
-    _finalize_and_save_metadata,
-    verbose: bool,
-) -> Dict:
-    """Aggregate fairness reports, save metadata, emit phase/rendering summaries,
-    and surface selected features on metadata.
+def finalize_suite(ctx: TrainingContext) -> dict:
+    """Aggregate fairness reports, save metadata, emit phase/rendering summaries, surface selected features.
 
-    Returns updated metadata.
+    Returns ``ctx.metadata`` (also mutated in-place) so legacy callers keeping a ``metadata = finalize_suite(ctx)`` rebind keep working.
     """
-    # Aggregate per-model fairness_report into metadata so callers can access it
-    # without re-walking models dict. Trainer stores fairness_report in model.metrics[split].
-    fairness_reports: Dict[str, Any] = {}
-    for _ttype, _targets in models.items():
+    # Trainer stores fairness_report in model.metrics[split]; lift to top-level so callers don't re-walk the models dict.
+    fairness_reports: dict[str, Any] = {}
+    for _ttype, _targets in ctx.models.items():
         for _tname, _model_list in _targets.items():
             for _m in _model_list:
                 _m_metrics = getattr(_m, "metrics", None)
@@ -49,29 +32,15 @@ def finalize_suite(
                         _key = f"{_ttype}__{_tname}__{getattr(_m, 'model_name', type(getattr(_m, 'model', _m)).__name__)}__{_split}"
                         fairness_reports[_key] = _split_metrics["fairness_report"]
     if fairness_reports:
-        metadata["fairness_report"] = fairness_reports
+        ctx.metadata["fairness_report"] = fairness_reports
 
-    # Save metadata again with slug-to-original name mappings for load_mlframe_suite
-    _finalize_and_save_metadata(
-        metadata=metadata,
-        outlier_detector=outlier_detector,
-        outlier_detection_result=outlier_detection_result,
-        trainset_features_stats=trainset_features_stats,
-        data_dir=data_dir,
-        models_dir=models_dir,
-        target_name=target_name,
-        model_name=model_name,
-        verbose=0,  # silent to avoid duplicate log messages
-        slug_to_original_target_type=slug_to_original_target_type,
-        slug_to_original_target_name=slug_to_original_target_name,
-    )
+    # ``verbose=0`` silences the duplicate "Saved metadata to ..." log line; main.py already saved partway.
+    _finalize_and_save_metadata(ctx, verbose=0)
 
-    if verbose:
+    if ctx.verbose:
         logger.info("[phases] Top phases by wall-clock time:\n%s", format_phase_summary())
 
-        # Top-N wall-share so the reader immediately sees where time went vs total.
-        # Percentages computed against the longest-running phase (suite root).
-        # Helps spot plot/render-bound vs train-bound runs at a glance.
+        # Wall-share percentages computed against the longest-running phase (suite root).
         try:
             from ..phases import phase_snapshot
             _snap = phase_snapshot()
@@ -86,9 +55,7 @@ def finalize_suite(
         except Exception:
             pass
 
-        # Kaleido oneshot fallback summary: if any plotly PNG/SVG/PDF saves took
-        # the slow oneshot path, surface cumulative cost so reader knows ROI of
-        # upgrading kaleido. Per-call warning was suppressed (idempotent).
+        # Surface cumulative kaleido oneshot cost; per-call warning is suppressed (idempotent).
         try:
             from mlframe.reporting.renderers.plotly import (
                 get_kaleido_oneshot_stats, reset_kaleido_oneshot_stats,
@@ -106,12 +73,10 @@ def finalize_suite(
         except Exception:
             pass
 
-    # Surface selected-features list per trained model so callers can introspect
-    # feature-selection outputs (MRMR / RFECV) without walking the nested namespace.
-    # Also exposes flat union for "did any model keep the informative feature?" checks.
+    # Surface selected-features per model (and a flat union) on metadata for caller introspection.
     _selected_features_per_model: dict = {}
     _selected_features_union: set = set()
-    for _tt, _by_name in (models or {}).items():
+    for _tt, _by_name in (ctx.models or {}).items():
         if not isinstance(_by_name, dict):
             continue
         for _tn, _entries in _by_name.items():
@@ -130,7 +95,7 @@ def finalize_suite(
                 except Exception:
                     pass
     if _selected_features_per_model:
-        metadata["selected_features"] = sorted(_selected_features_union)
-        metadata["selected_features_per_model"] = _selected_features_per_model
+        ctx.metadata["selected_features"] = sorted(_selected_features_union)
+        ctx.metadata["selected_features_per_model"] = _selected_features_per_model
 
-    return metadata
+    return ctx.metadata

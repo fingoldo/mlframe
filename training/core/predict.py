@@ -1,27 +1,15 @@
-"""Prediction + load entry points for mlframe trained suites.
-
-Pulled out of ``core.py`` (which still hosts the giant
-``train_mlframe_models_suite`` orchestrator) so the predict / load surface
-lives in its own ~550-LOC module. ``core.py`` re-exports each public
-symbol below at its bottom for full back-compat.
-
-Functions
----------
-- :func:`predict_mlframe_models_suite` -- top-level predict entry that
-  loads a trained suite from disk and runs predictions on raw data.
-- :func:`predict_from_models` -- predict from an already-loaded
-  ``(models, metadata)`` pair (no I/O).
-- :func:`load_mlframe_suite` -- load a saved ``(models, metadata)`` pair
-  from disk.
-"""
+"""Prediction + load entry points for mlframe trained suites."""
 from __future__ import annotations
 
 import glob
 import logging
 import os
 import pickle as _pickle
+from collections import defaultdict
 from copy import deepcopy
 from os.path import exists, join
+
+from scipy import stats
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import joblib
@@ -34,7 +22,7 @@ from ..configs import TargetTypes
 from ..extractors import FeaturesAndTargetsExtractor
 from ..io import load_mlframe_model
 from ..pipeline import prepare_df_for_catboost
-from ..utils import drop_columns_from_dataframe
+from ..utils import drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
     _drop_cols_df,
@@ -47,14 +35,14 @@ logger = logging.getLogger(__name__)
 
 
 def predict_mlframe_models_suite(
-    df: Union[pl.DataFrame, pd.DataFrame],
+    df: pl.DataFrame | pd.DataFrame,
     models_path: str,
-    features_and_targets_extractor: Optional[FeaturesAndTargetsExtractor] = None,
-    model_names: Optional[List[str]] = None,
+    features_and_targets_extractor: FeaturesAndTargetsExtractor | None = None,
+    model_names: list[str] | None = None,
     return_probabilities: bool = True,
     verbose: int = 1,
-    trusted_root: Optional[str] = None,
-) -> Dict[str, Any]:
+    trusted_root: str | None = None,
+) -> dict[str, Any]:
     """
     Generate predictions using a trained mlframe models suite.
 
@@ -90,17 +78,10 @@ def predict_mlframe_models_suite(
         "ensemble_predictions": None,
         "ensemble_probabilities": None,
         "metadata": None,
-        "input_df": None,  # Transformed input DataFrame
+        "input_df": None,
     }
 
-    # ==================================================================================
-    # 1. LOAD METADATA
-    # ==================================================================================
-
-    # 2026-04-29: prefer the new pickle-proto5 + zstd format (8-47x
-    # faster than ``joblib.dump`` on representative mlframe metadata)
-    # but fall back to legacy ``metadata.joblib`` so saves from older
-    # mlframe versions keep loading without manual migration.
+    # Prefer pickle-proto5 + zstd; fall back to legacy metadata.joblib for older saves.
     metadata_file_new = join(models_path, "metadata.pkl.zst")
     metadata_file_uncompressed = join(models_path, "metadata.pkl")
     metadata_file_legacy = join(models_path, "metadata.joblib")
@@ -121,8 +102,6 @@ def predict_mlframe_models_suite(
 
     if verbose:
         logger.info("Loading metadata from %s...", metadata_file)
-    # Default trusted_root to the models directory if not provided -- matches the
-    # in-process "we just wrote this file" flow while still refusing path escape.
     _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
     _validate_trusted_path(metadata_file, _root)
     if loader_kind == "pkl.zst":
@@ -139,32 +118,21 @@ def predict_mlframe_models_suite(
         metadata = joblib.load(metadata_file)
     results["metadata"] = metadata
 
-    # Extract key components from metadata
     pipeline = metadata.get("pipeline")
-    columns = metadata.get("columns", [])
-    # Future enhancement: apply outlier_detector during inference to filter anomalous inputs
-    # outlier_detector = metadata.get("outlier_detector")
-
-    # ==================================================================================
-    # 2. PREPROCESS INPUT DATA
-    # ==================================================================================
+    metadata.get("columns", [])
 
     if verbose:
         logger.info("Preprocessing input data...")
 
-    # Apply features extractor if provided (same transformation as training)
     if features_and_targets_extractor is not None:
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
-        # Drop extra columns (target, etc.) -- unified via helper.
         df = _drop_cols_df(df, columns_to_drop)
 
-    # Convert to pandas if needed
     if isinstance(df, pl.DataFrame):
         df = get_pandas_view_of_polars_df(df)
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
 
-    # Apply pipeline transformation if available
     if pipeline is not None:
         if verbose:
             logger.info("Applying pipeline transformation...")
@@ -172,14 +140,9 @@ def predict_mlframe_models_suite(
 
     results["input_df"] = df
 
-    # ==================================================================================
-    # 3. LOAD AND RUN MODELS
-    # ==================================================================================
-
     if verbose:
         logger.info("Loading and running models...")
 
-    # Find all model files
     model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
 
     if not model_files:
@@ -192,7 +155,6 @@ def predict_mlframe_models_suite(
     for model_file in model_files:
         model_name = os.path.basename(model_file).replace(".dump", "")
 
-        # Filter by model_names if specified
         if model_names and model_name not in model_names:
             continue
 
@@ -205,28 +167,20 @@ def predict_mlframe_models_suite(
                 logger.warning(f"Failed to load model: {model_file}")
                 continue
 
-            # Get the underlying model
             model = model_obj.model if hasattr(model_obj, "model") else model_obj
 
-            # Apply any model-specific pre_pipeline if different from main pipeline
             input_for_model = df
             if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
                 if model_obj.pre_pipeline != pipeline:
                     input_for_model = model_obj.pre_pipeline.transform(df)
 
-            # Generate predictions
             if return_probabilities and hasattr(model, "predict_proba"):
                 probs = model.predict_proba(input_for_model)
                 results["probabilities"][model_name] = probs
                 all_probs.append(probs)
 
-                # Shape-aware decision rule:
-                # - 1-D probs: threshold (binary sigmoid output)
-                # - (N, 2) binary: threshold on class-1 column
-                # - (N, K) multiclass (K>2): argmax
-                # Multilabel cannot be inferred from shape alone -- caller
-                # must hold that contract; for now this path treats K>2 as
-                # multiclass (the dominant case for ndim==2 K>2).
+                # Shape-aware decision rule: 1-D = sigmoid threshold; (N,2) = threshold class-1;
+                # (N,K>2) = argmax. Multilabel cannot be inferred from shape; caller must hold that contract.
                 if probs.ndim == 2:
                     if probs.shape[1] == 2:
                         preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
@@ -242,34 +196,26 @@ def predict_mlframe_models_suite(
                 all_preds.append(preds)
 
         except KeyboardInterrupt:
-            raise  # Always allow user interruption
+            raise
         except (OSError, ValueError, RuntimeError) as e:
             logger.error(f"Error loading/predicting with model {model_file}: {e}")
             continue
-
-    # ==================================================================================
-    # 4. ENSEMBLE PREDICTIONS
-    # ==================================================================================
 
     if len(all_probs) > 1:
         if verbose:
             logger.info("Computing ensemble predictions...")
 
-        # Average probabilities
         avg_probs = np.mean(np.stack(all_probs), axis=0)
         results["ensemble_probabilities"] = avg_probs
-        # Also expose the ensemble inside the per-model probabilities dict under
-        # the canonical "ensemble" key so downstream consumers can iterate a
-        # single dict and see both per-model and ensemble streams (2026-04-15).
+        # Expose the ensemble inside the per-model probabilities dict under the
+        # canonical "ensemble" key so consumers can iterate one dict.
         if isinstance(results.get("probabilities"), dict):
             results["probabilities"]["ensemble"] = avg_probs
 
-        # Ensemble predictions from averaged probabilities (shape-aware).
         if avg_probs.ndim == 2:
             if avg_probs.shape[1] == 2:
                 ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
             else:
-                # Multiclass -- argmax across K classes
                 ensemble_preds = np.argmax(avg_probs, axis=1)
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
@@ -278,12 +224,11 @@ def predict_mlframe_models_suite(
             results["predictions"]["ensemble"] = ensemble_preds
 
     elif len(all_preds) > 1:
-        # Majority voting for predictions without probabilities
+        # Majority voting when probabilities are unavailable.
         ensemble_preds, _ = stats.mode(np.stack(all_preds), axis=0)
         results["ensemble_predictions"] = ensemble_preds.flatten()
 
     elif len(all_preds) == 1:
-        # Single model - use its predictions as ensemble
         results["ensemble_predictions"] = all_preds[0]
         if all_probs:
             results["ensemble_probabilities"] = all_probs[0]
@@ -295,13 +240,13 @@ def predict_mlframe_models_suite(
 
 
 def predict_from_models(
-    df: Union[pl.DataFrame, pd.DataFrame],
-    models: Dict,
-    metadata: Dict,
-    features_and_targets_extractor: Optional[FeaturesAndTargetsExtractor] = None,
+    df: pl.DataFrame | pd.DataFrame,
+    models: dict,
+    metadata: dict,
+    features_and_targets_extractor: FeaturesAndTargetsExtractor | None = None,
     return_probabilities: bool = True,
     verbose: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Generate predictions using in-memory models from train_mlframe_models_suite.
 
@@ -353,38 +298,25 @@ def predict_from_models(
         "models_used": [],
     }
 
-    # ==================================================================================
-    # 1. PREPROCESS INPUT DATA
-    # ==================================================================================
-
     if verbose:
         logger.info("Preprocessing input data...")
 
-    # Apply features extractor if provided (same transformation as training)
     if features_and_targets_extractor is not None:
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
-        # Drop extra columns (target, etc.) -- unified via helper.
         df = _drop_cols_df(df, columns_to_drop)
 
-    # Convert to pandas if needed
     if isinstance(df, pl.DataFrame):
         df = get_pandas_view_of_polars_df(df)
 
-    # Get expected columns from metadata
-    columns = metadata.get("columns", [])
+    metadata.get("columns", [])
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
 
-    # Apply main pipeline transformation if available
     pipeline = metadata.get("pipeline")
     if pipeline is not None:
         if verbose:
             logger.info("Applying pipeline transformation...")
         df = pipeline.transform(df)
-
-    # ==================================================================================
-    # 2. RUN PREDICTIONS
-    # ==================================================================================
 
     if verbose:
         logger.info("Running predictions on in-memory models...")
@@ -398,14 +330,12 @@ def predict_from_models(
                 if model_obj is None or not hasattr(model_obj, "model") or model_obj.model is None:
                     continue
 
-                # Generate a unique name for this model
                 model_name = f"{target_type}_{target_name}"
                 if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
-                    # Add pipeline info to name if present
                     pipeline_name = type(model_obj.pre_pipeline).__name__
                     model_name = f"{model_name}_{pipeline_name}"
 
-                # Avoid duplicate names
+                # Disambiguate when multiple models in this target share a name.
                 base_name = model_name
                 counter = 1
                 while model_name in results["predictions"]:
@@ -418,19 +348,16 @@ def predict_from_models(
                 try:
                     model = model_obj.model
 
-                    # Apply model-specific pre_pipeline if present and different from main pipeline
                     input_for_model = df
                     if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
                         if model_obj.pre_pipeline != pipeline:
                             input_for_model = model_obj.pre_pipeline.transform(df)
 
-                    # Generate predictions
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = model.predict_proba(input_for_model)
                         results["probabilities"][model_name] = probs
                         all_probs.append(probs)
 
-                        # Shape-aware decision rule (see predict_mlframe_models_suite).
                         if probs.ndim == 2:
                             if probs.shape[1] == 2:
                                 preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
@@ -451,29 +378,19 @@ def predict_from_models(
                     logger.error(f"Error predicting with model {model_name}: {e}")
                     continue
 
-    # ==================================================================================
-    # 3. ENSEMBLE PREDICTIONS
-    # ==================================================================================
-
     if len(all_probs) > 1:
         if verbose:
             logger.info("Computing ensemble predictions...")
 
-        # Average probabilities
         avg_probs = np.mean(np.stack(all_probs), axis=0)
         results["ensemble_probabilities"] = avg_probs
-        # Also expose the ensemble inside the per-model probabilities dict under
-        # the canonical "ensemble" key so downstream consumers can iterate a
-        # single dict and see both per-model and ensemble streams (2026-04-15).
         if isinstance(results.get("probabilities"), dict):
             results["probabilities"]["ensemble"] = avg_probs
 
-        # Ensemble predictions from averaged probabilities (shape-aware).
         if avg_probs.ndim == 2:
             if avg_probs.shape[1] == 2:
                 ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
             else:
-                # Multiclass -- argmax across K classes
                 ensemble_preds = np.argmax(avg_probs, axis=1)
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
@@ -482,12 +399,11 @@ def predict_from_models(
             results["predictions"]["ensemble"] = ensemble_preds
 
     elif len(all_preds) > 1:
-        # Majority voting for predictions without probabilities
+        # Majority voting when probabilities are unavailable.
         ensemble_preds, _ = stats.mode(np.stack(all_preds), axis=0)
         results["ensemble_predictions"] = ensemble_preds.flatten()
 
     elif len(all_preds) == 1:
-        # Single model - use its predictions as ensemble
         results["ensemble_predictions"] = all_preds[0]
         if all_probs:
             results["ensemble_probabilities"] = all_probs[0]
@@ -498,7 +414,7 @@ def predict_from_models(
     return results
 
 
-def load_mlframe_suite(models_path: str, trusted_root: Optional[str] = None) -> Tuple[Dict, Dict]:
+def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tuple[dict, dict]:
     """
     Load a trained mlframe models suite from disk.
 
@@ -510,14 +426,12 @@ def load_mlframe_suite(models_path: str, trusted_root: Optional[str] = None) -> 
         - models: Dict[target_type][target_name] = [model_obj, ...]
         - metadata: Dict with training configuration and artifacts
     """
-    # Validate inputs
     if not isinstance(models_path, str):
         raise TypeError(f"models_path must be string, got {type(models_path).__name__}")
     if not os.path.isdir(models_path):
         raise ValueError(f"models_path must be a valid directory, got: {models_path}")
 
-    # 2026-04-29: prefer the new pickle-proto5 + zstd format, fall
-    # back to legacy ``metadata.joblib`` for backward compat.
+    # Prefer pickle-proto5 + zstd; fall back to legacy metadata.joblib.
     metadata_file_new = join(models_path, "metadata.pkl.zst")
     metadata_file_uncompressed = join(models_path, "metadata.pkl")
     metadata_file_legacy = join(models_path, "metadata.joblib")
@@ -551,31 +465,24 @@ def load_mlframe_suite(models_path: str, trusted_root: Optional[str] = None) -> 
     else:
         metadata = joblib.load(metadata_file)
 
-    # Get slug-to-original name mappings from metadata (if available)
     slug_to_original_target_type = metadata.get("slug_to_original_target_type", {})
     slug_to_original_target_name = metadata.get("slug_to_original_target_name", {})
 
-    # Load all models into nested structure matching train_mlframe_models_suite output
     # Structure: models[target_type][target_name] = [model_obj, ...]
-    # Path structure from _setup_model_directories: models_path/target_type/target_name/model.dump
+    # On-disk layout from _setup_model_directories: models_path/target_type/target_name/model.dump
     models = defaultdict(lambda: defaultdict(list))
     model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
 
     for model_file in model_files:
-        # Extract target_type and target_name from path
         rel_path = os.path.relpath(model_file, models_path)
         path_parts = rel_path.split(os.sep)
 
         if len(path_parts) >= 3:
-            # path_parts = [slugified_target_type, slugified_target_name, model_file.dump]
             slugified_target_type = path_parts[0]
             slugified_target_name = path_parts[1]
-
-            # Restore original names from metadata mappings
             target_type = slug_to_original_target_type.get(slugified_target_type, slugified_target_type)
             target_name = slug_to_original_target_name.get(slugified_target_name, slugified_target_name)
         else:
-            # Fallback for flat structure or unexpected layout
             target_type = "unknown"
             target_name = "unknown"
 
@@ -587,7 +494,6 @@ def load_mlframe_suite(models_path: str, trusted_root: Optional[str] = None) -> 
 
 
 __all__ = [
-    "train_mlframe_models_suite",
     "predict_mlframe_models_suite",
     "predict_from_models",
     "load_mlframe_suite",

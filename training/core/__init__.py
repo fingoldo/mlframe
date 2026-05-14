@@ -1,32 +1,19 @@
-"""``mlframe.training.core`` -- training-suite top-level package.
-
-Re-exports the public API so existing callers continue to do:
-
-    from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.training.core import predict_mlframe_models_suite, load_mlframe_suite
-
-without caring that the implementation lives across three sibling modules.
-
-Layout
-------
-- :mod:`mlframe.training.core.main` -- ``train_mlframe_models_suite`` orchestrator
-- :mod:`mlframe.training.core.utils` -- 27 leaf utility helpers + ``DEFAULT_PROBABILITY_THRESHOLD``
-- :mod:`mlframe.training.core.predict` -- ``predict_*`` / ``load_mlframe_suite`` entry points
-"""
+"""``mlframe.training.core`` training-suite top-level package: re-exports the public API."""
 from __future__ import annotations
 
-# Public training entry points.
+# Back-compat for tests that read these via ``mlframe.training.core.X`` before monkeypatching them at submodule level.
+from sklearn.base import clone  # noqa: F401
+from ..pipeline import fit_and_transform_pipeline  # noqa: F401
+
 from .main import train_mlframe_models_suite  # noqa: F401
 
-# Predict / load entry points.
 from .predict import (  # noqa: F401
     predict_mlframe_models_suite,
     predict_from_models,
     load_mlframe_suite,
 )
 
-# Leaf-utility helpers + constants (legacy back-compat: tests + downstream
-# composite modules import some of these directly from ``mlframe.training.core``).
+# Legacy back-compat: tests + downstream composite modules import some of these directly from ``mlframe.training.core``.
 from .utils import (  # noqa: F401
     DEFAULT_PROBABILITY_THRESHOLD,
     _ensure_logging_visible,
