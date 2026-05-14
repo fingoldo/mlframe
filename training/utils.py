@@ -20,6 +20,9 @@ import sys
 from textwrap import shorten
 from typing import Union, Optional
 
+import numpy as np
+import pandas as pd
+
 try:
     import polars as pl
 except ImportError:
