@@ -374,7 +374,7 @@ class FuzzCombo:
         _input_type = self.input_type
         if _input_type != "pandas":
             _any_polars_native = any(
-                m in self.models for m in ("cb", "xgb", "hgb", "mlp")
+                m in self.models for m in ("cb", "xgb", "hgb", "mlp", "lstm", "gru", "transformer")
             )
             if not _any_polars_native:
                 _input_type = "pandas"
@@ -1817,7 +1817,7 @@ def build_frame_for_combo(combo: FuzzCombo):
     # transformers reject polars DataFrames with ``ValueError: Unexpected
     # input type: <class 'polars...'>``. Canonicalised in canonical_key
     # so dedup collapses these combos correctly.
-    _any_polars_native = any(m in combo.models for m in ("cb", "xgb", "hgb"))
+    _any_polars_native = any(m in combo.models for m in ("cb", "xgb", "hgb", "mlp", "lstm", "gru", "transformer"))
     _build_input_type = combo.input_type if _any_polars_native else "pandas"
 
     if _build_input_type == "pandas":
