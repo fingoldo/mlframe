@@ -19,6 +19,7 @@ except ImportError:
 from pyutilz.strings import slugify
 
 from ..phases import phase
+from ..train_eval import select_target
 from ..utils import log_ram_usage
 from ._misc_helpers import _elapsed_str, _split_preds_probs
 from ._phase_diagnostics import run_per_target_diagnostics
