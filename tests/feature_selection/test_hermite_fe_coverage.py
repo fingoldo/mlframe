@@ -542,7 +542,7 @@ def test_select_diverse_topm_empty():
 def test_select_diverse_topm_keeps_diverse_entries():
     rng = np.random.default_rng(99)
     history = []
-    for i in range(8):
+    for _ in range(8):
         ca = rng.normal(size=3)
         cb = rng.normal(size=3)
         history.append((float(rng.uniform()), 0.1, 0, ca, cb))
@@ -569,7 +569,7 @@ def test_select_diverse_topm_cross_degree_padding():
 
 
 def test_run_cma_search_with_warm_seeds():
-    cma = pytest.importorskip("cma")
+    pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
     seeds = [np.array([0.0, 1.0, 0.0, 0.0, 1.0, 0.0])]  # ca + cb concatenated
@@ -589,7 +589,7 @@ def test_run_cma_search_with_warm_seeds():
 
 
 def test_run_cma_search_without_warm_seeds():
-    cma = pytest.importorskip("cma")
+    pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
     res = _run_cma_search(
@@ -601,7 +601,7 @@ def test_run_cma_search_without_warm_seeds():
 
 
 def test_run_cma_search_track_history():
-    cma = pytest.importorskip("cma")
+    pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
     res = _run_cma_search(
@@ -616,7 +616,7 @@ def test_run_cma_search_track_history():
 
 
 def test_run_cma_search_direction_only():
-    cma = pytest.importorskip("cma")
+    pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
     res = _run_cma_search(

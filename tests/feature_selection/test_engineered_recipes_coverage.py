@@ -155,7 +155,7 @@ def test_build_unary_binary_recipe_with_log_unary():
 
 def test_apply_factorize_seen_categories():
     """Single-col factorize: train values -> integer codes; replay on same values reproduces codes."""
-    train_values = pd.Series(["X", "Y", "X", "Z"], name="cat")
+    # Train-time values that produced the lookup (encoded for documentation; the recipe carries the lookup explicitly).
     lookup = {"X": 0, "Y": 1, "Z": 2}
     r = EngineeredRecipe(name="cat_factorized", kind="factorize", src_names=("cat",), extra={"lookup": lookup})
     df = pd.DataFrame({"cat": ["X", "Y", "Z", "X"]})

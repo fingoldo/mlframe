@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 # Hard requirement -- the GPU file is fully CuPy-driven.
-pytest.importorskip("cupy")
+cp = pytest.importorskip("cupy")
 
 
 # Sanity: this whole file is only meaningful with at least one CUDA device.
