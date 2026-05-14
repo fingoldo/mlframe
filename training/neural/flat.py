@@ -11,7 +11,7 @@ import logging
 import os
 from enum import Enum, auto
 from functools import partial
-from typing import *
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import lightning as L
 import torch
@@ -125,6 +125,7 @@ def generate_mlp(
     prev_layer_neurons = num_features
     cur_layer_neurons = first_layer_num_neurons
     cur_layer_virt_neurons = first_layer_num_neurons
+    prev_layer_virt_neurons = first_layer_num_neurons  # carries over into the if/elif chain on iterations >= 1
 
     for layer in range(nlayers):
 
@@ -172,7 +173,7 @@ def generate_mlp(
             layers.append(nn.Dropout(dropout_prob))
 
         prev_layer_neurons = cur_layer_neurons
-        prev_layer_virt_neurons = cur_layer_virt_neurons  # noqa: F841  read by next iteration's match block
+        prev_layer_virt_neurons = cur_layer_virt_neurons
 
     # Final layer: num_classes None/0 = feature extractor, 1 = regression, >1 = classification.
     if num_classes is None or num_classes == 0:

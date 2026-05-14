@@ -161,14 +161,14 @@ class MLPHead(nn.Module):
     def __init__(
         self,
         input_size: int,
-        hidden_sizes: Tuple[int, ...],
+        hidden_sizes: tuple[int, ...],
         output_size: int = 2,
         dropout: float = 0.3,
     ) -> None:
         super().__init__()
         self.input_size = input_size
 
-        layers: List[nn.Module] = []
+        layers: list[nn.Module] = []
         prev_size = input_size
 
         for hidden_size in hidden_sizes:

@@ -7,7 +7,7 @@ This module provides:
 """
 
 import logging
-from typing import *
+from typing import Callable, Optional, Union
 
 import numpy as np
 import pandas as pd

@@ -128,7 +128,7 @@ class GroupBatchSampler(Sampler):
         sorted_groups = self.group_ids[sort_idx]
         boundaries = np.flatnonzero(sorted_groups[1:] != sorted_groups[:-1]) + 1
         starts = np.concatenate(([0], boundaries, [len(sorted_groups)]))
-        self._query_slices: List[np.ndarray] = []
+        self._query_slices: list[np.ndarray] = []
         for i in range(len(starts) - 1):
             s, e = starts[i], starts[i + 1]
             indices = sort_idx[s:e]
@@ -278,9 +278,9 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         loss_fn: str = "ranknet",
         n_estimators: int = 100,
         learning_rate: float = 1e-3,
-        hidden_layers: Tuple[int, ...] = (64, 64),
+        hidden_layers: tuple[int, ...] = (64, 64),
         dropout: float = 0.1,
-        early_stopping_patience: Optional[int] = 10,
+        early_stopping_patience: int | None = 10,
         seed: int = 42,
         verbose: int = 0,
         enable_checkpointing: bool = False,

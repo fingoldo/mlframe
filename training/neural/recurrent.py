@@ -255,7 +255,7 @@ class RecurrentTorchModel(L.LightningModule):
         Returns:
             Logits (batch, num_classes) for classification or (batch, 1) for regression
         """
-        features_list: List[torch.Tensor] = []
+        features_list: list[torch.Tensor] = []
 
         if self.config.input_mode != InputMode.FEATURES_ONLY:
             if sequences is None or lengths is None:
@@ -483,12 +483,12 @@ class _RecurrentWrapperBase(BaseEstimator):
         self._aux_input_size: int = 0
         self._seq_input_size: int = 4
         self._feature_scaler: StandardScaler | None = None
-        self._prediction_cache: Dict[int, np.ndarray] = {}
+        self._prediction_cache: dict[int, np.ndarray] = {}
 
     def _validate_inputs(
         self,
         features: np.ndarray | None,
-        sequences: List[np.ndarray] | None,
+        sequences: list[np.ndarray] | None,
     ) -> None:
         """Validate inputs match the configured input mode."""
         mode = self.config.input_mode
@@ -502,7 +502,7 @@ class _RecurrentWrapperBase(BaseEstimator):
 
     def _create_dataset(
         self,
-        sequences: List[np.ndarray] | None,
+        sequences: list[np.ndarray] | None,
         features: np.ndarray | None,
         labels: np.ndarray,
         sample_weights: np.ndarray | None = None,
@@ -607,7 +607,7 @@ class _RecurrentWrapperBase(BaseEstimator):
         self,
         seq_input_size: int,
         aux_input_size: int,
-        class_weight: Dict[int, float] | None,
+        class_weight: dict[int, float] | None,
     ) -> RecurrentTorchModel:
         """Create model instance."""
         weight_tensor = None
@@ -628,7 +628,7 @@ class _RecurrentWrapperBase(BaseEstimator):
             task_type=_task_type,
         )
 
-    def _create_trainer(self, has_validation: bool, plot: bool) -> Tuple[L.Trainer, Any]:
+    def _create_trainer(self, has_validation: bool, plot: bool) -> tuple[L.Trainer, Any]:
         """Create Lightning Trainer with callbacks."""
         callbacks: list = []
         checkpoint_callback = None
@@ -672,7 +672,7 @@ class _RecurrentWrapperBase(BaseEstimator):
     @staticmethod
     def _compute_cache_key(
         features: np.ndarray | None,
-        sequences: List[np.ndarray] | None,
+        sequences: list[np.ndarray] | None,
     ) -> int:
         """Compute cache key from input arrays."""
         parts: list = []
@@ -756,9 +756,9 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         features: np.ndarray | None = None,
         labels: np.ndarray | None = None,
         sample_weight: np.ndarray | None = None,
-        sequences: List[np.ndarray] | None = None,
+        sequences: list[np.ndarray] | None = None,
         eval_set: tuple | None = None,
-        class_weight: Dict[int, float] | None = None,
+        class_weight: dict[int, float] | None = None,
         plot: bool = False,
         plot_file: str | Path | None = None,
     ) -> RecurrentClassifierWrapper:
@@ -834,7 +834,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
     def predict_proba(
         self,
         features: np.ndarray | None = None,
-        sequences: List[np.ndarray] | None = None,
+        sequences: list[np.ndarray] | None = None,
         batch_size: int | None = None,
     ) -> np.ndarray:
         """
@@ -883,7 +883,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
     def predict(
         self,
         features: np.ndarray | None = None,
-        sequences: List[np.ndarray] | None = None,
+        sequences: list[np.ndarray] | None = None,
     ) -> np.ndarray:
         """
         Predict class labels.
@@ -929,7 +929,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         features: np.ndarray | None = None,
         labels: np.ndarray | None = None,
         sample_weight: np.ndarray | None = None,
-        sequences: List[np.ndarray] | None = None,
+        sequences: list[np.ndarray] | None = None,
         eval_set: tuple | None = None,
         plot: bool = False,
         plot_file: str | Path | None = None,
@@ -997,7 +997,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
     def predict(
         self,
         features: np.ndarray | None = None,
-        sequences: List[np.ndarray] | None = None,
+        sequences: list[np.ndarray] | None = None,
         batch_size: int | None = None,
     ) -> np.ndarray:
         """
@@ -1051,9 +1051,9 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
 
 def extract_sequences(
     df: pl_df.DataFrame,
-    indices: np.ndarray | List[int] | None = None,
-    columns: Tuple[str, ...] = ("mjd", "mag", "magerr", "norm"),
-) -> List[np.ndarray]:
+    indices: np.ndarray | list[int] | None = None,
+    columns: tuple[str, ...] = ("mjd", "mag", "magerr", "norm"),
+) -> list[np.ndarray]:
     """
     Extract raw time series from Polars DataFrame with list columns.
 
@@ -1074,7 +1074,7 @@ def extract_sequences(
     col_data = [df[col].to_list() for col in columns]
 
     # Vectorized: use np.column_stack to avoid nested Python loop
-    result: List[np.ndarray] = [
+    result: list[np.ndarray] = [
         np.column_stack([col_data[j][i] for j in range(n_cols)]).astype(np.float32)
         for i in range(n_rows)
     ]
@@ -1084,10 +1084,10 @@ def extract_sequences(
 
 def extract_sequences_chunked(
     df: pl_df.DataFrame,
-    indices: np.ndarray | List[int] | None = None,
+    indices: np.ndarray | list[int] | None = None,
     chunk_size: int = 100_000,
-    columns: Tuple[str, ...] = ("mjd", "mag", "magerr", "norm"),
-) -> List[np.ndarray]:
+    columns: tuple[str, ...] = ("mjd", "mag", "magerr", "norm"),
+) -> list[np.ndarray]:
     """
     Memory-efficient sequence extraction for large datasets.
 
@@ -1105,7 +1105,7 @@ def extract_sequences_chunked(
     else:
         indices = np.arange(len(df))
 
-    sequences: List[np.ndarray] = []
+    sequences: list[np.ndarray] = []
 
     for start in range(0, len(indices), chunk_size):
         chunk_indices = indices[start : start + chunk_size]

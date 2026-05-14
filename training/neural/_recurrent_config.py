@@ -75,7 +75,7 @@ class RecurrentConfig:
     dim_feedforward: int = 256
 
     # MLP head
-    mlp_hidden_sizes: Tuple[int, ...] = (256, 128)
+    mlp_hidden_sizes: tuple[int, ...] = (256, 128)
     dropout: float = 0.3
 
     # Training

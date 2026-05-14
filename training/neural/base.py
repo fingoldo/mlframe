@@ -54,7 +54,7 @@ for _quiet_logger_name in (
 import os
 import operator  # picklable comparison functions (needed by ddp_spawn strategy)
 from copy import deepcopy
-from typing import *
+from typing import Any, Callable, Dict, Optional
 
 # third-party
 import numpy as np

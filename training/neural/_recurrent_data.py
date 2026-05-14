@@ -27,7 +27,7 @@ class RecurrentDataset(Dataset):
 
     def __init__(
         self,
-        sequences: List[np.ndarray] | None,
+        sequences: list[np.ndarray] | None,
         aux_features: np.ndarray | None,
         labels: np.ndarray,
         sample_weights: np.ndarray | None = None,
@@ -69,8 +69,8 @@ class RecurrentDataset(Dataset):
     def __len__(self) -> int:
         return len(self.labels)
 
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        item: Dict[str, torch.Tensor] = {"labels": self.labels[idx]}
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        item: dict[str, torch.Tensor] = {"labels": self.labels[idx]}
 
         if self._has_sequences:
             item["sequence"] = torch.as_tensor(self.sequences[idx], dtype=torch.float32)
@@ -84,7 +84,7 @@ class RecurrentDataset(Dataset):
         return item
 
 
-def recurrent_collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+def recurrent_collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
     """
     Collate function handling variable-length sequences. Pads to max length in batch.
 
@@ -99,7 +99,7 @@ def recurrent_collate_fn(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, torc
         - labels: (batch,)
         - sample_weights: (batch,) if present
     """
-    result: Dict[str, torch.Tensor] = {}
+    result: dict[str, torch.Tensor] = {}
 
     # Labels (always present)
     result["labels"] = torch.stack([item["labels"] for item in batch])
@@ -137,17 +137,17 @@ class RecurrentDataModule(LightningDataModule):
 
     def __init__(
         self,
-        train_sequences: Optional[List[np.ndarray]] = None,
-        train_features: Optional[np.ndarray] = None,
-        train_labels: Optional[np.ndarray] = None,
-        train_sample_weight: Optional[np.ndarray] = None,
-        val_sequences: Optional[List[np.ndarray]] = None,
-        val_features: Optional[np.ndarray] = None,
-        val_labels: Optional[np.ndarray] = None,
-        val_sample_weight: Optional[np.ndarray] = None,
-        test_sequences: Optional[List[np.ndarray]] = None,
-        test_features: Optional[np.ndarray] = None,
-        test_labels: Optional[np.ndarray] = None,
+        train_sequences: list[np.ndarray] | None = None,
+        train_features: np.ndarray | None = None,
+        train_labels: np.ndarray | None = None,
+        train_sample_weight: np.ndarray | None = None,
+        val_sequences: list[np.ndarray] | None = None,
+        val_features: np.ndarray | None = None,
+        val_labels: np.ndarray | None = None,
+        val_sample_weight: np.ndarray | None = None,
+        test_sequences: list[np.ndarray] | None = None,
+        test_features: np.ndarray | None = None,
+        test_labels: np.ndarray | None = None,
         batch_size: int = 256,
         num_workers: int = 0,
         is_regression: bool = False,
@@ -194,7 +194,7 @@ class RecurrentDataModule(LightningDataModule):
         self.predict_sequences = None
         self.predict_features = None
 
-    def setup(self, stage: Optional[str] = None):
+    def setup(self, stage: str | None = None):
         """Setup datasets for each stage (data is already provided in __init__)."""
         pass
 
@@ -306,8 +306,8 @@ class RecurrentDataModule(LightningDataModule):
 
     def setup_predict(
         self,
-        sequences: Optional[List[np.ndarray]] = None,
-        features: Optional[np.ndarray] = None,
+        sequences: list[np.ndarray] | None = None,
+        features: np.ndarray | None = None,
     ):
         """Stage data for prediction."""
         self.predict_sequences = sequences
