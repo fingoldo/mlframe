@@ -6,6 +6,7 @@ confidence analysis, XGB category alignment, column decategorisation.
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import re
@@ -13,6 +14,11 @@ from timeit import default_timer as timer
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None  # type: ignore[assignment] -- plt-using code paths are guarded; matplotlib-less envs skip the plot branches
 import pandas as pd
 import polars as pl
 

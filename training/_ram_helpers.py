@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import gc, logging, os, psutil
+import gc, logging, os, sys
+
+import psutil
 from typing import Optional
 
 logger = logging.getLogger(__name__)

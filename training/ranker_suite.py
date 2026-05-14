@@ -29,6 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 logger = logging.getLogger(__name__)
 

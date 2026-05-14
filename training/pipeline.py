@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 import pandas as pd
 import polars as pl
 import polars.selectors as cs
-from typing import Union, Optional, List, Tuple
+from typing import Dict, Union, Optional, List, Tuple
 from collections import Counter
 from pyutilz.system import clean_ram
 from .utils import maybe_clean_ram_adaptive

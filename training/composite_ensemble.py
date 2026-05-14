@@ -8,7 +8,7 @@ import logging
 import math
 import warnings
 from typing import (
-    Any, Dict, List, Optional, Sequence, Tuple,
+    Any, Dict, List, Optional, Sequence, Tuple, Union,
 )
 
 import numpy as np
