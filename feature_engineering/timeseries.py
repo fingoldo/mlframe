@@ -79,7 +79,7 @@ def _find_next_cumsum_left_index_njit(
     right_index: int,
     min_samples: int,
     use_abs: bool,
-) -> Tuple[int, float]:
+) -> Tuple[int, float]:  # pragma: no cover
     total = 0.0
     if right_index < 0:
         right_index = len(window_var_values)
@@ -120,7 +120,7 @@ def _find_next_cumsum_right_index_njit(
     left_index: int,
     min_samples: int,
     use_abs: bool,
-) -> Tuple[int, float]:
+) -> Tuple[int, float]:  # pragma: no cover
     total = 0.0
     length = len(window_var_values)
     if left_index >= length - 1:

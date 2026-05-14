@@ -50,7 +50,7 @@ FASTMATH: bool = False
 
 
 @numba.njit(fastmath=FASTMATH)
-def _state_index(pos):
+def _state_index(pos):  # pragma: no cover
     # map position to state index: -1 -> 0, 0 -> 1, +1 -> 2
     if pos == -1:
         return 0
@@ -61,7 +61,7 @@ def _state_index(pos):
 
 
 @numba.njit(fastmath=FASTMATH)
-def _index_state(idx):
+def _index_state(idx):  # pragma: no cover
     # inverse mapping
     if idx == 0:
         return -1
@@ -72,7 +72,7 @@ def _index_state(idx):
 
 
 @numba.njit(fastmath=FASTMATH)
-def _trade_count(prev_pos, new_pos):
+def _trade_count(prev_pos, new_pos):  # pragma: no cover
     # Number of trades executed when switching prev_pos -> new_pos.
     # Critical: continuing the same non-zero position is ZERO trades. The previous version
     # returned 1 in that branch (closing-previous counted but the opening was skipped via `pass`),
@@ -89,7 +89,7 @@ def _trade_count(prev_pos, new_pos):
 
 
 @numba.njit(fastmath=FASTMATH)
-def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):
+def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):  # pragma: no cover
     if trades == 0:
         return 0.0
     if tc_mode_is_fraction:
@@ -99,7 +99,7 @@ def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):
 
 
 @numba.njit(fastmath=FASTMATH)
-def compute_area_profits(prices, positions):
+def compute_area_profits(prices, positions):  # pragma: no cover
     n = prices.shape[0]
     profits = np.zeros(n, dtype=prices.dtype)
 
@@ -180,7 +180,7 @@ def find_best_mps_sequence(
     optimize_consecutive_regions: bool = True,
     shift: int = 0,
     dtype: object = np.float64,
-):
+):  # pragma: no cover
     """
     prices: 1D numpy array float64 (closing prices)
     tc: transaction cost parameter (if tc_mode_is_fraction True -> fraction of price per trade,
@@ -270,7 +270,7 @@ def find_best_mps_sequence(
 
 
 @numba.njit(fastmath=True)
-def backfill_zeros(arr, direction="right"):
+def backfill_zeros(arr, direction="right"):  # pragma: no cover
     """
     Backfill zeros in an array from either right or left based on direction parameter.
 

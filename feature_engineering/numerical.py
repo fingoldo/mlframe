@@ -122,7 +122,7 @@ def _make_compute_simple_stats(use_kahan: bool, use_fastmath: bool):
     njit_kwargs["fastmath"] = use_fastmath
 
     @numba.njit(**njit_kwargs)
-    def kernel(arr: np.ndarray) -> tuple:
+    def kernel(arr: np.ndarray) -> tuple:  # pragma: no cover
         minval, maxval, argmin, argmax = 0.0, 0.0, 0, 0
         for i, next_value in enumerate(arr):
             if np.isfinite(next_value):
@@ -240,7 +240,7 @@ def compute_numerical_aggregates_numba(
     return_n_zer_pos_int: bool = True,
     return_exotic_means: bool = True,
     return_unsorted_stats: bool = True,
-) -> list:
+) -> list:  # pragma: no cover
     """Compute statistical aggregates over 1d array of float32 values.
     E mid2(abs(x-mid1(X))) where mid1, mid2=averages of any kind
     E Функции ошибок иногда и классные признаки...
@@ -679,7 +679,7 @@ def compute_nunique_modes_quantiles_numpy(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np.ndarray:
+def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np.ndarray:  # pragma: no cover
     """Count sign-changes in ``(arr[i] - mark)`` for each ``mark`` in ``marks``.
 
     Returns one integer per mark; useful as a quantile-crossing feature on time series.
@@ -699,7 +699,7 @@ def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: Sequence[float] = default_quantiles) -> tuple:
+def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: Sequence[float] = default_quantiles) -> tuple:  # pragma: no cover
     """
     NOT RECOMMENDED. use compute_nunique_modes_quantiles_numpy instead, it's faster and more functional.
     numUnique and mode calculation from sorted array
@@ -763,7 +763,7 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
         xvals: np.ndarray = None,
         directional_only: bool = False,
         return_lintrend_approx_stats: bool = True,
-    ) -> list:
+    ) -> list:  # pragma: no cover
         slope_over, slope_under = 0.0, 0.0
         mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
         # Kahan compensation counters. When KAHAN=False these stay 0.0 and get DCE'd along with
@@ -1391,7 +1391,7 @@ def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_o
 # decimal digits on float32 windows). MEASURED cost of disabling fastmath here: ~260% slowdown
 # on Windows / numba 0.59 (LLVM also SIMD-vectorises the cumsum once Kahan is folded out).
 @numba.njit(fastmath=False)
-def _rolling_moving_average_compensated(arr: np.ndarray, n: int) -> np.ndarray:
+def _rolling_moving_average_compensated(arr: np.ndarray, n: int) -> np.ndarray:  # pragma: no cover
     """Kahan-Babuska-Neumaier compensated rolling mean. Slow but precision-stable."""
     result = np.empty(len(arr) - n + 1, dtype=arr.dtype)
     sum_window = np.sum(arr[:n])
@@ -1408,7 +1408,7 @@ def _rolling_moving_average_compensated(arr: np.ndarray, n: int) -> np.ndarray:
 
 
 @numba.njit(fastmath=True)
-def _rolling_moving_average_fast(arr: np.ndarray, n: int) -> np.ndarray:
+def _rolling_moving_average_fast(arr: np.ndarray, n: int) -> np.ndarray:  # pragma: no cover
     """Plain sliding-window rolling mean. ~3.5x faster than the compensated variant.
 
     Use when the input is well-conditioned (magnitudes within ~6 orders of magnitude on float64,

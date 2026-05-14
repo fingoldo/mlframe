@@ -29,7 +29,7 @@ NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def welford_mean_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:
+def welford_mean_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:  # pragma: no cover
     """Single-pass mean + variance via Welford. Returns ``(mean, var, n)``. Variance is biased (divide by n, not n-1) to match ``np.var(arr, ddof=0)``.
 
     Numerical advantage vs naive ``sum_x2/n - (sum_x/n)**2``: each ``delta = x - mean`` operates on differences of similar magnitude to the variance itself, so no catastrophic cancellation when ``mean^2 >> var``.
@@ -58,7 +58,7 @@ def welford_mean_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def welford_moments_seq(arr: np.ndarray) -> Tuple[float, float, float, float, int]:
+def welford_moments_seq(arr: np.ndarray) -> Tuple[float, float, float, float, int]:  # pragma: no cover
     """Single-pass mean + variance + skewness + excess-kurtosis via Pébay 2008.
 
     Returns ``(mean, var, skew, kurt, n)`` where ``var`` is biased (``ddof=0``), ``skew`` is the biased ``g1 = m3 / m2^(3/2)``, and ``kurt`` is the biased excess ``g2 = m4 / m2^2 - 3``.
@@ -108,7 +108,7 @@ def welford_moments_seq(arr: np.ndarray) -> Tuple[float, float, float, float, in
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def kahan_sum_seq(arr: np.ndarray) -> float:
+def kahan_sum_seq(arr: np.ndarray) -> float:  # pragma: no cover
     """Neumaier-improved Kahan compensated sum. Recovers ~log10(N) digits vs naive sum at marginal cost (one extra add/sub per element). Equivalent to ``np.sum`` for well-conditioned inputs; superior for ill-conditioned (mixed-magnitude) sums."""
     s = 0.0
     c = 0.0
@@ -125,7 +125,7 @@ def kahan_sum_seq(arr: np.ndarray) -> float:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def kahan_dot_seq(a: np.ndarray, b: np.ndarray) -> float:
+def kahan_dot_seq(a: np.ndarray, b: np.ndarray) -> float:  # pragma: no cover
     """Kahan-compensated dot product. Used for slope/correlation numerators where ``sum(x_i * y_i)`` accumulates many terms of varied magnitude. Raises ``ValueError`` when ``a`` and ``b`` differ in length (silent truncation is a classic bug source)."""
     if a.shape[0] != b.shape[0]:
         raise ValueError("kahan_dot_seq: a and b must have the same length")
@@ -152,7 +152,7 @@ def kahan_dot_seq(a: np.ndarray, b: np.ndarray) -> float:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def naive_mean_var_two_pass_seq(arr: np.ndarray) -> Tuple[float, float, int]:
+def naive_mean_var_two_pass_seq(arr: np.ndarray) -> Tuple[float, float, int]:  # pragma: no cover
     """Two-pass mean + variance (matches ``compute_simple_stats_numba`` pattern). First pass sums to compute the mean; second pass sums squared deviations uncompensated (matches the current naive accumulator)."""
     n = 0
     total = 0.0
@@ -172,7 +172,7 @@ def naive_mean_var_two_pass_seq(arr: np.ndarray) -> Tuple[float, float, int]:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def kahan_two_pass_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:
+def kahan_two_pass_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:  # pragma: no cover
     """Two-pass mean + variance with Kahan-Babuška-Neumaier compensation in BOTH sums. Best precision across both "long array drift" and "large-mean-small-var cancellation" regimes.
 
     Pass 1: Kahan-compensated sum to get an exact mean. Pass 2: Kahan-compensated sum of ``(x - mean)^2``. Cost: ~2x naive, ~equal to Welford. Stable in all input regimes - Welford wins on raw long-array sums but loses on large-mean cases because its running mean accumulates per-element rounding; Kahan two-pass avoids both pitfalls.
@@ -210,7 +210,7 @@ def kahan_two_pass_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def naive_moments_two_pass_seq(arr: np.ndarray) -> Tuple[float, float, float, float, int]:
+def naive_moments_two_pass_seq(arr: np.ndarray) -> Tuple[float, float, float, float, int]:  # pragma: no cover
     """Two-pass mean / variance / skewness / kurtosis (matches ``compute_moments_slope_mi`` pattern). Uncompensated sums of d^2 / d^3 / d^4."""
     n = 0
     total = 0.0

@@ -22,7 +22,7 @@ _ZERO_EPS = 1e-12
 
 
 @njit(fastmath=_FASTMATH)
-def compute_hurst_rs(arr: np.ndarray) -> float:
+def compute_hurst_rs(arr: np.ndarray) -> float:  # pragma: no cover
     """Rescaled-range (R/S) statistic for one window.
 
     Standard deviation uses ddof=1 (sample std) per the Mandelbrot / Hurst (1951) convention
@@ -49,7 +49,7 @@ def precompute_hurst_exponent(
     max_window: int = -1,
     windows_log_step: float = 0.25,
     take_diffs: bool = False,
-):
+):  # pragma: no cover
     """R/S aggregated across a geometric ladder of window sizes.
 
     ``max_window=-1`` is the "auto" sentinel and resolves to ``L-1``.  ``take_diffs`` defaults to
