@@ -993,6 +993,13 @@ def _build_tier_dfs(
             df_ = base_dfs.get(key)
             if df_ is None:
                 tier_dfs[key] = None
+            else:
+                existing = [c for c in cols_to_exclude if c in df_.columns]
+                tier_dfs[key] = df_.drop(columns=existing) if existing else df_
+
+    tier_cache[tier_key] = tier_dfs
+    return tier_dfs
+
 
 def _split_preds_probs(arr):
     """Regression: 1-D preds; classification: 2-D probs + derived 1-D preds via argmax."""
