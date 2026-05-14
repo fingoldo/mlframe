@@ -151,9 +151,6 @@ def load_and_prepare_dataframe(
         - If both n_rows and tail are set, tail is applied AFTER n_rows. So n_rows=1000
           with tail=100 gives the last 100 of the first 1000 rows, not the last 100 of the file.
     """
-    # Auto-convert pandas → polars (callers like biz_val tests pass pd.DataFrame)
-    if isinstance(df, pd.DataFrame):
-        df = pl.from_pandas(df)
     # Load from file if path provided
     if isinstance(df, str):
         if verbose:

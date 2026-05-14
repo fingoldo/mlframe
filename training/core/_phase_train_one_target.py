@@ -16,6 +16,8 @@ try:
 except ImportError:
     pl = None  # type: ignore[assignment]
 
+from sklearn.base import clone
+
 from pyutilz.strings import slugify
 from pyutilz.system import tqdmu_lazy_start
 
