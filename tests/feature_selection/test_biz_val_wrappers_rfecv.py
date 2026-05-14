@@ -733,7 +733,7 @@ def test_biz_val_rfecv_n_features_selection_rule_parametrize(n_features_rule):
 def test_biz_val_rfecv_property_no_crash_on_random_configs():
     """Hypothesis property test: RFECV must complete cleanly across
     a random sweep of (n, p_signal, p_noise, cv, seed)."""
-    hypothesis = pytest.importorskip("hypothesis")
+    pytest.importorskip("hypothesis")
     from hypothesis import given, settings, strategies as st
     pytest.importorskip("sklearn")
     from sklearn.ensemble import RandomForestClassifier

@@ -66,7 +66,6 @@ class TestWeightedKernelUnit:
         """When weights for the signal-carrying rows are 0, the
         weighted joint MI should approach 0 (signal masked out)."""
         data, nbins, cls_y = self._make_xor(n=2000, seed=42)
-        fq_y = np.array([0.5, 0.5], dtype=np.float64)
         pairs_a = np.array([0], dtype=np.int64)
         pairs_b = np.array([1], dtype=np.int64)
         marginal_mi = np.zeros(3, dtype=np.float64)

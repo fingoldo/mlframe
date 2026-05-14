@@ -163,10 +163,8 @@ class TestD20_ShuffledTruePredictor:
             leakage_corr_threshold=None,
         )
         rfecv.fit(X, y)
-        # Shuffled y -> no real signal anywhere; selector shouldn't
-        # specifically prefer 'a' over noise features (Jaccard test).
-        names = set(rfecv.get_feature_names_out())
-        # Just ensure it didn't crash and produced a valid selection.
+        # !TODO! the Jaccard test against the noise-feature pool was never wired in (selector vs shuffled-y should not specifically prefer the known feature).
+        # For now we only assert the selector didn't crash and produced a valid selection.
         assert rfecv.n_features_ >= 1
 
 

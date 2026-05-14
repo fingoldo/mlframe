@@ -906,7 +906,7 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
     """Hypothesis property test: MRMR must complete cleanly across
     a random sweep of (n, p_signal, p_noise, seed) combinations. Each
     example: small synthetic, default config; assert valid support_."""
-    hypothesis = pytest.importorskip("hypothesis")
+    pytest.importorskip("hypothesis")
     from hypothesis import given, settings, strategies as st
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (

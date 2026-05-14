@@ -401,14 +401,9 @@ class TestOrchestratorEndToEnd:
             categorical_vars=xor_fixture["categorical_vars"],
             cfg=cfg, dtype=np.int32,
         )
-        for r in state.recipes:
-            if r.src_names in [("x1", "x2"), ("x2", "x1")]:
-                eng_idx = data_out.shape[1] - len(state.recipes)  # rough
-                # Find by name instead -- robust
-                # Actual values in the engineered col are in [0, 4).
-                # Find which col by matching state.recipes order; recipes
-                # are appended in selected_idx order.
-                pass
+        # !TODO! Verify that the engineered column for the XOR pair (x1, x2) has the expected ordinal encoding.
+        # Earlier scaffolding computed a rough index here but never asserted on values; recover by matching state.recipes order
+        # (recipes are appended in selected_idx order) when this test is fleshed out.
         # nbins_out for engineered cols should include 4 (the XOR full table)
         engineered_nbins = nbins_out[xor_fixture["data"].shape[1]:]
         assert (engineered_nbins == 4).any(), \
@@ -623,7 +618,6 @@ class TestOrchestratorEndToEnd:
         assert replayed.shape == (n_te,)
         # Each unique (x1, x2, x3) tuple must map to the same class for
         # all test rows -- the encoding is deterministic by construction
-        unique_tuples = set(zip(x1_te, x2_te, x3_te))
         tuple_to_class: dict = {}
         for row in range(n_te):
             key = (int(x1_te[row]), int(x2_te[row]), int(x3_te[row]))

@@ -12,7 +12,6 @@ import pytest
 import numpy as np
 import pandas as pd
 import warnings
-from typing import *
 
 from hypothesis import given, settings, strategies as st, assume, HealthCheck
 from hypothesis.extra.numpy import arrays
@@ -209,7 +208,7 @@ class TestMRMREdgeCases:
 
     def test_perfect_feature_detection(self):
         """Test MRMR detects a feature with perfect correlation to target.
-        
+
         When one feature is perfectly correlated with the target, MRMR
         should identify and select it.
         """
@@ -224,16 +223,16 @@ class TestMRMREdgeCases:
         # Perfect feature: target is directly derived from it
         X['perfect'] = np.random.randn(n)
         y = (X['perfect'] > 0).astype(int)  # Binary classification from perfect feature
-        
+
         mrmr = MRMR(
             full_npermutations=5,
             baseline_npermutations=5,
             verbose=0,
             n_jobs=1
         )
-        
+
         mrmr.fit(X, y)
-        
+
         # The perfect feature should be selected - check via support_ mask
         selected_features = X.columns[mrmr.support_].tolist() if hasattr(mrmr, 'support_') else []
         assert 'perfect' in selected_features, f"Perfect feature not selected. Selected: {selected_features}"

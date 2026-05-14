@@ -136,7 +136,8 @@ class TestStreamingCacheReal:
         ]).astype(np.int32)
         nbins = np.array([2, 2], dtype=np.int64)
         sig0 = _column_signature(data[:, 0], 2)
-        sig1 = _column_signature(data[:, 1], 2)
+        # Column 1 in the cache uses a deliberately drifted signature (0.99/0.01 vs the actual
+        # near-uniform data) to force a KL-divergence cache miss for that column.
         cache = {
             "col_signatures": {0: sig0.copy(), 1: np.array([0.99, 0.01])},
             "marginal_mis": {0: 0.05, 1: 0.03},

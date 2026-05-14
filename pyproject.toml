@@ -46,3 +46,5 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports OK in __init__
+# Test class names follow an audit-tag convention (TestA1_SingleClassY, TestB6_FooBar) where the underscore separates a structured tag from a descriptive suffix.
+"tests/**" = ["N801"]

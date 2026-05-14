@@ -14,7 +14,6 @@ import pytest
 import numpy as np
 import pandas as pd
 import warnings
-from typing import *
 
 from hypothesis import given, settings, strategies as st, assume, HealthCheck
 from hypothesis.extra.numpy import arrays
@@ -963,7 +962,7 @@ class TestRFECVEdgeCases:
 
     def test_perfect_feature_detection(self):
         """Test RFECV detects a feature with perfect correlation to target.
-        
+
         When one feature is perfectly correlated with the target, RFECV
         should identify and select it.
         """
@@ -976,9 +975,9 @@ class TestRFECVEdgeCases:
         # Perfect feature: target is directly derived from it
         perfect = np.random.randn(n)
         y = (perfect > 0).astype(int)  # Binary classification from perfect feature
-        
+
         X = np.column_stack([noise1, noise2, noise3, perfect])
-        
+
         # Use more estimators for better feature importance
         estimator = RandomForestClassifier(n_estimators=50, random_state=42)
         rfecv = RFECV(
@@ -988,10 +987,10 @@ class TestRFECVEdgeCases:
             optimizer_plotting='No',
             random_state=42
         )
-        
+
         rfecv.fit(X, y)
-        
-        # At least some features should be selected  
+
+        # At least some features should be selected
         assert rfecv.n_features_ >= 1
         # The RFECV should complete without error
         assert hasattr(rfecv, 'support_')

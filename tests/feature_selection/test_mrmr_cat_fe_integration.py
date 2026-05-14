@@ -174,17 +174,8 @@ class TestCatFEEnabled:
         assert isinstance(out, pd.DataFrame)
         assert out.shape[0] == len(df_te)
 
-        # If the (x1, x2) recipe survived selection, its engineered column
-        # appears in the output. Find it by name pattern ``kway(...x1...x2...)``
-        # or ``kway(...x2...x1...)``.
-        engineered_in_out = [
-            c for c in out.columns
-            if c.startswith("kway(") and "x1" in c and "x2" in c
-        ]
-        # The recipe is created at fit time; whether it ends up SELECTED
-        # depends on the screening step (it competes with other features).
-        # Either way, the recipe is REPLAYABLE on test data -- check via
-        # engineered_recipes_:
+        # The recipe is created at fit time; whether it ends up SELECTED depends on the screening step (it competes with other features).
+        # Either way, the recipe is REPLAYABLE on test data -- check via engineered_recipes_:
         engineered_recipe_names = [r.name for r in mrmr._engineered_recipes_]
         if engineered_recipe_names:
             # Some engineered name lives in support; must be in transform output

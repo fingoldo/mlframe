@@ -98,8 +98,6 @@ class TestG33_RandomStateDeterminism:
 # ----------------------------------------------------------------------------
 class TestF25_MaxRefitsValidation:
     def test_max_refits_zero_raises(self):
-        X = pd.DataFrame(np.random.default_rng(0).standard_normal((100, 4)),
-                         columns=list("abcd"))
         with pytest.raises(ValueError, match="max_refits"):
             RFECV(estimator=LogisticRegression(), max_refits=0)
 

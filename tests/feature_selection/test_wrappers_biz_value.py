@@ -99,7 +99,8 @@ def test_score_lift_vs_all_features():
 
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=1)
     # C=1e6 effectively disables L2 so noise features actually hurt.
-    estimator_factory = lambda: LogisticRegression(C=1e6, max_iter=2000, random_state=0)
+    def estimator_factory():
+        return LogisticRegression(C=1e6, max_iter=2000, random_state=0)
 
     rfecv = RFECV(
         estimator=estimator_factory(),

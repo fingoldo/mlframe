@@ -22,11 +22,11 @@ import pandas as pd
 import pytest
 from sklearn.datasets import make_classification, make_regression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.feature_selection import RFECV as SkRFECV
+from sklearn.feature_selection import RFECV as SkRFECV  # noqa: N811 -- head-to-head test needs both names visible side-by-side; treating one as the constant is misleading.
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score
 
-from mlframe.feature_selection.wrappers import RFECV as OurRFECV
+from mlframe.feature_selection.wrappers import RFECV as OurRFECV  # noqa: N811
 
 
 # ----------------------------------------------------------------------------

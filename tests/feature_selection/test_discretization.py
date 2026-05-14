@@ -12,7 +12,6 @@ import pytest
 import numpy as np
 import pandas as pd
 import warnings
-from typing import *
 
 from hypothesis import given, settings, strategies as st, assume, HealthCheck
 from hypothesis.extra.numpy import arrays

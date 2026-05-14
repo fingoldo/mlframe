@@ -197,7 +197,7 @@ class TestCheckpointAtomicity:
         sel._save_checkpoint(valid_state)
         original_bytes = target.read_bytes()
         # Try to save an unpicklable object (lambda is the textbook unpicklable)
-        with pytest.raises(Exception):
+        with pytest.raises((pickle.PicklingError, AttributeError, TypeError)):
             sel._save_checkpoint({"version": 1, "bad": lambda x: x})
         # Original target must be untouched
         assert target.read_bytes() == original_bytes, (
@@ -213,7 +213,7 @@ class TestCheckpointAtomicity:
     def test_no_temp_files_left_on_failed_save(self, tmp_path):
         sel = _make_selector(checkpoint_path=str(tmp_path / "ckpt.pkl"))
         # Pre-create target so _save_checkpoint sees the dir exists.
-        with pytest.raises(Exception):
+        with pytest.raises((pickle.PicklingError, AttributeError, TypeError)):
             sel._save_checkpoint({"bad": lambda x: x})
         leftovers = list(tmp_path.glob(".rfecv_ckpt_*"))
         assert leftovers == [], f"stale tempfile after failed save: {leftovers}"
