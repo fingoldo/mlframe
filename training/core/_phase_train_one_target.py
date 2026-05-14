@@ -64,6 +64,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     od_val_set = ctx.od_val_set
     use_mrmr_fs = ctx.use_mrmr_fs
     use_ordinary_models = ctx.use_ordinary_models
+    use_mlframe_ensembles = ctx.use_mlframe_ensembles
     mrmr_kwargs = ctx.mrmr_kwargs
     rfecv_models = ctx.rfecv_models
     multilabel_dispatch_config = ctx.multilabel_dispatch_config

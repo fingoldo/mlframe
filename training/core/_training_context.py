@@ -55,6 +55,7 @@ class TrainingContext:
     od_val_set: bool = False
     use_mrmr_fs: bool = False
     use_ordinary_models: bool = True
+    use_mlframe_ensembles: bool = False
     mrmr_kwargs: Optional[Dict] = None
     rfecv_models: Optional[List[str]] = None
     custom_pre_pipelines: Optional[Any] = None
