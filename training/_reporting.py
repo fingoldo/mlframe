@@ -23,6 +23,7 @@ from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
 from sklearn.preprocessing import LabelEncoder
 
 from mlframe.metrics import fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_root_mean_squared_error
+from pyutilz.pythonlib import get_human_readable_set_size
 
 from .evaluation import _get_residual_audit_enabled, _get_cached_plot_idx
 from .evaluation import _get_residual_audit_enabled
@@ -34,6 +35,7 @@ DEFAULT_REPORT_NDIGITS = 2
 DEFAULT_CALIB_REPORT_NDIGITS = 2
 DEFAULT_NBINS = 10
 DEFAULT_FIGSIZE = (15, 5)
+DEFAULT_RANDOM_SEED = 42
 
 logger = logging.getLogger(__name__)
 
