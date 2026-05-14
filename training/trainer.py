@@ -99,6 +99,8 @@ from ._model_factories import (  # noqa: E402,F401
     _patch_lgb_feature_names_in_setter,
     _xgb_classifier_cls, _xgb_regressor_cls,
 )
+from mlframe.metrics import fast_roc_auc
+
 from ._data_helpers import (  # noqa: E402,F401
     _disable_xgboost_early_stopping_if_needed, _extract_target_subset,
     _extract_targets_from_indices, _initialize_mutable_defaults,
