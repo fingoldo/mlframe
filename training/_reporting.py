@@ -1149,7 +1149,11 @@ def report_probabilistic_model_perf(
             )
         if fairness_report is not None:
             if print_report:
-                display(fairness_report.style.set_caption("ML perf fairness by group"))
+                try:
+                    from IPython.display import display as _display
+                    _display(fairness_report.style.set_caption("ML perf fairness by group"))
+                except ImportError:
+                    pass
             if metrics is not None:
                 metrics.update(dict(fairness_report=fairness_report))
 
