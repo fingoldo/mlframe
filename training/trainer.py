@@ -78,6 +78,7 @@ from ._cb_pool import (  # noqa: E402,F401
     _polars_fill_null_in_categorical,
     _polars_nullable_categorical_cols,
     _polars_schema_diagnostic,
+    _predict_with_fallback,
 )
 from ._eval_helpers import (  # noqa: E402,F401
     _align_xgb_cat_categories, _append_split_rate_suffix,
