@@ -27,6 +27,8 @@ import pandas as pd
 import polars as pl
 import joblib
 
+from pyutilz.system import compute_total_gpus_ram
+
 # Heavy optional deps: defer failures to first actual use so `import mlframe.training`
 # stays cheap and does not crash when a given backend is not installed. Mirrors the
 # lazy-loading style in `mlframe.training.__init__.__getattr__`.
