@@ -992,3 +992,13 @@ def _build_tier_dfs(
             df_ = base_dfs.get(key)
             if df_ is None:
                 tier_dfs[key] = None
+
+def _split_preds_probs(arr):
+    """Regression: 1-D preds; classification: 2-D probs + derived 1-D preds via argmax."""
+    if arr is None:
+        return None, None
+    a = np.asarray(arr)
+    if a.ndim == 2:
+        return np.argmax(a, axis=1), a
+    return a, None
+
