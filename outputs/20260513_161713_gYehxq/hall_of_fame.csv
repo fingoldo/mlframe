@@ -1,5 +1,0 @@
-Complexity,Loss,Equation
-1,1.2073555,"0.13175358"
-2,0.9437185,"square(x0)"
-3,8.5810325e-6,"target + -8.569492e-6"
-5,0.0,"target + (x1 - x1)"

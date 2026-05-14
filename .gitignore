@@ -169,3 +169,4 @@ tests/**/catboost_info/
 tests/**/lightning_logs/
 tests/**/checkpoints/
 tests/**/logs/
+outputs/
