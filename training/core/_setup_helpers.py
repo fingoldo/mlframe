@@ -482,6 +482,10 @@ def _build_pre_pipelines(
         pre_pipeline_names.append("")
 
     # Add RFECV-based feature selection pipelines
+    if not rfecv_models:
+        rfecv_models = []
+    if not rfecv_models_params:
+        rfecv_models_params = {}
     # Validate all RFECV models exist before processing
     unknown_rfecv_models = [m for m in rfecv_models if m not in rfecv_models_params]
     if unknown_rfecv_models:
