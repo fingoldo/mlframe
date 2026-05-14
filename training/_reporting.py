@@ -665,7 +665,11 @@ def report_regression_model_perf(
         )
         if fairness_report is not None:
             if print_report:
-                display(fairness_report)
+                try:
+                    from IPython.display import display as _display
+                    _display(fairness_report)
+                except ImportError:
+                    pass
             if metrics is not None:
                 metrics.update(dict(fairness_report=fairness_report))
 
