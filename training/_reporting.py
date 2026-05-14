@@ -17,10 +17,15 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import polars as pl
 
 from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
 from sklearn.preprocessing import LabelEncoder
 
+from mlframe.metrics import fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_root_mean_squared_error
+
+from .evaluation import _get_residual_audit_enabled, _get_cached_plot_idx
+from .evaluation import _get_residual_audit_enabled
 from .phases import phase
 
 # Inline to avoid circular import (_reporting <- evaluation <- _reporting)

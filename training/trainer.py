@@ -117,8 +117,10 @@ from .models import create_linear_model
 
 try:
     import torch
+    from torch import nn
 except ImportError:
     torch = None  # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
 from .configs import (
     DataConfig, TrainingControlConfig, MetricsConfig, ReportingConfig,
     FeatureImportanceConfig, OutputConfig, NamingConfig,
