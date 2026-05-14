@@ -60,6 +60,10 @@ try:
     from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError:  # pragma: no cover
     LGBMClassifier = LGBMRegressor = None  # type: ignore[assignment]
+try:
+    from xgboost import XGBClassifier, XGBRegressor
+except ImportError:  # pragma: no cover
+    XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
 
 # 2026-05-13 refactor: extracted modules
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
