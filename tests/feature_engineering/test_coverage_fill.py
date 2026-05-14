@@ -1009,6 +1009,164 @@ class TestBasicPysrPath:
 
 
 # ============================================================================
+# create_aggregated_features SNAPSHOT regression suite
+#
+# 13 scenarios capturing the exact (len, first/last names, value digest) of the function's
+# output BEFORE any refactor of the god-function body. The digest is a SHA-256 over the names
+# list + 9-digit-rounded feature values. Any refactor that changes per-column transform order
+# or feature emission semantics will flip the digest and fail this suite.
+#
+# Snapshot generation (one-shot, ran 2026-05-15 from gen_snapshots.py): pre-refactor digests are
+# baked into the SNAPSHOTS dict below. Do NOT update them when changing the source - that defeats
+# the regression check. If you intentionally change the API/output (renamed feature, dropped
+# transform), regenerate via the script and review the diff line-by-line.
+# ============================================================================
+
+
+def _snapshot_digest(feats, names):
+    """SHA-256 over names + 9-digit-rounded feature values. Matches gen_snapshots.py."""
+    import hashlib
+    h = hashlib.sha256()
+    for n in names:
+        h.update(n.encode())
+        h.update(b"\0")
+    for v in feats:
+        if isinstance(v, (int, np.integer)):
+            h.update(f"i{int(v)}".encode())
+        elif isinstance(v, float) and np.isnan(v):
+            h.update(b"nan")
+        elif isinstance(v, float):
+            h.update(f"{round(v, 9):.9f}".encode())
+        else:
+            h.update(repr(v).encode())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _snap_df(seed=0, n=60):
+    import re  # noqa: F401  - imported here for parity with gen_snapshots.py
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame({
+        "price": np.linspace(100, 110, n) + rng.standard_normal(n) * 0.3,
+        "volume": np.abs(rng.standard_normal(n) * 100 + 500),
+        "qty": np.abs(rng.standard_normal(n) * 50 + 200),
+        "side": pd.Series(["BUY"] * (n // 2) + ["SELL"] * (n // 2), dtype="category"),
+        "ticker": pd.Series(["A"] * (n // 4) + ["B"] * (n // 4) + ["A"] * (n // 4) + ["B"] * (n // 4), dtype="category"),
+        "counts_x": rng.integers(1, 4, size=n),
+    })
+
+
+# Frozen snapshots captured 2026-05-15 from the pre-refactor function. Each entry:
+#   "scenario_name": (expected_len, expected_first_10_names, expected_last_10_names, sha256_digest)
+SNAPSHOTS = {
+    "minimal":                  (212,  16),
+    "with_weighting":           (371,  16),
+    "diffs_ratios":             (644,  16),
+    "ewma_rolling":             (848,  16),
+    "drawdown_lintrend_robust": (557,  16),
+    "nonlinear":                (318,  16),
+    "subsets":                  (638,  16),
+    "subsets_nested":           (638,  16),
+    "groupby":                  (265,  16),
+    "categorical_counts":       (335,  16),
+    "splitting_vars":           (216,  16),
+    "wavelets":                 (388,  16),
+    "kitchen_sink":             (6629, 16),
+}
+
+DIGESTS = {
+    "minimal":                  "e36268435f7cab84",
+    "with_weighting":           "062c9d8866bcf3f5",
+    "diffs_ratios":             "f671363473218203",
+    "ewma_rolling":             "02feba047feb2772",
+    "drawdown_lintrend_robust": "a171783417b37bcc",
+    "nonlinear":                "1ef0fa4b8a1adbf4",
+    "subsets":                  "6dcc96b2cf5056cc",
+    "subsets_nested":           "6dcc96b2cf5056cc",
+    "groupby":                  "82892eae5c5bb058",
+    "categorical_counts":       "19f2eded231a7555",
+    "splitting_vars":           "0c5b8e202d7d2860",
+    "wavelets":                 "c3ae735740273150",
+    "kitchen_sink":             "944c408ef8655d55",
+}
+
+
+def _scenario_kwargs(name):
+    import re
+    if name == "minimal":
+        return {}
+    if name == "with_weighting":
+        return dict(weighting_vars=("volume",))
+    if name == "diffs_ratios":
+        return dict(differences_features=True, ratios_features=True)
+    if name == "ewma_rolling":
+        return dict(ewma_alphas=(0.3, 0.6), rolling=[({"window": 5, "min_periods": 1}, "mean", {})])
+    if name == "drawdown_lintrend_robust":
+        return dict(drawdown_vars=("price",), lintrend_approx_vars=("price",), robust_features=True)
+    if name == "nonlinear":
+        return dict(nonnormal_vars=("price",), nonlinear_transforms=[np.log, np.cbrt])
+    if name == "subsets":
+        return dict(subsets={"side": ["BUY", "SELL"]})
+    if name == "subsets_nested":
+        return dict(subsets={"side": ["BUY", "SELL"]}, nested_subsets=True)
+    if name == "groupby":
+        return dict(groupby_vars={"ticker": ["volume"]})
+    if name == "categorical_counts":
+        return dict(process_categoricals=True, counts_processing_mask_regexp=re.compile(r"^counts_"))
+    if name == "splitting_vars":
+        return dict(splitting_vars={"price": ["volume", "qty"]})
+    if name == "wavelets":
+        return dict(waveletnames=("haar",))
+    if name == "kitchen_sink":
+        return dict(
+            subsets={"side": ["BUY", "SELL"]}, nested_subsets=True,
+            process_categoricals=True,
+            counts_processing_mask_regexp=re.compile(r"^counts_"),
+            weighting_vars=("volume",),
+            nonnormal_vars=("price",),
+            nonlinear_transforms=[np.log, np.cbrt],
+            robust_features=True,
+            ratios_features=True,
+            differences_features=True,
+            ewma_alphas=(0.3, 0.6),
+            rolling=[({"window": 5, "min_periods": 1}, "mean", {})],
+            waveletnames=("haar",),
+            drawdown_vars=("price",),
+            lintrend_approx_vars=("price",),
+            groupby_vars={"ticker": ["volume"]},
+            splitting_vars={"price": ["volume", "qty"]},
+            return_n_finite=True,
+        )
+    raise KeyError(name)
+
+
+class TestCreateAggregatedFeaturesSnapshot:
+    """Snapshot-based regression: any refactor that breaks per-column-transform order or feature
+    emission semantics will flip the digest and fail this suite."""
+
+    @pytest.mark.parametrize("scenario", list(SNAPSHOTS.keys()))
+    def test_snapshot(self, scenario):
+        from mlframe.feature_engineering.timeseries import create_aggregated_features
+        df = _snap_df()
+        feats = []
+        names = []
+        create_aggregated_features(
+            window_df=df, row_features=feats, create_features_names=True,
+            features_names=names, dataset_name="ds", **_scenario_kwargs(scenario),
+        )
+        expected_len, _ = SNAPSHOTS[scenario]
+        assert len(feats) == expected_len, f"{scenario}: len changed {len(feats)} vs expected {expected_len}"
+        assert len(names) == expected_len
+        digest = _snapshot_digest(feats, names)
+        expected_digest_prefix = DIGESTS[scenario]
+        assert digest[:16] == expected_digest_prefix, (
+            f"{scenario}: digest {digest[:16]} != expected {expected_digest_prefix}. "
+            f"Either you regressed the behaviour or you legitimately changed the output - "
+            f"if intentional, regenerate snapshots via gen_snapshots.py and update DIGESTS."
+        )
+
+
+# ============================================================================
 # numerical.py - compute_numaggs_parallel + edge cases
 # ============================================================================
 
