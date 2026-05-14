@@ -19,6 +19,11 @@ import polars as pl
 
 from sklearn.pipeline import Pipeline
 
+from ._misc_helpers import (
+    _auto_detect_feature_types, _df_shape_str, _drop_cols_df,
+    _elapsed_str, _validate_feature_type_exclusivity,
+)
+
 from ..configs import TargetTypes
 from ..preprocessing import (
     create_split_dataframes, load_and_prepare_dataframe, preprocess_dataframe,
