@@ -743,7 +743,7 @@ def _train_model_with_fallback(
             )
             logger.warning("CB Polars fastpath failure -- schema context:\n%s", schema_dump)
             from mlframe.training.utils import get_pandas_view_of_polars_df
-            from mlframe.preprocessing import prepare_df_for_catboost as _prep_cb
+            from mlframe.training.pipeline import prepare_df_for_catboost as _prep_cb
 
             cat_feat = list(fit_params.get("cat_features") or [])
             text_feat = list(fit_params.get("text_features") or [])
@@ -788,7 +788,7 @@ def _train_model_with_fallback(
             logger.info("  [fallback] decategorize text cols(train) in %.1fs", timer() - t0)
 
             t0 = timer()
-            train_df = _prep_cb(train_df, cat_features=cat_feat, text_features=text_feat)
+            _prep_cb(train_df, cat_features=cat_feat)  # in-place; text_feat already decategorised above
             logger.info("  [fallback] prepare_df_for_catboost(train) in %.1fs", timer() - t0)
 
             # eval_set carries the val split for CB -- rewrite it too.
@@ -803,7 +803,7 @@ def _train_model_with_fallback(
                         X_val = get_pandas_view_of_polars_df(X_val)
                         # Decategorize BEFORE prep_cb (see train_df comment above).
                         X_val = _decategorize_text_cols(X_val)
-                        X_val = _prep_cb(X_val, cat_features=cat_feat, text_features=text_feat)
+                        _prep_cb(X_val, cat_features=cat_feat)  # in-place; text_feat already decategorised above
                     else:
                         X_val = _decategorize_text_cols(X_val) if isinstance(X_val, pd.DataFrame) else X_val
                     new_pairs.append((X_val, y_val))

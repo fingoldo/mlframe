@@ -189,7 +189,7 @@ def _cb_polars_to_pandas(
     fallback (both do the same conversion, just triggered differently).
     """
     from .utils import get_pandas_view_of_polars_df
-    from .preprocessing import prepare_df_for_catboost as _prep_cb
+    from .pipeline import prepare_df_for_catboost as _prep_cb
 
     cat_feat, text_feat = _recover_cb_feature_names(model)
     if verbose or not (cat_feat or text_feat):
@@ -213,7 +213,7 @@ def _cb_polars_to_pandas(
                 X_pd[col] = X_pd[col].astype("object").fillna("")
 
     t0 = timer()
-    X_pd = _prep_cb(X_pd, cat_features=list(cat_feat), text_features=list(text_feat))
+    _prep_cb(X_pd, cat_features=list(cat_feat))  # in-place; text_feat already decategorised above
     logger.info("  [predict fallback] prepare_df_for_catboost(%s) in %.1fs",
                 method, timer() - t0)
     return X_pd

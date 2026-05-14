@@ -1,71 +1,55 @@
-"""Categorical feature engineering for ML. Optimized & rich set of aggregates for 1d vectors."""
+"""Categorical feature engineering for ML. Optimised & rich set of aggregates for 1d vectors."""
 
 __all__ = [
     "compute_countaggs",
     "get_countaggs_names",
 ]
 
-# pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
 import logging
+from typing import List, Optional
+
+import numpy as np
+import pandas as pd
+
+from .numerical import compute_numaggs, get_numaggs_names
 
 logger = logging.getLogger(__name__)
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
-
-import warnings
-from contextlib import contextmanager
-
-from antropy import *
-import pandas as pd, numpy as np
-from scipy.stats import entropy
-from .numerical import compute_numaggs, get_numaggs_names
-
-
-@contextmanager
-def _suppress_cat_warnings():
-    """Scoped warnings suppression — replaces former module-level ``warnings.simplefilter``."""
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="nperseg =")
-        warnings.simplefilter(action="ignore", category=FutureWarning)
-        yield
-
-numaggs_names = get_numaggs_names()
-directional_numaggs_names = get_numaggs_names(directional_only=True)
+_numaggs_names_cache = get_numaggs_names()
+_directional_numaggs_names_cache = get_numaggs_names(directional_only=True)
 
 
 def compute_countaggs(
     arr: pd.Series,
-    counts_normalize: bool = True,  # use relative or absolute counts
-    counts_compute_numaggs: bool = True,  # compute numerical aggregates over counts data or not
-    counts_top_n: int = 1,  # return that many highest/lowest value counts
-    counts_return_top_counts: bool = True,  # return top counts
-    counts_return_top_values: bool = True,  # return top values
-    counts_compute_values_numaggs: bool = False,  # if all values are in fact numerical, compute numaggs for them rather than their counts (ordered only, in order of their counts)
-    numerical_kwargs: dict = None,
-):
-    """For some variables, especially with many repeated values, or categorical, we can do value_counts(normalize=True or False). Further we can return
-    1) Top N highest/lowest values along with their counts (missing are padded with NaNs)
-    2) numaggs over counts data
-    3) if variable is numeric, numaggs(timeseries_features=True) for values series sorted by counts (timeseries_features=True leaves only aggregates depending on the order of values,
-        'cause otherwise it's simply a duplication of num_aggs over regular series)
+    counts_normalize: bool = True,
+    counts_compute_numaggs: bool = True,
+    counts_top_n: int = 1,
+    counts_return_top_counts: bool = True,
+    counts_return_top_values: bool = True,
+    counts_compute_values_numaggs: bool = False,
+    numerical_kwargs: Optional[dict] = None,
+) -> List[float]:
+    """Aggregate a series by value-count distribution.
+
+    For variables with many repeated values, or true categoricals, we compute
+    ``value_counts(normalize=counts_normalize)`` then optionally derive:
+
+    1. Top-N highest/lowest counts and values (missing slots padded with NaN).
+    2. ``compute_numaggs`` over the counts vector.
+    3. For numeric variables, ``compute_numaggs(directional_only=True)`` over the values
+       vector sorted by count.
+
+    Length of the returned list is guaranteed to match ``len(get_countaggs_names(...))``
+    with identical kwargs.
     """
     if numerical_kwargs is None:
         numerical_kwargs = dict(return_unsorted_stats=False)
     value_counts = arr.value_counts(normalize=counts_normalize)
-    value_counts = value_counts[value_counts > 0]
     values = value_counts.index.values
     counts = value_counts.values
 
-    res = []
+    res: list = []
 
     if counts_compute_numaggs:
         res.extend(compute_numaggs(arr=counts, **numerical_kwargs))
@@ -73,7 +57,7 @@ def compute_countaggs(
     if counts_top_n:
 
         if len(counts) >= counts_top_n:
-            extra = []
+            extra: List[float] = []
         else:
             extra = [np.nan] * (counts_top_n - len(counts))
 
@@ -88,43 +72,53 @@ def compute_countaggs(
         if pd.api.types.is_numeric_dtype(values):
             processed_numerical_kwargs = numerical_kwargs.copy()
             processed_numerical_kwargs["directional_only"] = True
-            res.extend(compute_numaggs(arr=values, **processed_numerical_kwargs))
+            extra_features = compute_numaggs(arr=values, **processed_numerical_kwargs)
+            if len(extra_features) != len(_directional_numaggs_names_cache):
+                raise AssertionError(
+                    f"compute_numaggs(directional_only=True) returned {len(extra_features)} values "
+                    f"but {len(_directional_numaggs_names_cache)} names are registered; the two must agree."
+                )
+            res.extend(extra_features)
         else:
-            res.extend([np.nan] * len(directional_numaggs_names))
+            logger.debug(
+                "compute_countaggs: counts_compute_values_numaggs=True but values dtype is %s "
+                "(non-numeric); padding with NaN.",
+                values.dtype,
+            )
+            res.extend([np.nan] * len(_directional_numaggs_names_cache))
 
     return res
 
 
 def get_countaggs_names(
-    counts_normalize: bool = True,  # use relative or absolute counts
-    counts_compute_numaggs: bool = True,  # compute numerical aggregates over counts data or not
-    counts_top_n: int = 1,  # return that many highest/lowest value counts
-    counts_return_top_counts: bool = True,  # return top counts
-    counts_return_top_values: bool = True,  # return top values
-    counts_compute_values_numaggs: bool = False,  # if all values are in fact numerical, compute numaggs for them rather than their counts (ordered only, in order of their counts)
-    numerical_kwargs: dict = None,
-) -> list:
-
+    counts_normalize: bool = True,
+    counts_compute_numaggs: bool = True,
+    counts_top_n: int = 1,
+    counts_return_top_counts: bool = True,
+    counts_return_top_values: bool = True,
+    counts_compute_values_numaggs: bool = False,
+    numerical_kwargs: Optional[dict] = None,
+) -> List[str]:
+    """Feature names produced by ``compute_countaggs`` under the same kwargs."""
     if numerical_kwargs is None:
         numerical_kwargs = dict(return_unsorted_stats=False)
 
-    res = []
+    res: List[str] = []
 
     if counts_compute_numaggs:
-        res.extend([feat + "_" + ("cntnrm" if counts_normalize else "cnt") for feat in get_numaggs_names(**numerical_kwargs)])
+        suffix = "cntnrm" if counts_normalize else "cnt"
+        res.extend([f"{feat}_{suffix}" for feat in get_numaggs_names(**numerical_kwargs)])
 
     if counts_top_n:
         if counts_return_top_counts:
-            res.extend(["top_" + str(i + 1) + "_vcnt" for i in range(counts_top_n)])
-            res.extend(["btm_" + str(counts_top_n - i) + "_vcnt" for i in range(counts_top_n)])
+            res.extend([f"top_{i + 1}_vcnt" for i in range(counts_top_n)])
+            res.extend([f"btm_{counts_top_n - i}_vcnt" for i in range(counts_top_n)])
         if counts_return_top_values:
-            res.extend(["top_" + str(i + 1) + "_vval" for i in range(counts_top_n)])
-            res.extend(["btm_" + str(counts_top_n - i) + "_vval" for i in range(counts_top_n)])
+            res.extend([f"top_{i + 1}_vval" for i in range(counts_top_n)])
+            res.extend([f"btm_{counts_top_n - i}_vval" for i in range(counts_top_n)])
 
     if counts_compute_values_numaggs:
-        # if pd.api.types.is_numeric_dtype(values):
-        processed_numerical_kwargs = numerical_kwargs.copy()
-        processed_numerical_kwargs["directional_only"] = True
-        res.extend([feat + "_vvls" for feat in directional_numaggs_names])
+        # Names are always emitted; runtime values may be NaN-padded when the input series is non-numeric.
+        res.extend([f"{feat}_vvls" for feat in _directional_numaggs_names_cache])
 
     return res

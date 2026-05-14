@@ -5,121 +5,120 @@ __all__ = [
     "run_pysr_fe",
 ]
 
-# pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
 import logging
+import warnings
+from contextlib import contextmanager
+from typing import Dict, List, Optional, Union
 
-logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
-
-
-import numpy as np, pandas as pd
-import polars as pl, polars.selectors as cs
+import numpy as np
+import pandas as pd
+import polars as pl
+import polars.selectors as cs
 
 from pyutilz.system import clean_ram, get_own_memory_usage
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Inits
-# ----------------------------------------------------------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
+# Map of numpy integer dtypes to polars equivalents. Defined at module scope so it's not
+# rebuilt per call. Add new entries here if a user passes a wider integer dtype.
+_NP_TO_PL_DTYPE: Dict[type, pl.DataType] = {
+    np.int8: pl.Int8,
+    np.int16: pl.Int16,
+    np.int32: pl.Int32,
+    np.int64: pl.Int64,
+}
 
-import warnings
-from contextlib import contextmanager
+_DEFAULT_DATE_METHODS: Dict[str, type] = {"day": np.int8, "weekday": np.int8, "month": np.int8}
 
 
 @contextmanager
 def _suppress_basic_warnings():
-    """Scoped warnings suppression — replaces former module-level ``warnings.simplefilter``
-    which silenced FutureWarning process-wide."""
+    """Scoped warnings suppression - replaces former module-level ``warnings.simplefilter`` which silenced FutureWarning process-wide."""
     with warnings.catch_warnings():
         warnings.simplefilter(action="ignore", category=FutureWarning)
         yield
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Core
-# ----------------------------------------------------------------------------------------------------------------------------
 
 
 def create_date_features(
     df: Union[pd.DataFrame, pl.DataFrame],
     cols: List[str],
     delete_original_cols: bool = True,
-    methods: Dict[str, np.dtype] = None,
+    methods: Optional[Dict[str, type]] = None,
 ) -> Union[pd.DataFrame, pl.DataFrame]:
+    """Decompose datetime columns into integer date parts (day, weekday, month, ...).
+
+    Parameters
+    ----------
+    df
+        pandas or polars frame to augment.
+    cols
+        Datetime column names to decompose. Empty list returns ``df`` unchanged.
+    delete_original_cols
+        Drop the source datetime columns after decomposition.
+    methods
+        Mapping of ``dt`` accessor name to target numpy integer dtype. Defaults to
+        ``{"day": int8, "weekday": int8, "month": int8}``. Weekday is normalised to
+        pandas convention (Mon=0 .. Sun=6) in both backends.
+
+    Returns
+    -------
+    A new frame (same backend as input). The input is never mutated.
+    """
     if methods is None:
-        methods = {"day": np.int8, "weekday": np.int8, "month": np.int8}
+        methods = _DEFAULT_DATE_METHODS
     if len(cols) == 0:
         return df
 
-    logger.info(f"In create_date_features. RAM usage: {get_own_memory_usage():.1f}GB.")
+    logger.info("In create_date_features. RAM usage: %.1fGB.", get_own_memory_usage())
 
     is_pandas = isinstance(df, pd.DataFrame)
     is_polars = isinstance(df, pl.DataFrame)
     if not (is_pandas or is_polars):
         raise ValueError("df must be pandas or polars DataFrame")
 
-    # Map NumPy dtypes to Polars dtypes
-    dtype_map = {
-        np.int8: pl.Int8,
-        np.int16: pl.Int16,
-        np.int32: pl.Int32,
-        np.int64: pl.Int64,
-    }
-
-    # Collision detection: if a user-defined column already exists with
-    # the exact derived name (e.g. user has an engineered `date_year`
-    # that's their fiscal year, not calendar year), silent overwrite
-    # would destroy their data with no log line. Warn once and let
-    # create_date_features proceed — raising would regress legitimate
-    # re-runs on the same frame.
+    # If a derived name (e.g. `date_year`) already exists, with_columns/assign would silently
+    # overwrite the caller's feature. Warn once and let the function proceed - raising would
+    # regress legitimate re-runs on the same frame.
     existing_cols = set(df.columns)
     derived_names = [f"{col}_{method}" for col in cols for method in methods.keys()]
     clashes = [n for n in derived_names if n in existing_cols]
     if clashes:
         logger.warning(
-            "create_date_features: %d derived column name(s) already exist "
-            "in the DataFrame and will be OVERWRITTEN: %s. If any of these "
-            "are user-engineered features, rename either them or the "
-            "``methods`` dict keys to disambiguate.",
-            len(clashes), clashes,
+            "create_date_features: %d derived column name(s) already exist in the DataFrame and will be OVERWRITTEN: %s. "
+            "If any of these are user-engineered features, rename either them or the ``methods`` dict keys to disambiguate.",
+            len(clashes),
+            clashes,
         )
 
     if is_pandas:
-        # Previously mutated the caller's frame in place (assignment via df[col + "_" + method] = ...)
-        # while the polars branch returned a new frame → asymmetric API. Work on a shallow copy so
-        # callers get back a new frame in both branches.
+        # Previously mutated the caller's frame in place; the polars branch returned a new frame.
+        # Shallow-copy so both branches return a new frame.
         df = df.copy(deep=False)
         for col in cols:
             obj = df[col].dt
             for method, dtype in methods.items():
+                if not hasattr(obj, method):
+                    raise ValueError(f"Unknown pandas .dt accessor: {method!r}")
                 df[col + "_" + method] = getattr(obj, method).astype(dtype)
         if delete_original_cols:
             df = df.drop(columns=cols)
-    elif is_polars:
+    else:
         all_exprs = []
         for col in cols:
             for method, np_dtype in methods.items():
-                pl_dtype = dtype_map.get(np_dtype)
+                pl_dtype = _NP_TO_PL_DTYPE.get(np_dtype)
                 if pl_dtype is None:
-                    raise ValueError(f"Unsupported dtype {np_dtype} for Polars")
+                    raise ValueError(
+                        f"Unsupported dtype {np_dtype} for polars; supported: {list(_NP_TO_PL_DTYPE.keys())}"
+                    )
 
                 if method == "weekday":
-                    # Adjust to match pandas weekday (0=Monday to 6=Sunday)
+                    # polars dt.weekday() returns 1..7 (Mon..Sun); subtract 1 to match pandas 0..6.
                     e = (pl.col(col).dt.weekday() - 1).cast(pl_dtype).alias(col + "_" + method)
                 else:
                     e = getattr(pl.col(col).dt, method)().cast(pl_dtype).alias(col + "_" + method)
 
                 all_exprs.append(e)
-        # Add all new columns at once
         df = df.with_columns(all_exprs)
 
         if delete_original_cols:
@@ -128,13 +127,19 @@ def create_date_features(
     return df
 
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# PySR
-# ----------------------------------------------------------------------------------------------------------------------------
+def run_pysr_fe(
+    df: pl.DataFrame,
+    nsamples: int = 100_000,
+    target_columns_prefix: str = "target_",
+    timeout_mins: int = 5,
+    fill_nans: bool = True,
+):
+    """Fit a PySR symbolic regressor on a sampled polars frame.
 
-
-def run_pysr_fe(df: pl.DataFrame, nsamples: int = 100_000, target_columns_prefix: str = "target_", timeout_mins: int = 5, fill_nans: bool = True):
-
+    The frame is split into features (numeric columns NOT prefixed by ``target_columns_prefix``)
+    and targets (columns starting with that prefix). Duplicate sanitised names are disambiguated
+    with a numeric suffix so PySR sees a unique feature set.
+    """
     from pysr import PySRRegressor
 
     clean_ram()
@@ -143,28 +148,17 @@ def run_pysr_fe(df: pl.DataFrame, nsamples: int = 100_000, target_columns_prefix
         turbo=True,
         timeout_in_seconds=timeout_mins * 60,
         maxsize=10,
-        niterations=10,  # < Increase me for better results
+        niterations=10,
         binary_operators=["+", "*"],
-        unary_operators=[
-            "cos",
-            "exp",
-            "log",
-            "sin",
-            "inv(x) = 1/x",
-            # ^ Custom operator (julia syntax)
-        ],
+        unary_operators=["cos", "exp", "log", "sin", "inv(x) = 1/x"],
         extra_sympy_mappings={"inv": lambda x: 1 / x},
-        # ^ Define operator for SymPy as well
         elementwise_loss="loss(prediction, target) = abs(prediction - target)",
-        # ^ Custom loss function (julia syntax)
     )
 
-    # Build a mapping from old → new names.
-    # Two-pass replace could collapse distinct columns onto the same sanitized name
-    # (e.g. "a=b" and "a.b" both become "a_b"). Deduplicate by appending an index suffix
-    # on collision so PySR sees unique features.
-    rename_map = {}
-    used = set()
+    # Two-pass replace could collapse distinct columns onto the same sanitised name
+    # (e.g. "a=b" and "a.b" both become "a_b"). Deduplicate by appending an index suffix on collision.
+    rename_map: Dict[str, str] = {}
+    used: set = set()
     for col in df.columns:
         candidate = col.replace("=", "_").replace(".", "_")
         base = candidate
@@ -175,14 +169,17 @@ def run_pysr_fe(df: pl.DataFrame, nsamples: int = 100_000, target_columns_prefix
         used.add(candidate)
         rename_map[col] = candidate
 
-    tmp_df = df.head(nsamples) if nsamples else df
+    # nsamples<=0 means "use the full frame"; nsamples>0 caps the row count.
+    tmp_df = df.head(nsamples) if nsamples and nsamples > 0 else df
     expr = cs.numeric() - cs.starts_with(target_columns_prefix)
     if fill_nans:
         expr = expr.fill_null(0).fill_nan(0)
 
-    model.fit(tmp_df.select(expr).rename(rename_map).collect(), tmp_df.select(cs.starts_with(target_columns_prefix)).collect())
+    features_df = tmp_df.select(expr).rename(rename_map)
+    targets_df = tmp_df.select(cs.starts_with(target_columns_prefix))
+    model.fit(features_df, targets_df)
 
-    del tmp_df
+    del tmp_df, features_df, targets_df
     clean_ram()
 
     return model

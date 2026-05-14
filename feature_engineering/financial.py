@@ -9,78 +9,89 @@ __all__ = [
     "merge_perticker_and_wholemarket_features",
 ]
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
 import logging
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
-logger = logging.getLogger(__name__)
-
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
-
+import polars as pl
+import polars.selectors as cs
 import polars_talib as plta
-import polars as pl, polars.selectors as cs
 
 import pyutilz.polarslib as pllib
 from pyutilz.system import clean_ram
 
+logger = logging.getLogger(__name__)
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Core
-# ----------------------------------------------------------------------------------------------------------------------------
+# Default values placed at module scope so they're not rebuilt per call. None-defaults inside
+# function bodies use these; we never mutate them.
+_DEFAULT_OHLCV_FIELDS: Dict[str, str] = dict(
+    qty="qty", open="open", high="high", low="low", close="close", volume="volume"
+)
+_DEFAULT_TA_OHLCV_FIELDS: Dict[str, str] = dict(open="open", high="high", low="low", close="close", volume="volume")
+_DEFAULT_MARKET_ACTION_PREFIXES: Tuple[str, ...] = ("",)
+_DEFAULT_LAGS: Tuple[int, ...] = (1,)
+_DEFAULT_TA_WINDOWS: Tuple[int, ...] = (5, 10)
+_DEFAULT_FSS_WINDOWS: Tuple[Tuple[int, int, int], ...] = ((12, 26, 9),)
+_DEFAULT_ROLLING_WINDOWS: Tuple[int, ...] = (5,)
+_DEFAULT_ROLLING_NUMAGGS: Tuple[str, ...] = (
+    "rolling_min",
+    "rolling_max",
+    "rolling_mean",
+    "rolling_std",
+    "rolling_skew",
+    "rolling_kurtosis",
+)
+_DEFAULT_WHOLEMARKET_NUMAGGS: Tuple[str, ...] = (
+    "min", "max", "mean", "median", "std", "skew", "kurtosis", "entropy", "n_unique",
+)
+_DEFAULT_WEIGHTING_COLUMNS: Tuple[str, ...] = ("volume", "qty")
+
+
+def _group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
+    """Apply ``.over(over)`` only when ``over`` is truthy; otherwise pass through unchanged."""
+    return expr.over(over) if over else expr
 
 
 def add_ohlcv_ratios_rlags(
     ohlcv: pl.DataFrame,
     columns_selector: str = "",
-    lags: list = None,
-    crossbar_ratios_lags: list = None,
+    lags: Optional[Sequence[int]] = None,
+    crossbar_ratios_lags: Optional[Sequence[int]] = None,
     add_ratios: bool = True,
     add_rlags: bool = True,
     ticker_column: str = "ticker",
-    exclude_fields: list = None,
-    market_action_prefixes: list = None,
-    ohlcv_fields_mapping=None,
+    exclude_fields: Optional[Sequence[str]] = None,
+    market_action_prefixes: Optional[Sequence[str]] = None,
+    ohlcv_fields_mapping: Optional[Dict[str, str]] = None,
     nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
-    """Adds more nuanced features to raw ohlcv. Dataframe assumed to be sorted by timestamp.
-    Grouping implemented with 'over' mechanics."""
+    """Add nuanced features to raw OHLCV (interbar ratios + relative lags).
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Inits
-    # ----------------------------------------------------------------------------------------------------------------------------
-
+    Assumes the dataframe is sorted by timestamp. Grouping uses polars ``.over(ticker_column)``.
+    Pass an empty list (``[]``) to ``market_action_prefixes`` to legitimately request "no
+    prefixes"; ``None`` selects the default single-empty-prefix ``[""]``.
+    """
     if lags is None:
-        lags: list = [1]
+        lags = list(_DEFAULT_LAGS)
     if crossbar_ratios_lags is None:
-        crossbar_ratios_lags: list = [1]
+        crossbar_ratios_lags = list(_DEFAULT_LAGS)
 
-    # Negative/zero shifts are a silent look-ahead leakage vector in downstream ML: a negative lag
-    # pulls *future* prices into the current row. Guard explicitly rather than letting the
-    # polars expression succeed and the training set quietly poison itself.
+    # Negative/zero lag pulls future prices into current row -> look-ahead leakage. Guard
+    # explicitly rather than let the polars expression succeed silently.
     for _lag in lags:
         if _lag <= 0:
-            raise ValueError(f"add_ohlcv_ratios_rlags: lag must be > 0, got {_lag} (negative/zero lags cause look-ahead leakage)")
+            raise ValueError(
+                f"add_ohlcv_ratios_rlags: lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)"
+            )
     for _lag in crossbar_ratios_lags:
         if _lag <= 0:
             raise ValueError(
-                f"add_ohlcv_ratios_rlags: crossbar_ratios_lag must be > 0, got {_lag} (negative/zero lags cause look-ahead leakage)"
+                f"add_ohlcv_ratios_rlags: crossbar_ratios_lag must be > 0, got {_lag} (negative/zero causes look-ahead leakage)"
             )
-    if not market_action_prefixes:
-        market_action_prefixes: list = [""]
-    if not ohlcv_fields_mapping:
-        ohlcv_fields_mapping: dict = dict(qty="qty", open="open", high="high", low="low", close="close", volume="volume")
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Columns to work with
-    # ----------------------------------------------------------------------------------------------------------------------------
+    if market_action_prefixes is None:
+        market_action_prefixes = list(_DEFAULT_MARKET_ACTION_PREFIXES)
+    if ohlcv_fields_mapping is None:
+        ohlcv_fields_mapping = dict(_DEFAULT_OHLCV_FIELDS)
 
     all_num_cols = cs.numeric()
     if columns_selector:
@@ -88,26 +99,22 @@ def add_ohlcv_ratios_rlags(
     if exclude_fields:
         all_num_cols = all_num_cols - cs.by_name(exclude_fields)
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Ratios
-    # ----------------------------------------------------------------------------------------------------------------------------
-
+    interbar_ratios_features: list = []
     if add_ratios:
-        interbar_ratios_features = []
         for prefix in market_action_prefixes:
 
             qty = pl.col(f"{prefix}{ohlcv_fields_mapping.get('qty')}")
             low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}")
             high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}")
-            open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
+            open_col = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}")
             close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}")
             volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}")
 
             interbar_ratios_features.extend(
                 [
-                    (close / open - 1).alias(f"{prefix}close_to_open"),
-                    (high / open - 1).alias(f"{prefix}high_to_open"),
-                    (open / low - 1).alias(f"{prefix}open_to_low"),
+                    (close / open_col - 1).alias(f"{prefix}close_to_open"),
+                    (high / open_col - 1).alias(f"{prefix}high_to_open"),
+                    (open_col / low - 1).alias(f"{prefix}open_to_low"),
                     (close / low - 1).alias(f"{prefix}close_to_low"),
                     (high / low - 1).alias(f"{prefix}high_to_low"),
                     (high / close - 1).alias(f"{prefix}high_to_close"),
@@ -118,39 +125,29 @@ def add_ohlcv_ratios_rlags(
                 for period_shift in crossbar_ratios_lags:
                     interbar_ratios_features.extend(
                         [
-                            (close / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
-                            (high / open.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
-                            (open / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
+                            (close / open_col.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_open-{period_shift}"),
+                            (high / open_col.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_open-{period_shift}"),
+                            (open_col / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}open_to_low-{period_shift}"),
                             (close / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}close_to_low-{period_shift}"),
                             (high / low.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_low-{period_shift}"),
                             (high / close.shift(period_shift).over(ticker_column) - 1).alias(f"{prefix}high_to_close-{period_shift}"),
-                            pllib.clean_numeric((volume / qty.shift(period_shift).over(ticker_column)), nans_filler=nans_filler).alias(
-                                f"{prefix}avg_trade_size-{period_shift}"
-                            ),
+                            pllib.clean_numeric(
+                                (volume / qty.shift(period_shift).over(ticker_column)),
+                                nans_filler=nans_filler,
+                            ).alias(f"{prefix}avg_trade_size-{period_shift}"),
                         ]
                     )
 
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Computing
-    # ----------------------------------------------------------------------------------------------------------------------------
-
     if add_ratios:
-        ohlcv = ohlcv.with_columns(
-            # interbar ohlcv ratios features
-            *interbar_ratios_features,
-        )
+        ohlcv = ohlcv.with_columns(*interbar_ratios_features)
 
     if add_rlags:
-
-        def group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
-            return expr.over(over) if over else expr
-
         ohlcv = ohlcv.with_columns(
-            # relative lags
             *[
-                pllib.clean_numeric((all_num_cols / group_if_needed(all_num_cols.shift(lag), over=ticker_column) - 1), nans_filler=nans_filler).name.suffix(
-                    f"_rlag{lag}"
-                )
+                pllib.clean_numeric(
+                    (all_num_cols / _group_if_needed(all_num_cols.shift(lag), over=ticker_column) - 1),
+                    nans_filler=nans_filler,
+                ).name.suffix(f"_rlag{lag}")
                 for lag in lags
             ],
         )
@@ -163,36 +160,21 @@ def add_ohlcv_ratios_rlags(
 
 def add_fast_rolling_stats(
     df: pl.DataFrame,
-    columns_selector: str = None,
-    rolling_windows: list = None,
-    numaggs: list = None,
-    quantiles: list = None,
+    columns_selector: Optional[str] = None,
+    rolling_windows: Optional[Sequence[int]] = None,
+    numaggs: Optional[Sequence[str]] = None,
     relative: bool = True,
     min_samples: int = 1,
-    groupby_column: str = None,
-    exclude_fields: list = None,
+    groupby_column: Optional[str] = None,
+    exclude_fields: Optional[Sequence[str]] = None,
     nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
-    """Adds more nuanced features to raw df. Dataframe assumed to be sorted by timestamp.
-    Grouping implemented with 'over' mechanics."""
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Inits
-    # ----------------------------------------------------------------------------------------------------------------------------
-
+    """Add rolling-window statistics to a frame. Assumes the frame is sorted by timestamp."""
     if not rolling_windows:
-        rolling_windows: list = [5]
-
+        rolling_windows = list(_DEFAULT_ROLLING_WINDOWS)
     if numaggs is None:
-        numaggs: list = "rolling_min rolling_max rolling_mean rolling_std rolling_skew rolling_kurtosis".split()
-
-    if quantiles is None:
-        quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Columns to work with
-    # ----------------------------------------------------------------------------------------------------------------------------
+        numaggs = list(_DEFAULT_ROLLING_NUMAGGS)
 
     all_num_cols = cs.numeric()
     if columns_selector:
@@ -200,31 +182,29 @@ def add_fast_rolling_stats(
     if exclude_fields:
         all_num_cols = all_num_cols - cs.by_name(exclude_fields)
 
-    def group_if_needed(expr: pl.Expr, over: str = "") -> pl.Expr:
-        return expr.over(over) if over else expr
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Computing
-    # ----------------------------------------------------------------------------------------------------------------------------
-
-    exprs = []
+    exprs: list = []
     for func in numaggs:
+        short_name = func.replace("rolling_", "")
         if relative:
             exprs.extend(
                 [
                     pllib.clean_numeric(
-                        (all_num_cols / group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column) - 1),
+                        (
+                            all_num_cols
+                            / _group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column)
+                            - 1
+                        ),
                         nans_filler=nans_filler,
-                    ).name.suffix(f"_r{func.replace('rolling_','')}{window}")
+                    ).name.suffix(f"_r{short_name}{window}")
                     for window in rolling_windows
                 ]
             )
         else:
             exprs.extend(
                 [
-                    group_if_needed(getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column).name.suffix(
-                        f"_{func.replace('rolling_','')}{window}"
-                    )
+                    _group_if_needed(
+                        getattr(all_num_cols, func)(window, min_samples=min_samples), over=groupby_column
+                    ).name.suffix(f"_{short_name}{window}")
                     for window in rolling_windows
                 ]
             )
@@ -240,17 +220,20 @@ def add_fast_rolling_stats(
 def apply_ta_indicator(
     expr: pl.Expr,
     func: str,
-    window: int,
+    window: Union[int, str],
     ticker_column: str,
-    unnests: list,
+    unnests: Sequence[str],
     prefix: str,
     fastperiod: int = 0,
     slowperiod: int = 0,
     signalperiod: int = 0,
     suffix: str = "",
 ) -> pl.Expr:
-    """Decides if fields are struct and need prefixing.
-    Also creates common naming for TA indicators applied over specific rolling_windows, applies grouping."""
+    """Name a TA indicator expression and lift struct fields when listed in ``unnests``.
+
+    ``window`` accepts either an int (the rolling window) or an empty string meaning "no
+    rolling window" (used for cyclic/static indicators).
+    """
     if window:
         col = f"{prefix}{func}{window}{suffix}"
     else:
@@ -261,164 +244,161 @@ def apply_ta_indicator(
     expr = expr.over(ticker_column).alias(col)
     if col in unnests:
         return expr.name.map_fields(lambda x: f"{col}_{x}")
-    else:
-        return expr
+    return expr
+
+
+# TA categories - hoisted to module scope so they're computed once.
+_CYCLIC_TA_INDICATORS: Tuple[str, ...] = (
+    "ht_dcperiod", "ht_dcphase", "ht_phasor", "ht_sine", "ht_trendmode", "ht_trendline", "mama",
+)
+_OHLC_ONLY_TA_INDICATORS: Tuple[str, ...] = (
+    "bop", "avgprice",
+    "cdl2crows", "cdl3blackcrows", "cdl3inside", "cdl3linestrike", "cdl3outside",
+    "cdl3starsinsouth", "cdl3whitesoldiers", "cdlabandonedbaby", "cdladvanceblock", "cdlbelthold",
+    "cdlbreakaway", "cdlclosingmarubozu", "cdlconcealbabyswall", "cdlcounterattack",
+    "cdldarkcloudcover", "cdldoji", "cdldojistar", "cdldragonflydoji", "cdlengulfing",
+    "cdleveningdojistar", "cdleveningstar", "cdlgapsidesidewhite", "cdlgravestonedoji",
+    "cdlhammer", "cdlhangingman", "cdlharami", "cdlharamicross", "cdlhighwave", "cdlhikkake",
+    "cdlhikkakemod", "cdlhomingpigeon", "cdlidentical3crows", "cdlinneck", "cdlinvertedhammer",
+    "cdlkicking", "cdlkickingbylength", "cdlladderbottom", "cdllongleggeddoji", "cdllongline",
+    "cdlmarubozu", "cdlmatchinglow", "cdlmathold", "cdlmorningdojistar", "cdlmorningstar",
+    "cdlonneck", "cdlpiercing", "cdlrickshawman", "cdlrisefall3methods", "cdlseparatinglines",
+    "cdlshootingstar", "cdlshortline", "cdlspinningtop", "cdlstalledpattern", "cdlsticksandwich",
+    "cdltakuri", "cdltasukigap", "cdlthrusting", "cdltristar", "cdlunique3river",
+    "cdlupsidegap2crows", "cdlxsidegap3methods",
+)
+_CV_ONLY_TA_INDICATORS: Tuple[str, ...] = ("obv",)
+_HLC_ONLY_TA_INDICATORS: Tuple[str, ...] = ("typprice", "wclprice", "trange", "stoch", "stochf", "ultosc")
+_HLCV_ONLY_TA_INDICATORS: Tuple[str, ...] = ("adosc",)
+_HL_ONLY_TA_INDICATORS: Tuple[str, ...] = ("sar", "sarext", "medprice")
+_TIMEPERIOD_ONLY_TA_INDICATORS: Tuple[str, ...] = (
+    "apo", "cmo", "mom", "rsi", "trix", "bbands", "dema", "ema", "kama", "sma", "t3", "tema",
+    "trima", "wma", "midpoint", "ppo", "linearreg", "linearreg_angle", "linearreg_intercept",
+    "linearreg_slope", "tsf", "stochrsi",
+)
+_TIMEPERIOD_HLC_TA_INDICATORS: Tuple[str, ...] = (
+    "adx", "adxr", "cci", "dx", "minus_di", "plus_di", "willr", "atr", "natr",
+)
+_TIMEPERIOD_HL_TA_INDICATORS: Tuple[str, ...] = ("aroon", "aroonosc", "minus_dm", "plus_dm", "midprice")
+_TIMEPERIOD_P01_TA_INDICATORS: Tuple[str, ...] = ("correl", "beta")
+_TIMEPERIOD_HLCV_TA_INDICATORS: Tuple[str, ...] = ("mfi",)
+
+
+def _build_unnests(prefix: str, ta_windows: Sequence[int]) -> List[str]:
+    """Enumerate every TA-output column that ``apply_ta_indicator`` should unnest into struct fields.
+
+    Pre-computing the full list up-front (rather than appending inside the per-indicator loop)
+    fixes a path-dependence bug: earlier ``apply_ta_indicator`` calls used to miss later
+    ``unnests.append(...)`` mutations and silently skip the struct-flattening for those indicators.
+    """
+    names = [f"{prefix}ht_phasor", f"{prefix}ht_sine", f"{prefix}mama", f"{prefix}stoch", f"{prefix}stochf"]
+    for window in ta_windows:
+        names.extend(
+            [
+                f"{prefix}aroon{window}",
+                f"{prefix}bbands{window}close",
+                f"{prefix}bbands{window}volume",
+                f"{prefix}stochrsi{window}close",
+                f"{prefix}stochrsi{window}volume",
+            ]
+        )
+    return names
 
 
 def add_ohlcv_ta_indicators(
     ohlcv: pl.DataFrame,
-    ta_windows: list = None,
-    fss_rolling_windows=None,
+    ta_windows: Optional[Sequence[int]] = None,
+    fss_rolling_windows: Optional[Sequence[Sequence[int]]] = None,
     ticker_column: str = "ticker",
-    market_action_prefixes: list = None,
-    ohlcv_fields_mapping: dict = None,
+    market_action_prefixes: Optional[Sequence[str]] = None,
+    ohlcv_fields_mapping: Optional[Dict[str, str]] = None,
     nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
-    """Applies a rich set of Technical Analysis indicators from polars-talib to ohlcv data of multiple assets.
-    ohlcv dataframe must be sorted by timestamp.
-    market_action_prefixes allow to apply TA per buy/sell groups separately: market_action_prefixes = ["", "buy_", "sell_"]
+    """Apply a rich set of polars-talib indicators to multi-asset OHLCV.
+
+    The frame must be sorted by timestamp. ``market_action_prefixes`` allows applying TA per
+    buy/sell side separately, e.g. ``["", "buy_", "sell_"]``.
     """
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Inits
-    # ----------------------------------------------------------------------------------------------------------------------------
-
     if not ta_windows:
-        ta_windows: list = [5, 10]
+        ta_windows = list(_DEFAULT_TA_WINDOWS)
     if not fss_rolling_windows:
-        fss_rolling_windows = [[12, 26, 9]]
-    if not market_action_prefixes:
-        market_action_prefixes: list = [""]
-    if not ohlcv_fields_mapping:
-        ohlcv_fields_mapping: dict = dict(open="open", high="high", low="low", close="close", volume="volume")
+        fss_rolling_windows = [list(t) for t in _DEFAULT_FSS_WINDOWS]
+    if market_action_prefixes is None:
+        market_action_prefixes = list(_DEFAULT_MARKET_ACTION_PREFIXES)
+    if ohlcv_fields_mapping is None:
+        ohlcv_fields_mapping = dict(_DEFAULT_TA_OHLCV_FIELDS)
 
-    ta_expressions = []
-    unnests = []
+    ta_expressions: list = []
+    unnests: List[str] = []
 
     for prefix in market_action_prefixes:
+        # Build the COMPLETE unnest set BEFORE constructing any apply_ta_indicator expression.
+        # The previous code appended inside the loops, so earlier expressions saw a smaller list.
+        unnests.extend(_build_unnests(prefix, ta_windows))
 
-        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(0.0)
-        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(0.0)
-        open = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(0.0)
-        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(0.0)
-        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}").fill_null(
-            0.0
-        )  # .fill_null(strategy="forward").over(ticker_column).fill_null(0.0).over(ticker_column)
-
-        cyclic_indicators = "ht_dcperiod ht_dcphase ht_phasor ht_sine ht_trendmode ht_trendline mama".split()
-        unnests.extend([f"{prefix}ht_phasor", f"{prefix}ht_sine"])
-        unnests.extend(f"{prefix}mama".split())
-        ta_expressions.extend(
-            [
-                apply_ta_indicator(getattr(close.ta, func)(), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix)
-                for func in cyclic_indicators
-            ]
-        )
-
-        ohlc_only_indicators = "bop avgprice".split()
-
-        ohlc_only_indicators = ohlc_only_indicators + [
-            "cdl2crows",
-            "cdl3blackcrows",
-            "cdl3inside",
-            "cdl3linestrike",
-            "cdl3outside",
-            "cdl3starsinsouth",
-            "cdl3whitesoldiers",
-            "cdlabandonedbaby",
-            "cdladvanceblock",
-            "cdlbelthold",
-            "cdlbreakaway",
-            "cdlclosingmarubozu",
-            "cdlconcealbabyswall",
-            "cdlcounterattack",
-            "cdldarkcloudcover",
-            "cdldoji",
-            "cdldojistar",
-            "cdldragonflydoji",
-            "cdlengulfing",
-            "cdleveningdojistar",
-            "cdleveningstar",
-            "cdlgapsidesidewhite",
-            "cdlgravestonedoji",
-            "cdlhammer",
-            "cdlhangingman",
-            "cdlharami",
-            "cdlharamicross",
-            "cdlhighwave",
-            "cdlhikkake",
-            "cdlhikkakemod",
-            "cdlhomingpigeon",
-            "cdlidentical3crows",
-            "cdlinneck",
-            "cdlinvertedhammer",
-            "cdlkicking",
-            "cdlkickingbylength",
-            "cdlladderbottom",
-            "cdllongleggeddoji",
-            "cdllongline",
-            "cdlmarubozu",
-            "cdlmatchinglow",
-            "cdlmathold",
-            "cdlmorningdojistar",
-            "cdlmorningstar",
-            "cdlonneck",
-            "cdlpiercing",
-            "cdlrickshawman",
-            "cdlrisefall3methods",
-            "cdlseparatinglines",
-            "cdlshootingstar",
-            "cdlshortline",
-            "cdlspinningtop",
-            "cdlstalledpattern",
-            "cdlsticksandwich",
-            "cdltakuri",
-            "cdltasukigap",
-            "cdlthrusting",
-            "cdltristar",
-            "cdlunique3river",
-            "cdlupsidegap2crows",
-            "cdlxsidegap3methods",
-        ]
+    for prefix in market_action_prefixes:
+        # Forward-fill prices via .over(ticker_column) so a stale/null bar inherits the previous
+        # valid quote rather than collapsing to 0 (zero-fill on prices produced wildly wrong TA
+        # values for RSI/BBANDS on any series with sporadic nulls).
+        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0)
+        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0)
+        open_col = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0)
+        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(strategy="forward").over(ticker_column).fill_null(0.0)
+        # Volume genuinely is zero on no-trade bars, so zero-fill is correct here.
+        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}").fill_null(0.0)
 
         ta_expressions.extend(
             [
                 apply_ta_indicator(
-                    getattr(plta, func)(open=open, high=high, low=low, close=close),
+                    getattr(close.ta, func)(), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix
+                )
+                for func in _CYCLIC_TA_INDICATORS
+            ]
+        )
+
+        ta_expressions.extend(
+            [
+                apply_ta_indicator(
+                    getattr(plta, func)(open=open_col, high=high, low=low, close=close),
                     func=func,
                     window="",
                     ticker_column=ticker_column,
                     unnests=unnests,
                     prefix=prefix,
                 )
-                for func in ohlc_only_indicators
+                for func in _OHLC_ONLY_TA_INDICATORS
             ]
         )
 
-        cv_only_indicators = "obv".split()
         ta_expressions.extend(
             [
                 apply_ta_indicator(
-                    getattr(plta, func)(volume=volume, close=close), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix
+                    getattr(plta, func)(volume=volume, close=close),
+                    func=func,
+                    window="",
+                    ticker_column=ticker_column,
+                    unnests=unnests,
+                    prefix=prefix,
                 )
-                for func in cv_only_indicators
+                for func in _CV_ONLY_TA_INDICATORS
             ]
         )
 
-        hlc_only_indicators = "typprice wclprice trange stoch stochf ultosc".split()
         ta_expressions.extend(
             [
                 apply_ta_indicator(
-                    getattr(plta, func)(high=high, low=low, close=close), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix
+                    getattr(plta, func)(high=high, low=low, close=close),
+                    func=func,
+                    window="",
+                    ticker_column=ticker_column,
+                    unnests=unnests,
+                    prefix=prefix,
                 )
-                for func in hlc_only_indicators
+                for func in _HLC_ONLY_TA_INDICATORS
             ]
         )
-        unnests.append(f"{prefix}stoch")
-        unnests.append(f"{prefix}stochf")
 
-        hlcv_only_indicators = "adosc".split()
         ta_expressions.extend(
             [
                 apply_ta_indicator(
@@ -429,130 +409,129 @@ def add_ohlcv_ta_indicators(
                     unnests=unnests,
                     prefix=prefix,
                 )
-                for func in hlcv_only_indicators
+                for func in _HLCV_ONLY_TA_INDICATORS
             ]
         )
 
-        hl_only_indicators = "sar sarext medprice".split()
         ta_expressions.extend(
             [
-                apply_ta_indicator(getattr(plta, func)(high=high, low=low), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix)
-                for func in hl_only_indicators
+                apply_ta_indicator(
+                    getattr(plta, func)(high=high, low=low),
+                    func=func,
+                    window="",
+                    ticker_column=ticker_column,
+                    unnests=unnests,
+                    prefix=prefix,
+                )
+                for func in _HL_ONLY_TA_INDICATORS
             ]
         )
 
-        excluded = "mavp roc stoch"
-        simplified = "bbands t3 apo sar sarext ppo stochrsi adosc"  # Can be improved with more parameters
-
-        timeperiod_only_indicators = "apo cmo mom rsi trix bbands dema ema kama sma t3 tema trima wma midpoint ppo linearreg linearreg_angle linearreg_intercept linearreg_slope tsf stochrsi".split()
-        timeperiod_hlc_indicators = "adx adxr cci dx minus_di plus_di willr atr natr".split()
-        timeperiod_hl_indicators = "aroon aroonosc minus_dm plus_dm midprice".split()
-        timeperiod_p01_indicators = "correl beta".split()
-        timeperiod_hlcv_indicators = "mfi".split()
-
         for window in ta_windows:
-
-            unnests.append(f"{prefix}aroon{window}")
-            unnests.append(f"{prefix}bbands{window}close")
-            unnests.append(f"{prefix}bbands{window}volume")
-            unnests.append(f"{prefix}stochrsi{window}close")
-            unnests.append(f"{prefix}stochrsi{window}volume")
-
             ta_expressions.extend(
                 [
-                    *[
+                    apply_ta_indicator(
+                        getattr(close.ta, func)(window),
+                        func=func,
+                        window=window,
+                        ticker_column=ticker_column,
+                        unnests=unnests,
+                        prefix=prefix,
+                        suffix="close",
+                    )
+                    for func in _TIMEPERIOD_ONLY_TA_INDICATORS
+                ]
+            )
+            ta_expressions.extend(
+                [
+                    apply_ta_indicator(
+                        getattr(volume.ta, func)(window),
+                        func=func,
+                        window=window,
+                        ticker_column=ticker_column,
+                        unnests=unnests,
+                        prefix=prefix,
+                        suffix="volume",
+                    )
+                    for func in _TIMEPERIOD_ONLY_TA_INDICATORS
+                ]
+            )
+            ta_expressions.extend(
+                [
+                    apply_ta_indicator(
+                        getattr(plta, func)(price0=high, price1=low, timeperiod=window),
+                        func=func,
+                        window=window,
+                        ticker_column=ticker_column,
+                        unnests=unnests,
+                        prefix=prefix,
+                    )
+                    for func in _TIMEPERIOD_P01_TA_INDICATORS
+                ]
+            )
+            ta_expressions.extend(
+                [
+                    apply_ta_indicator(
+                        getattr(plta, func)(high=high, low=low, timeperiod=window),
+                        func=func,
+                        window=window,
+                        ticker_column=ticker_column,
+                        unnests=unnests,
+                        prefix=prefix,
+                    )
+                    for func in _TIMEPERIOD_HL_TA_INDICATORS
+                ]
+            )
+            ta_expressions.extend(
+                [
+                    pllib.clean_numeric(
                         apply_ta_indicator(
-                            getattr(close.ta, func)(window),
+                            getattr(plta, func)(high=high, low=low, close=close, timeperiod=window),
                             func=func,
                             window=window,
                             ticker_column=ticker_column,
                             unnests=unnests,
                             prefix=prefix,
-                            suffix="close",
-                        )
-                        for func in timeperiod_only_indicators
-                    ],
-                    *[
-                        apply_ta_indicator(
-                            getattr(volume.ta, func)(window),
-                            func=func,
-                            window=window,
-                            ticker_column=ticker_column,
-                            unnests=unnests,
-                            prefix=prefix,
-                            suffix="volume",
-                        )
-                        for func in timeperiod_only_indicators
-                    ],
-                    *[
-                        apply_ta_indicator(
-                            getattr(plta, func)(price0=high, price1=low, timeperiod=window),
-                            func=func,
-                            window=window,
-                            ticker_column=ticker_column,
-                            unnests=unnests,
-                            prefix=prefix,
-                        )
-                        for func in timeperiod_p01_indicators
-                    ],
-                    *[
-                        apply_ta_indicator(
-                            getattr(plta, func)(high=high, low=low, timeperiod=window),
-                            func=func,
-                            window=window,
-                            ticker_column=ticker_column,
-                            unnests=unnests,
-                            prefix=prefix,
-                        )
-                        for func in timeperiod_hl_indicators
-                    ],
-                    *[
-                        pllib.clean_numeric(
-                            apply_ta_indicator(
-                                getattr(plta, func)(high=high, low=low, close=close, timeperiod=window),
-                                func=func,
-                                window=window,
-                                ticker_column=ticker_column,
-                                unnests=unnests,
-                                prefix=prefix,
-                            ),
-                            nans_filler=nans_filler,
-                        )
-                        for func in timeperiod_hlc_indicators
-                    ],
-                    *[
-                        apply_ta_indicator(
-                            getattr(plta, func)(high=high, low=low, close=close, volume=volume, timeperiod=window),
-                            func=func,
-                            window=window,
-                            ticker_column=ticker_column,
-                            unnests=unnests,
-                            prefix=prefix,
-                        )
-                        for func in timeperiod_hlcv_indicators
-                    ],
+                        ),
+                        nans_filler=nans_filler,
+                    )
+                    for func in _TIMEPERIOD_HLC_TA_INDICATORS
+                ]
+            )
+            ta_expressions.extend(
+                [
+                    apply_ta_indicator(
+                        getattr(plta, func)(high=high, low=low, close=close, volume=volume, timeperiod=window),
+                        func=func,
+                        window=window,
+                        ticker_column=ticker_column,
+                        unnests=unnests,
+                        prefix=prefix,
+                    )
+                    for func in _TIMEPERIOD_HLCV_TA_INDICATORS
                 ]
             )
 
-        timeperiod_only_fss_indicators = []  # "macd".split()
+        # The MACD/FSS block was historically present but disabled (empty indicator list); leave
+        # the for-loop in place so adding indicators later requires only one edit.
+        timeperiod_only_fss_indicators: Tuple[str, ...] = ()
         for fastperiod, slowperiod, signalperiod in fss_rolling_windows:
-            # unnests.append(f"macd{fastperiod}-{slowperiod}-{signalperiod}")
             ta_expressions.extend(
                 [
-                    *[
-                        apply_ta_indicator(
-                            getattr(close.ta, func)(fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod),
-                            func=func,
-                            window=0,
-                            fastperiod=fastperiod,
-                            slowperiod=slowperiod,
-                            signalperiod=signalperiod,
-                            ticker_column=ticker_column,
-                            unnests=unnests,
-                            prefix=prefix,
-                        )
-                        for func in timeperiod_only_fss_indicators
-                    ],
+                    apply_ta_indicator(
+                        getattr(close.ta, func)(
+                            fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=signalperiod
+                        ),
+                        func=func,
+                        window=0,
+                        fastperiod=fastperiod,
+                        slowperiod=slowperiod,
+                        signalperiod=signalperiod,
+                        ticker_column=ticker_column,
+                        unnests=unnests,
+                        prefix=prefix,
+                    )
+                    for func in timeperiod_only_fss_indicators
                 ]
             )
 
@@ -561,7 +540,9 @@ def add_ohlcv_ta_indicators(
     if unnests:
         res = res.unnest(unnests)
 
-    res = res.with_columns(cs.numeric().fill_nan(nans_filler))
+    # fill_null then fill_nan: polars distinguishes the two; TA warmup periods produce nulls
+    # while divide-by-zero in some indicators produces NaN. Both must be scrubbed.
+    res = res.with_columns(cs.numeric().fill_null(nans_filler).fill_nan(nans_filler))
 
     if cast_f64_to_f32:
         res = pllib.cast_f64_to_f32(res)
@@ -572,50 +553,37 @@ def add_ohlcv_ta_indicators(
 def create_ohlcv_wholemarket_features(
     ohlcv: pl.DataFrame,
     timestamp_column: str = "date",
-    exclude_fields: list = None,
-    weighting_columns: list = None,
-    numaggs: list = None,
+    exclude_fields: Optional[Sequence[str]] = None,
+    weighting_columns: Optional[Sequence[str]] = None,
+    numaggs: Optional[Sequence[str]] = None,
     nans_filler: float = 0.0,
     cast_f64_to_f32: bool = True,
 ) -> pl.DataFrame:
-    """For all columns of a bar, regardless of a ticker, finds min, max, std, quantiles, etc.
-    Also performs a few weighted calculations (for mean and std).
-    Should be applied AFTER add_ohlcv_ratios_rlags_rollings and add_ohlcv_ta_indicators, to cover as many columns as possible.
-    Then joined with main ohlcv by bar's timestamp (ideally ranks across tickers should be added: (val-min)/(max-min)), using cs.expand_selector(ohlcv,cs.numeric()) to get exact col names..
-    rlags & rolling means can be applied one more time to wholemarket features also, after everything else.
+    """Cross-ticker aggregates (min/max/std/mean/quantiles + weighted variants) per timestamp.
+
+    Should run AFTER ``add_ohlcv_ratios_rlags`` and ``add_ohlcv_ta_indicators`` so that all derived
+    columns are included. The result is joined back per-bar via timestamp; ranks
+    ``(val - min)/(max - min)`` can be added on the joined frame.
     """
-
-    # ----------------------------------------------------------------------------------------------------------------------------
-    # Inits
-    # ----------------------------------------------------------------------------------------------------------------------------
-
     if weighting_columns is None:
-        weighting_columns: list = "volume qty".split()
+        weighting_columns = list(_DEFAULT_WEIGHTING_COLUMNS)
     if not numaggs:
-        numaggs: list = "min max mean median std skew kurtosis entropy n_unique".split()
+        numaggs = list(_DEFAULT_WHOLEMARKET_NUMAGGS)
 
     all_num_cols = cs.numeric()
     if exclude_fields:
         all_num_cols = all_num_cols - cs.by_name(exclude_fields)
 
-    """
-    quantiles: list = None
-    if quantiles is None:
-        quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]
-    
-    # Quantiles
-    feature_expressions.extend(
-        [af(pl.col(field)).quantile(q).alias(f"{fpref}{fields_remap.get(field,field)}_quantile_{q}") for field in numerical_fields for q in quantiles]
-    )    
-
-    """
-
-    wcols = pllib.add_weighted_aggregates(columns_selector=all_num_cols, weighting_columns=weighting_columns, fpref="wm_")  # .name.suffix(f"_wm_")
+    wcols = pllib.add_weighted_aggregates(
+        columns_selector=all_num_cols, weighting_columns=weighting_columns, fpref="wm_"
+    )
 
     res = ohlcv.group_by(timestamp_column).agg(
-        [pl.len().alias("wm_size")] + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs] + wcols
+        [pl.len().alias("wm_size")]
+        + [getattr(all_num_cols, func)().name.suffix(f"_wm_{func}") for func in numaggs]
+        + wcols
     )
-    res = res.with_columns(pllib.clean_numeric(cs.float(), nans_filler=nans_filler))
+    res = res.with_columns(pllib.clean_numeric(cs.numeric(), nans_filler=nans_filler))
     if cast_f64_to_f32:
         res = pllib.cast_f64_to_f32(res)
 
@@ -623,26 +591,26 @@ def create_ohlcv_wholemarket_features(
 
 
 def merge_perticker_and_wholemarket_features(
-    perticker_features: pl.DataFrame,
-    wholemarket_features: pl.DataFrame,
+    perticker_features: Union[pl.DataFrame, pl.LazyFrame],
+    wholemarket_features: Union[pl.DataFrame, pl.LazyFrame],
     timestamp_column: str = "date",
     add_rankings: bool = True,
 ) -> pl.DataFrame:
-    """Merges per-ticker and wholemarket features. Add ranks using formula  (val-min)/(max-min)."""
-
-    rankings = []
+    """Join per-ticker features with whole-market aggregates and add ``(val-min)/(max-min)`` ranks."""
+    rankings: list = []
     if add_rankings:
         wholemarket_cols = set(wholemarket_features.collect_schema().names())
         for col in perticker_features.collect_schema().names():
             if f"{col}_wm_min" in wholemarket_cols and f"{col}_wm_max" in wholemarket_cols:
-                rankings.append(((pl.col(col) - pl.col(f"{col}_wm_min")) / (pl.col(f"{col}_wm_max") - pl.col(f"{col}_wm_min"))).alias(f"{col}_wm_rnk"))
+                rankings.append(
+                    ((pl.col(col) - pl.col(f"{col}_wm_min")) / (pl.col(f"{col}_wm_max") - pl.col(f"{col}_wm_min")))
+                    .alias(f"{col}_wm_rnk")
+                )
 
-    clean_ram()
     joined = perticker_features.join(wholemarket_features, on=timestamp_column, how="left").sort(timestamp_column)
-    clean_ram()
 
     if rankings:
         joined = joined.with_columns(rankings)
-        clean_ram()
 
-    return joined.collect()
+    clean_ram()
+    return joined.collect() if isinstance(joined, pl.LazyFrame) else joined

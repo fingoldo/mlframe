@@ -18,40 +18,26 @@ __all__ = [
     "cont_entropy",
 ]
 
-# pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
 import logging
-
-logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
-
-import numba
-import numpy as np, pandas as pd
-from antropy import *
-from astropy.stats import histogram
-from entropy_estimators import continuous
-from sklearn.feature_selection import mutual_info_regression
-
-import psutil
-from joblib import delayed
-
-from pyutilz.parallel import parallel_run
-from mlframe.feature_engineering.hurst import compute_hurst_exponent
-
-from scipy.stats import entropy, kstest
-from scipy import stats
-
 import warnings
 from contextlib import contextmanager
+from typing import Any, Dict, Optional, Sequence, Tuple
+
+import numba
+import numpy as np
+import pandas as pd
+import psutil
+from antropy import detrended_fluctuation, katz_fd, perm_entropy, petrosian_fd, sample_entropy, svd_entropy
+from astropy.stats import histogram
+from joblib import delayed
+from scipy import stats
+from scipy.stats import kstest
+from sklearn.feature_selection import mutual_info_regression
+
+from mlframe.feature_engineering.hurst import compute_hurst_exponent
+from pyutilz.parallel import parallel_run
+
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -107,7 +93,7 @@ def get_distributions_features_names() -> list:
 
 distributions_features_names = get_distributions_features_names()
 
-default_quantiles: list = [0.1, 0.25, 0.5, 0.75, 0.9]  # list vs ndarray gives advantage 125 µs ± 2.79 µs per loop vs 140 µs ± 8.11 µs per loop
+default_quantiles: Tuple[float, ...] = (0.1, 0.25, 0.5, 0.75, 0.9)  # tuple is hashable + immutable; list vs ndarray is ~10% faster (125 µs vs 140 µs per loop) so callers convert via list(default_quantiles) where needed
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -221,10 +207,13 @@ def compute_numerical_aggregates_numba(
     """
 
     size = len(arr)
+    # Empty input would IndexError on arr[0] / arr[-1]; callers usually guard upstream (compute_numaggs short-circuits at len<=1) but the kernel is exported in __all__ so accept the corner.
+    if size == 0:
+        return [0.0]
 
     first = arr[0]
     last = arr[-1]
-    if first:
+    if first != 0.0:
         last_to_first = last / first
     else:
         last_to_first = LARGE_CONST * np.sign(last)
@@ -360,12 +349,16 @@ def compute_numerical_aggregates_numba(
                         geometric_mean *= next_value
                         if weights is not None:
                             weighted_geometric_mean *= next_value**next_weight
-                        if geometric_mean > 1e100 or geometric_mean < 1e-100:
-                            # convert to log mode
+                        # Check BOTH unweighted and weighted products: either can underflow / overflow independently.
+                        # A weighted product can hit the tail much faster when |next_weight| > 1.
+                        unweighted_oor = geometric_mean >= 1e100 or geometric_mean <= 1e-100
+                        weighted_oor = (weights is not None) and (weighted_geometric_mean >= 1e100 or weighted_geometric_mean <= 1e-100)
+                        if unweighted_oor or weighted_oor:
+                            # convert to log mode (geometric_mean strictly positive here; log is finite)
                             geomean_log_mode = True
-                            geometric_mean = np.log(float(geometric_mean))
+                            geometric_mean = np.log(float(geometric_mean)) if geometric_mean > 0 else -np.inf
                             if weights is not None:
-                                weighted_geometric_mean = np.log(float(weighted_geometric_mean))
+                                weighted_geometric_mean = np.log(float(weighted_geometric_mean)) if weighted_geometric_mean > 0 else -np.inf
                     else:
                         addend = np.log(next_value)
                         geometric_mean += addend
@@ -565,7 +558,7 @@ def get_basic_feature_names(
 
 
 def compute_nunique_modes_quantiles_numpy(
-    arr: np.ndarray, q: list = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10, return_unsorted_stats: bool = True
+    arr: np.ndarray, q: Sequence[float] = default_quantiles, quantile_method: str = "median_unbiased", max_modes: int = 10, return_unsorted_stats: bool = True
 ) -> list:
     """For a 1d array, computes aggregates:
     nunique
@@ -639,7 +632,7 @@ def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quantiles) -> tuple:
+def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: Sequence[float] = default_quantiles) -> tuple:
     """
     NOT RECOMMENDED. use compute_nunique_modes_quantiles_numpy instead, it's faster and more functional.
     numUnique and mode calculation from sorted array
@@ -669,13 +662,13 @@ def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: list = default_quan
     factor = len(arr)
     quantiles = []
     for quantile in q:
-        quantiles.append(xsorted[int(np.ceil(quantile * factor)) - 1])
-
-    # if size % 2 == 0:
-    #    sent = int(size / 2)
-    #    median = xsorted[sent - 1] + xsorted[sent]
-    # else:
-    #    median = xsorted[int(size // 2)]
+        # Clamp index >= 0: at quantile=0.0 the formula yields -1 which would wrap to the LAST element (max) instead of the first (min).
+        idx = int(np.ceil(quantile * factor)) - 1
+        if idx < 0:
+            idx = 0
+        elif idx >= factor:
+            idx = factor - 1
+        quantiles.append(xsorted[idx])
 
     if times_occured == 1:
         mode = np.nan
@@ -1015,7 +1008,7 @@ def compute_numaggs(
     xvals: np.ndarray = None,
     weights: np.ndarray = None,
     geomean_log_mode: bool = False,
-    q: list = default_quantiles,
+    q: Sequence[float] = default_quantiles,
     quantile_method: str = "median_unbiased",
     max_modes: int = 10,
     sampling_frequency: int = 100,
@@ -1134,7 +1127,7 @@ def compute_numaggs(
 
 def get_numaggs_names(
     weights: np.ndarray = None,
-    q: list = default_quantiles,
+    q: Sequence[float] = default_quantiles,
     directional_only: bool = False,
     whiten_means: bool = True,
     return_distributional: bool = False,
@@ -1203,7 +1196,11 @@ def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_o
     return res
 
 
-@numba.njit(fastmath=True)
+# fastmath=False is REQUIRED here: the Kahan compensator below relies on the exact identity
+# `c = (t - sum_window) - y` where t = sum_window + y. fastmath permits LLVM to reassociate this
+# to `t - (sum_window + y) = t - t = 0`, which silently nullifies the compensator and reverts the
+# loop to naive summation drift (~n*eps*max_value, which is several decimals on float32 windows).
+@numba.njit(fastmath=False)
 def rolling_moving_average(arr: np.ndarray, n: int = 2):
     if n <= 0:
         raise ValueError("n must be greater than 0")
@@ -1217,7 +1214,6 @@ def rolling_moving_average(arr: np.ndarray, n: int = 2):
 
     result[0] = sum_window * mult
 
-    # Kahan compensated summation to minimize float drift on long rolling windows.
     kahan_c = 0.0
     for i in range(1, len(arr) - n + 1):
         y = (arr[i + n - 1] - arr[i - 1]) - kahan_c

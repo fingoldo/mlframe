@@ -1,29 +1,24 @@
-"""Numerically-stable variants of the moment / aggregate kernels in
-``feature_engineering.numerical``.
+"""Numerically-stable variants of the moment / aggregate kernels in ``feature_engineering.numerical``.
 
 Implements:
-- ``welford_mean_var_seq`` — single-pass Welford for mean + variance
-- ``welford_moments_seq`` — single-pass Welford for mean, variance, skewness, kurtosis
-  (uses Bennett 2009 / Pébay generalised online algorithm with M2/M3/M4
-  central-moment accumulators)
-- ``kahan_sum_seq`` — Kahan-Babuška-Neumaier compensated sum
-- ``kahan_dot_seq`` — Kahan-compensated dot-product (for slope/correlation
-  numerator)
+- ``welford_mean_var_seq`` - single-pass Welford for mean + variance
+- ``welford_moments_seq`` - single-pass Welford for mean, variance, skewness, kurtosis (Pébay 2008 generalised online algorithm with M2/M3/M4 central-moment accumulators)
+- ``kahan_sum_seq`` - Kahan-Babuška-Neumaier compensated sum
+- ``kahan_dot_seq`` - Kahan-compensated dot product
 
-Used by the benchmarks in ``test_numerical_stability_bench.py`` to quantify
-the precision improvement vs the naive accumulators currently used in
-``numerical.compute_numerical_aggregates_numba`` and
-``numerical.compute_moments_slope_mi``.
+Used by ``test_numerical_stability_bench.py`` to quantify the precision improvement over the naive accumulators in ``numerical.compute_numerical_aggregates_numba`` and ``numerical.compute_moments_slope_mi``.
 
 References:
-- Welford 1962 — single-pass mean+var
-- Pébay 2008 — generalised central-moment online formulae (used for skew/kurt)
-- Neumaier 1974 — improved Kahan compensated summation
+- Welford 1962 - single-pass mean+var
+- Pébay 2008 (SAND2008-6212) Eq. 2.1-2.4 - generalised central-moment online formulae (used for skew/kurt)
+- Neumaier 1974 - improved Kahan compensated summation
 """
 from __future__ import annotations
 
-import numpy as np
+from typing import Tuple
+
 import numba
+import numpy as np
 
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
@@ -34,16 +29,10 @@ NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def welford_mean_var_seq(arr: np.ndarray) -> tuple:
-    """Single-pass mean + variance via Welford.
+def welford_mean_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:
+    """Single-pass mean + variance via Welford. Returns ``(mean, var, n)``. Variance is biased (divide by n, not n-1) to match ``np.var(arr, ddof=0)``.
 
-    Returns (mean, var, n). Variance is biased (divide by n, not n-1) to
-    match ``np.var(arr, ddof=0)``.
-
-    Numerical advantage vs naive ``sum_x2/n - (sum_x/n)**2``: each
-    ``delta = x - mean`` operates on differences of similar magnitude to
-    the variance itself, so no catastrophic cancellation when
-    `mean^2 >> var`.
+    Numerical advantage vs naive ``sum_x2/n - (sum_x/n)**2``: each ``delta = x - mean`` operates on differences of similar magnitude to the variance itself, so no catastrophic cancellation when ``mean^2 >> var``.
     """
     n = 0
     mean = 0.0
@@ -69,22 +58,21 @@ def welford_mean_var_seq(arr: np.ndarray) -> tuple:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def welford_moments_seq(arr: np.ndarray) -> tuple:
-    """Single-pass mean + variance + skewness + excess-kurtosis via Pébay.
+def welford_moments_seq(arr: np.ndarray) -> Tuple[float, float, float, float, int]:
+    """Single-pass mean + variance + skewness + excess-kurtosis via Pébay 2008.
 
-    Returns (mean, var, skew, kurt, n) where:
-    - var is biased (ddof=0)
-    - skew is the 'biased' g1 = m3 / m2^(3/2)
-    - kurt is the 'biased' g2 = m4 / m2^2 - 3 (excess kurtosis)
+    Returns ``(mean, var, skew, kurt, n)`` where ``var`` is biased (``ddof=0``), ``skew`` is the biased ``g1 = m3 / m2^(3/2)``, and ``kurt`` is the biased excess ``g2 = m4 / m2^2 - 3``.
 
-    Online central moment update (Pébay 2008, Eq. 1.1):
+    Online update with post-increment ``n`` (Pébay 2008 SAND2008-6212, Eqs. 2.1-2.4):
         delta = x - mean_old
         delta_n = delta / n_new
-        term1 = delta * delta_n * (n - 1)
-        mean += delta_n
-        M4 += term1 * delta_n^2 * (n^2 - 3*n + 3) + 6 * delta_n^2 * M2 - 4 * delta_n * M3
-        M3 += term1 * delta_n * (n - 2) - 3 * delta_n * M2
-        M2 += term1
+        term1 = delta * delta_n * (n_new - 1)   # = (x-mean_old)^2 * n_old / n_new
+        M4_new = M4_old + term1*delta_n^2*(n^2 - 3n + 3) + 6*delta_n^2*M2_old - 4*delta_n*M3_old
+        M3_new = M3_old + term1*delta_n*(n - 2) - 3*delta_n*M2_old
+        M2_new = M2_old + term1
+        mean_new = mean_old + delta_n
+
+    ORDER CRITICAL: the M4 update reads OLD M2 and M3; M3 reads OLD M2; M2 is updated last. Reordering these three lines silently corrupts skew / kurt accumulators.
     """
     n = 0
     mean = 0.0
@@ -107,12 +95,9 @@ def welford_moments_seq(arr: np.ndarray) -> tuple:
     if n < 2:
         return mean, 0.0, 0.0, 0.0, n
     var = M2 / n
-    if M2 == 0.0:
-        return mean, var, 0.0, 0.0, n
-    # Skewness g1 = sqrt(n) * M3 / M2^(3/2) (biased moment-form)
-    # Pébay's 'biased' skew: M3/n / (var^1.5)
+    if not np.isfinite(var) or var <= 0.0:
+        return mean, max(var, 0.0), 0.0, 0.0, n
     skew = (M3 / n) / (var ** 1.5)
-    # Kurtosis g2 = n * M4 / M2^2 - 3 (excess)
     kurt = (n * M4) / (M2 * M2) - 3.0
     return mean, var, skew, kurt, n
 
@@ -124,13 +109,7 @@ def welford_moments_seq(arr: np.ndarray) -> tuple:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def kahan_sum_seq(arr: np.ndarray) -> float:
-    """Neumaier-improved Kahan compensated sum.
-
-    Recovers ~log10(N) digits vs naive sum at marginal cost (one extra
-    add/subtract per element). Numerically equivalent to ``np.sum`` for
-    well-conditioned inputs; superior for ill-conditioned (mixed-magnitude)
-    sums.
-    """
+    """Neumaier-improved Kahan compensated sum. Recovers ~log10(N) digits vs naive sum at marginal cost (one extra add/sub per element). Equivalent to ``np.sum`` for well-conditioned inputs; superior for ill-conditioned (mixed-magnitude) sums."""
     s = 0.0
     c = 0.0
     for x in arr:
@@ -147,10 +126,10 @@ def kahan_sum_seq(arr: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def kahan_dot_seq(a: np.ndarray, b: np.ndarray) -> float:
-    """Kahan-compensated dot product. Used for slope/correlation numerators
-    where ``sum(x_i * y_i)`` accumulates many terms of varied magnitude.
-    """
-    n = min(a.shape[0], b.shape[0])
+    """Kahan-compensated dot product. Used for slope/correlation numerators where ``sum(x_i * y_i)`` accumulates many terms of varied magnitude. Raises ``ValueError`` when ``a`` and ``b`` differ in length (silent truncation is a classic bug source)."""
+    if a.shape[0] != b.shape[0]:
+        raise ValueError("kahan_dot_seq: a and b must have the same length")
+    n = a.shape[0]
     s = 0.0
     c = 0.0
     for i in range(n):
@@ -173,12 +152,8 @@ def kahan_dot_seq(a: np.ndarray, b: np.ndarray) -> float:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def naive_mean_var_two_pass_seq(arr: np.ndarray) -> tuple:
-    """Two-pass mean + variance (matches `compute_simple_stats_numba` pattern).
-
-    First pass: sum to compute mean. Second pass: sum of squared deviations
-    (UNCOMPENSATED — matches the current naive accumulator).
-    """
+def naive_mean_var_two_pass_seq(arr: np.ndarray) -> Tuple[float, float, int]:
+    """Two-pass mean + variance (matches ``compute_simple_stats_numba`` pattern). First pass sums to compute the mean; second pass sums squared deviations uncompensated (matches the current naive accumulator)."""
     n = 0
     total = 0.0
     for x in arr:
@@ -197,18 +172,10 @@ def naive_mean_var_two_pass_seq(arr: np.ndarray) -> tuple:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def kahan_two_pass_var_seq(arr: np.ndarray) -> tuple:
-    """Two-pass mean + variance with Kahan-Babuška-Neumaier compensation
-    in BOTH sums. Best precision across both 'long array drift' and
-    'large-mean-small-var cancellation' regimes.
+def kahan_two_pass_var_seq(arr: np.ndarray) -> Tuple[float, float, int]:
+    """Two-pass mean + variance with Kahan-Babuška-Neumaier compensation in BOTH sums. Best precision across both "long array drift" and "large-mean-small-var cancellation" regimes.
 
-    Pass 1: Kahan-compensated sum to get exact mean.
-    Pass 2: Kahan-compensated sum of (x - mean)^2.
-
-    Cost: ~2x naive, ~equal to Welford. Stable in all input regimes
-    (Welford wins on raw long-array sums but loses on large-mean cases
-    because its running mean accumulates per-element rounding; Kahan-
-    two-pass avoids both pitfalls).
+    Pass 1: Kahan-compensated sum to get an exact mean. Pass 2: Kahan-compensated sum of ``(x - mean)^2``. Cost: ~2x naive, ~equal to Welford. Stable in all input regimes - Welford wins on raw long-array sums but loses on large-mean cases because its running mean accumulates per-element rounding; Kahan two-pass avoids both pitfalls.
     """
     n = 0
     s = 0.0
@@ -243,9 +210,8 @@ def kahan_two_pass_var_seq(arr: np.ndarray) -> tuple:
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def naive_moments_two_pass_seq(arr: np.ndarray) -> tuple:
-    """Two-pass mean / variance / skewness / kurtosis (matches
-    `compute_moments_slope_mi` pattern). Uncompensated sums of d^2/d^3/d^4."""
+def naive_moments_two_pass_seq(arr: np.ndarray) -> Tuple[float, float, float, float, int]:
+    """Two-pass mean / variance / skewness / kurtosis (matches ``compute_moments_slope_mi`` pattern). Uncompensated sums of d^2 / d^3 / d^4."""
     n = 0
     total = 0.0
     for x in arr:
@@ -268,8 +234,9 @@ def naive_moments_two_pass_seq(arr: np.ndarray) -> tuple:
     if n < 2:
         return mean, 0.0, 0.0, 0.0, n
     var = s2 / n
-    if var == 0:
-        return mean, 0.0, 0.0, 0.0, n
+    # Float equality is unsafe for near-zero variance; also guard against subnormal-cancellation negatives.
+    if var <= 0.0 or not np.isfinite(var):
+        return mean, max(var, 0.0), 0.0, 0.0, n
     std = np.sqrt(var)
     skew = (s3 / n) / (std ** 3)
     kurt = (s4 / n) / (var ** 2) - 3.0

@@ -40,10 +40,15 @@ def test_hurst_returns_nan_for_short_arrays(size):
 @given(st.lists(st.floats(min_value=0.1, max_value=10, allow_nan=False, allow_infinity=False), min_size=10, max_size=100))
 @settings(max_examples=30, deadline=None)
 def test_hurst_rs_nonnegative(arr):
-    """R/S statistic should be non-negative."""
+    """R/S statistic should be non-negative when defined.
+
+    ``compute_hurst_rs`` now returns NaN for degenerate windows (R==0 or S<=eps); the prior
+    behaviour of returning 0.0 conflated "undefined" with a genuine R/S of zero, masking issues
+    upstream. NaN passes this property test because it is not negative.
+    """
     arr = np.array(arr, dtype=np.float64)
     rs = compute_hurst_rs(arr)
-    assert rs >= 0.0
+    assert np.isnan(rs) or rs >= 0.0
 
 
 @given(st.floats(min_value=0.1, max_value=0.5))

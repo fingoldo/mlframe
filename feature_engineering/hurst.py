@@ -1,129 +1,136 @@
-"""Compute the Hurst Exponent of an 1D array by the means of R/S analysis:
+"""Compute the Hurst Exponent of a 1D array via R/S analysis.
 
-    https://en.wikipedia.org/wiki/Hurst_exponent
+https://en.wikipedia.org/wiki/Hurst_exponent
 """
 
 __all__ = [
     "compute_hurst_rs",
     "precompute_hurst_exponent",
     "compute_hurst_exponent",
-    "hurst_testing",
 ]
-
-# pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
 
 logger = logging.getLogger(__name__)
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
 import numpy as np
 from numba import njit
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Inits
-# ----------------------------------------------------------------------------------------------------------------------------
 
-fastmath = False
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Core funcs
-# ----------------------------------------------------------------------------------------------------------------------------
+_FASTMATH = False
+_ZERO_EPS = 1e-12
 
 
-@njit(fastmath=fastmath)
-def compute_hurst_rs(arr: np.ndarray, agg_func: object = np.mean):
-    """Computes R/S stat for a single window."""
+@njit(fastmath=_FASTMATH)
+def compute_hurst_rs(arr: np.ndarray) -> float:
+    """Rescaled-range (R/S) statistic for one window.
 
-    mean = agg_func(arr)
-
+    Standard deviation uses ddof=1 (sample std) per the Mandelbrot / Hurst (1951) convention
+    for R/S analysis: the rescaled range is divided by the unbiased estimator of dispersion.
+    """
+    mean = np.mean(arr)
     deviations = arr - mean
     Z = np.cumsum(deviations)
     R = np.max(Z) - np.min(Z)
-    S = np.std(arr)  # , ddof=1
-
-    if R == 0 or S == 0:
-        return 0.0  # to skip this interval due the undefined R/S ratio
-
+    n = len(arr)
+    if n < 2:
+        return np.nan
+    var = np.sum(deviations * deviations) / (n - 1)
+    S = np.sqrt(var)
+    if R <= _ZERO_EPS or S <= _ZERO_EPS:
+        return np.nan
     return R / S
 
 
-@njit(fastmath=fastmath)
+@njit(fastmath=_FASTMATH)
 def precompute_hurst_exponent(
-    arr: np.ndarray, min_window: int = 5, max_window: int = None, windows_log_step: float = 0.25, take_diffs: bool = True, agg_func: object = np.mean
+    arr: np.ndarray,
+    min_window: int = 5,
+    max_window: int = -1,
+    windows_log_step: float = 0.25,
+    take_diffs: bool = False,
 ):
-    """Computes R/S stat for a single window."""
+    """R/S aggregated across a geometric ladder of window sizes.
 
-    # Get diffs, if needed
-
+    ``max_window=-1`` is the "auto" sentinel and resolves to ``L-1``.  ``take_diffs`` defaults to
+    ``False`` to match the consumer-facing ``compute_hurst_exponent``; pass ``True`` for raw price
+    or random-walk paths where the Hurst signal lives in the increment series.
+    """
     if take_diffs:
         arr = arr[1:] - arr[:-1]
 
     L = len(arr)
+    if L < 2 or min_window < 2:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float64)
 
-    # Split parent array several times into a number of equal chunks, increasing the chunk length
+    if max_window <= 0:
+        max_window = L - 1
+    if max_window <= min_window:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float64)
 
-    max_window = max_window or (L - 1)
-    window_sizes = (10 ** np.arange(np.log10(min_window), np.log10(max_window), windows_log_step)).astype(np.int32)
-    # window_sizes.append(L)
+    raw_sizes = (10.0 ** np.arange(np.log10(min_window), np.log10(max_window), windows_log_step)).astype(np.int64)
+    window_sizes = np.unique(raw_sizes)
 
-    RS = []
-    used_window_sizes = []
-    for w in window_sizes:
-        rs = []
-        for start in range(0, L, w):
-            if (start + w) >= L:
-                break
-            partial_rs = compute_hurst_rs(arr[start : start + w], agg_func=agg_func)
-            if partial_rs:
-                rs.append(partial_rs)
-        if rs:
-            RS.append(agg_func(np.array(rs)))
-            used_window_sizes.append(w)
+    n_sizes = len(window_sizes)
+    out_sizes = np.empty(n_sizes, dtype=np.int64)
+    out_rs = np.empty(n_sizes, dtype=np.float64)
+    out_count = 0
 
-    return used_window_sizes, RS
+    for idx in range(n_sizes):
+        w = window_sizes[idx]
+        if w < 2 or w > L:
+            continue
+        n_windows = L // w
+        if n_windows == 0:
+            continue
+        sum_rs = 0.0
+        cnt_rs = 0
+        for k in range(n_windows):
+            start = k * w
+            partial_rs = compute_hurst_rs(arr[start : start + w])
+            if not np.isnan(partial_rs):
+                sum_rs += partial_rs
+                cnt_rs += 1
+        if cnt_rs > 0:
+            out_sizes[out_count] = w
+            out_rs[out_count] = sum_rs / cnt_rs
+            out_count += 1
+
+    return out_sizes[:out_count], out_rs[:out_count]
 
 
-def compute_hurst_exponent(arr: np.ndarray, min_window: int = 5, max_window: int = None, windows_log_step: float = 0.25, take_diffs: bool = False)->tuple:
-    """Main entrypoint to compute a Hurst Exponent (and the constant) of a numerical array."""
+def compute_hurst_exponent(
+    arr: np.ndarray,
+    min_window: int = 5,
+    max_window=None,
+    windows_log_step: float = 0.25,
+    take_diffs: bool = False,
+) -> tuple:
+    """Hurst exponent + intercept constant for a 1D array.
+
+    Returns ``(H, c)`` such that ``E[R/S(n)] ~= c * n**H``.  Returns ``(nan, nan)`` when the array
+    is too short or the R/S ladder is degenerate (no positive points to log-fit).
+
+    ``max_window=None`` resolves to ``len(arr) - 1`` inside the kernel; the sentinel must be an int
+    because the kernel is ``@njit`` and cannot accept ``None``.
+    """
     if len(arr) < min_window:
         return np.nan, np.nan
+    max_window_int = -1 if max_window is None else int(max_window)
     window_sizes, rs = precompute_hurst_exponent(
-        arr=arr, min_window=min_window, max_window=max_window, windows_log_step=windows_log_step, take_diffs=take_diffs
+        arr=arr,
+        min_window=min_window,
+        max_window=max_window_int,
+        windows_log_step=windows_log_step,
+        take_diffs=take_diffs,
     )
-    # If the R/S aggregation produced no usable windows, or if any entry is non-positive,
-    # np.log10 would yield -inf/nan and poison the least-squares fit.
-    if not rs or any((r is None) or (r <= 0) for r in rs):
+    if len(rs) < 2:
         return np.nan, np.nan
     rs_arr = np.asarray(rs, dtype=float)
     window_sizes_arr = np.asarray(window_sizes, dtype=float)
     if np.any(rs_arr <= 0) or np.any(window_sizes_arr <= 0):
         return np.nan, np.nan
     x = np.vstack([np.log10(window_sizes_arr), np.ones(len(rs_arr))]).T
-    h, c = np.linalg.lstsq(x, np.log10(rs_arr), rcond=-1)[0]
-    c = 10**c
+    h, c = np.linalg.lstsq(x, np.log10(rs_arr), rcond=None)[0]
+    c = 10 ** c
     return h, c
-
-
-def hurst_testing():
-
-    # pip install hurst
-
-    from hurst import random_walk
-
-    brownian = random_walk(1000, proba=0.5)
-    print(compute_hurst_exponent(np.array(brownian)))
-
-    persistent = random_walk(1000, proba=0.7)
-    print(compute_hurst_exponent(np.array(persistent)))
-
-    antipersistent = random_walk(1000, proba=0.3)
-    print(compute_hurst_exponent(np.array(antipersistent)))

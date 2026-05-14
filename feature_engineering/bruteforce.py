@@ -1,50 +1,61 @@
-"""FE using bruteforce search."""
+"""FE using bruteforce symbolic-regression search via PySR."""
 
 __all__ = [
+    "DEFAULT_BINARY_OPERATORS",
+    "DEFAULT_UNARY_OPERATORS",
     "run_pysr_feature_engineering",
 ]
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# LOGGING
-# ----------------------------------------------------------------------------------------------------------------------------
-
 import logging
-
-logger = logging.getLogger(__name__)
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Normal Imports
-# ----------------------------------------------------------------------------------------------------------------------------
-
-from typing import *
-
-
 import textwrap
+import threading
 import warnings
+from typing import Dict, List, Optional, Union
+
 import numpy as np
 import pandas as pd
 import polars as pl
 
-from pysr import PySRRegressor
-
-from category_encoders import CatBoostEncoder
-
 from pyutilz.system import clean_ram
 
-import threading as _threading
+logger = logging.getLogger(__name__)
 
-# Module-level lock serialising Julia access across concurrent joblib
-# workers. PySR spawns Julia subprocesses internally; two parallel
-# fit() calls would contend for the same .julia/ precompile cache and
-# shared memory. The lock keeps them sequential per-process (not ideal
-# for throughput, but safe). Users who want PySR per-model should
-# set ``pysr_enabled=True`` in the SHARED PreprocessingExtensionsConfig
-# so the single fit-and-transform runs once before model training.
-_PYSR_LOCK = _threading.Lock()
+# Module-level lock serialises Julia access across concurrent joblib workers. PySR spawns
+# Julia subprocesses that contend for the same .julia/ precompile cache and shared memory;
+# the lock keeps them sequential per-process.
+_PYSR_LOCK = threading.Lock()
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Core
-# ----------------------------------------------------------------------------------------------------------------------------
+DEFAULT_BINARY_OPERATORS: List[str] = ["+", "*"]
+DEFAULT_UNARY_OPERATORS: List[str] = ["log", "inv(x) = 1/x"]
+_DEFAULT_PYSR_MAXSIZE = 14
+_DEFAULT_PYSR_NITERATIONS = 2000
+_DEFAULT_SAMPLE_SIZE = 30_000
+
+
+def _kfold_target_encode(
+    df: pd.DataFrame,
+    cols: List[str],
+    target: pd.Series,
+    n_splits: int = 5,
+    random_state: Optional[int] = None,
+) -> pd.DataFrame:
+    """Out-of-fold CatBoostEncoder target encoding.
+
+    Each row's encoded value is computed from a fold of which that row is NOT a member, so the
+    target never leaks into its own feature. Equivalent to ``cross_val_predict``-style OOF
+    encoding. Used when the caller asks for ``leakage_free=True``.
+    """
+    from category_encoders import CatBoostEncoder
+    from sklearn.model_selection import KFold
+
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    encoded = pd.DataFrame(index=df.index, columns=cols, dtype=float)
+    for fold_idx, (train_idx, val_idx) in enumerate(kf.split(df)):
+        encoder = CatBoostEncoder(cols=cols, return_df=True)
+        encoder.fit(df.iloc[train_idx][cols], target.iloc[train_idx])
+        encoded.iloc[val_idx, :] = encoder.transform(df.iloc[val_idx][cols]).values
+        logger.debug("Fold %d/%d encoded.", fold_idx + 1, n_splits)
+    return encoded
 
 
 def run_pysr_feature_engineering(
@@ -53,150 +64,167 @@ def run_pysr_feature_engineering(
     drop_columns: Optional[List[str]] = None,
     reserved_names: Optional[List[str]] = None,
     reserved_prefix: str = "reserved_",
-    sample_size: int = 30_000,
+    sample_size: int = _DEFAULT_SAMPLE_SIZE,
     encode_categoricals: bool = True,
     string_categorical_threshold: int = 100,
     pysr_params: Optional[Dict] = None,
     pysr_params_override: Optional[Dict] = None,
+    leakage_free: bool = False,
+    leakage_free_n_splits: int = 5,
+    random_state: Optional[int] = None,
     verbose: int = 1,
-) -> PySRRegressor:
+):
+    """Run symbolic regression on a sampled frame using PySR.
+
+    Parameters
+    ----------
+    df
+        Input pandas or polars DataFrame.
+    target_col
+        Column to use as the regression target.
+    drop_columns
+        Columns to drop from the feature matrix (other target columns, identifiers like
+        ``ts`` / ``secid``, etc.). The caller's list is never mutated.
+    reserved_names
+        Column names that would clash with PySR-reserved identifiers (e.g. ``im``); they get
+        renamed with ``reserved_prefix``. Defaults to ``["im"]``.
+    reserved_prefix
+        Prefix applied to ``reserved_names``.
+    sample_size
+        How many rows to sample from ``df``.
+    encode_categoricals
+        ``True`` -> encode categorical columns with CatBoostEncoder; ``False`` -> drop them.
+    string_categorical_threshold
+        Maximum unique values allowed in string columns to treat them as categoricals.
+    pysr_params
+        Dict merged on top of the module defaults.
+    pysr_params_override
+        Dict applied last; wins over both defaults and ``pysr_params``.
+    leakage_free
+        ``True`` runs CatBoostEncoder in OOF/KFold mode (no row sees its own target). Default
+        ``False`` preserves the legacy fast path but surfaces a target-encoding-leak warning.
+    leakage_free_n_splits
+        Number of folds when ``leakage_free=True``.
+    random_state
+        Forwarded to ``.sample(...)`` and the KFold splitter for reproducibility.
+    verbose
+        ``0`` = silent; ``>0`` = log info + warn about excluded columns.
+
+    Returns
+    -------
+    Trained PySRRegressor instance.
+
+    Examples
+    --------
+    >>> run_pysr_feature_engineering(  # doctest: +SKIP
+    ...     df,
+    ...     target_col="target_UP",
+    ...     drop_columns=["target_UP", "target_DOWN"],
+    ...     pysr_params_override=dict(niterations=200),
+    ... )
     """
-    Run symbolic regression on a sampled version of a DataFrame using PySR.
+    # Lazy heavy imports: importing this module shouldn't pay PySR/Julia startup cost.
+    from pysr import PySRRegressor
+    from category_encoders import CatBoostEncoder
 
-    Parameters:
-    - df: Input pandas or polars DataFrame.
-    - target_col: Column to use as the regression target.
-    - drop_other_targets: Whether to drop other target-like columns (e.g. target_UP, target_DOWN).
-    - reserved_names: List of reserved or conflicting column names to rename using a prefix.
-    - reserved_prefix: Prefix to add to reserved column names.
-    - sample_size: How many rows to sample from df.
-    - encode_categoricals: Whether to encode categoricals using CatBoostEncoder or drop them.
-    - string_categorical_threshold: Maximum unique values allowed in string columns to treat them as categoricals.
-    - drop_columns: List of known columns to drop (e.g. identifiers like 'ts', 'secid').
-    - pysr_params: Dict of base PySRRegressor parameters (will be used as default).
-    - pysr_params_override: Dict to override values in pysr_params.
-    - verbose: Controls output. 0 = silent, >0 = warnings and info messages.
-
-    Returns:
-    - Trained PySRRegressor object.
-
-    >>>run_pysr_feature_engineering(df,target_col="target_UP",drop_columns=["target_UP","target_DOWN"],pysr_params_override=dict(niterations=200,))
-    """
     if reserved_names is None:
         reserved_names = ["im"]
 
-    # Convert polars to pandas if needed
     if isinstance(df, pl.DataFrame):
-        # polars.DataFrame.sample raises when n > len(df); clamp like the pandas branch does.
-        tmp_df = df.sample(min(sample_size, len(df))).fill_null(0).fill_nan(0).to_pandas()
+        n = min(sample_size, len(df))
+        sampled = df.sample(n, seed=random_state) if random_state is not None else df.sample(n)
+        tmp_df = sampled.fill_null(0).fill_nan(0).to_pandas()
     elif isinstance(df, pd.DataFrame):
-        # pandas.sample already returns a fresh frame; trailing .copy() was redundant.
-        tmp_df = df.sample(min(sample_size, len(df))).fillna(0)
+        n = min(sample_size, len(df))
+        tmp_df = df.sample(n, random_state=random_state).fillna(0)
     else:
         raise ValueError("Input must be a pandas or polars DataFrame.")
 
     clean_ram()
 
-    # Sanitize column names
     tmp_df.columns = [col.replace("-", "_").replace("=", "_") for col in tmp_df.columns]
+    tmp_df.rename(
+        columns={col: reserved_prefix + col for col in reserved_names if col in tmp_df.columns},
+        inplace=True,
+    )
 
-    # Rename reserved names with prefix
-    tmp_df.rename(columns={col: reserved_prefix + col for col in reserved_names if col in tmp_df.columns}, inplace=True)
-
-    # Separate target
-    if target_col not in tmp_df:
-        raise ValueError(f"Target column '{target_col}' not found in dataframe.")
+    if target_col not in tmp_df.columns:
+        raise ValueError(f"Target column {target_col!r} not found in dataframe.")
 
     target = tmp_df[target_col].copy()
 
-    if drop_columns is None:
-        drop_columns = []
-    if target_col not in drop_columns:
-        drop_columns.append(target_col)
+    # Work on a local copy so the caller's drop_columns list is not mutated.
+    drop_set = set(drop_columns or [])
+    drop_set.add(target_col)
+    cols_to_drop = [c for c in drop_set if c in tmp_df.columns]
+    tmp_df.drop(columns=cols_to_drop, inplace=True)
 
-    for col in drop_columns:
-        if col in tmp_df:
-            del tmp_df[col]
-
-    # Drop or warn about datetime columns
-    datetime_cols = tmp_df.select_dtypes(include=["datetime", "datetimetz"]).columns.tolist()
+    datetime_cols = tmp_df.select_dtypes(include=["datetime64", "datetimetz"]).columns.tolist()
     if datetime_cols and verbose > 0:
         wrapped_names = textwrap.fill(", ".join(datetime_cols), width=80)
-        warnings.warn(f"Excluding {len(datetime_cols)} datetime columns: {wrapped_names}")
+        logger.info("Excluding %d datetime columns: %s", len(datetime_cols), wrapped_names)
     tmp_df.drop(columns=datetime_cols, inplace=True)
 
-    # Detect and encode string columns
     str_cols = tmp_df.select_dtypes(include=["object", "string"]).columns.tolist()
+    cols_to_drop_str: List[str] = []
     for col in str_cols:
         unique_vals = tmp_df[col].nunique()
         if unique_vals <= string_categorical_threshold:
             tmp_df[col] = tmp_df[col].astype("category")
         else:
+            cols_to_drop_str.append(col)
             if verbose > 0:
-                warnings.warn(f"Dropping string column '{col}' with {unique_vals} unique values.")
-            tmp_df.drop(columns=[col], inplace=True)
+                logger.info("Dropping string column %r with %d unique values.", col, unique_vals)
+    if cols_to_drop_str:
+        tmp_df.drop(columns=cols_to_drop_str, inplace=True)
 
-    # Encode or drop categoricals.
-    #
-    # Target-encoding leakage caveat (2026-04-19 round-9 probe):
-    # CatBoostEncoder.fit_transform is called on the ENTIRE sample with
-    # the target visible -- a classic supervised-encoding leak. Any
-    # downstream CV / holdout evaluation on this encoded frame will
-    # overestimate performance because each row's categorical code was
-    # derived using that row's own target.
-    #
-    # CatBoostEncoder has **internal** per-row ordering smoothing
-    # (online mean encoding) that partially mitigates this for its
-    # native CatBoost use case, but PySR here fits a symbolic regressor
-    # on the post-encode frame with NO further CV structure -- any
-    # leakage surfaces directly in the returned model's "best" formula.
-    #
-    # This is bruteforce FE (not in the active prod pipeline). Keeping
-    # the existing fit_transform call but surfacing the risk with a
-    # WARN so operators see the trade-off. A proper fix would require
-    # OOF/KFold encoding, which changes the API shape and downstream
-    # reproducibility -- out of scope for a defensive observability pass.
     cat_cols = tmp_df.select_dtypes(include=["category"]).columns.tolist()
     if encode_categoricals and cat_cols:
-        warnings.warn(
-            f"run_pysr_feature_engineering: CatBoostEncoder is fit_transform'd "
-            f"on the full sample with target visible -- this is a SUPERVISED "
-            f"TARGET-ENCODING LEAK. Columns encoded this way: {cat_cols}. "
-            f"Any downstream holdout metric on the returned PySR formula "
-            f"will be optimistically biased. For a leakage-free setup, "
-            f"split train/val upstream and call this function on train only.",
-            stacklevel=2,
-        )
-        logger.warning(
-            "run_pysr_feature_engineering: target-encoding leak risk -- %d "
-            "categorical column(s) encoded with CatBoostEncoder.fit_transform "
-            "on full sample. See warnings.warn for details.",
-            len(cat_cols),
-        )
-        encoder = CatBoostEncoder(cols=cat_cols, return_df=True)
-        tmp_df[cat_cols] = encoder.fit_transform(tmp_df[cat_cols], target)
+        if leakage_free:
+            logger.info(
+                "CatBoostEncoder running in OOF/KFold mode (%d splits) over %d categorical columns: %s",
+                leakage_free_n_splits,
+                len(cat_cols),
+                cat_cols,
+            )
+            tmp_df[cat_cols] = _kfold_target_encode(
+                tmp_df, cat_cols, target,
+                n_splits=leakage_free_n_splits,
+                random_state=random_state,
+            )
+        else:
+            # The legacy path fits CatBoostEncoder on the full sample with the target visible -
+            # classic supervised-encoding leak. Surface as a warning so the operator can switch
+            # to leakage_free=True (slower, but holdout-honest).
+            warnings.warn(
+                "run_pysr_feature_engineering: CatBoostEncoder.fit_transform on the full sample "
+                "leaks the target into the categorical encoding; downstream holdout metrics will "
+                f"be optimistically biased. Columns: {cat_cols}. Pass leakage_free=True for an "
+                "OOF-encoded path.",
+                stacklevel=2,
+            )
+            encoder = CatBoostEncoder(cols=cat_cols, return_df=True)
+            tmp_df[cat_cols] = encoder.fit_transform(tmp_df[cat_cols], target)
         if verbose > 0:
-            warnings.warn(f"Encoded categorical columns using CatBoostEncoder: {cat_cols}")
+            logger.info("Encoded %d categorical column(s) via CatBoostEncoder.", len(cat_cols))
     elif not encode_categoricals and cat_cols:
         if verbose > 0:
-            warnings.warn(f"Dropping categorical columns: {cat_cols}")
+            logger.info("Dropping categorical columns: %s", cat_cols)
         tmp_df.drop(columns=cat_cols, inplace=True)
 
-    # Drop remaining non-numeric columns
     non_numeric = tmp_df.select_dtypes(exclude=[np.number]).columns.tolist()
     if non_numeric:
         if verbose > 0:
-            warnings.warn(f"Dropping non-numeric columns: {non_numeric}")
+            logger.info("Dropping non-numeric columns: %s", non_numeric)
         tmp_df.drop(columns=non_numeric, inplace=True)
 
     clean_ram()
 
-    # Define default PySR parameters
-    default_params = dict(
-        maxsize=14,
-        niterations=2000,
-        binary_operators=["+", "*"],
-        unary_operators=["log", "inv(x) = 1/x"],
+    default_params: Dict = dict(
+        maxsize=_DEFAULT_PYSR_MAXSIZE,
+        niterations=_DEFAULT_PYSR_NITERATIONS,
+        binary_operators=list(DEFAULT_BINARY_OPERATORS),
+        unary_operators=list(DEFAULT_UNARY_OPERATORS),
         extra_sympy_mappings={"inv": lambda x: 1 / x},
         elementwise_loss="loss(prediction, target) = abs(prediction - target)",
         turbo=True,
@@ -209,18 +237,12 @@ def run_pysr_feature_engineering(
 
     fe_model = PySRRegressor(**final_params)
 
-    # Serialise Julia access across concurrent joblib workers. PySR
-    # spawns Julia subprocesses that contend for the same .julia/
-    # precompile cache and shared memory. The lock ensures only one
-    # worker invokes Julia at a time.
     with _PYSR_LOCK:
         fe_model.fit(tmp_df, target)
     clean_ram()
 
     if verbose > 0:
-        print("Best equation:")
-        print(fe_model.get_best())
-        print("\nAll equations:")
-        print(fe_model.equations.equation.tolist())
+        logger.info("Best equation:\n%s", fe_model.get_best())
+        logger.info("All equations:\n%s", fe_model.equations.equation.tolist())
 
     return fe_model
