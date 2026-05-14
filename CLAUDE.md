@@ -695,7 +695,7 @@ Project line-length is **160** for comments and docstrings. Do NOT hard-wrap at 
 
 **Anti-pattern to AVOID** (each sentence wrapped to 50-80 chars):
 ```python
-# C2 (2026-05-11): annotate composite-target reports as T-scale.
+# Annotate composite-target reports as T-scale.
 # Composite targets carry ``MTRESID=`` in the model_name (stamped
 # by ``select_target``); this indicates the printed metrics are
 # on the RESIDUAL scale, not the raw y-scale.
@@ -703,7 +703,43 @@ Project line-length is **160** for comments and docstrings. Do NOT hard-wrap at 
 
 **Correct shape** (one sentence per line, up to 160 chars):
 ```python
-# C2 (2026-05-11): annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics are on the RESIDUAL scale, not the raw y-scale.
+# Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics are on the RESIDUAL scale, not the raw y-scale.
 ```
 
-If a sentence really exceeds 160, break at a clause boundary (after a comma, semicolon, or "—") — never mid-clause.
+If a sentence really exceeds 160, break at a clause boundary (after a comma, semicolon, or "-") - never mid-clause.
+
+## Comments: no audit / phase / refactor junk; default to minimalism (CRITICAL)
+
+Two rules.
+
+**1. NO process / refactor / audit metadata inside source comments.** That information belongs in git history, the PR description, or the issue tracker - never in `*.py` files. Banned in code comments:
+
+- Phase / wave markers: `Phase 3 / 4 / 5 / 7 / 8 / 9`, `wave 2`, `batch 4 followup`, `N3 / N5 / N6`
+- Audit-finding IDs: `P0-A1..G34`, `P1-B7/B14`, `F5..F41`, `PR-4 / 5 / 6`, `Perf #5`, `C2 (2026-05-11):` and similar
+- Date stamps that record when this was added or changed: `2026-04-21 fix 9.8`, `2026-04-28 batch 4 followup`, `TODO(2026-04-28)`
+- Fuzz seed references: `seed=42 fuzz`, `c0093 / c0095`, `c0102 / c0147`
+- Refactor-history rationale: "was 4 star imports, now explicit", "split out of the prior monolithic X.py", "Phase 3 module split", "replaces the prior monolithic wrappers.py (1936 lines)", "(kept for downstream callers)" beside `# noqa: F401` (keep the `# noqa` itself, drop the prose)
+- Banner-comment section separators (lines of `# -------- HEADER --------`); one blank line between sections is enough
+
+**2. Default to MINIMALIST comments.** Write a comment only when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific upstream bug, behavior that would surprise a reader. Do not explain WHAT the code does - well-named identifiers already say that. Do not narrate process ("now we loop over X", "next we filter Y"). Do not write AI-justifying parentheticals like `(natural Python idiom)`, `(elegant)`, `(idiomatic)`, `(obvious choice)`. If removing the comment would not confuse a future reader, do not write it.
+
+**Why:** noise comments accelerate code rot - they go stale, drift out of sync with the code, and bury the few genuine WHY notes in clutter. The 2026-05-14 cleanup pass on `mlframe/feature_selection/wrappers/*.py` removed ~580 lines (16% of the package) of phase / audit / date / seed junk; this rule exists so the next pass does not have to re-do that work.
+
+**How to apply:** before writing a comment, ask "would a reader who has never seen this PR / issue care about this line a year from now?" If no, delete. Anything about a specific fix, ticket, or refactor wave goes in the commit message or PR description, not the source. If a TODO is genuinely needed, write `# TODO: <what>` with no date and no audit ID; the issue tracker handles that.
+
+## NEVER use destructive git to inspect baseline (CRITICAL)
+
+The user runs **parallel agent sessions** on this repo and frequent in-flight processes (pytest, dev servers, build agents) that read the working tree. Destructive git commands - even with intent to undo - clobber concurrent work.
+
+**Banned when used "just to peek at prior state":** `git stash` (even followed by `git stash pop`), `git checkout -- <path>`, `git checkout <ref> -- <path>`, `git reset --hard`, `git restore`, `git worktree remove`. Even a 5-second window where the working tree is mutated is enough to break another session.
+
+**Use these read-only alternatives instead:**
+
+- `git show <ref>:<path>` - dump file content at a ref to stdout
+- `git diff <ref> -- <path>` - diff vs ref without touching files
+- `git log -p <path>` / `git log -S '<string>' -- <path>` - history with diffs / pickaxe
+- `git worktree add <tmpdir> <ref>` - inspect another commit in an isolated worktree without touching the primary one
+
+**And: don't bother inspecting "pre-existing vs introduced" at all.** It does not matter who originally wrote the bad code. If a linter / type checker / test surfaces an issue, the question is "do we fix this", not "did we introduce this". Just fix what is there.
+
+Sibling rule for processes: never kill processes without explicit user authorisation (the user has separately reinforced that one).
