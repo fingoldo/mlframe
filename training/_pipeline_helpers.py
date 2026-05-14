@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
+
 try:
     import polars as pl
 except ImportError:
