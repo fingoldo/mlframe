@@ -27,7 +27,12 @@ import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 from sklearn.linear_model import LogisticRegression
 
-from mlframe.feature_selection.wrappers import RFECV, OptimumSearch
+from mlframe.feature_selection.wrappers import (
+    RFECV,
+    OptimumSearch,
+    make_gaussian_knockoffs,
+    select_features_fdr,
+)
 
 from .conftest import IS_FAST_MODE, fast_subset
 
@@ -287,3 +292,76 @@ class TestCoverageGaps:
         sup = np.asarray(rfecv.support_)
         n_selected = int(np.sum(sup.astype(bool))) if sup.dtype == bool else len(sup)
         assert n_selected >= 1, f"{method.name}: expected >=1 feature selected, got 0"
+
+
+class TestKnockoffEdgeCases:
+    """Edge-case sensors for ``make_gaussian_knockoffs`` and ``select_features_fdr``. Closes the remaining ``_helpers.py``
+    coverage gaps in the knockoff path (lines 91-92, 96-98, 118-126, 179-197)."""
+
+    def test_sdp_solve_true_raises_not_implemented(self):
+        """The SDP branch is a deliberately-deferred opt-in; fail loud rather than silently use equicorrelated."""
+        X = np.random.default_rng(0).standard_normal((50, 5))
+        with pytest.raises(NotImplementedError, match="SDP knockoffs not yet implemented"):
+            make_gaussian_knockoffs(X, random_state=0, sdp_solve=True)
+
+    @pytest.mark.parametrize(
+        "shape",
+        [(1, 3), (0, 3), (10, 0)],
+        ids=["n=1", "n=0", "p=0"],
+    )
+    def test_too_small_X_raises_value_error(self, shape):
+        """``make_gaussian_knockoffs`` requires n>=2, p>=1. Sensor: pre-computation guard at line 96-98 must reject."""
+        X = np.zeros(shape, dtype=float)
+        with pytest.raises(ValueError, match="at least 2 rows and 1 column"):
+            make_gaussian_knockoffs(X, random_state=0)
+
+    def test_near_singular_sigma_emits_warning(self, caplog):
+        """When ``lam_min(Sigma) < 1e-4`` the warning at ``_helpers.py:118-126`` must fire so the operator knows knockoffs
+        won't help. Construct collinearity: 5 columns where the last 4 are near-exact copies of the first plus tiny
+        noise -> Sigma near-singular by construction."""
+        import logging
+        rng = np.random.default_rng(0)
+        n, p = 200, 5
+        base = rng.standard_normal((n, 1))
+        noise = rng.standard_normal((n, p)) * 1e-7  # near-zero perturbation -> all columns ~ identical
+        X = np.tile(base, (1, p)) + noise
+
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers._helpers"):
+            X_tilde = make_gaussian_knockoffs(X, random_state=0)
+
+        assert X_tilde.shape == X.shape, "knockoff matrix must preserve input shape even on near-singular input"
+        msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("near-singular" in m and "lambda_min" in m for m in msgs), (
+            f"expected near-singular warning; got messages: {msgs}"
+        )
+
+
+class TestSelectFeaturesFdrEdgeCases:
+    """Edge-case sensors for ``select_features_fdr`` (knockoff FDR-controlled selection)."""
+
+    def test_empty_W_returns_empty(self):
+        """No W statistics -> no selection."""
+        assert select_features_fdr({}, q=0.1) == []
+
+    @pytest.mark.parametrize("q", [0.0, 1.0, -0.1, 1.5])
+    def test_q_out_of_range_raises(self, q):
+        """``q`` must be strictly in (0, 1). Sensor: guard at ``_helpers.py:181-182``."""
+        W = {"f0": 0.5, "f1": -0.2, "f2": 0.1}
+        with pytest.raises(ValueError, match="q must be in"):
+            select_features_fdr(W, q=q)
+
+    def test_all_negative_W_returns_empty(self):
+        """When every W is non-positive, no threshold tau achieves the target FDR -> empty selection at line 193-194."""
+        W = {"f0": -0.5, "f1": -0.3, "f2": -0.7}
+        assert select_features_fdr(W, q=0.1) == []
+
+    def test_strong_signal_selects_positive_W_features(self):
+        """Positive sanity: features with W_j clearly above the noise band should be selected."""
+        # Two strong real signals, three noise-symmetric W's. With q=0.5 the threshold should land
+        # at the smaller of the two real W's (i.e. 0.6) since (1 + #{W <= -0.6}) / max(1, #{W >= 0.6}) = 1/2 <= 0.5.
+        W = {"real_a": 1.2, "real_b": 0.6, "noise_a": 0.05, "noise_b": -0.05, "noise_c": -0.1}
+        selected = select_features_fdr(W, q=0.5)
+        assert "real_a" in selected
+        assert "real_b" in selected
+        # Sorted by W descending.
+        assert selected[0] == "real_a"

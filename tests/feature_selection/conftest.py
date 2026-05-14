@@ -15,6 +15,21 @@ from sklearn.datasets import make_classification, make_regression
 IS_FAST_MODE = os.environ.get("MLFRAME_FAST", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _coverage_active() -> bool:
+    """True iff coverage.py is currently tracing this process. Used to skip tests that spawn threads via joblib.Parallel /
+    multiprocessing.dummy - those interact badly with coverage's sys.settrace on Windows (RuntimeError: can't start new
+    thread + AttributeError: 'DummyProcess' has no 'terminate') and break the coverage run. Tests still pass in standard
+    pytest invocations; only the coverage-measurement path skips them."""
+    try:
+        import coverage as _cov
+        return _cov.Coverage.current() is not None
+    except Exception:
+        return False
+
+
+COVERAGE_ACTIVE = _coverage_active()
+
+
 def fast_subset(seq, n: int = 1):
     """Return the first ``n`` items of ``seq`` when ``MLFRAME_FAST=1``; otherwise return ``seq`` unchanged.
 

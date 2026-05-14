@@ -21,6 +21,7 @@ from mlframe.feature_selection.wrappers import (
     RFECV,
     get_feature_importances,
 )
+from .conftest import COVERAGE_ACTIVE
 from mlframe.feature_selection.wrappers._helpers import (
     _detect_multithreaded,
     _pin_threads_to_one,
@@ -66,6 +67,10 @@ class TestN3_MultithreadDetection:
 # N3: Parallel CV folds produce same selection as sequential (correctness)
 # ----------------------------------------------------------------------------
 class TestN3_ParallelEquivalence:
+    @pytest.mark.skipif(
+        COVERAGE_ACTIVE,
+        reason="joblib.Parallel + coverage's sys.settrace deadlocks Windows thread spawn (RuntimeError + DummyProcess.terminate AttributeError). Test is correct - skip only when measuring coverage; runs under standard pytest.",
+    )
     def test_n_jobs_2_matches_n_jobs_1_for_single_thread_estimator(self, small_clf_data):
         X, y = small_clf_data
         common = dict(
@@ -101,6 +106,10 @@ class TestN3_ParallelEquivalence:
 # N3: Auto-fallback on multi-threaded estimators
 # ----------------------------------------------------------------------------
 class TestN3_AutoFallback:
+    @pytest.mark.skipif(
+        COVERAGE_ACTIVE,
+        reason="joblib.Parallel + coverage's sys.settrace deadlocks Windows thread spawn (RuntimeError + DummyProcess.terminate AttributeError). Test is correct - skip only when measuring coverage; runs under standard pytest.",
+    )
     def test_rf_auto_fallback_no_force_parallel(self, small_clf_data, caplog):
         """RF + n_jobs=2 + force_parallel=False (default) -> auto-fallback to
         sequential and a clear log line. The outer RF still uses its native
