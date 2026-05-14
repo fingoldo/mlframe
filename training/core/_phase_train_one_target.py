@@ -23,7 +23,7 @@ from ..utils import log_ram_usage
 from ._misc_helpers import _elapsed_str, _split_preds_probs
 from ._phase_diagnostics import run_per_target_diagnostics
 from ._phase_dummy_baselines import run_dummy_baselines
-from ._setup_helpers import _setup_model_directories
+from ._setup_helpers import _build_common_params_for_target, _setup_model_directories
 from ..strategies import PipelineCache
 
 logger = logging.getLogger(__name__)
