@@ -439,30 +439,24 @@ def train_mlframe_models_suite(
     # ==================================================================================
     # 2. DATA LOADING & PREPROCESSING (extracted 2026-05-12 into a helper)
     # ==================================================================================
-    (
-        df,
-        target_by_type,
-        group_ids_raw,
-        group_ids,
-        timestamps,
-        artifacts,
-        additional_columns_to_drop,
-        sample_weights,
-        baseline_rss_mb,
-        df_size_mb,
-        sequences,
-    ) = _phase_load_and_preprocess(
-        df=df,
-        preprocessing_config=preprocessing_config,
+    ctx.df = df
+    ctx.recurrent_models = recurrent_models
+    ctx.sequences = sequences
+    _phase_load_and_preprocess(
+        ctx,
         features_and_targets_extractor=features_and_targets_extractor,
-        recurrent_models=recurrent_models,
-        sequences=sequences,
-        verbose=verbose,
     )
-    for _k in ("df", "target_by_type", "group_ids_raw", "group_ids", "timestamps",
-               "artifacts", "additional_columns_to_drop", "sample_weights",
-               "baseline_rss_mb", "df_size_mb", "sequences"):
-        setattr(ctx, _k, locals()[_k])
+    df = ctx.df
+    target_by_type = ctx.target_by_type
+    group_ids_raw = ctx.group_ids_raw
+    group_ids = ctx.group_ids
+    timestamps = ctx.timestamps
+    artifacts = ctx.artifacts
+    additional_columns_to_drop = ctx.additional_columns_to_drop
+    sample_weights = ctx.sample_weights
+    baseline_rss_mb = ctx.baseline_rss_mb
+    df_size_mb = ctx.df_size_mb
+    sequences = ctx.sequences
 
     # ==================================================================================
     # 3. TRAIN/VAL/TEST SPLITTING (extracted 2026-05-12 into a helper)
@@ -591,6 +585,11 @@ def train_mlframe_models_suite(
 
     # Get pipeline components (category_encoder, imputer, scaler) from typed config or defaults
     category_encoder, imputer, scaler = _get_pipeline_components(preprocessing_config, cat_features)
+    # Propagate to ctx so _phase_train_one_target reads the resolved components, not the None defaults from TrainingContext.
+    # LinearModelStrategy.build_pipeline silently skips imputation when imputer=None, sending raw NaN into LinearRegression.fit.
+    ctx.category_encoder = category_encoder
+    ctx.imputer = imputer
+    ctx.scaler = scaler
 
     # Compute trainset stats (Polars is more efficient, but pandas works too)
     if isinstance(train_df, pl.DataFrame):
