@@ -28,6 +28,8 @@ from sklearn.preprocessing import StandardScaler
 
 import category_encoders as ce
 
+from mlframe.feature_selection.filters import MRMR
+
 from ..configs import (
     FeatureSelectionConfig,
     TargetTypes,
