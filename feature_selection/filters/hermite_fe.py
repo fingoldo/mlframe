@@ -1,63 +1,33 @@
 """Improved orthogonal-polynomial pair Feature Engineering.
 
-Originally a Hermite-only module (hence the file name and the
-HermiteResult dataclass). Now supports four orthogonal polynomial
-families via the basis kwarg: Hermite, Legendre, Chebyshev,
-Laguerre. **Default basis is Chebyshev**, picked empirically across
-12 synthetic + UCI regimes -- it never finishes last, has the highest
-minimum MI, and dominates real-world tabular data + threshold targets.
-See _benchmarks/bench_polynomial_bases.py for the supporting
-table.
+Supports four orthogonal polynomial families via the basis kwarg: Hermite, Legendre, Chebyshev, Laguerre.
+Default basis is Chebyshev, picked empirically across 12 synthetic + UCI regimes -- it never finishes last,
+has the highest minimum MI, and dominates real-world tabular data + threshold targets.
+See _benchmarks/bench_polynomial_bases.py for the supporting table.
 
-Idea: orthogonal polynomials form a complete basis on their natural
-domain, so any sufficiently smooth bivariate function f(x_a, x_b)
-can be represented as Σ c_{a,i} c_{b,j} P_i(x_a) P_j(x_b) -- find
-coefficients via Optuna, MI-against-target as the objective. In theory
-replaces the hand-coded unary x binary transformations zoo with a
-single learned parametric family.
+Idea: orthogonal polynomials form a complete basis on their natural domain, so any sufficiently smooth bivariate
+function f(x_a, x_b) can be represented as Sum c_{a,i} c_{b,j} P_i(x_a) P_j(x_b) -- find coefficients via Optuna,
+MI-against-target as the objective. Replaces hand-coded unary x binary transformations with a single learned
+parametric family.
 
-In practice the legacy implementation in MRMR._run_fe_step
-(fe_smart_polynom_iters > 0 branch) didn't deliver because of six
-issues fixed here:
+Key implementation choices vs naive Hermite-only:
 
-1. **Standardisation**. hermval(raw_x, c) blows up numerically
-   when |x| >> 1 (high-degree Hermite goes superlinear). We
-   z-score inputs before evaluation so the [-3, 3] range covers
-   ~99.7% of the support.
-
-2. **Right Hermite family**. Numpy's polynomial.hermite is the
-   *physicist's* family H_n(x) orthogonal under e^{-x²}. For
-   z-scored inputs (standard Normal) we want the *probabilist's*
-   family He_n(x) orthogonal under e^{-x²/2} -- polynomial.
-   hermite_e.hermeval.
-
-3. **Tight coefficient range**. [-2, 2] instead of [-10, 10]:
-   higher-degree terms dominate quickly, large ranges make TPE
-   wander.
-
-4. **Fixed degree per study**. Random length per trial breaks
-   TPE's posterior. We sweep degrees as an outer loop (study per
-   degree) and pick the best.
-
-5. **L2 regularisation**. Penalty -lambda * ||c||² on the MI
-   objective keeps coefficients bounded and discourages oscillating
-   overfits.
-
-6. **Identity baseline**. Returns best_mi only when it strictly
-   beats the identity baseline MI((x_a, x_b), y) -- otherwise
-   no engineered feature is recommended.
+1. Standardisation. hermval(raw_x, c) blows up numerically when |x| >> 1 (high-degree Hermite goes superlinear).
+   Z-score inputs before evaluation so [-3, 3] covers ~99.7% of the support.
+2. Right Hermite family. Numpy's polynomial.hermite is the physicist's H_n(x) (weight e^{-x^2}); for z-scored
+   inputs (standard Normal) we want the probabilist's He_n(x) (weight e^{-x^2/2}) -- polynomial.hermite_e.hermeval.
+3. Tight coefficient range [-2, 2] instead of [-10, 10]: higher-degree terms dominate quickly, large ranges
+   make TPE wander.
+4. Fixed degree per study: random length per trial breaks TPE's posterior. Degrees swept as an outer loop.
+5. L2 regularisation: penalty -lambda * ||c||^2 on the MI objective keeps coefficients bounded.
+6. Identity baseline: returns best_mi only when it strictly beats baseline MI((x_a, x_b), y).
 
 Usage::
 
-    from mlframe.feature_selection.filters.hermite_fe import (
-        optimise_hermite_pair, HermiteResult,
-    )
-    res = optimise_hermite_pair(
-        x_a=col_a, x_b=col_b, y=target,
-        n_trials=200, max_degree=4, n_jobs=1,
-    )
+    from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair, HermiteResult
+    res = optimise_hermite_pair(x_a=col_a, x_b=col_b, y=target, n_trials=200, max_degree=4, n_jobs=1)
     if res.uplift > 1.05:
-        engineered = res.transform(x_a, x_b)  # numpy 1-D array
+        engineered = res.transform(x_a, x_b)
 """
 from __future__ import annotations
 
@@ -89,32 +59,22 @@ except ImportError:
         return range(n)
 
 
-# ---------------------------------------------------------------------------
-# Fast plug-in MI estimator (numba-accelerated). The polynomial-pair FE
-# objective evaluates MI(engineered_feature, target) thousands of times
-# during Optuna search; sklearn's KSG was 45% of cProfile wall-time. The
-# njit plug-in below is ~50-100x faster on n<=10000 because it skips
-# joblib, sklearn validation, and the Cython kNN search.
+# Fast plug-in MI estimator (numba-accelerated). The polynomial-pair FE objective evaluates MI thousands of
+# times during Optuna search; sklearn's KSG was 45% of cProfile wall-time. The njit plug-in below is ~50-100x
+# faster on n<=10000 because it skips joblib, sklearn validation, and the Cython kNN search.
 #
 # Why plug-in is OK as Optuna objective (not as final reported MI):
-# * Optuna only needs a monotone proxy of "is this coefficient set
-#   better?" -- the absolute MI value is irrelevant.
-# * Plug-in over-estimates MI vs KSG (entropy bias), but the bias is
-#   nearly constant across coefficient sets (same n, same n_bins), so
-#   the optimum coefficient set is the same.
-# * Quantile binning is rank-stable -- same as KSG's underlying
-#   permutation invariance.
-#
-# Validation: a separate "use_fast_mi=False" path keeps sklearn KSG as
-# the reference; both paths reach equivalent best coefficients on the
-# 12-regime sweep (verified empirically).
-# ---------------------------------------------------------------------------
+# * Optuna only needs a monotone proxy of "is this coefficient set better?" -- absolute MI value is irrelevant.
+# * Plug-in over-estimates MI vs KSG (entropy bias), but the bias is nearly constant across coefficient sets
+#   (same n, same n_bins), so the optimum coefficient set is the same.
+# * Quantile binning is rank-stable -- same as KSG's underlying permutation invariance.
+# A separate "mi_estimator='ksg'" path keeps sklearn KSG as the reference; both paths reach equivalent best
+# coefficients on the 12-regime sweep.
 
 
 @njit(cache=True, fastmath=True)
 def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
-    """Quantile-bin a 1-D continuous array into n_bins equi-frequency
-    bins. Returns int32 bin indices in [0, n_bins)."""
+    """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins)."""
     n = x.shape[0]
     sort_idx = np.argsort(x)
     out = np.empty(n, dtype=np.int32)
@@ -123,7 +83,7 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
     rem = n % n_bins
     for b in range(n_bins):
         size = base + (1 if b < rem else 0)
-        for k in range(size):
+        for _ in range(size):
             out[sort_idx[pos]] = b
             pos += 1
     return out
@@ -132,9 +92,8 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
 @njit(cache=True, fastmath=True)
 def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray,
                               n_bins: int = 20) -> float:
-    """Plug-in MI estimator for continuous x (1-D float64) and discrete
-    y (1-D int64). Returns MI in nats. ~50x faster than sklearn for
-    n<=10k, single-thread."""
+    """Plug-in MI estimator for continuous x (1-D float64) and discrete y (1-D int64). Returns MI in nats.
+    ~50x faster than sklearn for n<=10k, single-thread."""
     n = x.shape[0]
     n_classes = 0
     for i in range(n):
@@ -172,8 +131,7 @@ def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray,
 @njit(cache=True, fastmath=True)
 def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray,
                                  n_bins: int = 20) -> float:
-    """Plug-in MI for continuous x (1-D) and continuous y (1-D). Bin
-    both into n_bins equi-frequency bins, then plug-in estimator."""
+    """Plug-in MI for continuous x (1-D) and continuous y (1-D). Bin both into n_bins equi-frequency bins, then plug-in estimator."""
     n = x.shape[0]
     x_binned = _quantile_bin_njit(x, n_bins)
     y_binned = _quantile_bin_njit(y, n_bins)
@@ -207,9 +165,7 @@ def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray,
 @njit(cache=True, fastmath=True, parallel=True)
 def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray,
                                     n_bins: int = 20) -> np.ndarray:
-    """Plug-in MI of each column of X_cols (continuous) with
-    discrete y. Parallelized over columns -- for the
-    optimise_hermite_pair use case k=3 (one per binary func), so the
+    """Plug-in MI of each column of X_cols (continuous) with discrete y. Parallel over columns; for k~3 (one per binary func)
     parallelism is shallow but still saves ~2x over sequential."""
     k = X_cols.shape[1]
     out = np.zeros(k, dtype=np.float64)
@@ -221,8 +177,7 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray,
 @njit(cache=True, fastmath=True, parallel=True)
 def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray,
                                        n_bins: int = 20) -> np.ndarray:
-    """Plug-in MI of each column of X_cols (continuous) with
-    continuous y."""
+    """Plug-in MI of each column of X_cols (continuous) with continuous y."""
     k = X_cols.shape[1]
     out = np.zeros(k, dtype=np.float64)
     for j in prange(k):
@@ -230,19 +185,15 @@ def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray,
     return out
 
 
-# ---------------------------------------------------------------------------
-# njit polynomial evaluators. numpy's polyval-family is C-optimized but
-# carries Python dispatch overhead per call (~30-40us); for n~2000 with
-# degree<=4 the dispatch dominates. Empirical: njit hermeval ~12us vs
-# numpy 46us (3.7x); njit legval ~10us vs numpy 64us (6.3x). Gap shrinks
-# at n>=20k where numpy's vectorization wins.
+# njit polynomial evaluators. numpy's polyval-family is C-optimized but carries Python dispatch overhead
+# (~30-40us); for n~2000 with degree<=4 dispatch dominates. Empirical: njit hermeval ~12us vs numpy 46us (3.7x);
+# njit legval ~10us vs numpy 64us (6.3x). Gap shrinks at n>=20k where numpy's vectorization wins.
 #
 # Recurrences (probabilist's variants where applicable):
 # * Hermite_e (He_n): He_0=1, He_1=x, He_n = x*He_{n-1} - (n-1)*He_{n-2}
 # * Legendre  (P_n) : P_0=1,  P_1=x,  P_n = ((2n-1)*x*P_{n-1} - (n-1)*P_{n-2}) / n
 # * Chebyshev (T_n) : T_0=1,  T_1=x,  T_n = 2*x*T_{n-1} - T_{n-2}
 # * Laguerre  (L_n) : L_0=1,  L_1=1-x, L_n = ((2n-1-x)*L_{n-1} - (n-1)*L_{n-2}) / n
-# ---------------------------------------------------------------------------
 
 
 @njit(cache=True, fastmath=True)
@@ -357,13 +308,10 @@ def _lagval_njit(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Parallel-prange variants of the polynomial evaluators. Per-element
-# Horner recurrence runs in registers (no intermediate p_prev / p_curr
-# arrays), so prange over array elements scales linearly with cores at
-# the cost of recomputing the recurrence per element. Wins for n >= 50k
-# where memory bandwidth + thread-spawn overhead is amortised.
-# ---------------------------------------------------------------------------
+# Parallel-prange variants of the polynomial evaluators. Per-element Horner recurrence runs in registers
+# (no intermediate p_prev / p_curr arrays), so prange over array elements scales linearly with cores at the
+# cost of recomputing the recurrence per element. Wins for n >= 50k where memory bandwidth + thread-spawn
+# overhead is amortised.
 
 
 @njit(cache=True, fastmath=True, parallel=True)
@@ -476,11 +424,8 @@ def _lagval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Optional CUDA RawKernel backend. One thread per output element with
-# the recurrence kept entirely in registers (no per-element intermediate
-# arrays). Wins at n >= 500k once host->device transfer is amortised.
-# ---------------------------------------------------------------------------
+# Optional CUDA RawKernel backend. One thread per output element with the recurrence kept in registers.
+# Wins at n >= 500k once host->device transfer is amortised.
 
 _CUDA_AVAILABLE = False
 _CUDA_KERNELS: dict = {}
@@ -591,9 +536,7 @@ void lagval_kernel(const double* __restrict__ x,
 
 
 def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
-    """CUDA RawKernel polynomial eval. Includes host->device transfer
-    of x and c, kernel launch, device->host of output. Worth it only
-    at n >= 500k (per bench_poly_eval_backends)."""
+    """CUDA RawKernel polynomial eval. Includes H2D + launch + D2H. Worth it only at n >= 500k (per bench_poly_eval_backends)."""
     import cupy as cp
     _ensure_cuda_kernels()
     x_gpu = cp.asarray(x, dtype=cp.float64)
@@ -609,20 +552,13 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return cp.asnumpy(out_gpu)
 
 
-# ---------------------------------------------------------------------------
-# Size + hardware-aware dispatcher. Crossover points measured on this
-# repo's reference hardware (Intel CPU, GTX 1050 Ti) via
-# bench_poly_eval_backends.py (cpu numpy in, cpu numpy out;
-# includes H2D for CUDA backends):
-#
+# Size + hardware-aware dispatcher. Crossover points measured on this repo's reference hardware
+# (Intel CPU, GTX 1050 Ti) via bench_poly_eval_backends.py (cpu numpy in/out; includes H2D for CUDA):
 #   n < 50k:      njit (single-thread Horner)
 #   50k <= n:     njit_par (prange) -- 1.5-2x over single-thread
 #   500k <= n:    cuda_kernel if cupy available -- ~5x over njit_par
-#
-# These thresholds are conservative -- on faster GPUs the CUDA
-# crossover may be lower. Override via MLFRAME_POLYEVAL_BACKEND
-# env var for testing.
-# ---------------------------------------------------------------------------
+# Thresholds are conservative; on faster GPUs the CUDA crossover may be lower. Override via
+# MLFRAME_POLYEVAL_BACKEND env var.
 
 _NJIT_FUNCS = {
     "hermite": _hermeval_njit, "legendre": _legval_njit,
@@ -640,11 +576,8 @@ _CUDA_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_CUDA_THRESHOLD", "500000
 
 
 def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
-    """Size + hardware-aware polynomial evaluator. Routes to njit /
-    njit_par / cuda backend based on len(x) and CUDA availability.
-
-    Override the chosen backend via MLFRAME_POLYEVAL_BACKEND env
-    var (njit | njit_par | cuda)."""
+    """Size + hardware-aware polynomial evaluator. Routes to njit / njit_par / cuda backend based on len(x)
+    and CUDA availability. Override the chosen backend via MLFRAME_POLYEVAL_BACKEND env var (njit | njit_par | cuda)."""
     forced = _os.environ.get("MLFRAME_POLYEVAL_BACKEND", "")
     n = x.shape[0]
     if forced == "njit" or n < _PAR_THRESHOLD:
@@ -653,26 +586,17 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
             (forced == "" and n >= _CUDA_THRESHOLD and _CUDA_AVAILABLE)):
         if _CUDA_AVAILABLE:
             return _polyeval_cuda(basis, x, c)
-        # User asked for cuda but it isn't available; warn once and fallback.
-        # No warning spam: just fallback.
+        # User asked for cuda but it isn't available -- silent fallback.
     if forced == "njit_par" or n >= _PAR_THRESHOLD:
         return _NJIT_PAR_FUNCS[basis](x, c)
     return _NJIT_FUNCS[basis](x, c)
 
 
-# ---------------------------------------------------------------------------
-# Polynomial basis registry. Each entry maps a name to (eval_func,
-# preprocess_func, expected_input_distribution_doc).
-#
-# - hermite (probabilist's He_n): orthogonal under N(0, 1) -- best for
-#   z-scored Gaussian-ish data. Preprocess = z-score.
-# - legendre (P_n): orthogonal on [-1, 1] uniform weight -- best for
-#   bounded uniform data. Preprocess = scale to [-1, 1] via min-max.
-# - chebyshev (T_n): orthogonal on [-1, 1] under 1/sqrt(1-x^2) --
-#   minimax error bound, equiripple. Preprocess = scale to [-1, 1].
-# - laguerre (L_n): orthogonal on [0, +inf) under e^{-x} -- best for
-#   positive exponentially-distributed data. Preprocess = shift to >= 0.
-# ---------------------------------------------------------------------------
+# Polynomial basis registry. Each entry maps a name to (eval_func, preprocess_func, expected_input_distribution_doc).
+# - hermite (probabilist's He_n): orthogonal under N(0, 1); preprocess = z-score.
+# - legendre (P_n): orthogonal on [-1, 1] uniform weight; preprocess = min-max -> [-1, 1].
+# - chebyshev (T_n): orthogonal on [-1, 1] under 1/sqrt(1-x^2), minimax / equiripple; preprocess = min-max -> [-1, 1].
+# - laguerre (L_n): orthogonal on [0, +inf) under e^{-x}, best for positive exponentially-distributed data; preprocess = shift to >= 0.
 
 
 def _preprocess_zscore(x):
@@ -707,23 +631,17 @@ def _apply_shift(x, params):
 
 
 def _make_dispatch(name):
-    """Bind the registry entry's basis name into a closure for
-    polyeval_dispatch. The returned callable matches the
-    (x, c) -> np.ndarray signature used by the eval / eval_njit
-    fields, so existing call sites need no change."""
+    """Bind the basis name into a closure matching the (x, c) -> ndarray signature of eval / eval_njit."""
     def _d(x, c):
         return polyeval_dispatch(name, x, c)
     _d.__name__ = f"_polyeval_{name}_dispatched"
     return _d
 
 
-# Registry of polynomial + non-polynomial basis families. Each entry
-# is a dict with keys: eval (numpy), eval_njit (numba), eval_dispatch
-# (size-aware router), fit/apply (preprocessing), coef_size_func,
-# canonical_seeds_func, and optionally eval_njit_factory for data-
-# dependent bases (RBF, Sigmoid). Merged from bases.EXTRA_BASES
-# at import time. Module-private: externals use optimise_hermite_pair
-# or polyeval_dispatch, not the raw registry.
+# Registry of polynomial + non-polynomial basis families. Each entry: eval (numpy), eval_njit (numba),
+# eval_dispatch (size-aware router), fit/apply (preprocessing), coef_size_func, canonical_seeds_func, and
+# optionally eval_njit_factory for data-dependent bases (RBF, Sigmoid). Merged from bases.EXTRA_BASES at
+# import time. Module-private: external callers use optimise_hermite_pair / polyeval_dispatch.
 _POLY_BASES = {
     "hermite": dict(eval=hermeval, eval_njit=_hermeval_njit,
                      eval_dispatch=None,  # populated below after dispatcher exists
@@ -745,24 +663,19 @@ _POLY_BASES = {
 for _bn in _POLY_BASES:
     _POLY_BASES[_bn]["eval_dispatch"] = _make_dispatch(_bn)
     _POLY_BASES[_bn]["coef_size_func"] = lambda d: d + 1
-    # Polynomial canonical seeds use _canonical_seeds(basis, degree)
-    # defined later -- bind via late closure.
+    # Polynomial canonical seeds use _canonical_seeds(basis, degree) defined later; bind via late closure.
     _POLY_BASES[_bn]["canonical_seeds_func"] = None
     _POLY_BASES[_bn]["kind"] = "polynomial"
 
 
-# Merge non-polynomial basis families (Fourier, RBF, Sigmoid, Pade)
-# from bases.py. Each entry must supply at minimum fit,
-# apply, coef_size_func, canonical_seeds_func and either
-# eval_njit (data-independent) OR eval_njit_factory(params)
-# (data-dependent like RBF centres).
+# Merge non-polynomial basis families (Fourier, RBF, Sigmoid, Pade) from bases.py. Each entry must supply
+# at minimum fit/apply/coef_size_func/canonical_seeds_func and either eval_njit (data-independent) or
+# eval_njit_factory(params) (data-dependent like RBF centres).
 try:
     from .bases import EXTRA_BASES as _EXTRA_BASES
     for _bn, _entry in _EXTRA_BASES.items():
         _POLY_BASES[_bn] = dict(_entry)  # copy
-        # Provide eval_dispatch placeholder -- non-polynomial bases
-        # don't currently use the size-aware CUDA dispatch (they are
-        # rarely n>50k anyway). Just route through eval_njit.
+        # Non-polynomial bases skip the size-aware CUDA dispatch (rarely n>50k); route through eval_njit.
         if "eval_njit" in _entry:
             _ev = _entry["eval_njit"]
             _POLY_BASES[_bn]["eval_dispatch"] = _ev
@@ -780,13 +693,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class HermiteResult:
-    """Result of an Optuna optimisation pass for a single feature pair.
-
-    Despite the legacy name, HermiteResult carries the result for
-    any supported polynomial basis (basis field). The default
-    basis is "chebyshev" (empirically robust on real tabular
-    data); pass basis="hermite" for synthetic-Gaussian inputs or
-    basis="laguerre" for skewed-positive distributions.
+    """Result of an optimisation pass for a single feature pair. Despite the legacy name, carries the result for any supported polynomial basis (``basis`` field).
+    Default basis is ``"chebyshev"``; pass ``"hermite"`` for synthetic-Gaussian inputs or ``"laguerre"`` for skewed-positive distributions.
     """
     coef_a: np.ndarray
     coef_b: np.ndarray
@@ -798,24 +706,16 @@ class HermiteResult:
     degree_a: int
     degree_b: int
     basis: str = "chebyshev"
-    # Preprocessing parameters for inputs (z-score mean/std, or min-max
-    # lo/hi, or shift lo, depending on basis).
+    # Preprocessing parameters (z-score mean/std, or min-max lo/hi, or shift lo, depending on basis).
     preprocess_a: dict = field(default_factory=dict)
     preprocess_b: dict = field(default_factory=dict)
 
     def transform(self, x_a: np.ndarray, x_b: np.ndarray) -> np.ndarray:
-        """Apply the learned polynomial-pair transformation: preprocess
-        inputs to the basis's natural domain, evaluate the polynomial,
-        combine via the chosen binary func. Uses the njit polynomial
-        evaluators -- 3-6x faster than numpy at n<5000."""
+        """Apply the learned polynomial-pair transformation: preprocess to basis domain, eval polynomial, combine via bin_func. njit eval is 3-6x faster than numpy at n<5000."""
         basis_info = _POLY_BASES[self.basis]
-        z_a = np.ascontiguousarray(basis_info["apply"](x_a, self.preprocess_a),
-                                     dtype=np.float64)
-        z_b = np.ascontiguousarray(basis_info["apply"](x_b, self.preprocess_b),
-                                     dtype=np.float64)
-        # eval_dispatch picks njit / njit_par / cuda based on len(z_a)
-        # and CUDA availability. For typical FE pair sizes (n<=10k)
-        # this resolves to njit single-thread.
+        z_a = np.ascontiguousarray(basis_info["apply"](x_a, self.preprocess_a), dtype=np.float64)
+        z_b = np.ascontiguousarray(basis_info["apply"](x_b, self.preprocess_b), dtype=np.float64)
+        # eval_dispatch picks njit / njit_par / cuda based on len(z_a) and CUDA availability.
         eval_dispatch = basis_info["eval_dispatch"]
         coef_a = np.ascontiguousarray(self.coef_a, dtype=np.float64)
         coef_b = np.ascontiguousarray(self.coef_b, dtype=np.float64)
@@ -825,24 +725,18 @@ class HermiteResult:
 
 
 def _safe_div(a, b):
-    """Element-wise division with sign-stable epsilon. Avoids the
-    classic x_a / 0 blowup that prevents polynomials from ever
-    capturing ratio targets."""
+    """Element-wise division with sign-stable epsilon; avoids the x_a / 0 blowup that prevents polynomials from capturing ratio targets."""
     eps = 1e-9
     return a / (b + np.sign(b) * eps + eps)
 
 
 def _atan2(a, b):
-    """arctan2(a, b) for angular interactions. Captures targets
-    where the relevant signal is the ANGLE of the (a, b) vector,
-    not the magnitudes."""
+    """arctan2(a, b) for angular interactions; captures targets where signal is the ANGLE of the (a, b) vector, not the magnitudes."""
     return np.arctan2(a, b)
 
 
 def _log_abs_signed(a, b):
-    """sign(a*b) * log(|a|+eps + |b|+eps): sign-aware log of
-    multiplicative magnitude. Handles heavy-tail multiplicative
-    targets where polynomials lose precision."""
+    """sign(a*b) * log(|a|+eps + |b|+eps): sign-aware log of multiplicative magnitude; handles heavy-tail multiplicative targets where polynomials lose precision."""
     eps = 1e-9
     return np.sign(a * b + eps) * (np.log(np.abs(a) + eps) + np.log(np.abs(b) + eps))
 
@@ -851,51 +745,33 @@ _DEFAULT_BIN_FUNCS = {
     "add": np.add,
     "sub": np.subtract,
     "mul": np.multiply,
-    # Phase B5: bin-function discovery. The optimizer picks the best
-    # binary func per trial via batch MI; adding ratios + angular +
-    # log-multiplicative makes the FE module able to discover targets
-    # that pure {add, sub, mul} cannot represent.
+    # The optimizer picks the best binary func per trial via batch MI; ratios + angular + log-multiplicative
+    # enable discovery of targets that pure {add, sub, mul} cannot represent.
     "div": _safe_div,
     "atan2": _atan2,
     "logabs": _log_abs_signed,
 }
 
 
-# ---------------------------------------------------------------------------
-# Canonical-polynomial warm-start coefficients. The Optuna/CMA-ES search
-# starts from RANDOM coefficient vectors by default, but for many real
-# targets the optimum coincides with a CANONICAL low-degree polynomial:
-# * XOR (y = sign(x_a * x_b)) -> He_1(z_a) * He_1(z_b) = z_a * z_b
-#   so c_a = c_b = [0, 1].
-# * Saddle (y = sign(x_a^2 - x_b^2)) -> He_2(z_a) - He_2(z_b)
-#   where He_2(z) = z^2 - 1, so c_a = c_b = [-1, 0, 1].
+# Canonical-polynomial warm-start coefficients. Many real targets coincide with a canonical low-degree polynomial:
+# * XOR (y = sign(x_a * x_b)) -> He_1(z_a) * He_1(z_b) = z_a * z_b, so c_a = c_b = [0, 1].
+# * Saddle (y = sign(x_a^2 - x_b^2)) -> He_2(z_a) - He_2(z_b), where He_2(z) = z^2 - 1, so c_a = c_b = [-1, 0, 1].
 # * Circle (y = sign(x_a^2 + x_b^2 - r^2)) -> He_2(z_a) + He_2(z_b).
-# Seeding the population with these "obvious" coefficient sets
-# accelerates convergence by 1-2 generations on Gaussian-ish inputs.
-#
-# We provide canonical identities for each basis up to degree 4. The
-# returned list contains coefficient vectors of shape (degree + 1,).
-# ---------------------------------------------------------------------------
+# Seeding with these accelerates convergence by 1-2 generations on Gaussian-ish inputs. Canonical identities
+# provided for each basis up to degree 4; returned list contains coefficient vectors of shape (degree + 1,).
 
 
 def basis_route_by_moments(x: np.ndarray) -> str:
-    """Pick the polynomial basis empirically best-matching the
-    distribution of x based on a moment fingerprint.
+    """Pick the polynomial basis best-matching the distribution of x based on a moment fingerprint.
 
-    Heuristics (Phase B1, ranking validated on the polynomial-bases
-    bench results):
-    * |skew| > 1.5 and one-sided support -> Laguerre (matches its
-      e^{-x} weight on [0, +inf)).
-    * Bounded support (range / std < 4) -> Chebyshev (arc-sine
-      weight + min-max preprocessing is robust on bounded data).
-    * Near-Gaussian (|skew| < 0.5, |excess kurt| < 1) -> Hermite
-      (its weight is N(0,1)).
-    * Otherwise -> Chebyshev (the empirical "never bad" default).
+    Heuristics:
+    * |skew| > 1.5 and one-sided support -> Laguerre (matches e^{-x} weight on [0, +inf)).
+    * Bounded support (range / std < 4) -> Chebyshev (arc-sine weight + min-max preprocessing).
+    * Near-Gaussian (|skew| < 0.5, |excess kurt| < 1) -> Hermite (weight N(0,1)).
+    * Otherwise -> Chebyshev (empirical "never bad" default).
 
-    Returns one of {hermite, legendre, chebyshev, laguerre}. Use as
-    basis = basis_route_by_moments(x_a) if you don't know which
-    to pick; pair-FE callers that want per-feature routing should
-    pick separately for x_a and x_b."""
+    Returns one of {hermite, legendre, chebyshev, laguerre}.
+    """
     x = np.asarray(x, dtype=np.float64)
     if x.size < 30:
         return "chebyshev"
@@ -921,10 +797,7 @@ def basis_route_by_moments(x: np.ndarray) -> str:
 
 
 def _canonical_seeds(basis: str, degree: int) -> list:
-    """Return a list of canonical coefficient vectors for the given
-    basis at the given degree -- low-MI-bias seeds for warm-start.
-    Each vector has shape (degree + 1,) and represents an explicit
-    low-degree polynomial (P_0, P_1, ..., P_degree)."""
+    """Return canonical coefficient vectors (shape (degree+1,)) for warm-start, representing explicit low-degree polynomials."""
     seeds = []
     # Identity P_1: e_1 = [0, 1, 0, ..., 0]
     e1 = np.zeros(degree + 1, dtype=np.float64)
@@ -953,23 +826,14 @@ def detect_pair_symmetry(x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *,
                           discrete_target: bool = True,
                           mi_estimator: str = "plugin",
                           plugin_n_bins: int = 20) -> float:
-    """Symmetry score in [0, 1]. Tests whether x_a and x_b are
-    interchangeable predictors of y: a target of the form
-    f(a, b) = f(b, a) (e.g. y = sign(a*b) or
-    y = sign(a^2 + b^2)) has equal marginal information from
-    a and b; an asymmetric target like y = sign(a - 2b) does not.
+    """Symmetry score in [0, 1] for (x_a, x_b) as predictors of y. Targets of form f(a,b)=f(b,a) score near 1; asymmetric like y=sign(a-2b) score lower.
 
-    Compares two indicators:
-    1. Marginal MI ratio: min(MI(a, y), MI(b, y)) /
-       max(MI(a, y), MI(b, y)). Symmetric targets balance both
-       features; asymmetric targets concentrate signal on one.
-    2. Sub/Add MI ratio: MI(|a-b|, y) / MI(a+b, y). Symmetric
-       (additive) targets favour a+b; antisymmetric ones favour
-       |a-b|. We use the geometric mean of these signals.
+    Combines (geometric mean of) two indicators:
+    1. Marginal MI ratio min(MI(a,y), MI(b,y)) / max(...).
+    2. Sub/Add MI ratio MI(|a-b|, y) / MI(a+b, y).
 
-    Score >= 0.95 is "highly symmetric" -- caller can constrain
-    c_a = c_b to halve search dim. Score <= 0.7 is clearly
-    asymmetric -- per-feature basis routing more important."""
+    Score >= 0.95: caller can constrain c_a = c_b to halve search dim. Score <= 0.7: clearly asymmetric -- per-feature basis routing matters more.
+    """
     from .fe_baselines import _mi_1d
     x_a = np.asarray(x_a, dtype=np.float64)
     x_b = np.asarray(x_b, dtype=np.float64)
@@ -995,12 +859,9 @@ def detect_pair_symmetry(x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *,
 
 def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray,
                         target_norm: float = 1.0) -> tuple:
-    """Project (c_a, c_b) jointly to the L2 unit sphere (or other
-    target norm). Used in direction_only search mode where the
-    optimizer searches the unit sphere instead of the full 2(d+1)-dim
-    box. Removes a degenerate scaling ridge that confuses TPE/CMA on
-    XOR-like targets (where MI is invariant to overall scaling for
-    bf=mul and equivariant for bf=add/sub)."""
+    """Project (c_a, c_b) jointly to the L2 sphere (or other target_norm). Used in direction_only search to remove
+    the scaling ridge that confuses TPE/CMA on XOR-like targets where MI is invariant to overall scaling
+    (bf=mul) or equivariant (bf=add/sub)."""
     norm = float(np.sqrt(np.sum(coef_a ** 2) + np.sum(coef_b ** 2)))
     if norm < 1e-12:
         return coef_a, coef_b
@@ -1070,20 +931,9 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
 
 def _select_diverse_topm(history: list, top_m: int,
                             min_l2_distance: float = 0.3) -> list:
-    """Phase B4: greedy diverse-top-M selection from a list of
-    (score, raw_mi, bf_idx, coef_a, coef_b) tuples. Sort by score
-    desc, greedily keep entries whose joint coefficient vector is
-    >= min_l2_distance from all previously kept entries (after
-    L2 normalization, so the comparison is direction-only).
+    """Greedy diverse-top-M selection from (score, raw_mi, bf_idx, coef_a, coef_b) tuples; keeps entries whose joint (L2-normalized) coef vector is >= min_l2_distance from prior kept.
 
-    Privacy boundary: called only from optimise_pair_multimode.
-    Not part of the public pair-FE API -- use the public
-    optimise_pair_multimode(top_m=...) instead.
-
-    Coefficient vectors of different lengths (e.g. degree 2 has
-    coef-size 3, degree 4 has 5) are zero-padded to the max length
-    before the comparison so modes from different degrees can be
-    compared on a common axis.
+    Module-private; coefficient vectors of differing lengths are zero-padded to a common axis for cross-degree comparison.
     """
     if not history:
         return []
@@ -1127,17 +977,9 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                      direction_only, warm_start_seeds, eval_kwargs,
                      popsize=None, eval_pair_fn=None,
                      track_history=False):
-    """CMA-ES inner loop. Returns (best_coef_a, best_coef_b,
-    best_bf_idx, best_raw_mi, n_evals).
+    """CMA-ES inner loop. Returns (best_coef_a, best_coef_b, best_bf_idx, best_raw_mi, n_evals). When track_history=True, also returns the full evaluation list.
 
-    When track_history=True, also returns a list of all
-    (score, raw_mi, bf_idx, coef_a, coef_b) evaluations for
-    multi-mode top-M extraction in Phase B4.
-
-    cma minimizes; we negate the MI score. Population size defaults to
-    4 + floor(3 * ln(d)) (~12 for d=8). For our small
-    n_trials budgets we prefer a slightly smaller pop to allow more
-    generations: max(8, n_trials // 8).
+    CMA minimizes; we negate the MI score. Default popsize=max(8, min(20, n_trials // 8)) -- smaller than CMA's default to allow more generations on tight budgets.
     """
     import cma
     dim = ca_size + cb_size
@@ -1145,11 +987,9 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
         popsize = max(8, min(20, n_trials // 8))
     sigma0 = (coef_range[1] - coef_range[0]) / 4.0  # ~1.0 for [-2, 2]
 
-    # Pre-evaluate canonical warm-start seeds. These are CHEAP (single
-    # MI eval each) and frequently coincide with the global optimum
-    # (e.g. He_1(x_a) * He_1(x_b) = x_a * x_b is exactly XOR). Track the
-    # best seed and use it as CMA's x0; this guarantees CMA never does
-    # worse than the warm-start.
+    # Pre-evaluate canonical warm-start seeds: cheap (single MI eval each), frequently coincide with the global
+    # optimum (e.g. He_1(x_a) * He_1(x_b) = x_a * x_b is exactly XOR). Best seed becomes CMA's x0 so CMA never
+    # does worse than the warm-start.
     best_score = -np.inf
     best_raw = 0.0
     best_idx = -1
@@ -1256,17 +1096,11 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
 def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool,
                         n_neighbors: int = 3, mi_estimator: str = "plugin",
                         plugin_n_bins: int = 20) -> float:
-    """MI of the (x_a, x_b) joint vs target -- identity baseline. The
-    "joint" is approximated by np.maximum(MI(x_a, y), MI(x_b, y)) for
-    the plug-in estimator (which only handles 1-D x), and by sklearn's
-    multi-D KSG for mi_estimator='ksg' (the legacy path)."""
+    """Identity baseline: MI of (x_a, x_b) vs target. Plug-in is 1-D-x by design so we use max(MI(x_a, y), MI(x_b, y)) (lower bound on joint MI); KSG path uses sklearn's multi-D estimator."""
     if mi_estimator == "plugin":
-        # Plug-in is 1-D-x by design; use max(MI(x_a, y), MI(x_b, y)) as
-        # a lower bound on the true joint MI. Slightly conservative but
-        # fine for the gating threshold (we under-estimate baseline ->
-        # easier for engineered features to clear it). For the FINAL
-        # uplift number the bias is consistent (same estimator on both
-        # sides of the ratio).
+        # Plug-in is 1-D-x by design; use max(MI(x_a, y), MI(x_b, y)) as a lower bound on the true joint MI.
+        # Conservative gate (under-estimates baseline so engineered features clear it more easily); for the
+        # final uplift number the bias is consistent (same estimator on both sides of the ratio).
         x_a_arr = np.asarray(x_a, dtype=np.float64)
         x_b_arr = np.asarray(x_b, dtype=np.float64)
         if discrete_target:
@@ -1310,7 +1144,7 @@ def optimise_hermite_pair(
     n_trials: int = 200,
     coef_range: tuple = (-2.0, 2.0),
     l2_penalty: float = 0.05,
-    n_neighbors: Optional[int] = None,
+    n_neighbors: int | None = None,
     seed: int = 42,
     sweep_degrees: bool = True,
     baseline_uplift_threshold: float = 1.01,
@@ -1323,51 +1157,25 @@ def optimise_hermite_pair(
     direction_only: bool = False,
     multi_fidelity: bool = True,
     use_trivial_baseline: bool = True,
-) -> Optional[HermiteResult]:
-    """Find Hermite-polynomial coefficients c_a, c_b that
-    maximise MI(bin_func(He(x_a, c_a), He(x_b, c_b)), y) over the
-    requested Optuna budget. Standardises inputs, regularises
-    coefficients, and only returns a result when the engineered MI
+) -> HermiteResult | None:
+    """Find polynomial coefficients c_a, c_b that maximise MI(bin_func(P(x_a, c_a), P(x_b, c_b)), y) over the requested
+    Optuna/CMA budget. Standardises inputs, regularises coefficients, and only returns a result when the engineered MI
     strictly beats the identity baseline by baseline_uplift_threshold.
 
     Knob tuning notes
     -----------------
-    * basis="chebyshev" is the default after empirical evaluation
-      across 12 regimes (synthetic + UCI California Housing + UCI
-      Diabetes + bounded / heavy-tailed): Chebyshev wins on real
-      tabular data and threshold-style targets, never finishes last,
-      and has the highest minimum MI across the test suite. Pass
-      basis="hermite" for synthetic Gaussian-input data, or
-      basis="laguerre" for skewed-positive distributions. See
-      _benchmarks/bench_polynomial_bases.py for the supporting
-      table.
-    * l2_penalty=0.05 (default) is good for XOR-like targets where
-      the optimum has small |c|. For radial / saddle targets where
-      |c| ~ 2-3 is natural, drop to 0.01.
-    * n_neighbors (KSG): None (default) auto-picks: 3 for
-      n >= 5000, 5 for n in [1000, 5000), 7 for n < 1000.
-      Smaller datasets need more neighbours to stabilise the MI estimate.
-    * max_degree=4 covers most smooth targets. For high-frequency
-      (tanh(x)*sin(x*pi)) raise to 6-8 -- but each extra degree
-      doubles the search space, so increase n_trials proportionally.
-    * early_stop_no_improve: stop a study early if no improvement in
-      the last N trials. Cuts wall-time for already-converged degrees.
-    * mi_estimator="plugin" (default) uses an njit-compiled plug-in
-      MI estimator on quantile-binned values -- ~50-100x faster than
-      sklearn's KSG, and rank-equivalent for Optuna optimization
-      purposes (the absolute MI value differs by a constant entropy
-      bias, but the optimum coefficient set is the same). Pass
-      mi_estimator="ksg" to use sklearn's KSG (slower; matches
-      legacy bit-exact behaviour). The identity baseline + final
-      reported MI HermiteResult.baseline_mi / .mi use the
-      chosen estimator consistently.
-    * plugin_n_bins=20 (default) is the equi-frequency bin count
-      for the plug-in estimator. ~sqrt(n) is the rule-of-thumb;
-      larger bins reduce bias but raise variance.
+    * basis="chebyshev" (default) wins empirically across 12 regimes (synthetic + UCI California Housing + UCI Diabetes +
+      bounded / heavy-tailed) -- never finishes last, highest minimum MI. Pass basis="hermite" for synthetic Gaussian inputs
+      or basis="laguerre" for skewed-positive. See _benchmarks/bench_polynomial_bases.py.
+    * l2_penalty=0.05 is good for XOR-like targets where optimum |c| is small. For radial/saddle (|c| ~ 2-3) drop to 0.01.
+    * n_neighbors (KSG): None auto-picks 3 for n>=5000, 5 for n in [1000,5000), 7 for n<1000.
+    * max_degree=4 covers most smooth targets. For high-frequency targets raise to 6-8 (n_trials proportionally).
+    * early_stop_no_improve: stop a study early if no improvement in the last N trials.
+    * mi_estimator="plugin" (default) uses an njit plug-in estimator on quantile-binned values -- ~50-100x faster than
+      sklearn's KSG, rank-equivalent for optimization (constant entropy bias). Pass "ksg" for sklearn's KSG.
+    * plugin_n_bins=20 (default): ~sqrt(n) rule-of-thumb; larger bins reduce bias, raise variance.
 
-    Returns
-    -------
-    HermiteResult or None if the search failed to beat the baseline.
+    Returns HermiteResult or None if the search failed to beat the baseline.
     """
     if mi_estimator not in ("plugin", "ksg"):
         raise ValueError(
@@ -1389,10 +1197,8 @@ def optimise_hermite_pair(
     try:
         import optuna
         from optuna.samplers import TPESampler
-        # Optuna's TPESampler emits an ExperimentalWarning every study
-        # init when multivariate=True. The flag has been "experimental"
-        # since 2020 and is the recommended setting for correlated params;
-        # suppress the noise.
+        # TPESampler(multivariate=True) emits ExperimentalWarning per study init; flag has been "experimental"
+        # since 2020 and is the recommended setting for correlated params -- suppress the noise.
         import warnings as _w
         try:
             from optuna.exceptions import ExperimentalWarning
@@ -1418,16 +1224,12 @@ def optimise_hermite_pair(
     z_b, preprocess_b = basis_info["fit"](x_b)
     z_a = np.ascontiguousarray(z_a, dtype=np.float64)
     z_b = np.ascontiguousarray(z_b, dtype=np.float64)
-    # Hoist size-aware dispatch out of the hot trial loop: pick the
-    # right backend ONCE per optimise_hermite_pair call (we know n
-    # here; it doesn't change between trials). Saves ~4us/call closure
-    # overhead which compounds to ~5ms over 1000+ trial evaluations.
+    # Hoist size-aware dispatch out of the hot trial loop: pick the backend ONCE per call (n is fixed across trials).
+    # Saves ~4us/call closure overhead, ~5ms over 1000+ trials.
     n_eval = z_a.shape[0]
     factory_top = basis_info.get("eval_njit_factory")
     if factory_top is not None:
-        # Non-polynomial basis with data-dependent eval (RBF/Sigmoid).
-        # Factory is invoked below per-feature once preprocess_a/b are
-        # known; here we just stub eval_func.
+        # Non-polynomial basis with data-dependent eval (RBF/Sigmoid). Factory is invoked below per-feature.
         eval_func = None
     elif basis in _NJIT_FUNCS:
         # Polynomial basis -- size-aware ladder applies.
@@ -1438,8 +1240,7 @@ def optimise_hermite_pair(
         else:
             eval_func = _NJIT_PAR_FUNCS[basis]
     else:
-        # Other non-polynomial basis with simple eval_njit (Fourier,
-        # Pade) -- use directly.
+        # Other non-polynomial basis with simple eval_njit (Fourier, Pade).
         eval_func = basis_info["eval_njit"]
 
     baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target,
@@ -1448,12 +1249,9 @@ def optimise_hermite_pair(
                                   plugin_n_bins=plugin_n_bins)
     logger.debug(f"baseline MI(pair, y) = {baseline:.4f}")
 
-    # Honest non-polynomial baseline: try trivial pair-feature
-    # transforms (mul, ratio, sum_sq, atan2, etc.) and use the BEST
-    # trivial MI as the baseline. This is a much stronger gate than
-    # the identity max(MI(x_a, y), MI(x_b, y)) -- often a simple
-    # mul(x_a, x_b) already captures most of the signal a
-    # polynomial would (verified on XOR / circle / saddle / UCI).
+    # Stronger gate than the identity max(MI(x_a, y), MI(x_b, y)): try trivial pair-feature transforms
+    # (mul, ratio, sum_sq, atan2, ...) and use BEST trivial MI as baseline. Often a simple mul(x_a, x_b)
+    # captures most of the signal a polynomial would (verified on XOR / circle / saddle / UCI).
     trivial_baseline_name = None
     if use_trivial_baseline:
         try:
@@ -1484,18 +1282,15 @@ def optimise_hermite_pair(
     else:
         y_njit = None  # KSG path does not need it
 
-    best: Optional[HermiteResult] = None
+    best: HermiteResult | None = None
 
     degree_grid = list(range(min_degree, max_degree + 1)) if sweep_degrees else [max_degree]
 
     bf_names_global = list(bin_funcs.keys())
     bf_callables_global = [bin_funcs[n] for n in bf_names_global]
 
-    # Multi-fidelity subsample ladder. For very large n, fit the
-    # coefficients on a small random subsample early (saves O(n) MI
-    # estimator work) then refine on the full data only at the end.
-    # The polynomial coefficient set is just 2*(d+1)<=8 numbers, so
-    # 1500 samples is enough to estimate them stably.
+    # Multi-fidelity subsample ladder: for large n, fit coefficients on a small subsample (saves O(n) MI work)
+    # and refine on full data at the end. With 2*(d+1) <= 8 coefficients, 1500 samples is enough to estimate stably.
     n_full = z_a.shape[0]
     if multi_fidelity and n_full >= 4000:
         rng_mf = np.random.default_rng(seed if seed > 0 else 0)
@@ -1510,26 +1305,15 @@ def optimise_hermite_pair(
         y_search = y_njit
         y_search_any = y
 
-    # Coef-size lookup: polynomial bases use degree + 1; non-poly
-    # bases (Fourier 2K, RBF up to 9, Pade 2p+1) override via
-    # coef_size_func.
+    # Coef-size lookup: polynomial bases use degree + 1; non-poly bases (Fourier 2K, RBF up to 9, Pade 2p+1) override.
     coef_size_func = basis_info.get("coef_size_func", lambda d: d + 1)
     canonical_seeds_func = basis_info.get("canonical_seeds_func")
 
-    # For factory-based bases (RBF, Sigmoid) the eval depends on
-    # train-fold-fitted centres / thresholds -- build the per-basis
-    # eval here once the preprocess params are known.
+    # Factory-based bases (RBF, Sigmoid) eval depends on train-fold-fitted centres / thresholds. Build per-basis
+    # eval once preprocess params are known. TODO: separate eval for x_a and x_b when factory-based.
     factory = basis_info.get("eval_njit_factory")
     if factory is not None:
         eval_func = factory(preprocess_a)
-        # NOTE: RBF/Sigmoid factory uses preprocess_a's centres for
-        # x_a; for x_b we need a separate factory call. Done below
-        # per evaluation via a wrapped eval. For simplicity at this
-        # pass we use preprocess_a for both -- on UNIVARIATE-
-        # symmetric inputs (z-scored) this is fine; for
-        # heterogeneous a/b inputs you'd need separate evals per
-        # feature, deferred.
-        # TODO: separate eval for x_a and x_b when factory-based.
         eval_func_b = factory(preprocess_b)
     else:
         eval_func_b = eval_func
@@ -1538,15 +1322,13 @@ def optimise_hermite_pair(
         ca_size = coef_size_func(degree)
         cb_size = coef_size_func(degree)
 
-        # Shared kwargs threaded through both Optuna and CMA paths.
-        # When eval_func differs per feature (factory-based bases like
-        # RBF), wrap the inner _eval_coef_pair to use both.
+        # Shared kwargs for both Optuna and CMA paths. When eval_func differs per feature (factory-based bases
+        # like RBF), wrap _eval_coef_pair to use both eval_func and eval_func_b.
         if factory is not None:
             def _eval_dual(coef_a, coef_b, **kw):
-                # Re-implement just enough of _eval_coef_pair to use
-                # eval_func and eval_func_b separately.
                 from numpy import column_stack, ascontiguousarray, all as npall, isfinite
-                z_a_loc = kw["z_a"]; z_b_loc = kw["z_b"]
+                z_a_loc = kw["z_a"]
+                z_b_loc = kw["z_b"]
                 bf_call = kw["bf_callables"]
                 if kw.get("direction_only"):
                     coef_a, coef_b = _l2_normalize_pair(coef_a, coef_b, 1.0)
@@ -1554,14 +1336,16 @@ def optimise_hermite_pair(
                 h_b = eval_func_b(z_b_loc, coef_b)
                 if not (npall(isfinite(h_a)) and npall(isfinite(h_b))):
                     return -np.inf, 0.0, -1
-                cols = []; valid_idx = []
+                cols = []
+                valid_idx = []
                 for k, bf in enumerate(bf_call):
                     try:
                         combined = bf(h_a, h_b)
                     except Exception:
                         continue
                     if npall(isfinite(combined)):
-                        cols.append(combined); valid_idx.append(k)
+                        cols.append(combined)
+                        valid_idx.append(k)
                 if not cols:
                     return -np.inf, 0.0, -1
                 X_batch = ascontiguousarray(column_stack(cols), dtype=np.float64)
@@ -1576,11 +1360,16 @@ def optimise_hermite_pair(
                     else:
                         mi_arr = mutual_info_regression(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
                 penalty = 0.0 if kw.get("direction_only") else kw["l2_penalty"] * (float(np.sum(coef_a**2)) + float(np.sum(coef_b**2)))
-                best_score = -np.inf; best_raw = 0.0; best_idx = -1
+                best_score = -np.inf
+                best_raw = 0.0
+                best_idx = -1
                 for j, k in enumerate(valid_idx):
-                    raw = float(mi_arr[j]); s = raw - penalty
+                    raw = float(mi_arr[j])
+                    s = raw - penalty
                     if s > best_score:
-                        best_score = s; best_raw = raw; best_idx = k
+                        best_score = s
+                        best_raw = raw
+                        best_idx = k
                 return best_score, best_raw, best_idx
             eval_pair_fn = _eval_dual
         else:
@@ -1596,24 +1385,20 @@ def optimise_hermite_pair(
             l2_penalty=l2_penalty,
         )
 
-        # Canonical warm-start: low-degree polynomial identities that
-        # match common targets (XOR, saddle, radial, ...). Replicate
-        # for both feature slots, then concatenate.
+        # Canonical warm-start: low-degree polynomial identities matching common targets (XOR, saddle, radial).
+        # Replicate across both feature slots, then concatenate.
         warm_seeds = []
         if warm_start:
             if canonical_seeds_func is not None:
-                # Non-polynomial basis (Fourier, RBF, Sigmoid, Pade)
-                # ships its own canonical seeds via the registry.
+                # Non-polynomial basis ships its own canonical seeds via the registry.
                 seeds_per_feature = canonical_seeds_func(degree)
             else:
                 seeds_per_feature = _canonical_seeds(basis, degree)
-            # Pair every seed with itself + every other seed for c_b
-            # (limited to keep init pop small).
+            # Pair every seed with every other seed for c_b (limited to keep init pop small).
             for s_a in seeds_per_feature:
                 for s_b in seeds_per_feature:
                     warm_seeds.append(np.concatenate([s_a, s_b]))
-            # Add one symmetric pair (c_a = -c_b) which captures
-            # antisymmetric targets like saddle.
+            # One symmetric pair (c_a = -c_b) captures antisymmetric targets like saddle.
             if seeds_per_feature:
                 s = seeds_per_feature[0]
                 warm_seeds.append(np.concatenate([s, -s]))
@@ -1641,18 +1426,19 @@ def optimise_hermite_pair(
                 continue
             coef_a_best, coef_b_best, bf_idx_best, raw_mi_best, _ = cma_result
         else:  # optuna
-            def _optuna_obj(trial, _degree=degree):
+            def _optuna_obj(trial, _degree=degree, _ca_size=ca_size, _cb_size=cb_size,
+                            _eval_pair_fn=eval_pair_fn, _eval_kwargs=eval_kwargs):
                 coef_a = np.array([
                     trial.suggest_float(f"a_{i}", *coef_range)
-                    for i in range(ca_size)
+                    for i in range(_ca_size)
                 ], dtype=np.float64)
                 coef_b = np.array([
                     trial.suggest_float(f"b_{i}", *coef_range)
-                    for i in range(cb_size)
+                    for i in range(_cb_size)
                 ], dtype=np.float64)
-                score, raw_mi, bf_idx = (eval_pair_fn or _eval_coef_pair)(
+                score, raw_mi, bf_idx = (_eval_pair_fn or _eval_coef_pair)(
                     coef_a, coef_b, direction_only=direction_only,
-                    **eval_kwargs,
+                    **_eval_kwargs,
                 )
                 if bf_idx >= 0:
                     trial.set_user_attr("bf_idx", bf_idx)
@@ -1672,14 +1458,14 @@ def optimise_hermite_pair(
                         pass
             if early_stop_no_improve and early_stop_no_improve < n_trials:
                 stop_state = {"best": -np.inf, "since_improve": 0}
-                def _early_stop_cb(s, trial):
+                def _early_stop_cb(s, trial, _stop_state=stop_state):
                     cur_best = s.best_value if s.best_trial is not None else -np.inf
-                    if cur_best > stop_state["best"]:
-                        stop_state["best"] = cur_best
-                        stop_state["since_improve"] = 0
+                    if cur_best > _stop_state["best"]:
+                        _stop_state["best"] = cur_best
+                        _stop_state["since_improve"] = 0
                     else:
-                        stop_state["since_improve"] += 1
-                    if stop_state["since_improve"] >= early_stop_no_improve:
+                        _stop_state["since_improve"] += 1
+                    if _stop_state["since_improve"] >= early_stop_no_improve:
                         s.stop()
                 study.optimize(_optuna_obj, n_trials=n_trials,
                                callbacks=[_early_stop_cb],
@@ -1703,9 +1489,7 @@ def optimise_hermite_pair(
                 or raw_mi_best <= 0 or not np.isfinite(raw_mi_best)):
             continue
 
-        # Multi-fidelity refinement: re-evaluate the best coef set on
-        # the FULL data, not the subsample. This gives an honest MI for
-        # the gating threshold and HermiteResult.mi.
+        # Multi-fidelity refinement: re-evaluate the best coef set on the FULL data for an honest gating MI.
         if multi_fidelity and n_full >= 4000:
             full_kwargs = dict(eval_kwargs)
             full_kwargs.update(z_a=z_a, z_b=z_b, y=y, y_njit=y_njit)
@@ -1736,8 +1520,7 @@ def optimise_hermite_pair(
         )
 
     if best is None or best.mi <= baseline * baseline_uplift_threshold:
-        # Failed to beat baseline by enough -- don't recommend an
-        # engineered feature.
+        # Failed to beat baseline by enough -- don't recommend an engineered feature.
         return None
     return best
 
@@ -1756,7 +1539,7 @@ def optimise_pair_multimode(
     n_trials: int = 200,
     coef_range: tuple = (-2.0, 2.0),
     l2_penalty: float = 0.05,
-    n_neighbors: Optional[int] = None,
+    n_neighbors: int | None = None,
     seed: int = 42,
     sweep_degrees: bool = True,
     baseline_uplift_threshold: float = 1.01,
@@ -1766,35 +1549,17 @@ def optimise_pair_multimode(
     warm_start: bool = True,
     direction_only: bool = False,
 ) -> list:
-    """Phase B4: multi-mode pair-FE.
+    """Multi-mode pair-FE: return up to top_m distinct HermiteResult objects, greedily filtered to maintain
+    pair-wise L2 distance >= min_l2_distance after L2-normalisation (direction-only comparison).
 
-    Instead of returning a SINGLE best HermiteResult, return up to
-    top_m distinct HermiteResult objects -- the top-M coefficient
-    vectors found during search, greedily filtered to maintain
-    pair-wise L2 distance >= min_l2_distance (after L2-normalisation,
-    so the comparison is direction-only).
+    A single 2D f(x_a, x_b) can have multiple rank-1 separable approximations of similar MI; emitting all of
+    them lets the downstream model exploit the multi-modal structure. Verified on Friedman1-style targets
+    where MI is split across 2-3 modes; emitting all 3 raises downstream R^2 by 1-2% over single-mode FE.
 
-    Why: a single 2D function f(x_a, x_b) can have multiple
-    rank-1 separable approximations of similar MI. Emitting all of
-    them as engineered features lets the downstream model exploit
-    the full multi-modal structure, capturing more of the original
-    function than any single mode would.
-
-    Verified on Friedman1-style targets where MI is split across 2-3
-    distinct coefficient modes; emitting all 3 raises downstream R^2
-    by 1-2% over single-mode FE.
-
-    Returns
-    -------
-    list[HermiteResult] sorted by MI descending. Each entry is a
-    standalone HermiteResult -- .transform(x_a, x_b) produces
-    a unique 1-D engineered feature. Empty list if NO mode beats
-    baseline.
+    Returns list[HermiteResult] sorted by MI descending; empty if no mode beats baseline.
     """
-    # Run a single-call search with history tracked. We force CMA-ES
-    # because the diverse top-M extraction needs a bag of evaluations,
-    # which CMA's population gives naturally; Optuna's TPE samples are
-    # less diverse early-on (coupled by the multivariate prior).
+    # Forced CMA-ES because diverse top-M needs a bag of evaluations, which CMA's population gives naturally;
+    # Optuna's TPE samples are less diverse early-on (coupled by the multivariate prior).
     if bin_funcs is None:
         bin_funcs = _DEFAULT_BIN_FUNCS
 
@@ -1807,8 +1572,12 @@ def optimise_pair_multimode(
     z_a = np.ascontiguousarray(z_a, dtype=np.float64)
     z_b = np.ascontiguousarray(z_b, dtype=np.float64)
 
-    # Pick eval_func via the size-aware ladder (same logic as
-    # optimise_hermite_pair for consistency).
+    # Pick eval_func via the size-aware ladder (mirrors optimise_hermite_pair).
+    # !TODO! flagged by ruff F841: ``eval_func_b`` is computed in all three branches but the downstream
+    # ``eval_kwargs`` dict (line ~1626) only forwards ``eval_func=eval_func``. The sibling ``optimise_hermite_pair``
+    # (lines 1325-1335) wraps both eval_func and eval_func_b in ``_eval_dual`` so factory bases (RBF) evaluate each
+    # feature with its own preprocess fn. This evaluation-CV function appears to be missing that same wrap,
+    # silently using preprocess_a for the b-side. Verify whether this is a bug for factory bases (RBF in particular).
     factory_top = basis_info.get("eval_njit_factory")
     if factory_top is not None:
         eval_func = factory_top(preprocess_a)
@@ -1824,7 +1593,7 @@ def optimise_pair_multimode(
         eval_func_b = eval_func
     else:
         eval_func = basis_info["eval_njit"]
-        eval_func_b = eval_func
+        eval_func_b = eval_func  # noqa: F841 -- see !TODO! ~1576; mirrors optimise_hermite_pair so RBF/factory dual-eval can be added without re-fitting the basis.
 
     n = len(y)
     if n_neighbors is None:
@@ -1901,12 +1670,11 @@ def optimise_pair_multimode(
         top_m=top_m, min_l2_distance=min_l2_distance,
     )
 
-    # Build degree lookup back into the diverse entries (since
-    # diverse only carries 5-tuples).
+    # Build degree lookup back into the diverse entries (diverse only carries 5-tuples).
     deg_lookup = {(tuple(ca), tuple(cb)): d for s, mi, idx, ca, cb, d in full_history}
 
     results = []
-    for score, raw_mi, bf_idx, coef_a, coef_b in diverse:
+    for _score, raw_mi, bf_idx, coef_a, coef_b in diverse:
         if raw_mi <= baseline * baseline_uplift_threshold:
             continue
         bf_name = bf_names_global[bf_idx]

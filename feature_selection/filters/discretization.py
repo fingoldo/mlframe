@@ -2,30 +2,14 @@
 
 Public API
 ----------
-* ``categorize_dataset(df, ...)`` -- top-level entry called by ``MRMR.fit``.
-  Accepts pandas or polars (DataFrame / LazyFrame autocollected).
+* ``categorize_dataset(df, ...)`` -- top-level entry called by ``MRMR.fit``. Accepts pandas or polars (DataFrame / LazyFrame autocollected).
 * ``discretize_array(arr, ...)`` -- single-column 1-D discretiser.
 * ``discretize_2d_array(arr, ...)`` -- column-parallel njit version.
-* ``discretize_sklearn(arr, ...)`` -- pure-numpy port of sklearn's
-  ``KBinsDiscretizer`` for cases where sklearn's overhead matters.
-* Lower-level numba helpers ``digitize``, ``quantize_dig``,
-  ``quantize_search``, ``discretize_uniform``, ``get_binning_edges``.
+* ``discretize_sklearn(arr, ...)`` -- pure-numpy port of sklearn's ``KBinsDiscretizer`` for cases where sklearn's overhead matters.
+* Lower-level numba helpers ``digitize``, ``quantize_dig``, ``quantize_search``, ``discretize_uniform``, ``get_binning_edges``.
 
-B10 fix (etap 4)
-----------------
-Polars ``LazyFrame`` is auto-collected at the boundary (the alternatives
--- ``.iloc``-style fallback or struct columns -- raise descriptive errors).
-Both pandas and polars paths route NaN values through a shared helper
-``_handle_missing`` so the upstream behaviour does not silently diverge.
-The legacy pandas path silently used ``fillna(0.0)``; the polars path let
-NaN propagate. The new contract is explicit: the chosen strategy is
-documented and applied identically to both engines.
-
-B9 (etap 4)
------------
-``categorize_dataset_old`` is deleted (verified zero call-sites in the
-repo). Its only consumer ``categorize_1d_array`` survives as it is still
-used by some ad-hoc pipelines.
+Polars ``LazyFrame`` is auto-collected at the boundary. Both pandas and polars paths route NaN through a shared ``_handle_missing`` helper -- the chosen
+strategy is documented and applied identically to both engines (legacy pandas silently used ``fillna(0.0)``; legacy polars let NaN propagate).
 """
 from __future__ import annotations
 
@@ -47,30 +31,16 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# B10: unified missing-value handling for pandas / polars / numpy paths
+# Unified missing-value handling for pandas / polars / numpy paths
 # =============================================================================
 
 
 def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.ndarray:
     """Apply the configured NaN handling strategy.
 
-    Strategies
-    ----------
-    ``"fillna_zero"`` (default, legacy pandas behaviour)
-        Replace NaN with 0.0. Cheap and matches what the pre-refactor
-        pandas path did silently. Acceptable when the discretiser is
-        downstream and zero is a safe imputation for the bin selection.
-    ``"raise"``
-        Refuse to discretize a column with NaN. Use this when downstream
-        consumers cannot distinguish "imputed zero" from "true zero".
-    ``"propagate"``
-        Leave NaN in place (legacy polars behaviour). The numba kernel
-        will route them to the lowest bin or raise depending on its
-        bounds-checking; only safe when the caller is OK with that.
-
-    Private — external callers should use the public ``discretize_*``
-    family (``discretize_array``, ``discretize_2d_array``,
-    ``categorize_dataset``), which call this internally.
+    ``"fillna_zero"`` (default, legacy pandas behaviour): replace NaN with 0.0. ``"raise"``: refuse a column with NaN (use when downstream cannot distinguish
+    imputed-zero from true-zero). ``"propagate"``: leave NaN in place (legacy polars behaviour); the numba kernel will route to the lowest bin or raise
+    depending on bounds-checking. Private -- external callers should use the public ``discretize_*`` family.
     """
     if not np.isnan(arr).any():
         return arr
@@ -89,10 +59,8 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.nda
 
 
 def _maybe_collect_lazy(df):
-    """If ``df`` is a polars LazyFrame, materialise it. Other inputs pass
-    through. ``.collect_streaming()`` is intentionally not used: if the
-    caller wanted streaming, they should call ``MRMR`` on a frame that
-    fits in memory; B26 documents this contract."""
+    """If ``df`` is a polars LazyFrame, materialise it; other inputs pass through. ``.collect_streaming()`` is intentionally not used -- if the caller wanted
+    streaming, they should pass ``MRMR`` a frame that fits in memory."""
     try:
         import polars as pl
     except ImportError:
@@ -119,10 +87,7 @@ def categorize_1d_array(
     dtype=np.int16,
     nan_filler: float = 0.0,
 ):
-    """Per-column ordinal encoder used by the (still-supported) ad-hoc
-    ``categorize_dataset_old``-style pipelines that some external scripts
-    rely on. Inside MRMR proper we use ``categorize_dataset`` below.
-    """
+    """Per-column ordinal encoder used by ad-hoc external pipelines. Inside MRMR proper we use ``categorize_dataset`` below."""
     ordinal_encoder = OrdinalEncoder()
 
     if vals.dtype.name != "category" and np.issubdtype(vals.dtype, np.bool_):
@@ -219,18 +184,9 @@ def discretize_array(
 ) -> np.ndarray:
     """Discretise a 1-D continuous array into ordinal bins.
 
-    B-perf-2 (post-plan round 2): single-column path uses raw numpy
-    instead of dispatching to the ``@njit`` ``_discretize_array_impl``.
-    Microbench on ``n=10000``: njit ``np.percentile`` 870us / call vs
-    direct ``np.percentile`` 405us / call (numba is ~2x slower than
-    numpy at this size for percentile-based work). The FE pipeline
-    (``check_prospective_fe_pairs``) calls this 6000+ times per fit
-    on ``n=10000, p=200`` -- the un-njit path saves ~3s of the 5.87s
-    we measured in the cProfile pass.
-
-    Multi-column ``discretize_2d_array`` keeps the njit chain because
-    it parallelises columns via ``prange`` and the per-column work is
-    different.
+    Single-column path uses raw numpy instead of dispatching to the ``@njit`` ``_discretize_array_impl``. Microbench at n=10000: njit ``np.percentile`` ~870us
+    vs direct ``np.percentile`` ~405us (numba is ~2x slower than numpy at this size for percentile work). The FE pipeline calls this 6000+ times per fit on
+    n=10000, p=200 -- the un-njit path saves ~3s. Multi-column ``discretize_2d_array`` keeps the njit chain because it parallelises columns via ``prange``.
     """
     if method not in ("uniform", "quantile"):
         raise ValueError(f"Unsupported discretization method: '{method}'. Supported methods: 'uniform', 'quantile'")
@@ -280,19 +236,10 @@ def discretize_2d_array(
 @njit(cache=True)
 def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform",
                        min_value: float = None, max_value: float = None):
-    """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array``
-    (which is itself ``@njit(parallel=True)`` and cannot dispatch to
-    object-mode helpers).
+    """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array`` (itself ``@njit(parallel=True)`` and cannot dispatch to object-mode helpers).
 
-    B-perf-1 (post-plan round 1): switched from ``@jit(nopython=False)``
-    (object mode) to ``@njit`` (nopython mode). Legacy decorator forced
-    callers including the ostensibly-njit ``_discretize_array_impl`` to
-    fall through to pure-Python execution.
-
-    Note: when called from outside an njit context (single-column path
-    via ``discretize_array``), prefer the inlined raw-numpy version --
-    ``np.percentile`` natively beats numba's njit equivalent at
-    ``n >= ~5000`` (see B-perf-2 below).
+    Outside an njit context (single-column path via ``discretize_array``) prefer the inlined raw-numpy version -- ``np.percentile`` beats numba's njit
+    equivalent at n >= ~5000.
     """
     if method == "uniform":
         if min_value is None or max_value is None:
@@ -329,11 +276,9 @@ def create_redundant_continuous_factor(
     name: str = None,
     sep: str = "_",
 ) -> None:
-    """Out of a few continuous factors, craft a new factor with known
-    relationship and amount of redundancy. Used by tests and benchmark
-    harnesses, not by ``MRMR`` directly."""
+    """Out of a few continuous factors, craft a new factor with known relationship and amount of redundancy. Used by tests / benchmark harnesses, not by ``MRMR`` directly."""
     if dist:
-        rvs = getattr(dist, "rvs")
+        rvs = dist.rvs
         assert rvs
         noise = rvs(*dist_args, size=len(df))
     else:
@@ -364,13 +309,8 @@ def categorize_dataset(
     dtype=np.int16,
     missing_strategy: str = "fillna_zero",
 ):
-    """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)``
-    array. Accepts pandas or polars (DataFrame or LazyFrame --
-    LazyFrame is materialised at the boundary).
-
-    ``missing_strategy`` controls B10 NaN handling: see
-    :func:`_handle_missing`.
-    """
+    """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame -- materialised at the
+    boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
     df = _maybe_collect_lazy(df)
 
     data = None
@@ -404,7 +344,7 @@ def categorize_dataset(
     else:
         arr = df[numerical_cols].to_numpy(dtype=np.float64, na_value=np.nan)
 
-    # B10: unified NaN handling for both pandas and polars.
+    # Unified NaN handling for both pandas and polars.
     arr = _handle_missing(arr, strategy=missing_strategy)
 
     data = discretize_2d_array(

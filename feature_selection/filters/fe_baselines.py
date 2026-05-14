@@ -1,24 +1,17 @@
 """Honest non-polynomial baselines for pair feature engineering.
 
-Per the brainstorm-agent meta-finding "honest non-poly baselines are
-critical": before claiming a polynomial-engineered feature is useful,
-quantify what TRIVIAL pair operations (multiplication, ratio, log,
-min/max) deliver. The polynomial may add ~0% over those.
+Before claiming a polynomial-engineered feature is useful, quantify what TRIVIAL pair operations (multiplication, ratio, log, min/max) deliver.
+The polynomial may add ~0% over those.
 
 Public API:
-* ``trivial_pair_features(x_a, x_b)`` -- returns a dict of named
-  trivial pair features (numpy arrays, same length as x_a).
-* ``score_trivial_baselines(x_a, x_b, y, discrete_target)`` -- runs
-  each trivial feature through the configured MI estimator and
-  returns ``{name: mi_value}`` sorted descending.
-* ``best_trivial_pair(x_a, x_b, y, discrete_target)`` -- single best
-  ``(name, feature_array, mi_value)`` to use as a comparison baseline
+* ``trivial_pair_features(x_a, x_b)`` -- dict of named trivial pair features (numpy arrays, same length as x_a).
+* ``score_trivial_baselines(x_a, x_b, y, discrete_target)`` -- runs each trivial feature through the configured MI estimator and returns
+  ``{name: mi_value}`` sorted descending.
+* ``best_trivial_pair(x_a, x_b, y, discrete_target)`` -- single best ``(name, feature_array, mi_value)`` to use as a comparison baseline
   for ``optimise_hermite_pair``.
 
-Use this AS THE FE BASELINE instead of (or in addition to) the
-``MI(x_a, x_b)`` joint MI. If your polynomial-engineered MI doesn't
-clear ``best_trivial * 1.05``, the polynomial is not worth it -- emit
-the trivial feature instead.
+Use as the FE baseline instead of (or in addition to) the ``MI(x_a, x_b)`` joint MI. If your polynomial-engineered MI doesn't clear
+``best_trivial * 1.05``, the polynomial is not worth it -- emit the trivial feature instead.
 """
 from __future__ import annotations
 
@@ -29,10 +22,11 @@ import numpy as np
 
 
 def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
-    """Return a dict of trivial pair-feature transforms. All produce
-    1-D arrays the same length as ``x_a``. NaN/inf cells are masked
-    by the consuming code; here we emit raw values + ratio with
-    epsilon for safety."""
+    """Return a dict of trivial pair-feature transforms.
+
+    All produce 1-D arrays the same length as ``x_a``. NaN/inf cells are masked by the consuming code; here we emit raw values plus a
+    ratio with epsilon for safety.
+    """
     x_a = np.asarray(x_a, dtype=np.float64)
     x_b = np.asarray(x_b, dtype=np.float64)
     eps = 1e-9
@@ -40,22 +34,16 @@ def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
     feats["mul"] = x_a * x_b
     feats["add"] = x_a + x_b
     feats["sub"] = x_a - x_b
-    # Ratio with stable epsilon. We add eps to denominator to avoid
-    # division by zero; the chosen epsilon is small relative to typical
-    # feature scales after the standard z-score / minmax preprocessing.
+    # Ratio with stable epsilon: eps in denominator avoids div-by-zero and is small relative to z-score / minmax preprocessed scales.
     feats["ratio_ab"] = x_a / (x_b + np.sign(x_b) * eps + eps)
     feats["ratio_ba"] = x_b / (x_a + np.sign(x_a) * eps + eps)
-    # Distance / max / min -- common in gradient-boosting feature
-    # engineering libraries.
+    # Distance / max / min -- common in gradient-boosting FE libraries.
     feats["sq_dist"] = (x_a - x_b) ** 2
     feats["sum_sq"] = x_a ** 2 + x_b ** 2
     feats["maxab"] = np.maximum(x_a, x_b)
     feats["minab"] = np.minimum(x_a, x_b)
-    # Log-magnitude with sign retained -- captures multiplicative
-    # structure (log(|a*b|) = log|a| + log|b|).
-    feats["log_abs_mul"] = (np.log(np.abs(x_a) + eps)
-                              + np.log(np.abs(x_b) + eps)
-                              ) * np.sign(x_a * x_b + eps)
+    # Log-magnitude with sign retained -- captures multiplicative structure (log(|a*b|) = log|a| + log|b|).
+    feats["log_abs_mul"] = (np.log(np.abs(x_a) + eps) + np.log(np.abs(x_b) + eps)) * np.sign(x_a * x_b + eps)
     # Atan2 -- captures angular interactions on 2D inputs.
     feats["atan2"] = np.arctan2(x_a, x_b)
     # Geometric mean (sign-aware).
@@ -66,8 +54,7 @@ def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
 def _mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool,
             mi_estimator: str = "plugin", plugin_n_bins: int = 20,
             n_neighbors: int = 3) -> float:
-    """1-D MI(x, y) using the configured estimator. Wraps both the
-    fast plug-in and the slower KSG paths."""
+    """1-D MI(x, y) using the configured estimator (fast plug-in or slower KSG)."""
     if not np.all(np.isfinite(x)):
         return 0.0
     if mi_estimator == "plugin":
@@ -106,8 +93,8 @@ def score_trivial_baselines(
 ) -> dict:
     """Return ``{trivial_feature_name: mi_value}`` sorted descending.
 
-    The dict's iteration order is the rank order, so
-    ``next(iter(scores))`` is the winner."""
+    The dict's iteration order is the rank order, so ``next(iter(scores))`` is the winner.
+    """
     feats = trivial_pair_features(x_a, x_b)
     scores = {}
     for name, f in feats.items():
@@ -127,16 +114,12 @@ def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
                             plugin_n_bins: int = 20,
                             n_neighbors: int = 3,
                             min_uplift: float = 1.05) -> dict:
-    """Phase B3: probe a small set of unary transforms (log, sqrt,
-    1/x, exp clipping) and return ``{name: (transformed_x, mi)}``
-    for those that beat the identity ``MI(x, y)`` by ``min_uplift``.
+    """Probe a small set of unary transforms (log, sqrt, 1/x, exp clipping) and return ``{name: (transformed_x, mi)}`` for those that beat
+    the identity ``MI(x, y)`` by ``min_uplift``.
 
-    Useful as a pre-step: BEFORE the polynomial-pair search, replace
-    each input feature by the unary transform that best correlates
-    with y. Linearises multiplicative / log-normal / exponential
-    relationships; for example ``y = sign(x_a * x_b)`` becomes
-    ``log|x_a| + log|x_b|`` after the unary step, which the pair
-    optimizer can then express trivially.
+    Useful as a pre-step before the polynomial-pair search: replace each input feature by the unary transform that best correlates with y.
+    Linearises multiplicative / log-normal / exponential relationships; e.g. ``y = sign(x_a * x_b)`` becomes ``log|x_a| + log|x_b|`` after
+    the unary step, which the pair optimizer can then express trivially.
     """
     eps = 1e-9
     x = np.asarray(x, dtype=np.float64)
@@ -175,9 +158,7 @@ def best_unary_transform(x: np.ndarray, y: np.ndarray, **kwargs) -> tuple:
 
 def triplet_pair_features(x_a: np.ndarray, x_b: np.ndarray,
                             x_c: np.ndarray) -> dict:
-    """Phase D1: 3-way pair-style features. Captures ``y =
-    sign(x_a * x_b * x_c)`` and similar 3-way interactions that
-    pair-FE cannot represent."""
+    """3-way pair-style features. Captures ``y = sign(x_a * x_b * x_c)`` and similar 3-way interactions that pair-FE cannot represent."""
     x_a = np.asarray(x_a, dtype=np.float64)
     x_b = np.asarray(x_b, dtype=np.float64)
     x_c = np.asarray(x_c, dtype=np.float64)
@@ -200,7 +181,7 @@ def score_triplet_baselines(x_a, x_b, x_c, y, *,
                               mi_estimator: str = "plugin",
                               plugin_n_bins: int = 20,
                               n_neighbors: int = 3) -> dict:
-    """Phase D1: rank 3-way trivial features by MI."""
+    """Rank 3-way trivial features by MI."""
     feats = triplet_pair_features(x_a, x_b, x_c)
     scores = {}
     for name, f in feats.items():
@@ -220,8 +201,7 @@ def best_trivial_pair(
     plugin_n_bins: int = 20,
     n_neighbors: int = 3,
 ) -> tuple:
-    """Return ``(name, feature_array, mi_value)`` for the best trivial
-    pair feature. ``None`` if all trivial features are non-finite."""
+    """Return ``(name, feature_array, mi_value)`` for the best trivial pair feature. ``None`` if all trivial features are non-finite."""
     feats = trivial_pair_features(x_a, x_b)
     best_name = None
     best_arr = None

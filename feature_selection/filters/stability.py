@@ -1,21 +1,15 @@
 """Stability selection wrapper around MRMR.
 
-mRMR with permutation-test confidence is **unstable for small N**:
-the support depends on the seed of the permutation pass. Stability
-selection (Meinshausen-Buhlmann 2010 -- analog ``RandomizedLasso`` in
-old sklearn) addresses this by running mRMR on ``n_bootstraps``
-subsamples and recommending only features that appear in the support
-of at least ``support_threshold`` (default 0.6 = 60%) of runs.
+mRMR with permutation-test confidence is unstable for small N: the support depends on the seed of the permutation pass. Stability
+selection (Meinshausen-Buhlmann 2010 -- analog ``RandomizedLasso`` in old sklearn) addresses this by running mRMR on ``n_bootstraps``
+subsamples and recommending only features that appear in the support of at least ``support_threshold`` (default 0.6 = 60%) of runs.
 
 Public class
 ------------
-``StabilityMRMR(estimator, n_bootstraps=20, sample_fraction=0.75,
-                support_threshold=0.6, random_state=None)``
+``StabilityMRMR(estimator, n_bootstraps=20, sample_fraction=0.75, support_threshold=0.6, random_state=None)``
 
-Same ``.fit / .transform / .support_ / .selection_probabilities_``
-surface as ``MRMR``. ``selection_probabilities_`` exposes per-feature
-inclusion frequency as a numpy float vector for downstream stability
-plots.
+Same ``.fit / .transform / .support_ / .selection_probabilities_`` surface as ``MRMR``. ``selection_probabilities_`` exposes per-feature
+inclusion frequency as a numpy float vector for downstream stability plots.
 """
 from __future__ import annotations
 
@@ -32,8 +26,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
     """Bootstrap-stability wrapper for mRMR-family selectors.
 
     Each bootstrap iteration:
-    1. Sample ``sample_fraction * n_samples`` rows without replacement
-       (with ``random_state + iteration`` seed).
+    1. Sample ``sample_fraction * n_samples`` rows without replacement (with ``random_state + iteration`` seed).
     2. Fit a clone of ``estimator`` on the subsample.
     3. Record ``estimator.support_`` (set of selected feature indices).
 
@@ -41,16 +34,13 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
     * ``selection_probabilities_[j] = P(feature_j in support across bootstraps)``.
     * ``support_`` = features with prob >= ``support_threshold``.
 
-    Per Meinshausen-Buhlmann, ``support_threshold=0.6`` controls the
-    expected number of false positives at a known FDR level given mild
-    assumptions on the base selector; tune up to ~0.8 for stricter
-    control.
+    Per Meinshausen-Buhlmann, ``support_threshold=0.6`` controls the expected number of false positives at a known FDR level given mild
+    assumptions on the base selector; tune up to ~0.8 for stricter control.
 
     Parameters
     ----------
     estimator : BaseEstimator
-        Any selector with ``.fit(X, y)`` and ``.support_`` attributes
-        (typically an ``MRMR`` instance).
+        Any selector with ``.fit(X, y)`` and ``.support_`` attributes (typically an ``MRMR`` instance).
     n_bootstraps : int, default 20
     sample_fraction : float, default 0.75
         Fraction of rows to subsample per bootstrap.
@@ -82,8 +72,7 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         n_features = X.shape[1]
         sub_size = int(self.sample_fraction * n_samples)
 
-        # Generate seeds upfront so the bootstrap is deterministic for
-        # a given ``random_state`` regardless of joblib worker order.
+        # Generate seeds upfront so the bootstrap is deterministic for a given ``random_state`` regardless of joblib worker order.
         seeds = rng.integers(0, 2 ** 31 - 1, size=self.n_bootstraps)
 
         def _one_bootstrap(seed: int) -> np.ndarray:

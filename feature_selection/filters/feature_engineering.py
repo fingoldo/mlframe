@@ -2,20 +2,10 @@
 
 Public functions:
 
-* ``check_prospective_fe_pairs`` -- given a set of high-MI raw pairs,
-  enumerate unary x binary transformation candidates, evaluate each
-  via ``mi_direct``, and recommend top-N replacements.
-* ``compute_pairs_mis`` -- precompute MI for every pair candidate so
-  the screening loop has a fast lookup.
-* ``create_unary_transformations`` / ``create_binary_transformations``
-  -- preset registries of numpy / scipy.special / hermval functions.
-* ``get_existing_feature_name`` / ``get_new_feature_name`` -- string
-  formatters for engineered-feature names.
-
-B10 (etap 8): polars detection now uses ``isinstance(X, pl.DataFrame)``
-(or ``isinstance(X, pd.DataFrame)`` for the pandas branch). The old
-``hasattr(X, "iloc")`` proxy false-positived on Arrow-backed pandas.
-B5 / B6 preallocation hoists are deferred to Phase 1 profiling.
+* ``check_prospective_fe_pairs`` -- given high-MI raw pairs, enumerate unary x binary transformation candidates, evaluate each via ``mi_direct``, recommend top-N replacements.
+* ``compute_pairs_mis`` -- precompute MI for every pair candidate so the screening loop has a fast lookup.
+* ``create_unary_transformations`` / ``create_binary_transformations`` -- preset registries of numpy / scipy.special / hermval functions.
+* ``get_existing_feature_name`` / ``get_new_feature_name`` -- string formatters for engineered-feature names.
 """
 from __future__ import annotations
 
@@ -66,19 +56,13 @@ def check_prospective_fe_pairs(
     times_spent,
     verbose,
 ):
-    # ---------------------------------------------------------------------------------------------------------------
-    # Starting from the most heavily connected pairs, create a big pool of original features+their unary transforms.
-    # ---------------------------------------------------------------------------------------------------------------
-
-    # individual vars referenced more than once go to the global pool, rest to the local (not stored)?
+    # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
+    # to the global pool, the rest to the local (not stored)?
 
     res = {}
 
-    # B5 (post-plan): exact preallocation. The legacy upper bound
-    # `n_pairs * n_unary * 2` over-counted because (var, tr_name) keys are
-    # de-duplicated in `vars_transformations`. The unique-key set is the
-    # true upper bound -- typically 30-50% smaller for FE problems where
-    # the same factor appears in many prospective pairs.
+    # Exact preallocation. ``n_pairs * n_unary * 2`` over-counts because (var, tr_name) keys are de-duplicated in ``vars_transformations``; the unique-key set is the
+    # true upper bound.
     unique_keys: set = set()
     for (raw_vars_pair, _), _ in prospective_pairs.items():
         for var in raw_vars_pair:
@@ -95,10 +79,8 @@ def check_prospective_fe_pairs(
 
     transformed_vars = np.empty(shape=(len(X), len(unique_keys)), dtype=np.float32)
 
-    # B6 (post-plan): hoist `final_transformed_vals` outside the for-pair
-    # loop. Precompute the per-pair `combs` lists, find the max length,
-    # allocate a shared buffer once. Each pair's iteration writes / reads
-    # the same `[:, i]` slice so stale tail data is never observed.
+    # Hoist ``final_transformed_vals`` outside the per-pair loop: precompute each pair's ``combs``, find the max length, allocate one shared buffer. Each pair writes
+    # then reads the same ``[:, i]`` slice so stale tail data is never observed.
     pair_combs: dict = {}
     max_n_combs = 0
     for (raw_vars_pair, _), _ in prospective_pairs.items():
@@ -121,10 +103,9 @@ def check_prospective_fe_pairs(
 
     vars_transformations = {}
     i = 0
-    for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
+    for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
         for var in raw_vars_pair:
-            # Polars vs pandas int-column indexing: X[:, idx].to_numpy()
-            # (polars, zero-copy for numerics) vs X.iloc[:, idx].values (pandas).
+            # Polars vs pandas int-column indexing: ``X[:, idx].to_numpy()`` (polars, zero-copy for numerics) vs ``X.iloc[:, idx].values`` (pandas).
             if isinstance(X, pd.DataFrame):
                 vals = X.iloc[:, original_cols[var]].values
             else:
@@ -138,13 +119,9 @@ def check_prospective_fe_pairs(
                         else:
                             transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
-                        # np.isnan / np.isinf / np.nanmin only work on float
-                        # dtypes. When ``vals`` is object/string (e.g. a
-                        # polars_utf8 cat column that wasn't encoded before
-                        # reaching FE), calling them inside the error-log
-                        # formatter itself raises -- masking the real
-                        # transformation error and aborting MRMR entirely.
-                        # Compute numeric-only diagnostics conditionally.
+                        # ``np.isnan`` / ``np.isinf`` / ``np.nanmin`` only work on float dtypes. When ``vals`` is object/string (e.g. a polars Utf8 cat column not encoded
+                        # before reaching FE), calling them inside the error-log formatter itself raises -- masking the real transformation error and aborting MRMR
+                        # entirely. Compute numeric-only diagnostics conditionally.
                         if np.issubdtype(vals.dtype, np.floating):
                             _diag = (
                                 f", isnan={np.isnan(vals).sum()}, "
@@ -163,29 +140,23 @@ def check_prospective_fe_pairs(
     if verbose >= 2:
         logger.info("Created. For every pair from the pool, trying all known functions...")
 
-    # ---------------------------------------------------------------------------------------------------------------
-    # Then, for every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM).
-    # Record best pairs.
-    # ---------------------------------------------------------------------------------------------------------------
-
+    # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
     for (
         raw_vars_pair,
         pair_mi,
-    ), uplift in tqdmu(
+    ), _uplift in tqdmu(
         prospective_pairs.items(), desc="pair", leave=False
     ):  # better to start considering form the most prospective pairs with highest mis ratio!
 
         messages = []
 
-        # B6: combs precomputed once outside this loop; reuse here.
         combs = pair_combs[raw_vars_pair]
 
         best_config, best_mi = None, -1
         this_pair_features = set()
         var_pairs_perf = {}
 
-        # B6: shared buffer; this pair uses only the first
-        # `len(combs) * len(binary_transformations)` columns.
+        # Shared buffer; this pair uses only the first ``len(combs) * len(binary_transformations)`` columns.
         final_transformed_vals = final_transformed_vals_shared
 
         i = 0
@@ -201,7 +172,7 @@ def check_prospective_fe_pairs(
                 try:
                     # with np.errstate(invalid='ignore'):
                     final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                except Exception as e:
+                except Exception:
                     logger.error(f"Error when performing {bin_func}")
                 else:
                     # if np.isnan(final_transformed_vals[:, i]).sum()>0:
@@ -242,11 +213,8 @@ def check_prospective_fe_pairs(
 
         if best_mi / pair_mi > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025):  # Best transformation is good enough
 
-            # ---------------------------------------------------------------------------------------------------------------
-            # Now, if there is a group of leaders with almost same performance, we need to approve them through some of the orther variables.
+            # If there is a group of leaders with almost the same performance, approve them through one of the other variables.
             # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
-            # ---------------------------------------------------------------------------------------------------------------
-
             leading_features = []
             for next_config, next_mi in sort_dict_by_value(var_pairs_perf).items():
                 if next_mi > best_mi * fe_good_to_best_feature_mi_threshold:
@@ -258,11 +226,8 @@ def check_prospective_fe_pairs(
                     if verbose > 2:
                         print(f"Taking {len(leading_features)} new features for a separate validation step!")
 
-                    # ---------------------------------------------------------------------------------------------------------------
-                    # Now let's test all of the candidates as is against the rest of the approved factors (also as is).
-                    # Caindidates significantly outstanding (in terms of MI with target) with any of other approved factors are kept.
-                    # ---------------------------------------------------------------------------------------------------------------
-
+                    # Test all candidates as-is against the rest of the approved factors (also as-is). Candidates significantly outstanding (in terms of MI with target)
+                    # against any other approved factor are kept.
                     valid_pairs_perf = {}
 
                     for transformations_pair, bin_func_name, i in leading_features:
@@ -309,11 +274,8 @@ def check_prospective_fe_pairs(
 
                         valid_pairs_perf[config] = best_valid_mi
 
-                    # ---------------------------------------------------------------------------------------------------------------
-                    # Now we recommend proceeding with top N best transformations!
-                    # ---------------------------------------------------------------------------------------------------------------
-
-                    for j, (config, valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf, reverse=True).items()):
+                    # Recommend proceeding with top N best transformations.
+                    for j, (config, _valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf, reverse=True).items()):
                         if j < fe_max_pair_features:
                             new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
                             if verbose:
@@ -344,10 +306,7 @@ def check_prospective_fe_pairs(
 
             if this_pair_features:
 
-                # ---------------------------------------------------------------------------------------------------------------
-                # Bulk adding of found & checked best features.
-                # ---------------------------------------------------------------------------------------------------------------
-
+                # Bulk add the found & checked best features.
                 if fe_max_steps > 1:
                     transformed_vals = np.empty(shape=(len(X), fe_max_pair_features), dtype=quantization_dtype)
                 new_nbins = []
@@ -436,33 +395,13 @@ def get_new_feature_name(fe_tuple: tuple, cols_names: Sequence) -> str:
     return f"{fe_tuple[1]}({get_existing_feature_name(fe_tuple=fe_tuple[0][0],cols_names=cols_names)},{get_existing_feature_name(fe_tuple=fe_tuple[0][1],cols_names=cols_names)})"  # (((2, 'log'), (3, 'sin')), 'mul', 1016)
 
 
-# `njit_functions_dict` and `smart_log` moved to ``_internals.py`` (etap 2).
-# Imported at module top.
-
-
-# =============================================================================
-# Phase 2 GPU broadcast: per-function gpu_compatible flag.
-#
-# Many transformations have direct CuPy equivalents (np.log -> cp.log,
-# np.sqrt -> cp.sqrt, ...); some require scipy.special (e.g. erfinv,
-# gammaln) which is not in CuPy. The flag lets the FE driver pick
-# between CPU per-column dispatch and a single GPU broadcast.
-#
-# When ``use_gpu=True`` is passed to ``check_prospective_fe_pairs``
-# (FUTURE WORK -- driver-side integration), the engine groups columns
-# into a CuPy tensor and applies the GPU-compatible transformation
-# in one launch. CPU fallback runs for transformations missing from
-# the GPU set.
-# =============================================================================
+# GPU broadcast: per-function gpu_compatible flag. Many transformations have direct CuPy equivalents (``np.log`` -> ``cp.log`` etc.); some require ``scipy.special``
+# (erfinv, gammaln, ...) which CuPy lacks. The FE driver groups columns into a CuPy tensor and applies the GPU-compatible transformation in one launch, falling back
+# to per-column CPU dispatch for the rest.
 
 
 def gpu_compatible_unary_names() -> set:
-    """Names of unary transformations that have a direct CuPy equivalent.
-
-    Used by the FE driver to decide whether a given (column, transform)
-    pair can be batched onto the GPU. Anything outside this set falls
-    back to per-column CPU dispatch.
-    """
+    """Names of unary transformations with a direct CuPy equivalent. Anything outside this set falls back to per-column CPU dispatch."""
     return {
         "identity", "sign", "neg", "abs", "rint",
         "squared", "qubed", "reciproc", "invsquared", "invqubed",
@@ -486,17 +425,12 @@ def apply_gpu_unary_batched(
     column_indices: Sequence[int],
     transformation_name: str,
 ):
-    """Apply a unary transformation to a batch of columns on GPU.
+    """Apply a unary transformation to a batch of columns on GPU. Returns a CuPy 2-D array with shape ``(n_samples, len(column_indices))``. Only safe for names in
+    ``gpu_compatible_unary_names()``.
 
-    Returns a CuPy 2-D array with shape ``(n_samples, len(column_indices))``.
-    Only safe for names in ``gpu_compatible_unary_names()``.
-
-    Raises
-    ------
-    ValueError
-        If the transformation is not GPU-compatible.
-    ImportError
-        If CuPy is not installed.
+    Raises:
+        ValueError: if the transformation is not GPU-compatible.
+        ImportError: if CuPy is not installed.
     """
     import cupy as cp
 
@@ -569,11 +503,7 @@ def apply_gpu_binary_batched(
     b_gpu,
     transformation_name: str,
 ):
-    """Apply a binary transformation to two CuPy arrays element-wise.
-
-    Both inputs already on the GPU. Names must be in
-    ``gpu_compatible_binary_names()``.
-    """
+    """Apply a binary transformation element-wise to two CuPy arrays already on the GPU. Names must be in ``gpu_compatible_binary_names()``."""
     import cupy as cp
 
     name = transformation_name
@@ -602,7 +532,11 @@ def apply_gpu_binary_batched(
 
 
 def create_unary_transformations(preset: str = "minimal"):
-    unary_constraints = {
+    # !TODO! flagged by ruff F841: ``unary_constraints`` is built but never returned or consumed downstream.
+    # Reads like a half-implemented domain-validity filter (each transform's allowed input range) that should
+    # be applied before sampling values for ``arccos`` / ``log`` / ``invsqrt`` etc. in MRMR's FE step. Verify
+    # whether ``optimise_hermite_pair`` / ``screen_predictors`` should be passed these constraints to clip inputs.
+    unary_constraints = {  # noqa: F841 -- see !TODO! above; not yet wired into the FE-input clipping path.
         # reverse trigonometric
         "arccos": "-1to1",
         "arcsin": "-1to1",
@@ -688,9 +622,9 @@ def create_unary_transformations(preset: str = "minimal"):
 
     if preset == "maximal":
         for order in range(3):
-            unary_transformations["polygamma_" + str(order)] = lambda x: sp.polygamma(order, x)
-            unary_transformations["struve" + str(order)] = lambda x: sp.struve(order, x)
-            unary_transformations["jv" + str(order)] = lambda x: sp.jv(order, x)
+            unary_transformations["polygamma_" + str(order)] = lambda x, _order=order: sp.polygamma(_order, x)
+            unary_transformations["struve" + str(order)] = lambda x, _order=order: sp.struve(_order, x)
+            unary_transformations["jv" + str(order)] = lambda x, _order=order: sp.jv(_order, x)
 
         """j0
         faster version of this function for order 0.

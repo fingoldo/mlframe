@@ -1,28 +1,13 @@
 """Non-polynomial basis families for pair feature engineering.
 
-Closes the scope gap of orthogonal polynomials (Hermite/Legendre/
-Chebyshev/Laguerre cannot capture periodic, threshold, or rational
-patterns):
+Closes the scope gap of orthogonal polynomials (Hermite/Legendre/Chebyshev/Laguerre cannot capture periodic, threshold, or rational patterns):
 
-* **Fourier** -- ``sum_k a_k sin(2*pi*k*z) + b_k cos(2*pi*k*z)``.
-  Periodic targets (``y ~ sin(2*pi*x_a*x_b)``).
-* **RBF** -- ``sum_k w_k * exp(-((z - c_k) / sigma)^2)``.
-  Centres ``c_k`` fixed at train-fold quantiles; bandwidth ``sigma``
-  by Silverman's rule. Captures local bumps, soft thresholds.
-* **Sigmoid** -- ``sum_k w_k * sigma(s * (z - tau_k))``.
-  Thresholds ``tau_k`` at train-fold quantiles; slope ``s`` set so a
-  10%-data-spread covers ``2 / s``. Captures sharp thresholds /
-  cumulative-distribution targets.
-* **Pade** -- rational ``(a_0 + a_1*z + a_p*z^p) / (1 + b_1*z + b_q*z^q)``.
-  Captures targets with poles (``y ~ x_a / x_b``). Research-grade --
-  denominator stability not constrained; expect OPTUNA/CMA to find
-  high-MI fits when stable, fail gracefully otherwise.
+* **Fourier** -- ``sum_k a_k sin(2*pi*k*z) + b_k cos(2*pi*k*z)``. Periodic targets (``y ~ sin(2*pi*x_a*x_b)``).
+* **RBF** -- ``sum_k w_k * exp(-((z - c_k) / sigma)^2)``. Centres ``c_k`` fixed at train-fold quantiles; bandwidth ``sigma`` by Silverman's rule. Captures local bumps, soft thresholds.
+* **Sigmoid** -- ``sum_k w_k * sigma(s * (z - tau_k))``. Thresholds ``tau_k`` at train-fold quantiles; slope ``s`` set so a 10%-data-spread covers ``2 / s``. Captures sharp thresholds / cumulative-distribution targets.
+* **Pade** -- rational ``(a_0 + a_1*z + a_p*z^p) / (1 + b_1*z + b_q*z^q)``. Captures targets with poles (``y ~ x_a / x_b``). Research-grade -- denominator stability not constrained; expect OPTUNA/CMA to find high-MI fits when stable, fail gracefully otherwise.
 
-Each family ships ``fit(x)``, ``apply(x, params)``, ``eval_njit(z, c)``,
-``coef_size(degree)``, and ``canonical_seeds(degree)`` matching the
-contracts used in ``hermite_fe.py``. They register into the
-``EXTRA_BASES`` dict that the dispatcher in ``hermite_fe.py``
-auto-merges into ``_POLY_BASES`` at import time.
+Each family ships ``fit(x)``, ``apply(x, params)``, ``eval_njit(z, c)``, ``coef_size(degree)``, and ``canonical_seeds(degree)`` matching the contracts used in ``hermite_fe.py``. They register into the ``EXTRA_BASES`` dict that the dispatcher in ``hermite_fe.py`` auto-merges into ``_POLY_BASES`` at import time.
 """
 from __future__ import annotations
 
@@ -48,8 +33,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 def _fourier_fit(x: np.ndarray):
-    """Fit min-max normalisation of x to [0, 1] -- the natural Fourier
-    domain (one period covers the full data range). Returns (z, params)."""
+    """Min-max normalise x to [0, 1] -- one period covers the full data range. Returns (z, params)."""
     lo = float(np.min(x))
     hi = float(np.max(x))
     span = max(hi - lo, 1e-12)
@@ -63,8 +47,7 @@ def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
 
 @njit(fastmath=True)
 def _fourier_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
-    """``sum_k a_k * sin(2*pi*k*z) + b_k * cos(2*pi*k*z)`` for k = 1..K.
-    ``c`` packs ``[a_1, b_1, a_2, b_2, ..., a_K, b_K]`` -- length 2K."""
+    """``sum_k a_k * sin(2*pi*k*z) + b_k * cos(2*pi*k*z)`` for k = 1..K. ``c`` packs ``[a_1, b_1, a_2, b_2, ..., a_K, b_K]`` -- length 2K."""
     n = z.shape[0]
     out = np.zeros(n, dtype=np.float64)
     K = c.shape[0] // 2
@@ -106,8 +89,7 @@ def _fourier_canonical_seeds(degree: int) -> list:
 # ---------------------------------------------------------------------------
 
 def _rbf_fit(x: np.ndarray):
-    """Fit RBF centres at quantiles 0.1..0.9 and Silverman bandwidth.
-    9 fixed centres -> 9 weight coefficients during search."""
+    """Fit RBF centres at quantiles 0.1..0.9 and Silverman bandwidth. 9 fixed centres -> 9 weight coefficients during search."""
     quantiles = np.linspace(0.1, 0.9, 9)
     centres = np.quantile(x, quantiles).astype(np.float64)
     std = float(np.std(x) + 1e-12)
@@ -117,8 +99,7 @@ def _rbf_fit(x: np.ndarray):
 
 
 def _rbf_apply(x: np.ndarray, params: dict) -> np.ndarray:
-    """RBF doesn't transform x for eval -- centres + bandwidth come
-    from params. Just ensure float64 contiguous."""
+    """RBF doesn't transform x for eval -- centres + bandwidth come from params. Just ensure float64 contiguous."""
     return np.ascontiguousarray(x, dtype=np.float64)
 
 
@@ -143,9 +124,7 @@ def _rbf_eval_kernel_njit(z: np.ndarray, c: np.ndarray,
     return out
 
 
-# RBF eval signature differs (needs centres, bandwidth) -- the
-# hermite_fe registry passes only (z, c). We close over centres /
-# bandwidth via a closure factory.
+# RBF eval signature differs (needs centres, bandwidth) -- the hermite_fe registry passes only (z, c). We close over centres / bandwidth via a closure factory.
 
 def _rbf_make_eval(params: dict):
     centres = params["centres"]
@@ -156,8 +135,7 @@ def _rbf_make_eval(params: dict):
 
 
 def _rbf_coef_size(degree: int) -> int:
-    """RBF degree maps to number of centres used. We use up to 9
-    centres at quantiles 0.1..0.9; degree saturates at 9."""
+    """RBF degree maps to number of centres used. Up to 9 centres at quantiles 0.1..0.9; degree saturates at 9."""
     return min(max(1, degree + 1), 9)
 
 
@@ -169,8 +147,7 @@ def _rbf_canonical_seeds(degree: int) -> list:
         s = np.zeros(K, dtype=np.float64)
         s[k] = 1.0
         seeds.append(s)
-    # Constant offset (all centres equally weighted -- approximates
-    # mean of data).
+    # Constant offset (all centres equally weighted -- approximates mean of data).
     seeds.append(np.ones(K, dtype=np.float64) / K)
     return seeds
 
@@ -180,8 +157,7 @@ def _rbf_canonical_seeds(degree: int) -> list:
 # ---------------------------------------------------------------------------
 
 def _sigmoid_fit(x: np.ndarray):
-    """Fit thresholds at quantiles 0.1..0.9 and slope to span the
-    10%-90% interquantile range with sharpness 4."""
+    """Fit thresholds at quantiles 0.1..0.9 and slope to span the 10%-90% interquantile range with sharpness 4."""
     quantiles = np.linspace(0.1, 0.9, 9)
     thresholds = np.quantile(x, quantiles).astype(np.float64)
     iqr = float(np.quantile(x, 0.9) - np.quantile(x, 0.1)) + 1e-12
@@ -249,8 +225,7 @@ def _sigmoid_canonical_seeds(degree: int) -> list:
 # ---------------------------------------------------------------------------
 
 def _pade_fit(x: np.ndarray):
-    """Standardize input -- Pade is sensitive to scale. The reference
-    domain is roughly [-3, 3] post z-score."""
+    """Standardize input -- Pade is sensitive to scale. Reference domain is roughly [-3, 3] post z-score."""
     mean = float(np.mean(x))
     std = float(np.std(x) + 1e-12)
     return (x - mean) / std, dict(mean=mean, std=std)
@@ -264,14 +239,10 @@ def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
 def _pade_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Rational ``(a_0 + a_1*z + ... + a_p*z^p) / (1 + b_1*z + ... + b_q*z^q)``.
 
-    ``c`` packs ``[a_0, a_1, ..., a_{p}, b_1, ..., b_{q}]`` for
-    ``deg == p == q`` (we use equal num/den degree). Length = 2*p + 1.
+    ``c`` packs ``[a_0, a_1, ..., a_{p}, b_1, ..., b_{q}]`` for ``deg == p == q`` (equal num/den degree). Length = 2*p + 1.
 
-    Denominator is clamped to avoid poles: if ``|den| < 1e-3`` the
-    output element is set to 0.0 (we're searching for STABLE rationals;
-    the optimizer will steer away from coefficient sets that produce
-    near-singular denominators because they yield low MI on typical
-    targets)."""
+    Denominator is clamped to avoid poles: if ``|den| < 1e-3`` the output element is set to 0.0 (we're searching for STABLE rationals; the optimizer will steer away from coefficient sets that produce near-singular denominators because they yield low MI on typical targets).
+    """
     n = z.shape[0]
     nc = c.shape[0]
     out = np.zeros(n, dtype=np.float64)
@@ -298,8 +269,7 @@ def _pade_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
 
 
 def _pade_coef_size(degree: int) -> int:
-    """For Pade ``[degree/degree]``: ``degree+1`` numerator + ``degree``
-    denominator coefficients = ``2*degree + 1``."""
+    """For Pade ``[degree/degree]``: ``degree+1`` numerator + ``degree`` denominator coefficients = ``2*degree + 1``."""
     return 2 * max(1, degree) + 1
 
 
@@ -326,8 +296,7 @@ def _pade_canonical_seeds(degree: int) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Registry of extra (non-polynomial) bases. The hermite_fe module
-# imports this and merges into its top-level ``_POLY_BASES`` dict.
+# Registry of extra (non-polynomial) bases. hermite_fe imports this and merges into its top-level ``_POLY_BASES`` dict.
 # ---------------------------------------------------------------------------
 
 EXTRA_BASES = {

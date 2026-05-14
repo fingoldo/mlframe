@@ -1,34 +1,10 @@
-"""Fleuret-criterion permutation-confidence step.
+"""Fleuret-criterion permutation-confidence step. Three layers: ``get_fleuret_criteria_confidence_parallel`` (joblib pool spawner) ->
+``parallel_fleuret`` (joblib worker) -> ``get_fleuret_criteria_confidence`` (``@njit`` core looping over the permutation budget).
 
-Three callable layers:
-
-* ``get_fleuret_criteria_confidence_parallel`` -- joblib pool spawner.
-* ``parallel_fleuret`` -- joblib worker.
-* ``get_fleuret_criteria_confidence`` -- ``@njit`` core looping over
-  the permutation budget.
-
-Known weakness (TODO -- separate research PR)
----------------------------------------------
-The Fleuret formulation ``gain = I(X; Y) - max_k I(X; Y | S_k)``
-**rejects synergistic features**: a candidate that is uninformative
-on its own but critical in combination with an already-selected
-variable scores ``gain < 0`` and is dropped. Classical mRMR weakness.
-
-Mitigations to investigate (none implemented here):
-* CMIM (Brown 2012) -- ``gain = I(X; Y) - min_k I(X; Y | S_k)``
-  preserves features with one synergistic partner.
-* JMI (Joint MI) -- ``gain = sum_k I(X, S_k; Y)`` accounts for
-  3-way interactions; more expensive.
-* HOmRMR -- explicit pair / triple-wise interaction enumeration;
-  feasible up to ~50-100 features.
-
-Plan: parameterise the algorithm choice via a new
-``mrmr_relevance_algo`` enum value (current values ``"fleuret"``,
-``"pld"``); add ``"cmim"`` and ``"jmi"`` and benchmark on the same
-4 golden scenarios as the Fleuret variant.
-
-B22 expanded (etap 6): the caller-side ``confidence`` is now guarded
-against ``nchecked == 0``.
+Known weakness (TODO -- separate research PR): the Fleuret formulation ``gain = I(X; Y) - max_k I(X; Y | S_k)`` rejects synergistic features (a candidate
+uninformative on its own but critical in combination with an already-selected variable scores ``gain < 0``). Mitigations to investigate (none implemented):
+CMIM (Brown 2012) replaces ``max_k`` with ``min_k``; JMI uses ``sum_k I(X, S_k; Y)`` for 3-way interactions; HOmRMR enumerates pair/triple interactions
+explicitly. Plan: extend ``mrmr_relevance_algo`` (currently ``"fleuret"``, ``"pld"``) with ``"cmim"`` / ``"jmi"`` and benchmark on the 4 golden scenarios.
 """
 from __future__ import annotations
 
@@ -44,7 +20,7 @@ from pyutilz.numbalib import python_dict_2_numba_dict
 
 from .permutation import distribute_permutations
 from ._internals import LARGE_CONST
-from .evaluation import evaluate_gain  # etap 7: now in a sibling module, no circularity
+from .evaluation import evaluate_gain
 
 
 def get_fleuret_criteria_confidence_parallel(
@@ -112,7 +88,7 @@ def get_fleuret_criteria_confidence_parallel(
     if nfailed >= max_failed:
         bootstrapped_gain = 0.0
 
-    # B22 expanded (etap 6): guard against empty result aggregation.
+    # Guard against empty result aggregation (nchecked == 0).
     confidence = (1 - nfailed / nchecked) if nchecked > 0 else 0.0
 
     return bootstrapped_gain, confidence, entropy_cache
@@ -138,8 +114,7 @@ def parallel_fleuret(
     extra_x_shuffling: bool = True,
     dtype=np.int32,
 ):
-    """Joblib worker: rebuild numba.typed.Dict from pickled Python dicts,
-    run the njit core, return a Python dict for the parent's union."""
+    """Joblib worker: rebuild numba.typed.Dict from pickled Python dicts, run the njit core, return a Python dict for the parent's union."""
     data_copy = data.copy()
 
     entropy_cache_dict = numba.typed.Dict.empty(
@@ -199,16 +174,14 @@ def get_fleuret_criteria_confidence(
 ) -> tuple:
     """Sub to njit work with random shuffling as well.
 
-    B22 expanded (etap 6): zero-permutation guard returns ``(0, 0)`` cleanly.
-    The legacy code raised ``UnboundLocalError`` on ``i`` because the
-    for-loop never assigned it.
+    Zero-permutation guard returns ``(0, 0)`` cleanly. The legacy code raised ``UnboundLocalError`` on ``i`` because the for-loop never assigned it.
     """
     if npermutations == 0:
         return 0, 0
 
     nfailed = 0
-    i = 0
-    for i in range(npermutations):
+    _i = 0
+    for _i in range(npermutations):
 
         for idx in y:
             np.random.shuffle(data_copy[:, idx])
@@ -245,4 +218,4 @@ def get_fleuret_criteria_confidence(
             if nfailed >= max_failed:
                 break
 
-    return nfailed, i + 1
+    return nfailed, _i + 1

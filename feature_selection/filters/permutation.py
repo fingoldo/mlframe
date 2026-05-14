@@ -2,30 +2,14 @@
 
 Public functions
 ----------------
-* ``mi_direct(factors_data, x, y, ...)`` -- compute the original MI of
-  ``(x, y)``, then permute ``y`` ``npermutations`` times and count how
-  often the permuted MI exceeds the original. Optionally distributes the
-  permutations across joblib workers.
-* ``parallel_mi`` -- the inner ``@njit`` worker that ``mi_direct`` ships
-  to joblib pool members.
-* ``shuffle_arr`` -- ``@njit`` shim around ``np.random.shuffle`` so it's
-  callable from ``parallel_mi``.
-* ``distribute_permutations`` -- partition the permutation budget across
-  worker chunks.
+* ``mi_direct(factors_data, x, y, ...)`` -- compute the original MI of ``(x, y)``, then permute ``y`` ``npermutations`` times and count how often the permuted
+  MI exceeds the original. Optionally distributes the permutations across joblib workers.
+* ``parallel_mi`` -- the inner ``@njit`` worker that ``mi_direct`` ships to joblib pool members.
+* ``shuffle_arr`` -- ``@njit`` shim around ``np.random.shuffle`` so it's callable from ``parallel_mi``.
+* ``distribute_permutations`` -- partition the permutation budget across worker chunks.
 
-B22 fix (etap 5): both ``parallel_mi`` and the caller-side
-``confidence = 1 - nfailed / (i + 1)`` now guard against
-``npermutations == 0`` (returns ``(0, 0)`` from the worker, returns
-confidence ``0.0`` from the caller). The legacy code raised
-``UnboundLocalError`` on ``i`` because the for-loop never executed.
-
-B18: ``classes_y_safe`` retains its name in the CPU path; the GPU pair
-lives in :mod:`.gpu` so the union of CPU + GPU paths uses
-``classes_y_safe_cpu`` / ``classes_y_safe_gpu`` only at the
-boundary call sites.
-
-B20: CuPy seed setting in callers uses an explicit ``ImportError``
-guard, not the legacy ``NameError`` reflex.
+Both ``parallel_mi`` and the caller-side ``confidence = 1 - nfailed / (i + 1)`` guard against ``npermutations == 0`` (returns ``(0, 0)`` from the worker,
+confidence ``0.0`` from the caller) to avoid ``UnboundLocalError`` on ``i`` when the for-loop never executes.
 """
 from __future__ import annotations
 
@@ -39,8 +23,7 @@ from .info_theory import compute_mi_from_classes, merge_vars
 
 @njit()
 def distribute_permutations(npermutations: int, n_workers: int) -> list:
-    """Split ``npermutations`` across ``n_workers``; the remainder lands
-    on the last worker."""
+    """Split ``npermutations`` across ``n_workers``; the remainder lands on the last worker."""
     avg_perms_per_worker = npermutations // n_workers
     diff = npermutations - avg_perms_per_worker * n_workers
     workload = [avg_perms_per_worker] * n_workers
@@ -70,26 +53,14 @@ def parallel_mi_besag_clifford(
 ) -> tuple:
     """Besag-Clifford sequential permutation test with early stopping.
 
-    Standard fixed-budget permutation test always runs ``npermutations``
-    shuffles. Many candidates are obviously significant (no permuted MI
-    ever exceeds ``original_mi``) or obviously non-significant
-    (``nfailed`` blows past ``max_failed`` immediately). Besag-Clifford
-    (1991) computes a running confidence interval on the p-value after
-    each permutation; once the CI falls entirely below ``p_low``
-    (clearly significant) or entirely above ``p_high`` (clearly null)
-    we can stop without running the rest of the budget.
+    Standard fixed-budget permutation test always runs ``npermutations`` shuffles. Many candidates are obviously significant (no permuted MI ever exceeds
+    ``original_mi``) or obviously non-significant (``nfailed`` blows past ``max_failed`` immediately). Besag-Clifford (1991) computes a running confidence
+    interval on the p-value after each permutation; once the CI falls entirely below ``p_low`` (clearly significant) or entirely above ``p_high`` (clearly
+    null) we can stop without running the rest of the budget. Saves 5-10x permutations on average for typical mRMR workloads.
 
-    Saves 5-10x permutations on average for typical mRMR workloads
-    where most candidates fall in one of the two unambiguous regimes.
+    Returns ``(nfailed, nchecked)`` -- same contract as ``parallel_mi``.
 
-    Returns
-    -------
-    (nfailed, nchecked) -- same contract as ``parallel_mi``.
-
-    References
-    ----------
-    Besag & Clifford (1991) "Sequential Monte Carlo p-values."
-    Biometrika 78(2): 301-304.
+    References: Besag & Clifford (1991) "Sequential Monte Carlo p-values." Biometrika 78(2): 301-304.
     """
     if npermutations == 0:
         return 0, 0
@@ -121,9 +92,7 @@ def parallel_mi_besag_clifford(
         # Early-stop check after at least min_perms permutations.
         n_done = i + 1
         if n_done >= min_perms:
-            # 95% Wilson confidence interval on the failure rate
-            # (which is our p-value estimate). If CI is entirely below
-            # p_low or entirely above p_high we stop.
+            # 95% Wilson confidence interval on the failure rate (= p-value estimate). Stop if CI is entirely below p_low or entirely above p_high.
             phat = nfailed / n_done
             z = 1.96  # 95% normal quantile
             denom = 1.0 + z * z / n_done
@@ -148,26 +117,17 @@ def parallel_mi_prange(
     base_seed: np.uint64,
     dtype=np.int32,
 ) -> tuple:
-    """Phase 1 (post-plan etap 14): inner-loop parallel permutation test.
+    """Inner-loop parallel permutation test.
 
-    Runs ``npermutations`` shuffles in a numba ``prange``. Each iteration
-    owns a private ``classes_y`` copy and a private LCG seeded with
-    ``base_seed * 2654435761 + i`` (Knuth's multiplicative hash). The
-    seeding scheme is **independent of n_workers**, so the
-    ``(nfailed, nchecked)`` output is bit-exact across
-    ``n_workers in {1, 2, 4, 8}`` for the same ``base_seed`` -- this
-    invariant is verified by ``test_phase1_reproducibility`` in
-    ``test_internals.py``.
+    Runs ``npermutations`` shuffles in a numba ``prange``. Each iteration owns a private ``classes_y`` copy and a private LCG seeded with
+    ``base_seed * 2654435761 + i`` (Knuth's multiplicative hash). The seeding scheme is **independent of n_workers**, so the ``(nfailed, nchecked)`` output is
+    bit-exact across ``n_workers in {1, 2, 4, 8}`` for the same ``base_seed`` (verified by ``test_phase1_reproducibility``).
 
-    Differences from the legacy ``parallel_mi`` (joblib-process worker):
-    * No early termination on ``nfailed >= max_failed`` -- every
-      permutation in the budget runs because ``prange`` iterations are
-      independent. Trades branch prediction wins for full statistical
-      power; for short budgets (npermutations < 30) the early-exit win
-      was negligible anyway.
-    * No global ``np.random.shuffle``; manual Fisher-Yates with a
-      per-iteration LCG so the parallel race that legacy code hit
-      under multi-thread numba is gone by construction.
+    Differences from ``parallel_mi`` (joblib-process worker):
+    * No early termination on ``nfailed >= max_failed`` -- every permutation in the budget runs because ``prange`` iterations are independent. For short budgets
+      (npermutations < 30) the early-exit win was negligible anyway.
+    * No global ``np.random.shuffle``; manual Fisher-Yates with a per-iteration LCG so the parallel race that legacy code hit under multi-thread numba is gone
+      by construction.
     """
     if npermutations == 0:
         return 0, 0
@@ -176,8 +136,7 @@ def parallel_mi_prange(
     nfailed_arr = np.zeros(npermutations, dtype=np.int64)
 
     for i in prange(npermutations):
-        # Per-iteration LCG state. Knuth multiplicative hash + fold of i
-        # gives a deterministic, n_workers-independent stream.
+        # Per-iteration LCG state. Knuth multiplicative hash + fold of i gives a deterministic, n_workers-independent stream.
         state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
 
         local = classes_y.copy()
@@ -211,16 +170,14 @@ def parallel_mi(
     max_failed: int,
     dtype=np.int32,
 ) -> tuple[int, int]:
-    """Worker for the joblib pool used by ``mi_direct``. Returns
-    ``(n_failed, n_checked)`` so the caller can aggregate across pool
-    members. B22: ``npermutations=0`` returns ``(0, 0)`` cleanly."""
+    """Worker for the joblib pool used by ``mi_direct``. Returns ``(n_failed, n_checked)`` so the caller can aggregate across pool members. ``npermutations=0`` returns ``(0, 0)`` cleanly."""
     if npermutations == 0:
         return 0, 0
 
     nfailed = 0
     classes_y_safe = np.asarray(classes_y).copy()
-    i = 0
-    for i in range(npermutations):
+    _i = 0
+    for _i in range(npermutations):
         np.random.shuffle(classes_y_safe)
         mi = compute_mi_from_classes(
             classes_x=classes_x, freqs_x=freqs_x,
@@ -230,7 +187,7 @@ def parallel_mi(
             nfailed += 1
             if nfailed >= max_failed:
                 break
-    return nfailed, i + 1
+    return nfailed, _i + 1
 
 
 def mi_direct(
@@ -254,22 +211,15 @@ def mi_direct(
 ) -> tuple:
     """CPU mutual-information + permutation-test wrapper.
 
-    ``parallelism`` (Phase 1):
-    * ``"outer"`` (default, legacy): joblib-process pool runs full
-      ``parallel_mi`` workers. Bit-exact with pre-Phase-1 behaviour.
-    * ``"inner"``: numba ``prange`` over permutations inside a single
-      thread pool, per-iteration LCG seed. Reproducibility invariant:
-      same ``(base_seed, npermutations)`` plus any ``n_workers`` value
-      yields identical ``(nfailed, nchecked)``.
-    * ``"bc"``: Besag-Clifford sequential permutation test with
-      adaptive early stopping. Sequential (no parallelism) but
-      typically 5-10x fewer permutations than fixed budget.
+    ``parallelism`` modes:
+    * ``"outer"`` (default): joblib-process pool runs full ``parallel_mi`` workers.
+    * ``"inner"``: numba ``prange`` over permutations inside a single thread pool, per-iteration LCG seed. Same ``(base_seed, npermutations)`` plus any
+      ``n_workers`` value yields identical ``(nfailed, nchecked)``.
+    * ``"bc"``: Besag-Clifford sequential permutation test with adaptive early stopping. Sequential but typically 5-10x fewer permutations than fixed budget.
     * ``"none"``: sequential, no parallelism (used by golden tests).
 
-    Outer parallelism is preferred when ``len(candidates) >> n_workers``
-    (the orchestrator already amortises pool spawn cost). Inner is
-    preferred when only a single candidate is being evaluated with a
-    large permutation budget."""
+    Outer parallelism is preferred when ``len(candidates) >> n_workers`` (the orchestrator already amortises pool spawn cost). Inner is preferred when only a
+    single candidate is being evaluated with a large permutation budget."""
     if parallel_kwargs is None:
         parallel_kwargs = {}
     classes_x, freqs_x, _ = merge_vars(
@@ -288,7 +238,7 @@ def mi_direct(
     )
 
     confidence = 0.0
-    i = -1  # B22 caller-side guard: if the inner branches never run, n_total stays 0.
+    i = -1  # caller-side guard: if no inner branch runs, n_total stays 0.
     nfailed = 0
 
     if original_mi > 0 and npermutations > 0:
@@ -298,9 +248,7 @@ def mi_direct(
                 max_failed = 1
 
         if parallelism == "bc" and npermutations > NMAX_NONPARALLEL_ITERS:
-            # Adaptive Besag-Clifford early-stopping permutation test.
-            # Sequential, single-LCG, but typically does 5-10x fewer
-            # permutations than the fixed-budget paths.
+            # Adaptive Besag-Clifford early-stopping permutation test. Sequential, single-LCG, typically 5-10x fewer permutations than fixed-budget paths.
             nfailed, n_checked = parallel_mi_besag_clifford(
                 classes_x=classes_x,
                 freqs_x=freqs_x,
@@ -315,9 +263,7 @@ def mi_direct(
             if nfailed >= max_failed:
                 original_mi = 0.0
         elif parallelism == "inner" and npermutations > NMAX_NONPARALLEL_ITERS:
-            # Phase 1: inner parallelism via numba prange. Single function
-            # call returns (nfailed, npermutations) -- matches outer-pool
-            # aggregation contract.
+            # Inner parallelism via numba prange. Single function call returns (nfailed, npermutations) -- matches outer-pool aggregation contract.
             nfailed, n_checked = parallel_mi_prange(
                 classes_x=classes_x,
                 freqs_x=freqs_x,
@@ -362,7 +308,9 @@ def mi_direct(
         else:
             if classes_y_safe is None:
                 classes_y_safe = classes_y.copy()
-            for i in range(npermutations):
+            i = -1
+            for _i in range(npermutations):
+                i = _i
                 shuffle_arr(classes_y_safe)
                 mi = compute_mi_from_classes(
                     classes_x=classes_x, freqs_x=freqs_x,
@@ -374,7 +322,7 @@ def mi_direct(
                         original_mi = 0.0
                         break
 
-        # B22 caller-side guard.
+        # Caller-side npermutations==0 guard.
         if i >= 0:
             confidence = 1 - nfailed / (i + 1)
 

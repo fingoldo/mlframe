@@ -1,23 +1,16 @@
 """Alternative MI estimators for the mRMR pipeline.
 
-The default discretized plug-in estimator
-(``compute_mi_from_classes`` in ``info_theory.py``) is fast but biased
-on small samples and high-cardinality conditioning sets. This module
-exposes alternatives that trade some speed for accuracy:
+The default discretized plug-in estimator (``compute_mi_from_classes`` in ``info_theory.py``) is fast but biased on small samples and
+high-cardinality conditioning sets. This module exposes alternatives that trade some speed for accuracy:
 
-* ``ksg_mi`` -- k-Nearest-Neighbor estimator (Kraskov 2004), wraps
-  ``sklearn.feature_selection.mutual_info_classif/regression``.
-  Operates on continuous data without discretisation, asymptotically
-  unbiased. ~2-5x slower than discretized plug-in on n=10k.
-* ``miller_madow_mi`` -- discretized plug-in with Miller-Madow bias
-  correction applied to all entropy terms in the MI decomposition.
+* ``ksg_mi`` -- k-Nearest-Neighbor estimator (Kraskov 2004), wraps ``sklearn.feature_selection.mutual_info_classif/regression``. Operates
+  on continuous data without discretisation, asymptotically unbiased. ~2-5x slower than discretized plug-in on n=10k.
+* ``miller_madow_mi`` -- discretized plug-in with Miller-Madow bias correction applied to all entropy terms in the MI decomposition.
   Negligible speed cost.
-* ``nsb_mi`` (placeholder) -- Bayesian (Nemenman-Shafee-Bialek)
-  estimator. Best for small N. Implemented via optional dependency
-  on ``ndd`` package; raises ``ImportError`` if not installed.
+* ``nsb_mi`` (placeholder) -- Bayesian (Nemenman-Shafee-Bialek) estimator. Best for small N. Implemented via optional dependency on
+  ``ndd`` package; raises ``ImportError`` if not installed.
 
-Pick by ``estimator`` kwarg in ``MRMR(estimator="ksg" | "miller_madow"
-| "nsb" | "plugin")``. Default ``"plugin"`` matches legacy behaviour.
+Pick by ``estimator`` kwarg in ``MRMR(estimator="ksg" | "miller_madow" | "nsb" | "plugin")``. Default ``"plugin"`` matches legacy behaviour.
 """
 from __future__ import annotations
 
@@ -40,23 +33,17 @@ def ksg_mi_with_target(
 ) -> np.ndarray:
     """Kraskov-Stoegbauer-Grassberger MI estimate of each feature with target.
 
-    Uses ``sklearn.feature_selection.mutual_info_classif/regression``,
-    which implements the KSG estimator on continuous numeric data
-    (k-NN-based, no discretisation). Returns an array of shape
-    ``(len(feature_indices),)`` -- MI of feature_i with target in nats
-    (sklearn returns nats by convention).
+    Uses ``sklearn.feature_selection.mutual_info_classif/regression``, which implements the KSG estimator on continuous numeric data
+    (k-NN-based, no discretisation). Returns shape ``(len(feature_indices),)`` -- MI of feature_i with target in nats (sklearn convention).
 
     Parameters
     ----------
     X : array, shape (n_samples, n_features)
         Continuous (un-discretised) feature matrix.
     y : array, shape (n_samples,)
-        Target. ``discrete_target=True`` for classification, False for
-        regression.
+        Target. ``discrete_target=True`` for classification, False for regression.
     feature_indices : sequence of int
-        Columns of X to evaluate. The function does NOT call sklearn
-        on the full X to avoid pulling all-feature MI when only a
-        few are needed.
+        Columns of X to evaluate. Avoids calling sklearn on full X when only a few columns are needed.
 
     Returns
     -------
@@ -65,10 +52,8 @@ def ksg_mi_with_target(
 
     Notes
     -----
-    On n=10000 with 100 features: ~1-2s for all 100. ~10x slower than
-    discretized plug-in but asymptotically unbiased. Recommended when
-    the support is correctness-critical or when discretisation
-    artefacts dominate the error budget.
+    On n=10000 with 100 features: ~1-2s for all 100. ~10x slower than discretized plug-in but asymptotically unbiased. Recommended when
+    support is correctness-critical or discretisation artefacts dominate the error budget.
     """
     if discrete_target:
         from sklearn.feature_selection import mutual_info_classif as _mi_func
@@ -117,15 +102,12 @@ def ksg_mi_with_significance(
 ) -> tuple:
     """KSG MI ranking + permutation-test significance filter.
 
-    Plain KSG top-K (``ksg_mi_with_target`` then sort) overfits on
-    noisy data: noise features can score high MI by chance.
-    This wrapper adds a per-feature permutation test:
+    Plain KSG top-K (``ksg_mi_with_target`` then sort) overfits on noisy data: noise features can score high MI by chance. This wrapper
+    adds a per-feature permutation test:
 
     1. Compute KSG MI of every requested column with target.
-    2. For each column, run ``n_permutations`` shuffles of ``y`` and
-       compute KSG MI on the shuffle. ``p_value = (1 + #(perm_mi >=
-       observed_mi)) / (1 + n_permutations)`` -- the standard
-       conservative permutation-test p-value.
+    2. For each column, run ``n_permutations`` shuffles of ``y`` and compute KSG MI on the shuffle.
+       ``p_value = (1 + #(perm_mi >= observed_mi)) / (1 + n_permutations)`` -- the standard conservative permutation-test p-value.
     3. Reject features with ``p_value > alpha``.
 
     Returns
@@ -133,19 +115,15 @@ def ksg_mi_with_significance(
     (mi_arr, p_arr, support) : tuple
         ``mi_arr[i]`` -- KSG MI of feature_i with target.
         ``p_arr[i]`` -- permutation-test p-value.
-        ``support`` -- ndarray of feature indices that passed
-        ``p_value <= alpha``, sorted by MI descending.
+        ``support`` -- ndarray of feature indices that passed ``p_value <= alpha``, sorted by MI descending.
 
     Notes
     -----
-    Speed: ``n_permutations`` extra KSG calls per feature. For
-    n=10000, p=100, n_permutations=50 ~ 1-2 minutes serial. Use
-    ``n_jobs=-1`` for joblib parallelism over features.
+    Speed: ``n_permutations`` extra KSG calls per feature. For n=10000, p=100, n_permutations=50 ~ 1-2 minutes serial. Use ``n_jobs=-1``
+    for joblib parallelism over features.
 
-    The shuffle is on ``y`` (not on ``X[:, j]``); this preserves the
-    marginal of ``X`` (so KSG's k-NN structure is unchanged) while
-    breaking the X-y dependency. Standard recipe in
-    ``sklearn.model_selection.permutation_test_score``.
+    The shuffle is on ``y`` (not on ``X[:, j]``); this preserves the marginal of ``X`` (so KSG's k-NN structure is unchanged) while
+    breaking the X-y dependency. Standard recipe in ``sklearn.model_selection.permutation_test_score``.
     """
     from joblib import Parallel, delayed
 
@@ -200,14 +178,12 @@ def nsb_mi(
 ) -> float:
     """Nemenman-Shafee-Bialek Bayesian MI estimate (optional dep ``ndd``).
 
-    Best for small sample sizes (n < 1000) where plug-in estimators
-    are heavily biased. Slower than plug-in by ~50x.
+    Best for small sample sizes (n < 1000) where plug-in estimators are heavily biased. Slower than plug-in by ~50x.
 
     Raises
     ------
     ImportError
-        If the ``ndd`` package is not installed. Install via
-        ``pip install ndd``.
+        If the ``ndd`` package is not installed. Install via ``pip install ndd``.
     """
     try:
         import ndd

@@ -1,0 +1,48 @@
+# Linter / formatter config. Pytest config lives in pytest.ini.
+
+[tool.black]
+line-length = 160
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312', 'py313', 'py314']
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | \.pytest_cache
+  | build
+  | dist
+  | __pycache__
+)/
+'''
+
+[tool.ruff]
+line-length = 160
+target-version = "py38"
+exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+    "E401",  # multiple imports on one line (legacy code style)
+    "E402",  # module level import not at top of file (our style uses comment blocks)
+    "E701",  # multiple statements on one line (colon) - legacy code style
+    "I001",  # import block is un-sorted or un-formatted (not enforcing import sorting)
+    "N802",  # function name should be lowercase (legacy code, fixing separately)
+    "N803",  # argument name should be lowercase (camelCase, Hungarian notation in legacy code)
+    "N806",  # variable name should be lowercase (legacy code)
+    "B006",  # mutable default (fixing separately)
+    "F401",  # unused imports (cleaning up separately)
+    "F541",  # f-string without placeholders (sometimes used for consistency)
+    "UP031", # use format specifiers instead of percent format (legacy code, not urgent)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports OK in __init__

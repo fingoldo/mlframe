@@ -1,18 +1,14 @@
-"""Supervised discretisation methods (no leak when fit on train, applied
-to val).
+"""Supervised discretisation methods (no leak when fit on train, applied to val).
 
 Two backends:
 
-* ``mdlp_bin_edges`` -- Fayyad-Irani 1993 entropy-based recursive
-  splits. No ``n_bins`` hyperparameter; the algorithm chooses splits
-  via the MDL principle. Simple pure-numpy implementation here.
-* ``optimal_bin_edges`` -- thin wrapper around
-  ``optbinning.OptimalBinning`` (already a project dep). Production-
-  grade, supports monotonic constraints + IV-based feature pre-selection.
+* ``mdlp_bin_edges`` -- Fayyad-Irani 1993 entropy-based recursive splits. No ``n_bins`` hyperparameter; splits are chosen via the MDL
+  principle. Simple pure-numpy implementation.
+* ``optimal_bin_edges`` -- thin wrapper around ``optbinning.OptimalBinning`` (already a project dep). Production-grade, supports
+  monotonic constraints + IV-based feature pre-selection.
 
-Both produce ``bin_edges`` that the downstream
-``np.searchsorted`` / ``np.digitize`` chain can consume identically to
-the unsupervised paths in ``discretization.py``.
+Both produce ``bin_edges`` that the downstream ``np.searchsorted`` / ``np.digitize`` chain can consume identically to the unsupervised
+paths in ``discretization.py``.
 
 Leak-safe usage pattern::
 
@@ -20,8 +16,7 @@ Leak-safe usage pattern::
     binned_train = np.searchsorted(edges[1:-1], X_train[:, j])
     binned_val   = np.searchsorted(edges[1:-1], X_val[:, j])
 
-The helper does not call ``y`` on the val rows, so passing the same
-edges to both train and val is leak-safe.
+The helper does not call ``y`` on the val rows, so passing the same edges to both train and val is leak-safe.
 """
 from __future__ import annotations
 
@@ -35,15 +30,12 @@ def mdlp_bin_edges(
     min_split_size: int = 5,
     max_depth: int = 8,
 ) -> np.ndarray:
-    """Fayyad-Irani MDLP discretisation. Returns sorted bin edges
-    (includes ``-inf`` / ``+inf`` sentinels).
+    """Fayyad-Irani MDLP discretisation. Returns sorted bin edges (includes ``-inf`` / ``+inf`` sentinels).
 
     Algorithm (recursive):
     1. Sort ``x``, with target ``y`` aligned.
-    2. Find candidate split point that maximally reduces conditional
-       entropy ``H(y | x <= split) + H(y | x > split)``.
-    3. Apply MDL stopping criterion (Fayyad-Irani 1993):
-       accept split iff ``Gain > log2(N - 1) / N + Delta(A, x, S) / N``.
+    2. Find candidate split point that maximally reduces conditional entropy ``H(y | x <= split) + H(y | x > split)``.
+    3. Apply MDL stopping criterion (Fayyad-Irani 1993): accept split iff ``Gain > log2(N - 1) / N + Delta(A, x, S) / N``.
     4. Recurse on each half.
 
     Notes
@@ -58,7 +50,6 @@ def mdlp_bin_edges(
     sorter = np.argsort(x)
     x_sorted = x[sorter]
     y_sorted = y[sorter]
-    n = len(x_sorted)
 
     splits: list[float] = []
     _mdlp_recurse(x_sorted, y_sorted, splits, depth=0,
@@ -153,27 +144,21 @@ def optimal_bin_edges(
     max_n_bins: int = 10,
     monotonic_trend: str = "auto",
 ) -> np.ndarray:
-    """Wrapper around ``optbinning.OptimalBinning``. Returns sorted bin
-    edges with ``-inf / +inf`` sentinels.
+    """Wrapper around ``optbinning.OptimalBinning``. Returns sorted bin edges with ``-inf / +inf`` sentinels.
 
     Parameters
     ----------
     monotonic_trend
-        ``"auto"`` lets optbinning pick. Pass ``"ascending"`` /
-        ``"descending"`` / ``None`` to override.
+        ``"auto"`` lets optbinning pick. Pass ``"ascending"`` / ``"descending"`` / ``None`` to override.
 
     Notes
     -----
-    Optbinning is an existing project dep. Pricier than MDLP (~0.5s
-    per column on n=10000) but produces monotonic bins which downstream
+    Optbinning is an existing project dep. Pricier than MDLP (~0.5s per column on n=10000) but produces monotonic bins which downstream
     GBM models prefer.
 
-    **Compatibility note**: optbinning's metrics module uses the
-    sklearn API ``check_array(force_all_finite=...)`` which was removed
-    in sklearn 1.5+. If you hit ``TypeError: check_array() got an
-    unexpected keyword argument 'force_all_finite'``, either pin
-    ``sklearn<1.5`` or switch to ``mdlp_bin_edges``. Reported upstream;
-    the issue is not in our code.
+    **Compatibility note**: optbinning's metrics module uses the sklearn API ``check_array(force_all_finite=...)`` which was removed in
+    sklearn 1.5+. If you hit ``TypeError: check_array() got an unexpected keyword argument 'force_all_finite'``, either pin
+    ``sklearn<1.5`` or switch to ``mdlp_bin_edges``. Reported upstream; the issue is not in our code.
     """
     try:
         from optbinning import OptimalBinning
@@ -202,7 +187,8 @@ def apply_bin_edges(
     edges: np.ndarray,
     dtype: object = np.int8,
 ) -> np.ndarray:
-    """Apply pre-fit bin edges to discretise an array. Leak-safe: the
-    edges argument is computed once on train and used on both train +
-    val without re-fitting."""
+    """Apply pre-fit bin edges to discretise an array.
+
+    Leak-safe: edges are computed once on train and used on both train + val without re-fitting.
+    """
     return np.searchsorted(edges[1:-1], x, side="right").astype(dtype)

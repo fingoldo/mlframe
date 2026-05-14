@@ -1,50 +1,24 @@
 """Categorical-feature interaction generator for ``MRMR``.
 
-What this module does
----------------------
-For each pair of categorical (or pre-discretized numeric) columns
-``(X_i, X_j)``, compute the Jakulin Interaction Information
+For each pair of categorical (or pre-discretized numeric) columns ``(X_i, X_j)``, compute the Jakulin Interaction Information
 
 ::
 
     II(X_i ; X_j ; Y) = I(X_i, X_j ; Y) - I(X_i ; Y) - I(X_j ; Y)
 
-and keep the top-K pairs whose II indicates *synergy* (positive II:
-the joint tells the target more than the sum of marginals -- the
-canonical XOR-style hidden pair). Surviving pairs become new
-ordinal-encoded columns appended to ``data`` / ``cols`` / ``nbins``,
-and recipes (``EngineeredRecipe(kind="factorize")``) land in
-``self._cat_fe_state_.recipes`` so ``MRMR.transform`` can replay them
-on test data.
+and keep the top-K pairs whose II indicates *synergy* (positive II: the joint tells the target more than the sum of marginals -- the canonical XOR-style hidden pair).
+Surviving pairs become new ordinal-encoded columns appended to ``data`` / ``cols`` / ``nbins``, and recipes (``EngineeredRecipe(kind="factorize")``) land in
+``self._cat_fe_state_.recipes`` so ``MRMR.transform`` can replay them on test data.
 
-Implementation order (this file lands incrementally)
-----------------------------------------------------
-**MVP (this PR)**:
-
-* validation gates (n>=min_n, no all-NaN, no constant cols, ...)
-* per-column marginal MI with Y -- ``_marginal_screen_njit``
-* per-pair II -- plug-in entropies, no Miller-Madow yet
-* top-K argpartition over the flat II array
-* materialise survivors via ``merge_vars`` + ``np.concatenate``
-* recipes built and persisted
-
-**Phase 2** (subsequent commits, all hooked off ``CatFEConfig``):
-
-* Miller-Madow correction applied to all six entropies as a unit (SB6)
-* two-stage permutation budget with same-shuffle three-MI test (E2 / SB1)
-* Westfall-Young multi-test correction (SB2)
-* greedy k-way expansion to triplets / quartets (SB7)
-* K-fold II stability filter (E6)
-* anti-redundancy with already-selected features (E3 / SM6)
-* GPU dispatch shim ``mi_direct_gpu_batched_pairs`` (P9)
+Features hooked off ``CatFEConfig``: Miller-Madow correction across the six entropies, two-stage permutation budget with same-shuffle three-MI test, Westfall-Young
+multi-test correction, greedy k-way expansion to triplets / quartets, K-fold II stability filter, anti-redundancy vs already-selected features, GPU dispatch shim
+``mi_direct_gpu_batched_pairs``.
 
 References
 ----------
-* Plan: ``C:/Users/TheLocalCommander/.claude/plans/linear-shimmying-thimble.md``
 * Jakulin & Bratko 2003, *Quantifying and Visualizing Attribute Interactions*
-* Williams & Beer 2010 (PID -- documented limitation per SB5)
-* Paninski 2003 *Estimation of Entropy and Mutual Information*
-  (Miller-Madow, bias formulas, sample-size guidance)
+* Williams & Beer 2010 (PID -- documented limitation)
+* Paninski 2003 *Estimation of Entropy and Mutual Information* (Miller-Madow, bias formulas, sample-size guidance)
 """
 
 from __future__ import annotations
@@ -69,19 +43,15 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# Tier 4.4: streaming / incremental fit cache
+# Streaming / incremental fit cache
 #
-# Cache marginal MIs and per-column distribution signatures across fit()
-# calls. On re-fit with same CatFEConfig + similar data, skip
-# recomputation for columns whose distribution hasn't drifted (KL < tau).
-# Saves ~70%% on production daily-refresh re-fits.
+# Cache marginal MIs and per-column distribution signatures across fit() calls. On re-fit with same CatFEConfig + similar data, skip recomputation for columns
+# whose distribution hasn't drifted (KL < tau). Saves ~70% on production daily-refresh re-fits.
 # ============================================================================
 
 
 def _column_signature(values: np.ndarray, nbins: int) -> np.ndarray:
-    """Compute a per-column distribution signature: ``bincount / n``.
-    Used for KL-based cache invalidation.
-    """
+    """Per-column distribution signature ``bincount / n``, used for KL-based cache invalidation."""
     n = max(len(values), 1)
     counts = np.bincount(values.astype(np.int64), minlength=nbins).astype(np.float64)
     return counts / n
@@ -103,12 +73,9 @@ def _restore_cached_marginal_mis(
     cache: dict,
     kl_threshold: float,
 ) -> tuple:
-    """For each candidate column, decide whether the cached marginal MI
-    is reusable. Returns ``(reusable_mask, marginal_mi_reused, new_signatures)``.
+    """Decide per candidate column whether the cached marginal MI is reusable; returns ``(reusable_mask, marginal_mi_reused, new_signatures)``.
 
-    The mask is True for columns whose signature KL-divergence vs the
-    cached version is below ``kl_threshold`` -- those rows reuse the
-    cached MI and skip the screen pass.
+    The mask is True for columns whose signature KL-divergence vs the cached version is below ``kl_threshold`` -- those rows reuse the cached MI and skip the screen pass.
     """
     reusable_mask = np.zeros(len(candidate_idxs), dtype=bool)
     marginal_mi_reused = np.full(len(candidate_idxs), np.nan, dtype=np.float64)
@@ -137,20 +104,14 @@ def resolve_max_combined_nbins(
 ) -> int:
     """Resolve ``cfg.max_combined_nbins`` to a concrete int.
 
-    ``None`` -> Paninski-derived data-aware ceiling
-    (SM5 / I7): ``max(4, int(n * 0.05 / 3) + 1)``. Empirically this
-    keeps per-cell observation count above ~3 at the sample sizes
+    ``None`` -> Paninski-derived data-aware ceiling: ``max(4, int(n * 0.05 / 3) + 1)``. Empirically this keeps per-cell observation count above ~3 at the sample sizes
     where MI estimation stops being noise.
 
-    Always clamped to ``hard_cap`` (10**7) regardless of user value
-    (SB10 / F18) -- prevents OOM via misconfig like
-    ``max_combined_nbins=10**9`` (4 GB freqs allocation).
+    Always clamped to ``hard_cap`` (10**7) regardless of user value -- prevents OOM via misconfig like ``max_combined_nbins=10**9`` (4 GB freqs allocation).
     """
     if cfg.max_combined_nbins is None:
-        # Paninski bias ~ (k-1)/(2n) per entropy term. For 0.05 nat
-        # tolerance across 3 entropies: 3*(k-1)/(2n) < 0.05
-        # -> k < n*0.05/1.5 + 1 ≈ n/30 + 1. Default tolerance 0.05
-        # (SD1 acknowledges this is folklore, not analytical).
+        # Paninski bias ~ (k-1)/(2n) per entropy term. For 0.05 nat tolerance across 3 entropies: 3*(k-1)/(2n) < 0.05 -> k < n*0.05/1.5 + 1 ≈ n/30 + 1.
+        # Default tolerance 0.05 is folklore, not analytical.
         resolved = max(4, int(n_samples * 0.05 / 3) + 1)
     else:
         resolved = int(cfg.max_combined_nbins)
@@ -162,10 +123,8 @@ def resolve_min_interaction_information(
 ) -> float:
     """Resolve ``cfg.min_interaction_information`` to a concrete float.
 
-    ``None`` -> ``-3 / sqrt(n)`` (B4) -- small-negative absorbs
-    finite-sample noise around the synergy boundary so that pure
-    k-way XOR (where all 2-way IIs are 0 in expectation but noisy)
-    can still bubble survivors to the heap.
+    ``None`` -> ``-3 / sqrt(n)`` -- small-negative absorbs finite-sample noise around the synergy boundary so that pure k-way XOR (where all 2-way IIs are 0 in
+    expectation but noisy) can still bubble survivors to the heap.
     """
     if cfg.min_interaction_information is None:
         return -3.0 / math.sqrt(max(n_samples, 1))
@@ -187,12 +146,10 @@ def _select_candidate_indices(
     """Filter candidate column indices to those eligible for cat-FE.
 
     Drops:
-    - constants / all-NaN (``nbins[i] == 1``) -> SM7 / F1 / F2
-    - high-cardinality (``nbins[i] > sqrt(n) * 2``) -> SM8 / F8
+    - constants / all-NaN (``nbins[i] == 1``)
+    - high-cardinality (``nbins[i] > sqrt(n) * 2``)
 
-    Side effects:
-    - records dropped names in ``state.dropped_singleton_nbins`` and
-      ``state.high_cardinality_warnings`` for downstream debugging.
+    Side effects: records dropped names in ``state.dropped_singleton_nbins`` and ``state.high_cardinality_warnings`` for downstream debugging.
 
     Returns the surviving index list.
     """
@@ -205,10 +162,8 @@ def _select_candidate_indices(
             continue
         if nb > high_card_threshold:
             state.high_cardinality_warnings.append((int(idx), nb))
-            # Refuse rather than warn: per SM8 the legacy upstream truncation
-            # to int16 already silently mangles >32k-cardinality cols, so
-            # downstream MI is on garbage. Hard error gives the user a
-            # clear "this column shouldn't be cat".
+            # Refuse rather than warn: legacy upstream truncation to int16 already silently mangles >32k-cardinality cols, so downstream MI is on garbage.
+            # Hard error gives the user a clear "this column shouldn't be cat".
             raise ValueError(
                 f"cat-FE: column index {idx} has nbins={nb}, exceeding the "
                 f"safe ceiling sqrt(n)*2={high_card_threshold:.0f} for "
@@ -237,21 +192,16 @@ def _marginal_screen_njit(
 ) -> np.ndarray:
     """Compute ``I(X_i ; Y)`` for every ``i`` in ``candidate_idxs``.
 
-    Runs ``prange`` over candidates -- each thread merges its column
-    into ``classes_x`` independently, then computes MI. No per-thread
-    state shared.
+    Runs ``prange`` over candidates -- each thread merges its column into ``classes_x`` independently, then computes MI. No per-thread state shared.
 
-    Returns a 1-D float64 array of length ``len(candidate_idxs)``,
-    aligned with the input order. Cells for unmergeable / zero-MI
-    columns simply produce ``0.0`` (downstream logic handles those
-    via ``cfg.marginal_floor``).
+    Returns a 1-D float64 array of length ``len(candidate_idxs)``, aligned with the input order. Cells for unmergeable / zero-MI columns simply produce ``0.0``
+    (downstream logic handles those via ``cfg.marginal_floor``).
     """
     n_candidates = len(candidate_idxs)
     out = np.zeros(n_candidates, dtype=np.float64)
     for k in prange(n_candidates):
         idx = candidate_idxs[k]
-        # Build a single-element vars_indices array; merge_vars handles k=1
-        # as a degenerate case (just renumbers the column densely).
+        # Build a single-element vars_indices array; merge_vars handles k=1 as a degenerate case (just renumbers the column densely).
         vi = np.empty(1, dtype=np.int64)
         vi[0] = idx
         classes_x, freqs_x, _ = merge_vars(
@@ -289,20 +239,12 @@ def _pair_search_kernel_njit(
 ) -> tuple:
     """For each pair ``(a, b)`` compute joint MI and Jakulin II.
 
-    Returns ``(joint_mi_arr, ii_arr, n_uniq_arr)`` -- three 1-D arrays
-    of length ``len(pairs_a)`` aligned with the input order.
+    Returns ``(joint_mi_arr, ii_arr, n_uniq_arr)`` -- three 1-D arrays of length ``len(pairs_a)`` aligned with the input order.
 
-    T6 optimisation: instead of calling ``merge_vars`` per pair (which
-    allocates per-call), we compute the joint code directly as
-    ``code = data[row, i] + data[row, j] * nbins[i]``. This works
-    because for plug-in MI estimation, empty cells contribute 0 to
-    entropy and the dense-renumbering done by ``merge_vars`` doesn't
-    affect MI (MI is invariant under bijective relabeling of the
-    alphabet). Joint histogram is built in-place into a thread-local
-    buffer of size ``nbins[i] * nbins[j] * nbins_y``.
-
-    Cuts the per-pair cost ~3-5x vs the merge_vars path by eliminating
-    the renumber + lookup table phase per pair. cProfile-driven (T6).
+    Optimisation: instead of calling ``merge_vars`` per pair (which allocates per-call), we compute the joint code directly as
+    ``code = data[row, i] + data[row, j] * nbins[i]``. This works because for plug-in MI estimation, empty cells contribute 0 to entropy and the dense-renumbering
+    done by ``merge_vars`` doesn't affect MI (MI is invariant under bijective relabeling of the alphabet). Joint histogram is built in-place into a thread-local
+    buffer of size ``nbins[i] * nbins[j] * nbins_y``. Cuts the per-pair cost ~3-5x vs the merge_vars path by eliminating the renumber + lookup table phase per pair.
     """
     n_pairs = len(pairs_a)
     n_samples = factors_data.shape[0]
@@ -321,7 +263,7 @@ def _pair_search_kernel_njit(
 
         # Build joint histogram (merged, Y). Thread-local buffer.
         joint_hist = np.zeros(merged_card * nbins_y, dtype=np.int64)
-        # Also per-pair marginals so we don't pay another pass.
+        # Per-pair marginals so we don't pay another pass.
         m_merged = np.zeros(merged_card, dtype=np.int64)
         for row in range(n_samples):
             va = factors_data[row, i]
@@ -331,9 +273,7 @@ def _pair_search_kernel_njit(
             joint_hist[code * nbins_y + cy] += 1
             m_merged[code] += 1
 
-        # Compute MI: I(merged; Y) = H(merged) + H(Y) - H(merged, Y)
-        # Use direct formula: sum jc/n * log(jc * n / (m_m * m_y))
-        # m_y is freqs_y * n_samples (caller-provided freqs).
+        # Compute MI: I(merged; Y) = H(merged) + H(Y) - H(merged, Y). Direct formula sum jc/n * log(jc * n / (m_m * m_y)); m_y is freqs_y * n_samples.
         mi = 0.0
         n_uniq = 0
         for m in range(merged_card):
@@ -345,8 +285,7 @@ def _pair_search_kernel_njit(
                 jc = joint_hist[m * nbins_y + y]
                 if jc == 0:
                     continue
-                # freqs_y[y] is a probability; multiply by n_samples to recover
-                # the count form
+                # freqs_y[y] is a probability; multiply by n_samples to recover the count form.
                 my = freqs_y[y] * n_samples
                 if my <= 0:
                     continue
@@ -360,28 +299,18 @@ def _pair_search_kernel_njit(
 
 
 # ============================================================================
-# Score / select / materialise
-# ============================================================================
-
-
-# ============================================================================
-# Miller-Madow II re-score (SB6)
+# Miller-Madow II re-score
 #
 # The Jakulin II expansion involves SIX entropies with mixed signs:
 #
 #   II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
-#                                                                   (constant)
 #                       (last term cancels across pairs since H(Y) is fit-wide)
 #
-# Plug-in entropy is biased downward by ``(k-1)/(2n)`` per entropy term, where
-# k is the number of NON-EMPTY bins. Under the independence null, the SIGNED
-# sum of these biases reduces to ``-(a-1)(b-1)(c-1)/(2n)`` -- i.e. plug-in II
-# is biased UPWARD; Miller-Madow correction pulls it back down.
+# Plug-in entropy is biased downward by ``(k-1)/(2n)`` per entropy term, where k is the number of NON-EMPTY bins. Under the independence null, the SIGNED sum
+# of these biases reduces to ``-(a-1)(b-1)(c-1)/(2n)`` -- i.e. plug-in II is biased UPWARD; Miller-Madow correction pulls it back down.
 #
-# Cost: 5+ ``merge_vars`` calls per pair (X1, X2, X1Y, X2Y, X1X2Y) vs the
-# plug-in path's 1 call. To stay fast on the search loop, we apply MM ONLY
-# to the top-K survivors as a re-rank step. This catches the high-cardinality
-# false positives where bias dominates without paying the cost on every pair.
+# Cost: 5+ ``merge_vars`` calls per pair (X1, X2, X1Y, X2Y, X1X2Y) vs the plug-in path's 1 call. To stay fast on the search loop, we apply MM ONLY to the top-K
+# survivors as a re-rank step. This catches the high-cardinality false positives where bias dominates without paying the cost on every pair.
 #
 # References: Paninski 2003 §4, Treves & Panzeri 1995, Roulston 1999.
 # ============================================================================
@@ -392,14 +321,11 @@ def _entropy_for_mode(
 ) -> float:
     """Plug-in / Miller-Madow / Krichevsky-Trofimov entropy.
 
-    Tier 4.5: KT smoothing -- adds Dirichlet(0.5) pseudocounts before
-    plug-in entropy. Less biased than plug-in for high-cardinality
-    joints; provably asymptotically efficient (Krichevsky & Trofimov
-    1981).
+    KT smoothing adds Dirichlet(0.5) pseudocounts before plug-in entropy; less biased than plug-in for high-cardinality joints and provably asymptotically efficient
+    (Krichevsky & Trofimov 1981).
     """
     if use_kt:
-        # Reconstruct counts, add 0.5 to each cell, renormalize, then
-        # plug-in entropy. ``freqs`` is normalised so counts = freqs * n.
+        # Reconstruct counts, add 0.5 to each cell, renormalize, then plug-in entropy. ``freqs`` is normalised so counts = freqs * n.
         counts = freqs * n_samples + 0.5
         K = len(counts)
         total = float(n_samples) + 0.5 * K
@@ -413,15 +339,11 @@ def _entropy_for_mode(
 def _should_apply_mm_for_pair_analytical(
     nbins_a: int, nbins_b: int, n_y_classes: int, n_samples: int,
 ) -> bool:
-    """Tier 4.6: analytically-derived MM auto-gate. Per Paninski 2003,
-    plug-in entropy bias is ``(K-1) / (2n)``. The signed sum across
-    the 6 entropies of the II expansion under the independence null
-    equals ``-(a-1)(b-1)(c-1) / (2n)``. We apply MM when this bias is
-    comparable to typical synergy floors (``-3/sqrt(n)`` per B4).
+    """Analytically-derived MM auto-gate.
 
-    Activate MM when ``(a-1)(b-1)(c-1)/(2n) >= 3/sqrt(n)``, i.e.
-    ``(a-1)(b-1)(c-1) >= 6 * sqrt(n)``. Replaces the previous folklore
-    threshold ``(a*b*c)/n > 0.05`` (SD1).
+    Per Paninski 2003, plug-in entropy bias is ``(K-1) / (2n)``. The signed sum across the 6 entropies of the II expansion under the independence null equals
+    ``-(a-1)(b-1)(c-1) / (2n)``. We apply MM when this bias is comparable to typical synergy floors (``-3/sqrt(n)``): activate MM when
+    ``(a-1)(b-1)(c-1)/(2n) >= 3/sqrt(n)``, i.e. ``(a-1)(b-1)(c-1) >= 6 * sqrt(n)``. Replaces the folklore threshold ``(a*b*c)/n > 0.05``.
     """
     bias = (nbins_a - 1) * (nbins_b - 1) * (n_y_classes - 1)
     threshold = 6.0 * math.sqrt(max(n_samples, 1))
@@ -440,12 +362,9 @@ def _compute_pair_ii_mm(
     use_mm: bool,
     dtype,
 ) -> float:
-    """Compute Jakulin II for a single pair with optional Miller-Madow
-    correction applied uniformly to all six entropies.
+    """Compute Jakulin II for a single pair with optional Miller-Madow correction applied uniformly to all six entropies.
 
-    Returns the II value. Cost: 5 ``merge_vars`` calls (X1, X2, X1+Y,
-    X2+Y, X1+X2+Y) per call -- much heavier than the search-loop's
-    plug-in MI, so callers MUST gate by top-K.
+    Returns the II value. Cost: 5 ``merge_vars`` calls (X1, X2, X1+Y, X2+Y, X1+X2+Y) per call -- much heavier than the search-loop's plug-in MI, so callers MUST gate by top-K.
     """
     n_samples = factors_data.shape[0]
 
@@ -511,14 +430,10 @@ def _should_apply_mm_for_pair(
 ) -> bool:
     """Auto-gate MM application: fire when joint cardinality / n > threshold.
 
-    Per Paninski 2003, plug-in entropy bias scales with (k-1)/(2n). When
-    k/n exceeds the threshold the bias is large enough to materially shift
-    II by more than typical synergy floors (-3/sqrt(n)). Below the threshold
-    the bias is in the noise and applying MM only adds compute cost.
+    Per Paninski 2003, plug-in entropy bias scales with (k-1)/(2n). When k/n exceeds the threshold the bias is large enough to materially shift II by more than typical
+    synergy floors (-3/sqrt(n)). Below the threshold the bias is in the noise and applying MM only adds compute cost.
 
-    ``threshold=0.05`` is folklore (SD1) -- documented as a heuristic, not
-    derived. User can override via ``cfg.use_miller_madow=True`` to force,
-    or ``False`` to disable.
+    ``threshold=0.05`` is folklore, not derived. User can override via ``cfg.use_miller_madow=True`` to force, or ``False`` to disable.
     """
     return (nbins_a * nbins_b * n_y_classes) / max(n_samples, 1) > threshold
 
@@ -537,15 +452,9 @@ def _maybe_rerank_with_mm(
     dtype,
     verbose: int,
 ) -> tuple:
-    """If MM is enabled (cfg flag True or auto-gate fires for at least
-    one survivor), recompute II for selected pairs with MM correction
-    applied to all six entropies. Returns ``(ii_mm_arr, selected_idx_resorted)``.
-
-    T3: hoist constant / per-column entropies (H(Y), H(X_i), H(X_i, Y))
-    out of the per-pair loop. For top_k=64 over a candidate pool of N=100,
-    typical pair has 2 unique X-cols touching ~20-30 distinct columns
-    overall. Cached entropies cut MM cost from 5 merge_vars + 6 entropy
-    per pair down to 2 merge_vars + 2 entropy per pair (joint terms only).
+    """If MM is enabled (cfg flag True or auto-gate fires for at least one survivor), recompute II for selected pairs with MM correction applied to all six entropies.
+    Returns ``(ii_mm_arr, selected_idx_resorted)``. Hoists constant / per-column entropies (H(Y), H(X_i), H(X_i, Y)) out of the per-pair loop -- cached entropies cut MM
+    cost from 5 merge_vars + 6 entropy per pair down to 2 merge_vars + 2 entropy per pair (joint terms only).
     """
     if len(selected_idx) == 0:
         return ii_arr, selected_idx
@@ -560,7 +469,7 @@ def _maybe_rerank_with_mm(
     if cfg.use_miller_madow is True:
         per_pair_mm = np.ones(len(selected_idx), dtype=bool)
     else:
-        # Tier 4.6: analytical MM threshold based on Paninski bias formula
+        # Analytical MM threshold based on Paninski bias formula
         gate_fn = _should_apply_mm_for_pair_analytical
         per_pair_mm = np.array([
             gate_fn(
@@ -572,19 +481,13 @@ def _maybe_rerank_with_mm(
     if auto_gate and not per_pair_mm.any():
         return ii_arr, selected_idx
 
-    # Compute H(Y) once (constant across pairs but doesn't actually affect
-    # ranking since it appears in every II equally; included for correctness).
-    # Tier 4.5: KT smoothing alternative to MM (set via cfg.use_kt_smoothing).
+    # Compute H(Y) once (constant across pairs but doesn't actually affect ranking since it appears in every II equally; included for correctness).
+    # KT smoothing alternative to MM (set via cfg.use_kt_smoothing).
     use_kt = bool(getattr(cfg, "use_kt_smoothing", False))
     h_y_mm = _entropy_for_mode(freqs_y, n_samples, use_mm=True, use_kt=use_kt)
 
-    # T3: hoist H(X_i) and H(X_i, Y) caches outside the loop. Only the
-    # columns touched by surviving pairs need to be computed.
+    # Hoist H(X_i) and H(X_i, Y) caches outside the loop. Only the columns touched by surviving pairs need to be computed.
     touched_cols: set = set()
-    for k in selected_idx:
-        if per_pair_mm[bool(True)]:  # any pair_mm[j] True
-            pass
-    touched_cols = set()
     for j, k in enumerate(selected_idx):
         if per_pair_mm[j]:
             touched_cols.add(int(pairs_a[k]))
@@ -664,14 +567,11 @@ def _maybe_rerank_with_mm(
 
 
 # ============================================================================
-# Tier 4.1: Bandit UCB1 permutation budget allocation
+# Bandit UCB1 permutation budget allocation
 #
-# Sequential allocation that gives more shuffles to pairs whose p-value
-# CI straddles the rejection threshold. Pairs clearly above/below the
-# threshold get cut off early (Besag-Clifford style); ambiguous pairs
-# receive extra. Saves 2-5x total perms vs fixed allocation in typical
-# workloads. Reference: Auer 2002 (UCB1), Besag & Clifford 1991
-# (sequential perm tests).
+# Sequential allocation that gives more shuffles to pairs whose p-value CI straddles the rejection threshold. Pairs clearly above/below the threshold get cut off
+# early (Besag-Clifford style); ambiguous pairs receive extra. Saves 2-5x total perms vs fixed allocation in typical workloads.
+# References: Auer 2002 (UCB1), Besag & Clifford 1991 (sequential perm tests).
 # ============================================================================
 
 
@@ -691,15 +591,11 @@ def _confirm_pairs_bandit_ucb1(
 ) -> tuple:
     """Adaptive permutation budget via UCB1-style allocation.
 
-    Total budget = ``cfg.full_npermutations * len(selected_idx)``. Each
-    pair starts with ``min_perms = max(10, full_npermutations // 4)``
-    shuffles, then we allocate remaining shuffles to the pair with the
-    widest binomial CI on its current ``p_estimate`` (highest uncertainty
-    about rejection).
+    Total budget = ``cfg.full_npermutations * len(selected_idx)``. Each pair starts with ``min_perms = max(10, full_npermutations // 4)`` shuffles, then we allocate
+    remaining shuffles to the pair with the widest binomial CI on its current ``p_estimate`` (highest uncertainty about rejection).
 
-    Early stops a pair when its 95% CI lies entirely above/below the
-    rejection threshold (1 - min_nonzero_confidence = 0.05). Returns
-    ``(selected_idx_kept, confidence_dict)``.
+    Early-stops a pair when its 95% CI lies entirely above/below the rejection threshold (1 - min_nonzero_confidence = 0.05).
+    Returns ``(selected_idx_kept, confidence_dict)``.
     """
     n_perms_total = cfg.full_npermutations
     if n_perms_total <= 0 or len(selected_idx) == 0:
@@ -709,15 +605,15 @@ def _confirm_pairs_bandit_ucb1(
     min_conf = 0.95
     alpha = 1.0 - min_conf
 
-    # Pre-merge per-pair classes_pair / X1 / X2 (same as the fixed path)
-    n_y_classes = int(classes_y.max()) + 1
+    # Pre-merge per-pair classes_pair / X1 / X2 (same as the fixed path).
     nfailed = np.zeros(len(selected_idx), dtype=np.int64)
     nshuf = np.zeros(len(selected_idx), dtype=np.int64)
     active_mask = np.ones(len(selected_idx), dtype=bool)
     pair_cache: list = []  # cached merge results per survivor
 
     for k in selected_idx:
-        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
         cls_pair, fq_pair, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=np.array([i, jj], dtype=np.int64),
@@ -764,16 +660,14 @@ def _confirm_pairs_bandit_ucb1(
         )
 
     while used < total_budget:
-        # Decide which pair to allocate next shuffle to.
-        # UCB1-style: pair with widest CI on current p_estimate, AMONG ACTIVES.
+        # Decide which pair to allocate next shuffle to. UCB1-style: pair with widest CI on current p_estimate, AMONG ACTIVES.
         best_j = -1
         best_score = -np.inf
         for j in range(len(selected_idx)):
             if not active_mask[j]:
                 continue
             p_est = nfailed[j] / max(nshuf[j], 1)
-            # Binomial CI half-width: ~1.96 * sqrt(p*(1-p)/n). Approx with
-            # min(p, 1-p) for the variance term; UCB bonus = sqrt(2*ln(used)/n_j)
+            # Binomial CI half-width ~1.96 * sqrt(p*(1-p)/n); approx with min(p, 1-p) for the variance term. UCB bonus = sqrt(2*ln(used)/n_j).
             ucb_bonus = math.sqrt(2.0 * math.log(max(used, 2)) / max(nshuf[j], 1))
             score = ucb_bonus + p_est * (1.0 - p_est)  # prefer ambiguous
             if score > best_score:
@@ -787,22 +681,21 @@ def _confirm_pairs_bandit_ucb1(
         _step_pair(best_j, ii_obs)
         used += 1
 
-        # Early-stop check: 95% Clopper-Pearson-ish bound on p
+        # Early-stop check: 95% Clopper-Pearson-ish bound on p. Conservative bound p +/- z * sqrt(p*(1-p)/n), z=1.96.
         n_j = nshuf[best_j]
         p_j = nfailed[best_j] / n_j
-        # Conservative bound: p +/- z * sqrt(p*(1-p)/n), z=1.96
         margin = 1.96 * math.sqrt(p_j * (1 - p_j) / n_j + 1e-9)
         upper = p_j + margin
         lower = p_j - margin
-        # If lower > alpha: pair confidently rejected. If upper < alpha:
-        # pair confidently accepted. Either way, no more shuffles needed.
+        # If lower > alpha: pair confidently rejected. If upper < alpha: pair confidently accepted. Either way, no more shuffles needed.
         if lower > alpha + 0.02 or upper < alpha - 0.02:
             active_mask[best_j] = False
 
     # Build confidence dict
     confidence_dict: dict = {}
     for j, k in enumerate(selected_idx):
-        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
         p = (nfailed[j] + 1) / (nshuf[j] + 1)  # continuity-corrected
         confidence_dict[(i, jj)] = 1.0 - p
 
@@ -826,19 +719,14 @@ def _confirm_pairs_bandit_ucb1(
 
 
 # ============================================================================
-# Permutation confirmation (E2 same-shuffle three-MI, SB1)
+# Permutation confirmation (same-shuffle three-MI)
 #
 # Two-stage strategy:
-# 1. Search phase: pair search computes point-estimate II for all candidates
-#    with no permutations (zero cost). Top-K selected by argpartition.
-# 2. Confirmation phase: for each top-K survivor, run a permutation test
-#    of II_observed against the null distribution. SAME shuffled Y feeds
-#    all three MI computations (I(merged;Y), I(X1;Y), I(X2;Y)), so
-#    II_perm = those three differences.
+# 1. Search phase: pair search computes point-estimate II for all candidates with no permutations (zero cost). Top-K selected by argpartition.
+# 2. Confirmation phase: for each top-K survivor, run a permutation test of II_observed against the null distribution. SAME shuffled Y feeds all three MI computations
+#    (I(merged;Y), I(X1;Y), I(X2;Y)), so II_perm = those three differences.
 #
-# Naming honesty (SB1): the test rejects "(X1, X2) jointly independent
-# of Y" -- NOT "no synergy beyond marginals". Surfaced as
-# ``joint_dependence_confidence`` not ``confidence``.
+# Naming honesty: the test rejects "(X1, X2) jointly independent of Y" -- NOT "no synergy beyond marginals". Surfaced as ``joint_dependence_confidence`` not ``confidence``.
 # ============================================================================
 
 
@@ -850,17 +738,12 @@ def _full_conditional_shuffle_ipf(
     n_x1_classes: int,
     n_y_classes: int,
 ) -> None:
-    """Tier 4.8: full conditional permutation via IPF-style
-    double-stratification. Shuffle X2 within strata of (X1, Y) so
-    that P(X2 | X1, Y) is preserved on average across permutations
-    -- the strictest synergy null that holds both marginals fixed
-    while breaking X1-X2 conditional dependence.
+    """Full conditional permutation via IPF-style double-stratification. Shuffle X2 within strata of (X1, Y) so that P(X2 | X1, Y) is preserved on average across
+    permutations -- the strictest synergy null that holds both marginals fixed while breaking X1-X2 conditional dependence.
 
-    Reference: Patefield 1981 (R x C contingency tables with fixed
-    marginals); Anderson & ter Braak 2003 (multi-factorial permutation).
+    Reference: Patefield 1981 (R x C contingency tables with fixed marginals); Anderson & ter Braak 2003 (multi-factorial permutation).
 
-    Implementation: for each unique (X1, Y) stratum, Fisher-Yates
-    shuffle classes_x2_safe restricted to rows in that stratum.
+    Implementation: for each unique (X1, Y) stratum, Fisher-Yates shuffle classes_x2_safe restricted to rows in that stratum.
     """
     n = len(classes_y)
     for cx1 in range(n_x1_classes):
@@ -888,17 +771,12 @@ def _conditional_shuffle_within_strata(
     classes_y: np.ndarray,
     n_y_classes: int,
 ) -> None:
-    """Conditional permutation: shuffle ``classes_x2_safe`` IN PLACE,
-    restricting the shuffle to within each stratum of ``classes_y``.
+    """Conditional permutation: shuffle ``classes_x2_safe`` IN PLACE, restricting the shuffle to within each stratum of ``classes_y``.
 
-    D1: this is the correct null distribution for testing
-    ``H0: X1 ⊥ X2 | Y`` (no synergy beyond marginals). Plain shuffle-Y
-    tests ``H0: Y ⊥ (X1, X2)`` (joint independence) instead.
+    This is the correct null distribution for testing ``H0: X1 ⊥ X2 | Y`` (no synergy beyond marginals). Plain shuffle-Y tests ``H0: Y ⊥ (X1, X2)`` (joint independence) instead.
 
-    Implementation: for each Y-stratum, collect the indices where
-    ``classes_y[i] == c``, Fisher-Yates shuffle the corresponding
-    slice of ``classes_x2_safe`` in place. Per Anderson & ter Braak
-    2003 ("Permutation tests for multi-factorial analysis of variance").
+    Implementation: for each Y-stratum, collect the indices where ``classes_y[i] == c``, Fisher-Yates shuffle the corresponding slice of ``classes_x2_safe`` in place.
+    Per Anderson & ter Braak 2003 ("Permutation tests for multi-factorial analysis of variance").
 
     Preserves ``P(X2 | Y)`` -- so each marginal ``I(X2; Y)`` is
     unchanged under the shuffle, but the conditional ``I(X1; X2 | Y)``
@@ -941,22 +819,13 @@ def _count_nfailed_joint_indep_prange(
     base_seed: int,
     dtype,
 ) -> int:
-    """T2: parallel permutation loop for the joint-independence null.
+    """Parallel permutation loop for the joint-independence null.
 
-    Each thread gets its own copy of ``classes_y`` and own LCG seed
-    (derived from ``base_seed + thread_idx``) so the count of failures
-    is reproducible across re-runs at the same ``base_seed`` (modulo
-    numpy version drift in ``random.shuffle``).
+    Each thread gets its own copy of ``classes_y`` and own LCG seed (derived from ``base_seed + thread_idx``) so the count of failures is reproducible across re-runs at
+    the same ``base_seed`` (modulo numpy version drift in ``random.shuffle``). Returns total ``nfailed`` summed across threads.
 
-    Returns total ``nfailed`` summed across threads.
-
-    2026-05-11: inner per-permutation work fused into a SINGLE pass
-    over N=1M (vs three separate ``compute_mi_from_classes`` calls).
-    On c0089 1M-row regression+MRMR profile, this kernel was the
-    largest mlframe-owned cumtime (26.5 s tottime over 56 calls);
-    the three-pass form scanned N=1M three times per permutation,
-    fusing collapses that to one. Joint MI summation on the small
-    (K_x, K_y) joint-count matrices is unchanged.
+    Inner per-permutation work is fused into a SINGLE pass over N (vs three separate ``compute_mi_from_classes`` calls). Joint MI summation on the small (K_x, K_y)
+    joint-count matrices is unchanged.
     """
     n = len(classes_y)
     K_pair = len(freqs_pair)
@@ -965,19 +834,11 @@ def _count_nfailed_joint_indep_prange(
     K_y = len(freqs_y)
     nfailed_total = 0
     for tid in prange(n_perms):
-        # Per-thread copy of Y so each prange iteration shuffles
-        # independently.
+        # Per-thread copy of Y so each prange iteration shuffles independently.
         cy_local = classes_y.copy()
-        # 2026-05-11 Wave 24: per-iteration LCG (PCG-style step) instead
-        # of numpy's RandomState.seed + randint. Bench inside numba
-        # prange on n=100k, n_perms=100: np.random Fisher-Yates 70 ms
-        # vs LCG Fisher-Yates 26 ms (2.67x speedup). The LCG produces a
-        # different perm sequence than the legacy np.random path, so
-        # the absolute ``nfailed`` count is not bit-equivalent across
-        # the change -- statistical behaviour (mean nfailed / total
-        # perms) is unchanged because the LCG is also uniform on the
-        # shuffle space. Matches the same pattern used in
-        # ``permutation.parallel_mi_prange`` (mlframe convention).
+        # Per-iteration LCG (PCG-style step) for the Fisher-Yates RNG -- ~2.7x faster than numpy's RandomState.seed + randint inside numba prange.
+        # The LCG produces a different perm sequence than np.random, so absolute nfailed is not bit-equivalent to the legacy path; statistical behaviour
+        # (mean nfailed / total perms) is unchanged because the LCG is also uniform on the shuffle space.
         state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(tid + 1)
         # Fisher-Yates in place
         for i in range(n - 1, 0, -1):
@@ -1043,31 +904,15 @@ def _count_nfailed_joint_indep_cupy(
     n_perms: int,
     base_seed: int,
 ) -> int:
-    """Wave 13c: cupy GPU variant of ``_count_nfailed_joint_indep_prange``.
+    """CuPy GPU variant of ``_count_nfailed_joint_indep_prange``.
 
-    Same statistical contract: for each of ``n_perms`` shuffles of Y,
-    compute joint MIs ``I(pair;Y_shuf)``, ``I(X1;Y_shuf)``,
-    ``I(X2;Y_shuf)`` and count how often ``II_perm >= ii_obs``.
+    Same statistical contract: for each of ``n_perms`` shuffles of Y, compute joint MIs ``I(pair;Y_shuf)``, ``I(X1;Y_shuf)``, ``I(X2;Y_shuf)`` and count how often
+    ``II_perm >= ii_obs``. Joint counts via flat-index ``cp.bincount(classes_x * K_y + y_perm, minlength=K_x*K_y)`` (single kernel launch per matrix, no scatter-add atomic
+    contention). MI sum is a vectorised matrix op. Per-call cost is dominated by host->device transfer (~50-150 ms for 4 int arrays of size N + small freq arrays) plus
+    n_perms inner iterations (~3-5 ms each at N=1M). Returns the same int ``n_failed`` total as the CPU numba version. Caller chooses CPU vs GPU dispatch.
 
-    Joint counts are built via the well-known flat-index trick
-    ``cp.bincount(classes_x * K_y + y_perm, minlength=K_x*K_y)`` which
-    on GPU is the standard pattern for histogram-like reductions
-    (single kernel launch per matrix, no scatter-add atomic contention).
-    MI sum is vectorised matrix op.
-
-    Per-call cost dominated by host->device transfer (~50-150 ms for
-    4 int arrays of size N + small freq arrays) + n_perms inner
-    iterations (~3-5 ms each at N=1M).
-
-    Returns the same int ``n_failed`` total as the CPU numba version.
-    Caller is responsible for the CPU<->GPU dispatch decision (see
-    ``_perm_kernel_dispatch`` below).
-
-    Bit-exact-equivalence note: cupy and numba may differ in the
-    last-bit fp rounding of ``log(jf / (px * py))``; for counting
-    ``ii >= ii_obs`` this difference shows up only when ii_obs sits
-    EXACTLY at a perm-MI value (probability zero on continuous data).
-    Real-world n_failed counts match.
+    Bit-exact-equivalence note: cupy and numba may differ in last-bit fp rounding of ``log(jf / (px * py))``; for counting ``ii >= ii_obs`` this matters only when ii_obs
+    sits EXACTLY at a perm-MI value (probability zero on continuous data). Real-world n_failed counts match.
     """
     import cupy as cp  # lazy import
 
@@ -1178,19 +1023,10 @@ def _shuffle_and_compute_three_mis(
     freqs_y: np.ndarray,
     dtype,
 ) -> tuple:
-    """Shuffle classes_y_safe in place (Fisher-Yates) and compute three
-    MIs against the shuffled Y in a SINGLE pass over N rows.
+    """Shuffle classes_y_safe in place (Fisher-Yates) and compute three MIs against the shuffled Y in a SINGLE pass over N rows.
 
-    Pre-2026-05-11 form: shuffle + 3 separate ``compute_mi_from_classes``
-    calls = 3 passes over N=1M to build three joint-count matrices.
-    Each pass is the dominant cost in the cat-interaction permutation
-    confirmation loop (c0089 1M-row regression+MRMR profile: 26.5 s
-    tottime in ``_count_nfailed_joint_indep_prange`` over 56 calls).
-    New form: ONE pass that increments all three joint-count matrices
-    simultaneously, then closed-form MI summation on each (only depends
-    on the small (K_x, K_y) matrices). Bit-exact equivalent of the
-    three-call form -- joint counts are integer increments, log/exp
-    rounding identical.
+    One pass increments all three joint-count matrices simultaneously, then closed-form MI summation on each (only depends on the small (K_x, K_y) matrices). Bit-exact
+    equivalent of the three-separate-call form -- joint counts are integer increments, log/exp rounding identical.
     """
     n = len(classes_y_safe)
     # Fisher-Yates shuffle in place
@@ -1265,22 +1101,14 @@ def _compute_westfall_young_corrected_p(
     dtype,
     verbose: int,
 ) -> dict:
-    """Full Westfall-Young: per shuffle, compute II_perm for ALL search-
-    phase pairs, take the MAX, and accumulate the max-II distribution.
-    Each survivor's p-value is ``(1 + #{b: max_II_perm[b] >= II_obs}) /
-    (B + 1)``.
+    """Full Westfall-Young: per shuffle, compute II_perm for ALL search-phase pairs, take the MAX, and accumulate the max-II distribution. Each survivor's p-value is
+    ``(1 + #{b: max_II_perm[b] >= II_obs}) / (B + 1)``.
 
-    D2: this is the proper WY procedure (Westfall & Young 1993). It
-    naturally accounts for inter-pair correlation: pairs that share a
-    column have correlated permutation distributions, and the max-II
-    statistic captures this. Strictly more powerful than Bonferroni on
-    the same B.
+    The proper WY procedure (Westfall & Young 1993) naturally accounts for inter-pair correlation: pairs that share a column have correlated permutation distributions and
+    the max-II statistic captures this. Strictly more powerful than Bonferroni on the same B.
 
-    Cost: per shuffle, compute joint MI for all m = ``len(pairs_a)``
-    pairs. At m=4950 and B=100 that's 495k MI computations. Heavy --
-    enable only when ``cfg.fwer_correction='westfall_young'`` AND the
-    user accepts the cost. The savings vs Bonferroni: typically need
-    2-5x fewer permutations for the same effective alpha.
+    Cost: per shuffle, compute joint MI for all m = ``len(pairs_a)`` pairs. At m=4950 and B=100 that's 495k MI computations. Heavy -- enable only when
+    ``cfg.fwer_correction='westfall_young'`` AND the user accepts the cost. Savings vs Bonferroni: typically need 2-5x fewer permutations for the same effective alpha.
 
     Returns ``{(i, j): corrected_p_value}`` ONLY for the survivors in
     ``selected_idx``.
@@ -1301,7 +1129,8 @@ def _compute_westfall_young_corrected_p(
     pair_classes_buf = np.empty((m, n_samples), dtype=dtype)
     pair_freqs_list: list = []
     for k in range(m):
-        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
         cls_pair, fq_pair, _ = merge_vars(
             factors_data=factors_data,
             vars_indices=np.array([i, jj], dtype=np.int64),
@@ -1350,7 +1179,8 @@ def _compute_westfall_young_corrected_p(
     # Compute corrected p for each survivor
     corrected_p: dict = {}
     for k in selected_idx:
-        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
         ii_obs = float(ii_obs_arr[k])
         n_exceed = int((max_ii_per_perm >= ii_obs).sum())
         corrected_p[(i, jj)] = (n_exceed + 1) / (n_perms + 1)
@@ -1360,27 +1190,17 @@ def _compute_westfall_young_corrected_p(
 def _apply_fwer_correction(
     confidence_dict: dict, cfg: CatFEConfig, n_search_pairs: int,
 ) -> dict:
-    """Apply multiple-testing correction to per-pair p-values, returning
-    the corrected confidence dict. Supports:
+    """Apply multiple-testing correction to per-pair p-values, returning the corrected confidence dict. Supports:
 
     - ``"none"``: identity. FWER unchecked; user accepts inflation.
-    - ``"bonferroni"``: ``p_corr = min(1, p * m)`` where m is the
-      effective search-family size (``n_search_pairs``, NOT len of
-      survivors). Conservative.
-    - ``"bh_fdr"``: Benjamini-Hochberg step-up FDR. Less conservative
-      than Bonferroni, controls expected proportion of false discoveries.
-    - ``"westfall_young"``: NOTE -- proper WY requires recomputing the
-      max-II across ALL search-phase pairs under each shuffle. This
-      implementation approximates with Bonferroni-on-survivors, which
-      is conservative-equivalent for the typical case where the
-      survivors' II values dominate the per-shuffle max. A future
-      revision can compute the full per-shuffle max-II distribution
-      from the orchestrator's pair-search arrays (held in memory).
+    - ``"bonferroni"``: ``p_corr = min(1, p * m)`` where m is the effective search-family size (``n_search_pairs``, NOT len of survivors). Conservative.
+    - ``"bh_fdr"``: Benjamini-Hochberg step-up FDR. Less conservative than Bonferroni, controls expected proportion of false discoveries.
+    - ``"westfall_young"``: proper WY requires recomputing the max-II across ALL search-phase pairs under each shuffle. This branch is reached only as a FALLBACK
+      (typically when memory is too tight for ``_compute_westfall_young_corrected_p``); it approximates with Bonferroni-on-survivors, which is conservative-equivalent
+      for the typical case where survivors' II values dominate the per-shuffle max.
 
-    SB2: the choice of ``n_search_pairs`` matters -- it's NOT
-    len(survivors) but the count of pairs CONSIDERED at search time.
-    A user who screened 100 candidate cols saw N(N-1)/2 = 4950 pairs;
-    that's the family size, not 64 survivors.
+    ``n_search_pairs`` is the count of pairs CONSIDERED at search time, NOT len(survivors). A user who screened 100 candidate cols saw N(N-1)/2 = 4950 pairs; that's the
+    family size, not 64 survivors.
     """
     if cfg.fwer_correction == "none" or not confidence_dict:
         return dict(confidence_dict)
@@ -1407,12 +1227,7 @@ def _apply_fwer_correction(
         return {k: 1.0 - corrected[k] for k in p_vals}
 
     if cfg.fwer_correction == "westfall_young":
-        # NOTE: this branch is reached only as a FALLBACK when the
-        # orchestrator wasn't able to invoke the full WY procedure
-        # (e.g. memory budget too tight to hold all m pair-class arrays).
-        # In normal flow, ``_compute_westfall_young_corrected_p`` runs
-        # first and the orchestrator skips this helper for WY entirely.
-        # Bonferroni-on-survivors is the conservative-equivalent fallback.
+        # Fallback path: orchestrator normally runs ``_compute_westfall_young_corrected_p`` directly. Bonferroni-on-survivors is the conservative-equivalent fallback.
         return {k: 1.0 - min(1.0, p * m) for k, p in p_vals.items()}
 
     raise ValueError(f"Unknown fwer_correction: {cfg.fwer_correction!r}")
@@ -1432,21 +1247,15 @@ def _confirm_pairs_via_permutation(
     dtype,
     verbose: int,
 ) -> tuple:
-    """Run permutation confirmation on top-K survivors. Returns
-    ``(selected_idx_kept, confidence_per_pair_dict)``.
+    """Run permutation confirmation on top-K survivors. Returns ``(selected_idx_kept, confidence_per_pair_dict)``.
 
-    For each survivor, sample ``cfg.full_npermutations`` Fisher-Yates
-    shuffles of Y, compute II_perm via same-shuffle three-MI, and count
-    how often ``II_perm >= II_obs``. Confidence = 1 - failures /
-    npermutations. Pairs with confidence < min_nonzero_confidence are
-    dropped from selected_idx.
+    For each survivor, sample ``cfg.full_npermutations`` Fisher-Yates shuffles of Y, compute II_perm via same-shuffle three-MI, and count how often ``II_perm >= II_obs``.
+    Confidence = 1 - failures / npermutations. Pairs with confidence < min_nonzero_confidence are dropped from selected_idx.
 
-    Confidence is the "joint dependence confidence" -- it tests the
-    null that (X1, X2) is jointly independent of Y, NOT the null that
-    II = 0. See SB1 / I2 in the v3 plan for the caveat.
+    Confidence is the "joint dependence confidence" -- it tests the null that (X1, X2) is jointly independent of Y, NOT the null that II = 0.
     """
     if cfg.full_npermutations <= 0:
-        # SB4: warn the user they're flying blind on FWER.
+        # Warn the user they're flying blind on FWER.
         if len(selected_idx) > 0 and verbose:
             logger.warning(
                 "cat-FE: full_npermutations=0 surfaced %d pair(s) ranked by "
@@ -1461,16 +1270,11 @@ def _confirm_pairs_via_permutation(
 
     n_samples = factors_data.shape[0]
     n_perms = cfg.full_npermutations
-    min_conf = 0.95  # SB4 default for cat-FE (separate from MRMR.min_nonzero_confidence)
+    min_conf = 0.95  # cat-FE default; separate from MRMR.min_nonzero_confidence
 
-    # 2026-05-11 Tier 13b: optional subsample for the permutation null
-    # distribution. When ``cfg.permutation_subsample`` is an int < n,
-    # we draw a stable random subset ONCE (seed=base_seed) and pass
-    # the subsampled (classes_pair, classes_x1, classes_x2, classes_y)
-    # to the inner permutation kernel. ``ii_obs`` was computed earlier
-    # on the FULL frame so the test stays "subsampled-null vs full-
-    # data observed". Cost-vs-rigour trade-off documented on the
-    # config field.
+    # Optional subsample for the permutation null distribution. When ``cfg.permutation_subsample`` is an int < n, draw a stable random subset ONCE (seed=base_seed) and
+    # pass the subsampled (classes_pair, classes_x1, classes_x2, classes_y) to the inner permutation kernel. ``ii_obs`` was computed earlier on the FULL frame so the
+    # test stays "subsampled-null vs full-data observed". Cost-vs-rigour trade-off documented on the config field.
     _perm_subsample = getattr(cfg, "permutation_subsample", None)
     if _perm_subsample is not None and _perm_subsample > 0 and n_samples > _perm_subsample:
         _ss_rng = np.random.default_rng(int(_perm_subsample) ^ n_samples)
@@ -1490,9 +1294,7 @@ def _confirm_pairs_via_permutation(
         _ss_classes_y = classes_y
         _ss_freqs_y = freqs_y
 
-    # Pre-merge classes for each survivor pair (and its marginals).
-    # Memory: O(top_k * 3 * n) -- at top_k=64, n=1M, dtype=int32: ~768 MB worst case.
-    # OK for top_k of order 100; user controls.
+    # Pre-merge classes for each survivor pair (and its marginals). Memory: O(top_k * 3 * n) -- at top_k=64, n=1M, dtype=int32: ~768 MB worst case; OK for top_k of order 100; user controls.
     confidence_dict: dict = {}
     kept_mask = np.ones(len(selected_idx), dtype=bool)
 
@@ -1502,28 +1304,27 @@ def _confirm_pairs_via_permutation(
             len(selected_idx), n_perms,
         )
 
-    # Tier 4.1: bandit UCB1 budget allocation. When enabled, each pair
-    # gets ``min_perms_per_pair`` initial shuffles; then we add shuffles
-    # to the pair with the largest UCB1 score (uncertainty + I value)
-    # until total budget = n_perms * len(selected_idx) is exhausted.
-    # Pairs clearly above floor stop receiving shuffles; ambiguous pairs
-    # get more. Saves 2-5x typical total perms.
-    use_bandit = (
+    # Bandit UCB1 budget allocation. When enabled, each pair gets ``min_perms_per_pair`` initial shuffles; then we add shuffles to the pair with the largest UCB1
+    # score (uncertainty + I value) until total budget = n_perms * len(selected_idx) is exhausted. Pairs clearly above floor stop receiving shuffles; ambiguous
+    # pairs get more. Saves 2-5x typical total perms.
+    # !TODO! flagged by ruff F841: ``use_bandit`` computed but never branched on inside the per-pair loop below.
+    # The actual bandit dispatch lives in ``_confirm_pairs_bandit_ucb1`` (called from the top-level cat-FE driver
+    # around line 2822). Likely a half-implemented in-loop bandit path; verify whether this confirm function
+    # should also short-circuit / re-allocate perms when use_bandit is True.
+    use_bandit = (  # noqa: F841 -- see !TODO! above; flag is read by the top-level driver but not yet wired into the per-pair loop here.
         getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1"
         and len(selected_idx) > 1
     )
 
-    # D1: conditional permutation null requires per-pair freshly-merged
-    # X2 column to shuffle within strata of Y. Note that the joint MI
-    # I(X1, X2; Y) after shuffling X2 within strata of Y requires
-    # RE-merging X1 with the shuffled X2 -- the joint table can't be
-    # reused from cls_pair. So this null is materially more expensive
-    # than the joint-independence null. Caller opts in via cfg.
+    # Conditional permutation null requires per-pair freshly-merged X2 column to shuffle within strata of Y. The joint MI I(X1, X2; Y) after shuffling X2 within strata
+    # of Y requires RE-merging X1 with the shuffled X2 -- the joint table can't be reused from cls_pair. So this null is materially more expensive than the joint-
+    # independence null. Caller opts in via cfg.
     use_conditional = cfg.permutation_null == "conditional"
     n_y_classes = int(classes_y.max()) + 1
 
     for j, k in enumerate(selected_idx):
-        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
         ii_obs = float(ii_arr[k])
 
         cls_pair, fq_pair, _ = merge_vars(
@@ -1544,11 +1345,8 @@ def _confirm_pairs_via_permutation(
 
         n_failed = 0
         if use_conditional:
-            # D1: shuffle X2 within strata of Y. The null preserves
-            # P(X1, Y) AND P(X2, Y); only I(X1; X2 | Y) is broken.
-            # Tier 4.8: if cfg.enable_full_conditional_perm is True, use
-            # the stricter (X1, Y) double-stratification which also
-            # preserves P(X1, X2) marginally -- the IPF-style synergy null.
+            # Shuffle X2 within strata of Y. The null preserves P(X1, Y) AND P(X2, Y); only I(X1; X2 | Y) is broken.
+            # If cfg.enable_full_conditional_perm is True, use the stricter (X1, Y) double-stratification which also preserves P(X1, X2) marginally -- the IPF-style synergy null.
             classes_x2_safe = cls_x2.astype(np.int64, copy=True)
             classes_x1_arr = cls_x1.astype(np.int64, copy=False)
             n_samples_local = factors_data.shape[0]
@@ -1564,8 +1362,7 @@ def _confirm_pairs_via_permutation(
                     _conditional_shuffle_within_strata(
                         classes_x2_safe, classes_y, n_y_classes,
                     )
-                # Re-merge X1 with the shuffled X2 to get the conditional-
-                # null joint. We materialise a 2-col array on the fly.
+                # Re-merge X1 with the shuffled X2 to get the conditional-null joint. We materialise a 2-col array on the fly.
                 local_data = np.empty((n_samples_local, 2), dtype=dtype)
                 local_data[:, 0] = classes_x1_arr.astype(dtype, copy=False)
                 local_data[:, 1] = classes_x2_safe.astype(dtype, copy=False)
@@ -1582,16 +1379,12 @@ def _confirm_pairs_via_permutation(
                     classes_x=cls_joint_perm, freqs_x=fq_joint_perm,
                     classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
                 )
-                # Marginals are PRESERVED by conditional shuffle -- use
-                # the originals from the loop entry. (We still subtract
-                # the same marginals as the observed II.)
+                # Marginals are PRESERVED by conditional shuffle -- use the originals from the loop entry. (We still subtract the same marginals as the observed II.)
                 i_x1_p = compute_mi_from_classes(
                     classes_x=cls_x1, freqs_x=fq_x1,
                     classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
                 )
-                # I(X2_shuffled; Y) -- per the conditional-null property,
-                # this equals I(X2; Y) up to floating-point noise; we
-                # recompute for safety.
+                # I(X2_shuffled; Y) -- per the conditional-null property, this equals I(X2; Y) up to floating-point noise; we recompute for safety.
                 fq_x2_perm = np.bincount(
                     classes_x2_safe.astype(np.int64), minlength=int(classes_x2_safe.max()) + 1
                 ).astype(np.float64) / n_samples_local
@@ -1604,14 +1397,9 @@ def _confirm_pairs_via_permutation(
                 if ii_perm >= ii_obs:
                     n_failed += 1
         else:
-            # Default joint-independence null: shuffle Y once, recompute
-            # all three MIs against the shuffled Y. Tests "(X1,X2) ⊥ Y".
-            # T2: parallel via numba prange over permutations. Per-thread
-            # local copy of Y so shuffles don't race. Seed derived from
-            # j (survivor index) so re-runs are reproducible.
-            # 2026-05-11 Tier 13b: when permutation_subsample is set,
-            # the kernel runs against the subsampled (classes_x*,
-            # classes_y) arrays; ii_obs is unchanged.
+            # Default joint-independence null: shuffle Y once, recompute all three MIs against the shuffled Y. Tests "(X1,X2) ⊥ Y".
+            # Parallel via numba prange over permutations. Per-thread local copy of Y so shuffles don't race. Seed derived from j (survivor index) so re-runs are reproducible.
+            # When permutation_subsample is set, the kernel runs against the subsampled (classes_x*, classes_y) arrays; ii_obs is unchanged.
             if _ss_idx is not None:
                 _k_cls_pair = cls_pair[_ss_idx]
                 _k_cls_x1 = cls_x1[_ss_idx]
@@ -1622,11 +1410,8 @@ def _confirm_pairs_via_permutation(
             else:
                 _k_cls_pair, _k_cls_x1, _k_cls_x2 = cls_pair, cls_x1, cls_x2
                 _k_fq_pair, _k_fq_x1, _k_fq_x2 = fq_pair, fq_x1, fq_x2
-            # 2026-05-11 Tier 13c: dispatch the permutation kernel to
-            # GPU when (N * n_perms) is above the crossover threshold.
-            # Below, the CPU numba prange wins -- GPU launch + transfer
-            # cost dominates short permutation budgets. See
-            # ``_perm_kernel_dispatch_use_gpu`` for the policy.
+            # Dispatch the permutation kernel to GPU when (N * n_perms) is above the crossover threshold. Below, CPU numba prange wins -- GPU launch + transfer cost
+            # dominates short permutation budgets. See ``_perm_kernel_dispatch_use_gpu`` for the policy.
             _kernel_n = (
                 int(_k_cls_pair.size) if _ss_idx is not None else n_samples
             )
@@ -1656,16 +1441,13 @@ def _confirm_pairs_via_permutation(
                     _ss_classes_y, _ss_freqs_y, ii_obs, n_perms,
                     base_seed=int(j) * 1000003 + 7, dtype=dtype,
                 )
-        # Continuity-corrected p-value: (n_failed + 1) / (n_perms + 1)
-        # gives a non-zero p-value floor even with zero failures, and
-        # is the standard convention for empirical permutation p.
+        # Continuity-corrected p-value: (n_failed + 1) / (n_perms + 1) gives a non-zero p-value floor even with zero failures and is the standard convention for
+        # empirical permutation p.
         p = (n_failed + 1) / (n_perms + 1)
         conf = 1.0 - p
         confidence_dict[(i, jj)] = conf
 
-    # FWER correction (SB2). Applied AFTER raw p collection so the
-    # correction strategy can see all survivors' p-values together
-    # (needed for BH-FDR step-up).
+    # FWER correction applied AFTER raw p collection so the correction strategy can see all survivors' p-values together (needed for BH-FDR step-up).
     corrected_conf = _apply_fwer_correction(
         confidence_dict, cfg, n_search_pairs=n_search_pairs,
     )
@@ -1691,12 +1473,10 @@ def _confirm_pairs_via_permutation(
 
 
 # ============================================================================
-# Target encoding emit (Tier 3.1, E2.1)
+# Target encoding emit
 #
-# In addition to factorize-encoded engineered cols, emit target-encoded
-# variants: ``E[Y | merged_class]`` per cell with optional out-of-fold
-# smoothing to prevent leakage. Useful when downstream models prefer
-# numeric inputs (linear / NN / tree models with continuous splits).
+# In addition to factorize-encoded engineered cols, emit target-encoded variants: ``E[Y | merged_class]`` per cell with optional out-of-fold smoothing to prevent leakage.
+# Useful when downstream models prefer numeric inputs (linear / NN / tree models with continuous splits).
 # ============================================================================
 
 
@@ -1710,23 +1490,16 @@ def _compute_target_encoding(
     smoothing: float,
     dtype,
 ) -> tuple:
-    """Compute target-encoded values per cell of (X[idx_tuple]).
-    Returns (te_values, cell_means_oof_combined) -- a 1-D array of
-    ``n_samples`` floats where each row is ``E[Y | merged_class]``
-    computed out-of-fold (to prevent leakage).
+    """Compute target-encoded values per cell of (X[idx_tuple]). Returns (te_values, cell_means_oof_combined) -- a 1-D array of ``n_samples`` floats where each row is
+    ``E[Y | merged_class]`` computed out-of-fold (to prevent leakage).
 
     Strategy:
-    - Build per-cell mean of Y, with shrinkage: ``te = (n_c * te_raw +
-      alpha * te_global) / (n_c + alpha)`` (Micci-Barreca 2001).
-    - For OOF: split rows into K folds; for each fold, compute cell
-      means from the other K-1 folds, apply to this fold's rows.
-    - For naive (n_oof_folds=0): single-pass cell mean across ALL rows.
-      Leaks signal -- only safe when used as a downstream feature in
-      a separate train/val split.
+    - Build per-cell mean of Y, with shrinkage: ``te = (n_c * te_raw + alpha * te_global) / (n_c + alpha)`` (Micci-Barreca 2001).
+    - For OOF: split rows into K folds; for each fold, compute cell means from the other K-1 folds, apply to this fold's rows.
+    - For naive (n_oof_folds=0): single-pass cell mean across ALL rows. Leaks signal -- only safe when used as a downstream feature in a separate train/val split.
 
-    Y is treated as numeric (regression). For binary classification,
-    this gives per-cell P(y=1) -- well-behaved. For multi-class, falls
-    back to encoding the first class indicator (TODO multi-class).
+    Y is treated as numeric (regression). For binary classification, this gives per-cell P(y=1) -- well-behaved. For multi-class, falls back to encoding the first class
+    indicator (TODO multi-class).
     """
     n_samples = factors_data.shape[0]
     # Compute the merged class per row
@@ -1785,9 +1558,7 @@ def _compute_target_encoding(
             c = int(classes_merged[row])
             te_values[row] = cell_means_fold[c]
 
-    # Also compute global (all-rows) cell means for transform()-time replay.
-    # At transform, OOF doesn't make sense (test data has no Y); we use
-    # the global mean per cell.
+    # Also compute global (all-rows) cell means for transform()-time replay. At transform OOF doesn't make sense (test data has no Y); we use the global mean per cell.
     cell_sum = np.zeros(int(n_uniq), dtype=np.float64)
     cell_cnt = np.zeros(int(n_uniq), dtype=np.float64)
     for row in range(n_samples):
@@ -1805,12 +1576,10 @@ def _compute_target_encoding(
 
 
 # ============================================================================
-# Sample-weight-aware MI computation (Tier 2.1)
+# Sample-weight-aware MI computation
 #
-# Cat-FE-local weighted MI: bypasses ``merge_vars`` and computes joint
-# weighted histogram directly. Used when ``cfg.sample_weight_col`` is set.
-# Does NOT extend the global ``merge_vars`` API (which has 500+ callers);
-# weighted MRMR screening / RFECV is project-level future work.
+# Cat-FE-local weighted MI: bypasses ``merge_vars`` and computes joint weighted histogram directly. Used when ``cfg.sample_weight_col`` is set. Does NOT extend the
+# global ``merge_vars`` API (which has 500+ callers); weighted MRMR screening / RFECV is project-level future work.
 # ============================================================================
 
 
@@ -1825,13 +1594,10 @@ def _pair_search_kernel_weighted_njit(
     weights: np.ndarray,        # (n,) float64; sum(weights) > 0
     dtype,
 ) -> tuple:
-    """Weighted variant of ``_pair_search_kernel_njit``. For each pair
-    (a, b) compute weighted joint MI = sum_{m,y} w_{m,y} log(w_{m,y} *
-    W / (w_m * w_y)) where w_{m,y} = (sum of row weights in cell
-    (merged=m, y=y)) / W and W = sum of all weights. Equivalent to
-    unweighted MI under uniform weights.
+    """Weighted variant of ``_pair_search_kernel_njit``.
 
-    Returns (joint_mi, ii, n_uniq) arrays.
+    For each pair (a, b) compute weighted joint MI = sum_{m,y} w_{m,y} log(w_{m,y} * W / (w_m * w_y)) where w_{m,y} = (sum of row weights in cell (merged=m, y=y)) / W
+    and W = sum of all weights. Equivalent to unweighted MI under uniform weights. Returns (joint_mi, ii, n_uniq) arrays.
     """
     n_pairs = len(pairs_a)
     n_samples = factors_data.shape[0]
@@ -1888,12 +1654,10 @@ def _pair_search_kernel_weighted_njit(
 
 
 # ============================================================================
-# Bootstrap CIs on II (Tier 2.2)
+# Bootstrap CIs on II
 #
-# For each top-K survivor, draw ``n_replicates`` subsamples (size
-# ``sample_frac * n``), recompute II per replicate, return (lower,
-# median, upper) CI. Complements permutation tests: perm checks
-# significance vs null; bootstrap checks STABILITY under sample variation.
+# For each top-K survivor, draw ``n_replicates`` subsamples (size ``sample_frac * n``), recompute II per replicate, return (lower, median, upper) CI. Complements
+# permutation tests: perm checks significance vs null; bootstrap checks STABILITY under sample variation.
 # ============================================================================
 
 
@@ -1909,12 +1673,10 @@ def _bootstrap_ii_cis(
     dtype,
     verbose: int,
 ) -> dict:
-    """For each pair in ``selected_idx``, compute bootstrap CI on II.
-    Returns ``{(i, j): (lower, median, upper)}`` per ``cfg.bootstrap_ci_alpha``.
+    """For each pair in ``selected_idx``, compute bootstrap CI on II. Returns ``{(i, j): (lower, median, upper)}`` per ``cfg.bootstrap_ci_alpha``.
 
-    Cost: ``n_replicates * top_k * O(n)`` -- at n_replicates=20, top_k=32,
-    n=10000 that's ~6.4M merge_vars-equivalents. Heavy; gated by user
-    opt-in (``bootstrap_ci_n_replicates > 0``).
+    Cost: ``n_replicates * top_k * O(n)`` -- at n_replicates=20, top_k=32, n=10000 that's ~6.4M merge_vars-equivalents.
+    Heavy; gated by user opt-in (``bootstrap_ci_n_replicates > 0``).
     """
     if cfg.bootstrap_ci_n_replicates <= 0 or len(selected_idx) == 0:
         return {}
@@ -1933,9 +1695,9 @@ def _bootstrap_ii_cis(
         )
 
     ci_dict: dict = {}
-    target_indices_arr = np.array([], dtype=np.int64)  # unused for II
     for k in selected_idx:
-        i = int(pairs_a[k]); jj = int(pairs_b[k])
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
         ii_replicates = np.empty(n_rep, dtype=np.float64)
         for r in range(n_rep):
             rng = np.random.default_rng(seed=int(jj) * 65537 + r)
@@ -1976,23 +1738,17 @@ def _bootstrap_ii_cis(
 
 
 # ============================================================================
-# Anti-redundancy with selected features (E3)
+# Anti-redundancy with selected features
 #
-# Pure-II ranking treats a pair (X1, X2) as relevant if it has high
-# synergy with Y. But MRMR's overall objective is `relevance - β*redundancy`:
-# a pair whose merged column is HIGHLY CORRELATED with an already-
-# selected feature Z adds little new information regardless of its II.
-# E3 down-weights II by `β * max_z I(merged; Z)` over already-selected Z.
+# Pure-II ranking treats a pair (X1, X2) as relevant if it has high synergy with Y. But MRMR's overall objective is `relevance - β*redundancy`: a pair whose merged
+# column is HIGHLY CORRELATED with an already-selected feature Z adds little new information regardless of its II. We down-weight II by `β * max_z I(merged; Z)`
+# over already-selected Z.
 #
-# Two-stage decoupled design (SM6 per v3 plan):
-# 1. Stage 1: II floor gates "is this engineered col worth materializing?"
-#    (already done by ``_select_top_k_pairs``).
-# 2. Stage 2 (HERE): mRMR-style score = II - β * mean_z I(merged; Z)
-#    re-ranks survivors. β=0 disables (default), preserving pure II.
+# Two-stage decoupled design:
+# 1. II floor gates "is this engineered col worth materializing?" (already done by ``_select_top_k_pairs``).
+# 2. mRMR-style score = II - β * mean_z I(merged; Z) re-ranks survivors here. β=0 disables (default), preserving pure II.
 #
-# Cost: per survivor + per selected Z, one merge_vars + one
-# compute_mi_from_classes. At top_k=64 survivors and |Z|=20 selected,
-# that's 1280 merge_vars calls. Linear in both.
+# Cost: per survivor + per selected Z, one merge_vars + one compute_mi_from_classes. At top_k=64 survivors and |Z|=20 selected, that's 1280 merge_vars calls; linear in both.
 # ============================================================================
 
 
@@ -2011,8 +1767,7 @@ def _anti_redundancy_rerank(
 ) -> tuple:
     """Re-rank top-K survivors by ``score = II - β * mean_z I(merged; Z)``.
 
-    When ``cfg.anti_redundancy_beta == 0`` or ``selected_so_far`` is empty,
-    this is a no-op. Returns ``(scored_arr, selected_idx_reordered)``.
+    When ``cfg.anti_redundancy_beta == 0`` or ``selected_so_far`` is empty, this is a no-op. Returns ``(scored_arr, selected_idx_reordered)``.
     """
     if cfg.anti_redundancy_beta <= 0 or not selected_so_far or len(selected_idx) == 0:
         return ii_arr, selected_idx
@@ -2028,7 +1783,8 @@ def _anti_redundancy_rerank(
     scored = ii_arr.copy()
     selected_so_far_arr = np.asarray(selected_so_far, dtype=np.int64)
     for k in selected_idx:
-        i = int(pairs_a[k]); j = int(pairs_b[k])
+        i = int(pairs_a[k])
+        j = int(pairs_b[k])
         # Materialise the merged class for this pair
         cls_merged, freqs_merged, _ = merge_vars(
             factors_data=factors_data,
@@ -2064,17 +1820,12 @@ def _anti_redundancy_rerank(
 
 
 # ============================================================================
-# K-fold II stability filter (E6)
+# K-fold II stability filter
 #
-# A pair with II=0.3 on one fold and II=-0.1 on another is noise, not signal.
-# E6 splits the training data into K folds, recomputes II on each fold's
-# slice, and keeps only pairs prevalent in >= floor·K folds. This guards
-# against "II was driven by a few outlier rows" failures.
+# A pair with II=0.3 on one fold and II=-0.1 on another is noise, not signal. Split the training data into K folds, recompute II on each fold's slice, and keep only
+# pairs prevalent in >= floor·K folds. Guards against "II was driven by a few outlier rows" failures.
 #
-# Cost: K-1 extra pair searches (each fold uses ~n*(K-1)/K rows). At
-# cfg.n_folds_stability=5 and n=10000, that's ~5 full pair searches.
-# Run BEFORE the heavy permutation phase so the per-fold II costs don't
-# multiply against npermutations.
+# Cost: K-1 extra pair searches (each fold uses ~n*(K-1)/K rows). Runs BEFORE the heavy permutation phase so the per-fold II costs don't multiply against npermutations.
 # ============================================================================
 
 
@@ -2089,15 +1840,10 @@ def _kfold_stability_filter(
     dtype,
     verbose: int,
 ) -> tuple:
-    """For each top-K survivor, recompute II on K disjoint folds; keep
-    pairs whose II clears the floor on >= ``min_fold_prevalence * K``
-    folds. Returns ``(kept_selected_idx, per_fold_ii_dict)``.
+    """For each top-K survivor, recompute II on K disjoint folds; keep pairs whose II clears the floor on >= ``min_fold_prevalence * K`` folds. Returns
+    ``(kept_selected_idx, per_fold_ii_dict)``. No-op (returns inputs unchanged) when ``cfg.n_folds_stability <= 0``.
 
-    When ``cfg.n_folds_stability <= 0``, this is a no-op that returns
-    inputs unchanged.
-
-    Determinism: folds are derived from ``np.arange(n) % K`` -- no
-    shuffling, no RNG. Reproducible across runs.
+    Determinism: folds are derived from ``np.arange(n) % K`` -- no shuffling, no RNG. Reproducible across runs.
     """
     if cfg.n_folds_stability <= 0 or len(selected_idx) == 0:
         return selected_idx, {}
@@ -2114,7 +1860,8 @@ def _kfold_stability_filter(
         logger.info("cat-FE: K-fold stability check (K=%d) over %d top-K pair(s)", K, len(selected_idx))
 
     for k in selected_idx:
-        i = int(pairs_a[k]); j = int(pairs_b[k])
+        i = int(pairs_a[k])
+        j = int(pairs_b[k])
         fold_ii_vals: list = []
 
         for f in range(K):
@@ -2175,12 +1922,10 @@ def _kfold_stability_filter(
 
 
 # ============================================================================
-# Tier 4.2: coordinate-ascent refinement after greedy k-way
+# Coordinate-ascent refinement after greedy k-way
 #
-# Greedy k-way picks a triplet (A, B, C). Coordinate-ascent then tries
-# replacing each member with each non-member; if the swap improves
-# joint MI, keep it. Catches cases where the greedy seed missed a
-# better neighbor. Refines local optima, doesn't break global structure.
+# Greedy k-way picks a triplet (A, B, C). Coordinate-ascent then tries replacing each member with each non-member; if the swap improves joint MI, keep it. Catches cases
+# where the greedy seed missed a better neighbor. Refines local optima, doesn't break global structure.
 # ============================================================================
 
 
@@ -2196,10 +1941,7 @@ def _refine_kway_coordinate_ascent(
     dtype,
     verbose: int,
 ) -> list:
-    """For each k-way result, run ``n_passes`` of coordinate-ascent:
-    try swapping each member with each non-member; keep if joint MI
-    improves. Returns refined kway_results.
-    """
+    """For each k-way result, run ``n_passes`` of coordinate-ascent: try swapping each member with each non-member; keep if joint MI improves. Returns refined kway_results."""
     if n_passes <= 0 or not kway_results:
         return kway_results
     refined = []
@@ -2261,12 +2003,10 @@ def _refine_kway_coordinate_ascent(
 
 
 # ============================================================================
-# Tier 4.3: group-aware permutation
+# Group-aware permutation
 #
-# When rows are clustered (sessions, users), shuffling Y globally breaks
-# both within-group and between-group structure -- inflating significance.
-# Group-aware permutation shuffles Y values only across groups (preserves
-# within-group Y patterns).
+# When rows are clustered (sessions, users), shuffling Y globally breaks both within-group and between-group structure -- inflating significance. Group-aware permutation
+# shuffles Y values only across groups (preserves within-group Y patterns).
 # ============================================================================
 
 
@@ -2274,13 +2014,8 @@ def _refine_kway_coordinate_ascent(
 def _group_aware_shuffle(
     classes_y_safe: np.ndarray, groups: np.ndarray, n_groups: int,
 ) -> None:
-    """Shuffle classes_y_safe in place, restricting to between-group
-    permutations. For each group, all rows get the SAME (shuffled)
-    Y representative (the group's first row's Y, after shuffling
-    group ordering).
-
-    Simplified strategy: shuffle group representatives, then broadcast
-    each group's shuffled Y to all its rows.
+    """Shuffle classes_y_safe in place, restricting to between-group permutations. For each group, all rows get the SAME (shuffled) Y representative (the group's first
+    row's Y, after shuffling group ordering). Implementation: shuffle group representatives, then broadcast each group's shuffled Y to all its rows.
     """
     n = len(classes_y_safe)
     # Find each group's first-occurrence Y value
@@ -2301,28 +2036,20 @@ def _group_aware_shuffle(
 
 
 # ============================================================================
-# K-way greedy expansion (SB7)
+# K-way greedy expansion
 #
-# After top-K pairs are confirmed, greedily extend each surviving pair by ONE
-# variable at a time up to ``cfg.max_kway_order``. For each candidate
-# extension k:
+# After top-K pairs are confirmed, greedily extend each surviving pair by ONE variable at a time up to ``cfg.max_kway_order``. For each candidate extension k:
 #
 #   delta_II = I(parent ∪ {k}; Y) - I(parent; Y) - I(X_k; Y)
 #
-# This is the 3-way Jakulin II between (parent_aggregate, X_k, Y) -- it
-# measures whether adding X_k to the merged parent contributes information
-# BEYOND what the parent and X_k separately give. Positive delta means X_k
-# is genuinely synergistic with the parent group; <= 0 means X_k is
-# redundant given parent.
+# This is the 3-way Jakulin II between (parent_aggregate, X_k, Y) -- it measures whether adding X_k to the merged parent contributes information BEYOND what the parent
+# and X_k separately give. Positive delta means X_k is genuinely synergistic with the parent group; <= 0 means X_k is redundant given parent.
 #
-# Naming: "incremental_interaction_information" per SB7. NOT identical to
-# higher-order Jakulin II (which is a 15-term inclusion-exclusion sum); this
-# is closer to JMI (Yang & Moody 1999) than to CMIM (Fleuret 2004).
+# Naming: "incremental_interaction_information". NOT identical to higher-order Jakulin II (which is a 15-term inclusion-exclusion sum); closer to JMI (Yang & Moody 1999)
+# than to CMIM (Fleuret 2004).
 #
-# Cost: O(top_k_pairs * (max_kway_order - 2) * N) merge_vars calls. The
-# orchestrator caps ``max_kway_order`` to a small int (default 2 -> skip;
-# typical use 3..5). Each greedy extension calls merge_vars once per
-# candidate var.
+# Cost: O(top_k_pairs * (max_kway_order - 2) * N) merge_vars calls. The orchestrator caps ``max_kway_order`` to a small int (default 2 -> skip; typical use 3..5). Each
+# greedy extension calls merge_vars once per candidate var.
 # ============================================================================
 
 
@@ -2339,17 +2066,12 @@ def _greedy_expand_one_seed(
     min_inc_ii: float,
     dtype,
 ) -> tuple:
-    """Greedily extend ``seed_indices`` up to ``max_kway_order`` by picking
-    the variable with the largest incremental II at each step.
+    """Greedily extend ``seed_indices`` up to ``max_kway_order`` by picking the variable with the largest incremental II at each step.
 
-    Returns ``(final_indices_tuple, final_classes, final_n_uniq, final_joint_mi)``
-    or ``None`` if no extension cleared ``min_inc_ii`` (in which case the
-    seed pair itself remains the best, no k-way emitted).
+    Returns ``(final_indices_tuple, final_classes, final_n_uniq, final_joint_mi)`` or ``None`` if no extension cleared ``min_inc_ii`` (in which case the seed pair
+    itself remains the best, no k-way emitted).
 
-    Stops early when:
-    - No candidate var clears ``min_inc_ii`` (greedy local max reached).
-    - Adding any candidate would violate the cardinality budget.
-    - Order reaches ``max_kway_order``.
+    Stops early when: no candidate var clears ``min_inc_ii`` (greedy local max reached); adding any candidate would violate the cardinality budget; or order reaches ``max_kway_order``.
     """
     parent_set = set(seed_indices)
     parent_vi = np.array(sorted(parent_set), dtype=np.int64)
@@ -2362,7 +2084,7 @@ def _greedy_expand_one_seed(
         classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
     )
 
-    for order in range(len(parent_set) + 1, max_kway_order + 1):
+    for _order in range(len(parent_set) + 1, max_kway_order + 1):
         best_inc_ii = -np.inf
         best_var: int = -1
         best_classes = None
@@ -2388,9 +2110,7 @@ def _greedy_expand_one_seed(
                 classes_x=new_classes, freqs_x=new_freqs,
                 classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
             )
-            # incremental II = new_joint_mi - parent_mi - marginal_mi[k]
-            # = how much extra info adding X_k brings, BEYOND what parent
-            # and X_k separately contribute.
+            # incremental II = new_joint_mi - parent_mi - marginal_mi[k] = how much extra info adding X_k brings, BEYOND what parent and X_k separately contribute.
             inc_ii = new_joint_mi - parent_mi - float(marginal_mi[k_int])
             if inc_ii > best_inc_ii:
                 best_inc_ii = inc_ii
@@ -2426,16 +2146,12 @@ def _build_kway_chained_lookup(
     unknown_strategy: str,
     dtype,
 ) -> tuple:
-    """Build a chain of ``k - 1`` pair lookup tables that together replay
-    the full k-way merge on test data.
+    """Build a chain of ``k - 1`` pair lookup tables that together replay the full k-way merge on test data.
 
-    Strategy (D3): ``merge_vars`` over k cols can be decomposed as
-    ``merge_vars(merge_vars(...merge_vars(c1, c2), c3...), ck)`` -- a
-    chain of pairwise merges with intermediate dense renumbering. We
-    build the lookup for each step at fit time:
+    ``merge_vars`` over k cols can be decomposed as ``merge_vars(merge_vars(...merge_vars(c1, c2), c3...), ck)`` -- a chain of pairwise merges with intermediate dense
+    renumbering. We build the lookup for each step at fit time:
 
-    Step 1: lookup_1[c1_val + c2_val * nbins_1] -> intermediate_class_1
-            (size nbins_1 * nbins_2; intermediate cardinality = n_uniq_step_1)
+    Step 1: lookup_1[c1_val + c2_val * nbins_1] -> intermediate_class_1 (size nbins_1 * nbins_2; intermediate cardinality = n_uniq_step_1)
     Step 2: lookup_2[intermediate_1 + c3_val * n_uniq_step_1] -> intermediate_class_2
     ...
     Step k-1: lookup_{k-1}[intermediate_{k-2} + ck_val * n_uniq_step_{k-2}] -> final_class
@@ -2444,11 +2160,9 @@ def _build_kway_chained_lookup(
     - ``lookups``: list of (k-1) int64 ndarrays, each a flat lookup table
     - ``intermediate_nuniqs``: list of (k-1) ints, cardinalities AFTER each step
 
-    On transform: callers chain through this list to compute the final
-    class from test-data column values.
+    On transform: callers chain through this list to compute the final class from test-data column values.
     """
     k = len(idx_tuple)
-    n_samples = factors_data.shape[0]
     if k < 2:
         raise ValueError(f"chained lookup requires k>=2, got k={k}")
 
@@ -2484,10 +2198,7 @@ def _build_kway_chained_lookup(
         # Pre-prune codes for this step: running + nxt_vals * running_nuniq
         pre_prune_codes = running_classes + nxt_vals * running_nuniq
         expected_size = running_nuniq * nxt_nbins
-        # Compute next post-prune via merge_vars across the FULL prefix
-        # (idx_tuple[:step+1]); this is what we already have classes for
-        # in ``kway_results`` for step == k-1, but for intermediate steps
-        # we need it explicitly.
+        # Compute next post-prune via merge_vars across the FULL prefix (idx_tuple[:step+1]); kway_results has classes only for step == k-1, intermediate steps need it explicitly.
         vi_prefix = np.array(idx_tuple[: step + 1], dtype=np.int64)
         cls_next, _, n_uniq_next = merge_vars(
             factors_data=factors_data, vars_indices=vi_prefix,
@@ -2522,17 +2233,12 @@ def _materialize_kway(
     dtype,
     unknown_strategy: str,
 ) -> tuple:
-    """Materialise greedy k-way survivors. Returns
-    ``(new_data_block, new_names, new_nbins, new_recipes)`` mirroring
-    ``_materialize_pairs``. K-way recipes have ``src_names`` of length k
-    and ``factorize_nbins`` of length k.
+    """Materialise greedy k-way survivors. Returns ``(new_data_block, new_names, new_nbins, new_recipes)`` mirroring ``_materialize_pairs``. K-way recipes have
+    ``src_names`` of length k and ``factorize_nbins`` of length k.
 
-    D3: k-way recipes now ship a CHAINED LOOKUP -- (k-1) pair lookup
-    tables that ``apply_recipe`` walks sequentially on test data. Memory:
-    sum of intermediate nbins products (typically O(k * max_combined_nbins)),
-    NOT O(nbins^k). At k=3 with cardinalities (10, 10, 10): 100 + 10*n_uniq_step1
-    cells (post-prune n_uniq usually < 100), so ~200-1000 int64 cells per
-    recipe -- negligible vs the pair lookup table cost.
+    K-way recipes ship a CHAINED LOOKUP -- (k-1) pair lookup tables that ``apply_recipe`` walks sequentially on test data. Memory: sum of intermediate nbins products
+    (typically O(k * max_combined_nbins)), NOT O(nbins^k). At k=3 with cardinalities (10, 10, 10): 100 + 10*n_uniq_step1 cells (post-prune n_uniq usually < 100), so
+    ~200-1000 int64 cells per recipe -- negligible vs the pair lookup table cost.
     """
     if not kway_results:
         return (
@@ -2575,10 +2281,8 @@ def _materialize_kway(
                 extra={
                     "kway_order": len(idx_tuple),
                     "n_uniq_post_prune": int(n_uniq),
-                    # D3: chained-lookup payload for k-way replay.
-                    # ``chain_lookups`` has len k-1; ``chain_nuniqs`` is
-                    # the post-prune cardinality after each step (drives
-                    # the multiplier for the NEXT step's pre-prune code).
+                    # Chained-lookup payload for k-way replay. ``chain_lookups`` has len k-1; ``chain_nuniqs`` is the post-prune cardinality after each step
+                    # (drives the multiplier for the NEXT step's pre-prune code).
                     "chain_lookups": chain_lookups,
                     "chain_nuniqs": chain_nuniqs,
                 },
@@ -2594,16 +2298,14 @@ def _select_top_k_pairs(
     cfg: CatFEConfig,
     n_samples: int,
 ) -> np.ndarray:
-    """Pick the top-K pair indices by score. Uses argpartition (P6) --
-    O(N) over heap's O(N log K) -- the flat II array is small.
+    """Pick the top-K pair indices by score. Uses argpartition -- O(N) over heap's O(N log K) -- the flat II array is small.
 
     The score depends on ``cfg.select_on``:
     - ``"synergy"``: rank by ``ii_arr`` desc; keep where ``ii > floor``.
     - ``"redundancy"``: rank by ``-ii_arr`` desc; keep where ``ii < -floor``.
     - ``"absolute"``: rank by ``|ii_arr|`` desc; keep where ``|ii| > floor``.
 
-    Returns int array of indices into ``pairs_a`` / ``pairs_b``
-    (ordered descending by score). Length ``<= cfg.top_k_pairs``.
+    Returns int array of indices into ``pairs_a`` / ``pairs_b`` (ordered descending by score). Length ``<= cfg.top_k_pairs``.
     """
     floor = resolve_min_interaction_information(cfg, n_samples)
     if cfg.select_on == "synergy":
@@ -2645,33 +2347,20 @@ def _build_factorize_lookup(
     classes_pair_post: np.ndarray,
     unknown_strategy: str,
 ) -> tuple:
-    """Build the pre-prune -> post-prune lookup table that lets
-    ``transform()`` replay the merge on test data.
+    """Build the pre-prune -> post-prune lookup table that lets ``transform()`` replay the merge on test data.
 
-    ``merge_vars`` densely renumbers post-prune so the engineered col
-    stored in ``data`` only has values in ``[0, n_uniq)``. But the
-    "code" before pruning is a deterministic function of the input:
-    ``code = a_value + b_value * nbins_a``. Two training rows with
-    the same ``(a, b)`` tuple produce the same pre-prune code, so a
-    lookup table indexed by code works for any input that respects
-    the original cardinalities.
+    ``merge_vars`` densely renumbers post-prune so the engineered col stored in ``data`` only has values in ``[0, n_uniq)``. But the "code" before pruning is a
+    deterministic function of the input: ``code = a_value + b_value * nbins_a``. Two training rows with the same ``(a, b)`` tuple produce the same pre-prune code, so a
+    lookup table indexed by code works for any input that respects the original cardinalities.
 
-    Unseen test combinations (combinations that never appeared in
-    training) are resolved per ``unknown_strategy``:
-
-    - ``"clip"``: cap at the highest seen class (collides unseen with
-      the most frequent training combo's class -- safe, conservative).
-    - ``"sentinel"``: dedicate one new class for "unseen" (inflates
-      ``n_uniq`` by 1; preferable when downstream models can learn a
-      special meaning for that class).
-    - ``"raise"``: leave the lookup at -1 sentinel; ``apply_recipe``
-      raises a clear error on the first unseen value.
+    Unseen test combinations are resolved per ``unknown_strategy``:
+    - ``"clip"``: cap at the highest seen class (collides unseen with the most frequent training combo's class -- safe, conservative).
+    - ``"sentinel"``: dedicate one new class for "unseen" (inflates ``n_uniq`` by 1; preferable when downstream models can learn a special meaning for that class).
+    - ``"raise"``: leave the lookup at -1 sentinel; ``apply_recipe`` raises a clear error on the first unseen value.
 
     Returns ``(lookup_table, n_uniq_effective)``:
-    - ``lookup_table``: ``(nbins_a * nbins_b,)`` int64 array, ``[code]
-      -> post_prune_class`` (or -1 for unseen if ``raise``).
-    - ``n_uniq_effective``: ``n_uniq`` + 1 if ``sentinel`` and any
-      unseen cells, else ``n_uniq``.
+    - ``lookup_table``: ``(nbins_a * nbins_b,)`` int64 array, ``[code] -> post_prune_class`` (or -1 for unseen if ``raise``).
+    - ``n_uniq_effective``: ``n_uniq`` + 1 if ``sentinel`` and any unseen cells, else ``n_uniq``.
     """
     n_samples = factors_data.shape[0]
     expected_size = int(nbins_a) * int(nbins_b)
@@ -2680,13 +2369,10 @@ def _build_factorize_lookup(
     vals_a = factors_data[:, idx_a].astype(np.int64)
     vals_b = factors_data[:, idx_b].astype(np.int64)
     pre_prune_codes = vals_a + vals_b * int(nbins_a)
-    # ``classes_pair_post`` is aligned row-for-row with the data; assign
-    # bulk via fancy indexing (later rows overwrite earlier ones for the
-    # same code, but they're identical so order doesn't matter).
+    # ``classes_pair_post`` is aligned row-for-row with the data; assign bulk via fancy indexing (later rows overwrite earlier ones for the same code, identical values).
     lookup[pre_prune_codes] = classes_pair_post.astype(np.int64)
 
     seen_mask = lookup >= 0
-    n_seen = int(seen_mask.sum())
     n_uniq_effective = int(classes_pair_post.max()) + 1 if n_samples > 0 else 0
 
     if not seen_mask.all():
@@ -2714,20 +2400,16 @@ def _materialize_pairs(
     dtype,
     unknown_strategy: str = "clip",
 ) -> tuple:
-    """For each selected pair, run ``merge_vars`` to produce the
-    ordinal-encoded engineered column, build the lookup table that
-    enables transform-replay, then assemble the
-    ``EngineeredRecipe(kind="factorize")``.
+    """For each selected pair, run ``merge_vars`` to produce the ordinal-encoded engineered column, build the lookup table that enables transform-replay, then assemble
+    the ``EngineeredRecipe(kind="factorize")``.
 
     Returns ``(new_data_block, new_names, new_nbins, new_recipes)``:
     - ``new_data_block``: ``(n_samples, len(selected_idx))`` ordinal array
     - ``new_names``: list of engineered column names
     - ``new_nbins``: list of post-merge cardinalities (pruned)
-    - ``new_recipes``: list of ``EngineeredRecipe(kind="factorize")``,
-      with the lookup table embedded in ``recipe.extra["lookup_table"]``.
+    - ``new_recipes``: list of ``EngineeredRecipe(kind="factorize")``, with the lookup table embedded in ``recipe.extra["lookup_table"]``.
 
-    Caller is responsible for ``np.concatenate``-ing ``new_data_block``
-    onto ``data`` (single concat, P8).
+    Caller is responsible for ``np.concatenate``-ing ``new_data_block`` onto ``data`` (single concat).
     """
     n_samples = factors_data.shape[0]
     n_pairs = len(selected_idx)
@@ -2756,11 +2438,8 @@ def _materialize_pairs(
             classes_pair_post=classes_pair,
             unknown_strategy=unknown_strategy,
         )
-        # Names follow the cat-FE convention ``kway(c1__c2)``. The
-        # ``__`` separator collides with column names containing
-        # ``__`` -- SD prevents lineage filter from substring-parsing.
-        # For now we just assert no collision; the lineage filter
-        # uses ``recipe.src_names`` directly.
+        # Names follow the cat-FE convention ``kway(c1__c2)``. The ``__`` separator collides with column names containing ``__`` -- the lineage filter uses
+        # ``recipe.src_names`` directly rather than substring-parsing, so we just assert no collision.
         name_a = cols[i]
         name_b = cols[j]
         eng_name = f"kway({name_a}__{name_b})"
@@ -2804,28 +2483,21 @@ def run_cat_interaction_step(
     categorical_vars: list,
     cfg: CatFEConfig,
     selected_so_far: list = None,
-    weights: np.ndarray = None,    # Tier 2.1: per-row sample weights; None = uniform
-    streaming_cache: dict = None,  # Tier 4.4: prior-fit cache for incremental re-fit
+    weights: np.ndarray = None,    # Per-row sample weights; None = uniform.
+    streaming_cache: dict = None,  # Prior-fit cache for incremental re-fit.
     dtype=np.int32,
     verbose: int = 0,
 ) -> tuple:
-    """One cat-FE iteration. Augments ``data`` / ``cols`` / ``nbins``
-    with new ordinal-encoded columns capturing pair (and future k-way)
-    synergies. Returns the augmented arrays plus a fresh ``CatFEState``
-    holding recipes + diagnostics.
+    """One cat-FE iteration. Augments ``data`` / ``cols`` / ``nbins`` with new ordinal-encoded columns capturing pair (and k-way) synergies. Returns the augmented arrays
+    plus a fresh ``CatFEState`` holding recipes + diagnostics.
 
     Inputs:
-    - ``data``: ordinal-encoded ``(n_samples, n_cols)`` produced by
-      ``categorize_dataset``.
+    - ``data``: ordinal-encoded ``(n_samples, n_cols)`` produced by ``categorize_dataset``.
     - ``cols``: list of column names matching ``data`` shape.
     - ``nbins``: cardinality per column.
-    - ``target_indices``, ``classes_y``, ``freqs_y``: precomputed by
-      caller (avoids re-binning Y for every MI call -- P2).
-    - ``categorical_vars``: indices into ``data`` of categorical (or
-      pre-discretized numeric, when ``cfg.include_numeric=True``)
-      columns to consider.
-    - ``cfg``: the cat-FE config; ``cfg.enable=True`` is the user's
-      opt-in switch (caller checks before calling us).
+    - ``target_indices``, ``classes_y``, ``freqs_y``: precomputed by caller (avoids re-binning Y for every MI call).
+    - ``categorical_vars``: indices into ``data`` of categorical (or pre-discretized numeric, when ``cfg.include_numeric=True``) columns to consider.
+    - ``cfg``: the cat-FE config; ``cfg.enable=True`` is the user's opt-in switch (caller checks before calling us).
 
     Returns:
     - ``data_out``: augmented ``(n_samples, n_cols + n_engineered)``
@@ -2833,14 +2505,12 @@ def run_cat_interaction_step(
     - ``nbins_out``: ``np.concatenate([nbins, engineered_nbins])``
     - ``state``: ``CatFEState`` with recipes / diagnostics populated.
 
-    When the step adds no engineered columns (no pairs cleared the
-    floor / all dropped by validation gates), returns the inputs
-    unchanged with an empty ``CatFEState``.
+    When the step adds no engineered columns (no pairs cleared the floor / all dropped by validation gates), returns the inputs unchanged with an empty ``CatFEState``.
     """
     state = CatFEState()
     n_samples = data.shape[0]
 
-    # ---- Pathological-input gates (SB10) ----
+    # ---- Pathological-input gates ----
     if target_indices.size == 0:
         raise ValueError("cat-FE: empty target_indices; cannot compute MI(X;Y).")
     if n_samples < cfg.min_n_samples:
@@ -2851,7 +2521,7 @@ def run_cat_interaction_step(
             )
         return data, cols, nbins, state
 
-    # ---- Memmap detection (SB10 / F23) ----
+    # ---- Memmap detection ----
     if isinstance(data.base, np.memmap):
         try:
             import psutil
@@ -2865,7 +2535,7 @@ def run_cat_interaction_step(
                 f"inputs or ensure available RAM > 2 * data.nbytes."
             )
 
-    # ---- Column-level validation (SM7 / SM8) ----
+    # ---- Column-level validation ----
     candidate_idxs = _select_candidate_indices(
         nbins=nbins,
         categorical_vars=categorical_vars,
@@ -2885,9 +2555,7 @@ def run_cat_interaction_step(
     if verbose:
         logger.info("cat-FE: marginal MI screen over %d candidate columns", len(candidate_idxs))
 
-    # Tier 4.4: streaming cache check. If enabled AND cache provided,
-    # reuse cached marginal MIs for columns whose distribution hasn't
-    # drifted (KL < threshold).
+    # Streaming cache check. If enabled AND cache provided, reuse cached marginal MIs for columns whose distribution hasn't drifted (KL < threshold).
     cache_active = (
         getattr(cfg, "enable_streaming_cache", False)
         and streaming_cache is not None
@@ -2931,7 +2599,7 @@ def run_cat_interaction_step(
         )
         # Build signatures for next-fit cache (whether enabled or not)
         if getattr(cfg, "enable_streaming_cache", False):
-            for k, col_idx in enumerate(candidate_idxs_arr):
+            for _k, col_idx in enumerate(candidate_idxs_arr):
                 new_signatures[int(col_idx)] = _column_signature(
                     data[:, int(col_idx)], int(nbins[int(col_idx)]),
                 )
@@ -2955,13 +2623,12 @@ def run_cat_interaction_step(
             logger.info("cat-FE skipped: %d cols cleared marginal_floor", len(candidate_idxs_arr))
         return data, cols, nbins, state
 
-    # Build a marginal-MI lookup keyed by COLUMN INDEX (into data), so the
-    # pair kernel can look up by index without re-running the screen.
+    # Build a marginal-MI lookup keyed by COLUMN INDEX (into data), so the pair kernel can look up by index without re-running the screen.
     marginal_mi_full = np.full(data.shape[1], np.nan, dtype=np.float64)
     for k, idx in enumerate(candidate_idxs_arr):
         marginal_mi_full[int(idx)] = candidate_mi[k]
 
-    # ---- Pair enumeration with cardinality budget (B5 / SB10) ----
+    # ---- Pair enumeration with cardinality budget ----
     max_combined = resolve_max_combined_nbins(cfg, n_samples)
     pairs_a_list = []
     pairs_b_list = []
@@ -2972,10 +2639,8 @@ def run_cat_interaction_step(
             nb_prod = int(nbins[i]) * int(nbins[j])
             if nb_prod > max_combined:
                 continue
-            # Strict int32-overflow gate (B5): the inner merge_vars loop
-            # computes ``current_nclasses * sample_class`` in int32. With
-            # current_nclasses==nbins[i], this multiplied by (nbins[j]-1)
-            # must stay below 2^31. Conservative: nb_prod < 2^31.
+            # Strict int32-overflow gate: the inner merge_vars loop computes ``current_nclasses * sample_class`` in int32. With current_nclasses==nbins[i],
+            # this multiplied by (nbins[j]-1) must stay below 2^31. Conservative: nb_prod < 2^31.
             if nb_prod >= 2**31:
                 continue
             pairs_a_list.append(i)
@@ -2993,7 +2658,7 @@ def run_cat_interaction_step(
             len(pairs_a), max_combined,
         )
 
-    # ---- Pair search: CPU (njit prange) or GPU dispatch (P9) ----
+    # ---- Pair search: CPU (njit prange) or GPU dispatch ----
     # Backend selection per cfg.backend:
     # - "cpu": always njit prange
     # - "gpu": always GPU dispatch (raises if CuPy missing)
@@ -3015,10 +2680,8 @@ def run_cat_interaction_step(
                         n_cols_eff, n_samples,
                     )
 
-    # Tier 2.1: choose weighted vs unweighted kernel.
-    # Use weighted only when weights are actually non-uniform; uniform
-    # weights are equivalent to unweighted and the weighted kernel costs
-    # extra ops, so skip in that case.
+    # Choose weighted vs unweighted kernel. Use weighted only when weights are actually non-uniform; uniform weights are equivalent to unweighted and the weighted
+    # kernel costs extra ops, so skip in that case.
     use_weights = False
     if weights is not None and len(weights) == n_samples:
         weights = np.asarray(weights, dtype=np.float64)
@@ -3045,7 +2708,8 @@ def run_cat_interaction_step(
             ii_arr = np.zeros(len(pairs_a), dtype=np.float64)
             n_uniq_arr = np.zeros(len(pairs_a), dtype=np.int64)
             for k in range(len(pairs_a)):
-                i = int(pairs_a[k]); j = int(pairs_b[k])
+                i = int(pairs_a[k])
+                j = int(pairs_b[k])
                 ii_arr[k] = joint_mi_arr[k] - marginal_mi_full[i] - marginal_mi_full[j]
                 n_uniq_arr[k] = int(nbins[i]) * int(nbins[j])
     if not use_gpu:
@@ -3072,7 +2736,7 @@ def run_cat_interaction_step(
                 dtype=dtype,
             )
 
-    # ---- Top-K selection (P6) ----
+    # ---- Top-K selection ----
     selected_idx = _select_top_k_pairs(
         ii_arr=ii_arr,
         pairs_a=pairs_a, pairs_b=pairs_b,
@@ -3085,12 +2749,10 @@ def run_cat_interaction_step(
     if verbose:
         logger.info("cat-FE: %d pair(s) selected for materialisation", len(selected_idx))
 
-    # ---- Miller-Madow re-rank on top-K survivors (SB6) ----
-    # Only top-K pay the 5x merge_vars cost; saves N²-scale compute while
-    # catching high-cardinality bias-driven false positives. The re-rank
-    # may shuffle the heap; ``selected_idx`` order matters for downstream
-    # ``_materialize_pairs`` because it determines which engineered cols
-    # are added first (relevant when ``top_k_pairs`` cap binds).
+    # ---- Miller-Madow re-rank on top-K survivors ----
+    # Only top-K pay the 5x merge_vars cost; saves N^2-scale compute while catching high-cardinality bias-driven false positives. The re-rank may shuffle the heap;
+    # ``selected_idx`` order matters for downstream ``_materialize_pairs`` because it determines which engineered cols are added first (relevant when ``top_k_pairs``
+    # cap binds).
     ii_arr, selected_idx = _maybe_rerank_with_mm(
         factors_data=data,
         pairs_a=pairs_a, pairs_b=pairs_b,
@@ -3113,10 +2775,8 @@ def run_cat_interaction_step(
             logger.info("cat-FE: 0 pairs survived MM re-rank floor; no engineered cols")
         return data, cols, nbins, state
 
-    # ---- Anti-redundancy re-rank (E3, opt-in via anti_redundancy_beta>0) ----
-    # Adjusts each survivor's score by ``β * mean_z I(merged; Z)`` where
-    # Z ranges over already-selected features in ``selected_so_far``.
-    # No-op when β=0 or selected_so_far is empty.
+    # ---- Anti-redundancy re-rank (opt-in via anti_redundancy_beta>0) ----
+    # Adjusts each survivor's score by ``beta * mean_z I(merged; Z)`` where Z ranges over already-selected features in ``selected_so_far``. No-op when beta=0 or selected_so_far is empty.
     if selected_so_far:
         ii_arr, selected_idx = _anti_redundancy_rerank(
             factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
@@ -3138,19 +2798,16 @@ def run_cat_interaction_step(
                 logger.info("cat-FE: 0 pairs survived anti-redundancy floor")
             return data, cols, nbins, state
 
-    # ---- K-fold II stability filter (E6, opt-in via n_folds_stability>0) ----
-    # Drops pairs whose II is unstable across K folds (signal driven by
-    # outlier rows). Runs BEFORE permutation so we don't pay perm budget
-    # on pairs that fail stability.
+    # ---- K-fold II stability filter (opt-in via n_folds_stability>0) ----
+    # Drops pairs whose II is unstable across K folds (signal driven by outlier rows). Runs BEFORE permutation so we don't pay perm budget on pairs that fail stability.
     selected_idx, per_fold_ii_dict = _kfold_stability_filter(
         factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
         selected_idx=selected_idx, nbins=nbins,
         target_indices=target_indices,
         cfg=cfg, dtype=dtype, verbose=verbose,
     )
-    # Surface fold IIs into the state UNCONDITIONALLY -- even when 0 pairs
-    # survived, the per-fold values are useful diagnostics (the user can
-    # see WHY the pair was rejected). Must happen BEFORE the early return.
+    # Surface fold IIs into the state UNCONDITIONALLY -- even when 0 pairs survived, the per-fold values are useful diagnostics (user can see WHY the pair was rejected).
+    # Must happen BEFORE the early return.
     if per_fold_ii_dict:
         state.ii_stability.update(per_fold_ii_dict)
     if len(selected_idx) == 0:
@@ -3158,30 +2815,20 @@ def run_cat_interaction_step(
             logger.info("cat-FE: 0 pairs survived K-fold stability filter")
         return data, cols, nbins, state
 
-    # ---- Permutation confirmation (E2 / SB1) + FWER correction (SB2) ----
-    # Runs only when ``cfg.full_npermutations > 0`` (default 100 per SB4).
-    # Tests joint-independence null; failed pairs are dropped from
-    # ``selected_idx``. The resulting ``confidence_dict`` is surfaced
-    # via diagnostics for user inspection. ``n_search_pairs`` is the
-    # family size for FWER correction -- the count of pairs CONSIDERED
+    # ---- Permutation confirmation + FWER correction ----
+    # Runs only when ``cfg.full_npermutations > 0`` (default 100). Tests joint-independence null; failed pairs are dropped from ``selected_idx``. The resulting
+    # ``confidence_dict`` is surfaced via diagnostics for user inspection. ``n_search_pairs`` is the family size for FWER correction -- the count of pairs CONSIDERED
     # in the search phase, NOT the top-K count.
-    # D2: full Westfall-Young requires the per-shuffle max-II across ALL
-    # search pairs, which is materially more expensive than per-survivor
-    # permutation. To get the full WY behaviour, we substitute the
-    # per-pair p-values from the joint-independence test with the WY-
-    # corrected versions BEFORE the orchestrator applies the floor.
-    # Memory budget: full WY pre-merges m * n int32 cells; if that
-    # exceeds e.g. 500 MB we fall back to Bonferroni-on-survivors via
-    # the _apply_fwer_correction path.
+    # Full Westfall-Young requires the per-shuffle max-II across ALL search pairs, materially more expensive than per-survivor permutation. To get the full WY
+    # behaviour, we substitute the per-pair p-values from the joint-independence test with the WY-corrected versions BEFORE the orchestrator applies the floor.
+    # Memory budget: full WY pre-merges m * n int32 cells; if that exceeds e.g. 500 MB we fall back to Bonferroni-on-survivors via the _apply_fwer_correction path.
     use_full_wy = (
         cfg.fwer_correction == "westfall_young"
         and cfg.full_npermutations > 0
         and len(pairs_a) * n_samples * 4 < 500 * 1024 * 1024
     )
 
-    # Tier 4.1: bandit UCB1 budget allocation overrides the fixed path
-    # when cfg.perm_budget_strategy='bandit_ucb1' (and full_npermutations>0
-    # AND not using full WY which has its own coordination).
+    # Bandit UCB1 budget allocation overrides the fixed path when cfg.perm_budget_strategy='bandit_ucb1' (and full_npermutations>0 AND not using full WY which has its own coordination).
     if (
         getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1"
         and cfg.full_npermutations > 0
@@ -3232,7 +2879,7 @@ def run_cat_interaction_step(
             logger.info("cat-FE: 0 pairs cleared permutation confirmation")
         return data, cols, nbins, state
 
-    # ---- Bootstrap CIs on II (Tier 2.2, opt-in via bootstrap_ci_n_replicates>0) ----
+    # ---- Bootstrap CIs on II (opt-in via bootstrap_ci_n_replicates>0) ----
     bootstrap_ci_dict = _bootstrap_ii_cis(
         factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
         selected_idx=selected_idx,
@@ -3259,14 +2906,10 @@ def run_cat_interaction_step(
                 logger.info("cat-FE: 0 pairs survived bootstrap CI floor")
             return data, cols, nbins, state
 
-    # ---- K-way greedy expansion (SB7, opt-in via max_kway_order > 2) ----
-    # T4: HYBRID seeding -- first try only the top-K confirmed pairs,
-    # which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100.
-    # If that produces ZERO k-way results (the pure-k-way-XOR case
-    # where all 2-way IIs are noise around 0 and top-K is random),
-    # fall back to seeding from ALL pairs. This avoids the quadratic
-    # cost when the signal is detectable from top-K, but preserves the
-    # all-pairs path for pathological niches.
+    # ---- K-way greedy expansion (opt-in via max_kway_order > 2) ----
+    # HYBRID seeding -- first try only the top-K confirmed pairs, which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100. If that produces ZERO k-way results
+    # (the pure-k-way-XOR case where all 2-way IIs are noise around 0 and top-K is random), fall back to seeding from ALL pairs. This avoids the quadratic cost
+    # when the signal is detectable from top-K, but preserves the all-pairs path for pathological niches.
     kway_results: list = []
     if cfg.max_kway_order > 2:
         min_inc_ii = resolve_min_interaction_information(cfg, n_samples)
@@ -3318,7 +2961,7 @@ def run_cat_interaction_step(
                 len(kway_results),
             )
 
-        # Tier 4.2: coordinate-ascent refinement (opt-in via refine_passes>0)
+        # Coordinate-ascent refinement (opt-in via refine_passes>0).
         if cfg.refine_passes > 0 and kway_results:
             kway_results = _refine_kway_coordinate_ascent(
                 factors_data=data, kway_results=kway_results,
@@ -3329,7 +2972,7 @@ def run_cat_interaction_step(
                 dtype=dtype, verbose=verbose,
             )
 
-    # ---- Materialise pair survivors (P8 single concat) ----
+    # ---- Materialise pair survivors (single concat) ----
     new_data_block, new_names, new_nbins, new_recipes = _materialize_pairs(
         factors_data=data,
         pairs_a=pairs_a, pairs_b=pairs_b,
@@ -3359,9 +3002,7 @@ def run_cat_interaction_step(
         if cfg.emit_diagnostics:
             for (idx_tuple, _, n_uniq, joint_mi), name in zip(kway_results, kway_names):
                 state.diagnostics[name] = {
-                    "II": float(joint_mi),  # k-way: II vs union-of-marginals would
-                                            # require recomputing; surface joint_MI
-                                            # as a coarse rank signal.
+                    "II": float(joint_mi),  # k-way: II vs union-of-marginals would require recomputing; surface joint_MI as a coarse rank signal.
                     "joint_MI": float(joint_mi),
                     "joint_nclasses": int(n_uniq),
                     "src_indices": tuple(int(i) for i in idx_tuple),
@@ -3370,7 +3011,7 @@ def run_cat_interaction_step(
                     "n_obs_per_cell_p25": float(n_samples / max(int(n_uniq), 1)),
                     "joint_dependence_confidence": None,  # k-way perm-test not implemented
                 }
-    # Diagnostics (E4 -- always cheap, gated by cfg)
+    # Diagnostics (always cheap, gated by cfg).
     if cfg.emit_diagnostics:
         for k_out, k_in in enumerate(selected_idx):
             i = int(pairs_a[k_in])
@@ -3384,15 +3025,14 @@ def run_cat_interaction_step(
                 "src_indices": (i, j),
                 "src_names": (cols[i], cols[j]),
                 "n_obs_per_cell_p25": float(n_samples / max(int(n_uniq_arr[k_in]), 1)),
-                # Joint-dependence confidence (SB1): honest naming -- this
-                # tests "(X1, X2) jointly independent of Y", not "no synergy".
+                # Joint-dependence confidence: honest naming -- this tests "(X1, X2) jointly independent of Y", not "no synergy".
                 # ``None`` when no permutation test ran (full_npermutations=0).
                 "joint_dependence_confidence": (
                     float(confidence_dict[(i, j)])
                     if (i, j) in confidence_dict
                     else None
                 ),
-                # Tier 2.2: bootstrap CI on II. ``None`` when disabled.
+                # Bootstrap CI on II. ``None`` when disabled.
                 "bootstrap_ii_ci": (
                     bootstrap_ci_dict[(i, j)]
                     if (i, j) in bootstrap_ci_dict
@@ -3402,16 +3042,13 @@ def run_cat_interaction_step(
 
     state.recipes.extend(new_recipes)
 
-    # ---- Tier 3.1: target encoding emit (opt-in) ----
-    # For each pair recipe, additionally emit a target-encoded col with
-    # OOF CV-aware shrinkage. Recipes carry ``kind="target_encoding"``
-    # with the global cell-means table for transform() replay.
+    # ---- Target encoding emit (opt-in) ----
+    # For each pair recipe, additionally emit a target-encoded col with OOF CV-aware shrinkage. Recipes carry ``kind="target_encoding"`` with the global cell-means table for transform() replay.
     if cfg.emit_target_encoding:
         te_cols_list: list = []
         te_names: list = []
         te_recipes: list = []
-        # Materialize TE alongside factorize-recipe survivors (pairs only;
-        # k-way TE is left as future work for simplicity).
+        # Materialize TE alongside factorize-recipe survivors (pairs only; k-way TE is left as future work for simplicity).
         for k_out, k_in in enumerate(selected_idx):
             i = int(pairs_a[k_in])
             j = int(pairs_b[k_in])
@@ -3424,15 +3061,13 @@ def run_cat_interaction_step(
                 smoothing=cfg.target_encoding_smoothing,
                 dtype=dtype,
             )
-            # te_vals dtype is float64; we don't quantize -- caller's
-            # downstream model handles continuous encoded values.
+            # te_vals dtype is float64; we don't quantize -- caller's downstream model handles continuous encoded values.
             te_name = f"te({cols[i]}__{cols[j]})"
             if te_name in cols or te_name in new_names or te_name in te_names:
                 te_name = f"te_{k_out}({cols[i]}__{cols[j]})"
             te_cols_list.append(te_vals)
             te_names.append(te_name)
-            # Build a target_encoding recipe with the cell-means table
-            # for transform() replay. Stored as ``extra``.
+            # Build a target_encoding recipe with the cell-means table for transform() replay. Stored as ``extra``.
             te_recipes.append(
                 EngineeredRecipe(
                     name=te_name,
@@ -3454,14 +3089,9 @@ def run_cat_interaction_step(
             te_block = np.column_stack([
                 v.astype(np.float64, copy=False) for v in te_cols_list
             ])
-            # Target-encoded cols are FLOAT, not ordinal. Add as separate
-            # block; downstream screening will discretize them again per
-            # quantization_method. nbins[te_col] is unknown until then;
-            # leave a sentinel that categorize_dataset will overwrite.
-            # For simplicity, we store these in state.diagnostics but
-            # NOT in the main data block (the cat-FE pipeline assumes
-            # ordinal-encoded data; TE cols would need a quantization
-            # round-trip).
+            # Target-encoded cols are FLOAT, not ordinal. Add as a separate block; downstream screening will discretize them again per quantization_method. nbins[te_col]
+            # is unknown until then; leave a sentinel that categorize_dataset will overwrite. We store these in state.diagnostics but NOT in the main data block
+            # (the cat-FE pipeline assumes ordinal-encoded data; TE cols would need a quantization round-trip).
             state.diagnostics["__target_encoding__"] = {
                 "te_block_shape": te_block.shape,
                 "te_names": te_names,
@@ -3477,24 +3107,20 @@ def run_cat_interaction_step(
                     len(te_recipes),
                 )
 
-    # ---- Single concat onto data / cols / nbins (P8) ----
+    # ---- Single concat onto data / cols / nbins ----
     data_out = np.concatenate([data, new_data_block], axis=1)
     cols_out = list(cols) + new_names
     nbins_out = np.concatenate([nbins, np.asarray(new_nbins, dtype=nbins.dtype)])
 
-    # ---- Build engineered_lineage map (B6 / T1) ----
-    # Engineered cols land at indices [n_orig, n_orig + len(new_names)).
-    # For each, record the parent indices (in the ORIGINAL data layout)
-    # so screen_predictors can skip ``(orig_parent, engineered_col)``
-    # k-way candidates -- they're redundant by construction.
+    # ---- Build engineered_lineage map ----
+    # Engineered cols land at indices [n_orig, n_orig + len(new_names)). For each, record the parent indices (in the ORIGINAL data layout) so screen_predictors
+    # can skip ``(orig_parent, engineered_col)`` k-way candidates -- they're redundant by construction.
     n_orig = data.shape[1]
     name_to_idx = {n: i for i, n in enumerate(cols)}  # original col name -> idx
     state.lineage = {}
-    for k_out, name in enumerate(new_names):
+    for k_out, _name in enumerate(new_names):
         eng_idx = n_orig + k_out
-        # Parent indices come from the recipe's src_names. Recipes built
-        # in this orchestrator have src_names referencing ORIGINAL data
-        # columns (we don't yet support nested engineered parents).
+        # Parent indices come from the recipe's src_names. Recipes built here reference ORIGINAL data columns (no nested engineered parents yet).
         recipe = new_recipes[k_out]
         parent_idxs = []
         for src_name in recipe.src_names:

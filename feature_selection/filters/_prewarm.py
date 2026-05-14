@@ -1,29 +1,14 @@
-"""Numba-JIT pre-warm helpers for the feature_selection.filters
-package.
+"""Numba-JIT pre-warm helpers for the feature_selection.filters package.
 
-Calling ``prewarm_fs_numba_cache()`` once at process start triggers
-the JIT compile of all hot ``@njit`` kernels in:
+Calling ``prewarm_fs_numba_cache()`` once at process start triggers the JIT compile of all hot ``@njit`` kernels in:
 
   - ``cat_interactions``  (cat-FE permutation tests, pair search)
   - ``discretization``    (quantile / uniform binning)
   - ``info_theory``       (mutual-information primitives)
 
-Without prewarm the first ``MRMR.fit`` call pays ~60 s of cumulative
-JIT cold-start (verified on the 1M-row regression+MRMR c0089 profile:
-JIT-related cumtime sat at 60.8 s before this hook, all attributed
-through ``run_cat_interaction_step`` and other FS callsites).
-``@njit(cache=True)`` writes the compiled object to disk only after
-a SUCCESSFUL first run, so cold-start latency hits every process
-that hasn't yet cached. Prewarm overlaps it with the suite's startup
-phase rather than the timed fit phase.
+Without prewarm the first ``MRMR.fit`` call pays ~60 s of cumulative JIT cold-start. ``@njit(cache=True)`` writes the compiled object to disk only after a SUCCESSFUL first run, so cold-start latency hits every process that hasn't yet cached. Prewarm overlaps it with the suite's startup phase rather than the timed fit phase.
 
-This module is intentionally lazy: it imports the kernels only when
-``prewarm_fs_numba_cache()`` is called, so importing
-``mlframe.feature_selection.filters`` is fast even when the user
-doesn't need MRMR.
-
-Idempotent: numba caches compilations process-wide, so calling
-multiple times is essentially free after the first.
+Lazy by design: kernels are imported only when ``prewarm_fs_numba_cache()`` is called, so importing ``mlframe.feature_selection.filters`` stays fast when the user doesn't need MRMR. Idempotent: numba caches compilations process-wide, so subsequent calls are essentially free.
 """
 
 from __future__ import annotations
@@ -34,10 +19,7 @@ import numpy as np
 def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     """Trigger JIT compilation of feature_selection numba kernels.
 
-    Safe to call from anywhere; no-op on numba-unavailable systems.
-    Each kernel is exercised on a tiny (n=10) synthetic input that
-    matches its production signature -- enough for numba to compile
-    + cache the binary, not enough to measure or affect.
+    Safe to call from anywhere; no-op on numba-unavailable systems. Each kernel is exercised on a tiny synthetic input that matches its production signature.
     """
     import time
     import logging
@@ -56,21 +38,11 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         )
         from .info_theory import compute_mi_from_classes
         from .discretization import discretize_2d_array, discretize_array
-        # 2026-05-11 Wave 17: screening-path permutation kernels.
-        # ``mi_direct`` (called once per candidate during screening) dispatches
-        # to either ``parallel_mi_prange`` (parallel=True) or ``parallel_mi``
-        # (sequential joblib worker) depending on caller. Both pay full
-        # JIT-compile cost on first call (~17s on c0121 profile, dominating
-        # MRMR.fit's wall time). Pre-warming shifts that out of the
-        # user-visible timer.
+        # Screening-path permutation kernels. ``mi_direct`` (called once per candidate during screening) dispatches to either ``parallel_mi_prange``
+        # (parallel=True) or ``parallel_mi`` (sequential joblib worker); both pay full JIT-compile cost on first call (~17s).
         from .permutation import parallel_mi_prange, parallel_mi, shuffle_arr
-        # 2026-05-11 Wave 17b: info-theory primitives used by screen.py.
-        # ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` /
-        # ``entropy_miller_madow`` each pay 1-3s JIT compile on first
-        # call; ``screen_predictors`` calls them tens of times per fit.
-        # Wave 17a covered permutation kernels (~1.5s saved on c0121);
-        # the remaining ~16s of JIT compile attributed via
-        # ``screen_predictors`` lives in these primitives.
+        # Info-theory primitives used by screen.py. ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` / ``entropy_miller_madow`` each pay 1-3s JIT
+        # compile on first call; ``screen_predictors`` calls them tens of times per fit.
         from .info_theory import (
             merge_vars, entropy, entropy_miller_madow, mi, conditional_mi,
         )
@@ -166,15 +138,11 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     except Exception:
         pass
 
-    # Info-theory primitives (Wave 17b). ``screen_predictors`` calls
-    # ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` /
-    # ``entropy_miller_madow`` for every candidate; the first call from
-    # a fresh process eats ~5-8s of JIT compile (verified on c0121).
-    # ``arr2str`` / ``count_cand_nbins`` / ``unpack_and_sort`` are
-    # called from inside ``conditional_mi`` so they must compile too.
+    # Info-theory primitives. ``screen_predictors`` calls ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` / ``entropy_miller_madow`` for every
+    # candidate; first call from a fresh process eats ~5-8s of JIT compile. ``arr2str`` / ``count_cand_nbins`` / ``unpack_and_sort`` are called from inside
+    # ``conditional_mi`` so they must compile too.
     try:
-        # Realistic factors_data: 4 ordinal columns × n rows, dtype int32
-        # to match the screening path's dtype.
+        # Realistic factors_data: 4 ordinal columns x n rows, dtype int32 to match the screening path's dtype.
         _factors = np.column_stack([
             classes_x1, classes_x2, classes_x1, classes_x2,
         ]).astype(np.int32)
@@ -225,11 +193,8 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     except Exception:
         pass
 
-    # Screening permutation kernels (Wave 17). ``mi_direct`` calls one
-    # of these per candidate during MRMR screening; first call on a
-    # fresh process eats the entire ~17s JIT-compile budget. Prewarm
-    # both the prange variant AND the joblib-worker variant so neither
-    # caller path pays the cost during a real fit.
+    # Screening permutation kernels. ``mi_direct`` calls one of these per candidate during MRMR screening; first call on a fresh process eats the entire ~17s
+    # JIT-compile budget. Prewarm both the prange variant AND the joblib-worker variant so neither caller path pays the cost during a real fit.
     try:
         _ = parallel_mi_prange(
             classes_x=classes_pair, freqs_x=freqs_pair,
@@ -247,41 +212,23 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         )
     except Exception:
         pass
-    # 2026-05-12 Wave 33: prewarm ``shuffle_arr`` — the njit wrapper
-    # around ``np.random.shuffle`` used in ``mi_direct``'s sequential
-    # fallback path (n_workers=1). c0144 n_jobs=1 profile showed 42
-    # calls at 3.9s JIT compile from this single function.
+    # Prewarm ``shuffle_arr`` -- the njit wrapper around ``np.random.shuffle`` used in ``mi_direct``'s sequential fallback path (n_workers=1).
     try:
         _test = classes_y.copy()
         shuffle_arr(_test)
     except Exception:
         pass
 
-    # Discretisation kernels. Cover the dominant production dtype combos:
-    # int8 (default + cat-FE path) and int16 (categorize_dataset default
-    # for the screening path on c0121-like regression combos). Each
-    # dtype is a SEPARATE numba compilation (~9s of cold JIT compile,
-    # surfaced 2026-05-11 on c0121 profile: 9.25s attributed to
-    # ``categorize_dataset -> discretize_2d_array`` first call).
-    # Wave 17c: explicitly pass ``min_values=None, max_values=None``
-    # to match the categorize_dataset call signature exactly -- without
-    # this, numba's per-signature cache misses and the kernel recompiles
-    # on first real use.
+    # Discretisation kernels. Cover the dominant production dtype combos: int8 (default + cat-FE path) and int16 (categorize_dataset default for the screening
+    # path on regression combos). Each dtype is a SEPARATE numba compilation (~9s of cold JIT compile). Explicitly pass ``min_values=None, max_values=None`` to
+    # match the categorize_dataset call signature exactly -- without this, numba's per-signature cache misses and the kernel recompiles on first real use.
     cont = rng.normal(size=(n, 2)).astype(np.float64)
-    # Wave 17d: polars ``.to_numpy()`` returns F-contiguous (column-major)
-    # while pandas ``.to_numpy()`` returns C-contiguous (row-major).
-    # Numba's array-layout dispatch treats these as DIFFERENT signatures
-    # (Array(float64, 2, 'C') vs Array(float64, 2, 'F')) and compiles
-    # separately -- prewarming only C-contig leaves the polars path with
-    # ~10s of cold JIT compile on first MRMR.fit(polars_df) at 1M rows
-    # (verified on c0121 1M profile: 10.05s attributed to categorize_dataset
-    # -> discretize_2d_array(F-contig)). Cover BOTH layouts.
+    # polars ``.to_numpy()`` returns F-contiguous (column-major) while pandas returns C-contiguous (row-major). Numba's array-layout dispatch treats these as
+    # DIFFERENT signatures (Array(float64, 2, 'C') vs Array(float64, 2, 'F')) and compiles separately -- prewarming only C-contig leaves the polars path with
+    # ~10s of cold JIT compile on first MRMR.fit(polars_df) at 1M rows. Cover BOTH layouts.
     cont_f = np.asfortranarray(cont)  # F-contiguous variant
-    # Wave 17e: int32 is MRMR's DEFAULT quantization_dtype (see
-    # ``MRMR.__init__: quantization_dtype: object = np.int32`` at mrmr.py:294)
-    # -- prewarming only int8/int16 left the default-config code path
-    # paying ~8s of JIT compile per fresh process (c0074 1M profile,
-    # surfaced 2026-05-11). int32 must be in the matrix.
+    # int32 is MRMR's DEFAULT quantization_dtype (see ``MRMR.__init__: quantization_dtype: object = np.int32`` at mrmr.py:294) -- prewarming only int8/int16
+    # left the default-config code path paying ~8s of JIT compile per fresh process. int32 must be in the matrix.
     for _disc_dtype in (np.int8, np.int16, np.int32):
         for _arr in (cont, cont_f):
             try:
@@ -298,11 +245,9 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             )
         except Exception:
             pass
-    # Wave 17c: prewarm the inner-loop kernels directly. ``_discretize_array_impl``,
-    # ``quantize_search``, ``quantize_dig``, ``discretize_uniform`` each compile
-    # on first call from inside the prange body; prewarming the outer
-    # ``discretize_2d_array`` only triggers them via the parallel-fanout
-    # at runtime, which numba may not preserve in the disk cache cleanly.
+    # Prewarm the inner-loop kernels directly. ``_discretize_array_impl``, ``quantize_search``, ``quantize_dig``, ``discretize_uniform`` each compile on first
+    # call from inside the prange body; prewarming the outer ``discretize_2d_array`` only triggers them via the parallel-fanout at runtime, which numba may not
+    # preserve in the disk cache cleanly.
     try:
         from .discretization import (
             _discretize_array_impl, quantize_search, quantize_dig,
@@ -337,9 +282,7 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             _ = digitize(_arr1d, _bins, dtype=np.int32)
         except Exception:
             pass
-        # get_binning_edges with both "quantile" and "uniform" method
-        # branches -- numba compiles each branch separately because
-        # the unicode_type narrows under the if/elif.
+        # get_binning_edges with both "quantile" and "uniform" method branches -- numba compiles each branch separately because the unicode_type narrows under the if/elif.
         for _method in ("quantile", "uniform"):
             try:
                 _ = get_binning_edges(

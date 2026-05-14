@@ -1,23 +1,14 @@
 """GPU permutation testing via CuPy raw kernels.
 
-Public entry: ``mi_direct_gpu``. The two CUDA kernels live as module
-attributes (``compute_joint_hist_cuda`` and ``compute_mi_from_classes_cuda``)
-populated by ``init_kernels()``. Lazy initialisation goes through
-``_ensure_kernels_inited()`` so the first call from any thread or process
-gets a consistent module state without having to import CuPy at package
-import time.
+Public entry: ``mi_direct_gpu``. The CUDA kernels live as module attributes (``compute_joint_hist_cuda``, ``compute_mi_from_classes_cuda``, plus the batched
+variants) populated by ``init_kernels()``. Lazy initialisation goes through ``_ensure_kernels_inited()`` so the first call from any thread or process gets a
+consistent module state without importing CuPy at package import time.
 
-B11 (etap 5): the kernel-init lock is a ``multiprocessing.Lock`` (not a
-``threading.Lock``) so Windows ``spawn`` workers don't all initialise the
-kernels concurrently.
+The kernel-init lock is a ``multiprocessing.Lock`` (not ``threading.Lock``) so Windows ``spawn`` workers don't all initialise the kernels concurrently. CuPy
+seeding is guarded by ``ImportError`` rather than ``NameError``.
 
-B20 (etap 5): CuPy seeding goes through an ``ImportError``-guarded
-``try/except`` rather than the legacy ``NameError`` reflex.
-
-The kernels are written into the module's ``__dict__`` via
-``sys.modules[__name__]`` so callers in this same module can refer to
-them as plain free names (``compute_joint_hist_cuda(...)``) at call time
-even though they don't exist at module-import time.
+The kernels are written into the module's ``__dict__`` via ``sys.modules[__name__]`` so callers can refer to them as plain free names at call time even though
+they don't exist at module-import time.
 """
 from __future__ import annotations
 
@@ -40,11 +31,8 @@ compute_mi_from_classes_cuda: Any = None
 compute_joint_hist_batched_cuda: Any = None
 
 
-# Phase 2 (post-plan etap 15): persistent device-buffer pool. Reuses a
-# preallocated set of CuPy arrays across ``mi_direct_gpu`` calls so the
-# inner permutation loop does not pay the H2D-copy + alloc cost on
-# every iteration. Buffers grow monotonically (never shrink) so
-# repeated calls with similar shapes hit the cached allocation.
+# Persistent device-buffer pool. Reuses a preallocated set of CuPy arrays across ``mi_direct_gpu`` calls so the inner permutation loop does not pay the H2D-copy
+# + alloc cost on every iteration. Buffers grow monotonically (never shrink) so repeated calls with similar shapes hit the cached allocation.
 class _GpuBufferPool:
     def __init__(self):
         self.classes_x = None        # CuPy int32 vector, length >= n
@@ -80,26 +68,20 @@ class _GpuBufferPool:
 
 _GPU_POOL = _GpuBufferPool()
 
-# B11: cross-process safe lock. Constructed on first import; safe under
-# multiprocessing because the lock is a primitive type that picks up the
-# host process's mutex when spawned.
+# Cross-process safe lock. Constructed on first import; safe under multiprocessing because the lock is a primitive type that picks up the host process's mutex on spawn.
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 
 
 def init_kernels() -> None:
-    """Build the CuPy ``RawKernel`` objects and attach them to this
-    module's namespace. Idempotent under the lock.
+    """Build the CuPy ``RawKernel`` objects and attach them to this module's namespace. Idempotent under the lock.
 
-    Three kernels:
-    * ``compute_joint_hist_cuda`` -- single-permutation joint histogram
-      (legacy, used by ``mi_direct_gpu``).
-    * ``compute_mi_from_classes_cuda`` -- single-permutation MI from
-      joint histogram.
-    * ``compute_joint_hist_batched_cuda`` (Phase 2 batch) -- builds
-      joint histograms for ``batch`` permutations of ``classes_y`` in
-      a single launch. ``perms_y`` has shape ``(batch, n)``;
-      ``joint_counts_batch`` has shape ``(batch, nbins_x * nbins_y)``.
-      Cuts kernel-launch overhead from ``npermutations`` to 1.
+    Kernels:
+    * ``compute_joint_hist_cuda`` -- single-permutation joint histogram (used by ``mi_direct_gpu``).
+    * ``compute_mi_from_classes_cuda`` -- single-permutation MI from joint histogram.
+    * ``compute_joint_hist_batched_cuda`` -- builds joint histograms for ``batch`` permutations of ``classes_y`` in a single launch. ``perms_y`` has shape
+      ``(batch, n)``; ``joint_counts_batch`` has shape ``(batch, nbins_x * nbins_y)``. Cuts kernel-launch overhead from ``npermutations`` to 1.
+    * ``compute_joint_hist_multi_pair_cuda`` -- builds joint histograms for ``n_pairs`` (a, b) column pairs in a single launch via a 3D grid (rows along X, pairs
+      along Y).
     """
     import cupy as cp
 
@@ -140,18 +122,14 @@ def init_kernels() -> None:
     """,
         "compute_joint_hist_batched_cuda",
     )
-    # T5: multi-pair batched joint histogram kernel. Processes B pairs per
-    # launch via 3D grid (blocks along rows, blocks along pairs). Each
-    # (pair, row) thread atomically adds into the pair-local joint hist.
-    #
-    # Inputs:
-    # - factors_data_T: (n_cols, n) row-major int32 -- transposed for
-    #   coalesced reads when iterating over rows of a column.
-    # - pairs_a, pairs_b: (n_pairs,) column indices into factors_data_T
-    # - nbins_a, nbins_b: (n_pairs,) per-pair cardinalities
-    # - joint_offsets: (n_pairs + 1,) prefix-sum into joint_counts_flat
-    # - joint_counts_flat: (sum(nbins_a*nbins_b),) flat output buffer
-    # - n_rows, n_pairs: grid dims
+    # Multi-pair batched joint histogram kernel. Processes B pairs per launch via 3D grid (blocks along rows, blocks along pairs). Each (pair, row) thread atomically
+    # adds into the pair-local joint hist.
+    #   factors_data_T: (n_cols, n) row-major int32 -- transposed for coalesced reads when iterating over rows of a column.
+    #   pairs_a, pairs_b: (n_pairs,) column indices into factors_data_T.
+    #   nbins_a, nbins_b: (n_pairs,) per-pair cardinalities.
+    #   joint_offsets: (n_pairs + 1,) prefix-sum into joint_counts_flat.
+    #   joint_counts_flat: (sum(nbins_a*nbins_b),) flat output buffer.
+    #   n_rows, n_pairs: grid dims.
     module.compute_joint_hist_multi_pair_cuda = cp.RawKernel(
         r"""
     extern "C" __global__
@@ -219,13 +197,10 @@ compute_joint_hist_multi_pair_cuda: Any = None
 
 
 def _ensure_kernels_inited() -> None:
-    """Double-checked init guard. Cheap on the hot path, race-free on the
-    first call across any combination of threads and joblib workers.
+    """Double-checked init guard. Cheap on the hot path, race-free on the first call across any combination of threads and joblib workers.
 
-    Private — external callers should use ``mi_direct_gpu`` or
-    ``mi_direct_gpu_batched``, which call this internally. Direct
-    invocation is only needed when pre-warming CUDA kernels before
-    a parallel joblib run.
+    Private; external callers should use ``mi_direct_gpu`` or ``mi_direct_gpu_batched``, which call this internally. Direct invocation is only needed when
+    pre-warming CUDA kernels before a parallel joblib run.
     """
     if (compute_joint_hist_cuda is not None
             and compute_mi_from_classes_cuda is not None
@@ -249,22 +224,15 @@ def mi_direct_gpu_batched(
     classes_y: np.ndarray = None,
     freqs_y: np.ndarray = None,
 ) -> tuple:
-    """Phase 2 batched GPU permutation MI test.
+    """Batched GPU permutation MI test.
 
-    Generates ``npermutations`` shuffled copies of ``classes_y`` once,
-    chunks them into batches of ``batch_size``, and processes each
-    batch in a **single** kernel launch (instead of one launch per
-    permutation as in ``mi_direct_gpu``). Cuts kernel-launch overhead
-    from ``O(npermutations)`` to ``O(npermutations / batch_size)``.
+    Generates ``npermutations`` shuffled copies of ``classes_y`` once, chunks them into batches of ``batch_size``, and processes each batch in a SINGLE kernel
+    launch (instead of one launch per permutation as in ``mi_direct_gpu``). Cuts kernel-launch overhead from O(npermutations) to O(npermutations / batch_size).
 
-    Auto-fallback: if the requested ``batch_size * n * 4 bytes`` would
-    exceed half of free GPU memory, ``batch_size`` is shrunk to fit.
-    For small datasets the overhead of permutation matrix generation
-    can outweigh the saved launches; the legacy ``mi_direct_gpu``
-    remains the right call for ``npermutations < 32``.
+    Auto-fallback: if ``batch_size * n * 4 bytes`` would exceed half of free GPU memory, ``batch_size`` shrinks to fit. For small datasets the overhead of
+    permutation matrix generation can outweigh the saved launches; ``mi_direct_gpu`` remains the right call for ``npermutations < 32``.
 
-    Returns ``(original_mi, confidence)`` -- same contract as
-    ``mi_direct_gpu``.
+    Returns ``(original_mi, confidence)`` -- same contract as ``mi_direct_gpu``.
     """
     import cupy as cp
 
@@ -294,7 +262,7 @@ def mi_direct_gpu_batched(
 
     # OOM guard: cap batch_size to half of available free GPU memory.
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
-    bytes_per_perm = n * 4  # int32
+    bytes_per_perm = n * 4  # int32 permutation row
     safe_batch = max(1, int(free_bytes // 2 // bytes_per_perm))
     if batch_size > safe_batch:
         batch_size = safe_batch
@@ -312,12 +280,10 @@ def mi_direct_gpu_batched(
     remaining = npermutations
     while remaining > 0:
         b = min(batch_size, remaining)
-        # Generate batch permutations: ``cp.argsort(uniform((b, n)))``
-        # is statistically equivalent to Fisher-Yates for permutation
-        # tests (argsort of distinct floats is a bijection).
+        # ``cp.argsort(uniform((b, n)))`` is statistically equivalent to Fisher-Yates for permutation tests (argsort of distinct floats is a bijection).
         rand = cp.random.uniform(size=(b, n), dtype=cp.float64)
         perm_idx = cp.argsort(rand, axis=1)  # (b, n) int64
-        # Use these indices to gather classes_y -> shuffled copies.
+        # Gather classes_y at these indices -> shuffled copies.
         perms_y = classes_y_gpu[perm_idx].astype(cp.int32)
 
         joint_counts_batch = cp.zeros((b, nbins_x * nbins_y), dtype=cp.int32)
@@ -364,7 +330,7 @@ def mi_direct_gpu(
     max_failed: int = None,
     min_nonzero_confidence: float = 0.95,
     classes_y: np.ndarray = None,
-    classes_y_safe: np.ndarray = None,  # GPU array (CuPy) -- B18 distinguished from CPU at boundary
+    classes_y_safe: np.ndarray = None,  # CuPy GPU array -- distinguished from the CPU classes_y_safe at the API boundary
     freqs_y: np.ndarray = None,
     freqs_y_safe: np.ndarray = None,
     use_gpu: bool = True,
@@ -396,9 +362,7 @@ def mi_direct_gpu(
             if max_failed <= 1:
                 max_failed = 1
 
-        # Phase 2: persistent device buffers. Pool grows monotonically
-        # so back-to-back ``mi_direct_gpu`` calls on similarly-sized
-        # inputs reuse the same allocations.
+        # Persistent device buffers. Pool grows monotonically so back-to-back calls on similarly-sized inputs reuse the same allocations.
         n = len(classes_x)
         nbins_x = len(freqs_x)
         nbins_y = len(freqs_y)
@@ -426,8 +390,8 @@ def mi_direct_gpu(
         freqs_x_gpu[:] = cp.asarray(freqs_x)
         freqs_x = freqs_x_gpu
         nfailed = 0
-        i = 0
-        for i in range(npermutations):
+        _i = 0
+        for _i in range(npermutations):
             cp.random.shuffle(classes_y_safe)
             joint_counts.fill(0)
             compute_joint_hist_cuda(
@@ -448,25 +412,14 @@ def mi_direct_gpu(
                 if nfailed >= max_failed:
                     original_mi = 0.0
                     break
-        confidence = 1 - nfailed / (i + 1)
+        confidence = 1 - nfailed / (_i + 1)
 
     return original_mi, confidence
 
 
 # ============================================================================
-# Cat-FE GPU dispatch shim (P9): batched joint MI computation across many
-# pairs, sharing classes_y on device.
-#
-# Use case: cat-FE pair search at N >= 200 cat cols, n >= 500k. CPU prange
-# is memory-bandwidth bound at that scale (~minutes per pair search);
-# GPU drops it to seconds by amortising the H2D copy of classes_y across
-# all pairs.
-#
-# This MVP implements pair-by-pair GPU dispatch (one kernel launch per
-# pair). True kernel-level batching (one launch processes B pairs in
-# parallel via 3D grid) is a future refinement that requires a new
-# RawKernel; the bottleneck at the stated workload is the per-call
-# memory transfer, not kernel launch overhead.
+# Cat-FE GPU dispatch: batched joint MI computation across many pairs, sharing classes_y on device. Use case is cat-FE pair search at N >= 200 cat cols and
+# n >= 500k, where CPU prange is memory-bandwidth bound (~minutes per pair search); GPU drops it to seconds by amortising the H2D copy of classes_y across all pairs.
 # ============================================================================
 
 
@@ -479,23 +432,14 @@ def mi_direct_gpu_batched_pairs(
     freqs_y: np.ndarray,
     dtype=np.int32,
 ) -> np.ndarray:
-    """Compute ``I(X_i, X_j; Y)`` for every ``(i, j) in zip(pairs_a, pairs_b)``
-    on GPU. Returns a 1-D ``float64`` array of joint MIs aligned with
-    the input order.
+    """Compute ``I(X_i, X_j; Y)`` for every ``(i, j) in zip(pairs_a, pairs_b)`` on GPU. Returns a 1-D ``float64`` array of joint MIs aligned with the input order.
 
-    T5: true kernel-level batching via 3D grid. One launch processes
-    ALL pairs in parallel using ``compute_joint_hist_multi_pair_cuda``.
-    Joint MI per pair then computed on CPU (cheap relative to histogram
-    aggregation). Cuts the per-pair kernel-launch overhead (~30us) to
-    zero -- at n_pairs=4950 that's ~150ms saved over the naive
-    per-pair loop.
+    Kernel-level batching via 3D grid: ONE launch processes all pairs in parallel through ``compute_joint_hist_multi_pair_cuda``. Joint MI per pair is then
+    computed on CPU (cheap relative to histogram aggregation). Cuts per-pair kernel-launch overhead (~30us) to zero -- at n_pairs=4950 that saves ~150ms vs the
+    naive per-pair loop.
 
-    Pre-conditions:
-    - CuPy installed and a GPU is available.
-    - ``classes_y`` / ``freqs_y`` are precomputed by the caller.
-
-    Falls back to a clear error if CuPy is missing -- callers must
-    check ``backend`` resolution before calling.
+    Preconditions: CuPy installed and a GPU available; ``classes_y`` / ``freqs_y`` precomputed by the caller. Raises a clear error if CuPy is missing -- callers
+    must resolve ``backend`` before calling.
     """
     try:
         import cupy as cp
@@ -512,9 +456,8 @@ def mi_direct_gpu_batched_pairs(
     if n_pairs == 0:
         return np.zeros(0, dtype=np.float64)
 
-    # Pre-compute per-pair joint cardinalities ((nbins_a * nbins_b) cells
-    # for the MERGED dim) + prefix sum offsets. Each pair's joint table
-    # has shape (merged_size, nbins_y), flattened row-major.
+    # Per-pair joint cardinalities ((nbins_a * nbins_b) cells for the MERGED dim) plus prefix-sum offsets. Each pair's joint table has shape (merged_size, nbins_y),
+    # flattened row-major.
     nbins_a = factors_nbins[pairs_a].astype(np.int32)
     nbins_b = factors_nbins[pairs_b].astype(np.int32)
     nbins_y = int(np.asarray(freqs_y).shape[0])
@@ -524,9 +467,7 @@ def mi_direct_gpu_batched_pairs(
     joint_offsets[1:] = np.cumsum(pair_joint_sizes).astype(np.int32)
     total_cells = int(joint_offsets[-1])
 
-    # Bound the GPU memory: total_cells ints. At total_cells = 1e7 that's
-    # 40 MB; at 1e8 that's 400 MB. Caller should constrain via
-    # max_combined_nbins to keep total in bounds.
+    # GPU memory bound: total_cells int32. At total_cells = 1e7 that's 40 MB; at 1e8 that's 400 MB. Caller should constrain via ``max_combined_nbins`` to stay in bounds.
     if total_cells * 4 > 4 * 1024 * 1024 * 1024:  # > 4 GB
         raise MemoryError(
             f"mi_direct_gpu_batched_pairs: total joint cells {total_cells} "
@@ -547,8 +488,7 @@ def mi_direct_gpu_batched_pairs(
     block_size = min(GPU_MAX_BLOCK_SIZE, 256)
     grid_x = (n_rows + block_size - 1) // block_size
 
-    # T5: SINGLE kernel launch processes all pairs via 3D grid (rows along X,
-    # pairs along Y). Per-pair launch overhead amortised to zero.
+    # SINGLE kernel launch processes all pairs via 3D grid (rows along X, pairs along Y); per-pair launch overhead amortised to zero.
     compute_joint_hist_multi_pair_cuda(
         (grid_x, n_pairs),
         (block_size,),
@@ -560,12 +500,8 @@ def mi_direct_gpu_batched_pairs(
     )
     joint_counts_host = cp.asnumpy(joint_counts_flat)
 
-    # Compute MI per pair from joint counts in numpy. For each pair:
-    #   joint shape = (merged_size, nbins_y), counts.
-    #   marginal_merged = joint.sum(axis=1)
-    #   marginal_y      = joint.sum(axis=0)
-    #   total           = n_rows
-    #   MI = sum over non-zero cells of (jc/n) * log(jc*n / (marg_m * marg_y))
+    # Per-pair MI from joint counts (numpy). joint shape = (merged_size, nbins_y); marg_m = joint.sum(axis=1); marg_y = joint.sum(axis=0); total = n_rows.
+    # MI = sum over non-zero cells of (jc/n) * log(jc * n / (marg_m * marg_y)), in nats.
     n_total = float(n_rows)
     joint_mi_out = np.zeros(n_pairs, dtype=np.float64)
     for k in range(n_pairs):
@@ -593,3 +529,4 @@ def mi_direct_gpu_batched_pairs(
                 mi += jf * np.log(jc * n_total / (mm * my))
         joint_mi_out[k] = mi
     return joint_mi_out
+

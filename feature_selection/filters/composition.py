@@ -1,28 +1,13 @@
-"""Phase D2 + A3: cascaded pair-FE composition + nested-CV honest validator.
+"""Cascaded pair-FE composition + nested-CV honest validator.
 
-Both utilities sit on top of ``optimise_hermite_pair`` and address
-limitations identified by the brainstorm-agent meta-review:
+Both utilities sit on top of ``optimise_hermite_pair``:
 
-* **D2 (FE composition round 2)** -- a single round of pair-FE only
-  captures pair-wise (rank-1 separable) structure. By feeding the
-  engineered features from round 1 BACK as new inputs and running a
-  second round, we capture cross-pair interactions of effective
-  arity 4 (every round-2 feature is a pair of pairs-of-features).
-  Useful when the true target depends on combinations of two pair
-  signals, e.g. ``y = sign((x_a*x_b) + (x_c*x_d))``.
-
-* **A3 (nested-CV honest validator)** -- the standard
-  ``optimise_hermite_pair`` fits coefficients on the same data used
-  to score the result. This bias-up uplift estimate concerned the
-  brainstorm agents about the wine -61% finding. A K-fold wrapper
-  that fits coefs on K-1 folds and scores on the heldout fold gives
-  an honest out-of-sample uplift; comparing it to the in-sample
-  number quantifies the optimism (and reveals leakage).
+* **FE composition round 2** -- a single round of pair-FE only captures pair-wise (rank-1 separable) structure. Feeding round-1 engineered features back as new inputs and running a second round captures cross-pair interactions of effective arity 4 (every round-2 feature is a pair of pairs-of-features). Useful when the true target depends on combinations of two pair signals, e.g. ``y = sign((x_a*x_b) + (x_c*x_d))``.
+* **Nested-CV honest validator** -- ``optimise_hermite_pair`` fits coefficients on the same data used to score the result; that bias-up uplift estimate is suspect. A K-fold wrapper that fits coefs on K-1 folds and scores on the heldout fold gives an honest out-of-sample uplift; comparing to the in-sample number quantifies optimism (and reveals leakage).
 """
 from __future__ import annotations
 
-import warnings
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 
@@ -42,20 +27,15 @@ def compose_pair_fe(
     optimizer: str = "cma",
     use_trivial_baseline: bool = True,
     baseline_uplift_threshold: float = 1.05,
-    feature_names: Optional[list] = None,
+    feature_names: list | None = None,
     verbose: bool = False,
 ) -> dict:
-    """Run cascaded pair-FE for ``n_rounds`` rounds. Returns the final
-    augmented feature matrix plus the engineered-feature provenance
-    so a downstream model can be inspected.
+    """Run cascaded pair-FE for ``n_rounds`` rounds. Returns the final augmented feature matrix plus engineered-feature provenance.
 
     Pipeline:
         for round r in 1..n_rounds:
-            1. Rank current features by single-feature MI(x_i, y).
-               Keep top ``2 * top_k_per_round`` candidates.
-            2. Form all pairs from the top features. For each, run
-               ``optimise_hermite_pair``. Keep at most
-               ``top_k_per_round`` engineered features per round.
+            1. Rank current features by single-feature MI(x_i, y). Keep top ``2 * top_k_per_round`` candidates.
+            2. Form all pairs from the top features. For each, run ``optimise_hermite_pair``. Keep at most ``top_k_per_round`` engineered features per round.
             3. Append the engineered features to X. Repeat.
 
     Returns
@@ -63,17 +43,11 @@ def compose_pair_fe(
     dict with keys:
         ``X_aug`` -- final augmented feature matrix (n, p_orig + n_eng)
         ``names`` -- list of column names (orig + ``round{r}_pair{i,j}``)
-        ``rounds`` -- list of per-round dicts with ``selected_pairs``
-                       and ``engineered_features`` provenance.
+        ``rounds`` -- list of per-round dicts with ``selected_pairs`` and ``engineered_features`` provenance.
 
     Caution
     -------
-    Cascaded FE is prone to overfitting on small N. The
-    ``baseline_uplift_threshold=1.05`` (5% improvement over the
-    HONEST trivial baseline) gates each engineered feature; the
-    typical effect is that round 2 adds 0-2 features instead of
-    ``top_k_per_round``. Use ``compose_pair_fe_with_validation``
-    for nested-CV-validated cascading.
+    Cascaded FE is prone to overfitting on small N. ``baseline_uplift_threshold=1.05`` (5% improvement over the HONEST trivial baseline) gates each engineered feature; round 2 typically adds 0-2 features instead of ``top_k_per_round``. Use ``validate_pair_fe_cv`` for nested-CV-validated cascading.
     """
     from .hermite_fe import optimise_hermite_pair
     from .fe_baselines import _mi_1d
@@ -111,8 +85,7 @@ def compose_pair_fe(
             break
         # Pair candidates.
         pairs = list(combinations(top_idx, 2))
-        # Score each pair via joint MI on the train data, take top
-        # ``top_k_per_round`` candidates for FE.
+        # Score each pair via joint MI on the train data, take top ``top_k_per_round`` candidates for FE.
         pair_scores = []
         for i, j in pairs:
             xi, xj = cur_X[:, i], cur_X[:, j]
@@ -195,24 +168,19 @@ def validate_pair_fe_cv(
     use_trivial_baseline: bool = True,
     seed: int = 42,
 ) -> dict:
-    """Phase A3: K-fold honest-uplift validator for pair-FE.
+    """K-fold honest-uplift validator for pair-FE.
 
     For each fold:
       1. Fit coefficients on K-1 folds via ``optimise_hermite_pair``.
-      2. Apply learned ``HermiteResult.transform`` to the held-out
-         fold (NO additional fitting on heldout).
-      3. Score MI of (transformed_heldout, y_heldout) using the same
-         estimator the optimizer used.
+      2. Apply learned ``HermiteResult.transform`` to the held-out fold (NO additional fitting on heldout).
+      3. Score MI of (transformed_heldout, y_heldout) using the same estimator the optimizer used.
 
     Compare to:
-    * **In-sample MI** (``HermiteResult.mi``) -- the value the
-      optimizer reports.
+    * **In-sample MI** (``HermiteResult.mi``) -- the value the optimizer reports.
     * **Train-only baseline** (best trivial pair MI on full data).
     * **Out-of-sample MI** (mean across folds, with std).
 
-    Returns dict with ``in_sample_mi``, ``oos_mean``, ``oos_std``,
-    ``oos_per_fold``, ``optimism_ratio = in_sample_mi / oos_mean``.
-    Optimism > 1.5 is suspect (bias from same-data fit + score).
+    Returns dict with ``in_sample_mi``, ``oos_mean``, ``oos_std``, ``oos_per_fold``, ``optimism_ratio = in_sample_mi / oos_mean``. Optimism > 1.5 is suspect (bias from same-data fit + score).
     """
     from sklearn.model_selection import KFold, StratifiedKFold
     from .hermite_fe import optimise_hermite_pair
@@ -220,7 +188,6 @@ def validate_pair_fe_cv(
 
     x_a = np.asarray(x_a, dtype=np.float64)
     x_b = np.asarray(x_b, dtype=np.float64)
-    n = len(y)
     cv = (StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
           if discrete_target
           else KFold(n_splits=n_splits, shuffle=True, random_state=seed))

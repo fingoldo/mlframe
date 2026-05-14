@@ -1,31 +1,14 @@
 """Recipe-based replay of engineered features for ``MRMR.transform``.
 
-Background
-----------
-Numeric ``_run_fe_step`` (and the upcoming categorical ``cat-FE`` path)
-build new columns from input X during ``fit``. Historically those columns
-were tracked only by name in ``_engineered_features_``; ``transform`` had
-no way to recompute them on test data and silently dropped them from
-the output (see line ~688 in ``mrmr.py``: ``# !TODO! failing when
-fe_max_steps>1. need other source.``).
+A *recipe* is a frozen description of how to recompute one engineered column from the original feature matrix. ``MRMR.fit`` records one recipe per surviving
+engineered feature; ``MRMR.transform`` replays each recipe against the test X and appends the resulting columns to the output.
 
-This module fixes that contract gap. A *recipe* is a frozen description
-of how to recompute one engineered column from the original feature
-matrix. ``MRMR.fit`` records one recipe per surviving engineered
-feature; ``MRMR.transform`` replays each recipe against the test X and
-appends the resulting columns to the output.
+Recipe kinds:
+``"unary_binary"``: numeric pair FE -- ``binary(unary_a(X[a]), unary_b(X[b]))``, optionally discretized.
+``"factorize"``:    cat-FE -- ``merge_vars`` of k ordinal-encoded categorical columns (XOR-style synergy capture).
+``"target_encoding"``: ``E[Y | merged_class]`` per cell, with optional OOF smoothing.
 
-Recipe kinds
-------------
-``"unary_binary"``: numeric pair FE -- ``binary(unary_a(X[a]),
-                    unary_b(X[b]))``, optionally discretized.
-``"factorize"``:    cat-FE -- ``merge_vars`` of two ordinal-encoded
-                    categorical columns (canonical XOR-style synergy
-                    capture). Future PR.
-
-The recipe is intentionally a small frozen dataclass (no
-behaviour bound to ``self``) so it round-trips cleanly through pickle
-and ``sklearn.base.clone``.
+The recipe is a small frozen dataclass (no behaviour bound to ``self``) so it round-trips cleanly through pickle and ``sklearn.base.clone``.
 """
 
 from __future__ import annotations
@@ -47,11 +30,8 @@ except ImportError:  # pragma: no cover
 
 
 def _extra_equal(a: dict, b: dict) -> bool:
-    """``EngineeredRecipe.extra`` may contain numpy arrays (notably the
-    factorize lookup table). Plain ``dict.__eq__`` calls ``arr1 == arr2``
-    which returns an ndarray, not a bool, and breaks ``recipe1 == recipe2``.
-    This helper compares each value with ``np.array_equal`` for arrays
-    and ``==`` otherwise."""
+    """Array-aware dict equality for ``EngineeredRecipe.extra``. Plain ``dict.__eq__`` returns an ndarray (not bool) when values are arrays; this helper uses
+    ``np.array_equal`` for arrays and ``==`` otherwise."""
     if a.keys() != b.keys():
         return False
     for k in a:
@@ -69,55 +49,29 @@ def _extra_equal(a: dict, b: dict) -> bool:
 
 @dataclass(frozen=True, eq=False)
 class EngineeredRecipe:
-    """One frozen description of how to recompute an engineered column.
-
-    Fields are picked so the recipe survives pickle and ``sklearn.clone``
-    without holding any references to closures, fitted estimators, or
-    captured numpy arrays.
+    """One frozen description of how to recompute an engineered column. Survives pickle / ``sklearn.clone`` (no closures or fitted estimators captured).
 
     Parameters
     ----------
     name
-        Engineered column name, e.g. ``"mul(log(c1),sin(c2))"``. Used
-        as the key under which the column appears in transform output
-        and ``get_feature_names_out``.
+        Engineered column name (e.g. ``"mul(log(c1),sin(c2))"``). Used in transform output / ``get_feature_names_out``.
     kind
-        Discriminator for the replay strategy.
-        ``"unary_binary"`` -- numeric pair FE.
-        ``"factorize"``     -- cat-FE k-way ordinal merge (future PR).
+        Replay strategy: ``"unary_binary"`` (numeric pair FE), ``"factorize"`` (cat-FE k-way ordinal merge), ``"target_encoding"``.
     src_names
-        Original feature names this recipe consumes. Length 2 for
-        unary_binary; length k for factorize. ``transform(X)`` looks
-        these up by name in the input frame, so they must be a subset
-        of ``feature_names_in_``.
+        Original feature names this recipe consumes. Length 2 for unary_binary, k for factorize. Must be a subset of ``feature_names_in_``.
     unary_names
-        For ``"unary_binary"``: the two unary function names from
-        ``feature_engineering.create_unary_transformations(preset)``,
-        e.g. ``("log", "sin")``. ``"identity"`` means no transform.
+        ``"unary_binary"``: the two unary fn names from ``feature_engineering.create_unary_transformations(preset)``. ``"identity"`` means no transform.
     binary_name
-        For ``"unary_binary"``: the binary function name from
-        ``feature_engineering.create_binary_transformations(preset)``,
-        e.g. ``"mul"``.
+        ``"unary_binary"``: the binary fn name from ``feature_engineering.create_binary_transformations(preset)``.
     unary_preset / binary_preset
-        Preset names so we can rebuild the same registries at replay
-        time. ``MRMR.fit`` snapshots these so a later import-time
-        registry edit doesn't silently change replay semantics.
+        Preset names captured at fit time so later registry edits don't silently change replay semantics.
     quantization
-        ``None`` if the recipe outputs a raw numeric column.
-        Else a dict ``{"nbins": int, "method": str, "dtype": str}``
-        captured at fit time so replay matches the fit-time discretization.
+        ``None`` for raw numeric output, else ``{"nbins": int, "method": str, "dtype": str}`` matching fit-time discretization.
     factorize_nbins
-        For ``"factorize"``: per-source nbins captured at fit time.
-        Needed to feed ``merge_vars`` with the right shape, and to
-        clip unseen test-time values to the highest trained bin (see
-        ``unknown_strategy``).
+        ``"factorize"``: per-source nbins captured at fit time (shape for ``merge_vars`` and bound for ``unknown_strategy`` clipping).
     unknown_strategy
-        For ``"factorize"``: how to handle test-time category values
-        not seen at fit time. ``"clip"`` (default) caps them at the
-        highest trained bin (no information leaks but unseen values
-        collide with the largest bin); ``"sentinel"`` adds a separate
-        bin (less collision but inflates cardinality); ``"raise"``
-        errors out.
+        ``"factorize"`` test-time handling for unseen category values: ``"clip"`` caps at highest trained bin (default); ``"sentinel"`` adds a separate bin
+        (inflates cardinality); ``"raise"`` errors out.
     """
 
     name: str
@@ -130,16 +84,11 @@ class EngineeredRecipe:
     quantization: dict | None = None
     factorize_nbins: tuple[int, ...] = ()
     unknown_strategy: Literal["clip", "sentinel", "raise"] = "clip"
-    # `extra` is a free-form bucket for future recipe kinds (e.g. polynomial-
-    # basis Hermite recipes carry `coef_a`, `coef_b`, `degree_a`, `degree_b`,
-    # `bin_func_name`). Kept generic to avoid bloating the core dataclass.
+    # Free-form bucket for future recipe kinds (e.g. polynomial-basis Hermite carries coef_a/coef_b/degree_a/degree_b/bin_func_name).
     extra: dict = field(default_factory=dict)
 
     def __eq__(self, other: object) -> bool:
-        """Custom ``__eq__`` that handles ndarray values in ``extra``
-        (factorize lookup tables). ``frozen=True, eq=False`` on the
-        dataclass disables the auto-generated ``__eq__`` so this one
-        wins."""
+        """Custom ``__eq__`` handling ndarray values in ``extra`` (factorize lookup tables). ``frozen=True, eq=False`` disables the auto-generated one."""
         if not isinstance(other, EngineeredRecipe):
             return NotImplemented
         if self.kind != other.kind:
@@ -165,29 +114,20 @@ class EngineeredRecipe:
         return _extra_equal(self.extra, other.extra)
 
     def __hash__(self) -> int:
-        # Frozen dataclasses with mutable fields (``extra: dict``,
-        # ``unary_names: tuple`` is OK) typically opt out of __hash__.
-        # Provide a name-based hash so recipes can be used as dict keys
-        # within a single fitted MRMR (names are unique per fit).
+        # Name-based hash (names are unique per fit), since ``extra: dict`` is mutable and would normally disable __hash__.
         return hash((self.kind, self.name))
 
 
 def _extract_column(X: Any, name: str) -> np.ndarray:
-    """Pull a single column from X by name as a 1-D ndarray (no copy when
-    possible). Supports pandas DataFrame, polars DataFrame, and numpy
-    structured/recarray. Caller responsibility per ``mlframe/CLAUDE.md``:
-    we never copy the whole frame, only narrow column pulls."""
+    """Pull a single column from X by name as a 1-D ndarray, no full-frame copy. Supports pandas / polars DataFrame and numpy structured arrays."""
     if pd is not None and isinstance(X, pd.DataFrame):
-        # ``.values`` is zero-copy for numeric dtypes in modern pandas; for
-        # categorical / object it materialises but only the single column.
+        # ``.values`` is zero-copy for numeric dtypes; categorical/object materialises only the single column.
         return X[name].to_numpy() if hasattr(X[name], "to_numpy") else X[name].values
     if pl is not None and isinstance(X, pl.DataFrame):
         return X[name].to_numpy()
     if isinstance(X, np.ndarray):
         if X.dtype.names is not None:
             return X[name]
-        # Plain 2-D ndarray with no column names -- caller must have
-        # passed a name we can't resolve. Raise rather than guess.
         raise KeyError(
             f"Cannot resolve column '{name}' on a plain 2-D ndarray. "
             "Pass a pandas / polars frame or a structured array."
@@ -199,19 +139,8 @@ def _coerce_to_int_with_nan_handling(
     vals: np.ndarray, n_bins: int, recipe_name: str, col_name: str,
     unknown_strategy: str,
 ) -> np.ndarray:
-    """Tier 2.3: handle NaN / non-integer test values for factorize replay.
-
-    Test-time data may have ``NaN`` where train was a category. The
-    factorize lookup table is indexed by int. Strategy:
-
-    - Float NaN -> ``unknown_strategy`` (clip→max bin, sentinel→new
-      bin, raise→error).
-    - Float non-NaN -> cast to int (rounds toward zero).
-    - Object / categorical -> cast via int(). Non-coercible values
-      handled per ``unknown_strategy``.
-
-    Returns int64 array with NaN/coercion-failures replaced per strategy.
-    """
+    """Coerce test-time values to int64 for factorize lookup, handling NaN/non-integer per ``unknown_strategy`` (clip -> max bin, sentinel -> new bin,
+    raise -> error). Float non-NaN casts to int (rounds toward zero); object/categorical via ``astype(int64)``."""
     if np.issubdtype(vals.dtype, np.floating):
         nan_mask = np.isnan(vals)
         if nan_mask.any():
@@ -223,13 +152,8 @@ def _coerce_to_int_with_nan_handling(
                     f"unknown_strategy='clip' or 'sentinel' to handle "
                     f"silently."
                 )
-            # 'clip' / 'sentinel' both leave NaN unhandled at the float
-            # level; we replace NaN with a sentinel int code that
-            # ``apply_recipe`` then resolves via the lookup table
-            # (which has already encoded the strategy for unseen codes
-            # at fit time). Use n_bins - 1 (highest valid code) so the
-            # NaN row maps somewhere in-range; the clip path in
-            # ``_apply_factorize`` then handles the rest via lookup.
+            # 'clip'/'sentinel' both leave NaN unhandled at the float level; replace with n_bins-1 sentinel so the lookup (which encoded the strategy at
+            # fit time) resolves it. The clip path in ``_apply_factorize`` handles the rest.
             vals = vals.copy()
             vals[nan_mask] = n_bins - 1
         return vals.astype(np.int64, copy=False)
@@ -251,13 +175,8 @@ def _coerce_to_int_with_nan_handling(
 
 
 def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """Replay ``recipe`` against ``X`` and return the engineered column
-    as a 1-D ndarray. The output dtype matches the recipe's recorded
-    quantization dtype if discretized, else float32 (matching fit-time
-    ``check_prospective_fe_pairs`` working buffer dtype).
-
-    This function is hot in ``transform()``; keep it allocation-light.
-    """
+    """Replay ``recipe`` against ``X`` and return the engineered column as a 1-D ndarray. Output dtype matches the recipe's quantization dtype if
+    discretized, else float32 (matching fit-time ``check_prospective_fe_pairs`` working buffer dtype). Hot path in ``transform()`` -- keep allocation-light."""
     if recipe.kind == "unary_binary":
         return _apply_unary_binary(recipe, X)
     if recipe.kind == "factorize":
@@ -268,9 +187,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
 
 def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """Tier 3.1 replay: look up each test row's (a, b) merged cell in
-    ``cell_means``, return per-row encoded float. Unseen combinations
-    map to ``global_mean`` (or via ``unknown_strategy``)."""
+    """Look up each test row's (a, b) merged cell in ``cell_means``, return per-row encoded float. Unseen combinations map to ``global_mean`` (or per ``unknown_strategy``)."""
     if len(recipe.src_names) != 2:
         raise NotImplementedError(
             f"target_encoding for k>2 not implemented yet "
@@ -308,12 +225,8 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             f"unary_binary recipe '{recipe.name}' must have exactly 2 src_names "
             f"and 2 unary_names; got {len(recipe.src_names)} / {len(recipe.unary_names)}"
         )
-    # Lazy import: avoids circular dependency (feature_engineering imports
-    # from mrmr indirectly via _internals).
-    from .feature_engineering import (
-        create_unary_transformations,
-        create_binary_transformations,
-    )
+    # Lazy import to avoid circular dependency (feature_engineering -> mrmr via _internals).
+    from .feature_engineering import create_unary_transformations, create_binary_transformations
     from .discretization import discretize_array
 
     unary_funcs = create_unary_transformations(preset=recipe.unary_preset)
@@ -344,8 +257,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     transformed_b = unary_funcs[u_b](vals_b)
     out = binary_funcs[recipe.binary_name](transformed_a, transformed_b)
 
-    # Match fit-time NaN/Inf scrubbing in
-    # ``feature_engineering.check_prospective_fe_pairs`` (line ~209).
+    # Match fit-time NaN/Inf scrubbing in ``feature_engineering.check_prospective_fe_pairs``.
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
     if recipe.quantization is not None:
@@ -360,36 +272,23 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
 
 def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """Cat-FE replay: look up each test row's ``(a, b)`` tuple (or k-way
-    chain) in the fit-time lookup table(s) and emit the post-prune class.
+    """Cat-FE replay: look up each test row's ``(a, b)`` tuple (or k-way chain) in the fit-time lookup table(s) and emit the post-prune class.
 
-    For pairs (k=2): single lookup table maps ``a_value + b_value *
-    nbins_a`` to post-prune class.
+    Pairs (k=2): single lookup maps ``a_value + b_value * nbins_a`` to post-prune class. K > 2: chained lookup via ``recipe.extra['chain_lookups']`` (a list
+    of k-1 pair lookups); each step combines running intermediate class with next column's value via ``chain_nuniqs`` from previous step.
 
-    For k > 2: D3 chained-lookup approach. ``recipe.extra['chain_lookups']``
-    is a list of (k-1) pair lookup tables; each step combines the running
-    intermediate class with the next column's value using the
-    ``chain_nuniqs`` multiplier from the previous step.
-
-    Test-time values outside ``[0, nbins_i)`` are clipped to ``nbins_i - 1``.
-    Combinations whose pre-prune code never appeared in training are
-    resolved per ``recipe.unknown_strategy`` (already baked into each
-    lookup at fit time, except for ``"raise"`` which keeps -1 sentinels
-    and surfaces here).
+    Test values outside ``[0, nbins_i)`` are clipped to ``nbins_i - 1``. Combinations whose pre-prune code never appeared in training are resolved per
+    ``recipe.unknown_strategy`` (already baked into each lookup at fit time, except for ``"raise"`` which keeps -1 sentinels and surfaces here).
     """
-    # K-way (k > 2) chained replay if the recipe carries the chain.
     if recipe.extra.get("chain_lookups"):
         return _apply_factorize_kway(recipe, X)
 
-    # Legacy v1 stub: k-way recipes without chained lookups. Should not
-    # appear after D3 lands, but kept as a defensive branch for old
-    # pickled recipes.
+    # Defensive branch for old pickled k-way recipes that lack chained lookups.
     if recipe.extra.get("requires_refit_for_replay"):
         raise NotImplementedError(
             f"factorize recipe '{recipe.name}' is a legacy k-way recipe "
-            f"(order {recipe.extra.get('kway_order', '?')}) lacking a "
-            f"chained-lookup payload. Re-fit MRMR to materialise the "
-            f"chained-lookup version for replay."
+            f"(order {recipe.extra.get('kway_order', '?')}) lacking a chained-lookup payload. "
+            "Re-fit MRMR to materialise the chained-lookup version for replay."
         )
     if len(recipe.src_names) != 2 or len(recipe.factorize_nbins) != 2:
         raise ValueError(
@@ -410,27 +309,19 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     vals_a = _extract_column(X, name_a)
     vals_b = _extract_column(X, name_b)
-    # Tier 2.3: handle NaN / non-integer values per unknown_strategy.
-    vals_a_i = _coerce_to_int_with_nan_handling(
-        vals_a, nbins_a, recipe.name, name_a, recipe.unknown_strategy,
-    )
-    vals_b_i = _coerce_to_int_with_nan_handling(
-        vals_b, nbins_b, recipe.name, name_b, recipe.unknown_strategy,
-    )
+    # Handle NaN / non-integer values per unknown_strategy.
+    vals_a_i = _coerce_to_int_with_nan_handling(vals_a, nbins_a, recipe.name, name_a, recipe.unknown_strategy)
+    vals_b_i = _coerce_to_int_with_nan_handling(vals_b, nbins_b, recipe.name, name_b, recipe.unknown_strategy)
 
-    # Clip out-of-range to nbins-1. Without this, a test value of
-    # ``nbins_a + 1`` would index past the lookup buffer end. Per
-    # ``unknown_strategy="clip"`` semantics (the default), unseen
-    # values map to the highest seen class -- that's already encoded
-    # in the lookup itself; here we just guard the buffer.
+    # Clip out-of-range to nbins-1. Without this, a test value of ``nbins_a + 1`` would index past the lookup buffer end. Per ``unknown_strategy="clip"``
+    # semantics (default), unseen values map to the highest seen class -- already encoded in the lookup; here we just guard the buffer.
     vals_a_i = np.clip(vals_a_i, 0, nbins_a - 1)
     vals_b_i = np.clip(vals_b_i, 0, nbins_b - 1)
 
     pre_prune_codes = vals_a_i + vals_b_i * nbins_a
     out = lookup[pre_prune_codes]
 
-    # ``raise`` strategy left -1 sentinels in the lookup; anything that
-    # comes back negative here is a test combo never seen in training.
+    # ``raise`` strategy left -1 sentinels in the lookup -- anything negative here is a test combo never seen in training.
     if recipe.unknown_strategy == "raise" and (out < 0).any():
         n_unseen = int((out < 0).sum())
         raise ValueError(
@@ -443,18 +334,11 @@ def _apply_factorize(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
 
 def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
-    """K-way replay via the chained-lookup payload.
+    """K-way replay via the chained-lookup payload. Each ``chain_lookups[step]`` is a flat int64 table indexed by ``running_intermediate + col_value *
+    running_nuniq``. We walk through all (k-1) steps, refreshing ``running_intermediate`` and ``running_nuniq`` from each step's output.
 
-    Each ``chain_lookups[step]`` is a flat int64 table indexed by
-    ``running_intermediate + col_value * running_nuniq``. We walk
-    through all (k-1) steps, refreshing ``running_intermediate`` and
-    ``running_nuniq`` from each step's output.
-
-    Per-column test values are clipped to ``[0, factorize_nbins[i])`` so
-    a higher-than-fit-time category doesn't index past the lookup buffer.
-    Unseen combinations are resolved per ``recipe.unknown_strategy``
-    (already encoded in the lookups at fit time, except ``"raise"``
-    which leaves -1 sentinels and surfaces here).
+    Per-column test values are clipped to ``[0, factorize_nbins[i])``. Unseen combinations resolve per ``recipe.unknown_strategy`` (already encoded at fit
+    time, except ``"raise"`` which leaves -1 sentinels and surfaces here).
     """
     src_names = recipe.src_names
     nbins_tuple = recipe.factorize_nbins
@@ -518,13 +402,8 @@ def build_unary_binary_recipe(
     quantization_method: str | None,
     quantization_dtype: Any,
 ) -> EngineeredRecipe:
-    """Build an ``EngineeredRecipe`` for the ``"unary_binary"`` kind.
-
-    Encapsulates the convention that ``quantization`` is ``None`` when
-    no discretization is recorded, else a dict with the three params.
-    Stringifies the dtype so the recipe is JSON-friendly and pickle-safe
-    across numpy versions.
-    """
+    """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a 3-field dict. Dtype is stringified
+    so the recipe is JSON-friendly and pickle-safe across numpy versions."""
     if quantization_nbins is None:
         quantization = None
     else:

@@ -1,27 +1,17 @@
 """Information-theoretic primitives: entropy, mutual information, conditional MI.
 
-All functions are ``@njit``-compiled and operate on integer-encoded
-arrays produced upstream by :mod:`.discretization`.
+All functions are ``@njit``-compiled and operate on integer-encoded arrays produced upstream by :mod:`.discretization`.
 
 Contents
 --------
-* ``merge_vars``    -- collapse multiple ordinal-encoded variables into a
-  single 1-D class array (used as the histogram building block).
+* ``merge_vars``    -- collapse multiple ordinal-encoded variables into a single 1-D class array (used as the histogram building block).
 * ``entropy``       -- Shannon entropy ``-sum(p * log p)``.
-* ``mi``            -- mutual information ``I(X; Y) = H(X) + H(Y) - H(X, Y)``
-  computed via entropy decomposition.
-* ``conditional_mi`` -- ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)``
-  with a pluggable entropy cache. **B4 fix (etap 3)**: previously a single
-  ``key`` variable was reused across four cache branches, which only
-  happened to be safe by accidental ordering. Each branch now has its own
-  ``key_z`` / ``key_xz`` / ``key_yz`` / ``key_xyz`` local. No semantic
-  change; the test
-  ``mlframe/tests/feature_selection/test_info_theory_cache.py`` enumerates
-  all four ``(can_use_x_cache, can_use_y_cache)`` combos and pins down
-  exactly which keys land in the cache.
-* ``compute_mi_from_classes`` -- mutual information directly from two
-  pre-computed class vectors and their marginals (used by the permutation
-  loop where ``classes_y`` is shuffled in place).
+* ``mi``            -- mutual information ``I(X; Y) = H(X) + H(Y) - H(X, Y)`` computed via entropy decomposition.
+* ``conditional_mi`` -- ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)`` with a pluggable entropy cache. Each cache branch owns its own
+  ``key_z`` / ``key_xz`` / ``key_yz`` / ``key_xyz`` local; ``test_info_theory_cache.py`` enumerates all four ``(can_use_x_cache, can_use_y_cache)`` combos and
+  pins down exactly which keys land in the cache.
+* ``compute_mi_from_classes`` -- mutual information directly from two pre-computed class vectors and their marginals (used by the permutation loop where
+  ``classes_y`` is shuffled in place).
 """
 from __future__ import annotations
 
@@ -47,9 +37,8 @@ def merge_vars(
 ) -> tuple:
     """Melt multiple ordinal-encoded variables into a single 1-D class array.
 
-    ``factors_data`` is laid out as ``(n_samples, n_features)`` (sklearn
-    convention). Empty bins are pruned and the class indices renumbered so
-    the returned ``final_classes`` is dense (no skipped integers).
+    ``factors_data`` is laid out as ``(n_samples, n_features)`` (sklearn convention). Empty bins are pruned and the class indices renumbered so the returned
+    ``final_classes`` is dense (no skipped integers).
     """
     if final_classes is None:
         final_classes = np.zeros(len(factors_data), dtype=dtype)
@@ -88,8 +77,7 @@ def merge_vars(
 
 @njit()
 def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
-    """Shannon entropy in nats. Bins below ``min_occupancy`` (or zero by
-    default) are filtered out before the log to avoid ``0 * log(0)``."""
+    """Shannon entropy in nats. Bins below ``min_occupancy`` (or zero by default) are filtered out before the log to avoid ``0 * log(0)``."""
     if min_occupancy:
         freqs = freqs[freqs >= min_occupancy]
     else:
@@ -101,18 +89,9 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
 def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float = 0) -> float:
     """Miller-Madow bias-corrected Shannon entropy.
 
-    Plug-in entropy ``H_plugin = -sum p log p`` is biased downward when
-    the empirical distribution has many bins relative to ``n_samples``
-    (the joint X-Y-Z space inflates fast). The Miller-Madow correction
-    adds ``(k - 1) / (2 * n_samples)`` where ``k`` is the number of
-    non-empty bins. Cheap, asymptotically unbiased, no extra RAM.
+    Plug-in entropy ``H_plugin = -sum p log p`` is biased downward when the empirical distribution has many bins relative to ``n_samples`` (the joint X-Y-Z space inflates fast). The Miller-Madow correction adds ``(k - 1) / (2 * n_samples)`` where ``k`` is the number of non-empty bins. Cheap, asymptotically unbiased, no extra RAM.
 
-    Why it matters for mRMR: in ``conditional_mi(X, Y, Z)`` the
-    ``H(X, Y, Z)`` term has the most bins and the steepest bias. Without
-    correction, ``I(X;Y|Z)`` is biased *toward zero*, causing false
-    rejection of weakly-conditional features. The correction is opt-in
-    via ``MRMR(use_miller_madow=True)`` -- default off so the legacy
-    plug-in estimator stays bit-exact.
+    Why it matters for mRMR: in ``conditional_mi(X, Y, Z)`` the ``H(X, Y, Z)`` term has the most bins and the steepest bias. Without correction, ``I(X;Y|Z)`` is biased *toward zero*, causing false rejection of weakly-conditional features. Opt-in via ``MRMR(use_miller_madow=True)`` -- default off so the legacy plug-in estimator stays bit-exact.
 
     References:
     * Miller (1955) "Note on the bias of information estimates."
@@ -189,10 +168,7 @@ def conditional_mi(
 ) -> float:
     """Conditional mutual information ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)``.
 
-    B4 fix: each cache branch owns its own key local (``key_z`` / ``key_xz``
-    / ``key_yz`` / ``key_xyz``). The legacy code reused a single ``key``
-    across all four branches; while accidentally safe, that pattern was a
-    foot-gun for future edits.
+    Each cache branch owns its own key local (``key_z`` / ``key_xz`` / ``key_yz`` / ``key_xyz``) to avoid cross-branch aliasing.
     """
     key_z = ""
     key_xz = ""
@@ -289,11 +265,7 @@ def compute_mi_from_classes(
     freqs_y: np.ndarray,
     dtype=np.int32,
 ) -> float:
-    """Mutual information from two pre-computed class arrays + their marginals.
-
-    Used by the permutation loop where ``classes_y`` is shuffled in place
-    and we don't want to re-bin from scratch each time.
-    """
+    """Mutual information from two pre-computed class arrays + their marginals. Used by the permutation loop where ``classes_y`` is shuffled in place and we don't want to re-bin from scratch each time."""
     joint_counts = np.zeros((len(freqs_x), len(freqs_y)), dtype=dtype)
     for i, j in zip(classes_x, classes_y):
         joint_counts[i, j] += 1

@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-05-14 — `feature_selection/filters/`: comment compression + ruff cleanup
+
+Two-wave refactor of the 26-module package extracted from the legacy 4187-LOC monolith.
+
+### Wave 1 — comment & docstring compression (6 parallel agents)
+
+Stripped migration/refactor-planning prose (`etap N`, `B13 (post-plan)`, `B27 placeholder`, `wave N`, `Tier 4.x`, `Verified zero call-sites`, `for the in-progress migration`, `scheduled for deletion at end of refactor PR`, audit-tag references like `SB1`/`SM7`/`P0-G34`), AI-justifying parentheticals (`(natural Python idiom)`, `(idiomatic)`, `(elegant)`), bloated multi-paragraph docstrings on trivial helpers. Preserved numerical-safety notes, invariants, workarounds, bibliographic refs (Auer 2002, Anderson&ter Braak 2003, Micci-Barreca 2001, Besag&Clifford 1991, KSG/Kraskov 2004, MDLP/Fayyad-Irani), deprecation warnings, pickle BC code, `__all__` and re-exports.
+
+### Wave 2 — ruff cleanup under project profile
+
+Added [pyproject.toml](pyproject.toml) with `[tool.ruff]` + `[tool.black]` copied from pyutilz (line-length=160, py38, select=E,W,F,I,N,UP,B). Final state: **all ruff checks pass**, full public API surface (`MRMR`, `CatFEConfig`, `CatFEState`, `EngineeredRecipe`, `run_cat_interaction_step`, info-theory primitives) resolves cleanly.
+
+**Bug fixes (real, found by ruff):**
+- `screen.py`: `MAX_JOBLIB_NBYTES` missing from `_internals` imports → NameError on `parallel_kwargs is None` path
+- `mrmr.py`: `Optional`/`Dict` referenced in annotations without import (F821); `pl` (polars) used in `_run_fe_step` without local import → latent NameError on polars input; redundant 16-line duplicate-import block at file bottom removed (F811 ×8)
+- `feature_engineering.py:621-623`: **late-binding bug** — `for order in range(3): unary_transformations["polygamma_"+str(order)] = lambda x: sp.polygamma(order, x)` made all three lambdas resolve `order=2`; fixed via `_order=order` default arg
+- `hermite_fe.py:1421-1459`: same late-binding pattern in Optuna closures (`ca_size`/`cb_size`/`eval_pair_fn`/`eval_kwargs`/`stop_state`) bound via default args
+- `supervised_binning.py:53`: dead `n = len(x_sorted)` removed
+
+**Modernization (UP-codes, safe under `from __future__ import annotations`):** `Optional[X]` → `X | None`, `Union[X, Y]` → `X | Y`, `Dict[...]` → `dict[...]`, `List[...]` → `list[...]` in 5 files.
+
+**Annotated as `# noqa: F841 + !TODO!`** (suspected real bugs, defer to verification):
+- `cat_interactions.py:1314` `use_bandit` — flag computed but in-loop bandit dispatch missing
+- `feature_engineering.py:539` `unary_constraints` — domain-validity map built, never wired into FE-input clipping
+- `hermite_fe.py:1596` `eval_func_b` — RBF/factory dual-eval path silently uses preprocess_a for the b-side
+- `mrmr.py:512-513` `start_time`/`ran_out_of_time` — never-wired runtime-budget guard
+- `mrmr.py:639` `polynomial_transformations` — empty dict reserved for future per-poly tracking
+
+**Hygiene:** B007 (unused loop vars → `_name`), E702 (`a; b` split), W291 (trailing whitespace), B028 (`stacklevel=2`), B009 (`getattr(obj,'literal')` → direct), added `__all__` to `_legacy.py` so static analysers recognise the re-export shim.
+
+### Stats
+
+| Metric | Before | After |
+|---|---|---|
+| LOC | 15 226 | 13 178 (-2048, ~14%) |
+| ruff (project profile) | 206 violations | **0** |
+
 ## 2026-05-12 — biz_val test campaign: 400+ quantitative-regression-sensor tests across feature_selection, feature_engineering, training
 
 Two sustained /loop campaigns spanning 15+ iterations. Each test asserts a

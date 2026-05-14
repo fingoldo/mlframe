@@ -1,28 +1,19 @@
 """Group-aware mRMR via correlation-based pre-clustering.
 
-Vanilla mRMR with high-correlation feature sets (e.g. one-hot
-expansion, repeated lags, calibration variants of the same sensor)
-selects ONE representative and discards the rest. Often the operator
-wants the **group**, not just one member -- either to display them
-together in a downstream report or to feed them into an ensemble
-that benefits from the redundancy.
+Vanilla mRMR with high-correlation feature sets (one-hot expansion, repeated lags, calibration variants of the same sensor) selects ONE
+representative and discards the rest. Often the operator wants the **group**, not just one member -- either to display them together in
+a downstream report or to feed them into an ensemble that benefits from the redundancy.
 
 Two-step approach:
 
-1. ``cluster_features_by_correlation(X, threshold=0.9, ...)`` --
-   greedy clustering: every pair with ``|corr| > threshold`` ends in
-   the same cluster (single-linkage on the correlation graph).
-   Returns a ``cluster_id`` per feature.
-2. ``GroupAwareMRMR(estimator, ...).fit(X, y)`` -- runs mRMR on the
-   per-cluster medoids (the feature with highest mean abs-corr to its
-   cluster mates), then expands the support to all members of any
-   selected cluster. ``cluster_assignments_`` and
-   ``selected_clusters_`` are exposed for inspection.
+1. ``cluster_features_by_correlation(X, threshold=0.9, ...)`` -- greedy clustering: every pair with ``|corr| > threshold`` ends in the
+   same cluster (single-linkage on the correlation graph). Returns a ``cluster_id`` per feature.
+2. ``GroupAwareMRMR(estimator, ...).fit(X, y)`` -- runs mRMR on the per-cluster medoids (the feature with highest mean abs-corr to its
+   cluster mates), then expands the support to all members of any selected cluster. ``cluster_assignments_`` and ``selected_clusters_``
+   are exposed for inspection.
 
-For users with **explicit** group structure (one-hot expansions where
-the operator knows ``group_name -> column_list``), prefer
-``RFECV(feature_groups=...)`` -- it has a more thorough all-or-nothing
-voting protocol. This module is for **discovered** groups via
+For users with **explicit** group structure (one-hot expansions where the operator knows ``group_name -> column_list``), prefer
+``RFECV(feature_groups=...)`` -- it has a more thorough all-or-nothing voting protocol. This module is for **discovered** groups via
 correlation when the operator does not know the structure upfront.
 """
 from __future__ import annotations
@@ -44,8 +35,7 @@ def cluster_features_by_correlation(
 ) -> np.ndarray:
     """Greedy single-linkage clustering on the correlation graph.
 
-    Two features land in the same cluster iff there's a chain of
-    pairwise ``|corr| > threshold`` connections between them.
+    Two features land in the same cluster iff there's a chain of pairwise ``|corr| > threshold`` connections between them.
 
     Parameters
     ----------
@@ -93,10 +83,8 @@ def _cluster_medoids(
     X,
     cluster_id: np.ndarray,
     method: str = "spearman",
-) -> List[int]:
-    """For each cluster, pick the column with highest mean abs-corr to
-    its cluster mates (the medoid). Singletons return their only
-    member."""
+) -> list[int]:
+    """For each cluster, pick the column with highest mean abs-corr to its cluster mates (the medoid). Singletons return their only member."""
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
     corr = X.corr(method=method).abs().to_numpy()
@@ -119,17 +107,13 @@ def _cluster_medoids(
 class GroupAwareMRMR(BaseEstimator, TransformerMixin):
     """Wraps an mRMR-family estimator with correlation pre-clustering.
 
-    .fit fits the inner estimator on cluster medoids; .transform /
-    .support_ expand to all cluster members of any selected medoid.
+    .fit fits the inner estimator on cluster medoids; .transform / .support_ expand to all cluster members of any selected medoid.
 
     Attributes after fit:
     * ``cluster_assignments_`` -- per-original-feature cluster id.
-    * ``cluster_medoid_indices_`` -- per-cluster representative index
-      (in original-feature space).
-    * ``selected_clusters_`` -- ids of clusters whose medoid mRMR
-      kept.
-    * ``support_`` -- expanded set of all original-feature indices
-      belonging to any selected cluster.
+    * ``cluster_medoid_indices_`` -- per-cluster representative index (in original-feature space).
+    * ``selected_clusters_`` -- ids of clusters whose medoid mRMR kept.
+    * ``support_`` -- expanded set of all original-feature indices belonging to any selected cluster.
     """
     def __init__(
         self,
@@ -166,8 +150,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         inner = clone(self.estimator)
         inner.fit(X_medoids, y)
 
-        # ``inner.support_`` indexes into X_medoids; map back to clusters.
-        # MRMR returns indices into X_medoids columns.
+        # ``inner.support_`` indexes into X_medoids columns; map back to clusters.
         medoid_cluster_ids = self.cluster_assignments_[self.cluster_medoid_indices_]
         self.selected_clusters_ = sorted(set(int(medoid_cluster_ids[i]) for i in inner.support_))
 

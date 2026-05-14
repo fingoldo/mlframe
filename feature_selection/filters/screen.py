@@ -2,19 +2,10 @@
 
 Public functions:
 
-* ``screen_predictors`` -- the main screening loop. Walks interaction
-  orders, selects candidates, runs the confidence step, accumulates
-  the final ``selected_vars`` list. Etap 10a is an identity move from
-  the legacy monolith; etap 10b decomposes the body into a
-  ``@dataclass ScreenState`` plus four free phase functions
-  (`_select_initial_candidates`, `_evaluate_partials`,
-  `_confirm_top_k`, `_postprocess_step`).
+* ``screen_predictors`` -- main screening loop. Walks interaction orders, selects candidates, runs the confidence step, accumulates ``selected_vars``.
 * ``postprocess_candidates`` -- post-screening filtering helper.
 
-mRMR phase narrative
---------------------
-partial = MI(candidate, target | already-selected); top_k = K candidates
-with highest partial; confirm = full-permutation test on top_k;
+mRMR phase narrative: partial = MI(candidate, target | already-selected); top_k = K candidates with highest partial; confirm = full-permutation test on top_k;
 postprocess = filter weak / duplicates from the confirmed set.
 """
 from __future__ import annotations
@@ -25,18 +16,18 @@ import math
 import os
 import time
 from collections import defaultdict
+from dataclasses import dataclass, field
 from itertools import combinations
 from os.path import exists
 from timeit import default_timer as timer
 from typing import Sequence
 
-import numpy as np
 import numba
-from numba import njit
-from numba.core import types
-
+import numpy as np
 from joblib import Parallel, delayed
 from joblib.externals.loky import set_loky_pickler
+from numba import njit
+from numba.core import types
 
 from pyutilz.numbalib import (
     generate_combinations_recursive_njit,
@@ -53,23 +44,11 @@ from ._internals import (
     LARGE_CONST,
     MAX_CONFIRMATION_CAND_NBINS,
     MAX_ITERATIONS_TO_TRACK,
+    MAX_JOBLIB_NBYTES,
     NMAX_NONPARALLEL_ITERS,
     sanitize,
 )
 from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
-from .info_theory import (
-    compute_mi_from_classes,
-    conditional_mi,
-    entropy,
-    merge_vars,
-)
-from .permutation import distribute_permutations, mi_direct
-from .gpu import mi_direct_gpu
-from .fleuret import (
-    get_fleuret_criteria_confidence,
-    get_fleuret_criteria_confidence_parallel,
-    parallel_fleuret,
-)
 from .evaluation import (
     evaluate_candidate,
     evaluate_candidates,
@@ -79,72 +58,45 @@ from .evaluation import (
     handle_best_candidate,
     should_skip_candidate,
 )
+from .fleuret import (
+    get_fleuret_criteria_confidence,
+    get_fleuret_criteria_confidence_parallel,
+    parallel_fleuret,
+)
+from .gpu import mi_direct_gpu
+from .info_theory import (
+    compute_mi_from_classes,
+    conditional_mi,
+    entropy,
+    merge_vars,
+)
+from .permutation import distribute_permutations, mi_direct
 
 logger = logging.getLogger(__name__)
 
 
 def _pool_warmup_noop(i):
-    """Top-level no-op for joblib worker pool warmup. Must be a
-    module-level function (not a closure) so cloudpickle can serialise
-    it for transmission to the worker process."""
+    """Top-level no-op for joblib worker pool warmup. Must be module-level (not a closure) so cloudpickle can serialise it for worker transmission."""
     return i
-
-
-# =============================================================================
-# 10b (post-plan, partial): ScreenState dataclass as documentation aid.
-#
-# Full decomposition into 4 free phase functions was deferred per the plan's
-# risk gate: ``screen_predictors`` carries >40 shared locals across the
-# main loop, the confirmation while-True, and the post-fold bookkeeping.
-# Threading every local through a fixed-arity phase function would require
-# pickling the entire state up-front, which we have no comprehensive golden
-# coverage for.
-#
-# Instead we expose ``ScreenState`` as a typed view of the shared state
-# (used by readers / future refactor PRs) plus a single extracted helper
-# (``_extract_confirmation_branch``) for the most-opaque control path. The
-# main ``screen_predictors`` body is unchanged and still bit-exact on the
-# 4 golden scenarios.
-# =============================================================================
-
-from dataclasses import dataclass, field
 
 
 @dataclass
 class ScreenState:
-    """Typed snapshot of ``screen_predictors`` shared state.
+    """Typed snapshot of ``screen_predictors`` shared state. Not currently routed through by the orchestrator; kept as a stable IO contract for phase helpers.
 
-    Construction is on-demand (the orchestrator does not currently route
-    its locals through this object). Used by review + future incremental
-    refactors that need a stable IO contract for phase helpers.
-
-    Reads from / writes to (snapshotted at the relevant phase boundary):
-    * ``selected_vars`` -- the running mRMR selection.
-    * ``cached_MIs`` / ``cached_confident_MIs`` -- per-candidate MI cache
-      keyed by the (sorted) feature index tuple.
-    * ``cached_cond_MIs`` -- conditional MI cache for ``I(X; Y | Z)``.
-    * ``entropy_cache`` -- entropy-by-conditioning-set cache used by
-      ``conditional_mi``.
-    * ``partial_gains`` -- per-candidate partial gain (lower bound) for
-      the confirmation step.
-    * ``failed_candidates`` -- candidates that the confirmation step
-      already rejected.
-    * ``added_candidates`` -- candidates already in ``selected_vars``.
-    * ``classes_y`` / ``classes_y_safe_cpu`` / ``classes_y_safe_gpu`` /
-      ``freqs_y`` -- target encoding caches (B18 distinguishes CPU vs
-      GPU at the boundary).
-    * ``data_copy`` -- memmapped or in-memory shuffle scratch for the
-      fleuret confidence permutation pass.
+    Fields: running selection, MI caches (direct / confident / conditional), entropy cache, partial gains, failed / added candidate sets, target encoding caches
+    (CPU vs GPU distinguished at boundary), shuffle scratch buffer for the fleuret confidence pass.
 
     Invariants:
-    * ``set(added_candidates) == set(selected_vars)`` after ``_postprocess_step``.
+    * ``set(added_candidates) == set(selected_vars)`` after the postprocess step.
     * ``failed_candidates`` and ``added_candidates`` are disjoint.
     * ``partial_gains[i]`` is undefined whenever ``i in failed_candidates``.
     """
     selected_vars: list = field(default_factory=list)
-    cached_MIs: dict = field(default_factory=dict)
-    cached_confident_MIs: dict = field(default_factory=dict)
-    cached_cond_MIs: dict = field(default_factory=dict)
+    # MI cache attributes: name kept mixedCase to match the kwarg-name contract threaded through evaluate_candidate / mi_direct / mi_direct_gpu (renaming would cascade through ~40 call sites in screen/evaluation/gpu/permutation).
+    cached_MIs: dict = field(default_factory=dict)  # noqa: N815
+    cached_confident_MIs: dict = field(default_factory=dict)  # noqa: N815
+    cached_cond_MIs: dict = field(default_factory=dict)  # noqa: N815
     entropy_cache: dict = field(default_factory=dict)
     partial_gains: dict = field(default_factory=dict)
     failed_candidates: set = field(default_factory=set)
@@ -194,15 +146,9 @@ def screen_predictors(
     interactions_order_reversed: bool = False,
     max_veteranes_interactions_order: int = 1,
     only_unknown_interactions: bool = False,
-    # B13: confirmation-step cardinality cutoff (was a hardcoded module
-    # global of 50). When ``None`` we fall back to the legacy constant.
-    # ``MRMR.fit`` overrides this with
-    # ``quantization_nbins ** interactions_max_order * 2``.
+    # Confirmation-step cardinality cutoff. ``None`` falls back to ``MAX_CONFIRMATION_CAND_NBINS``; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2``.
     max_confirmation_cand_nbins: int = None,
-    # B15: when the screening pass returns zero selected_vars, the legacy
-    # FE step fell back to running on ALL features. With this flag set to
-    # False, FE is skipped instead (the safer default; FE on an empty
-    # screen typically just amplifies noise).
+    # When screening returns zero selected_vars, legacy FE fell back to running on ALL features. False skips FE instead (safer default: FE on empty screen amplifies noise).
     fe_fallback_to_all: bool = True,
     # verbosity and formatting
     verbose: int = 1,
@@ -210,72 +156,19 @@ def screen_predictors(
     parallel_kwargs: dict = None,
     stop_file: str = None,
     use_simple_mode: bool = True,
-    # B6 (cat-FE): ``engineered_lineage`` -- mapping
-    # ``{engineered_col_idx: frozenset(parent_indices)}``. When set,
-    # the candidate enumeration in screen.py skips k-way candidates
-    # that combine an engineered column with one of its own parents
-    # (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the
-    # engineered col already contains orig_i's information). Passed
-    # through ``should_skip_candidate`` from ``evaluate_candidates``.
-    # Default ``None`` preserves legacy behaviour bit-exact.
+    # ``engineered_lineage`` -- mapping ``{engineered_col_idx: frozenset(parent_indices)}``. When set, k-way candidate enumeration skips combinations of an engineered
+    # column with one of its own parents (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the engineered col already contains orig_i's info). Threaded
+    # through ``should_skip_candidate``. ``None`` preserves legacy behaviour.
     engineered_lineage: dict = None,
 ) -> float:
-    """Finds best predictors for the target.
+    """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
-    Body structure (10b post-plan: documented phases without forcing
-    a procedural extract; ``ScreenState`` above is the reader's typed
-    view of the shared state). The 4 phase functions are reachable
-    via grep markers ``# PHASE 1``, ``# PHASE 2`` etc. in the body.
+    ``max_confirmation_cand_nbins=None`` falls back to the module constant for backward compat; ``MRMR.fit`` overrides explicitly. ``fe_fallback_to_all`` is consumed
+    by ``MRMR.fit`` and only threaded here for caller pass-through.
 
-    PHASE 1 -- _select_initial_candidates
-        Build the candidate pool for the current ``interactions_order``;
-        compute baseline (low-permutation-budget) MI for each. Filters
-        out previously-failed and already-selected candidates via
-        ``should_skip_candidate``. Outputs ``partial_gains`` dict keyed
-        by candidate tuple.
-
-    PHASE 2 -- _evaluate_partials
-        For each candidate, walk the selected-vars list and compute
-        ``conditional_mi(X, Y, Z)`` for every Z subset (up to
-        ``max_veteranes_interactions_order``). Cumulative gain is
-        accumulated in ``cached_cond_MIs`` for re-use. Calls
-        ``evaluate_gain`` per candidate.
-
-    PHASE 3 -- _confirm_top_k
-        For the top-K candidates by partial gain, run the full
-        permutation budget (``full_npermutations`` shuffles of Y) to
-        confirm statistical significance. The ``while True`` loop
-        starting near line 426 is this phase. ``cand_confirmed`` flag
-        decides whether the candidate enters ``selected_vars``.
-
-    PHASE 4 -- _postprocess_step
-        Update ``predictors``, ``cached_confident_MIs``, log progress,
-        check stopping conditions (``max_consec_unconfirmed``,
-        ``max_runtime_mins``, ``stop_file``).
-
-    A full free-function decomposition is gated on richer golden
-    coverage (the post-plan plan has ``ScreenState`` ready as a state
-    container; the procedural rewrite needs extended bit-exact tests
-    on diverse synthetic + real datasets to be safe).
-
-    B13: ``max_confirmation_cand_nbins`` parameterises the legacy module
-    constant of the same name. ``None`` (the default) preserves the
-    legacy value of 50 so this entry-point keeps backward-compatible
-    semantics; ``MRMR.fit`` overrides explicitly.
-
-    B15: ``fe_fallback_to_all`` -- this flag is consumed by ``MRMR.fit``
-    (where the FE step lives) and threaded here only so callers can
-    pass it through. ``screen_predictors`` itself does not act on it.
-
-    x must be n-x-m array of integers (ordinal encoded)
     Parameters:
         full_npermutations: when computing every MI, repeat calculations with randomly shuffled indices that many times
         min_nonzero_confidence: if in random permutation tests this or higher % of cases had worse current_gain than original, current_gain value is considered valid, otherwise, it's set to zero.
-    Returns:
-        1) best set of non-redundant single features influencing the target
-        2) subsets of size 2..interactions_max_order influencing the target. Such subsets will be candidates for predictors and OtherVarsEncoding.
-        3) all 1-vs-1 influencers (not necessarily in mRMR)
-    Parameters:
         only_unknown_interactions: True for speed, False for completeness of higher order interactions discovery.
         verbose: int  1=log only important info,>1=also log additional details
         mrmr_relevance_algo:str
@@ -285,6 +178,11 @@ def screen_predictors(
                         "fleuret": 0 ('cause redundancy already accounted for)
                         "pld_max": max(I(veterane,cand)) Possible to use n-way interactions here.
                         "pld_mean": mean(I(veterane,cand)) Possible to use n-way interactions here.
+
+    Returns:
+        1) best set of non-redundant single features influencing the target
+        2) subsets of size 2..interactions_max_order influencing the target. Such subsets will be candidates for predictors and OtherVarsEncoding.
+        3) all 1-vs-1 influencers (not necessarily in mRMR)
     """
     # ---------------------------------------------------------------------------------------------------------------
     # Input checks
@@ -293,9 +191,6 @@ def screen_predictors(
     if parallel_kwargs is None:
         parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES)
 
-    # B13: resolve effective cutoff. None preserves the legacy 50 so the
-    # raw `screen_predictors` entry-point stays bit-exact with pre-refactor
-    # behaviour; ``MRMR.fit`` overrides with the formula default.
     if max_confirmation_cand_nbins is None:
         max_confirmation_cand_nbins = MAX_CONFIRMATION_CAND_NBINS
 
@@ -372,14 +267,8 @@ def screen_predictors(
     selected_vars = []  # stores just indices. can't use set 'cause the order is important for efficient computing
     predictors = []  # stores more details.
 
-    # Observability flag -- true if the inner confirmation loop hit the
-    # ``max_consec_unconfirmed`` patience threshold at least once. Prior
-    # to 2026-04-19, patience-triggered early exits only logged at
-    # verbose>=1; at default verbosity, MRMR silently returned a
-    # potentially-truncated feature set and callers had no signal that
-    # the stopping condition was "gave up confirming" rather than
-    # "natural gain threshold reached". Summary log at function exit
-    # now surfaces this unconditionally.
+    # True if inner confirmation loop hit ``max_consec_unconfirmed`` patience at least once. Surfaced at function exit so callers can distinguish "gave up confirming"
+    # from "natural gain threshold reached".
     patience_triggered: bool = False
 
     cached_MIs = dict()
@@ -411,30 +300,13 @@ def screen_predictors(
         if verbose >= 2:
             logger.info("Starting parallel pool with n_workers=%d", n_workers)
 
-        # Threading backend wins on this workload: the worker
-        # function ``evaluate_candidates`` ultimately calls njit
-        # (``compute_mi_from_classes``, ``shuffle_arr``,
-        # ``parallel_mi``) which release the GIL. So threading gives
-        # near-process-pool speedup with ZERO IPC / pickle / memmap
-        # overhead.
-        #
-        # Switching off loky's process-pool default also fixes the
-        # Windows-only mem-mapping bug where joblib's resource
-        # tracker raises ``KeyError`` on shutdown: pickle of large
-        # numpy arrays (factors_data, cached_MIs values) auto-memmaps
-        # via loky, and the tracker registry desyncs across
-        # screen-iteration boundaries when the pool is re-called with
-        # the same Parallel object. Threading skips the pickle step
-        # entirely.
-        #
-        # Override via ``parallel_kwargs={"backend": "loky"}`` if the
-        # caller specifically wants process-isolation (rare on this
-        # workload).
+        # Threading backend: worker fn ``evaluate_candidates`` eventually calls njit (compute_mi_from_classes, shuffle_arr, parallel_mi) which release the GIL, so
+        # threading gives near-process-pool speedup with zero IPC / pickle / memmap overhead. Threading also avoids the Windows-only joblib resource-tracker
+        # KeyError on shutdown caused by loky's auto-memmap of large numpy arrays desyncing across screen-iteration boundaries when the same Parallel object is
+        # re-called. Override via ``parallel_kwargs={"backend": "loky"}`` if process-isolation is needed (rare on this workload).
         pk = dict(parallel_kwargs)
         pk.setdefault("backend", "threading")
-        # Disable joblib's auto-memmap for whatever backend the user
-        # picked: large factors_data arrays should stay in shared
-        # process memory, not be redundantly serialized to disk.
+        # Disable auto-memmap regardless of backend: large factors_data arrays should stay in shared process memory, not be redundantly serialized to disk.
         pk.setdefault("max_nbytes", None)
 
         if pk.get("backend") == "loky":
@@ -445,9 +317,7 @@ def screen_predictors(
                 pass
 
         workers_pool = Parallel(n_jobs=n_workers, **pk)
-        # Pool warmup: spawn workers eagerly via a no-op call so the
-        # spawn cost is paid before the screening loop starts. Avoids
-        # an "expensive first iteration" pattern in the inner loop.
+        # Warmup: spawn workers eagerly via a no-op call so spawn cost is paid before the screening loop starts.
         workers_pool(delayed(_pool_warmup_noop)(i) for i in range(n_workers))
     else:
         workers_pool = None
@@ -489,8 +359,7 @@ def screen_predictors(
         failed_candidates = set()
         nconsec_unconfirmed = 0
 
-        for n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
-            # if n_confirmed_predictors>4: n_jobs=1
+        for _n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
             if run_out_of_time:
                 break
             if stop_file and exists(stop_file):
@@ -505,11 +374,8 @@ def screen_predictors(
             best_gain = min_relevance_gain - 1
             expected_gains = np.zeros(len(candidates), dtype=np.float64)
 
-            # PHASE 3 -- _confirm_top_k: run full permutation budget on
-            # the candidate with the highest partial gain. Loop iterates
-            # until either the candidate is confirmed (added to
-            # ``selected_vars``), all candidates are exhausted, or
-            # ``max_consec_unconfirmed`` hits.
+            # Confirmation: run full permutation budget on the highest-partial-gain candidate. Iterates until confirmed (added to ``selected_vars``), all candidates
+            # exhausted, or ``max_consec_unconfirmed`` trips.
             while True:  # confirmation loop (by random permutations)
 
                 if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
@@ -963,17 +829,8 @@ def screen_predictors(
     if verbose >= 2:
         logger.info("Finished.")
 
-    # Termination-reason summary (always emitted, even at verbose=0).
-    # Two distinct termination modes:
-    #   patience_triggered=True -- ``max_consec_unconfirmed`` hit; MRMR
-    #     gave up confirming more candidates. Returned set may be smaller
-    #     than what a more patient search would have found.
-    #   patience_triggered=False -- natural exhaustion: remaining
-    #     candidates fell below ``min_relevance_gain`` threshold. This is
-    #     the "done" case, not an early stop.
-    # Operators tuning MRMR on noisy data need to distinguish the two --
-    # if patience keeps tripping, they need a higher ``max_consec_unconfirmed``
-    # or smoother relevance signals, not a higher feature budget.
+    # Termination-reason summary (always emitted). ``patience_triggered`` distinguishes "gave up confirming" (max_consec_unconfirmed hit) from natural exhaustion below
+    # ``min_relevance_gain``. If patience keeps tripping, raise ``max_consec_unconfirmed`` or smooth the relevance signals.
     if patience_triggered:
         logger.warning(
             "screen_predictors terminated early via max_consec_unconfirmed=%d "
@@ -990,23 +847,20 @@ def screen_predictors(
         )
 
     any_influencing = set()
-    for vars_combination, (bootstrapped_gain, confidence) in cached_confident_MIs.items():
+    for vars_combination, (bootstrapped_gain, _confidence) in cached_confident_MIs.items():
         if bootstrapped_gain > 0:
             any_influencing.update(set(vars_combination))
 
     """Выбрать группы/кластера скоррелированных факторов. Вместо использования 1 самого крутого, рассмотреть средние от всех
-        отброшенных факторов, имеющих высокое прямое direct_MI с таргетом, но близкое к 0 additional_knowledge с каждым 
+        отброшенных факторов, имеющих высокое прямое direct_MI с таргетом, но близкое к 0 additional_knowledge с каждым
         "победившим" фактором, проверить, не могут ли они усилить свой победивший фактор через ансамблирование. Усиление в смысле
         среднего и вариативности MI с таргетом на бутстрепе подвыборок?
 
         key = arr2str(X) + "_" + arr2str(Z)
         if key in cached_cond_MIs:
-            additional_knowledge = cached_cond_MIs[key]                        
+            additional_knowledge = cached_cond_MIs[key]
     """
     return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y
-
-
-# `count_cand_nbins` moved to ``_numba_utils.py`` (etap 2). Imported above.
 
 
 def postprocess_candidates(
@@ -1100,14 +954,14 @@ def postprocess_candidates(
     """
     Compute redundancy stats for every X
 
-    кто связан с каким количеством других факторов, какое количество информации с ними разделяет, в % к своей собственной энтропии. 
-    Можно даже спуститься вниз по уровню и посчитать взвешенные суммы тех же метрик для его партнёров. 
+    кто связан с каким количеством других факторов, какое количество информации с ними разделяет, в % к своей собственной энтропии.
+    Можно даже спуститься вниз по уровню и посчитать взвешенные суммы тех же метрик для его партнёров.
     Тем самым можно косвенно определить, какие фичи скорее всего просто сливные бачки, и попробовать их выбросить.  В итоге мы получим:
 
     ценные фичи, которые ни с кем другим не связаны, кроме мусорных и таргета. они содержат уникальное знание;
-    потенциально мусорные X, которые связаны с множеством других, и шарят очень много общей инфы с другими факторами Z, при том, 
+    потенциально мусорные X, которые связаны с множеством других, и шарят очень много общей инфы с другими факторами Z, при том,
     что эти другие факторы имеют много уникального знания о таргете помимо X: sum(I(Y;Z|X))>e;
-    все остальные "середнячки".    
+    все остальные "середнячки".
     """
 
     """
@@ -1154,17 +1008,7 @@ def postprocess_candidates(
     """
 
 
-# ----------------------------------------------------------------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------------------------------------------------------------
-
-
-# create_redundant_continuous_factor, categorize_1d_array, digitize, edges,
-# quantize_dig, quantize_search, discretize_uniform, discretize_array,
-# _discretize_array_impl, discretize_2d_array, get_binning_edges,
-# discretize_sklearn, categorize_dataset moved to ``discretization.py``
-# (etap 4). categorize_dataset_old deleted (B9, verified zero call-sites).
-# All imported below.
+# Re-exports for backwards compatibility (discretisation helpers live in their own module).
 from .discretization import (
     create_redundant_continuous_factor,
     categorize_1d_array,

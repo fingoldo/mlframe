@@ -1,13 +1,9 @@
 """sklearn-compatible MRMR estimator.
 
-B1 (etap 11) - tolerate FE-engineered feature names in the post-fit
-    support index map (route synthetic names through ``_engineered_features_``).
-B14 (etap 11) - dead string-literal blocks deleted (referenced undefined
-    ``cv``, ``jobs``, ``parallel_run`` symbols and were never live code).
-B26 (etap 11) - explicit input-validation contract in ``_validate_inputs``.
-B27 (etap 11) - ``__setstate__`` shim that injects defaults for the B13/B15
-    knobs and the new ``_engineered_features_`` attribute, so old joblib /
-    cloudpickle pipelines unpickle cleanly into the new schema.
+Tolerates FE-engineered feature names in the post-fit support index map (routes synthetic names through
+``_engineered_features_``). Includes an explicit input-validation contract in ``_validate_inputs`` and an
+``__setstate__`` shim that injects defaults for newer kwargs / attributes so old joblib / cloudpickle pipelines
+unpickle cleanly.
 """
 from __future__ import annotations
 
@@ -24,7 +20,7 @@ from collections import defaultdict
 from itertools import combinations
 from os.path import exists
 from timeit import default_timer as timer
-from typing import Sequence, Union
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -116,14 +112,10 @@ logger = logging.getLogger(__name__)
 
 
 def _hashable_params_signature(params: dict) -> tuple:
-    """Build a hashable tuple-of-(key, value) signature from ``get_params``
-    output. Values that aren't hashable (numpy arrays, callables, dicts
-    of unhashables) fall back to ``repr(v)`` so the signature is still
-    constructable and remains stable across identical configurations.
+    """Build a hashable tuple-of-(key, value) signature from ``get_params`` output.
 
-    Used by ``MRMR._FIT_CACHE`` lookup so two clones with the same
-    constructor parameters AND the same (X, y) arrays share fitted
-    state -- skipping the full cat-FE + permutation pass.
+    Non-hashable values (numpy arrays, callables, dicts of unhashables) fall back to ``repr(v)``. Used by
+    ``MRMR._FIT_CACHE`` so two clones with the same constructor parameters and (X, y) share fitted state.
     """
     items = []
     for k, v in sorted(params.items()):
@@ -139,29 +131,17 @@ def _hashable_params_signature(params: dict) -> tuple:
 
 
 def _content_array_signature(arr) -> tuple:
-    """Cheap O(1) content-based fingerprint of a numpy-like array /
-    pandas DataFrame / polars DataFrame. Used as a cache key when
-    ``id()`` is unreliable -- e.g. the training suite copies X
-    between model iterations (different pre-pipeline transforms per
-    strategy), so two calls with semantically-equal X have distinct
-    ``id(X)`` but identical content.
+    """Cheap O(1) content-based fingerprint of an array / DataFrame.
 
-    Returns a tuple of (shape, dtype_str, sampled_values_bytes,
-    col_names). Samples a fixed set of positions (first, last,
-    evenly-spaced interior) -- enough to disambiguate distinct
-    content with overwhelming probability while staying O(constant)
-    cost. Column names (when available) are included so two frames
-    with identical content but different column names produce
-    different cache keys -- otherwise a fit on ``df.rename(...)``
-    would replay the prior fit's ``feature_names_in_`` and downstream
-    ``transform()`` would mis-select by name.
+    Used as a cache key when ``id()`` is unreliable: the training suite copies X between model iterations,
+    so semantically-equal X have distinct ``id(X)`` but identical content. Samples 10 evenly-spaced positions;
+    column names (when available) are included so ``df`` vs ``df.rename(...)`` produce different keys (otherwise
+    a fit on the renamed frame would replay the prior ``feature_names_in_`` and ``transform()`` would mis-select).
 
-    Falls back to ``id(arr)`` when content sampling fails (object
-    arrays, non-numeric polars columns, etc).
+    Returns (shape, dtype_str, sampled_values_bytes, col_names); falls back to ``id(arr)`` on failure.
     """
     try:
-        # Capture column names (DataFrames only) BEFORE unwrap so the
-        # signature distinguishes ``df`` vs ``df.rename(...)``.
+        # Capture column names (DataFrames only) BEFORE unwrap so signature distinguishes df vs df.rename(...).
         col_names = None
         if hasattr(arr, "columns"):
             try:
@@ -200,10 +180,8 @@ def _content_array_signature(arr) -> tuple:
 def _target_to_numpy_values(y) -> np.ndarray:
     """Return a numpy view/array for sklearn-style targets.
 
-    pandas exposes both ``to_numpy`` and ``values``; Polars Series exposes
-    ``to_numpy`` but not ``values``. MRMR only needs the 1-D/2-D target
-    vector for its own temporary target columns, so normalize y directly
-    without touching or copying the feature frame.
+    Pandas exposes both ``to_numpy`` and ``values``; Polars Series exposes ``to_numpy`` only. MRMR only needs
+    the 1-D/2-D target vector for its temporary target columns, so normalize y directly without copying X.
     """
     if isinstance(y, np.ndarray):
         return y
@@ -214,22 +192,16 @@ def _target_to_numpy_values(y) -> np.ndarray:
     return np.asarray(y)
 
 
-# Constructor-parameter names of ``MRMR``. Populated lazily on first
-# call to ``_replay_fitted_state`` (avoids importing ``inspect`` /
-# instantiating MRMR at module import time).
-_MRMR_INIT_PARAM_NAMES: "Optional[frozenset[str]]" = None
+# Constructor-parameter names of ``MRMR``. Populated lazily to avoid importing inspect at module load.
+_MRMR_INIT_PARAM_NAMES: frozenset[str] | None = None
 
 
-def _replay_fitted_state(target: "MRMR", source: "MRMR") -> int:
-    """Copy fitted attributes from ``source`` onto ``target``,
-    preserving target's constructor parameters intact. Returns the
-    number of attributes replayed.
+def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
+    """Copy fitted attributes from ``source`` onto ``target``, preserving target's constructor params intact.
 
-    The distinction matters because a cloned MRMR has its own
-    constructor params + ``signature=None`` + no fitted state;
-    we want to inherit ``support_``, ``_engineered_recipes_``,
-    ``_cat_fe_cache_``, ``ranking_``, etc. WITHOUT overwriting any
-    constructor params.
+    A cloned MRMR has its own constructor params + ``signature=None`` + no fitted state; we want to inherit
+    ``support_``, ``_engineered_recipes_``, ``_cat_fe_cache_``, ``ranking_``, etc. WITHOUT overwriting any
+    constructor params. Returns the number of attributes replayed.
     """
     global _MRMR_INIT_PARAM_NAMES
     if _MRMR_INIT_PARAM_NAMES is None:
@@ -242,8 +214,7 @@ def _replay_fitted_state(target: "MRMR", source: "MRMR") -> int:
     for k, v in source.__dict__.items():
         if k in _MRMR_INIT_PARAM_NAMES:
             continue
-        # Cheap shallow assign; deep copy would defeat the purpose of
-        # the cache (we WANT to share the cached numpy arrays).
+        # Shallow assign; deep copy would defeat the cache (we WANT to share cached numpy arrays).
         target.__dict__[k] = v
         n_replayed += 1
     return n_replayed
@@ -283,25 +254,13 @@ class MRMR(BaseEstimator, TransformerMixin):
 
     """
 
-    # 2026-05-11: process-wide cache of fitted state, keyed by
-    # ``(id(X), id(y), params_signature)``. When the training suite
-    # iterates over models (and therefore ``clone()``s the pre_pipeline
-    # MRMR each time, stripping the instance's ``_cat_fe_cache_``),
-    # subsequent fits on the SAME numpy arrays hit this cache and skip
-    # the full cat-FE + permutation work entirely.
-    #
-    # The cache holds STRONG references to fitted instances; on a
-    # typical suite run all entries are released when the function-
-    # scope X / y arrays go out of scope and ``MRMR._FIT_CACHE`` is
-    # finally cleared at process exit. For long-lived workers, callers
-    # can explicitly call ``MRMR._FIT_CACHE.clear()`` between suites.
-    #
-    # Cache hit semantics: replay all fitted attributes (anything set
-    # during the prior ``fit()`` body) onto ``self`` and return early.
-    # Constructor params are NEVER overwritten -- the cache key already
-    # includes the params signature, so a hit guarantees matching
-    # constructor state.
-    _FIT_CACHE: "Dict[tuple, MRMR]" = {}
+    # Process-wide cache of fitted state, keyed by (content_sig(X), content_sig(y), params_signature). When the
+    # training suite iterates over models (clone()ing the pre-pipeline MRMR each time, stripping
+    # ``_cat_fe_cache_``), subsequent fits on the same arrays hit this cache and skip the full cat-FE +
+    # permutation work. Cache holds STRONG references; long-lived workers can call MRMR._FIT_CACHE.clear()
+    # between suites. Cache hit: replay all fitted attributes onto ``self`` and return early; constructor params
+    # are NEVER overwritten (the key already includes the params signature, so a hit guarantees matching state).
+    _FIT_CACHE: dict[tuple, MRMR] = {}
 
     def __init__(
         self,
@@ -360,48 +319,32 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_polynom_coeff: float = -10.0,
         fe_max_polynom_coeff: float = 10.0,
         # verbosity and formatting
-        verbose: Union[bool, int] = 0,
+        verbose: bool | int = 0,
         ndigits: int = 5,
         parallel_kwargs: dict = None,
         # CV
-        cv: Union[object, int, None] = 3,
+        cv: object | int | None = 3,
         cv_shuffle: bool = False,
         # service
         random_state: int = None,
         n_jobs: int = -1,
         skip_retraining_on_same_shape: bool = True,
-        # B13 (post-plan): cardinality cutoff for the confirmation step.
-        # ``None`` (the default) computes
-        # ``quantization_nbins ** interactions_max_order * 2``, which for
-        # the default ``quantization_nbins=10, interactions_max_order=1``
-        # gives 20. Pre-B13 default was a hardcoded 50 -- the new default
-        # is more conservative (skips more high-cardinality conditioning
-        # sets where permutation-based confirmation does not converge in
-        # reasonable time). Pin to 50 to restore legacy behaviour.
+        # Cardinality cutoff for the confirmation step. ``None`` (default) computes
+        # ``quantization_nbins ** interactions_max_order * 2`` (20 for the defaults). Pin to 50 for legacy behaviour.
+        # Conservative default skips high-cardinality conditioning sets where permutation-based confirmation does not
+        # converge in reasonable time.
         max_confirmation_cand_nbins: int = None,
-        # B15 (post-plan): when the screening pass returns zero
-        # ``selected_vars``, the legacy code fell back to running FE on
-        # ALL features. The new default is to skip FE instead -- FE on
-        # an empty screen typically just amplifies noise. Set to ``True``
-        # to restore legacy behaviour.
+        # When screening returns zero selected_vars, legacy code fell back to FE on ALL features; new default is
+        # to skip FE (running FE on an empty screen typically just amplifies noise). Set True for legacy.
         fe_fallback_to_all: bool = False,
-        # P0-H39 (audit): pipeline-fatal fallback. When the entire screening
-        # phase yields zero features (all MI ~= 0), MRMR's default leaves
-        # ``support_`` empty and ``transform`` returns 0 columns -- which
-        # crashes any downstream estimator expecting >=1 feature. Set
-        # ``min_features_fallback`` >= 1 to keep at least that many features
-        # by raw MI rank when the screening pass collapses. The chosen
-        # features are flagged as "fallback" via ``self.fallback_used_``.
+        # Pipeline-fatal fallback: when screening yields zero features (all MI ~= 0), the default leaves
+        # ``support_`` empty and ``transform`` returns 0 columns, crashing any downstream estimator expecting >=1
+        # feature. Set >= 1 to keep at least that many features by raw MI rank; chosen features are flagged via
+        # ``self.fallback_used_``.
         min_features_fallback: int = 0,
-        # Cat-FE (categorical feature interactions). Single dataclass kwarg
-        # consolidating ~22 cat_fe_* knobs (SB8). Default (2026-05-11):
-        # ``None`` is now interpreted as "default CatFEConfig() with
-        # ``enable=True`` and conservative production settings". Per
-        # ``mlframe/CLAUDE.md`` accuracy/perf-over-legacy rule: cat-FE
-        # shows measurable wins (XOR biz_value, 0 regressions in 527
-        # tests) so the default flipped from disabled to enabled.
-        # To restore legacy MRMR behaviour explicitly:
-        # ``cat_fe_config=CatFEConfig(enable=False)``.
+        # Cat-FE (categorical feature interactions): single dataclass consolidating ~22 cat_fe_* knobs.
+        # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
+        # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
         cat_fe_config=None,
         # hidden
         stop_file: str = "stop",
@@ -420,10 +363,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         store_params_in_object(obj=self, params=get_parent_func_args())
         self.signature = None
 
-    # B26 (etap 11): input validation contract -- explicit guards for
-    # memory-exhaustion shapes, malformed dtypes, all-constant features,
-    # and polars LazyFrame / Expr edge cases. Each guard either raises a
-    # descriptive ValueError or warns + applies a safe default.
+    # Input validation contract: explicit guards for memory-exhaustion shapes, malformed dtypes,
+    # all-constant features, and polars LazyFrame / Expr edge cases. Each guard raises ValueError or warns.
     def _validate_inputs(self, X, y):
         import warnings as _w
         n_rows = getattr(X, "shape", (None,))[0]
@@ -448,7 +389,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         try:
             import polars as _pl
             if isinstance(X, _pl.LazyFrame):
-                _w.warn("MRMR.fit autocollecting LazyFrame; pass DataFrame to skip this copy.")
+                _w.warn("MRMR.fit autocollecting LazyFrame; pass DataFrame to skip this copy.", stacklevel=3)
                 X = X.collect()
             if hasattr(_pl, "Expr") and isinstance(X, _pl.Expr):
                 raise ValueError("MRMR.fit cannot accept polars Expr; materialise via .select(...) first")
@@ -463,18 +404,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         if hasattr(X, "columns"):
             cols = list(X.columns)
             if len(cols) != len(set(cols)):
-                from collections import Counter as _C
-                dups = [c for c, n in _C(cols).items() if n > 1]
+                from collections import Counter
+                dups = [c for c, n in Counter(cols).items() if n > 1]
                 raise ValueError(f"MRMR.fit: duplicate column names not supported: {dups}")
-        # Infinite values in numeric data.
-        # 2026-05-12 Wave 28: the old ``X.to_numpy()`` converted the ENTIRE
-        # frame (numeric + categorical/string columns) into a single object-
-        # dtype array (1-2.3s wall at 1M rows). That object array has
-        # ``dtype.kind != "f"`` so the inf check was silently SKIPPED for
-        # every mixed-type frame -- the common case in the suite (cat
-        # features + numerics). Fix: only scan numeric columns so the
-        # result is a genuine float array whose inf values we can detect.
-        # Cost drops to ~0.3s (pandas) / materialisation-only (polars).
+        # Infinite values in numeric data. Old ``X.to_numpy()`` converted the ENTIRE frame (numeric + cat/string)
+        # into a single object-dtype array (1-2.3s wall at 1M rows); that array has dtype.kind != "f" so the inf
+        # check was silently SKIPPED for every mixed-type frame. Fix: only scan numeric columns so the result is a
+        # genuine float array whose inf values we can detect. Cost drops to ~0.3s pandas / materialisation-only polars.
         try:
             try:
                 import polars as _pl
@@ -489,14 +425,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             except ImportError:
                 _arr = X.to_numpy() if hasattr(X, "to_numpy") else None
             if _arr is not None and _arr.dtype.kind == "f" and np.isinf(_arr).any():
-                _w.warn("MRMR.fit: input contains +/-inf values; downstream discretization may produce undefined bins")
+                _w.warn("MRMR.fit: input contains +/-inf values; downstream discretization may produce undefined bins", stacklevel=3)
         except Exception:
             pass
-        # All-same y check. P1-H37 (audit): raise instead of warn -
-        # symmetric with RFECV.fit's single-class y validation. A constant
-        # y has H(y)=0 so every MI(X_j, y) is 0; the entire MRMR pipeline
-        # produces zero-information output. Caller should catch the bad
-        # input upstream rather than letting MRMR silently return [].
+        # All-same y: raise (symmetric with RFECV.fit's single-class y validation). Constant y has H(y)=0 so
+        # every MI(X_j, y) = 0; the entire MRMR pipeline produces zero-information output.
         try:
             if len(np.unique(np.asarray(y))) == 1:
                 raise ValueError(
@@ -510,33 +443,26 @@ class MRMR(BaseEstimator, TransformerMixin):
             pass
         return X
 
-    # B27 (etap 11): pickle BC for the upcoming B13 default flip
-    # (max_confirmation_cand_nbins kwarg) -- old MRMR pickles lacking this
-    # attribute resurface with the legacy default injected.
+    # Pickle BC: old MRMR pickles lacking newer attributes resurface with the legacy defaults injected.
     def __setstate__(self, state):
         defaults = {
-            "max_confirmation_cand_nbins": 50,  # B13 legacy default
-            "fe_fallback_to_all": True,         # B15 legacy default
-            "_engineered_features_": [],        # B1 new attribute
-            # PR-1 prep: recipes-based replay so transform() can recompute
-            # engineered features on test data. Old pickles have no
-            # recipes -- their engineered cols were never replayable, so
-            # an empty list reproduces the legacy "engineered cols dropped
-            # from transform output" behaviour bit-exact.
+            "max_confirmation_cand_nbins": 50,  # legacy default
+            "fe_fallback_to_all": True,         # legacy default
+            "_engineered_features_": [],
+            # Recipes-based replay so transform() can recompute engineered features on test data. Old pickles
+            # have no recipes (their engineered cols were never replayable); empty list reproduces the legacy
+            # "engineered cols dropped from transform output" behaviour bit-exact.
             "_engineered_recipes_": [],
-            # Cat-FE: ``None`` means cat-FE was either disabled or never
-            # ran. Old pickles (pre-cat-FE) had no concept of this attr;
-            # injecting ``None`` makes ``getattr(self, "cat_fe_config",
-            # None)`` consistent with no-op behaviour.
+            # Cat-FE: ``None`` means disabled or never ran; injecting ``None`` makes getattr(...) no-op.
             "cat_fe_config": None,
             "_cat_fe_state_": None,
-            "_cat_fe_cache_": None,  # Tier 4.4 streaming cache; None on legacy pickles
+            "_cat_fe_cache_": None,  # streaming cache; None on legacy pickles
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
         self.__dict__.update(state)
 
-    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
+    def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
         """We run N selections on data subsets, and pick only features that appear in all selections"""
         X = self._validate_inputs(X, y)
 
@@ -551,21 +477,11 @@ class MRMR(BaseEstimator, TransformerMixin):
                     logger.info("Skipping retraining on the same inputs signature %s", signature)
                 return self
 
-        # 2026-05-11: process-wide ``_FIT_CACHE`` hit. After
-        # ``sklearn.base.clone()`` the cloned MRMR has no fitted state,
-        # so the prior ``self.signature == signature`` shortcut above
-        # never fires. Cache lookup is by (id(X), id(y), params) so two
-        # MRMR clones fit on the SAME numpy arrays (typical training-
-        # suite pattern: pre_pipeline shared across model iterations,
-        # train_df reused via PipelineCache) skip the full cat-FE +
-        # permutation pass and just inherit fitted state from the
-        # first run. Falls through to full fit on any error or miss.
-        # 2026-05-11: content-based cache key (initial id-based key
-        # missed every hit because the suite copies X between model
-        # iterations -- different ``id(X)`` but identical content).
-        # ``_content_array_signature`` returns shape + dtype + 10
-        # sampled values per array; cheap O(1) and statistically
-        # unique enough to avoid false positives on real data.
+        # Process-wide ``_FIT_CACHE`` hit. After sklearn.base.clone() the cloned MRMR has no fitted state so
+        # the signature==signature shortcut above never fires. Content-based key (id-based missed every hit
+        # because the suite copies X between iterations -- different id() but identical content);
+        # _content_array_signature returns shape+dtype+10 sampled values, cheap O(1) and statistically unique
+        # enough to avoid false positives on real data. Falls through to full fit on any error or miss.
         _cache_key = None
         try:
             _params_sig = _hashable_params_signature(self.get_params(deep=False))
@@ -589,20 +505,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Inits
         # ---------------------------------------------------------------------------------------------------------------
 
-        start_time = timer()
-        ran_out_of_time = False
+        # !TODO! flagged by ruff F841: ``start_time`` + ``ran_out_of_time`` appear to be a never-wired runtime-budget
+        # feature -- start_time is captured but no elapsed check fires anywhere in fit(), and ran_out_of_time is
+        # never read or flipped. Verify whether fit() should honour ``self.max_runtime_mins`` (which IS plumbed
+        # into nested calls at line ~754) by short-circuiting its own loop when start_time exceeds the budget.
+        start_time = timer()  # noqa: F841 -- see !TODO! above; never-wired runtime-budget guard for the top-level fit() loop.
+        ran_out_of_time = False  # noqa: F841 -- see !TODO! above.
 
-        quantization_method = self.quantization_method
-        quantization_nbins = self.quantization_nbins
         dtype = self.dtype
 
-        max_runtime_mins = self.max_runtime_mins
-        random_state = self.random_state
         parallel_kwargs = self.parallel_kwargs
         n_jobs = self.n_jobs
         verbose = self.verbose
-        cv_shuffle = self.cv_shuffle
-        cv = self.cv
 
         prefetch_factor = 4
 
@@ -612,14 +526,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_binary_preset = self.fe_binary_preset
         fe_max_pair_features = self.fe_max_pair_features
 
-        # Fix 10 addendum (2026-04-22): MRMR feature engineering (invoked
-        # when fe_max_steps > 0) uses pandas-only ops at multiple sites
-        # (X.iloc[:, i].values at filters.py:~3184, 3324, 3537, 3623,
-        # 3679; X[col] = vals at ~3324). Adapting all of these to polars
-        # is a separate large refactor. For now, gracefully disable FE
-        # when the input is polars -- the selector itself still works and
-        # uses the zero-copy polars categorize_dataset path. Log once so
-        # it's visible that FE was skipped.
+        # MRMR feature engineering (fe_max_steps > 0) uses pandas-only ops at multiple sites. Adapting all to
+        # polars is a separate large refactor; for now FE is disabled when input is polars (the selector itself
+        # still works via the zero-copy polars categorize_dataset path).
         fe_min_nonzero_confidence = self.fe_min_nonzero_confidence
         fe_min_pair_mi = self.fe_min_pair_mi
         fe_min_pair_mi_prevalence = self.fe_min_pair_mi_prevalence
@@ -634,24 +543,6 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_max_polynom_degree = self.fe_max_polynom_degree
         fe_min_polynom_coeff = self.fe_min_polynom_coeff
         fe_max_polynom_coeff = self.fe_max_polynom_coeff
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Init cv
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        """
-        if cv is None or str(cv).isnumeric():
-            if cv is None:
-                cv = 3
-
-            if groups is not None:
-                cv = GroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
-            else:
-                cv = KFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state)
-            
-            if verbose:
-                logger.info("Using cv=%s", cv)
-        """
 
         # Convert numpy array to DataFrame if needed
         if isinstance(X, np.ndarray):
@@ -678,11 +569,8 @@ class MRMR(BaseEstimator, TransformerMixin):
             print("Converted targets from int64 to int16.")
             vals = vals.astype(np.int16)
 
-        # 2026-04-22 (Fix 10 addendum to jolly-wishing-deer plan): native
-        # Polars support -- no `.to_pandas()` copy. mlframe production
-        # frames are 100+ GB, and a full materialization would OOM on
-        # the prod box. CLAUDE.md forbids caller-visible copies; use
-        # Polars-native ops when the input is pl.DataFrame.
+        # Native Polars support -- no `.to_pandas()` copy. Production frames are 100+ GB; full materialization
+        # would OOM. Use Polars-native ops when the input is pl.DataFrame.
         try:
             import polars as pl  # local alias; safe even if pl is already imported module-scope
             _is_polars_input = isinstance(X, pl.DataFrame)
@@ -690,16 +578,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             _is_polars_input = False
 
         if _is_polars_input:
-            # Polars is immutable; `with_columns` returns a new frame that
-            # shares buffers with X -- no data copy. Caller's X is not mutated.
+            # Polars is immutable; with_columns returns a new frame sharing buffers with X -- no data copy.
             target_series = [pl.Series(name, vals[:, i] if vals.ndim == 2 else vals) for i, name in enumerate(target_names)]
             X = X.with_columns(target_series)
         else:
-            # 2026-04-24 Session 6: multilabel target -> vals is (N, K). Pass it
-            # through unchanged so each column maps to its target_names entry.
-            # The previous .reshape(-1, 1) was right ONLY for 1-D y (single
-            # column with shape (N, 1)) and crashed on multilabel with
-            # "Must have equal len keys and value when setting with an ndarray".
+            # Multilabel target (N, K): pass through unchanged so each column maps to its target_names entry.
+            # Previous .reshape(-1, 1) only worked for 1-D y; crashed on multilabel with "Must have equal len keys
+            # and value when setting with an ndarray".
             if vals.ndim == 2:
                 X.loc[:, target_names] = vals
             else:
@@ -711,7 +596,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         logger.info("categorizing dataset...")
         if _is_polars_input:
-            # Polars: fill_null forward-then-backward -- no-copy lazy op.
+            # Polars: fill_null forward then backward (no-copy lazy op).
             _filled = X.fill_null(strategy="forward").fill_null(strategy="backward")
         else:
             _filled = X.ffill().bfill()
@@ -729,8 +614,6 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Core
         # ---------------------------------------------------------------------------------------------------------------
 
-        
-        
         if _is_polars_input:
             # Polars schema-driven detection; mirrors categorize_dataset's _is_pl_cat.
             import polars as _pl
@@ -748,7 +631,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             unary_transformations = create_unary_transformations(preset=fe_unary_preset)
             binary_transformations = create_binary_transformations(preset=fe_binary_preset)
             if fe_max_polynoms:
-                polynomial_transformations = {}  # 'identity':lambda x: x,
+                # !TODO! flagged by ruff F841: ``polynomial_transformations`` is created empty and never populated
+                # nor consumed -- the loop below stores the generated coefficient arrays under ``"poly_"+str(coef)``
+                # keys into ``unary_transformations`` instead. Either polynomial_transformations should be the
+                # target dict (and later merged into unary_transformations), or it's a leftover from refactor.
+                # Verify intent: are polynomials supposed to be tracked separately for later filtering?
+                polynomial_transformations = {}  # noqa: F841 -- see !TODO! above; empty dict reserved for future per-poly tracking. 'identity':lambda x: x,
                 for _ in range(fe_max_polynoms):
                     length = np.random.randint(3, 9)
                     # coef=(np.random.random(length)-0.5)*1
@@ -764,27 +652,16 @@ class MRMR(BaseEstimator, TransformerMixin):
 
             engineered_features = set()
             checked_pairs = set()
-        # PR-1 prep: ``engineered_recipes`` (name -> EngineeredRecipe) is
-        # initialised UNCONDITIONALLY -- the splitter at the bottom of
-        # ``fit()`` looks it up on every screening completion regardless
-        # of ``fe_max_steps``. When ``fe_max_steps == 0`` (FE disabled),
-        # the dict simply stays empty and no recipes are persisted.
+        # engineered_recipes (name -> EngineeredRecipe) is initialised unconditionally; the splitter at the bottom
+        # of fit() looks it up regardless of fe_max_steps. Stays empty when FE is disabled.
         engineered_recipes: dict = {}
 
-        # ---------------------------------------------------------------------
-        # Cat-FE step (categorical interaction generator). Runs ONCE before
-        # the screening loop when ``self.cat_fe_config.enable=True``. The
-        # step augments ``data`` / ``cols`` / ``nbins`` with new ordinal-
-        # encoded columns capturing pair (and future k-way) synergies.
-        # Engineered cols enter the screening pass as 1-way features --
-        # the screening's own k-way enumeration sees them as atomic.
-        # See plan v3 §"Точка интеграции".
-        # ---------------------------------------------------------------------
+        # Cat-FE step (categorical interaction generator). Runs once before the screening loop when
+        # ``cat_fe_config.enable=True``; augments data/cols/nbins with ordinal-encoded columns capturing pair
+        # (and future k-way) synergies. Engineered cols enter screening as atomic 1-way features.
         cat_fe_cfg = getattr(self, "cat_fe_config", None)
         self._cat_fe_state_ = None
-        # 2026-05-11 default-flip: ``None`` means "use default CatFEConfig()"
-        # which has ``enable=True`` since the flip. Users who want legacy
-        # behaviour explicitly pass ``CatFEConfig(enable=False)``.
+        # ``None`` means "use default CatFEConfig()" which has enable=True. Pass CatFEConfig(enable=False) for legacy.
         if cat_fe_cfg is None:
             from .cat_fe_state import CatFEConfig as _CatFEConfig
             cat_fe_cfg = _CatFEConfig()
@@ -792,15 +669,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             from .cat_interactions import run_cat_interaction_step
             from .info_theory import merge_vars as _merge_vars_for_cat_fe
 
-            # Pre-compute classes_y / freqs_y for cat-FE (avoids re-binning
-            # the target inside every kernel call -- P2).
+            # Pre-compute classes_y / freqs_y for cat-FE (avoids re-binning the target inside every kernel call).
             _classes_y, _freqs_y, _ = _merge_vars_for_cat_fe(
                 factors_data=data, vars_indices=target_indices,
                 var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
             )
             _classes_y_safe = _classes_y.copy()
 
-            # Tier 4.4: pull cached cat-FE state from prior fit (if any)
+            # Pull cached cat-FE state from prior fit (if any).
             _prev_cache = getattr(self, "_cat_fe_cache_", None)
             _n_cols_before_cat_fe = data.shape[1]
             data, cols, nbins, cat_fe_state = run_cat_interaction_step(
@@ -814,18 +690,10 @@ class MRMR(BaseEstimator, TransformerMixin):
                 dtype=dtype, verbose=verbose,
             )
             self._cat_fe_state_ = cat_fe_state
-            # 2026-05-11: register engineered cat features as categorical_vars
-            # so the downstream numeric-FE step (``_run_fe_step``) excludes them
-            # from ``numeric_vars_to_consider``. Without this update, kway cat
-            # engineered cols at positions [old_n_cols .. new_n_cols-1] enter
-            # ``numeric_vars_to_consider``, get added to ``prospective_pairs``,
-            # then ``check_prospective_fe_pairs`` tries to read them from X (the
-            # original input frame which doesn't contain engineered cols) via
-            # ``original_cols[var]`` -- KeyError. Reproduced on c0089 (regression,
-            # 8 cat features, interactions_max_order=2). Engineered cat cols are
-            # appended at the END of ``data`` / ``cols`` by
-            # ``run_cat_interaction_step``; their positions are exactly
-            # ``[_n_cols_before_cat_fe .. data.shape[1] - 1]``.
+            # Register engineered cat features as categorical_vars so the downstream numeric-FE step excludes them
+            # from numeric_vars_to_consider; without this, k-way cat engineered cols enter prospective_pairs and
+            # check_prospective_fe_pairs hits KeyError reading them from X (which lacks engineered cols).
+            # Engineered cat cols are appended at the end of data/cols at positions [_n_cols_before_cat_fe..].
             _n_cat_fe_added = data.shape[1] - _n_cols_before_cat_fe
             if _n_cat_fe_added > 0:
                 categorical_vars = list(categorical_vars) + list(
@@ -834,11 +702,8 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Persist cache for next fit() call
             if cat_fe_state.streaming_cache_out:
                 self._cat_fe_cache_ = cat_fe_state.streaming_cache_out
-            # Cat-FE recipes feed into the same engineered_recipes dict that
-            # numeric FE populates -- the fit-end splitter copies any recipe
-            # whose engineered name shows up in selected_vars_names into
-            # ``self._engineered_recipes_``. This puts cat-FE and numeric-FE
-            # recipes on the same replay path through ``transform()``.
+            # Cat-FE recipes feed the same engineered_recipes dict numeric FE uses; the fit-end splitter copies
+            # any recipe whose engineered name appears in selected_vars_names into ``self._engineered_recipes_``.
             for r in cat_fe_state.recipes:
                 engineered_recipes[r.name] = r
             if verbose and cat_fe_state.recipes:
@@ -887,24 +752,21 @@ class MRMR(BaseEstimator, TransformerMixin):
                     interactions_order_reversed=self.interactions_order_reversed,
                     max_veteranes_interactions_order=self.max_veteranes_interactions_order,
                     only_unknown_interactions=self.only_unknown_interactions,
-                    # B13: resolve effective max_confirmation_cand_nbins.
-                    # User-pinned value wins; otherwise compute formula default.
+                    # Resolve effective max_confirmation_cand_nbins: user-pinned wins, else formula default.
                     max_confirmation_cand_nbins=(
                         self.max_confirmation_cand_nbins
                         if self.max_confirmation_cand_nbins is not None
                         else self.quantization_nbins ** self.interactions_max_order * 2
                     ),
-                    # B15: FE-on-empty-screen fallback flag (consumed by MRMR.fit).
+                    # FE-on-empty-screen fallback flag (consumed by MRMR.fit).
                     fe_fallback_to_all=self.fe_fallback_to_all,
                     # verbosity and formatting
                     verbose=self.verbose,
                     ndigits=self.ndigits,
                     parallel_kwargs=self.parallel_kwargs,
                     stop_file=self.stop_file,
-                    # T1: engineered_lineage from cat-FE step (or None when
-                    # cat-FE didn't run / produced no engineered cols). Screen
-                    # uses it to skip redundant (orig_parent, engineered_col)
-                    # k-way candidates.
+                    # engineered_lineage from cat-FE step (None when cat-FE didn't run); screen uses it to skip
+                    # redundant (orig_parent, engineered_col) k-way candidates.
                     engineered_lineage=(
                         self._cat_fe_state_.lineage
                         if getattr(self, "_cat_fe_state_", None) is not None
@@ -917,11 +779,8 @@ class MRMR(BaseEstimator, TransformerMixin):
             if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
                 break
 
-            # Feature engineering iteration -- delegated to ``_run_fe_step``
-            # so the FE controller is callable / testable / experiment-
-            # friendly outside of the screening loop. Returns the updated
-            # state tuple plus ``n_recommended_features``; if zero, the
-            # outer loop breaks (no further FE worth attempting).
+            # Feature engineering iteration delegated to ``_run_fe_step`` (testable / experiment-friendly outside
+            # the screening loop). Returns updated state + n_recommended_features; zero breaks the outer loop.
             fe_result = self._run_fe_step(
                 data=data, cols=cols, nbins=nbins, X=X,
                 target_names=target_names, target_indices=target_indices,
@@ -961,7 +820,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 fe_binary_preset=fe_binary_preset,
             )
             if fe_result is None:
-                break  # B15 skip / empty screening + fe_fallback_to_all=False
+                break  # FE skip: empty screening + fe_fallback_to_all=False
             data, cols, nbins, X, selected_vars, n_recommended_features = fe_result
 
             if n_recommended_features == 0:
@@ -976,44 +835,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)
 
         # ---------------------------------------------------------------------------------------------------------------
-        # Drop Temporarily targets
+        # Drop temporary targets
         # ---------------------------------------------------------------------------------------------------------------
 
-        # 2026-04-22 fuzz-caught: the previous ``X = X.drop(columns=target_names)``
-        # returned a NEW DataFrame and only rebound the local ``X``. When the
-        # caller's input was pandas (so X.loc[:, target_names] = ... mutated
-        # the caller's frame directly), the caller's X was left with the
-        # injected ``targ_<id>`` columns attached. They then leaked into the
-        # downstream sklearn pipeline: imputer/scaler recorded ``targ_<id>``
-        # in ``feature_names_in_`` and raised on the next transform call.
-        # Fix: drop in place (pandas) or rebind (polars -- immutable, caller's
-        # X was never mutated so nothing to clean).
+        # Fuzz-caught: previous ``X = X.drop(columns=target_names)`` returned a new DataFrame and only rebound the
+        # local; for pandas input (where X.loc[:, target_names] = ... mutated the caller's frame), the caller's
+        # X was left with the injected ``targ_<id>`` columns, which leaked into downstream sklearn pipeline
+        # (imputer/scaler recorded them in feature_names_in_ and raised on transform). Fix: drop in place (pandas)
+        # or rebind (polars -- immutable, caller's X was never mutated).
         if _is_polars_input:
             X = X.drop(target_names)  # no-copy lazy op; caller's X untouched
         else:
             X.drop(columns=target_names, inplace=True)  # restores caller's original schema
 
         # ---------------------------------------------------------------------------------------------------------------
-        # selected_vars needs to be transformed to names using the cols variable and then back to indices using original Df columns names.
-        # It's needed 'casue categorize_data can rearrange cat columns.
+        # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).
         # ---------------------------------------------------------------------------------------------------------------
 
         selected_vars_names = np.array(cols)[np.array(selected_vars, dtype=np.intp)]
-        # B1 (etap 11): tolerate FE-engineered names. The screening output may include
-        # synthetic feature names that are NOT in feature_names_in_; record them in
-        # self._engineered_features_ instead of raising on the .index() lookup.
-        # PR-1: also surface the matching ``EngineeredRecipe`` from
-        # ``engineered_recipes`` (built during ``_run_fe_step``) so
-        # ``transform()`` can replay each engineered column on test data.
-        # An engineered name in ``selected_vars_names`` without a recipe
-        # (e.g. higher-order interaction whose parents are themselves
-        # engineered) is recorded by name only and dropped from transform
-        # output -- mirrors the legacy behaviour for those cases.
-        # ``_engineered_features_`` tracks synthetic column NAMES that exist
-        # in ``data`` but not in ``self.feature_names_in_``. During
-        # ``transform()``, these are silently dropped so the output
-        # matches the original schema. Internal; set by ``_run_fe_step``
-        # during fit and consumed by ``transform``.
+        # Tolerate FE-engineered names: screening output may include synthetic feature names not in
+        # feature_names_in_; record them in self._engineered_features_ instead of raising on the .index() lookup.
+        # Also surface matching EngineeredRecipe (built during _run_fe_step) so transform() can replay each
+        # engineered column on test data. An engineered name without a recipe (e.g. higher-order interaction
+        # whose parents are themselves engineered) is recorded by name only and dropped from transform output.
         self._engineered_features_ = []
         self._engineered_recipes_ = []
         original_indices = []
@@ -1081,18 +925,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             self.n_features_ = len(selected_vars)
         else:
             self.n_features_ = 0
-            # P0-H39 (audit): when screening collapsed to empty support_,
-            # fall back to top-K by raw MI(X_j, y) so downstream pipelines
-            # don't crash on a 0-feature transform output. Only triggers
-            # if min_features_fallback >= 1 (off by default to preserve
-            # legacy semantics for callers who handle empty selection).
+            # Empty support_ fallback: rank by raw MI(X_j, y) so downstream pipelines don't crash on 0-feature
+            # transform output. Only triggers when min_features_fallback >= 1 (off by default).
             _min_fb = int(getattr(self, "min_features_fallback", 0) or 0)
             if _min_fb >= 1 and self.n_features_in_ > 0:
                 try:
-                    # Quick raw-MI fallback: rank features by their cached
-                    # confident MI with the target, take top-K. cached_MIs
-                    # may not be populated; re-compute from the original
-                    # frame as a last resort.
+                    # Rank by cached confident MI with the target; take top-K. cached_MIs may not be populated;
+                    # re-compute from the original frame as a last resort.
                     _raw_mi = []
                     for _i in range(self.n_features_in_):
                         _key = (_i, -1)  # (feature_idx, target_idx=-1 is target)
@@ -1119,14 +958,6 @@ class MRMR(BaseEstimator, TransformerMixin):
                     )
 
         # ---------------------------------------------------------------------------------------------------------------
-        # assign extra vars for upcoming vars improving
-        # ---------------------------------------------------------------------------------------------------------------
-
-        # self.cached_MIs_ = cached_MIs
-        # self.cached_cond_MIs_ = cached_cond_MIs
-        # self.cached_confident_MIs_ = cached_confident_MIs
-
-        # ---------------------------------------------------------------------------------------------------------------
         # Report FS results
         # ---------------------------------------------------------------------------------------------------------------
 
@@ -1137,9 +968,8 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         self.signature = signature
 
-        # 2026-05-11: store self in process-wide cache so cloned MRMR
-        # instances fit on the same (X, y) arrays can replay this
-        # fitted state instead of re-running cat-FE + permutation.
+        # Store self in process-wide cache so cloned MRMR instances fit on the same (X, y) arrays can replay
+        # this fitted state instead of re-running cat-FE + permutation.
         if _cache_key is not None:
             MRMR._FIT_CACHE[_cache_key] = self
         return self
@@ -1156,13 +986,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         cached_MIs, cached_confident_MIs,
         unary_transformations, binary_transformations,
         engineered_features, checked_pairs,
-        # PR-1 prep: parallel dict (name -> EngineeredRecipe) populated as
-        # new columns are added to `data` / `cols` so `transform()` can
-        # replay them on test data. Mutated in place; `MRMR.fit` reads it
-        # after the FE loop completes and copies the surviving recipes
-        # into `self._engineered_recipes_`. Default to ``None`` for
-        # callers that haven't been updated -- in that case we simply skip
-        # recipe construction (legacy behaviour bit-exact).
+        # Parallel dict (name -> EngineeredRecipe) populated as new columns are added to data / cols so
+        # transform() can replay them on test data. Mutated in place; MRMR.fit reads it after the FE loop
+        # and copies surviving recipes into self._engineered_recipes_. ``None`` skips recipe construction.
         engineered_recipes=None,
         times_spent,
         num_fs_steps,
@@ -1179,31 +1005,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_smart_polynom_iters, fe_smart_polynom_optimization_steps,
         fe_min_polynom_degree, fe_max_polynom_degree,
         fe_min_polynom_coeff, fe_max_polynom_coeff,
-        # PR-1 prep: snapshot of preset names so recipes can rebuild
-        # the correct registry at replay time. Default to ``"minimal"``
-        # to match the legacy ``MRMR.__init__`` defaults; if a caller
-        # has overridden the presets via ``self.fe_unary_preset`` /
-        # ``self.fe_binary_preset``, ``fit()`` threads the actual
-        # values through.
+        # Preset-name snapshot so recipes can rebuild the correct registry at replay time. Default "minimal"
+        # matches MRMR.__init__ defaults; callers that override via self.fe_unary_preset / self.fe_binary_preset
+        # get the actual values threaded through by fit().
         fe_unary_preset: str = "minimal",
         fe_binary_preset: str = "minimal",
     ):
-        """One Feature Engineering iteration.
+        """One Feature Engineering iteration. Extracted from ``MRMR.fit`` for testability and FE experimentation.
 
-        Extracted from ``MRMR.fit`` for testability + experimentation
-        with alternative FE strategies. Honour the same logic / defaults
-        as the legacy in-line block so the post-extract golden tests
-        stay bit-exact.
-
-        Returns ``None`` if the FE step should not run at all (B15
-        empty-screen + ``fe_fallback_to_all=False``); otherwise a tuple
-        ``(data, cols, nbins, X, selected_vars, n_recommended_features)``
-        with the updated state. ``n_recommended_features == 0`` signals
-        the outer loop to stop iterating.
-
-        Private — called from ``MRMR.fit`` only. External callers
-        should use ``MRMR.fit()`` or ``MRMR.fit_transform()``, not
-        this internal method directly.
+        Returns ``None`` if the FE step should not run (empty-screen + ``fe_fallback_to_all=False``); otherwise
+        ``(data, cols, nbins, X, selected_vars, n_recommended_features)``. ``n_recommended_features == 0`` signals
+        the outer loop to stop. Private; external callers should use ``MRMR.fit()`` or ``MRMR.fit_transform()``.
         """
         if verbose:
             logger.info("MRMR+ selected %d out of %d features before the Feature Engineering step.", len(selected_vars), self.n_features_in_)
@@ -1216,6 +1028,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                 logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
                 return None
 
+        if _is_polars_input:
+            import polars as pl  # noqa: F401  -- pl is used in the polars dispatch branches below
+
         n_recommended_features = 0
         if verbose >= 2:
             logger.info("Computing prospective FE pairs...")
@@ -1227,13 +1042,8 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         numeric_vars_to_consider = set(numeric_vars_to_consider) - set(categorical_vars)
 
-        # B2 (post-plan): honor factors_to_use / factors_names_to_use
-        # in the FE step too. Previously the legacy ``# !TODO! handle
-        # factors_to_use etc`` comment punted this; engineered features
-        # were generated from selected pairs even when the caller had
-        # restricted the candidate set. Now we intersect the FE pool
-        # with the user's restriction, matching the screening step's
-        # contract.
+        # Honor factors_to_use / factors_names_to_use in the FE step too; intersect the FE pool with the user's
+        # restriction so the contract matches the screening step.
         if self.factors_to_use is not None:
             numeric_vars_to_consider = numeric_vars_to_consider & set(self.factors_to_use)
         if self.factors_names_to_use is not None:
@@ -1300,11 +1110,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                     continue
                 if raw_vars_pair[0] in numeric_vars_to_consider and raw_vars_pair[1] in numeric_vars_to_consider:
                     ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
-                    # Guard against ZeroDivisionError: when both
-                    # individual features have zero MI with the
-                    # target (canonical 3-way XOR case where
-                    # ``MI(x_i, y) == 0`` for all i but the joint
-                    # signal exists), any positive ``pair_mi``
+                    # Guard against ZeroDivisionError: when both individual features have zero MI with target
+                    # (canonical 3-way XOR case: MI(x_i, y) = 0 for all i but the joint signal exists), any positive pair_mi
                     # qualifies as infinite uplift -- keep the pair.
                     if ind_elems_mi_sum <= 0:
                         if pair_mi > 0:
@@ -1332,22 +1139,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
 
         if fe_smart_polynom_iters:
-            # ---------------------------------------------------------------
-            # Improved orthogonal-polynomial pair FE:
-            # - Default basis is Chebyshev (empirically robust on real
-            #   tabular data; see ``bench_polynomial_bases``); tight
-            #   coef range [-2, 2], fixed degree per study, L2
-            #   regularisation, identity-baseline filter.
-            # - Adds engineered features only when MI uplift > threshold.
-            # - Allow override via ``self.fe_polynomial_basis`` attr
-            #   (defaults to "chebyshev"); set to "hermite" to recover
-            #   the prior bit-exact Hermite-only behaviour.
-            # See ``feature_selection.filters.hermite_fe`` + the
-            # ``bench_polynomial_bases`` benchmark.
-            # ---------------------------------------------------------------
+            # Orthogonal-polynomial pair FE: Chebyshev default basis (empirically robust); tight coef range [-2, 2],
+            # fixed degree per study, L2 regularisation, identity-baseline filter. Override basis via
+            # ``self.fe_polynomial_basis``. See feature_selection.filters.hermite_fe and bench_polynomial_bases.
             from .hermite_fe import optimise_hermite_pair
 
-            for (raw_vars_pair, pair_mi), uplift in prospective_pairs.items():
+            for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
                 if _is_polars_input:
                     vals_a = X[:, raw_vars_pair[0]].to_numpy()
                     vals_b = X[:, raw_vars_pair[1]].to_numpy()
@@ -1359,11 +1156,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                 if np.std(vals_a) < 1e-12 or np.std(vals_b) < 1e-12:
                     continue
 
-                # Iterations now correspond to "study restarts" -- the
-                # legacy outer ``range(fe_smart_polynom_iters)`` loop.
-                # We keep that semantics by running ``fe_smart_polynom_iters``
-                # full optimise_hermite_pair calls with different seeds
-                # and picking the global best.
+                # Iterations correspond to study restarts: run fe_smart_polynom_iters full optimise_hermite_pair
+                # calls with different seeds and pick the global best.
                 best_res = None
                 fe_basis = getattr(self, "fe_polynomial_basis", "chebyshev")
                 fe_mi_est = getattr(self, "fe_mi_estimator", "plugin")
@@ -1399,16 +1193,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                         best_res.uplift, best_res.degree_a, best_res.bin_func_name,
                         np.linalg.norm(best_res.coef_a), np.linalg.norm(best_res.coef_b),
                     )
-                # NOTE: integration of best_res into ``data`` / ``cols`` /
-                # ``engineered_features`` happens via the regular
-                # ``check_prospective_fe_pairs`` pipeline below. We log
-                # the gain here for diagnostics only; the engineered
-                # column itself is added on the next call when
-                # ``check_prospective_fe_pairs`` re-evaluates and finds
-                # the same transformation worth adding. A tighter
-                # integration that injects ``best_res.transform(...)``
-                # directly into ``data`` is reserved for a future PR --
-                # would shortcut the second evaluation pass.
+                # Integration of best_res into data/cols/engineered_features happens via the regular
+                # check_prospective_fe_pairs pipeline below; we log the gain here for diagnostics only. A tighter
+                # integration that injects best_res.transform(...) directly into data is future work.
 
         else:
             original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
@@ -1519,26 +1306,17 @@ class MRMR(BaseEstimator, TransformerMixin):
                                 dtype=self.quantization_dtype,
                             )
                         data = np.append(data, new_vals, axis=1)
-                        # 2026-05-11: ``nbins`` is a numpy.ndarray
-                        # (returned by ``categorize_dataset``), so plain
-                        # ``+`` does element-wise addition / broadcasting
-                        # rather than concatenation. Surfaced by
-                        # ``test_fe_max_steps_2_records_recipe_for_selected_engineered``
-                        # which fed engineered columns back into
-                        # ``screen_predictors`` and tripped its
-                        # ``targets_data.shape[1] == len(targets_nbins)``
-                        # assertion -- nbins size didn't grow while
-                        # data.shape[1] did.
+                        # ``nbins`` is a numpy.ndarray (returned by categorize_dataset), so plain ``+`` does
+                        # element-wise addition / broadcasting, not concatenation. Use np.concatenate so nbins
+                        # grows in lockstep with data.shape[1] (otherwise screen_predictors trips its
+                        # targets_data.shape[1] == len(targets_nbins) assertion when engineered cols feed back).
                         nbins = np.concatenate([
                             np.asarray(nbins),
                             np.asarray(new_nbins, dtype=nbins.dtype),
                         ])
                         cols = cols + new_cols
                         if _is_polars_input:
-                            # Polars is immutable -- accumulate new cols
-                            # via with_columns (returns a new frame
-                            # sharing buffers with X). Caller's original
-                            # frame is never mutated.
+                            # Polars is immutable: with_columns returns a new frame sharing buffers; caller's X untouched.
                             _series_to_add = [
                                 pl.Series(col, transformed_vals[:, j])
                                 for j, col in enumerate(new_cols)
@@ -1548,28 +1326,21 @@ class MRMR(BaseEstimator, TransformerMixin):
                             for col in new_cols:
                                 X[col] = transformed_vals[:, j]
 
-                        # PR-1 prep: build EngineeredRecipe for each newly-
-                        # appended column so ``transform()`` can replay it.
-                        # Only runs when columns were actually added (i.e.
-                        # ``fe_max_steps > 1`` -- otherwise engineered cols
-                        # never reach the next screening pass and can't be
-                        # selected). Recipe construction is best-effort:
-                        # if a parent column is itself engineered (higher-
-                        # order interaction), we skip and log -- replaying
-                        # nested recipes is future work.
+                        # Build EngineeredRecipe for each newly-appended column so transform() can replay it.
+                        # Only runs when columns were added (fe_max_steps > 1). Best-effort: parents that are
+                        # themselves engineered (higher-order interaction) are skipped (nested replay is future work).
                         if engineered_recipes is not None:
                             from .engineered_recipes import build_unary_binary_recipe
-                            for config, j in this_pair_features:
+                            for config, _j in this_pair_features:
                                 # config = (transformations_pair, bin_func_name, i)
                                 # transformations_pair = ((var_a_idx, unary_a_name),
                                 #                        (var_b_idx, unary_b_name))
                                 transformations_pair, bin_func_name, _ = config
                                 (var_a_idx, unary_a_name) = transformations_pair[0]
                                 (var_b_idx, unary_b_name) = transformations_pair[1]
-                                # Map cols-index -> feature_names_in_-name. If the
-                                # parent is itself engineered, ``cols[var]`` is not
-                                # in ``feature_names_in_`` -- skip with a warning
-                                # rather than producing an unreplayable recipe.
+                                # Map cols-index -> feature_names_in_-name. If a parent is itself engineered,
+                                # cols[var] is not in feature_names_in_; skip with a warning rather than produce
+                                # an unreplayable recipe.
                                 src_a_name_raw = cols[var_a_idx]
                                 src_b_name_raw = cols[var_b_idx]
                                 if (
@@ -1603,27 +1374,16 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                     n_recommended_features += len(this_pair_features)
 
-                # !TODO!  handle factors_to_use etc
-                """
-                factors_names_to_use=self.factors_names_to_use,
-                factors_to_use=self.factors_to_use,                    
-                    """
+                # TODO: handle factors_to_use / factors_names_to_use threading here.
                 checked_pairs.add(raw_vars_pair)
-
 
         return data, cols, nbins, X, selected_vars, n_recommended_features
 
 
     def get_feature_names_out(self, input_features=None):
-        """sklearn-1.x transformer protocol. Returns the names of selected
-        features as an ndarray of str, matching transform() output cols.
-        Symmetric with RFECV.get_feature_names_out (added PR-10 audit
-        finding from test_selectors_shared.py).
-
-        PR-1: when ``self._engineered_recipes_`` is non-empty (FE step
-        produced replayable engineered features), their names are appended
-        AFTER the base-feature names. Order matches ``transform()`` output
-        column order.
+        """sklearn-1.x transformer protocol. Returns the names of selected features as an ndarray of str,
+        matching transform() output cols. When ``self._engineered_recipes_`` is non-empty, their names are
+        appended AFTER the base-feature names; order matches transform() output column order.
         """
         if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
             from sklearn.exceptions import NotFittedError
@@ -1643,8 +1403,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         return np.asarray(base_names + engineered_names, dtype=object)
 
     def transform(self, X, y=None):
-        # P0-G34 (audit): unfitted -> NotFittedError, sklearn-canonical.
-        # Prior code silently returned X unchanged, masking config bugs.
+        # Unfitted -> NotFittedError (sklearn-canonical); previously returned X unchanged, masking config bugs.
         if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
             from sklearn.exceptions import NotFittedError
             raise NotFittedError(
@@ -1654,12 +1413,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         support = self.support_
         recipes = getattr(self, "_engineered_recipes_", [])
 
-        # 2026-05-13: fast-path — when MRMR selected every input column
-        # AND produced zero engineered recipes, transform() is the
-        # identity function. Return X unchanged to avoid a full-copy
-        # ``X[selected_cols]`` and to let the caller detect that this
-        # selector is a no-op (checked via ``_mlframe_identity_equivalent``
-        # downstream).
+        # Fast-path: when MRMR selected every input column AND produced zero engineered recipes, transform()
+        # is the identity. Return X unchanged to avoid a full-copy X[selected_cols] and to let the caller detect
+        # the no-op (checked via ``_mlframe_identity_equivalent`` downstream).
         if not recipes and hasattr(X, "shape"):
             _support_arr = np.asarray(support)
             if len(_support_arr) > 0 and isinstance(_support_arr.flat[0], (bool, np.bool_)):
@@ -1669,10 +1425,8 @@ class MRMR(BaseEstimator, TransformerMixin):
             if _n_selected == X.shape[1]:
                 return X
 
-        # Handle the empty-base-support cases. If there are no base
-        # features AND no engineered recipes, return the legacy empty
-        # output. If there are recipes but no base, fall through and
-        # only the engineered cols come out.
+        # Empty-base-support: if no base AND no engineered recipes, return legacy empty output. Recipes but no
+        # base falls through and only the engineered cols come out.
         if len(support) == 0 and not recipes:
             if isinstance(X, pd.DataFrame):
                 return X.iloc[:, []]
@@ -1684,23 +1438,14 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
                 # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
                 selected_cols = [self.feature_names_in_[i] for i in support]
-                # 2026-04-22 fuzz-caught: in a multi-model suite where
-                # the same fitted MRMR is reused across models (via sklearn
-                # Pipeline state), the val_df passed to transform can have
-                # a different column set than the train_df MRMR fit on
-                # (e.g. after ``_filter_categorical_features`` or other
-                # per-model reshaping narrowed the frame). Falling through
-                # to ``X[selected_cols]`` on a DF missing any selected
-                # col raises KeyError with no actionable context.
-                # Intersect with X.columns and keep order, warn if shrunk.
+                # Fuzz-caught: in a multi-model suite where a fitted MRMR is reused across models, val_df passed
+                # to transform can have a different column set than the train_df MRMR fit on (e.g. after
+                # _filter_categorical_features narrowed the frame). Detect column drift explicitly so we raise
+                # with actionable context instead of an unhelpful KeyError.
                 missing = [c for c in selected_cols if c not in X.columns]
                 if missing:
-                    # P0-G35 (audit): symmetric with RFECV.transform - raise
-                    # on column drift instead of silently shrinking the
-                    # selection. Silent intersection masked downstream
-                    # column-set bugs in the suite. If the caller really
-                    # wants degradation, they can catch the error and
-                    # call ``X[list(set(selected) & set(X.columns))]``.
+                    # Raise on column drift (symmetric with RFECV.transform); silent intersection masked
+                    # downstream column-set bugs. Callers wanting degradation can catch and intersect themselves.
                     raise RuntimeError(
                         f"MRMR.transform: {len(missing)}/{len(selected_cols)} "
                         f"selected columns missing from input X ({missing[:8]}). "
@@ -1716,20 +1461,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         else:
             base_out = X[:, support]
             out = self._append_engineered(base_out, X, recipes)
-            # 2026-05-11: when X is polars and sklearn's set_output(transform=
-            # "pandas") is configured on the enclosing Pipeline, sklearn's
-            # PandasAdapter.create_container calls ``pd.DataFrame(out, ...)``
-            # which (unlike polars' own ``.to_pandas()``) does not preserve
-            # Arrow-backed dtypes -- pl.Enum / pl.Categorical collapse to
-            # numpy object and pl.Float32 columns also turn object. Downstream
-            # the cat-encoder then sees object-dtype strings but its
-            # auto-detection of object cols stays correct, while pl.Float32
-            # numeric cols become object-of-strings ('1.23' as text) and HGB /
-            # XGB / SimpleImputer raise ``could not convert string to float:
-            # '__MISSING__'`` on the cat side or silently misinterpret the
-            # numeric side. Convert ourselves via polars' Arrow-preserving
-            # ``.to_pandas()`` whenever the consumer expects pandas; sklearn's
-            # adapter then sees a pandas frame and passes it through unchanged.
+            # When X is polars and Pipeline has set_output(transform="pandas"), sklearn's PandasAdapter calls
+            # pd.DataFrame(out, ...) which (unlike polars' own .to_pandas()) does NOT preserve Arrow-backed
+            # dtypes: pl.Enum / pl.Categorical collapse to object; pl.Float32 turns to object-of-strings
+            # ('1.23' as text), and downstream HGB/XGB/SimpleImputer raise "could not convert string to float".
+            # Convert ourselves via polars' Arrow-preserving .to_pandas() whenever the consumer expects pandas.
             try:
                 from sklearn.utils._set_output import _get_output_config
                 _cfg = _get_output_config("transform", estimator=self)
@@ -1768,15 +1504,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         if not recipes:
             return base_out
 
-        # Lazy import: keeps the import-time cost off MRMR users who
-        # never engage FE.
+        # Lazy import keeps import-time cost off MRMR users who never engage FE.
         from .engineered_recipes import apply_recipe
 
-        # D3: k-way recipes now ship a chained-lookup payload (extras
-        # ``chain_lookups`` / ``chain_nuniqs``) so they replay on test
-        # data alongside pair recipes. The only filter is the legacy
-        # ``requires_refit_for_replay`` flag retained for OLD pickles
-        # that pre-date D3 (no chain payload).
+        # K-way recipes ship a chained-lookup payload (extras ``chain_lookups`` / ``chain_nuniqs``) so they
+        # replay on test data alongside pair recipes. The only filter is the legacy ``requires_refit_for_replay``
+        # flag retained for OLD pickles that pre-date the chain payload.
         replayable = [
             r for r in recipes
             if r.extra.get("chain_lookups") is not None
@@ -1794,10 +1527,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         recipes = replayable
         engineered_cols = [apply_recipe(r, X) for r in recipes]
         if isinstance(base_out, pd.DataFrame):
-            # ``copy=False`` would risk mutating caller's view if base_out
-            # is itself a view into X (it is, when X is pandas). Build a
-            # narrow new frame instead -- the engineered cols are fresh
-            # ndarrays anyway, only the base cols share buffers with X.
+            # ``copy=False`` would risk mutating caller's view (base_out is a view into pandas X). Build a narrow
+            # new frame: engineered cols are fresh ndarrays anyway, only base cols share buffers with X.
             engineered_df = pd.DataFrame(
                 {r.name: col for r, col in zip(recipes, engineered_cols)},
                 index=base_out.index,
@@ -1814,31 +1545,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         except ImportError:
             pass
 
-        # ndarray fallback: hstack engineered cols. Loses names but keeps
-        # the row count consistent with ``get_feature_names_out`` order.
+        # ndarray fallback: hstack engineered cols. Names are lost but row order matches get_feature_names_out.
         engineered_arr = np.column_stack(engineered_cols) if engineered_cols else np.empty((base_out.shape[0], 0))
         if base_out.size == 0:
             return engineered_arr.astype(base_out.dtype, copy=False)
         return np.hstack([base_out, engineered_arr.astype(base_out.dtype, copy=False)])
 
 
-# Etap 8: FE block (check_prospective_fe_pairs, compute_pairs_mis,
-# create_unary/binary_transformations, get_existing/new_feature_name)
-# moved to feature_engineering.py with B10 (isinstance polars detection)
-# applied. B5/B6 preallocation deferred to Phase-1 profiling per plan.
-from .feature_engineering import (
-    check_prospective_fe_pairs,
-    compute_pairs_mis,
-    create_unary_transformations,
-    create_binary_transformations,
-    get_existing_feature_name,
-    get_new_feature_name,
-)
-
-import numpy as np
-import numba
-from numba import types
-from numba.typed import Dict as NumbaDict
-
-
-# `sanitize` moved to ``_internals.py`` (etap 2). Imported at module top.

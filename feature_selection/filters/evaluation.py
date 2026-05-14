@@ -1,9 +1,6 @@
 """Per-candidate evaluation: gain computation, confirmation checks.
 
-See `screen.py` (etap 10a-b) for the screening orchestrator that calls
-these functions.
-
-B12 (etap 7) -- arr2str cache keys are now collision-safe.
+See ``screen.py`` for the screening orchestrator that calls these functions.
 """
 from __future__ import annotations
 
@@ -14,26 +11,20 @@ import time
 from timeit import default_timer as timer
 from typing import Sequence
 
-import numpy as np
 import numba
+import numpy as np
 from numba import njit
 from numba.core import types
 
-from pyutilz.numbalib import (
-    generate_combinations_recursive_njit,
-    python_dict_2_numba_dict,
-)
+from pyutilz.numbalib import generate_combinations_recursive_njit, python_dict_2_numba_dict
+# Module-level import so cloudpickle can resolve tqdmu when the function ships to a joblib worker.
+from pyutilz.system import tqdmu
 
 from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS, MAX_ITERATIONS_TO_TRACK
 from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
+from .gpu import mi_direct_gpu
 from .info_theory import compute_mi_from_classes, conditional_mi, entropy, merge_vars
 from .permutation import mi_direct
-from .gpu import mi_direct_gpu
-# tqdmu is referenced inside ``evaluate_candidates`` -- top-level
-# import (not inside the function) so cloudpickle can resolve it
-# when the function is shipped to a joblib worker process for
-# parallel screening.
-from pyutilz.system import tqdmu
 
 logger = logging.getLogger(__name__)
 
@@ -55,18 +46,10 @@ def should_skip_candidate(
     only_unknown_interactions: bool = True,
     engineered_lineage: dict = None,
 ) -> tuple:
-    """Decides if current candidate for predictors should be skipped
-    ('cause of being already accepted, failed, computed).
+    """Decide if current candidate for predictors should be skipped (already accepted, failed, or computed).
 
-    ``engineered_lineage`` (B6): optional mapping ``{engineered_idx ->
-    frozenset(parent_indices)}`` produced by the cat-FE step. When set,
-    a k-way candidate is skipped if it combines an engineered column
-    with one of its own parent columns (e.g. screening enumerates
-    ``(orig_i, kway(orig_i, orig_j))`` -- redundant because the
-    engineered col already contains orig_i's information; conditional
-    MI degenerates and confidence gates waste budget). Cat-FE
-    orchestrator passes this through; the legacy/numeric path leaves
-    it ``None`` for bit-exact behaviour.
+    ``engineered_lineage``: optional ``{engineered_idx -> frozenset(parent_indices)}`` from the cat-FE step. When set, a k-way candidate is skipped if it
+    combines an engineered column with one of its own parents (conditional MI degenerates and confidence gates waste budget). Legacy/numeric path leaves it ``None``.
     """
 
     nexisting = 0
@@ -76,10 +59,7 @@ def should_skip_candidate(
 
     if interactions_order > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
 
-        # ---------------------------------------------------------------------------------------------------------------
-        # B6: lineage filter -- skip k-way candidates that combine an
-        # engineered column with one of its own parent columns.
-        # ---------------------------------------------------------------------------------------------------------------
+        # Lineage filter: skip k-way candidates that combine an engineered column with one of its own parent columns.
         if engineered_lineage:
             X_set = set(X)
             for subel in X:
@@ -87,10 +67,7 @@ def should_skip_candidate(
                 if parents is not None and not parents.isdisjoint(X_set):
                     return True, nexisting
 
-        # ---------------------------------------------------------------------------------------------------------------
-        # Check if any of sub-elements is already selected at this stage
-        # ---------------------------------------------------------------------------------------------------------------
-
+        # Check if any sub-element is already selected at this stage.
         skip_cand = False
         for subel in X:
             if subel in selected_interactions_vars:
@@ -99,16 +76,14 @@ def should_skip_candidate(
         if skip_cand:
             return True, nexisting
 
-        # ---------------------------------------------------------------------------------------------------------------
-        # Or all selected at the lower stages
-        # ---------------------------------------------------------------------------------------------------------------
-
+        # Or all selected at the lower stages.
         skip_cand = [(subel in selected_vars) for subel in X]
         nexisting = sum(skip_cand)
         if (only_unknown_interactions and any(skip_cand)) or all(skip_cand):
             return True, nexisting
 
     return False, nexisting
+
 
 def evaluate_candidates(
     workload: list,
@@ -144,8 +119,6 @@ def evaluate_candidates(
     best_candidate = None
     expected_gains = {}
 
-    # if verbose: logger.info("In evaluate_candidates")
-
     entropy_cache_dict = numba.typed.Dict.empty(
         key_type=types.unicode_type,
         value_type=types.float64,
@@ -159,11 +132,8 @@ def evaluate_candidates(
     python_dict_2_numba_dict(python_dict=cached_cond_MIs, numba_dict=cached_cond_MIs_dict)
 
     classes_y_safe = classes_y.copy()
-    # np.random.seed(int.from_bytes(os.urandom(4), byteorder='little'))
 
-    for cand_idx, X, nexisting in (candidates_pbar := tqdmu(workload, leave=False, desc="Thread Candidates")):
-
-        # if verbose: logger.info(f"Evaluating cand {X}")
+    for cand_idx, X, nexisting in tqdmu(workload, leave=False, desc="Thread Candidates"):
 
         current_gain, sink_reasons = evaluate_candidate(
             cand_idx=cand_idx,
@@ -196,8 +166,6 @@ def evaluate_candidates(
             use_simple_mode=use_simple_mode,
         )
 
-        # if verbose: logger.info(f"X={X}, gain={current_gain}")
-
         best_gain, best_candidate, run_out_of_time = handle_best_candidate(
             current_gain=current_gain,
             best_gain=best_gain,
@@ -211,20 +179,9 @@ def evaluate_candidates(
             min_relevance_gain=min_relevance_gain,
         )
 
-        """
-        if use_simple_mode:
-            if best_gain > 0:
-                break
-        """
-
         if run_out_of_time:
             break
-    """
-    for key, value in entropy_cache_dict.items():
-        entropy_cache[key] = value
-    for key, value in cached_cond_MIs_dict.items():
-        cached_cond_MIs[key] = value
-    """
+
     entropy_cache = dict(entropy_cache_dict)
     cached_cond_MIs = dict(cached_cond_MIs_dict)
 
@@ -243,10 +200,7 @@ def handle_best_candidate(
     start_time: float = None,
     min_relevance_gain: float = None,
 ):
-    # ---------------------------------------------------------------------------------------------------------------
-    # Save best known candidate, to be able to use early stopping
-    # ---------------------------------------------------------------------------------------------------------------
-
+    # Save best known candidate, to enable early stopping.
     run_out_of_time = False
 
     if current_gain > best_gain:
@@ -292,11 +246,7 @@ def evaluate_gain(
     confidence_mode: bool = False,
     max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
 ) -> tuple:
-    """B13 (post-plan): ``max_confirmation_cand_nbins`` is now a parameter
-    instead of a baked-in module global. Default value mirrors the legacy
-    constant (50) so existing callers behave identically; ``MRMR.fit``
-    overrides this with ``quantization_nbins ** interactions_max_order * 2``
-    when the user does not pin it explicitly."""
+    """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
 
     positive_mode = False
     stopped_early = False
@@ -305,7 +255,6 @@ def evaluate_gain(
     k = 0
     for interactions_order in range(max_veteranes_interactions_order):
         combs = generate_combinations_recursive_njit(np.array(selected_vars, dtype=np.int32), interactions_order + 1)[::-1]
-        # if X==(425,): logger.info(f"\t combs={combs}")
 
         for Z in combs:
 
@@ -314,18 +263,12 @@ def evaluate_gain(
                     additional_knowledge = 0.0  # this is needed to skip checking agains hi cardinality approved factors
                 else:
                     if mrmr_relevance_algo == "fleuret":
-
-                        # ---------------------------------------------------------------------------------------------------------------
-                        # additional_knowledge = I (X ;Y | Z ) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)
-                        # I (X,Z) would be entropy_x + entropy_z - entropy_xz.
-                        # ---------------------------------------------------------------------------------------------------------------
-
+                        # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.
                         key_found = False
                         if not confidence_mode:
                             key = arr2str(X) + "_" + arr2str(Z)
                             if key in cached_cond_MIs:
                                 additional_knowledge = cached_cond_MIs[key]
-                                # if X==(425,): logger.info(f"\t additional_knowledge from {Z} found to be {additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
                                 key_found = True
 
                         if not key_found:
@@ -345,54 +288,28 @@ def evaluate_gain(
 
                             if nexisting > 0:
                                 additional_knowledge = additional_knowledge ** (nexisting + 1)
-                            # else:
-                            #    if len(X) > 1:
-                            #        additional_knowledge = additional_knowledge ** (len(X) + 1)
 
                             if not confidence_mode:
                                 cached_cond_MIs[key] = additional_knowledge
 
-                            # if X==(425,): logger.info(f"\t additional_knowledge from {Z}={additional_knowledge}, k={k}, last_checked_k={last_checked_k}")
-
-                    # ---------------------------------------------------------------------------------------------------------------
-                    # Account for possible extra knowledge from conditioning on Z?
-                    # that must update best_gain globally. log such cases. Note that we do not guarantee finding them in order,
-                    # but they are too precious to ignore. Adding this will also allow to skip higher order interactions
-                    # containing all of already approved candidates.
-                    # ---------------------------------------------------------------------------------------------------------------
-
+                    # Account for possible extra knowledge from conditioning on Z; must update best_gain globally and log such cases. Order of discovery is
+                    # not guaranteed, but cases are too precious to ignore. Also enables skipping higher-order interactions containing all approved candidates.
                     if extra_knowledge_multipler > 0 and additional_knowledge > direct_gain * extra_knowledge_multipler:
-                        bwarn = False
                         if not positive_mode:
                             current_gain = additional_knowledge
                             positive_mode = True
-                            bwarn = True
                         else:
                             # rare chance that a candidate has many excellent relationships
                             if additional_knowledge > current_gain:
                                 current_gain = additional_knowledge
-                                bwarn = True
-
-                        # if bwarn:
-                        #    if verbose:
-                        #        if current_gain > best_gain:
-                        #            logger.info(
-                        #                f"\tCandidate {get_candidate_name(X,factors_names=factors_names)} together with factor {get_candidate_name(Z,factors_names=factors_names)} has synergetic influence {additional_knowledge:{ndigits}f} (direct MI={direct_gain:{ndigits}f})"
-                        #            )
 
                 if not positive_mode and (additional_knowledge < current_gain):
 
                     current_gain = additional_knowledge
 
                     if best_gain is not None and current_gain <= best_gain:
-
-                        # ---------------------------------------------------------------------------------------------------------------
-                        # No point checking other Zs, 'cause current_gain already won't be better than the best_gain
-                        # (if best_gain was estimated confidently, which we'll check at the end.)
-                        # ---------------------------------------------------------------------------------------------------------------
-
-                        # let's also fix what Z caused X (the most) to sink
-
+                        # No point checking other Zs -- current_gain already won't beat best_gain (assuming best_gain was estimated confidently; checked at end).
+                        # Also fix what Z caused X (the most) to sink.
                         if sink_threshold > -1 and current_gain < sink_threshold:
                             sink_reasons = Z
 
@@ -435,14 +352,10 @@ def evaluate_candidate(
     ndigits: int = 5,
     use_simple_mode: bool = True,
 ) -> None:
-    # logger.info("In evaluate_candidate")
     sink_reasons = set()
 
-    # ---------------------------------------------------------------------------------------------------------------
     # Is this candidate any good for target 1-vs-1?
-    # ---------------------------------------------------------------------------------------------------------------
-
-    if X in cached_confident_MIs:  # use cached_confident_MIs first here as they are more reliable. (but not fill them)
+    if X in cached_confident_MIs:  # cached_confident_MIs first -- more reliable (but don't fill them here).
         direct_gain = cached_confident_MIs[X]
     else:
         if X in cached_MIs:
@@ -463,7 +376,6 @@ def evaluate_candidate(
                     dtype=dtype,
                 )
             else:
-                # logger.info("Computing mi_direct")
                 direct_gain, _ = mi_direct(
                     factors_data,
                     x=X,
@@ -476,26 +388,16 @@ def evaluate_candidate(
                     npermutations=baseline_npermutations,
                     dtype=dtype,
                 )
-                # logger.info("Computed mi_direct")
             cached_MIs[X] = direct_gain
 
     if direct_gain > 0:
         if selected_vars and not use_simple_mode:
-
-            # ---------------------------------------------------------------------------------------------------------------
-            # Some factors already selected.
-            # best gain from including X is the minimum of I (X ;Y | Z ) over every Z in already selected_vars.
-            # but imaging some variable is correlated to every real predictor plus has random noise. It's real value is zero.
-            # only computing I (X ;Y | Z ) will still leave significant impact. but if we sum I(X,Z) over Zs we'll see it shares
-            # all its knowledge with the rest of factors and has no value by itself. But to see that, we must already have all real factors included in S.
-            # otherwise, such 'connected-to-all' trash variables will dominate the scene. So how to handle them?
-            # Solution is to compute sum(X,Z) not only at the step of adding Z, but to repeat this procedure for all Zs once new X is added.
-            # Maybe some Zs will render useless by adding that new X.
-            # ---------------------------------------------------------------------------------------------------------------
-
+            # Some factors already selected. Best gain from including X is min I(X; Y | Z) over Z in selected_vars. But a variable correlated to every real
+            # predictor plus noise has real value zero -- I(X; Y | Z) alone still gives significant impact. Summing I(X, Z) over Zs reveals it shares all
+            # knowledge with the rest and has no value alone, but that requires all real factors already in S; otherwise 'connected-to-all' trash dominates.
+            # Solution: compute sum(X, Z) not only when adding Z, but repeat for all Zs once a new X is added -- some Zs may become useless after.
             if cand_idx in partial_gains:
                 current_gain, last_checked_k = partial_gains[cand_idx]
-                # if X==(425,): logger.info(f"\t cand_idx in partial_gains: {current_gain, last_checked_k}")
                 if best_gain is not None and (current_gain <= best_gain):
                     return current_gain, sink_reasons
             else:
@@ -523,19 +425,19 @@ def evaluate_candidate(
                 can_use_x_cache=True,
                 can_use_y_cache=True,
             )
-            # if X==(425,): logger.info(f"\t stopped_early, current_gain, k, sink_reasons={stopped_early, current_gain, k, sink_reasons}")
 
             partial_gains[cand_idx] = current_gain, k
-            if not stopped_early:  # there was no break. current_gain computed fully. this line was (and most likely should be) commented out.
+            if not stopped_early:  # no break -- current_gain computed fully.
                 expected_gains[cand_idx] = current_gain
         else:
-            # no factors selected yet. current_gain is just direct_gain
+            # No factors selected yet -- current_gain is just direct_gain.
             current_gain = direct_gain
             expected_gains[cand_idx] = current_gain
     else:
         current_gain = 0
 
     return current_gain, sink_reasons
+
 
 def find_best_partial_gain(
     partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = ()
@@ -547,7 +449,7 @@ def find_best_partial_gain(
             skip_cand = False
             for subel in candidates[key]:
                 if subel in selected_vars:
-                    skip_cand = True  # the subelement or var itself is already selected
+                    skip_cand = True  # the sub-element or var itself is already selected.
                     break
             if skip_cand:
                 continue
