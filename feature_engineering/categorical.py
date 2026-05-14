@@ -6,7 +6,7 @@ __all__ = [
 ]
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -29,8 +29,11 @@ def compute_countaggs(
     counts_return_top_values: bool = True,
     counts_compute_values_numaggs: bool = False,
     numerical_kwargs: Optional[dict] = None,
-) -> List[float]:
+) -> List[Any]:
     """Aggregate a series by value-count distribution.
+
+    Returns ``List[Any]`` because ``top_n``/``btm_n`` value slots may carry the original index dtype
+    (``str``, ``datetime``, etc.), not only floats.
 
     For variables with many repeated values, or true categoricals, we compute
     ``value_counts(normalize=counts_normalize)`` then optionally derive:

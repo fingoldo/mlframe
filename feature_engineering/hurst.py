@@ -68,6 +68,11 @@ def precompute_hurst_exponent(
     if max_window <= min_window:
         return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float64)
 
+    # Geometric ladder: log10-spaced floats cast to int. With the default windows_log_step=0.25,
+    # `min_window` is the first ladder rung exactly. For larger log_steps the first rung can be
+    # `int(10**ceil(log10(min_window) / log_step) * log_step)` which may overshoot `min_window`,
+    # leaving a small gap at the lower end - this is by design (no R/S estimate below the
+    # explicit min_window). Pass `min_window=2` and `windows_log_step <= 0.25` for full coverage.
     raw_sizes = (10.0 ** np.arange(np.log10(min_window), np.log10(max_window), windows_log_step)).astype(np.int64)
     window_sizes = np.unique(raw_sizes)
 

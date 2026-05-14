@@ -131,9 +131,13 @@ def run_pysr_feature_engineering(
         reserved_names = ["im"]
 
     if isinstance(df, pl.DataFrame):
+        import polars.selectors as cs
         n = min(sample_size, len(df))
         sampled = df.sample(n, seed=random_state) if random_state is not None else df.sample(n)
-        tmp_df = sampled.fill_null(0).fill_nan(0).to_pandas()
+        # Zero-fill ONLY numeric columns; previously a blanket .fill_null(0) ran before non-numeric
+        # columns were dropped, which raises on polars 1.x for Utf8 / Datetime / Duration dtypes.
+        sampled = sampled.with_columns(cs.numeric().fill_null(0).fill_nan(0))
+        tmp_df = sampled.to_pandas()
     elif isinstance(df, pd.DataFrame):
         n = min(sample_size, len(df))
         tmp_df = df.sample(n, random_state=random_state).fillna(0)

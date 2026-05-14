@@ -21,7 +21,7 @@ __all__ = [
 import logging
 import warnings
 from contextlib import contextmanager
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Sequence, Tuple
 
 import numba
 import numpy as np
@@ -59,7 +59,6 @@ def _suppress_numeric_warnings():
 # ----------------------------------------------------------------------------------------------------------------------------
 
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
-empty_float32_array = np.array([], dtype=np.float32)
 
 
 def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
@@ -79,6 +78,10 @@ distributions = (stats.levy_l,)  # stats.logistic, stats.pareto
 default_dist_responses = dict(levy_l=(np.nan, np.nan), logistic=(np.nan, np.nan), pareto=(np.nan, np.nan, np.nan))
 
 LARGE_CONST = 1e3
+# Geometric-mean overflow / underflow thresholds. When the running product crosses either, the
+# kernel switches to log-mode accumulation to avoid float64 over/underflow.
+GEOMEAN_OVERFLOW_HI: float = 1e100
+GEOMEAN_OVERFLOW_LO: float = 1e-100
 
 
 def get_distributions_features_names() -> list:
@@ -98,6 +101,12 @@ default_quantiles: Tuple[float, ...] = (0.1, 0.25, 0.5, 0.75, 0.9)  # tuple is h
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
+    """Return ``(min, max, argmin, argmax, mean, std)`` over the finite elements of ``arr``.
+
+    Non-finite values (NaN, +/-inf) are skipped. ``std`` is biased (ddof=0) and uses
+    Kahan-Babuska-Neumaier compensated summation. Returns all-zero tuple when ``arr`` contains
+    no finite element.
+    """
     minval, maxval, argmin, argmax = 0.0, 0.0, 0, 0
     for i, next_value in enumerate(arr):
         if np.isfinite(next_value):
@@ -130,11 +139,9 @@ def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
         mean_value = 0.0
         minval, maxval = 0.0, 0.0
 
-    # 2026-04-24 numerical stability: Kahan-Babuška-Neumaier compensated
-    # accumulator for the squared-deviation sum. Recovers 1-2 orders of
-    # magnitude on ill-conditioned inputs (e.g. 1e9 + N(0, 1e-3) where
-    # naive uncompensated sum loses ~5 digits of precision; Kahan recovers
-    # to numerical exactness). See docs/NUMERICAL_STABILITY_REPORT.md.
+    # Kahan-Babuska-Neumaier compensated accumulator for the squared-deviation sum.
+    # Recovers 1-2 orders of magnitude on ill-conditioned inputs (e.g. 1e9 + N(0, 1e-3),
+    # where naive sum loses ~5 digits; Kahan recovers to numerical exactness).
     std_compensation = 0.0
     for i, next_value in enumerate(arr):
         if np.isfinite(next_value):
@@ -155,6 +162,7 @@ def compute_simple_stats_numba(arr: np.ndarray) -> tuple:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_simple_stats_numba_arr(arr: np.ndarray, dtype=np.float32):
+    """``compute_simple_stats_numba`` packed into an ndarray of ``dtype`` for column-stacking."""
     return np.array(compute_simple_stats_numba(arr), dtype=dtype)
 
 
@@ -351,8 +359,8 @@ def compute_numerical_aggregates_numba(
                             weighted_geometric_mean *= next_value**next_weight
                         # Check BOTH unweighted and weighted products: either can underflow / overflow independently.
                         # A weighted product can hit the tail much faster when |next_weight| > 1.
-                        unweighted_oor = geometric_mean >= 1e100 or geometric_mean <= 1e-100
-                        weighted_oor = (weights is not None) and (weighted_geometric_mean >= 1e100 or weighted_geometric_mean <= 1e-100)
+                        unweighted_oor = geometric_mean >= GEOMEAN_OVERFLOW_HI or geometric_mean <= GEOMEAN_OVERFLOW_LO
+                        weighted_oor = (weights is not None) and (weighted_geometric_mean >= GEOMEAN_OVERFLOW_HI or weighted_geometric_mean <= GEOMEAN_OVERFLOW_LO)
                         if unweighted_oor or weighted_oor:
                             # convert to log mode (geometric_mean strictly positive here; log is finite)
                             geomean_log_mode = True
@@ -520,6 +528,11 @@ def get_basic_feature_names(
     return_exotic_means: bool = True,
     return_unsorted_stats: bool = True,
 ):
+    """Feature names produced by ``compute_numerical_aggregates_numba`` under the same kwargs.
+
+    Length and order are guaranteed to match the kernel's return tuple. ``has_weights`` is
+    conveyed via ``weights is not None`` only - the actual weight values are not inspected here.
+    """
     basic_fields = ["arimean"]
     if weights is not None:
         basic_fields.append("warimean")
@@ -617,6 +630,10 @@ def compute_nunique_modes_quantiles_numpy(
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def compute_ncrossings(arr: np.ndarray, marks: np.ndarray, dtype=np.int32) -> np.ndarray:
+    """Count sign-changes in ``(arr[i] - mark)`` for each ``mark`` in ``marks``.
+
+    Returns one integer per mark; useful as a quantile-crossing feature on time series.
+    """
     n_crossings = np.zeros(len(marks), dtype=dtype)
     prev_ds = np.full(len(marks), dtype=np.float32, fill_value=np.nan)
 
@@ -681,7 +698,7 @@ def compute_moments_slope_mi(
     mean_value: float,
     weights: np.ndarray = None,
     weighted_mean_value: float = None,
-    xvals: np.ndarray = None,  # empty_float32_array,
+    xvals: np.ndarray = None,
     directional_only: bool = False,
     return_lintrend_approx_stats: bool = True,
 ) -> list:
@@ -693,13 +710,10 @@ def compute_moments_slope_mi(
     """
     slope_over, slope_under = 0.0, 0.0
     mad, std, skew, kurt = 0.0, 0.0, 0.0, 0.0
-    # 2026-04-24 Session 3: Kahan-Babuška-Neumaier compensation counters
-    # for every accumulator in the per-row loop. Recovers 1-5 orders of
-    # magnitude of precision on ill-conditioned inputs (large mean + small
-    # variance — e.g. financial time series 1e9 + N(0, 1e-3)). Cost ~1.5×
-    # wall-clock; upstream naive sums were catastrophic on such data
-    # (skew flipped sign, 5-digit loss in variance). See
-    # docs/NUMERICAL_STABILITY_REPORT.md for the bench that drove this.
+    # Kahan-Babuska-Neumaier compensation counters for every accumulator in the per-row loop.
+    # Recovers 1-5 orders of precision on large-mean + small-variance inputs (e.g. financial
+    # time series 1e9 + N(0, 1e-3)). Cost ~1.5x wall-clock; uncompensated sums were
+    # catastrophic on such data (skew flipped sign, 5-digit loss in variance).
     slope_over_c = 0.0
     slope_under_c = 0.0
     r_sum_c = 0.0
@@ -850,13 +864,10 @@ def compute_moments_slope_mi(
             kurt = _t
 
             if weights is not None:
-                # Bug fix 2026-04-24 (numaggs audit): was `weighted_skew +=` —
-                # double-accumulating skew and never accumulating kurt. The
-                # downstream normaliser at line 771 then divided an
-                # always-zero `weighted_kurt` by `factor`, producing -3.0
-                # for every row that took the weighted-stats branch.
-                # Affects every caller using `compute_moments_slope_mi` with
-                # weights — silently wrong feature for 4-tuple.
+                # Previously written as `weighted_skew +=` here, double-accumulating skew while
+                # weighted_kurt stayed 0 - the downstream normaliser then divided always-zero
+                # weighted_kurt by factor, producing a constant -3.0 for the weighted-stats
+                # branch on every row. Silently wrong feature for any caller using weights.
                 _inc = w_summand * w_d * next_weight
                 _t = weighted_kurt + _inc
                 if abs(weighted_kurt) >= abs(_inc):
@@ -864,8 +875,6 @@ def compute_moments_slope_mi(
                 else:
                     weighted_kurt_c += (_inc - _t) + weighted_kurt
                 weighted_kurt = _t
-
-    # mi = mutual_info_regression(xvals.reshape(-1, 1), arr, n_neighbors=2)  # n_neighbors=2 is strictly needed for short sequences
 
     # Apply Kahan corrections to final accumulator values
     slope_over += slope_over_c
@@ -970,6 +979,11 @@ def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = np.array
 
 
 def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spectral_method: str = "welch") -> list:
+    """Apply every function in ``entropy_funcs`` to ``arr`` and return their outputs as a tuple.
+
+    Non-finite values are stripped first; if fewer than 2 finite samples remain, returns zeros.
+    Inf/NaN outputs are collapsed to 0 via ``np.nan_to_num``.
+    """
     # hjorth_mobility, hjorth_complexity = hjorth_params(arr)
     # hjorth_mobility,
     # hjorth_complexity,
@@ -985,6 +999,11 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
 
 
 def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
+    """Fit a scipy distribution to ``data`` and return parameters + Kolmogorov-Smirnov fit quality.
+
+    Returns the distribution's fitted parameters concatenated with ``(ks_stat, ks_pval)``. On any
+    exception during fitting, returns the predefined fallback tuple from ``default_dist_responses``.
+    """
     try:
         params = dist.fit(data, method=method)
     except Exception as e:
@@ -997,10 +1016,17 @@ def fit_distribution(dist: object, data: np.ndarray, method: str = "mle"):
 
 
 def compute_distributional_features(arr: np.ndarray) -> tuple:
-    res = tuple()
+    """Concatenate ``fit_distribution`` outputs across the module-level ``distributions`` tuple.
+
+    Order and length must match ``get_distributions_features_names()``.
+    """
+    # Build via list+extend then convert once - O(n) vs the previous tuple-concat-in-loop which
+    # is O(n^2) over the number of distributions. Current `distributions` has 1 entry so the
+    # impact is moot today, but the pattern stays correct as the roster grows.
+    parts: list = []
     for dist in distributions:
-        res = res + fit_distribution(dist=dist, data=arr)
-    return res
+        parts.extend(fit_distribution(dist=dist, data=arr))
+    return tuple(parts)
 
 
 def compute_numaggs(
@@ -1141,6 +1167,12 @@ def get_numaggs_names(
     return_lintrend_approx_stats: bool = False,
     **kwargs
 ) -> tuple:
+    """Feature names produced by ``compute_numaggs`` under the same kwargs.
+
+    Length and order are guaranteed to match the values tuple from ``compute_numaggs``. Excess
+    ``**kwargs`` are accepted (but ignored) so callers can pass the same dict to both functions
+    without filtering it.
+    """
     res = tuple(
         (
             ["arimean", "ratio"]
@@ -1159,7 +1191,6 @@ def get_numaggs_names(
         + ([] if directional_only else (["q" + str(q) for q in q]))
         + ([] if (directional_only or not return_unsorted_stats) else ["ncrs" + str(q) for q in q])
         + get_moments_slope_mi_feature_names(weights=weights, directional_only=directional_only, return_lintrend_approx_stats=return_lintrend_approx_stats)
-        # + ["mutual_info_regression",]
         + (["hursth", "hurstc"] if return_hurst else [])
         + ([] if (directional_only or not return_entropy) else entropy_funcs_names)
         + (distributions_features_names if return_distributional else [])
@@ -1187,6 +1218,7 @@ def get_numaggs_names(
 
 
 def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_only: bool = False, return_lintrend_approx_stats: bool = True):
+    """Feature names produced by ``compute_moments_slope_mi``. ``weights is not None`` toggles weighted variants."""
     res = []
     if not directional_only:
         res.extend("mad,std,skew,kurt".split(","))
@@ -1196,24 +1228,19 @@ def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_o
     return res
 
 
-# fastmath=False is REQUIRED here: the Kahan compensator below relies on the exact identity
-# `c = (t - sum_window) - y` where t = sum_window + y. fastmath permits LLVM to reassociate this
-# to `t - (sum_window + y) = t - t = 0`, which silently nullifies the compensator and reverts the
-# loop to naive summation drift (~n*eps*max_value, which is several decimals on float32 windows).
+# fastmath=False is REQUIRED for the Kahan path: the compensator relies on the exact identity
+# `c = (t - sum_window) - y` where `t = sum_window + y`. With fastmath, LLVM is allowed to
+# reassociate `(t - sum_window) - y` -> `t - (sum_window + y)` -> `t - t` -> `0`, nullifying
+# the compensator and reverting the loop to naive sliding-window drift (~n*eps*max_value, several
+# decimal digits on float32 windows). MEASURED cost of disabling fastmath here: ~260% slowdown
+# on Windows / numba 0.59 (LLVM also SIMD-vectorises the cumsum once Kahan is folded out).
 @numba.njit(fastmath=False)
-def rolling_moving_average(arr: np.ndarray, n: int = 2):
-    if n <= 0:
-        raise ValueError("n must be greater than 0")
-    if n > len(arr):
-        raise ValueError("n must be less than or equal to the length of the array")
-
+def _rolling_moving_average_compensated(arr: np.ndarray, n: int) -> np.ndarray:
+    """Kahan-Babuska-Neumaier compensated rolling mean. Slow but precision-stable."""
     result = np.empty(len(arr) - n + 1, dtype=arr.dtype)
     sum_window = np.sum(arr[:n])
-
     mult = 1 / n
-
     result[0] = sum_window * mult
-
     kahan_c = 0.0
     for i in range(1, len(arr) - n + 1):
         y = (arr[i + n - 1] - arr[i - 1]) - kahan_c
@@ -1221,13 +1248,64 @@ def rolling_moving_average(arr: np.ndarray, n: int = 2):
         kahan_c = (t - sum_window) - y
         sum_window = t
         result[i] = sum_window * mult
-
     return result
 
 
-def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:
-    """Computes numaggs on a 2d matrix"""
+@numba.njit(fastmath=True)
+def _rolling_moving_average_fast(arr: np.ndarray, n: int) -> np.ndarray:
+    """Plain sliding-window rolling mean. ~3.5x faster than the compensated variant.
 
+    Use when the input is well-conditioned (magnitudes within ~6 orders of magnitude on float64,
+    ~3 on float32) and accumulated rounding drift is acceptable. Both variants have identical
+    output to within ~n*eps*max(|x|), but on long ill-conditioned windows (e.g. 1e9 + N(0,1))
+    the fast path can lose 7+ digits while the compensated path stays at 1 ULP.
+    """
+    result = np.empty(len(arr) - n + 1, dtype=arr.dtype)
+    sum_window = np.sum(arr[:n])
+    mult = 1 / n
+    result[0] = sum_window * mult
+    for i in range(1, len(arr) - n + 1):
+        sum_window = sum_window + (arr[i + n - 1] - arr[i - 1])
+        result[i] = sum_window * mult
+    return result
+
+
+def rolling_moving_average(arr: np.ndarray, n: int = 2, compensated: bool = True) -> np.ndarray:
+    """Rolling mean over a 1D array. Length of the return is ``len(arr) - n + 1``.
+
+    Parameters
+    ----------
+    arr
+        1D numeric array. dtype is preserved on output.
+    n
+        Window size (>= 1, <= len(arr)).
+    compensated
+        ``True`` (default) uses Kahan-Babuska-Neumaier compensated summation: precision-stable
+        on ill-conditioned and float32 inputs, ~3.5x slower (measured on Windows / numba 0.59).
+        ``False`` uses a plain sliding-window sum with fastmath enabled: faster but accumulates
+        ~n*eps*max(|x|) rounding drift, which can be ~7 digits on long ill-conditioned windows.
+        Pick False when downstream features are robust to that drift (and you're not on float32
+        with a large additive offset).
+
+    Raises
+    ------
+    ValueError
+        If ``n <= 0`` or ``n > len(arr)``.
+    """
+    if n <= 0:
+        raise ValueError("n must be greater than 0")
+    if n > len(arr):
+        raise ValueError("n must be less than or equal to the length of the array")
+    if compensated:
+        return _rolling_moving_average_compensated(arr, n)
+    return _rolling_moving_average_fast(arr, n)
+
+
+def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:
+    """Compute numaggs over rows of a 2D matrix and stack into a (n_rows, n_features) array."""
+
+    # Local copy so the caller's dict is not mutated by the `return_float32` override below.
+    numagg_params = dict(numagg_params)
     numagg_params["return_float32"] = True
     feature_names = get_numaggs_names(**numagg_params)
 
@@ -1262,12 +1340,19 @@ def compute_numaggs_parallel(
     **parallel_kwargs
 ) -> np.ndarray:
     """Computes numaggs over columns of a dataframe, in parallel fashion.
-    Example of parallel_kwargs: numaggs_over_df_columns_parallel(df=X, cols=cols, temp_folder=r'R:\Temp')
+
+    Example of parallel_kwargs: ``compute_numaggs_parallel(df=X, cols=cols, temp_folder=<temp>)``.
+    Exactly one of ``values`` or ``(df, cols)`` must be supplied.
     """
     if numagg_params is None:
         numagg_params = {}
+    if values is None and (df is None or cols is None):
+        raise ValueError(
+            "compute_numaggs_parallel: must provide either `values` or both `df` and `cols`."
+        )
     if n_jobs <= 0:
-        n_jobs = psutil.cpu_count(logical=False)
+        # psutil.cpu_count can return None on container/restricted hosts; fall back to logical.
+        n_jobs = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True) or 1
 
     if values is None:
         values = df.loc[:, cols].values

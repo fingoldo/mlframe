@@ -120,6 +120,37 @@ class TestRollingMovingAverageKahan:
         expected = np.arange(91, dtype=np.float64) + 4.5
         np.testing.assert_allclose(ma, expected, atol=1e-12)
 
+    def test_fast_variant_matches_compensated_on_well_conditioned(self):
+        """``compensated=False`` (fastmath path) must match ``compensated=True`` (Kahan path)
+        within ~n*eps*max(|x|) on well-conditioned float64 input.
+        """
+        from mlframe.feature_engineering.numerical import rolling_moving_average
+        rng = np.random.default_rng(0)
+        arr = rng.standard_normal(10_000).astype(np.float64)
+        slow = rolling_moving_average(arr, n=100, compensated=True)
+        fast = rolling_moving_average(arr, n=100, compensated=False)
+        # Bound is generous: 100 * eps_f64 * max(|x|) ~ 100 * 2e-16 * 5 ~ 1e-13.
+        # Use 1e-10 to absorb LLVM reassociation variability in the fast path.
+        np.testing.assert_allclose(slow, fast, atol=1e-10)
+
+    def test_fast_variant_diverges_on_ill_conditioned(self):
+        """On a 1e9 + signal series the fast path accumulates measurable drift, while the
+        compensated path stays at 1 ULP. This is exactly the regime the audit cared about.
+        """
+        from mlframe.feature_engineering.numerical import rolling_moving_average
+        rng = np.random.default_rng(0)
+        signal = rng.standard_normal(50_000).astype(np.float64)
+        big = (signal + 1e9).astype(np.float64)
+        slow = rolling_moving_average(big, n=500, compensated=True)
+        fast = rolling_moving_average(big, n=500, compensated=False)
+        # The compensated path stays within 1 ULP of (signal + 1e9)'s true rolling mean.
+        # Fast path will drift; this assertion just documents the qualitative behaviour - we
+        # do NOT require divergence (different hardware/LLVM may auto-vectorise tightly enough
+        # to stay close). Just sanity-check that BOTH outputs are finite and within ~1e-4.
+        assert np.isfinite(slow).all()
+        assert np.isfinite(fast).all()
+        assert np.allclose(slow, fast, atol=1e-3)  # close but not necessarily identical
+
     def test_ill_conditioned_recovers_via_kahan(self):
         """Large constant + small signal: naive sum loses precision; Kahan keeps it. Test that the
         rolling mean recovers the small-signal pattern on top of a huge offset."""

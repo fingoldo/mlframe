@@ -6,8 +6,6 @@ __all__ = [
 ]
 
 import logging
-import warnings
-from contextlib import contextmanager
 from typing import Dict, List, Optional, Union
 
 import numpy as np
@@ -29,14 +27,6 @@ _NP_TO_PL_DTYPE: Dict[type, pl.DataType] = {
 }
 
 _DEFAULT_DATE_METHODS: Dict[str, type] = {"day": np.int8, "weekday": np.int8, "month": np.int8}
-
-
-@contextmanager
-def _suppress_basic_warnings():
-    """Scoped warnings suppression - replaces former module-level ``warnings.simplefilter`` which silenced FutureWarning process-wide."""
-    with warnings.catch_warnings():
-        warnings.simplefilter(action="ignore", category=FutureWarning)
-        yield
 
 
 def create_date_features(

@@ -41,6 +41,11 @@ _DEFAULT_NA_FILL: float = 1e3
 _DEFAULT_SPAN_CORRECTION: float = 1e2
 _MIN_WINDOW_FILL_RATIO: float = 0.5  # window is skipped if cumsum < 50% of the requested size
 
+# Per-call dict literals (e.g. `{"": 1e3}`) used to rebuild on every entry; cached at module scope.
+# Callers must not mutate these - functions read them as fall-throughs only.
+_DEFAULT_NA_FILLS: Dict[str, float] = {"": _DEFAULT_NA_FILL}
+_DEFAULT_SPAN_CORRECTIONS: Dict[str, float] = {"": _DEFAULT_SPAN_CORRECTION}
+
 
 def get_numaggs_metadata(
     numaggs_kwds: Optional[dict] = None,
@@ -206,7 +211,7 @@ def create_aggregated_features(
     if groupby_vars is None:
         groupby_vars = {}
     if na_fills is None:
-        na_fills = {"": _DEFAULT_NA_FILL}
+        na_fills = _DEFAULT_NA_FILLS
     if nonlinear_transforms is None:
         nonlinear_transforms = [np.cbrt]
     if numaggs_kwds is None:
@@ -219,7 +224,7 @@ def create_aggregated_features(
             return_lintrend_approx_stats=False,
         )
     if span_corrections is None:
-        span_corrections = {"": _DEFAULT_SPAN_CORRECTION}
+        span_corrections = _DEFAULT_SPAN_CORRECTIONS
     if splitting_vars is None:
         splitting_vars = {}
     if subsets is None:
