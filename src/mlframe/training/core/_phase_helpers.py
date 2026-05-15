@@ -771,20 +771,32 @@ def _phase_fit_pipeline(
     ):
         try:
             from ..configs import TargetTypes as _TT
-            _reg_targets = target_by_type.get(_TT.regression) or target_by_type.get("regression") or {}
+            # target_by_type structure varies by extractor:
+            #   (a) Dict[TargetTypes, Dict[str, ndarray]]  - nested
+            #   (b) Dict[TargetTypes, ndarray]             - flat (single target)
+            #   (c) Dict[str, ndarray]                     - "regression" -> arr
+            # Probe all three under-keys (enum, str, plus direct ndarray cases).
+            _reg_targets = None
+            for _key in (_TT.regression, "regression", str(_TT.regression)):
+                if hasattr(target_by_type, "get"):
+                    _candidate = target_by_type.get(_key)
+                    if _candidate is not None:
+                        _reg_targets = _candidate
+                        break
+            if _reg_targets is not None and not isinstance(_reg_targets, dict):
+                # Case (b)/(c): _reg_targets is already a 1-D array-like.
+                _vals_direct = _reg_targets
+                _reg_targets = {"_default": _vals_direct}
             if _reg_targets:
-                # First registered regression target wins. The user can override
-                # by manually re-ordering target_by_type before suite invocation.
                 _first_name = next(iter(_reg_targets))
                 _vals = _reg_targets[_first_name]
-                # Polars Series or numpy array - both have to_numpy / asarray paths.
                 if hasattr(_vals, "to_numpy"):
                     _y_train_for_ext = _vals.to_numpy()
                 else:
                     _y_train_for_ext = np.asarray(_vals)
-                # Trim to train rows (target_by_type holds the full split-pre-split
-                # series; train_df is post-split). Length-mismatch triggers a
-                # safer skip with explicit warning.
+                if _y_train_for_ext is not None and _y_train_for_ext.ndim > 1:
+                    # Multi-output regression target -> first column for PySR.
+                    _y_train_for_ext = _y_train_for_ext[:, 0]
                 if hasattr(train_df, "shape") and _y_train_for_ext is not None and len(_y_train_for_ext) != train_df.shape[0]:
                     if verbose:
                         logger.warning(
@@ -794,7 +806,15 @@ def _phase_fit_pipeline(
                     _y_train_for_ext = None
         except Exception as _exc:
             if verbose:
-                logger.warning("Could not extract y_train for PySR FE: %s", _exc)
+                _diag = "n/a"
+                try:
+                    _diag = f"keys={list(target_by_type.keys()) if hasattr(target_by_type, 'keys') else type(target_by_type).__name__}"
+                except Exception:
+                    pass
+                logger.warning(
+                    "Could not extract y_train for PySR FE: %s: %s (target_by_type %s)",
+                    type(_exc).__name__, _exc, _diag,
+                )
             _y_train_for_ext = None
     t0_ext = timer()
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(

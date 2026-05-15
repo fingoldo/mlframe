@@ -209,6 +209,16 @@ AXES: dict[str, tuple[Any, ...]] = {
     "prep_ext_polynomial_degree_cfg": (None, 2),                 # PreprocessingExtensionsConfig.polynomial_degree
     "prep_ext_dim_reducer_cfg": (None, "PCA", "TruncatedSVD"),   # PreprocessingExtensionsConfig.dim_reducer
     "prep_ext_nonlinear_cfg": (None, "RBFSampler"),              # PreprocessingExtensionsConfig.nonlinear_features
+    # 2026-05-15 — PySR symbolic regression: gated to small combos because
+    # each PySR fit triggers Julia compilation + Pareto-front search (30-60s+).
+    # Canonicalised to False for: classification targets (PySR is regression-only),
+    # n_rows > 2000 (sample-down inside _apply_pysr_fe but still slow), text/
+    # embedding cols (the temp _pysr_y_ injection assumes numeric frame).
+    "prep_ext_pysr_enabled_cfg": (False, True),                  # PreprocessingExtensionsConfig.pysr_enabled
+    # 2026-05-15 — MRMR NaN handling strategy. Drives _validate_inputs +
+    # categorize_dataset behaviour. Three values currently supported; canon
+    # to "separate_bin" when use_mrmr_fs is False (axis is a no-op then).
+    "mrmr_nan_strategy_cfg": ("separate_bin", "ffill_bfill", "fillna_zero"),
     # 2026-04-26 batch 5 — RFECV (Recursive Feature Elimination with CV).
     # rfecv_models is the list passed to train_mlframe_models_suite; the
     # axis picks ONE estimator name. lgb_rfecv requires GPU build, skip.
@@ -339,6 +349,10 @@ class FuzzCombo:
     prep_ext_polynomial_degree_cfg: "int | None" = None
     prep_ext_dim_reducer_cfg: "str | None" = None
     prep_ext_nonlinear_cfg: "str | None" = None
+    # PySR symbolic regression (gated for cls / large-n / text / embedding combos in canonical_key).
+    prep_ext_pysr_enabled_cfg: bool = False
+    # MRMR NaN handling strategy. No-op when use_mrmr_fs is False (axis canonicalised away).
+    mrmr_nan_strategy_cfg: str = "separate_bin"
     # 2026-04-26 batch 5 — RFECV
     rfecv_estimator_cfg: "str | None" = None
     # 2026-04-26 batch 6 — recurrent
@@ -918,6 +932,8 @@ class FuzzCombo:
             "prep_ext_polynomial_degree_cfg": self.prep_ext_polynomial_degree_cfg,
             "prep_ext_dim_reducer_cfg": self.prep_ext_dim_reducer_cfg,
             "prep_ext_nonlinear_cfg": self.prep_ext_nonlinear_cfg,
+            "prep_ext_pysr_enabled_cfg": self.prep_ext_pysr_enabled_cfg,
+            "mrmr_nan_strategy_cfg": self.mrmr_nan_strategy_cfg,
             # batch 5
             "rfecv_estimator_cfg": self.rfecv_estimator_cfg,
             # batch 6
@@ -1156,6 +1172,8 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         prep_ext_polynomial_degree_cfg=axes.get("prep_ext_polynomial_degree_cfg"),
         prep_ext_dim_reducer_cfg=axes.get("prep_ext_dim_reducer_cfg"),
         prep_ext_nonlinear_cfg=axes.get("prep_ext_nonlinear_cfg"),
+        prep_ext_pysr_enabled_cfg=axes.get("prep_ext_pysr_enabled_cfg", False),
+        mrmr_nan_strategy_cfg=axes.get("mrmr_nan_strategy_cfg", "separate_bin"),
         # batch 5
         rfecv_estimator_cfg=axes.get("rfecv_estimator_cfg"),
         # batch 6
@@ -1261,6 +1279,8 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
         "prep_ext_polynomial_degree_cfg": combo.prep_ext_polynomial_degree_cfg,
         "prep_ext_dim_reducer_cfg": combo.prep_ext_dim_reducer_cfg,
         "prep_ext_nonlinear_cfg": combo.prep_ext_nonlinear_cfg,
+        "prep_ext_pysr_enabled_cfg": combo.prep_ext_pysr_enabled_cfg,
+        "mrmr_nan_strategy_cfg": combo.mrmr_nan_strategy_cfg,
         # batch 5
         "rfecv_estimator_cfg": combo.rfecv_estimator_cfg,
         # batch 6
