@@ -18,7 +18,7 @@ pip install mlframe[calibration]          # shap + venn-abers + netcal + betacal
 pip install mlframe[neural]               # torch + pytorch-lightning
 pip install mlframe[automl]               # flaml + optbinning + pysr
 pip install mlframe[sampling]             # imbalanced-learn + category-encoders + iterative-stratification
-pip install mlframe[polars]               # polars + polars-talib + polars-ds
+pip install mlframe[polars_ext]            # polars-talib + polars-ds (polars itself is a core dep)
 pip install mlframe[viz]                  # matplotlib + plotly + seaborn + altair + hvplot
 pip install mlframe[mlflow]               # mlflow experiment tracking
 pip install mlframe[db]                   # sqlalchemy + psycopg2 + duckdb + pymongo + zstandard
