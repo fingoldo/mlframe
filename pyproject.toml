@@ -99,8 +99,11 @@ calibration = [
 ]
 
 # Neural-network training stack (PyTorch + Lightning).
+# `lightning` is the canonical post-2.0 distribution name; the older
+# `pytorch-lightning` alias is a thin re-export package.
 neural = [
     "torch>=2.0",
+    "lightning>=2.0",
     "pytorch-lightning>=2.0",
 ]
 
@@ -195,6 +198,10 @@ dev = [
     "mypy>=1.0",
     "bandit>=1.7",
     "pre-commit>=3.3",
+    # IPython is imported unconditionally by src/mlframe/evaluation/reports.py
+    # and training/evaluation.py (for display_html / rich-shell detection).
+    # Required so test collection of the modules that import them succeeds.
+    "ipython>=8.0",
 ]
 
 [project.urls]

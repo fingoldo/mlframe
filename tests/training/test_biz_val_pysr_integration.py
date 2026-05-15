@@ -37,10 +37,19 @@ def _check_julia():
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _check_julia(),
-    reason="Julia runtime not available",
-)
+# PySR fits trigger Julia compilation + symbolic regression - 30-60s per fit
+# even on small data. On Windows the Julia FFI also occasionally raises
+# fatal-exit codes that propagate up and kill the whole pytest process
+# (observed 2026-05-15 on test_biz_val_pysr_pipeline_improves_downstream_model
+# at session timestamp 16:30 local). Mark slow so the default
+# `-m "not slow"` selector skips it and a dedicated PySR run can pick it up.
+pytestmark = [
+    pytest.mark.skipif(
+        not _check_julia(),
+        reason="Julia runtime not available",
+    ),
+    pytest.mark.slow,
+]
 
 
 def _make_synth(n=500, seed=42):
