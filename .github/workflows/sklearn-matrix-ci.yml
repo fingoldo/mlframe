@@ -86,13 +86,16 @@ jobs:
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
           pip install "./pyutilz[all]"
 
-      - name: Install mlframe with boosting extras
-        # All transitive deps (matplotlib, pympler, expiringdict, astropy,
-        # antropy, category-encoders, polars) are now in [project].dependencies
-        # of pyproject.toml, so a clean `[boosting,dev]` install suffices.
+      - name: Install mlframe with runtime extras needed for composite tests
+        # Composite-target tests transitively import most of mlframe's source
+        # tree at collection time; several modules have unguarded top-level
+        # imports of optional deps (calibration/viz/signal stacks). Installing
+        # the union here avoids a treadmill of CI failures from one ImportError
+        # at a time. Excludes [neural] (torch), [mlflow], [automl] which the
+        # composite path doesn't touch.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[boosting,dev]"
+          pip install -e ".[boosting,calibration,viz,signal,stats,sampling,unsupervised,polars_ext,dev]"
 
       - name: Pin scikit-learn to ${{ matrix.sklearn-version }}
         run: pip install --force-reinstall "scikit-learn==${{ matrix.sklearn-version }}"

@@ -48,10 +48,15 @@ jobs:
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
           pip install "./pyutilz[all]"
 
-      - name: Install mlframe with boosting + dev extras
+      - name: Install mlframe with all runtime extras + dev tooling
+        # mlframe has unguarded top-level imports of heavy libs across
+        # neural/calibration/viz/signal/stats/automl/integrations modules.
+        # Until those are all wrapped in try/except (separate refactor),
+        # CI installs the union of runtime extras so test collection
+        # doesn't blow up on ModuleNotFoundError.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[boosting,dev]"
+          pip install -e ".[all,dev]"
 
       - name: Show installed versions
         run: |
