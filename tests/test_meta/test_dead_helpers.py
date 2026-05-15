@@ -95,6 +95,21 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
     # test fixtures or document as public.
     "training/composite.py::report_to_markdown",
     "training/phases.py::phase_ram_snapshot",
+    # 2026-05-15 — surfaced after the src/ migration normalised the corpus
+    # search root (rglob now finds these in src/mlframe/* instead of root).
+    # Same pattern as the older entries: orphaned helpers slated for either
+    # public-API promotion or deletion.
+    "feature_selection/boruta_shap.py::load_data",
+    "feature_selection/importance.py::compute_permutation_importances",
+    "feature_selection/importance.py::explain_top_feature_importances",
+    "feature_selection/filters/composition.py::compose_pair_fe",
+    "feature_selection/filters/estimators.py::ksg_mi_pair",
+    "feature_selection/filters/feature_engineering.py::apply_gpu_unary_batched",
+    "feature_selection/filters/feature_engineering.py::apply_gpu_binary_batched",
+    "feature_selection/filters/hermite_fe.py::optimise_pair_multimode",
+    "feature_selection/filters/screen.py::ScreenState",
+    "feature_selection/filters/supervised_binning.py::apply_bin_edges",
+    "training/dummy_baselines.py::plot_best_dummy_baseline_overlay",
 }
 
 

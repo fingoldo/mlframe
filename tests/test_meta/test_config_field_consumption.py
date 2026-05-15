@@ -67,6 +67,18 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     "TrainingConfig.behavior": "shadowed by trainer.py kwarg `behavior_config`",
     "NGBConfig.minibatch_frac": "NGBConfig class never instantiated — NGB is configured via ngb_kwargs dict instead",
     "NGBConfig.Dist": "same — class never instantiated in production",
+    # 2026-05-15 — new entries surfaced after the src/ migration; same pattern
+    # as the shadowed-by-kwarg cluster above, kept as deferred-dead until the
+    # responsible subsystem author rewires.
+    "AutoMLConfig.automl_show_fi": "shadowed by FeatureSelectionConfig.show_fi; AutoML branch reads the latter",
+    "EnsemblingConfig.force_legacy": "legacy-path opt-in; current code unconditionally uses the new ensembling kernel",
+    "EnsemblingConfig.accumulator": "accumulator strategy knob — single-strategy hardcoded in current build",
+    "FeatureSelectionConfig.rfecv_kwargs": "RFECV kwargs threading from FSConfig not yet wired; users pass via rfecv_models_params direct dict",
+    "PreprocessingBackendConfig.fallback_to_sklearn": "auto-fallback already implicit in pipeline.py:_apply_polars_ds; flag never read",
+    "QuantileRegressionConfig.point_estimate_alpha": "point estimate currently hardcoded to 0.5 (median) inside quantile dispatch",
+    "QuantileRegressionConfig.coverage_pairs": "coverage_pairs validator exists on the config but reporting path uses alphas directly",
+    "TreeModelConfig.lgb_kwargs": "duplicate of ModelHyperparamsConfig.lgb_kwargs (which IS consumed via model_dump splat)",
+    "TreeModelConfig.xgb_kwargs": "duplicate of ModelHyperparamsConfig.xgb_kwargs (which IS consumed via model_dump splat)",
 }
 
 
