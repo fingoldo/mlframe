@@ -300,9 +300,9 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
 
     Tag conventions:
 
-    * binary classification — ``BTV`` / ``BTTS`` (Binary Target Val / TeSt)
-    * regression — ``MTV`` / ``MTTS`` (Mean Target Val / TeSt)
-    * multilabel classification — ``MLV`` / ``MLTS`` (MultiLabel Val / TeSt)
+    * binary classification -- ``BTV`` / ``BTTS`` (Binary Target Val / TeSt)
+    * regression -- ``MTV`` / ``MTTS`` (Mean Target Val / TeSt)
+    * multilabel classification -- ``MLV`` / ``MLTS`` (MultiLabel Val / TeSt)
 
     Train splits and cases where ``model_name`` doesn't carry a
     ``BTTR=`` / ``MTTR=`` / ``MLTR=`` token (e.g. legacy unit-test-driven
@@ -435,7 +435,7 @@ def _compute_split_metrics(
     # the train rate as ``BTTR=`` / ``MTTR=`` / ``MLTR=`` on the
     # canonical model_name; here we splice the val/test rate inline
     # via regex so chart titles read e.g. ``BTTR/BTV=74%/86%`` (val)
-    # and ``BTTR/BTTS=74%/83%`` (test) — prior shift between train
+    # and ``BTTR/BTTS=74%/83%`` (test) -- prior shift between train
     # and val/test is visible in every header.
     augmented_model_name = _append_split_rate_suffix(
         model_name,
@@ -520,7 +520,7 @@ def run_confidence_analysis(
     # Without a cap CB defaults to iterations=1000, which on the rich
     # feature schema typical for the suite (50+ cols) translates to
     # 4-10+ minutes per confidence fit on CPU. The confidence regressor
-    # is best-effort diagnostic — even 50 boosting rounds gives a
+    # is best-effort diagnostic -- even 50 boosting rounds gives a
     # serviceable feature-importance signal. Caller can override.
     confidence_model_kwargs.setdefault("iterations", 200)
     confidence_model_kwargs.setdefault("early_stopping_rounds", 30)
@@ -572,11 +572,11 @@ def run_confidence_analysis(
         # 2026-04-26 Session 7 batch 5: polars-side auto-detect. The
         # earlier pandas-only branch missed:
         #   - pl.Utf8 / pl.String text columns (default-seed c0056:
-        #     cb+hgb+xgb pl_nullable n=5000 → CB Pool crash on ``text_0``)
+        #     cb+hgb+xgb pl_nullable n=5000 -> CB Pool crash on ``text_0``)
         #   - pl.List / pl.Array embedding columns (same combo, ``emb_0``
         #     surfaces here when fit_params['embedding_features'] is
         #     None because the trailing model is HGB/XGB which doesn't
-        #     accept the kwarg → the explicit-drop list is empty)
+        #     accept the kwarg -> the explicit-drop list is empty)
         #   - pl.Struct nested types (rare but break CB Pool numerics)
         # All these break CB Pool numeric-feature construction. Drop
         # them unless explicitly listed as cat_features.
@@ -684,7 +684,7 @@ def run_confidence_analysis(
         logger.warning(
             "Confidence analysis skipped: all confidence_targets are "
             "equal (n_unique=%d, value=%s). The confidence regressor "
-            "has no signal to learn — typical for tiny test sets where "
+            "has no signal to learn -- typical for tiny test sets where "
             "all rows share one predicted-prob bucket, or for severely "
             "miscalibrated models emitting a constant probability.",
             n_unique_conf,

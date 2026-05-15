@@ -291,15 +291,15 @@ def test_format_report_includes_all_diagnostic_sections():
 
 
 def test_to_dict_round_trips_to_json():
-    import json
+    import orjson
     rng = np.random.default_rng(0)
     n = 1_000
     y_pred = rng.uniform(-3, 3, size=n)
     y_true = y_pred + rng.normal(0, 1.0, size=n)
     audit = audit_residuals(y_true, y_pred)
     d = audit.to_dict()
-    s = json.dumps(d)  # must be JSON-safe (no numpy scalars leaking)
-    parsed = json.loads(s)
+    s = orjson.dumps(d).decode()  # must be JSON-safe (no numpy scalars leaking)
+    parsed = orjson.loads(s)
     assert parsed["hypothesis"] == audit.hypothesis
     assert parsed["n"] == audit.n
 

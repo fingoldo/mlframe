@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from .utils import filter_existing
+# .utils re-exports from this module; defer the filter_existing import
+# to call sites (line 110, 114) to break the cycle.
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ def _process_special_values(
         if drop_columns:
             cols_to_drop = errors_df["column"].to_list() if is_polars else errors_df["column"].tolist()
             if cols_to_drop:
+                from .utils import filter_existing  # lazy: breaks cycle with .utils
                 # Only drop columns that actually exist in the dataframe
                 if is_polars:
                     existing_cols = filter_existing(df, cols_to_drop)

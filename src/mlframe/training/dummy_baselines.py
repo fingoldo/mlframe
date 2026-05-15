@@ -11,13 +11,13 @@ that module answers "is the target predictable from these features at
 all?" via LightGBM quick-fit + feature ablation; this module answers "is
 the task even hard?" via comparison to trivial reference predictors.
 
-Design contract (per plan v3 — 21 defenses D1-D21):
-- Default INFO output: ≤ 2 lines per target (verdict + plot path).
+Design contract (per plan v3 -- 21 defenses D1-D21):
+- Default INFO output: <= 2 lines per target (verdict + plot path).
 - Full per-baseline table at DEBUG level.
 - Suite-end summary with cross-target verdict + 4 canonical UPPERCASE
   WARN tokens (``BEST_MODEL_BELOW_DUMMY``, ``ALL_BASELINES_BELOW_RANDOM``,
   ``TS_BEATS_TREES``, ``PARTIAL_FAILURE``).
-- All per-cell metrics in their own try/except → NaN row on failure
+- All per-cell metrics in their own try/except -> NaN row on failure
   (D1).
 - Strongest-pick gated on non-degeneracy + paired-bootstrap robustness
   (D2).
@@ -27,13 +27,13 @@ Design contract (per plan v3 — 21 defenses D1-D21):
 - Promoted IMPORTANT defenses D7-D17 (per-target phase qualifier,
   object-dtype gate, n_finite header, n<10 sample-noise gate, slugified
   paths, plot suppression on <2 finite, deterministic per-target seed,
-  schema_version, NaN→None serialization, bootstrap CI when n<2000,
+  schema_version, NaN->None serialization, bootstrap CI when n<2000,
   statsmodels deferred import).
 - Promoted v3 inline doc/safety items D18-D21 (plot uniqueness trace,
-  α=0.5↔median note, sklearn>=1.0 assert, hash recipe).
+  alpha=0.5<->median note, sklearn>=1.0 assert, hash recipe).
 
 Pure w.r.t. ``(target_type, train_y, val_y, test_y, timestamps,
-group_ids, cat_features_chosen)`` — see ``_baseline_inputs_hash`` for
+group_ids, cat_features_chosen)`` -- see ``_baseline_inputs_hash`` for
 sweep-orchestrator memoization.
 
 Quantile-regression scope note
@@ -42,12 +42,12 @@ For ``target_type="quantile_regression"`` the dispatcher routes through
 the regression path: it emits the constant-prediction baselines (mean,
 median, quantile_p25, quantile_p75, per_group_mean, plus TS naive when
 timestamps are monotonic) measured by RMSE/MAE. That gives the operator
-a constant-prediction *floor* against which the multi-α quantile
-regressor's pinball loss is informative even without explicit per-α
-empirical-quantile rows. Per-α empirical-quantile baselines paired with
-mean-pinball-loss-across-α as primary metric (plan v3 catalog) require
-multi-output prediction plumbing — predictions become (N, K) instead of
-(N,) — and are deferred until that plumbing is added. The α=0.5 row
+a constant-prediction *floor* against which the multi-alpha quantile
+regressor's pinball loss is informative even without explicit per-alpha
+empirical-quantile rows. Per-alpha empirical-quantile baselines paired with
+mean-pinball-loss-across-alpha as primary metric (plan v3 catalog) require
+multi-output prediction plumbing -- predictions become (N, K) instead of
+(N,) -- and are deferred until that plumbing is added. The alpha=0.5 row
 in such a future expansion would be identical-by-construction to the
 ``median`` baseline already emitted (D19 self-consistency note).
 """
@@ -92,7 +92,7 @@ from ._dummy_baseline_compute import (
     _per_target_seed,
 )
 
-# Numba acceleration for hot kernels — multilabel macro log-loss (57x
+# Numba acceleration for hot kernels -- multilabel macro log-loss (57x
 # vs sklearn's per-label loop), LTR within-group rank assignment.
 # Optional dep; on import failure we fall back to numpy/python paths.
 try:
@@ -164,7 +164,7 @@ if _NUMBA_AVAILABLE:
 
     @njit(cache=False)
     def _numba_within_group_descending_rank(group_ids: np.ndarray) -> np.ndarray:
-        """Descending within-group rank: row 0 of each group → highest score.
+        """Descending within-group rank: row 0 of each group -> highest score.
 
         Single-pass over a stable-sorted index. Output[i] = -within_group_idx
         so the first row of each group has the highest score. Robust
@@ -199,12 +199,12 @@ if _NUMBA_AVAILABLE:
         Returns ndarray of length ``n_resamples`` with
         ``RMSE(p1) - RMSE(p2)`` per resample (negative when p1 wins under
         minimize-metric convention). ~20-50x faster than sklearn's
-        ``mean_squared_error`` per-call loop on n=1500 × 1000 resamples
-        (current Python loop ~1100ms → numba ~30ms measured).
+        ``mean_squared_error`` per-call loop on n=1500 x 1000 resamples
+        (current Python loop ~1100ms -> numba ~30ms measured).
         """
         n = len(y)
         out = np.empty(n_resamples, dtype=np.float64)
-        # Per-resample independent — prange parallel.
+        # Per-resample independent -- prange parallel.
         for i in prange(n_resamples):
             # Per-iteration LCG for index draws (avoids np.random global
             # state under prange; reproducible from (seed, i) pair).
@@ -351,7 +351,7 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
 
     Pre-warms ``_numba_macro_log_loss``, ``_numba_micro_log_loss``,
     ``_numba_within_group_descending_rank``, and the four bootstrap
-    kernels (RMSE/MAE × paired/CI) plus the two log-loss kernels by
+    kernels (RMSE/MAE x paired/CI) plus the two log-loss kernels by
     invoking each on a 100-row synthetic input. Subsequent first real
     calls skip the 6-10s JIT cold-start that would otherwise dominate
     the multi_output_regression first-target wall time.
@@ -437,13 +437,13 @@ class BaselineReport(NamedTuple):
         non-TS targets or when no TS baseline picked).
     plot_path
         Path to the strongest baseline's overlay PNG (None when not
-        rendered — short-circuit, no consumer, or suppressed).
+        rendered -- short-circuit, no consumer, or suppressed).
     elapsed_s
         Wall time of the entire baseline computation.
     n_train, n_val, n_test
         Row counts of the splits.
     n_train_finite, n_val_finite, n_test_finite
-        Finite-target row counts (round-3 D9 — surfaces all-NaN target
+        Finite-target row counts (round-3 D9 -- surfaces all-NaN target
         columns).
     extras
         Free-form dict for target-type-specific diagnostics
@@ -468,14 +468,14 @@ class BaselineReport(NamedTuple):
     extras: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
-        """JSON-serializable dict (D14 schema_version + D15 NaN→None)."""
+        """JSON-serializable dict (D14 schema_version + D15 NaN->None)."""
         # D15: replace NaN with None so json.dumps() succeeds.
         def _scrub(v: Any) -> Any:
             if isinstance(v, float) and not np.isfinite(v):
                 return None
             return v
 
-        # Convert table to {baseline_name: {col: value}} with NaN → None
+        # Convert table to {baseline_name: {col: value}} with NaN -> None
         table_dict: dict[str, dict[str, Any]] = {}
         for idx, row in self.table.iterrows():
             table_dict[str(idx)] = {col: _scrub(row[col]) for col in self.table.columns}
@@ -560,7 +560,7 @@ class BaselineReport(NamedTuple):
                 f"{lift_str}"
                 f" (n_baselines={len(self.table)}, full table at DEBUG){tie_suffix}"
             )
-            # D2: paired-bootstrap Δ vs runner-up with 95% CI.
+            # D2: paired-bootstrap delta vs runner-up with 95% CI.
             if paired:
                 ru = paired.get("runner_up", "?")
                 delta = paired.get("delta")
@@ -672,7 +672,7 @@ def _is_finite_mask(y: np.ndarray) -> np.ndarray:
         return np.isfinite(y)
     if y.dtype == object:
         return np.array([v is not None and (not isinstance(v, float) or np.isfinite(v)) for v in y])
-    # int / bool / etc. — always finite for our purposes
+    # int / bool / etc. -- always finite for our purposes
     return np.ones(len(y), dtype=bool)
 
 
@@ -708,7 +708,7 @@ def _has_signal(target_type: str, y_ref: np.ndarray, n_min: int = 10) -> tuple[b
 
 
 # ---------------------------------------------------------------------
-# Time-series detection (D17 — statsmodels deferred import)
+# Time-series detection (D17 -- statsmodels deferred import)
 # ---------------------------------------------------------------------
 
 
@@ -726,7 +726,7 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
         if ts.dtype.kind == "M":
             ts = ts.astype("datetime64[ns]").astype("int64")
         elif ts.dtype.kind == "O":
-            # mixed types or pd.Timestamp — try pandas conversion
+            # mixed types or pd.Timestamp -- try pandas conversion
             ts = pd.to_datetime(ts, utc=True, errors="coerce").astype("datetime64[ns]").astype("int64")
         # Else assume already numeric (epoch ints, floats).
         return ts
@@ -787,7 +787,7 @@ def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> list[int]:
     ``2 <= P <= n_train // 4`` (round-3 A#17).
 
     statsmodels imported lazily inside the function (D17): import
-    failure → empty list + INFO log, not module-load failure.
+    failure -> empty list + INFO log, not module-load failure.
     """
     try:
         from statsmodels.tsa.stattools import acf
@@ -868,7 +868,7 @@ def _resolve_ts_periods(
     if len(unique_ts) < duplicate_threshold:
         diagnostics["rejected"] = (
             f"timestamps mostly-duplicate (unique={len(unique_ts)}/{n_train}); "
-            "TS baselines disabled — likely event-style data"
+            "TS baselines disabled -- likely event-style data"
         )
         return [], diagnostics
 
@@ -1063,10 +1063,10 @@ def compute_dummy_baselines(
         target_type, table, val_y_arr, test_y_arr, primary_metric, extras, config,
     )
 
-    # D2 (paired-bootstrap robustness): compute Δ vs runner-up + 95% CI +
+    # D2 (paired-bootstrap robustness): compute delta vs runner-up + 95% CI +
     # P(strongest beats runner-up). Below `strongest_min_beat_runner_up_prob`
     # the strongest is annotated as TIE and the overlay plot is skipped.
-    # Gated on the same n-threshold as bootstrap CI (D16) — at large n the
+    # Gated on the same n-threshold as bootstrap CI (D16) -- at large n the
     # point-estimate signal-to-noise is high enough that paired bootstrap
     # is just expensive ceremony (~3-4s on n=10^5).
     n_ref_for_paired = min(
@@ -1183,18 +1183,18 @@ def _compute_quantile_baselines(  # noqa: F811 -- shadows import at line 90 from
     alphas: Sequence[float],
     config: Any,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
-    """Per-α empirical-quantile baselines for QUANTILE_REGRESSION.
+    """Per-alpha empirical-quantile baselines for QUANTILE_REGRESSION.
 
-    Emits, per requested α:
-      - ``quantile_alpha_{a:.3f}``: constant prediction = empirical α-th
-        percentile of train_y (clamped to [1e-3, 1-1e-3] for boundary α
+    Emits, per requested alpha:
+      - ``quantile_alpha_{a:.3f}``: constant prediction = empirical alpha-th
+        percentile of train_y (clamped to [1e-3, 1-1e-3] for boundary alpha
         per round-3 A#9); shape ``(N, K)`` where K=len(alphas).
       - ``median_for_all``: single ``np.median(train_y)`` constant
-        broadcast across all α (D19: identical to α=0.5 row by
+        broadcast across all alpha (D19: identical to alpha=0.5 row by
         construction; documented in row label).
 
-    Predictions are 2D ``(N, K)``. Pinball loss is computed per α
-    plus a ``mean_pinball`` aggregate over non-boundary α (α in
+    Predictions are 2D ``(N, K)``. Pinball loss is computed per alpha
+    plus a ``mean_pinball`` aggregate over non-boundary alpha (alpha in
     ``[0.05, 0.95]``; round-3 C#7).
     """
     val_preds: dict[str, np.ndarray] = {}
@@ -1211,9 +1211,9 @@ def _compute_quantile_baselines(  # noqa: F811 -- shadows import at line 90 from
     n_eff_val: dict[float, int] = {}
     n_eff_test: dict[float, int] = {}
 
-    # Per-α: emit one baseline whose prediction is a constant column for
-    # that α only, broadcast across the K-output shape so the metrics
-    # table can compute pinball@α uniformly.
+    # Per-alpha: emit one baseline whose prediction is a constant column for
+    # that alpha only, broadcast across the K-output shape so the metrics
+    # table can compute pinball@alpha uniformly.
     consts_per_alpha: list[float] = []
     for a in alphas:
         clamped_a = float(min(max(a, 1e-3), 1 - 1e-3))
@@ -1228,25 +1228,25 @@ def _compute_quantile_baselines(  # noqa: F811 -- shadows import at line 90 from
 
     # Build (N, K) predictions per baseline.
     if K > 0:
-        # Per-α empirical-quantile baselines: each one is a (N, K)
-        # constant matrix where every output uses its own α-th percentile.
+        # Per-alpha empirical-quantile baselines: each one is a (N, K)
+        # constant matrix where every output uses its own alpha-th percentile.
         for j, a in enumerate(alphas):
             row_const = consts_per_alpha[j]
             # The j-th baseline emits the j-th constant for ALL alphas
-            # (interpretation: "use this α-th percentile to predict every
-            # quantile" — degenerate but informative as a reference).
+            # (interpretation: "use this alpha-th percentile to predict every
+            # quantile" -- degenerate but informative as a reference).
             label = f"quantile_alpha_{a:.3f}"
             if a == 0.5:
                 label = f"quantile_alpha_{a:.3f} (=median by construction)"
             val_preds[label] = np.full((n_val, K), row_const)
             test_preds[label] = np.full((n_test, K), row_const)
 
-        # median_for_all: single np.median(train_y) across all α.
+        # median_for_all: single np.median(train_y) across all alpha.
         val_preds["median_for_all"] = np.full((n_val, K), train_median)
         test_preds["median_for_all"] = np.full((n_test, K), train_median)
 
-        # multi_quantile_empirical: predicts the j-th α-th percentile in
-        # the j-th column — the "right" multi-quantile constant baseline.
+        # multi_quantile_empirical: predicts the j-th alpha-th percentile in
+        # the j-th column -- the "right" multi-quantile constant baseline.
         # This is actually what most quantile-loss models should beat.
         consts_arr = np.asarray(consts_per_alpha, dtype=np.float64)
         val_preds["multi_quantile_empirical"] = np.broadcast_to(
@@ -1260,7 +1260,7 @@ def _compute_quantile_baselines(  # noqa: F811 -- shadows import at line 90 from
         extras["quantile_boundary_clamped"] = boundary_log
         for orig, clamped in boundary_log:
             logger.info(
-                "[dummy-baselines] target='%s' α=%g: clamped to %g for empirical "
+                "[dummy-baselines] target='%s' alpha=%g: clamped to %g for empirical "
                 "baseline (degenerate at boundary)",
                 target_name, orig, clamped,
             )
@@ -1296,11 +1296,11 @@ def _compute_multilabel_baselines(
     # all_one
     val_preds["all_one"] = np.ones((n_val, K))
     test_preds["all_one"] = np.ones((n_test, K))
-    # per_label_prior — broadcast train per-label mean
+    # per_label_prior -- broadcast train per-label mean
     per_label_prior = train_y.mean(axis=0)
     val_preds["per_label_prior"] = np.tile(per_label_prior, (n_val, 1))
     test_preds["per_label_prior"] = np.tile(per_label_prior, (n_test, 1))
-    # per_label_most_frequent — round per-label prior to 0/1
+    # per_label_most_frequent -- round per-label prior to 0/1
     plmf = (per_label_prior >= 0.5).astype(np.float64)
     val_preds["per_label_most_frequent"] = np.tile(plmf, (n_val, 1))
     test_preds["per_label_most_frequent"] = np.tile(plmf, (n_test, 1))
@@ -1332,7 +1332,7 @@ def _compute_ltr_baselines(
 
     The ``popularity`` baseline activates only when ``doc_ids_*`` are
     supplied (caller has a per-row document identifier outside the
-    feature space — this is a strict superset of mlframe's default LTR
+    feature space -- this is a strict superset of mlframe's default LTR
     API which only carries ``group_ids`` = qid). Popularity score for
     val/test row = log(1 + count(doc_id in train)). Unseen docs get
     score = 0 (cold-start cells get the smallest possible score).
@@ -1441,7 +1441,7 @@ def _compute_ltr_baselines(
                     d_val_s = pd.Series(d_val)
                     d_test_s = pd.Series(d_test)
                 pop_counts = d_train_s.value_counts()
-                # Score = log(1 + count); unseen → 0
+                # Score = log(1 + count); unseen -> 0
                 val_pop = d_val_s.map(pop_counts).fillna(0).astype(np.float64).to_numpy()
                 test_pop = d_test_s.map(pop_counts).fillna(0).astype(np.float64).to_numpy()
                 val_preds["popularity"] = np.log1p(val_pop)
@@ -1571,8 +1571,8 @@ def _compute_metrics_table(
     baseline_names = sorted(set(val_preds.keys()) | set(test_preds.keys()))
 
     if target_type == "quantile_regression" and (extras or {}).get("quantile_alphas"):
-        # Per-α pinball-loss table. Predictions are 2D (N, K). Headline =
-        # mean pinball over non-boundary α (α in [0.05, 0.95] per round-3 C#7).
+        # Per-alpha pinball-loss table. Predictions are 2D (N, K). Headline =
+        # mean pinball over non-boundary alpha (alpha in [0.05, 0.95] per round-3 C#7).
         alphas = list(extras["quantile_alphas"])
         primary_metric = "val_pinball_mean"
         non_boundary_idx = [i for i, a in enumerate(alphas) if 0.05 <= a <= 0.95]
@@ -2113,11 +2113,11 @@ def _paired_bootstrap_vs_runner_up(
     if n < 10:
         return None
 
-    # Numba-accelerated paths for RMSE / MAE / binary log-loss — ~30-340×
+    # Numba-accelerated paths for RMSE / MAE / binary log-loss -- ~30-340x
     # faster than the Python loop with sklearn metric inside (measured:
-    # 1100ms → 3.4ms on n=1500, 1000 resamples for RMSE). Falls back to
+    # 1100ms -> 3.4ms on n=1500, 1000 resamples for RMSE). Falls back to
     # sklearn loop for log_loss with non-binary preds, multilabel macro
-    # log-loss (no numba kernel — cost > value at the n<2000 gate), and
+    # log-loss (no numba kernel -- cost > value at the n<2000 gate), and
     # when numba unavailable.
     deltas = None
     if _NUMBA_AVAILABLE:
@@ -2144,7 +2144,7 @@ def _paired_bootstrap_vs_runner_up(
                 # Binary-only log-loss kernel: requires 1D y in {0,1} and
                 # 1D probs in [0,1]. For 2D-prob multiclass the predictions
                 # are (N, K) softmax, not directly compatible with the
-                # binary kernel — fall through to sklearn for those cases.
+                # binary kernel -- fall through to sklearn for those cases.
                 y_arr_1d = np.ascontiguousarray(y_ref).ravel()
                 p1_arr = np.asarray(p1)
                 p2_arr = np.asarray(p2)
@@ -2202,9 +2202,9 @@ def _paired_bootstrap_vs_runner_up(
         deltas = deltas[:valid]
 
     # For minimize metrics: strongest wins iff strongest_val < runner_up_val
-    # → delta = (strongest - runner_up) < 0. P(strongest beats) = mean(delta < 0).
+    # -> delta = (strongest - runner_up) < 0. P(strongest beats) = mean(delta < 0).
     # For maximize metrics: strongest wins iff strongest > runner_up
-    # → delta = (runner_up - strongest) < 0. Same condition.
+    # -> delta = (runner_up - strongest) < 0. Same condition.
     p_strongest_beats = float(np.mean(deltas < 0))
     point = float(np.mean(deltas))
     lo = float(np.percentile(deltas, 2.5))
@@ -2247,8 +2247,8 @@ def _bootstrap_ci_for_strongest(
             return None
 
         # Numba-accelerated path for RMSE / MAE / binary log-loss
-        # (~30-340× faster than the sklearn-per-call loop on n=1500
-        # × 1000 resamples).
+        # (~30-340x faster than the sklearn-per-call loop on n=1500
+        # x 1000 resamples).
         if _NUMBA_AVAILABLE and y.ndim == 1 and p.ndim == 1:
             try:
                 y_arr = np.ascontiguousarray(y, dtype=np.float64)
@@ -2330,7 +2330,7 @@ def _bootstrap_ci_for_strongest(
                 def fn(yi, pi):
                     return float(_ll(yi, pi))
             else:
-                # Maximize metrics (NDCG / AUC) — bootstrap point estimate
+                # Maximize metrics (NDCG / AUC) -- bootstrap point estimate
                 # works the same; the CI is naturally returned in metric
                 # units regardless of direction.
                 return None
@@ -2520,19 +2520,19 @@ def format_suite_end_summary(
     ----------
     dummy_baselines_metadata
         ``metadata["dummy_baselines"]`` from
-        ``train_mlframe_models_suite`` — nested dict
+        ``train_mlframe_models_suite`` -- nested dict
         ``{target_type: {target_name: report.to_dict()}}``.
     failures_metadata
-        ``metadata["dummy_baselines_failures"]`` (same shape) — used for
+        ``metadata["dummy_baselines_failures"]`` (same shape) -- used for
         ``PARTIAL_FAILURE`` WARN.
     best_model_metrics_by_target
-        Optional ``{(target_type, target_name): {metric: value}}`` — used
+        Optional ``{(target_type, target_name): {metric: value}}`` -- used
         for the lift-vs-model column and ``BEST_MODEL_BELOW_DUMMY`` /
         ``TS_BEATS_TREES`` WARN. When None, only the dummy verdict block
         is emitted.
     min_lift
         Lift threshold below which the model is flagged as not
-        meaningfully beating dummy. Default 1.5 (model must be ≥1.5×
+        meaningfully beating dummy. Default 1.5 (model must be >=1.5x
         better than dummy on the primary metric).
     """
     lines: list[str] = []
@@ -2610,10 +2610,10 @@ def format_suite_end_summary(
                 model_metrics = best_model_metrics_by_target.get(key, {})
                 if model_metrics:
                     # Map the dummy primary_metric to the model's analogue
-                    # (e.g. val_RMSE → RMSE_val or vice versa). Caller is
+                    # (e.g. val_RMSE -> RMSE_val or vice versa). Caller is
                     # expected to pass model_metrics keyed compatibly.
                     model_val = model_metrics.get(primary_metric)
-                    best_model_name = model_metrics.get("model_name", "—")
+                    best_model_name = model_metrics.get("model_name", "--")
 
             # Compute lift. Minimize-metrics (RMSE / log_loss): lift =
             # dummy / model. Maximize-metrics (NDCG@k / AUC): lift = model
@@ -2642,7 +2642,7 @@ def format_suite_end_summary(
                         verdict = "MODELS_BARELY_BEAT_TRIVIAL"
                         warn_lines.append(
                             f"[DUMMY_BASELINES] WARN BEST_MODEL_BELOW_DUMMY "
-                            f"target='{target_name}' lift={lift:.2f}x — "
+                            f"target='{target_name}' lift={lift:.2f}x -- "
                             f"investigate label encoding, target leak, "
                             f"train/test contamination."
                         )
@@ -2664,12 +2664,12 @@ def format_suite_end_summary(
             ):
                 warn_lines.append(
                     f"[DUMMY_BASELINES] WARN TS_BEATS_TREES "
-                    f"target='{target_name}' — verify val_placement='forward'; "
+                    f"target='{target_name}' -- verify val_placement='forward'; "
                     f"check for leaked-from-future feature columns."
                 )
 
             # ALL_BASELINES_BELOW_RANDOM (binary only): every classifier
-            # baseline has AUC < 0.5 → label flip suspected.
+            # baseline has AUC < 0.5 -> label flip suspected.
             if str(target_type) == "binary_classification":
                 aucs = [
                     row.get("val_AUC") for row in data.values()
@@ -2679,7 +2679,7 @@ def format_suite_end_summary(
                 if aucs and all(a < 0.5 for a in aucs):
                     warn_lines.append(
                         f"[DUMMY_BASELINES] WARN ALL_BASELINES_BELOW_RANDOM "
-                        f"target='{target_name}' — check target_label_encoder "
+                        f"target='{target_name}' -- check target_label_encoder "
                         f"direction; check sign of cost_function."
                     )
 
@@ -2691,19 +2691,19 @@ def format_suite_end_summary(
                 f"{lift_str:<8} {verdict}"
             )
 
-    # PARTIAL_FAILURE WARN — emitted once per target with failures.
+    # PARTIAL_FAILURE WARN -- emitted once per target with failures.
     if failures_metadata:
         for target_type, by_name in failures_metadata.items():
             for target_name, err_msg in by_name.items():
                 warn_lines.append(
                     f"[DUMMY_BASELINES] WARN PARTIAL_FAILURE "
-                    f"target='{target_name}' ({target_type}) — {err_msg}"
+                    f"target='{target_name}' ({target_type}) -- {err_msg}"
                 )
 
     lines.extend(warn_lines)
     if best_model_metrics_by_target is not None:
         lines.append(
-            f"[DUMMY_BASELINES] HEALTH: {n_healthy}/{n_total} targets — "
+            f"[DUMMY_BASELINES] HEALTH: {n_healthy}/{n_total} targets -- "
             f"{'ALL_HEALTHY' if n_healthy == n_total else 'see WARN lines above'}"
         )
 

@@ -380,7 +380,7 @@ def test_audit_dropped_sparse_bin_warning():
 
 def test_audit_to_dict_round_trip(synthetic_temporal_df):
     """Result must serialize to JSON-safe dict for metadata storage."""
-    import json
+    import orjson
 
     result = audit_target_over_time(
         synthetic_temporal_df,
@@ -389,8 +389,8 @@ def test_audit_to_dict_round_trip(synthetic_temporal_df):
         target_type="binary_classification",
     )
     d = result.to_dict()
-    s = json.dumps(d)
-    parsed = json.loads(s)
+    s = orjson.dumps(d).decode()
+    parsed = orjson.loads(s)
     assert parsed["target_name"] == result.target_name
     assert parsed["granularity"] == result.granularity
     assert len(parsed["bins"]) == len(result.bins)

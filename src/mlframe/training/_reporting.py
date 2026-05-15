@@ -36,7 +36,8 @@ from sklearn.preprocessing import LabelEncoder
 from mlframe.metrics.core import compute_fairness_metrics, fast_calibration_report, fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_roc_auc, fast_root_mean_squared_error
 from pyutilz.pythonlib import get_human_readable_set_size
 
-from .evaluation import _get_residual_audit_enabled, _get_cached_plot_idx
+# .evaluation imports back from ._reporting; deferring breaks the cycle.
+# (See line 477 / 580 for the two call-sites.)
 from .phases import phase
 
 if TYPE_CHECKING:
@@ -474,6 +475,7 @@ def report_regression_model_perf(
     # Compute residual audit ONCE (used by both the chart and the print-report block; cheap thanks to internal sampling).
     # 2026-05-12 (user clarification): ``behavior_config.report_residual_audit`` is a LOG-ONLY toggle. When False we MUST still compute the audit so the chart's hist + resid-vs-pred panels stay populated -- only the multi-line verdict text in the log is suppressed. Multi-output targets still skip the audit (no scalar residuals to fit a distribution to).
     _residual_audit = None
+    from .evaluation import _get_residual_audit_enabled  # lazy: breaks cycle with .evaluation
     _audit_log_enabled = bool(_get_residual_audit_enabled())
     if not (
         (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
@@ -577,6 +579,7 @@ def report_regression_model_perf(
                 # Local RNG -- do not pollute global numpy state. Cache
                 # by (n, size, seed) so repeated reports on the same
                 # prediction length reuse the sample.
+                from .evaluation import _get_cached_plot_idx  # lazy: breaks cycle with .evaluation
                 idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
                 idx = idx[np.argsort(preds[idx])]
 

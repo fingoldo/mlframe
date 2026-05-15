@@ -23,8 +23,8 @@ def _per_target_seed(base_seed: int, target_name: str) -> int:
     """Deterministic per-target seed for stochastic baselines (D13).
 
     ``base_seed + (hash(target_name) & 0xFFFF)`` keeps reproducibility
-    across runs (same target → same seed) while ensuring independence
-    across targets in the same suite (different target → different
+    across runs (same target -> same seed) while ensuring independence
+    across targets in the same suite (different target -> different
     seed). 0xFFFF mask keeps the offset bounded.
     """
     return (base_seed + (hash(target_name) & 0xFFFF)) & 0x7FFFFFFF
@@ -87,11 +87,11 @@ def _per_group_predict(
         """Coerce a column to a hashable groupby key.
 
         Fast path: numeric dtypes (int*, float*, bool) pass through
-        unchanged — pandas groupby handles NaN with ``dropna=False``.
+        unchanged -- pandas groupby handles NaN with ``dropna=False``.
         astype(str) is reserved for object / categorical / datetime dtypes
         where the original key is not directly hashable / comparable
         across pl/pd boundary. ~50% wall-time reduction on numeric cat
-        cols at n_train ≥ 1M (measured: 240ms → 120ms on n=1M, int32).
+        cols at n_train >= 1M (measured: 240ms -> 120ms on n=1M, int32).
         """
         if hasattr(X, "to_pandas"):
             X = X.to_pandas()
@@ -102,7 +102,7 @@ def _per_group_predict(
         if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
             return s
         if pd.api.types.is_bool_dtype(s):
-            return s.astype("int8")  # bool → int for clean groupby
+            return s.astype("int8")  # bool -> int for clean groupby
         # Object / categorical / datetime: stringify with NULL sentinel
         return s.astype(str).fillna("__NULL__")
 
@@ -150,9 +150,9 @@ def _per_group_predict(
 def _safe_metric(
     metric_fn: callable, y_true: np.ndarray, y_pred: np.ndarray, **kwargs: Any
 ) -> float:
-    """Compute metric in isolated try/except → NaN on failure (D1).
+    """Compute metric in isolated try/except -> NaN on failure (D1).
 
-    Failure logged ONCE per (metric_fn.__name__, error type) — not
+    Failure logged ONCE per (metric_fn.__name__, error type) -- not
     silently swallowed.
     """
     try:
@@ -161,7 +161,7 @@ def _safe_metric(
         # Demote to debug to avoid log noise per cell; the WARN happens
         # at strongest-pick / partial-failure level.
         logger.debug(
-            "[dummy-baselines] %s failed (%s: %s) — recording NaN",
+            "[dummy-baselines] %s failed (%s: %s) -- recording NaN",
             getattr(metric_fn, "__name__", "metric"), type(e).__name__, e,
         )
         return float("nan")
@@ -246,7 +246,7 @@ def _compute_regression_baselines(
                 extras.setdefault("strongest_pick_excluded", []).append(label)
                 logger.info(
                     "[dummy-baselines] target='%s' per_group_mean coverage low "
-                    "(val=%.1f%%, test=%.1f%%) — excluded from strongest-pick",
+                    "(val=%.1f%%, test=%.1f%%) -- excluded from strongest-pick",
                     target_name, pg_diag["val_coverage_pct"], pg_diag["test_coverage_pct"],
                 )
         except Exception as e:
@@ -299,7 +299,7 @@ def _compute_regression_baselines(
             else:
                 logger.debug(
                     "[dummy-baselines] target='%s' naive_last: suppressed "
-                    "(n_val=%d > inferred_period=%d; would degenerate to constant — "
+                    "(n_val=%d > inferred_period=%d; would degenerate to constant -- "
                     "use seasonal_naive_pP instead)",
                     target_name, n_val, min_period,
                 )
@@ -345,11 +345,11 @@ def _compute_regression_baselines(
                 )
         else:
             extras["ts_skip_reason"] = (
-                "interleaved split — TS baselines skipped; for TS-naive use val_placement='forward'"
+                "interleaved split -- TS baselines skipped; for TS-naive use val_placement='forward'"
             )
             logger.info(
                 "[dummy-baselines] target='%s' timestamps present but split is interleaved "
-                "(monotonic check failed) — TS baselines skipped",
+                "(monotonic check failed) -- TS baselines skipped",
                 target_name,
             )
 
@@ -435,7 +435,7 @@ def _compute_classification_baselines(
             test_strat = np.zeros((n_test, n_classes))
             test_strat[np.arange(n_test), test_classes] = 1.0
             test_strat_runs.append(test_strat)
-    # Mean over repeats — gives smoothed probs ≈ train_prior on average,
+    # Mean over repeats -- gives smoothed probs ~ train_prior on average,
     # but with the realized variance preserved for log_loss / AUC scoring.
     if val_strat_runs:
         val_probs["stratified"] = np.mean(val_strat_runs, axis=0)
@@ -658,10 +658,10 @@ def compute_dummy_baselines(
         target_type, table, val_y_arr, test_y_arr, primary_metric, extras, config,
     )
 
-    # D2 (paired-bootstrap robustness): compute Δ vs runner-up + 95% CI +
+    # D2 (paired-bootstrap robustness): compute delta vs runner-up + 95% CI +
     # P(strongest beats runner-up). Below `strongest_min_beat_runner_up_prob`
     # the strongest is annotated as TIE and the overlay plot is skipped.
-    # Gated on the same n-threshold as bootstrap CI (D16) — at large n the
+    # Gated on the same n-threshold as bootstrap CI (D16) -- at large n the
     # point-estimate signal-to-noise is high enough that paired bootstrap
     # is just expensive ceremony (~3-4s on n=10^5).
     n_ref_for_paired = min(
@@ -778,18 +778,18 @@ def _compute_quantile_baselines(
     alphas: Sequence[float],
     config: Any,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
-    """Per-α empirical-quantile baselines for QUANTILE_REGRESSION.
+    """Per-alpha empirical-quantile baselines for QUANTILE_REGRESSION.
 
-    Emits, per requested α:
-      - ``quantile_alpha_{a:.3f}``: constant prediction = empirical α-th
-        percentile of train_y (clamped to [1e-3, 1-1e-3] for boundary α
+    Emits, per requested alpha:
+      - ``quantile_alpha_{a:.3f}``: constant prediction = empirical alpha-th
+        percentile of train_y (clamped to [1e-3, 1-1e-3] for boundary alpha
         per round-3 A#9); shape ``(N, K)`` where K=len(alphas).
       - ``median_for_all``: single ``np.median(train_y)`` constant
-        broadcast across all α (D19: identical to α=0.5 row by
+        broadcast across all alpha (D19: identical to alpha=0.5 row by
         construction; documented in row label).
 
-    Predictions are 2D ``(N, K)``. Pinball loss is computed per α
-    plus a ``mean_pinball`` aggregate over non-boundary α (α in
+    Predictions are 2D ``(N, K)``. Pinball loss is computed per alpha
+    plus a ``mean_pinball`` aggregate over non-boundary alpha (alpha in
     ``[0.05, 0.95]``; round-3 C#7).
     """
     val_preds: dict[str, np.ndarray] = {}
@@ -806,9 +806,9 @@ def _compute_quantile_baselines(
     n_eff_val: dict[float, int] = {}
     n_eff_test: dict[float, int] = {}
 
-    # Per-α: emit one baseline whose prediction is a constant column for
-    # that α only, broadcast across the K-output shape so the metrics
-    # table can compute pinball@α uniformly.
+    # Per-alpha: emit one baseline whose prediction is a constant column for
+    # that alpha only, broadcast across the K-output shape so the metrics
+    # table can compute pinball@alpha uniformly.
     consts_per_alpha: list[float] = []
     for a in alphas:
         clamped_a = float(min(max(a, 1e-3), 1 - 1e-3))
@@ -823,25 +823,25 @@ def _compute_quantile_baselines(
 
     # Build (N, K) predictions per baseline.
     if K > 0:
-        # Per-α empirical-quantile baselines: each one is a (N, K)
-        # constant matrix where every output uses its own α-th percentile.
+        # Per-alpha empirical-quantile baselines: each one is a (N, K)
+        # constant matrix where every output uses its own alpha-th percentile.
         for j, a in enumerate(alphas):
             row_const = consts_per_alpha[j]
             # The j-th baseline emits the j-th constant for ALL alphas
-            # (interpretation: "use this α-th percentile to predict every
-            # quantile" — degenerate but informative as a reference).
+            # (interpretation: "use this alpha-th percentile to predict every
+            # quantile" -- degenerate but informative as a reference).
             label = f"quantile_alpha_{a:.3f}"
             if a == 0.5:
                 label = f"quantile_alpha_{a:.3f} (=median by construction)"
             val_preds[label] = np.full((n_val, K), row_const)
             test_preds[label] = np.full((n_test, K), row_const)
 
-        # median_for_all: single np.median(train_y) across all α.
+        # median_for_all: single np.median(train_y) across all alpha.
         val_preds["median_for_all"] = np.full((n_val, K), train_median)
         test_preds["median_for_all"] = np.full((n_test, K), train_median)
 
-        # multi_quantile_empirical: predicts the j-th α-th percentile in
-        # the j-th column — the "right" multi-quantile constant baseline.
+        # multi_quantile_empirical: predicts the j-th alpha-th percentile in
+        # the j-th column -- the "right" multi-quantile constant baseline.
         # This is actually what most quantile-loss models should beat.
         consts_arr = np.asarray(consts_per_alpha, dtype=np.float64)
         val_preds["multi_quantile_empirical"] = np.broadcast_to(
@@ -855,7 +855,7 @@ def _compute_quantile_baselines(
         extras["quantile_boundary_clamped"] = boundary_log
         for orig, clamped in boundary_log:
             logger.info(
-                "[dummy-baselines] target='%s' α=%g: clamped to %g for empirical "
+                "[dummy-baselines] target='%s' alpha=%g: clamped to %g for empirical "
                 "baseline (degenerate at boundary)",
                 target_name, orig, clamped,
             )

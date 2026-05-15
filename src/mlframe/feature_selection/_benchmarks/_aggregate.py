@@ -115,9 +115,9 @@ def main() -> int:
     has_regression = False
     for name, d in diff.items():
         if "skipped" in d or "missing_in" in d:
-            print(f"| {name} | — | — | — | — | (skipped/missing) |")
+            print(f"| {name} | -- | -- | -- | -- | (skipped/missing) |")
             continue
-        sp_marker = "⚠" if d["wall_speedup"] < args.regression_threshold else " "
+        sp_marker = "[!]" if d["wall_speedup"] < args.regression_threshold else " "
         if d["wall_speedup"] < args.regression_threshold:
             has_regression = True
         sup_marker = "yes" if d["support_changed"] else "no"

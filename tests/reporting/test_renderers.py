@@ -213,7 +213,7 @@ class TestPlotlyRenderer:
         renderer.save(fig, out, "json")
         assert os.path.exists(out)
         # Valid JSON with data + layout.
-        import json
+        import orjson
         with open(out, encoding="utf-8") as f:
             obj = json.load(f)
         assert "data" in obj

@@ -14,7 +14,7 @@ The fixed scenario list below mirrors the bench scenarios but uses smaller n
 from __future__ import annotations
 
 import argparse
-import json
+import orjson
 import logging
 import sys
 from dataclasses import dataclass

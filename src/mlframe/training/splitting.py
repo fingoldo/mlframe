@@ -160,7 +160,7 @@ def make_train_test_split(
     # at function entry. Several downstream branches use ``timestamps.iloc``
     # / ``.dt`` accessors that only work on pandas Series. Callers may
     # pass either a Series (FTE.transform on pandas df) or a numpy
-    # datetime64 ndarray (FTE.transform on polars df → ``.to_numpy()``)
+    # datetime64 ndarray (FTE.transform on polars df -> ``.to_numpy()``)
     # or a plain Python list. Coerce once so the rest of the function
     # has a stable contract.
     if timestamps is not None and not isinstance(timestamps, pd.Series):
@@ -309,7 +309,7 @@ def make_train_test_split(
         # (unlike `.dt.date` which yields a Python-object Series -- much slower for isin).
         # 2026-04-27: ``pd.to_datetime`` on a numpy datetime64 ndarray returns a
         # ``DatetimeIndex`` (no ``.dt`` accessor); on a pandas Series it returns
-        # a Series (has ``.dt``). FTE.transform may pass either shape — wrap
+        # a Series (has ``.dt``). FTE.transform may pass either shape -- wrap
         # in pd.Series first so ``.dt.floor`` works uniformly.
         dates = pd.to_datetime(pd.Series(timestamps)).dt.floor("D")
         unique_dates = dates.unique()
@@ -514,7 +514,7 @@ def make_train_test_split(
     # 2026-05-04: Group-spans-cutoff resolution for time-based splits.
     # When ``groups`` is supplied alongside ``timestamps`` (typical LTR
     # scenario where queries are time-stamped), a query may straddle a
-    # train→val or val→test cutoff. Default behaviour (per user 2026-05-04):
+    # train->val or val->test cutoff. Default behaviour (per user 2026-05-04):
     # assign the WHOLE spanning group to the LATER side -- preserves
     # temporal ordering, so train never sees rows from a query that
     # leaked into val/test. Emit a single INFO summarising how many
@@ -538,7 +538,7 @@ def make_train_test_split(
             # entirely to test (the latest split wins -- matches user
             # preference of "assign to later side"). A group spanning
             # train+val goes to val. A group spanning val+test goes to
-            # test. Combined train+val+test → test.
+            # test. Combined train+val+test -> test.
             promote_to_val = train_val_overlap - train_test_overlap
             promote_to_test = train_test_overlap | val_test_overlap
 
@@ -576,7 +576,7 @@ def make_train_test_split(
                 logger.warning(
                     "Group-spanning cutoff resolution: %d row(s) from %d "
                     "spanning group(s) reassigned to the later split "
-                    "(train→val: %d groups, train+val→test: %d groups). "
+                    "(train->val: %d groups, train+val->test: %d groups). "
                     "This preserves group integrity for LTR / per-group "
                     "metrics. To eliminate spanning, widen aging_limit so "
                     "the cutoff falls outside any group's timespan, or "

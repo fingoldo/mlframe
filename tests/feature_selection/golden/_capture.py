@@ -13,7 +13,7 @@ rtol policy (from third-round numerical audit):
 """
 from __future__ import annotations
 
-import json
+import orjson
 from pathlib import Path
 from typing import Any
 
@@ -76,13 +76,13 @@ def capture_intermediate(mrmr, scenario_name: str, seed: int) -> dict[str, Any]:
 def save_snapshot(snap: dict[str, Any], target_dir: Path) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"{snap['scenario']}.json"
-    path.write_text(json.dumps(snap, indent=2, sort_keys=True), encoding="utf-8")
+    path.write_text(ororjson.dumps(snap, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS).decode().decode(), encoding="utf-8")
     return path
 
 
 def load_snapshot(scenario_name: str, target_dir: Path) -> dict[str, Any]:
     path = target_dir / f"{scenario_name}.json"
-    return json.loads(path.read_text(encoding="utf-8"))
+    return orjson.loads(path.read_text(encoding="utf-8"))
 
 
 def assert_support_equivalent(

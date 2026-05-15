@@ -38,8 +38,8 @@ def main():
     n_groups = 600
     group_id = rng.integers(0, n_groups, size=n)
     group_offsets = rng.normal(0, 5, size=n_groups)
-    # Polars input keeps group_id_str as pl.String → it survives to the
-    # high-card auto-drop step (n_unique=600 > threshold=300 → drop).
+    # Polars input keeps group_id_str as pl.String -> it survives to the
+    # high-card auto-drop step (n_unique=600 > threshold=300 -> drop).
     # On pandas input the pipeline ordinal-encodes strings to int64 first.
     import polars as pl
     df = pl.DataFrame({
@@ -72,7 +72,7 @@ def main():
         )
     except Exception as e:
         print(f"\n!! suite raised after dummy_baselines fired: {type(e).__name__}: {e}\n")
-        print("(this is OK if dummy_baselines verdict line emitted above — the bug is downstream)")
+        print("(this is OK if dummy_baselines verdict line emitted above -- the bug is downstream)")
         return 0
     print()
     print("=== metadata.dummy_baselines keys ===")

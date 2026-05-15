@@ -12,7 +12,7 @@ contract verdict-line output.
 
 from __future__ import annotations
 
-import json
+import orjson
 import logging
 
 import numpy as np
@@ -422,8 +422,8 @@ class TestSerialization:
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         d = rep.to_dict()
         # D15: must be JSON-serializable (NaN replaced with None)
-        s = json.dumps(d)
-        parsed = json.loads(s)
+        s = orjson.dumps(d).decode()
+        parsed = orjson.loads(s)
         assert parsed["schema_version"] == SCHEMA_VERSION
         assert parsed["target_type"] == "regression"
 
@@ -441,7 +441,7 @@ class TestSerialization:
         d = rep.to_dict()
         assert d["data"]["b"]["val_RMSE"] is None
         # And json.dumps succeeds.
-        json.dumps(d)
+        orjson.dumps(d).decode()
 
 
 # ---------------------------------------------------------------------

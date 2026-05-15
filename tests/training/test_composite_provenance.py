@@ -15,7 +15,7 @@ Coverage map
 """
 from __future__ import annotations
 
-import json
+import orjson
 from datetime import datetime
 from typing import Dict, Any
 
@@ -117,8 +117,8 @@ class TestSerialisation:
         prov = CompositeProvenance.from_spec(_make_spec(), random_state=42)
         d = prov.to_dict()
         # Round-trip through JSON: catches any non-serialisable value.
-        s = json.dumps(d)
-        d2 = json.loads(s)
+        s = orjson.dumps(d).decode()
+        d2 = orjson.loads(s)
         assert d2["composite_id"] == prov.composite_id
         assert d2["mi_gain"] == pytest.approx(prov.mi_gain)
         assert d2["fitted_params"]["alpha"] == pytest.approx(0.95)

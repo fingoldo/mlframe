@@ -76,14 +76,14 @@ def run_temporal_audit_batch(
             _audit_src_kind = "fte_timestamps"
             logger.info(
                 "target_temporal_audit: column '%s' was dropped from df "
-                "(likely via columns_to_drop) — using FTE-returned "
+                "(likely via columns_to_drop) -- using FTE-returned "
                 "timestamps ndarray as fallback.",
                 _audit_ts_col,
             )
         if _audit_ts_values is None:
             logger.warning(
                 "target_temporal_audit: column '%s' not found in df and "
-                "FTE returned no timestamps — audit skipped. Either "
+                "FTE returned no timestamps -- audit skipped. Either "
                 "set behavior_config.target_temporal_audit_column to a "
                 "column present in df, or configure ts_field on your "
                 "FeaturesAndTargetsExtractor.",
