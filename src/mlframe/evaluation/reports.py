@@ -36,7 +36,19 @@ except (ImportError, ModuleNotFoundError):
     from sklearn.pipeline import Pipeline
 
 from IPython.display import display, Markdown, Latex
-from finance.backtesting import show_classifier_calibration
+
+# `finance` is a sibling private library (not on PyPI). The
+# show_classifier_calibration helper is only used by a single optional
+# reporting path; guard the import so consumers without finance installed
+# can still load mlframe.evaluation.reports for the rest of its surface.
+try:
+    from finance.backtesting import show_classifier_calibration  # type: ignore
+except ImportError:  # pragma: no cover - depends on private sibling pkg
+    def show_classifier_calibration(*args, **kwargs):  # type: ignore[no-redef]
+        raise ImportError(
+            "show_classifier_calibration() requires the private `finance` package "
+            "(github.com/fingoldo/finance); install it from source before calling."
+        )
 
 from pyutilz.system import tqdmu
 from pyutilz.pythonlib import get_human_readable_set_size

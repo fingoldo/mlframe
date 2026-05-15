@@ -6,7 +6,19 @@ All config classes support lenient validation - inputs are normalized to canonic
 """
 
 from typing import Optional, Dict, Any, List, Callable, Tuple, Literal, Union, ClassVar, FrozenSet
-from enum import StrEnum
+
+import sys
+if sys.version_info >= (3, 11):
+    from enum import StrEnum
+else:
+    # Polyfill for Python 3.9 / 3.10 (StrEnum landed in 3.11). The (str, Enum)
+    # MRO gives the same equality + hashability + string-coercion behaviour
+    # downstream code relies on (e.g. models.get(str_key) hash-matches
+    # models.get(enum_key)).
+    from enum import Enum
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        def __str__(self) -> str:
+            return str(self.value)
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator
 
