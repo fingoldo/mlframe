@@ -79,12 +79,12 @@ jobs:
           cache: pip
 
       - name: Clone & install pyutilz (sibling dependency)
-        # pyutilz is not yet on PyPI; install from GitHub with the `system`
-        # extras (psutil/pympler/numba/...) since mlframe imports them
-        # transitively from pyutilz.system at module-load time.
+        # pyutilz is not on PyPI; install from GitHub with the `all` extras
+        # so every transitive dep pyutilz touches via unguarded top-level
+        # imports (psutil/pympler/psycopg2/numba/...) is present.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          pip install "./pyutilz[system]"
+          pip install "./pyutilz[all]"
 
       - name: Install mlframe with boosting extras
         # All transitive deps (matplotlib, pympler, expiringdict, astropy,

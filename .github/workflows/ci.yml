@@ -39,13 +39,14 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Clone & install pyutilz (sibling dependency)
-        # Install pyutilz with its `system` extras so transitive deps
-        # (psutil, pympler, numba, py-cpuinfo, etc.) that pyutilz.system
-        # imports unconditionally are available — otherwise mlframe test
-        # collection blows up on `from pyutilz.system import ...`.
+        # pyutilz has unconditional top-level imports of optional libraries
+        # in several submodules (e.g. `pyutilz/text/strings.py` does
+        # `import psycopg2`). Installing the `all` extras pulls every
+        # transitive dep pyutilz might touch and keeps the CI matrix
+        # decoupled from pyutilz's internal import-hygiene state.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          pip install "./pyutilz[system]"
+          pip install "./pyutilz[all]"
 
       - name: Install mlframe with boosting + dev extras
         run: |
