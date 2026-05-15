@@ -1,5 +1,8 @@
 """Feature selection within ML pipelines. Wrappers methods. Currently includes recursive feature elimination."""
 
+from __future__ import annotations
+
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------

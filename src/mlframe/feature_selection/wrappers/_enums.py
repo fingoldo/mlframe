@@ -1,4 +1,7 @@
 """Public enums for the RFECV wrapper module."""
+
+from __future__ import annotations
+
 from enum import Enum
 
 

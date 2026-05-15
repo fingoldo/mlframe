@@ -1,5 +1,8 @@
 """FE using bruteforce symbolic-regression search via PySR."""
 
+from __future__ import annotations
+
+
 __all__ = [
     "DEFAULT_BINARY_OPERATORS",
     "DEFAULT_UNARY_OPERATORS",

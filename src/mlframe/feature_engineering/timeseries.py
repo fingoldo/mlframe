@@ -1,5 +1,8 @@
 """Time-series feature engineering for ML."""
 
+from __future__ import annotations
+
+
 __all__ = [
     "get_numaggs_metadata",
     "find_next_cumsum_left_index",

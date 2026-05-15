@@ -11,5 +11,8 @@ Submodules:
     probabilities  - probability transformations and diagnostics.
 """
 
+from __future__ import annotations
+
+
 from mlframe.calibration.quality import *  # noqa: F401,F403
 from mlframe.calibration.probabilities import *  # noqa: F401,F403

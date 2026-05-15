@@ -1,4 +1,7 @@
 """Legacy BC shim. Re-exports every public name from the (now-decomposed) monolith so ``from mlframe.feature_selection.filters._legacy import X`` keeps working."""
+
+from __future__ import annotations
+
 import logging
 import warnings
 

@@ -1,5 +1,8 @@
 """Features for financial modelling."""
 
+from __future__ import annotations
+
+
 __all__ = [
     "add_ohlcv_ratios_rlags",
     "add_fast_rolling_stats",

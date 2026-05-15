@@ -3,6 +3,9 @@
 https://en.wikipedia.org/wiki/Hurst_exponent
 """
 
+from __future__ import annotations
+
+
 __all__ = [
     "compute_hurst_rs",
     "precompute_hurst_exponent",

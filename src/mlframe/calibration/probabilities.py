@@ -1,3 +1,6 @@
+
+from __future__ import annotations
+
 import numpy as np
 from numba import njit
 from scipy.stats import rankdata

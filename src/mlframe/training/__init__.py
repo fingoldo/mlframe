@@ -61,6 +61,9 @@ automl_models = train_automl_models_suite(
 ```
 """
 
+from __future__ import annotations
+
+
 # Lazy imports via __getattr__ — deferred until actually accessed (kept for
 # fast-import / optional-dep isolation; no longer guarding a training_old cycle).
 

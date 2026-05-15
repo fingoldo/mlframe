@@ -4,6 +4,9 @@ Works with pandas dataframe as input.
 Also works with ndarrays.
 """
 
+from __future__ import annotations
+
+
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 
 # *****************************************************************************************************************************************************

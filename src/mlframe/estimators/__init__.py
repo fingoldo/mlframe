@@ -8,6 +8,9 @@ Submodules:
     pipelines       - sklearn Pipeline subclass with mlframe extensions.
 """
 
+from __future__ import annotations
+
+
 from mlframe.estimators.base import *  # noqa: F401,F403
 from mlframe.estimators.custom import *  # noqa: F401,F403
 from mlframe.estimators.baselines import *  # noqa: F401,F403

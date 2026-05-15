@@ -1,4 +1,7 @@
 """mlframe.feature_selection.wrappers - RFECV and supporting helpers."""
+
+from __future__ import annotations
+
 from ._enums import OptimumSearch, VotesAggregation
 from ._helpers import (
     _detect_multithreaded,

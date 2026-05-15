@@ -1,5 +1,8 @@
 """Numerical feature engineering for ML. Optimized & rich set of aggregates for 1d vectors."""
 
+from __future__ import annotations
+
+
 __all__ = [
     "compute_simple_stats_numba",
     "compute_simple_stats_numba_arr",

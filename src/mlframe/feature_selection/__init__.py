@@ -5,6 +5,9 @@ downstream code should depend on so internal refactors (e.g. splitting
 ``filters.py``) don't break imports silently.
 """
 
+from __future__ import annotations
+
+
 from mlframe.feature_selection.general import (
     estimate_features_relevancy,
     run_efs,

@@ -1,5 +1,8 @@
 """Core training functions for mlframe."""
 
+from __future__ import annotations
+
+
 import logging
 import sys
 from timeit import default_timer as timer

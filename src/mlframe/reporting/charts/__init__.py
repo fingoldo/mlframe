@@ -11,6 +11,9 @@ wrappers that internally delegate to these builders + render via the
 ``ReportingConfig.plot_outputs`` DSL.
 """
 
+from __future__ import annotations
+
+
 from mlframe.reporting.charts.calibration import build_calibration_spec
 from mlframe.reporting.charts.ltr import (
     ALLOWED_LTR_PANEL_TOKENS, compose_ltr_figure,

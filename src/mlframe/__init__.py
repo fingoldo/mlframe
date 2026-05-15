@@ -5,6 +5,9 @@ subpackage directly (``from mlframe.metrics import ECE``) rather than reaching
 into private submodules.
 """
 
+from __future__ import annotations
+
+
 from mlframe.version import __version__
 
 from mlframe.config import (

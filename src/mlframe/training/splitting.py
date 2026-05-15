@@ -7,6 +7,9 @@ Provides flexible data splitting with support for:
 - Training set aging limits
 """
 
+from __future__ import annotations
+
+
 import logging
 from typing import Literal, Optional, Tuple
 

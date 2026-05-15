@@ -7,6 +7,9 @@ Submodules:
     scoring   - sklearn-compatible scoring wrappers.
 """
 
+from __future__ import annotations
+
+
 from mlframe.metrics.core import *  # noqa: F401,F403
 from mlframe.metrics.quantile import *  # noqa: F401,F403
 from mlframe.metrics.ranking import *  # noqa: F401,F403

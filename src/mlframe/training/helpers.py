@@ -10,6 +10,9 @@ This module contains helper utilities:
 - LightGBMCallback, XGBoostCallback, CatBoostCallback: Model-specific callbacks
 """
 
+from __future__ import annotations
+
+
 import logging
 import psutil
 from timeit import default_timer as timer

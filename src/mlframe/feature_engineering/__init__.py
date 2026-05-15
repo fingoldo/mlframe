@@ -11,6 +11,9 @@ Submodules:
     timeseries     - windowed feature aggregation and ACF helpers.
 """
 
+from __future__ import annotations
+
+
 from .basic import create_date_features, run_pysr_fe
 from .bruteforce import run_pysr_feature_engineering
 from .categorical import compute_countaggs, get_countaggs_names

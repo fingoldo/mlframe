@@ -7,6 +7,9 @@ This module provides:
 - MLPNeuronsByLayerArchitecture: Enum for architecture patterns
 """
 
+from __future__ import annotations
+
+
 import logging
 import os
 from enum import Enum, auto

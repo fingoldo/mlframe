@@ -1,5 +1,8 @@
 """Basic feature engineering for ML."""
 
+from __future__ import annotations
+
+
 __all__ = [
     "create_date_features",
     "run_pysr_fe",

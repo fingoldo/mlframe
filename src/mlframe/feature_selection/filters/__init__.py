@@ -30,6 +30,9 @@ Module dependency graph (acyclic)::
     discretization                                    mrmr ---> feature_engineering
 """
 
+from __future__ import annotations
+
+
 # Legacy monolith star-import keeps every existing importer working transparently.
 from ._legacy import *  # noqa: F401,F403
 from ._legacy import (  # explicit re-exports, kept stable

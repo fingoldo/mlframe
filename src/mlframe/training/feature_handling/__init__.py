@@ -27,6 +27,9 @@ logic) land in subsequent phases per the plan in
 ``docs/feature_handling_architecture.md`` (forthcoming).
 """
 
+from __future__ import annotations
+
+
 from mlframe.training.feature_handling.axis import (
     Axis,
     HandlerSpec,

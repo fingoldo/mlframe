@@ -9,6 +9,9 @@ This module provides PyTorch Lightning-based neural network models:
 All classes maintain sklearn-compatible API through wrappers.
 """
 
+from __future__ import annotations
+
+
 # Base infrastructure
 from .base import (
     # Estimators

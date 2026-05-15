@@ -5,6 +5,9 @@ Implements the Strategy pattern to handle model-specific preprocessing pipelines
 Each model type may require different preprocessing (scaling, encoding, imputation).
 """
 
+from __future__ import annotations
+
+
 import importlib.util
 import logging
 import re

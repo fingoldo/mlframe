@@ -4,6 +4,9 @@ Contains loss functions, scorers, a log-uniform distribution helper for
 RandomizedSearchCV, and a proxy for scoring probabilistic classifier outputs.
 """
 
+from __future__ import annotations
+
+
 import numpy as np
 from scipy.stats import uniform
 from sklearn.metrics import make_scorer

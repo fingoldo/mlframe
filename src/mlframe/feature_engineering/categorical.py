@@ -1,5 +1,8 @@
 """Categorical feature engineering for ML. Optimised & rich set of aggregates for 1d vectors."""
 
+from __future__ import annotations
+
+
 __all__ = [
     "compute_countaggs",
     "get_countaggs_names",

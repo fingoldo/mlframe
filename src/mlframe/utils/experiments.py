@@ -1,4 +1,7 @@
 
+from __future__ import annotations
+
+
 from typing import Sequence, Union
 import numpy as np
 from pyutilz.db  import connect_to_db,select,showcase_table,explain_table,safe_execute,safe_execute_values

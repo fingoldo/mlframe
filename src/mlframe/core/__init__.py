@@ -7,6 +7,9 @@ Submodules:
     helpers  - general-purpose helper utilities used across the package.
 """
 
+from __future__ import annotations
+
+
 from mlframe.core.arrays import *  # noqa: F401,F403
 from mlframe.core.stats import *  # noqa: F401,F403
 from mlframe.core.ewma import *  # noqa: F401,F403

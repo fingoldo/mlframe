@@ -1,5 +1,8 @@
 """Statistics used in ML."""
 
+from __future__ import annotations
+
+
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 
 # ----------------------------------------------------------------------------------------------------------------------------

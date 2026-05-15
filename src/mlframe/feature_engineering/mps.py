@@ -1,3 +1,6 @@
+
+from __future__ import annotations
+
 __all__ = [
     "compute_area_profits",
     "find_best_mps_sequence",

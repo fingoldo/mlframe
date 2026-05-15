@@ -7,6 +7,9 @@ This module contains:
 - Model type detection utilities
 """
 
+from __future__ import annotations
+
+
 import logging
 from typing import Callable, Dict
 

@@ -12,6 +12,9 @@ process_model
     Process a single model: load from cache or train from scratch.
 """
 
+from __future__ import annotations
+
+
 import logging
 from timeit import default_timer as timer
 from os.path import join, exists

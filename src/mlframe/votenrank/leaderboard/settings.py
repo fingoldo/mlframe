@@ -1,3 +1,6 @@
+
+from __future__ import annotations
+
 RANKING_METHODS = ["mean", "plurality", "borda", "dowdall", "copeland", "minimax", "optimality_gap"]
 
 ELECTION_METHODS = [

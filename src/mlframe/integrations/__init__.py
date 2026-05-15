@@ -6,3 +6,6 @@ here. Import explicitly: ``from mlframe.integrations.mlflow import ...``.
 Submodules:
     mlflow - MLflow experiment tracking wrappers (was mlflowlib.py).
 """
+
+from __future__ import annotations
+

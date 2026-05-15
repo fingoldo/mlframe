@@ -5,5 +5,8 @@ Submodules:
     synthetic   - synthetic data generators for tabular ML scenarios.
 """
 
+from __future__ import annotations
+
+
 from mlframe.data.datasets import *  # noqa: F401,F403
 from mlframe.data.synthetic import *  # noqa: F401,F403

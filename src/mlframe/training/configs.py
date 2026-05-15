@@ -5,6 +5,9 @@ Uses Pydantic for validation while supporting dict-like instantiation for backwa
 All config classes support lenient validation - inputs are normalized to canonical forms.
 """
 
+from __future__ import annotations
+
+
 from typing import Optional, Dict, Any, List, Callable, Tuple, Literal, Union, ClassVar, FrozenSet
 
 import sys

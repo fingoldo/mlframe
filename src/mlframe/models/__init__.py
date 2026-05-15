@@ -7,6 +7,9 @@ Submodules:
     selection     - train / test / cv-fold splitting (was model_selection.py).
 """
 
+from __future__ import annotations
+
+
 from mlframe.models.ensembling import *  # noqa: F401,F403
 from mlframe.models.optimization import *  # noqa: F401,F403
 from mlframe.models.tuning import *  # noqa: F401,F403

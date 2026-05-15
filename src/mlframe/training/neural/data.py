@@ -6,6 +6,9 @@ This module provides:
 - TorchDataModule: Lightning DataModule with train/val/test/predict stages
 """
 
+from __future__ import annotations
+
+
 import logging
 from typing import Callable, Optional, Union
 

@@ -7,6 +7,9 @@ Provides classes for preparing DataFrames before ML training, including:
 - Feature engineering hooks
 """
 
+from __future__ import annotations
+
+
 import io
 import logging
 from typing import Union, Iterable, Optional, Dict, Any, Tuple, List

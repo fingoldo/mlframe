@@ -1,3 +1,6 @@
+
+from __future__ import annotations
+
 from sklearn.utils import check_random_state, check_X_y
 from sklearn.base import TransformerMixin, BaseEstimator
 from mlframe.utils.misc import get_pipeline_last_element

@@ -8,6 +8,9 @@ Public surface:
   renderer + saves to all requested formats.
 """
 
+from __future__ import annotations
+
+
 from mlframe.reporting.renderers.base import Renderer, get_renderer
 from mlframe.reporting.renderers.save import render_and_save
 

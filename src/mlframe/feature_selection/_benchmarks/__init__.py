@@ -7,3 +7,6 @@ Aggregate before/after:
     python -m mlframe.feature_selection._benchmarks._aggregate \\
         --before _results/pre-refactor_<sha>.json --after _results/final_<sha>.json
 """
+
+from __future__ import annotations
+

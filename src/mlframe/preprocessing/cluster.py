@@ -1,3 +1,6 @@
+
+from __future__ import annotations
+
 from typing import Any,Sequence,List,Optional,Callable
 import numpy as np
 from sklearn.cluster import DBSCAN

@@ -12,6 +12,9 @@ on either backend.
 See ``docs/REPORTING.md`` for the design and per-target_type viz catalogue.
 """
 
+from __future__ import annotations
+
+
 from mlframe.reporting.output import (
     PlotOutputSpec,
     parse_plot_output_dsl,

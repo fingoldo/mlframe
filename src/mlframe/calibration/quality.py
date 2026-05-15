@@ -1,6 +1,9 @@
 """Assesing quality of a classifier in terms of how often probabilities predicted by it convert into real occurences.
 """
 
+from __future__ import annotations
+
+
 # ****************************************************************************************************************************
 # Imports
 # ****************************************************************************************************************************

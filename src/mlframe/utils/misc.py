@@ -1,5 +1,8 @@
 """Auxiliary helpers not worth their own modules."""
 
+from __future__ import annotations
+
+
 import os
 import random
 import numpy as np

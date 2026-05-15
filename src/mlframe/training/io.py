@@ -5,6 +5,9 @@ Provides functions for saving, loading, and cleaning mlframe models using
 zstandard compression and dill serialization.
 """
 
+from __future__ import annotations
+
+
 import logging
 import os
 import tempfile
