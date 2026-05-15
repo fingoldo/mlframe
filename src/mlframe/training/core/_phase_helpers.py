@@ -34,7 +34,7 @@ from ..utils import (
 )
 from ..strategies import get_strategy, get_polars_cat_columns
 from ..splitting import make_train_test_split
-from ..pipeline import apply_preprocessing_extensions, fit_and_transform_pipeline, prepare_df_for_catboost
+from ..pipeline import apply_preprocessing_extensions, fit_and_transform_pipeline, prepare_df_for_catboost, prepare_dfs_for_catboost_joint
 from ._setup_helpers import _apply_outlier_detection_global, _compute_fairness_subgroups, _convert_dfs_to_pandas
 
 logger = logging.getLogger(__name__)
@@ -322,14 +322,17 @@ def _phase_pandas_conversion_and_cat_prep(
     val_df_polars = val_df_polars_pre
     test_df_polars = test_df_polars_pre
 
-    strategies_for_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
-
+    # TODO: surface the per-model strategy list to feed Agent F's ``defer_pandas_conv``
+    # heuristic when it lands. Until then the list is built on-demand inside the verbose-only
+    # log branches below (its only consumer), avoiding a get_strategy() pass on every call.
     _has_rfecv = bool(rfecv_models)
-    _has_non_native_mlframe_strategy = was_polars_input and not all_models_polars_native
-    can_skip_pandas_conv = (
+    # The earlier disjunction ``all_models_polars_native OR _has_non_native_mlframe_strategy`` was always True
+    # given ``was_polars_input`` (the second disjunct collapses to ``was_polars_input AND NOT first``), so
+    # the whole conjunction reduces to the three real gates: had a polars input, no recurrent model, no RFECV.
+    defer_pandas_conv = (
         was_polars_input
-        and not recurrent_models and not _has_rfecv
-        and (all_models_polars_native or _has_non_native_mlframe_strategy)
+        and not recurrent_models
+        and not _has_rfecv
     )
 
     train_df_size_bytes_cached: float | None = None
@@ -344,14 +347,15 @@ def _phase_pandas_conversion_and_cat_prep(
             train_df_size_bytes_cached = None
             val_df_size_bytes_cached = None
 
-    if can_skip_pandas_conv:
+    if defer_pandas_conv:
         train_df_pd, val_df_pd, test_df_pd = train_df, val_df, test_df
         if verbose:
             if all_models_polars_native:
                 logger.info("  Skipped pandas conversion -- all models are Polars-native")
             else:
+                _strats = [get_strategy(m) for m in (mlframe_models or [])]
                 non_native = [
-                    m for m, s in zip(mlframe_models or [], strategies_for_check)
+                    m for m, s in zip(mlframe_models or [], _strats)
                     if not s.supports_polars
                 ]
                 logger.info(
@@ -365,8 +369,9 @@ def _phase_pandas_conversion_and_cat_prep(
             if not was_polars_input:
                 reasons.append("input is not a Polars DataFrame")
             if not all_models_polars_native:
+                _strats = [get_strategy(m) for m in (mlframe_models or [])]
                 non_native = [
-                    m for m, s in zip(mlframe_models or [], strategies_for_check)
+                    m for m, s in zip(mlframe_models or [], _strats)
                     if not s.supports_polars
                 ]
                 reasons.append(
@@ -384,13 +389,17 @@ def _phase_pandas_conversion_and_cat_prep(
             )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
 
-    if cat_features and not can_skip_pandas_conv:
+    if cat_features and not defer_pandas_conv:
         if verbose:
             logger.info("Preparing %d categorical features for CatBoost: %s", len(cat_features), cat_features)
-        for df_pd in [train_df_pd, val_df_pd, test_df_pd]:
-            if df_pd is not None:
-                prepare_df_for_catboost(df_pd, cat_features)
-    elif cat_features and can_skip_pandas_conv and verbose:
+        # Joint train+val union for stable codes across splits. Test never
+        # contributes to the union (held-out must look unseen); OOV values
+        # land as null codes.
+        prepare_dfs_for_catboost_joint(
+            train_df=train_df_pd, val_df=val_df_pd, test_df=test_df_pd,
+            cat_features=cat_features,
+        )
+    elif cat_features and defer_pandas_conv and verbose:
         logger.info(
             "Skipping pandas-side CatBoost prep for %d categorical "
             "features -- Polars fastpath receives the DFs natively.",
@@ -412,7 +421,7 @@ def _phase_pandas_conversion_and_cat_prep(
         train_df_polars, val_df_polars, test_df_polars,
         train_df, val_df, test_df,
         train_df_size_bytes_cached, val_df_size_bytes_cached,
-        can_skip_pandas_conv, baseline_rss_mb,
+        defer_pandas_conv, baseline_rss_mb,
     )
 
 
@@ -684,17 +693,28 @@ def _phase_fit_pipeline(
     _dt_cols = _detect_datetime_cols(train_df)
     if _dt_cols:
         from mlframe.feature_engineering.basic import create_date_features
+        # Configurable set of dt accessors (year / ordinal_day / minute / ...).
+        # Backward-compat default {day, weekday, month, hour} kept by
+        # FeatureTypesConfig; callers opt into richer decomposition by passing
+        # datetime_methods in their FeatureTypesConfig.
+        _configured_methods = (
+            set(feature_types_config.datetime_methods)
+            if feature_types_config is not None and getattr(feature_types_config, "datetime_methods", None)
+            else {"day", "weekday", "month", "hour"}
+        )
+        # ``create_date_features`` expects {accessor: np_dtype}. int8 fits most
+        # cyclical fields; year exceeds int8 range so it needs int32. Pick
+        # dtype per-method so the user doesn't have to know polars dtype rules.
+        _wide_int_methods = {"year"}
         _dt_methods = {
-            "day": np.int8,
-            "weekday": np.int8,
-            "month": np.int8,
-            "hour": np.int8,
+            m: (np.int32 if m in _wide_int_methods else np.int8)
+            for m in sorted(_configured_methods)
         }
         if verbose:
             logger.info(
                 "Decomposing %d datetime column(s) into numeric features "
-                "(day/weekday/month/hour) before pre-pipeline clone: %s",
-                len(_dt_cols), _dt_cols,
+                "(%s) before pre-pipeline clone: %s",
+                len(_dt_cols), "/".join(sorted(_dt_methods.keys())), _dt_cols,
             )
         train_df = create_date_features(
             train_df, cols=_dt_cols, delete_original_cols=True,

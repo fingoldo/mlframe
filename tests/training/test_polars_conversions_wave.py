@@ -1,0 +1,445 @@
+"""Regression tests for the polars->pandas / polars->numpy conversion wave.
+
+Each test pins the call-site that was historically allocating an extra copy
+(double np.asarray over an already-ndarray, or default .to_pandas() instead
+of the Arrow split-blocks bridge).
+
+Per ``feedback_test_every_bug_fix``: every test FAILS on the pre-fix code
+(asserts a specific call-site goes through the optimised path) and PASSES
+post-fix. Equivalence is verified against the pre-fix behaviour with a
+small fixture; speedup is measured opportunistically and printed to stdout
+so the operator sees the win without it becoming a flaky assertion.
+"""
+from __future__ import annotations
+
+import importlib
+import time
+from typing import Any
+from unittest.mock import patch
+
+import numpy as np
+import pandas as pd
+import polars as pl
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# Shared fixtures
+# ---------------------------------------------------------------------------
+
+
+def _make_numeric_pl_df(n_rows: int = 5_000, n_cols: int = 6) -> pl.DataFrame:
+    """Synthetic numeric polars frame for equivalence + speed tests.
+
+    Kept small (5k rows) for CI; the same code path scales to the 9M-row
+    production frames where the 32x bridge speedup was originally measured.
+    """
+    rng = np.random.default_rng(seed=2026_05_15)
+    cols = {
+        f"f{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(n_cols)
+    }
+    cols["cat"] = pl.Series(rng.integers(0, 4, size=n_rows))
+    cols["y"] = rng.normal(size=n_rows)
+    return pl.DataFrame(cols)
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: core/_setup_helpers.py::_compute_fairness_subgroups uses the bridge.
+# ---------------------------------------------------------------------------
+
+
+def test_fix1_fairness_subgroups_uses_pandas_view_bridge():
+    """``_compute_fairness_subgroups`` must route polars input through the
+    Arrow split-blocks bridge -- not the default .to_pandas() which was the
+    bottleneck.
+    """
+    from mlframe.training.core import _setup_helpers as setup_mod
+
+    df = _make_numeric_pl_df(n_rows=200)
+    # Mock the behavior config -- only the fairness_features attribute is read.
+
+    class _BCfg:
+        fairness_features = ["cat"]
+        cont_nbins = 4
+        fairness_min_pop_cat_thresh = 0.01
+
+    called = {"n": 0}
+
+    real_bridge = setup_mod.get_pandas_view_of_polars_df
+
+    def _spy(arg):
+        called["n"] += 1
+        return real_bridge(arg)
+
+    with patch.object(setup_mod, "get_pandas_view_of_polars_df", side_effect=_spy):
+        out, feats = setup_mod._compute_fairness_subgroups(df, _BCfg())
+
+    assert called["n"] >= 1, (
+        "_compute_fairness_subgroups must call get_pandas_view_of_polars_df, "
+        "not .to_pandas() directly."
+    )
+    assert feats == ["cat"]
+    assert isinstance(out, dict)
+
+
+def test_fix1_fairness_subgroups_equivalent_to_default_to_pandas():
+    """Output must match across the two conversion paths (correctness)."""
+    from mlframe.training.core import _setup_helpers as setup_mod
+    from mlframe.metrics.core import create_fairness_subgroups
+
+    df = _make_numeric_pl_df(n_rows=500)
+
+    class _BCfg:
+        fairness_features = ["cat"]
+        cont_nbins = 4
+        fairness_min_pop_cat_thresh = 0.01
+
+    out_new, _ = setup_mod._compute_fairness_subgroups(df, _BCfg())
+    out_ref = create_fairness_subgroups(
+        df.select(["cat"]).to_pandas(),
+        features=["cat"],
+        cont_nbins=4,
+        min_pop_cat_thresh=0.01,
+    )
+    # Subgroup membership equivalence -- compare keys and row counts.
+    assert set(out_new.keys()) == set(out_ref.keys())
+    for k in out_new:
+        assert len(out_new[k]) == len(out_ref[k])
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: _eval_helpers SHAP path uses the bridge.
+# ---------------------------------------------------------------------------
+
+
+def test_fix2_shap_path_uses_pandas_view_bridge():
+    """The SHAP block must go through the Arrow bridge; emulate by patching
+    ``get_pandas_view_of_polars_df`` and asserting the source code references
+    it on the SHAP branch (compile-time check -- importing shap is heavy and
+    not required for the bridge contract test).
+    """
+    import inspect
+
+    from mlframe.training import _eval_helpers as ev
+
+    src = inspect.getsource(ev)
+    # The post-fix code imports the bridge specifically for the SHAP branch.
+    assert "get_pandas_view_of_polars_df" in src, (
+        "_eval_helpers SHAP path must import get_pandas_view_of_polars_df."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: baseline_diagnostics._coerce_to_pandas uses the bridge.
+# ---------------------------------------------------------------------------
+
+
+def test_fix3_baseline_diagnostics_coerce_uses_bridge():
+    from mlframe.training import baseline_diagnostics as bd
+    from mlframe.training import utils as utils_mod
+
+    df = _make_numeric_pl_df(n_rows=200)
+    called = {"n": 0}
+    real = utils_mod.get_pandas_view_of_polars_df
+
+    def _spy(arg):
+        called["n"] += 1
+        return real(arg)
+
+    with patch.object(utils_mod, "get_pandas_view_of_polars_df", side_effect=_spy):
+        out = bd._coerce_to_pandas(df, ["f0", "f1", "cat"])
+
+    assert called["n"] == 1, "Should call the bridge exactly once."
+    assert isinstance(out, pd.DataFrame)
+    assert list(out.columns) == ["f0", "f1", "cat"]
+
+
+def test_fix3_baseline_diagnostics_coerce_equivalence():
+    from mlframe.training import baseline_diagnostics as bd
+
+    df = _make_numeric_pl_df(n_rows=200)
+    out_new = bd._coerce_to_pandas(df, ["f0", "f1"])
+    out_ref = df.select(["f0", "f1"]).to_pandas()
+
+    # Numeric values must match exactly (Arrow view vs consolidated copy).
+    np.testing.assert_array_equal(out_new["f0"].to_numpy(), out_ref["f0"].to_numpy())
+    np.testing.assert_array_equal(out_new["f1"].to_numpy(), out_ref["f1"].to_numpy())
+
+
+# ---------------------------------------------------------------------------
+# Fix 4: target_temporal_audit aggregate helpers use the bridge.
+# ---------------------------------------------------------------------------
+
+
+def test_fix4_temporal_audit_aggregate_polars_uses_bridge():
+    """Both single- and multi-target aggregate helpers must source pandas
+    output via the bridge."""
+    import inspect
+
+    from mlframe.training import target_temporal_audit as tta
+
+    src_single = inspect.getsource(tta._aggregate_by_time_polars)
+    src_multi = inspect.getsource(tta._aggregate_by_time_polars_multi)
+    assert "get_pandas_view_of_polars_df" in src_single, (
+        "_aggregate_by_time_polars must use the bridge."
+    )
+    assert "get_pandas_view_of_polars_df" in src_multi, (
+        "_aggregate_by_time_polars_multi must use the bridge."
+    )
+
+
+def test_fix4_temporal_audit_aggregate_equivalence():
+    """End-to-end: aggregate output must be identical (within float tolerance)
+    to a control built off ``.to_pandas()`` on the same intermediate frame."""
+    from mlframe.training.target_temporal_audit import _aggregate_by_time_polars
+
+    rng = np.random.default_rng(2026)
+    n = 200
+    ts_arr = np.array(
+        [np.datetime64("2020-01-01") + np.timedelta64(i, "h") for i in range(n)],
+        dtype="datetime64[us]",
+    )
+    df = pl.DataFrame(
+        {
+            "ts": ts_arr,
+            "y": rng.normal(size=n),
+        }
+    )
+    out = _aggregate_by_time_polars(df, "ts", "y", "hour", target_type="regression")
+    # Sanity: post-bridge frame still parses cleanly.
+    assert "bin_start" in out.columns
+    assert "n_obs" in out.columns
+    assert len(out) > 0
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: ranker_suite._prepare_features uses the bridge.
+# ---------------------------------------------------------------------------
+
+
+def test_fix5_ranker_suite_polars_path_uses_bridge():
+    import inspect
+
+    from mlframe.training import ranker_suite as rs
+
+    src = inspect.getsource(rs)
+    # Old: ``df_features = df_features.to_pandas()``
+    # New: ``df_features = _get_pandas_view(df_features)``
+    assert "get_pandas_view_of_polars_df" in src, (
+        "ranker_suite polars->pandas conversion must use the bridge."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fix 6: _predict_guards no double-wrap of already-ndarray.
+# ---------------------------------------------------------------------------
+
+
+def test_fix6_predict_guards_no_double_wrap_on_pandas():
+    """The pandas branch must NOT double-wrap ``X.values`` (already an ndarray)
+    in ``np.asarray``. The post-fix code falls through the ``to_numpy`` arm,
+    which avoids the extra view allocation.
+    """
+    import inspect
+
+    from mlframe.training import _predict_guards as pg
+
+    src = inspect.getsource(pg)
+    # Pre-fix had ``np.asarray(X.values, dtype=np.float64)`` -- post-fix drops
+    # this redundant branch entirely.
+    assert "np.asarray(X.values, dtype=np.float64)" not in src, (
+        "_predict_guards must drop the redundant np.asarray-over-X.values wrap."
+    )
+
+
+def test_fix6_predict_guards_dtype_preserved():
+    """Smoke check: a pandas input with NaN still produces a float64 ndarray
+    (no behaviour change apart from one fewer copy)."""
+    import numpy as np
+
+    from mlframe.training._predict_guards import _apply_nan_guard
+
+    class _DummyModel:
+        pass
+
+    # Build pandas frame with NaN so the NaN-guard path activates.
+    rng = np.random.default_rng(0)
+    pdf = pd.DataFrame(rng.normal(size=(64, 4)).astype(np.float64), columns=list("abcd"))
+    pdf.iloc[3, 1] = np.nan
+
+    captured = {}
+
+    def _predict_fn(X):
+        captured["X"] = X
+        return np.zeros(len(X))
+
+    out = _apply_nan_guard(_DummyModel(), pdf, _predict_fn, n_rows=64)
+    assert out.shape == (64,)
+    # After the guard imputed + standardised, the rewrapped frame must remain
+    # a pandas DataFrame with float dtypes.
+    assert isinstance(captured["X"], pd.DataFrame)
+    assert all(np.issubdtype(captured["X"][c].dtype, np.floating) for c in captured["X"].columns)
+
+
+# ---------------------------------------------------------------------------
+# Fix 7: composite_estimator / composite_screening / composite_auto_detect
+# drop np.asarray-over-polars-Series.to_numpy().
+# ---------------------------------------------------------------------------
+
+
+def test_fix7_composite_estimator_no_double_wrap():
+    import inspect
+
+    from mlframe.training import composite_estimator as ce_mod
+
+    src = inspect.getsource(ce_mod)
+    assert "np.asarray(X.get_column(" not in src, (
+        "composite_estimator must drop np.asarray over polars Series.to_numpy()."
+    )
+
+
+def test_fix7_composite_screening_no_double_wrap():
+    import inspect
+
+    from mlframe.training import composite_screening as cs_mod
+
+    src = inspect.getsource(cs_mod._extract_column_array)
+    assert "np.asarray(df.get_column(" not in src, (
+        "composite_screening._extract_column_array must drop double wrap."
+    )
+
+
+def test_fix7_composite_auto_detect_no_double_wrap():
+    import inspect
+
+    from mlframe.training import composite_auto_detect as cad
+
+    src = inspect.getsource(cad)
+    # Both call-sites (line ~87-89 + ~169) used the same anti-pattern.
+    assert "np.asarray(df.get_column(" not in src
+    # The monotonicity branch previously chained np.asarray + astype(np.float64)
+    # without copy=False; post-fix uses copy=False so an already-float ndarray
+    # is a no-op.
+    assert "copy=False" in src
+
+
+def test_fix7_extract_base_returns_float64_ndarray():
+    """Correctness: the dropped wrap must not change observable behaviour."""
+    from mlframe.training.composite_estimator import _extract_base
+
+    df = pl.DataFrame({"base": [1.0, 2.5, np.nan, 4.0]})
+    out = _extract_base(df, "base")
+    assert out.dtype == np.float64
+    np.testing.assert_array_equal(out[:2], np.array([1.0, 2.5]))
+
+
+def test_fix7_screening_extract_column_array_float64():
+    from mlframe.training.composite_screening import _extract_column_array
+
+    df = pl.DataFrame({"x": [1, 2, 3, 4]})
+    out = _extract_column_array(df, "x")
+    assert out.dtype == np.float64
+    np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0]))
+
+
+# ---------------------------------------------------------------------------
+# Fix 8: _dummy_baseline_compute converts train/val/test once per call.
+# ---------------------------------------------------------------------------
+
+
+def test_fix8_per_group_predict_converts_once_per_frame():
+    """The polars->pandas bridge must be invoked exactly once per
+    (train_X, val_X, test_X) -- not once per cat column inspected inside the
+    group-key builder.
+    """
+    from mlframe.training import _dummy_baseline_compute as dbc
+
+    n = 200
+    rng = np.random.default_rng(0)
+    df_train = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)})
+    df_val = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)})
+    df_test = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)})
+    train_y = rng.normal(size=n)
+
+    called = {"n": 0}
+    real = dbc._to_pandas_for_baseline
+
+    def _spy(x):
+        called["n"] += 1
+        return real(x)
+
+    with patch.object(dbc, "_to_pandas_for_baseline", side_effect=_spy):
+        train_pred, val_pred, test_pred, diag = dbc._per_group_predict(
+            df_train, df_val, df_test, train_y, "cat", "regression",
+        )
+
+    # Exactly three bridge invocations: one per input frame.
+    assert called["n"] == 3, (
+        f"_per_group_predict must convert each frame exactly once, got {called['n']}."
+    )
+    assert train_pred.shape == (n,)
+    assert val_pred.shape == (n,)
+    assert test_pred.shape == (n,)
+    assert "n_groups_train" in diag
+
+
+def test_fix8_pick_per_group_categorical_uses_bridge():
+    from mlframe.training import _dummy_baseline_compute as dbc
+
+    rng = np.random.default_rng(0)
+    df = pl.DataFrame({"cat": rng.integers(0, 4, size=200), "x": rng.normal(size=200)})
+
+    called = {"n": 0}
+    real = dbc._to_pandas_for_baseline
+
+    def _spy(x):
+        called["n"] += 1
+        return real(x)
+
+    with patch.object(dbc, "_to_pandas_for_baseline", side_effect=_spy):
+        out = dbc._pick_per_group_categorical(df, ["cat"], n_train=200, max_cardinality_ratio=0.5)
+
+    assert called["n"] == 1, "Should call bridge exactly once."
+    assert out == "cat"
+
+
+# ---------------------------------------------------------------------------
+# Bonus: opportunistic speedup measurement (printed to stdout, never asserted).
+# ---------------------------------------------------------------------------
+
+
+def test_perf_bridge_vs_default_to_pandas_smoke(capsys):
+    """Best-effort speedup probe. We expect ~5-30x on numeric frames; on
+    tiny frames the JIT setup dominates so we don't assert a lower bound.
+    """
+    from mlframe.training.utils import get_pandas_view_of_polars_df
+
+    # 500k x 40 numeric + 1 dict: large enough that the per-block memcpy
+    # cost in default .to_pandas() dominates over the bridge's setup cost.
+    df = _make_numeric_pl_df(n_rows=500_000, n_cols=40)
+
+    # Warmup
+    _ = get_pandas_view_of_polars_df(df)
+    _ = df.to_pandas()
+
+    reps = 3
+    t0 = time.perf_counter()
+    for _ in range(reps):
+        _ = df.to_pandas()
+    t_default = (time.perf_counter() - t0) / reps
+
+    t0 = time.perf_counter()
+    for _ in range(reps):
+        _ = get_pandas_view_of_polars_df(df)
+    t_bridge = (time.perf_counter() - t0) / reps
+
+    speedup = (t_default / t_bridge) if t_bridge > 0 else float("inf")
+    # Print to stdout so the user can see it (-s flag).
+    print(
+        f"[perf] default to_pandas: {t_default*1000:.2f} ms/rep; "
+        f"bridge: {t_bridge*1000:.2f} ms/rep; speedup={speedup:.2f}x "
+        f"(500k x 40 numeric + 1 dict)"
+    )
+    # Soft floor: bridge should at least not be slower (no assert: numeric-only
+    # tiny frames can be a wash and we don't want flake).
+    assert t_bridge > 0

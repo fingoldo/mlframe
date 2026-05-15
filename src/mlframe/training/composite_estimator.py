@@ -64,14 +64,7 @@ def _y_train_clip_bounds(y_train: np.ndarray) -> tuple[float, float]:
     return low, high
 
 
-def _to_1d_numpy(arr: Any) -> np.ndarray:
-    if hasattr(arr, "to_numpy"):
-        out = arr.to_numpy()
-    elif hasattr(arr, "values"):
-        out = arr.values
-    else:
-        out = np.asarray(arr)
-    return np.asarray(out).reshape(-1)
+from .utils import coerce_to_1d_numpy as _to_1d_numpy  # noqa: E402,F401
 
 
 def _extract_base(X: Any, base_column: str) -> np.ndarray:
@@ -91,7 +84,10 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
                 "If feature selection (MRMR/RFECV) is dropping it, add base_column "
                 "to forced_keep_columns in the feature selection config."
             )
-        return np.asarray(X.get_column(base_column).to_numpy()).astype(np.float64)
+        # Polars Series.to_numpy() already returns an ndarray; the prior
+        # np.asarray wrapper allocated a redundant view. astype(copy=False)
+        # avoids a second copy when the dtype already matches.
+        return X.get_column(base_column).to_numpy().astype(np.float64, copy=False)
     if isinstance(X, pd.DataFrame):
         if base_column not in X.columns:
             raise KeyError(
@@ -118,7 +114,9 @@ def _extract_groups(X: Any, group_column: str) -> np.ndarray:
                 f"CompositeTargetEstimator: group column '{group_column}' "
                 f"missing from X."
             )
-        return np.asarray(X.get_column(group_column).to_numpy())
+        # Polars Series.to_numpy() already returns an ndarray; the prior
+        # np.asarray wrapper allocated a redundant view.
+        return X.get_column(group_column).to_numpy()
     if isinstance(X, pd.DataFrame):
         if group_column not in X.columns:
             raise KeyError(

@@ -1179,6 +1179,23 @@ def score_ensemble(
     res = {}
     level_models_and_predictions = models_and_predictions
 
+    # Uniformity gate: mixing a classifier (probs available) with a regressor (probs == None)
+    # in one ensemble silently miscategorises the suite. The historical dispatch only
+    # inspected member[0]; member[1] could disagree with no error. Validate up front.
+    if level_models_and_predictions:
+        def _has_probs(m) -> bool:
+            return any(getattr(m, attr, None) is not None for attr in ("val_probs", "test_probs", "train_probs"))
+
+        _probs_flags = [_has_probs(m) for m in level_models_and_predictions]
+        if len(set(_probs_flags)) > 1:
+            _clf_idx = [i for i, f in enumerate(_probs_flags) if f]
+            _reg_idx = [i for i, f in enumerate(_probs_flags) if not f]
+            raise ValueError(
+                "score_ensemble requires uniform member types: got a mix of classifier-like "
+                f"(probs available, indices {_clf_idx}) and regressor-like (no probs, indices "
+                f"{_reg_idx}) members. Split the suite into per-task lists before calling."
+            )
+
     if (
         level_models_and_predictions[0].val_probs is not None
         or level_models_and_predictions[0].test_probs is not None
@@ -1310,9 +1327,15 @@ def score_ensemble(
                 import re as _re_mod
 
                 if _re_mod.search(r"\[[^\]]+\]", ensemble_name):
+                    # Callable replacement -- re.sub does NOT interpret backreferences in
+                    # the return value of a callable, so any incidental ``\1`` / ``\g<...>`` /
+                    # backslash inside a model tag round-trips verbatim. A plain string
+                    # replacement would either crash on "invalid group reference" or silently
+                    # inject backslashes into the ensemble label.
+                    _label_value = _re_label
                     ensemble_name = _re_mod.sub(
                         r"\[[^\]]+\]",
-                        _re_label,
+                        lambda _m, _v=_label_value: _v,
                         ensemble_name,
                         count=1,
                     )
@@ -1448,10 +1471,19 @@ def score_ensemble(
 
 def compare_ensembles(
     ensembles: dict,
-    sort_metric: str = "test.1.integral_error",
+    sort_metric: str = "val.1.integral_error",
     show_plot: bool = True,
     figsize: tuple = (15, 3),
 ) -> pd.DataFrame:
+    # Default flipped from "test.*" to "val.*" 2026-05-15: sorting by a test-set metric biases ensemble selection
+    # toward the holdout (test-set selection bias). Caller may still pass an explicit "test.*" for manual override --
+    # we WARN once so the override is visible in the log.
+    if isinstance(sort_metric, str) and sort_metric.startswith("test."):
+        logger.warning(
+            "[compare_ensembles] sort_metric='%s' uses the TEST split; this re-introduces test-set "
+            "selection bias. Prefer a 'val.*' metric for ensemble selection.",
+            sort_metric,
+        )
     items = []
     for ens_name, ens_perf in ensembles.items():
         perf = copy.deepcopy(ens_perf.metrics)

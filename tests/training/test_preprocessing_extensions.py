@@ -38,13 +38,21 @@ def test_empty_config_is_noop(small_df):
 
 @pytest.mark.parametrize("scaler", [
     "StandardScaler", "RobustScaler", "MinMaxScaler", "MaxAbsScaler",
-    "QuantileTransformer_uniform", "Normalizer_l2",
+    "QuantileTransformer_uniform",
 ])
 def test_scaler_variants_produce_expected_shape(small_df, scaler):
     cfg = PreprocessingExtensionsConfig(scaler=scaler)
     out, _, _, pipe = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
     assert out.shape == small_df.shape
     assert pipe is not None
+
+
+def test_normalizer_l2_rejected_at_validation():
+    """Regression: row-wise normalization mislabeled as a scaler silently broke
+    GBDT models. Removed 2026-05-15 - see README.md Roadmap."""
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        PreprocessingExtensionsConfig(scaler="Normalizer_l2")
 
 
 def test_pca_reduces_dimension(small_df):

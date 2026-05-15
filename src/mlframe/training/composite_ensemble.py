@@ -271,6 +271,7 @@ class CompositeCrossTargetEnsemble:
         weights: np.ndarray,
         strategy: str,
         notes: dict[str, Any] | None = None,
+        is_convex: bool = True,
     ) -> None:
         if len(component_models) == 0:
             raise ValueError("CompositeCrossTargetEnsemble: empty component list.")
@@ -281,16 +282,29 @@ class CompositeCrossTargetEnsemble:
                 f"{len(component_models)} / {len(component_names)} / {len(weights)}."
             )
         weights = np.asarray(weights, dtype=np.float64)
-        wsum = float(weights.sum())
-        if wsum <= 0 or not math.isfinite(wsum):
-            raise ValueError(
-                f"CompositeCrossTargetEnsemble: weights must sum to positive finite "
-                f"value; got sum={wsum}."
-            )
+        # ``is_convex=True``: weights are a convex combination (non-negative, sum to 1) -- normalise
+        # so the predict path can rely on the invariant. ``is_convex=False``: weights are the raw
+        # output of a constrained / unconstrained solver (Ridge linear_stack, NNLS without renorm)
+        # and downstream code must NOT assume sum=1; predict for these strategies does an
+        # additive linear combination (no renormalisation on the surviving subset).
+        if is_convex:
+            wsum = float(weights.sum())
+            if wsum <= 0 or not math.isfinite(wsum):
+                raise ValueError(
+                    f"CompositeCrossTargetEnsemble: convex weights must sum to positive finite "
+                    f"value; got sum={wsum}."
+                )
+            weights = weights / wsum
+        else:
+            if not np.all(np.isfinite(weights)):
+                raise ValueError(
+                    "CompositeCrossTargetEnsemble: weights contain non-finite values."
+                )
         self.component_models = list(component_models)
         self.component_names = list(component_names)
-        self.weights = weights / wsum  # always normalised
+        self.weights = weights
         self.strategy = strategy
+        self.is_convex = bool(is_convex)
         self.notes = dict(notes or {})
 
     # ------------------------------------------------------------------
@@ -374,24 +388,32 @@ class CompositeCrossTargetEnsemble:
                 "falling back to mean."
             )
             return cls.from_uniform_weights(component_models, component_names)
-        # The constructor normalises by sum. For linear_stack this is
-        # NOT semantically right (negative weights, intercept), so we
-        # bypass the normalisation by building manually.
+        # Ridge stack: weights may be negative and do not sum to 1; signal this with
+        # is_convex=False so the constructor skips the convex-sum normalisation that
+        # would otherwise destroy the Ridge fit. Eliminates the historical
+        # build-with-placeholder-then-mutate dance.
         instance = cls(
             component_models=component_models,
             component_names=component_names,
-            weights=np.abs(raw_weights) + 1e-12,  # placeholder for constructor
+            weights=raw_weights,
             strategy="linear_stack",
+            notes={
+                "ridge_alpha": ridge_alpha,
+                "intercept": float(ridge.intercept_),
+                "raw_weights": raw_weights.tolist(),
+                "n_train_rows": int(finite.sum()),
+            },
+            is_convex=False,
         )
-        # Inject the actual (un-normalised) weights + intercept.
-        instance.weights = raw_weights
-        instance.notes = {
-            "ridge_alpha": ridge_alpha,
-            "intercept": float(ridge.intercept_),
-            "raw_weights": raw_weights.tolist(),
-            "n_train_rows": int(finite.sum()),
-        }
         instance._linear_stack_intercept = float(ridge.intercept_)
+        # Stash the training matrix + alpha so predict() can refit Ridge on the SURVIVING
+        # subset when a component returns None at predict time. Without this, dropping a
+        # component's weight while keeping the original intercept biases predictions by
+        # exactly that component's mean contribution (Ridge intercept compensates for the
+        # FULL component set; with fewer components the bias is wrong by O(intercept)).
+        instance._linear_stack_train_preds = component_predictions[finite].copy()
+        instance._linear_stack_train_y = y[finite].copy()
+        instance._linear_stack_ridge_alpha = float(ridge_alpha)
         return instance
 
     @classmethod
@@ -405,12 +427,12 @@ class CompositeCrossTargetEnsemble:
         """Non-negative least squares stacking.
 
         Fits ``y = X @ w`` subject to ``w >= 0`` via
-        ``scipy.optimize.nnls``. Weights are then normalised to sum
-        to 1, which keeps the predict path identical to mean /
-        oof_weighted (no separate intercept handling). This is the
-        recommended stack when component predictions are all already
-        in y-scale (no negative weight makes physical sense), and is
-        less prone to overfitting than ridge stacking on small data.
+        ``scipy.optimize.nnls``. Weights are kept AS NNLS computed them
+        (no post-hoc renormalisation to sum=1) -- renormalising would
+        return a predictor that differs from the one the gate (and
+        any downstream RMSE-on-y-scale evaluation) measured. The
+        is_convex=False flag signals this to downstream consumers so
+        they don't assume sum=1.
         """
         from scipy.optimize import nnls
         n = len(component_models)
@@ -443,16 +465,25 @@ class CompositeCrossTargetEnsemble:
             )
             return cls.from_uniform_weights(component_models, component_names)
 
-        return cls(
+        instance = cls(
             component_models=component_models,
             component_names=component_names,
             weights=w,
             strategy="nnls_stack",
             notes={
-                "raw_weights_pre_normalise": w.tolist(),
+                "raw_weights": w.tolist(),
                 "n_train_rows": int(finite.sum()),
             },
+            # Don't renormalise: the predictor returned must match the one NNLS solved
+            # for so the gate's measured RMSE corresponds to the deployed model.
+            is_convex=False,
         )
+        # Stash training matrix so predict() can refit NNLS on the surviving subset when
+        # a component drops out (same correctness story as linear_stack -- preserves the
+        # property that the deployed predictor matches a real fit on observed columns).
+        instance._nnls_stack_train_preds = component_predictions[finite].copy()
+        instance._nnls_stack_train_y = y[finite].copy()
+        return instance
 
     @classmethod
     def from_train_metrics(
@@ -574,7 +605,10 @@ class CompositeCrossTargetEnsemble:
                 pred = None
             per_component.append(pred)
 
-        ok = [(p, w) for p, w in zip(per_component, self.weights) if p is not None]
+        # Track surviving indices so linear_stack can refit Ridge on exactly the columns
+        # whose components produced predictions for this batch.
+        surviving_idx = [i for i, p in enumerate(per_component) if p is not None]
+        ok = [(per_component[i], self.weights[i]) for i in surviving_idx]
         if not ok:
             raise RuntimeError(
                 "CompositeCrossTargetEnsemble.predict: all components failed."
@@ -582,16 +616,73 @@ class CompositeCrossTargetEnsemble:
         preds_matrix = np.column_stack([p for p, _ in ok])
         weights = np.array([w for _, w in ok], dtype=np.float64)
 
-        if self.strategy == "linear_stack":
-            # Ridge stack: predictions = X @ w + intercept. Do NOT
-            # renormalise weights. If a component dropped out, drop
-            # its weight contribution -- the rest of the linear
-            # combination is still valid (just with one fewer term).
-            intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
-            return (preds_matrix * weights[None, :]).sum(axis=1) + intercept
+        if not getattr(self, "is_convex", True):
+            # Non-convex strategies (linear_stack, nnls_stack): weights are the raw solver
+            # output, possibly negative (Ridge) or with arbitrary sum (NNLS). Refit the
+            # appropriate solver on the surviving columns of the stashed training matrix
+            # when any component drops out -- the alternative (drop the column but reuse
+            # the original intercept / coefficient mix) is biased. The all-present fast
+            # path skips the refit and uses the stored weights directly.
+            full_weights = np.asarray(self.weights, dtype=np.float64)
+            full_intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
+            if len(surviving_idx) == len(self.component_models):
+                return (preds_matrix * full_weights[None, :]).sum(axis=1) + full_intercept
 
-        # Convex strategies (mean / oof_weighted / nnls_stack):
-        # re-normalise weights across surviving components.
+            if self.strategy == "linear_stack":
+                train_preds = getattr(self, "_linear_stack_train_preds", None)
+                train_y = getattr(self, "_linear_stack_train_y", None)
+                if train_preds is None or train_y is None:
+                    raise RuntimeError(
+                        "CompositeCrossTargetEnsemble.predict: linear_stack lost component(s) "
+                        f"({len(self.component_models) - len(surviving_idx)} of "
+                        f"{len(self.component_models)}) but no training matrix is available "
+                        "to refit Ridge. Refusing to predict to avoid intercept-induced bias."
+                    )
+                from sklearn.linear_model import Ridge as _Ridge
+
+                alpha = float(getattr(self, "_linear_stack_ridge_alpha", 1.0))
+                refit = _Ridge(alpha=alpha, fit_intercept=True)
+                refit.fit(np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y))
+                new_w = np.asarray(refit.coef_, dtype=np.float64)
+                new_intercept = float(refit.intercept_)
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] linear_stack: %d of %d components dropped "
+                    "out at predict time; refit Ridge on surviving subset (alpha=%g).",
+                    len(self.component_models) - len(surviving_idx),
+                    len(self.component_models),
+                    alpha,
+                )
+                return (preds_matrix * new_w[None, :]).sum(axis=1) + new_intercept
+
+            if self.strategy == "nnls_stack":
+                train_preds = getattr(self, "_nnls_stack_train_preds", None)
+                train_y = getattr(self, "_nnls_stack_train_y", None)
+                if train_preds is None or train_y is None:
+                    raise RuntimeError(
+                        "CompositeCrossTargetEnsemble.predict: nnls_stack lost component(s) "
+                        f"({len(self.component_models) - len(surviving_idx)} of "
+                        f"{len(self.component_models)}) but no training matrix is available "
+                        "to refit NNLS. Refusing to predict to avoid biased dropout."
+                    )
+                from scipy.optimize import nnls as _nnls
+
+                new_w, _ = _nnls(
+                    np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y)
+                )
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] nnls_stack: %d of %d components dropped "
+                    "out at predict time; refit NNLS on surviving subset.",
+                    len(self.component_models) - len(surviving_idx),
+                    len(self.component_models),
+                )
+                return (preds_matrix * np.asarray(new_w, dtype=np.float64)[None, :]).sum(axis=1)
+
+            # Other non-convex strategy without a training-matrix stash -- pass through as
+            # a raw linear combination (rare; only hit if a future caller adds a strategy
+            # without stashing the training data).
+            return (preds_matrix * full_weights[None, :]).sum(axis=1)
+
+        # Convex strategies (mean / oof_weighted): re-normalise across surviving components.
         if weights.sum() <= 0:
             # All surviving weights collapsed to zero -- fall back to
             # mean across surviving components.
@@ -626,13 +717,22 @@ class CompositeCrossTargetEnsemble:
         a copy of self unchanged (no trimming).
         """
         if max_components <= 0 or max_components >= len(self.component_models):
-            return CompositeCrossTargetEnsemble(
+            copy_inst = CompositeCrossTargetEnsemble(
                 component_models=list(self.component_models),
                 component_names=list(self.component_names),
                 weights=np.asarray(self.weights, dtype=np.float64),
                 strategy=self.strategy,
                 notes=dict(self.notes),
+                is_convex=getattr(self, "is_convex", True),
             )
+            for _attr in (
+                "_linear_stack_intercept", "_linear_stack_train_preds",
+                "_linear_stack_train_y", "_linear_stack_ridge_alpha",
+                "_nnls_stack_train_preds", "_nnls_stack_train_y",
+            ):
+                if hasattr(self, _attr):
+                    setattr(copy_inst, _attr, getattr(self, _attr))
+            return copy_inst
         # Pick top-N by |weight|.
         order = np.argsort(-np.abs(np.asarray(self.weights, dtype=np.float64)))
         keep = sorted(order[:max_components].tolist())
@@ -647,9 +747,26 @@ class CompositeCrossTargetEnsemble:
                        for i in range(len(self.component_models))
                        if i not in keep
                    ]},
+            is_convex=getattr(self, "is_convex", True),
         )
-        # Linear stack: preserve intercept too.
+        # Carry over linear/NNLS stash so the trimmed ensemble can still refit on subset-drops.
+        # The training-matrix stash retains ALL original columns; predict-time refit will
+        # select the kept ones via surviving_idx so this is correct without re-slicing here.
         if self.strategy == "linear_stack" and hasattr(self, "_linear_stack_intercept"):
             new._linear_stack_intercept = self._linear_stack_intercept
+        for _attr in (
+            "_linear_stack_train_preds", "_linear_stack_train_y", "_linear_stack_ridge_alpha",
+            "_nnls_stack_train_preds", "_nnls_stack_train_y",
+        ):
+            if hasattr(self, _attr):
+                # NB: we keep the full training matrix; predict's surviving_idx selects subset.
+                # cap_inference_components(N) however only stores N components, so surviving_idx
+                # selects relative to N. Slice the training matrix columns to match the new
+                # component ordering.
+                _val = getattr(self, _attr)
+                if _attr.endswith("_train_preds") and _val is not None:
+                    setattr(new, _attr, np.asarray(_val)[:, keep])
+                else:
+                    setattr(new, _attr, _val)
         return new
 

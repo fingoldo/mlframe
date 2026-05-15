@@ -46,17 +46,16 @@ DEFAULT_MULTI_DRIFT_WARN_THRESHOLD_PP: float = 5.0
 rate in any split differs from train's by more than this many pp."""
 
 
-def _to_1d_numpy(arr: Any) -> np.ndarray | None:
-    """Coerce target to a numpy array; return None for None inputs."""
-    if arr is None:
-        return None
-    if hasattr(arr, "to_numpy"):
-        out = arr.to_numpy()
-    elif hasattr(arr, "values"):
-        out = arr.values
-    else:
-        out = np.asarray(arr)
-    return out
+from .utils import coerce_to_numpy as _coerce_to_numpy
+
+
+def _to_numpy_or_none(arr: Any) -> np.ndarray | None:
+    """Coerce target to a numpy array; return ``None`` for ``None`` inputs.
+
+    Shape is preserved (no reshape). Use ``coerce_to_1d_numpy`` from
+    ``training.utils`` directly if a 1-D contract is required.
+    """
+    return _coerce_to_numpy(arr, allow_none=True)
 
 
 def _binary_split_summary(arr: np.ndarray) -> dict[str, float]:
@@ -178,9 +177,9 @@ def compute_label_distribution_drift(
         human-readable strings; empty when everything is within
         threshold), ``warn_threshold_pp`` (the threshold used).
     """
-    train = _to_1d_numpy(train_target)
-    val = _to_1d_numpy(val_target)
-    test = _to_1d_numpy(test_target)
+    train = _to_numpy_or_none(train_target)
+    val = _to_numpy_or_none(val_target)
+    test = _to_numpy_or_none(test_target)
 
     if train is None:
         return {

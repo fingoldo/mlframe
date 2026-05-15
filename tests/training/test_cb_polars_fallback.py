@@ -567,7 +567,7 @@ class TestRecoverCBFeatureNames:
     (evaluation code) having to know them."""
 
     def test_recovers_names_from_indices(self):
-        from mlframe.training.trainer import _recover_cb_feature_names
+        from mlframe.training._predict_guards import _recover_cb_feature_names
         m = _FakeCBPredict(
             feature_names=["a", "b", "c", "d"],
             cat_idx=[0, 2],
@@ -578,7 +578,7 @@ class TestRecoverCBFeatureNames:
         assert text == ["d"]
 
     def test_empty_on_unfitted_model(self):
-        from mlframe.training.trainer import _recover_cb_feature_names
+        from mlframe.training._predict_guards import _recover_cb_feature_names
         class Bare:
             pass
         cat, text = _recover_cb_feature_names(Bare())
@@ -589,7 +589,7 @@ class TestRecoverCBFeatureNames:
         """Defensive: if stored indices point beyond feature_names_
         (shouldn't happen, but possible with a partially-loaded model),
         return what we can — don't raise."""
-        from mlframe.training.trainer import _recover_cb_feature_names
+        from mlframe.training._predict_guards import _recover_cb_feature_names
         m = _FakeCBPredict(
             feature_names=["a", "b"],
             cat_idx=[0, 99],  # 99 is out of range

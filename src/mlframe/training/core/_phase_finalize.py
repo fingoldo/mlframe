@@ -18,19 +18,40 @@ def finalize_suite(ctx: TrainingContext) -> dict:
 
     Returns ``ctx.metadata`` (also mutated in-place) so legacy callers keeping a ``metadata = finalize_suite(ctx)`` rebind keep working.
     """
-    # Trainer stores fairness_report in model.metrics[split]; lift to top-level so callers don't re-walk the models dict.
+    # Single pass over ctx.models that collects BOTH the per-split fairness reports
+    # (lifted from model.metrics) AND the per-entry selected-features list (mirrored to
+    # entry.selected_features_). The earlier code walked the same nested dict twice;
+    # combining halves Python-level iteration cost for runs with hundreds of models.
     fairness_reports: dict[str, Any] = {}
-    for _ttype, _targets in ctx.models.items():
-        for _tname, _model_list in _targets.items():
-            for _m in _model_list:
-                _m_metrics = getattr(_m, "metrics", None)
-                if not isinstance(_m_metrics, dict):
+    _selected_features_per_model: dict = {}
+    _selected_features_union: set = set()
+    for _ttype, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _entry in _entries:
+                # Fairness lift: model.metrics[split].fairness_report -> flat metadata key.
+                _m_metrics = getattr(_entry, "metrics", None)
+                if isinstance(_m_metrics, dict):
+                    for _split in ("test", "val", "train"):
+                        _split_metrics = _m_metrics.get(_split)
+                        if isinstance(_split_metrics, dict) and "fairness_report" in _split_metrics:
+                            _key = f"{_ttype}__{_tname}__{getattr(_entry, 'model_name', type(getattr(_entry, 'model', _entry)).__name__)}__{_split}"
+                            fairness_reports[_key] = _split_metrics["fairness_report"]
+                # Selected-features capture: entry.columns -> metadata + entry.selected_features_.
+                _cols = getattr(_entry, "columns", None)
+                if _cols is None:
                     continue
-                for _split in ("test", "val", "train"):
-                    _split_metrics = _m_metrics.get(_split)
-                    if isinstance(_split_metrics, dict) and "fairness_report" in _split_metrics:
-                        _key = f"{_ttype}__{_tname}__{getattr(_m, 'model_name', type(getattr(_m, 'model', _m)).__name__)}__{_split}"
-                        fairness_reports[_key] = _split_metrics["fairness_report"]
+                _mn = getattr(_entry, "model_name", None) or ""
+                _sf_key = f"{_ttype}/{_tname}/{_mn}" if _mn else f"{_ttype}/{_tname}"
+                _selected_features_per_model[_sf_key] = list(_cols)
+                _selected_features_union.update(_cols)
+                try:
+                    _entry.selected_features_ = list(_cols)
+                except Exception:
+                    pass
     if fairness_reports:
         ctx.metadata["fairness_report"] = fairness_reports
 
@@ -73,27 +94,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         except Exception:
             pass
 
-    # Surface selected-features per model (and a flat union) on metadata for caller introspection.
-    _selected_features_per_model: dict = {}
-    _selected_features_union: set = set()
-    for _tt, _by_name in (ctx.models or {}).items():
-        if not isinstance(_by_name, dict):
-            continue
-        for _tn, _entries in _by_name.items():
-            if not isinstance(_entries, list):
-                continue
-            for _entry in _entries:
-                _cols = getattr(_entry, "columns", None)
-                _mn = getattr(_entry, "model_name", None) or ""
-                if _cols is None:
-                    continue
-                _key = f"{_tt}/{_tn}/{_mn}" if _mn else f"{_tt}/{_tn}"
-                _selected_features_per_model[_key] = list(_cols)
-                _selected_features_union.update(_cols)
-                try:
-                    _entry.selected_features_ = list(_cols)
-                except Exception:
-                    pass
+    # Selected-features surfacing populated during the combined walk above.
     if _selected_features_per_model:
         ctx.metadata["selected_features"] = sorted(_selected_features_union)
         ctx.metadata["selected_features_per_model"] = _selected_features_per_model

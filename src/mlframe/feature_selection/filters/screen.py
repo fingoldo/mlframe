@@ -80,6 +80,35 @@ def _pool_warmup_noop(i):
     return i
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _preserve_global_numpy_rng_state(seed: int | None):
+    """Snapshot and restore ``np.random``'s global MT19937 state around a block.
+
+    ``screen_predictors`` historically reseeded the process-global RNG to make permutation-based confidence
+    checks deterministic; that bled state into the rest of the caller's process. The snapshot+restore pattern
+    keeps the inner reseed (downstream ``np.random.shuffle`` consumers depend on it) while leaving the global
+    state byte-identical from the caller's POV. No-op when ``seed`` is ``None``.
+    """
+    if seed is None:
+        yield
+        return
+    snapshot = np.random.get_state()
+    try:
+        np.random.seed(seed)
+        set_numba_random_seed(seed)
+        try:
+            import cupy as _cp  # local import to avoid hard dep
+            _cp.random.seed(seed)
+        except ImportError:
+            pass
+        yield
+    finally:
+        np.random.set_state(snapshot)
+
+
 @dataclass
 class ScreenState:
     """Typed snapshot of ``screen_predictors`` shared state. Not currently routed through by the orchestrator; kept as a stable IO contract for phase helpers.
@@ -251,13 +280,26 @@ def screen_predictors(
     start_time = timer()
     run_out_of_time = False
 
+    # Global-RNG hygiene: pre-fix code called ``np.random.seed(random_seed)``, mutating the process-wide MT19937
+    # state. Concurrent code in the same process (other libs, the calling script's own seeded code) then saw the
+    # screening-iteration RNG state, breaking reproducibility for everything else. New behaviour: snapshot the
+    # global state on entry, seed it for the screening duration so downstream ``np.random.shuffle`` calls in
+    # permutation / fleuret kernels remain deterministic, then restore on the happy path (below) and on any
+    # raise (via the ``__exit__``-style restore re-installed by the early-return helper). Numba and CuPy seeds
+    # are set directly; they expose no portable snapshot/restore API and were not previously preserved either.
+    _np_state_snapshot = None
     if random_seed is not None:
+        _np_state_snapshot = np.random.get_state()
         np.random.seed(random_seed)
         set_numba_random_seed(random_seed)
         try:
             cp.random.seed(random_seed)
         except NameError:
             pass  # CuPy not imported
+
+    def _restore_np_state():
+        if _np_state_snapshot is not None:
+            np.random.set_state(_np_state_snapshot)
 
     max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
     if max_failed <= 1:
@@ -860,6 +902,11 @@ def screen_predictors(
         if key in cached_cond_MIs:
             additional_knowledge = cached_cond_MIs[key]
     """
+    # Restore the global numpy RNG state captured at entry. Pre-fix code left the state seeded with
+    # ``random_seed`` after returning, leaking into anything else seeded in the same process.
+    if _np_state_snapshot is not None:
+        np.random.set_state(_np_state_snapshot)
+
     return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y
 
 

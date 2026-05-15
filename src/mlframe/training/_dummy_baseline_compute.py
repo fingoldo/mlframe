@@ -29,6 +29,31 @@ def _per_target_seed(base_seed: int, target_name: str) -> int:
     """
     return (base_seed + (hash(target_name) & 0xFFFF)) & 0x7FFFFFFF
 
+def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
+    """Bridge a polars / pandas / unknown ``X`` to a pandas frame view for
+    per-group baseline computation.
+
+    Routes polars input through ``get_pandas_view_of_polars_df`` -- the
+    Arrow-backed split-blocks bridge -- so numeric columns stay as zero-copy
+    views instead of being consolidated (~32x faster than the default
+    ``.to_pandas()`` on multi-million-row frames). Returns ``None`` for
+    types we cannot coerce so callers can short-circuit.
+
+    Centralising the coercion lets ``_per_group_predict`` convert the three
+    train/val/test frames exactly once at its entry, instead of paying the
+    bridge cost per column inside the inner ``_col_to_groupkey`` loop.
+    """
+    if isinstance(X, pd.DataFrame):
+        return X
+    if hasattr(X, "to_pandas"):
+        # Lazy import: utils.py pulls in _nan_processing which has its own
+        # transitive cycle with this module's callers; importing at module
+        # scope risks circular-load.
+        from .utils import get_pandas_view_of_polars_df
+        return get_pandas_view_of_polars_df(X)
+    return None
+
+
 def _pick_per_group_categorical(
     train_X: Any,
     cat_features: Sequence[str] | None,
@@ -41,12 +66,11 @@ def _pick_per_group_categorical(
     """
     if not cat_features:
         return None
-    # Coerce to pandas-like view for column access.
-    if hasattr(train_X, "to_pandas"):
-        df = train_X.to_pandas()
-    elif isinstance(train_X, pd.DataFrame):
-        df = train_X
-    else:
+    # Coerce to pandas-like view for column access. Use the shared bridge so
+    # the polars->pandas materialisation goes through the Arrow split-blocks
+    # fast path (~32x faster than default .to_pandas()).
+    df = _to_pandas_for_baseline(train_X)
+    if df is None:
         return None
     candidates = []
     cap = max_cardinality_ratio * n_train
@@ -83,7 +107,7 @@ def _per_group_predict(
     Returns ``(train_pred, val_pred, test_pred, diagnostics)`` where
     diagnostics contains coverage_pct + repeat_entity_rate.
     """
-    def _col_to_groupkey(X: Any, col: str) -> pd.Series:
+    def _col_to_groupkey(X_pd: pd.DataFrame, col: str) -> pd.Series:
         """Coerce a column to a hashable groupby key.
 
         Fast path: numeric dtypes (int*, float*, bool) pass through
@@ -92,12 +116,12 @@ def _per_group_predict(
         where the original key is not directly hashable / comparable
         across pl/pd boundary. ~50% wall-time reduction on numeric cat
         cols at n_train >= 1M (measured: 240ms -> 120ms on n=1M, int32).
+
+        ``X_pd`` is already a pandas frame: ``_per_group_predict`` converts
+        train/val/test exactly once at entry via ``_to_pandas_for_baseline``
+        so this inner helper avoids re-bridging on every cat column.
         """
-        if hasattr(X, "to_pandas"):
-            X = X.to_pandas()
-        if not isinstance(X, pd.DataFrame):
-            X = pd.DataFrame(X)
-        s = X[col]
+        s = X_pd[col]
         # Numeric fast path
         if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
             return s
@@ -106,9 +130,27 @@ def _per_group_predict(
         # Object / categorical / datetime: stringify with NULL sentinel
         return s.astype(str).fillna("__NULL__")
 
-    cat_train = _col_to_groupkey(train_X, cat_col)
-    cat_val = _col_to_groupkey(val_X, cat_col)
-    cat_test = _col_to_groupkey(test_X, cat_col)
+    # Convert each input frame ONCE up front. Previously each
+    # ``_col_to_groupkey`` call invoked ``.to_pandas()`` on the same polars
+    # frame, paying the conversion cost three times per cat column in a
+    # multi-column run. The shared bridge keeps numeric / bool columns
+    # zero-copy through Arrow split-blocks.
+    train_X_pd = _to_pandas_for_baseline(train_X)
+    val_X_pd = _to_pandas_for_baseline(val_X)
+    test_X_pd = _to_pandas_for_baseline(test_X)
+    # If any of the inputs cannot be coerced to a pandas frame (unsupported
+    # container type), fall back to the pd.DataFrame constructor so existing
+    # array-like callers still work.
+    if train_X_pd is None:
+        train_X_pd = pd.DataFrame(train_X)
+    if val_X_pd is None:
+        val_X_pd = pd.DataFrame(val_X)
+    if test_X_pd is None:
+        test_X_pd = pd.DataFrame(test_X)
+
+    cat_train = _col_to_groupkey(train_X_pd, cat_col)
+    cat_val = _col_to_groupkey(val_X_pd, cat_col)
+    cat_test = _col_to_groupkey(test_X_pd, cat_col)
 
     # Group-mean (regression) or group-positive-rate (binary).
     if target_type == "binary_classification":

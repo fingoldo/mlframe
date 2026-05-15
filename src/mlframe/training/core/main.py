@@ -4,34 +4,16 @@ from __future__ import annotations
 
 
 import logging
-import sys
-from timeit import default_timer as timer
 
 logger = logging.getLogger(__name__)
 
-import glob
-import os
-from collections import defaultdict
-from copy import deepcopy
-from os.path import exists, join
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-import joblib
 import numpy as np
 import pandas as pd
 import polars as pl
-import psutil
-import scipy.stats as stats
 from pyutilz.strings import slugify
-from pyutilz.system import (
-    clean_ram, ensure_dir_exists, tqdmu, tqdmu_lazy_start,
-)
-from sklearn.base import clone
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-
-import category_encoders as ce
+from pyutilz.system import tqdmu_lazy_start
 
 from ..configs import (
     BaselineDiagnosticsConfig,
@@ -55,86 +37,30 @@ from ..configs import (
     TrainingBehaviorConfig,
     TrainingSplitConfig,
 )
-from ..baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
-from ..drift_report import compute_label_distribution_drift, format_drift_report
 from ..extractors import FeaturesAndTargetsExtractor
 from ..helpers import (
     get_trainset_features_stats,
     get_trainset_features_stats_polars,
 )
-from ..io import load_mlframe_model
-from ..models import LINEAR_MODEL_TYPES, is_linear_model, is_neural_model
-from ..phases import format_phase_summary, phase, reset_phase_registry
-from ..pipeline import (
-    apply_preprocessing_extensions,
-    fit_and_transform_pipeline,
-    prepare_df_for_catboost,
-)
-from ..preprocessing import (
-    create_split_dataframes,
-    load_and_prepare_dataframe,
-    preprocess_dataframe,
-    save_split_artifacts,
-)
-from ..splitting import make_train_test_split
-from ..strategies import (
-    PipelineCache,
-    get_polars_cat_columns,
-    get_strategy,
-)
-from ..train_eval import process_model, select_target
+from ..phases import phase, reset_phase_registry
 from ..utils import (
-    compute_model_input_fingerprint,
-    drop_columns_from_dataframe,
-    estimate_df_size_mb,
-    filter_existing,
-    get_pandas_view_of_polars_df,
-    get_process_rss_mb,
     log_phase,
     log_ram_usage,
-    maybe_clean_ram_and_gpu,
 )
-from mlframe.feature_selection.filters import MRMR
-from mlframe.metrics.core import create_fairness_subgroups
-from mlframe.models.ensembling import score_ensemble
 
 from .utils import (
-    DEFAULT_PROBABILITY_THRESHOLD,
-    _apply_outlier_detection_global,
-    _auto_detect_feature_types,
-    _augment_with_dropped_high_card_cols,
-    _build_common_params_for_target,
-    _build_full_column_from_splits,
-    _build_pre_pipelines,
-    _build_process_model_kwargs,
-    _build_tier_dfs,
-    _compute_fairness_subgroups,
-    _convert_dfs_to_pandas,
-    _create_initial_metadata,
-    _detect_dataset_reuse_capabilities,
-    _df_shape_str,
-    _drop_cols_df,
-    _elapsed_str,
-    _ensure_config,
     _ensure_logging_visible,
-    _entry_metric,
-    _filter_polars_cat_features_by_dtype,
     _finalize_and_save_metadata,
     _get_pipeline_components,
     _initialize_training_defaults,
-    _maybe_dispatch_to_ltr_ranker_suite,
     _log_cardinality_and_drift_snapshot,
+    _maybe_dispatch_to_ltr_ranker_suite,
     _phase_auto_detect_feature_types,
     _phase_fit_pipeline,
     _phase_global_outlier_detection,
     _phase_load_and_preprocess,
     _phase_pandas_conversion_and_cat_prep,
     _phase_train_val_test_split,
-    _setup_model_directories,
-    _should_skip_catboost_metamodel,
-    _validate_feature_type_exclusivity,
-    _validate_input_columns_against_metadata,
-    _validate_trusted_path,
 )
 from ._phase_composite_discovery import run_composite_target_discovery
 from ._phase_composite_post import run_composite_post_processing
@@ -143,8 +69,6 @@ from ._phase_polars_fixes import apply_polars_categorical_fixes
 from ._phase_recurrent import train_recurrent_models
 from ._phase_finalize import finalize_suite
 from ._phase_config_setup import setup_configuration
-from ._phase_dummy_baselines import run_dummy_baselines
-from ._phase_diagnostics import run_per_target_diagnostics
 from ._phase_train_one_target import _train_one_target
 from ._training_context import TrainingContext
 
@@ -260,6 +184,7 @@ def train_mlframe_models_suite(
     if verbose:
         _ensure_logging_visible()
 
+    # Module-global registry; not safe to invoke concurrent training suites from the same process.
     reset_phase_registry()
 
     if not isinstance(df, (pd.DataFrame, pl.DataFrame, str)):
@@ -380,8 +305,16 @@ def train_mlframe_models_suite(
         df_size_mb=df_size_mb,
         verbose=verbose,
     )
+    # ``del df`` drops the local rebound name so the only remaining strong reference
+    # is ``ctx.df``; nulling that lets the GC reclaim the now-unreferenced source frame.
+    # Without both, the post-split full dataframe lingers in memory until the suite ends.
     del df
     ctx.df = None
+    # Mirror locals into ctx in a single bulk loop. This is the in-progress migration from
+    # the legacy "phase returns big tuple, caller fans out into locals" form to a pure
+    # ctx-form where phases write straight to ctx. Until every phase is converted the
+    # bulk-copy keeps the existing return-tuple shape working while ctx-form readers
+    # downstream see the same values.
     for _k in ("train_idx", "val_idx", "test_idx", "train_details", "val_details",
                "test_details", "train_df", "val_df", "test_df", "fairness_subgroups",
                "fairness_features", "train_sequences", "val_sequences", "test_sequences",
@@ -491,7 +424,7 @@ def train_mlframe_models_suite(
         train_df_polars, val_df_polars, test_df_polars,
         train_df, val_df, test_df,
         train_df_size_bytes_cached, val_df_size_bytes_cached,
-        can_skip_pandas_conv, baseline_rss_mb,
+        defer_pandas_conv, baseline_rss_mb,
     ) = _phase_pandas_conversion_and_cat_prep(
         train_df=train_df,
         val_df=val_df,
@@ -549,6 +482,14 @@ def train_mlframe_models_suite(
     ctx.train_od_idx = train_od_idx
     ctx.val_od_idx = val_od_idx
 
+    # Discovery cache lives under ``data_dir/.discovery_cache`` when data_dir is set; a value of None disables caching (back-compat for callers without an output_config).
+    _discovery_cache_dir = None
+    try:
+        if data_dir:
+            from pathlib import Path as _P
+            _discovery_cache_dir = str(_P(data_dir) / ".discovery_cache")
+    except Exception:
+        _discovery_cache_dir = None
     target_by_type, metadata = run_composite_target_discovery(
         composite_target_discovery_config=composite_target_discovery_config,
         target_by_type=target_by_type,
@@ -565,6 +506,7 @@ def train_mlframe_models_suite(
         baseline_diagnostics_config=baseline_diagnostics_config,
         cat_features=cat_features,
         verbose=verbose,
+        discovery_cache_dir=_discovery_cache_dir,
     )
 
     (
@@ -582,15 +524,13 @@ def train_mlframe_models_suite(
         filtered_val_df=filtered_val_df,
         cat_features=cat_features,
         align_polars_categorical_dicts=behavior_config.align_polars_categorical_dicts,
-        can_skip_pandas_conv=can_skip_pandas_conv,
+        defer_pandas_conv=defer_pandas_conv,
         was_polars_input=was_polars_input,
         verbose=bool(verbose),
     )
 
     # Save metadata early so partial training runs leave already-trained models usable.
     _finalize_and_save_metadata(ctx)
-
-    models = defaultdict(lambda: defaultdict(list))
 
     # Maps slugified names back to originals for load_mlframe_suite.
     slug_to_original_target_type = {}
@@ -624,7 +564,7 @@ def train_mlframe_models_suite(
     filtered_train_df = ctx.filtered_train_df
     filtered_val_df = ctx.filtered_val_df
     pipeline = ctx.pipeline
-    can_skip_pandas_conv = ctx.can_skip_pandas_conv
+    defer_pandas_conv = ctx.defer_pandas_conv
     baseline_rss_mb = ctx.baseline_rss_mb
     train_df_size_bytes_cached = ctx.train_df_size_bytes_cached
     val_df_size_bytes_cached = ctx.val_df_size_bytes_cached
@@ -680,10 +620,10 @@ def train_mlframe_models_suite(
         plot_file=None,
         verbose=bool(verbose),
     )
-    try:
-        _dropped_high_card_data.clear()
-    except (NameError, AttributeError):
-        pass
+    # ``_dropped_high_card_data`` is bound unconditionally above (post-auto-detect tuple
+    # unpacking); the previous try/except guarded against a NameError that can no longer
+    # happen along any control-flow path. Clearing frees per-column nan-imputation arrays.
+    _dropped_high_card_data.clear()
 
     return dict(models), metadata
 

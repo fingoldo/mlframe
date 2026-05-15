@@ -139,24 +139,20 @@ class BaselineDiagnosticsReport:
         }
 
 
-def _to_1d_numpy(arr: Any) -> np.ndarray:
-    """Coerce target to a 1-D numpy array (mirrors drift_report convention)."""
-    if hasattr(arr, "to_numpy"):
-        out = arr.to_numpy()
-    elif hasattr(arr, "values"):
-        out = arr.values
-    else:
-        out = np.asarray(arr)
-    return np.asarray(out).reshape(-1)
+from .utils import coerce_to_1d_numpy as _to_1d_numpy  # noqa: E402,F401
+# (consolidated helper; local name preserved for downstream importers like
+# `dummy_baselines` that import `_to_1d_numpy` from this module.)
 
 
 def _coerce_to_pandas(df: Any, columns: Sequence[str]) -> pd.DataFrame:
     """Return a pandas frame with exactly ``columns``. Handles polars / pandas /
     ndarray. Fast-path: if already pandas with the right columns, return as is.
     """
-    # Polars
+    # Polars: route through the Arrow-backed bridge (~32x faster than the
+    # consolidating default .to_pandas() on multi-million-row frames).
     if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
-        df = df.to_pandas()
+        from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+        df = _get_pandas_view(df)
     if isinstance(df, pd.DataFrame):
         missing = [c for c in columns if c not in df.columns]
         if missing:

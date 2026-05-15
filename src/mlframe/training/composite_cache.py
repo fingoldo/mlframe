@@ -133,14 +133,21 @@ class DiscoveryCache:
         return os.path.exists(self._path(key))
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Return the cached value, or ``default`` if the key is absent / unreadable."""
-        import os, pickle  # lazy
+        """Return the cached value, or ``default`` if the key is absent / unreadable.
+
+        Pre-2026-05-15 the implementation checked ``os.path.exists`` before
+        opening; on Windows a delete-between-exists-and-open race surfaced
+        ``FileNotFoundError`` after the existence check passed. The two-step
+        guard is gone now - we just try-open and treat any failure (missing
+        file, locked file, corrupt pickle) as a cache miss.
+        """
+        import pickle  # lazy
         path = self._path(key)
-        if not os.path.exists(path):
-            return default
         try:
             with open(path, "rb") as f:
                 return pickle.load(f)
+        except (FileNotFoundError, OSError, EOFError, pickle.UnpicklingError, AttributeError):
+            return default
         except Exception:
             return default
 

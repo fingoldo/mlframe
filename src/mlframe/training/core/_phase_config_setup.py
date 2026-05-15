@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os as _os
+import sys
 from typing import Any, Dict, List, Optional, Union
 
 from ..configs import (
@@ -33,6 +34,23 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_interactive_mode() -> bool:
+    """Detect IPython/REPL session once at module import.
+
+    Probing on every suite invocation was wasted work: the environment doesn't switch
+    between interactive and non-interactive between back-to-back calls in the same
+    process. Cached so the kaleido / cal-plot short-circuit check is a constant-time
+    attribute read.
+    """
+    try:
+        return bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
+    except NameError:
+        return hasattr(sys, "ps1")
+
+
+_MLFRAME_INTERACTIVE = _detect_interactive_mode()
 
 
 def setup_configuration(
@@ -138,11 +156,9 @@ def setup_configuration(
     save_charts = output_config.save_charts
 
     if verbose:
-        try:
-            _is_interactive_logp = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
-        except NameError:
-            import sys as _sys_logp
-            _is_interactive_logp = hasattr(_sys_logp, "ps1")
+        # Cached at module-import time; the interactive/REPL flag doesn't switch between
+        # back-to-back suite calls in the same process.
+        _is_interactive_logp = _MLFRAME_INTERACTIVE
         _plot_dir = (
             f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
         )
@@ -219,6 +235,20 @@ def setup_configuration(
     if mlframe_models is None:
         mlframe_models = ["cb", "lgb", "xgb", "mlp", "linear"]
 
+    # Strategy + tier-sort are suite-constants (depend only on mlframe_models, which never
+    # mutates after setup). Computing here avoids paying O(targets * pre_pipelines * models)
+    # get_strategy() calls inside the inner training loop.
+    from ..strategies import get_strategy as _get_strategy
+    from ..models import is_neural_model as _is_neural_model
+    _strategy_by_model = {id(m): _get_strategy(m) for m in mlframe_models}
+    _sorted_mlframe_models = sorted(
+        mlframe_models,
+        key=lambda m: (
+            _is_neural_model(m),
+            tuple(-int(t) for t in _strategy_by_model[id(m)].feature_tier()),
+        ),
+    )
+
     metadata = _create_initial_metadata(
         model_name=model_name,
         target_name=target_name,
@@ -259,6 +289,8 @@ def setup_configuration(
         custom_pre_pipelines=custom_pre_pipelines,
         common_params_dict=common_params_dict,
         mlframe_models=mlframe_models,
+        strategy_by_model=_strategy_by_model,
+        sorted_mlframe_models=_sorted_mlframe_models,
         use_mlframe_ensembles=use_mlframe_ensembles,
         metadata=metadata,
     )

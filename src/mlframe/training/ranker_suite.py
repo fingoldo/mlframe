@@ -303,14 +303,13 @@ def train_mlframe_ranker_suite(
                 )
         if _inf_exprs:
             df_features = df_features.with_columns(_inf_exprs)
-        # Convert to pandas in one shot. NOTE: ``use_pyarrow_extension_array=True``
-        # is 5-10x faster but produces Arrow-backed string columns that
-        # CatBoost cannot process ("Cannot convert 'A' to float" on c0021 LTR
-        # combo). The conservative default materialises all dtypes to pandas-native
-        # equivalents -- one full copy, unavoidable at the polars→pandas boundary.
-        # The main Wave 27 win is eliminating the EXTRA .copy() + .replace() copies
-        # (2 full copies saved) by cleaning inf values in polars before conversion.
-        df_features = df_features.to_pandas()
+        # Convert to pandas via the Arrow-backed bridge (utils.get_pandas_view_of_polars_df).
+        # split_blocks=True keeps numeric / bool columns as zero-copy Arrow buffer views
+        # instead of consolidating into fresh numpy blocks -- ~32x faster on multi-million-row
+        # frames (bench: 30s -> 0.95s on 7.3M x 118 with 18 dict cols). String/Categorical
+        # columns still materialise to pandas-native dtypes that CatBoost can ingest.
+        from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+        df_features = _get_pandas_view(df_features)
     elif isinstance(df_features, pd.DataFrame):
         # Pandas path: inf cleaning (pandas .replace on full frame, one copy).
         # Rare in fuzz (the suite sends polars by default); kept for completeness.

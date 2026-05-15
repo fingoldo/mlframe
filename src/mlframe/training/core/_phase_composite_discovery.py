@@ -16,6 +16,11 @@ import polars as pl
 
 from ..baseline_diagnostics import BaselineDiagnostics
 from ..composite import CompositeTargetDiscovery
+from ..composite_cache import (
+    DiscoveryCache,
+    data_signature,
+    make_discovery_cache_key,
+)
 from ..configs import TargetTypes
 from .utils import (
     _build_full_column_from_splits,
@@ -24,6 +29,47 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _discovery_config_signature(config: Any) -> str:
+    """Stable JSON-derived signature of a CompositeTargetDiscoveryConfig.
+
+    Combined with library versions (``mlframe``/``sklearn``/``lightgbm``/
+    ``catboost``) so a dependency bump invalidates cached specs - this
+    is the cache-poisoning protection: a CatBoost upgrade can change MI
+    bin boundaries, so we MUST refit.
+    """
+    import hashlib
+    import json as _json
+
+    payload: dict[str, Any] = {}
+    try:
+        if hasattr(config, "model_dump"):
+            payload["config"] = config.model_dump(mode="json")
+        elif hasattr(config, "dict"):
+            payload["config"] = config.dict()
+        else:
+            payload["config"] = repr(config)
+    except Exception as _e:
+        payload["config_repr"] = repr(config)
+        payload["config_dump_error"] = str(_e)
+
+    versions: dict[str, str] = {}
+    try:
+        from mlframe import __version__ as _mlv
+        versions["mlframe"] = _mlv
+    except Exception:
+        versions["mlframe"] = "?"
+    for _name in ("sklearn", "lightgbm", "catboost"):
+        try:
+            mod = __import__(_name)
+            versions[_name] = str(getattr(mod, "__version__", "?"))
+        except Exception:
+            versions[_name] = "absent"
+    payload["versions"] = versions
+
+    blob = _json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.blake2b(blob.encode("utf-8"), digest_size=16).hexdigest()
 
 
 def run_composite_target_discovery(
@@ -43,6 +89,7 @@ def run_composite_target_discovery(
     baseline_diagnostics_config,
     cat_features: list[str] | None,
     verbose: bool,
+    discovery_cache_dir: Any = None,
 ) -> tuple[dict, dict]:
     """Run composite-target discovery for regression targets.
 
@@ -208,36 +255,130 @@ def run_composite_target_discovery(
             else:
                 _hint_strengths = None
 
-            try:
-                _disc_instance = CompositeTargetDiscovery(_disc_cfg)
-                if _use_hint and _diag is not None and _hint_strengths:
-                    _disc_instance._hint_strengths_pct = _hint_strengths
-                _disc = _disc_instance.fit(
-                    df=_disc_df,
-                    target_col=_tname_disc,
-                    feature_cols=_disc_feature_cols,
-                    train_idx=_disc_train_idx,
-                )
-            except Exception as _disc_err:
-                logger.warning(
-                    "[CompositeTargetDiscovery] fit failed for target='%s': %s. "
-                    "Per-target training continues without composite expansion.",
-                    _tname_disc, _disc_err,
-                )
-                continue
+            # Disk-backed discovery cache (ship-or-strip -> ship). Key
+            # carries data fingerprint + target column + config signature
+            # (which embeds mlframe/sklearn/lightgbm/catboost versions for
+            # cache-poisoning protection). A hit skips the full MI / Wilcoxon
+            # / tiny-model rerank path that otherwise costs minutes on
+            # multi-million-row frames.
+            _disc_cache: DiscoveryCache | None = None
+            _disc_cache_key: str | None = None
+            if discovery_cache_dir is not None:
+                try:
+                    _disc_cache = DiscoveryCache(discovery_cache_dir)
+                    _df_sig = data_signature(
+                        _disc_df, _tname_disc, _disc_feature_cols,
+                        random_state=int(getattr(_disc_cfg, "random_state", 42) or 42),
+                    )
+                    _cfg_sig = _discovery_config_signature(_disc_cfg)
+                    _disc_cache_key = make_discovery_cache_key(
+                        _df_sig, _tname_disc, _cfg_sig,
+                        random_state=int(getattr(_disc_cfg, "random_state", 42) or 42),
+                    )
+                    _cached_payload = _disc_cache.get(_disc_cache_key)
+                except Exception as _cache_err:
+                    logger.info(
+                        "[CompositeTargetDiscovery] cache key build failed for "
+                        "target='%s' (%s); proceeding without cache.",
+                        _tname_disc, _cache_err,
+                    )
+                    _cached_payload = None
+            else:
+                _cached_payload = None
 
-            metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
-            metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = (
-                _disc.export_specs()
-            )
-            metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
-            metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [
-                r for r in _disc.report() if r.get("rejected")
-            ]
-            metadata.setdefault("composite_target_filter_drops", {})
-            metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
-            metadata["composite_target_filter_drops"][str(_tt_disc)][
-                _tname_disc] = _disc.filter_drops()
+            if _cached_payload is not None:
+                # Replay the cached output into metadata without refitting.
+                metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
+                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = (
+                    _cached_payload.get("specs_export", [])
+                )
+                metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
+                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = (
+                    _cached_payload.get("failures", [])
+                )
+                metadata.setdefault("composite_target_filter_drops", {})
+                metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
+                metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = (
+                    _cached_payload.get("filter_drops", {})
+                )
+                metadata.setdefault("composite_target_cache", {}) \
+                    .setdefault(str(_tt_disc), {})[_tname_disc] = {
+                        "hit": True, "key": _disc_cache_key,
+                    }
+                logger.info(
+                    "[CompositeTargetDiscovery] cache HIT for target='%s' "
+                    "(key=%s); skipping full discovery.",
+                    _tname_disc, (_disc_cache_key or "?")[:16],
+                )
+                # No specs_/_disc instance available on cache hit; the
+                # downstream forward-applier loop expects one. Reconstruct
+                # the bare-minimum CompositeSpec list from the cached export.
+                try:
+                    from ..composite_spec import CompositeSpec as _Spec
+                    _cached_specs = [
+                        _Spec(**s) if isinstance(s, dict) else s
+                        for s in _cached_payload.get("specs_export", [])
+                    ]
+                except Exception:
+                    _cached_specs = []
+
+                class _CacheReplay:
+                    specs_ = _cached_specs
+
+                _disc = _CacheReplay()
+            else:
+                try:
+                    _disc_instance = CompositeTargetDiscovery(_disc_cfg)
+                    if _use_hint and _diag is not None and _hint_strengths:
+                        _disc_instance._hint_strengths_pct = _hint_strengths
+                    _disc = _disc_instance.fit(
+                        df=_disc_df,
+                        target_col=_tname_disc,
+                        feature_cols=_disc_feature_cols,
+                        train_idx=_disc_train_idx,
+                    )
+                except Exception as _disc_err:
+                    logger.warning(
+                        "[CompositeTargetDiscovery] fit failed for target='%s': %s. "
+                        "Per-target training continues without composite expansion.",
+                        _tname_disc, _disc_err,
+                    )
+                    continue
+
+                metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
+                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = (
+                    _disc.export_specs()
+                )
+                metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
+                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = [
+                    r for r in _disc.report() if r.get("rejected")
+                ]
+                metadata.setdefault("composite_target_filter_drops", {})
+                metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
+                metadata["composite_target_filter_drops"][str(_tt_disc)][
+                    _tname_disc] = _disc.filter_drops()
+
+                # Populate the cache so the next call with identical inputs
+                # short-circuits.
+                if _disc_cache is not None and _disc_cache_key is not None:
+                    try:
+                        _disc_cache.set(_disc_cache_key, {
+                            "specs_export": _disc.export_specs(),
+                            "failures": [
+                                r for r in _disc.report() if r.get("rejected")
+                            ],
+                            "filter_drops": _disc.filter_drops(),
+                        })
+                        metadata.setdefault("composite_target_cache", {}) \
+                            .setdefault(str(_tt_disc), {})[_tname_disc] = {
+                                "hit": False, "key": _disc_cache_key,
+                            }
+                    except Exception as _cache_err:
+                        logger.info(
+                            "[CompositeTargetDiscovery] cache set failed for "
+                            "target='%s' (%s); ignored.",
+                            _tname_disc, _cache_err,
+                        )
 
             # Apply frozen (train-fitted) params to ALL rows so the per-target loop has T for val/test.
             # NaN rows (domain violations on val/test) get imputed with median(T_train).

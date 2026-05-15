@@ -8,7 +8,7 @@ All config classes support lenient validation - inputs are normalized to canonic
 from __future__ import annotations
 
 
-from typing import Optional, Dict, Any, List, Callable, Tuple, Literal, Union, ClassVar, FrozenSet
+from typing import Optional, Dict, Any, List, Callable, Tuple, Literal, Union, ClassVar, FrozenSet, Set
 
 import sys
 if sys.version_info >= (3, 11):
@@ -489,7 +489,6 @@ class PreprocessingExtensionsConfig(BaseConfig):
         "RobustScaler", "MinMaxScaler", "MaxAbsScaler",
         "PowerTransformer_yj", "PowerTransformer_yj_nostd",
         "QuantileTransformer_uniform", "QuantileTransformer_normal",
-        "Normalizer_l2",
     ]] = None
     binarization_threshold: Optional[float] = None
     kbins: Optional[int] = None
@@ -503,6 +502,14 @@ class PreprocessingExtensionsConfig(BaseConfig):
     tfidf_columns: List[str] = Field(default_factory=list)
     tfidf_max_features: int = 5000
     tfidf_ngram_range: Tuple[int, int] = (1, 2)
+    # When True (default), TF-IDF outputs survive the extensions stage as
+    # ``pd.DataFrame.sparse.from_spmatrix(...)``; sparse-aware backends
+    # (cb / xgb / lgb / linear / ridge / sgd) read csr via ``.sparse.to_coo()``
+    # while dense-only backends densify implicitly on ``.to_numpy()``.
+    # At ``max_features=5000`` and 1M rows this is the difference between
+    # ~40 GB dense float64 and ~hundreds of MB sparse. Set False to restore
+    # the pre-2026-05-15 unconditional ``.toarray()`` path.
+    tfidf_keep_sparse: bool = True
     dim_reducer: Optional[Literal[
         "PCA", "KernelPCA", "LDA", "NMF", "TruncatedSVD", "FastICA",
         "Isomap", "UMAP", "GaussianRandomProjection",
@@ -596,6 +603,20 @@ class FeatureTypesConfig(BaseConfig):
     cat_text_cardinality_threshold: int = Field(default=300, ge=1)
     # Per-column "honor the user's explicit dtype" signal. When False (default), any text-like column (pl.String / pl.Utf8 / pl.Categorical / pl.Enum / pandas object|string|category) with n_unique > threshold gets auto-promoted to text_features even if the user explicitly cast it. When True, a column whose incoming dtype already encodes a categorical intent (pl.Categorical, pl.Enum, pandas ``category``) stays in cat_features regardless of cardinality; only raw pl.String / pl.Utf8 / pandas object/string columns remain candidates for auto-promotion. Use case: a high-cardinality column (eg 10k-unique ``skills_text`` already cast to ``pl.Categorical`` upstream) that the operator wants handled by CatBoost's categorical path, not its TF-IDF text path.
     honor_user_dtype: bool = False
+    # Minimum non-null FRACTION required to promote a high-cardinality string column to text_features. Below this, CatBoost's TF-IDF estimator yields an empty dictionary and raises "Dictionary size is 0" (text_feature_estimators.cpp). Fraction (not absolute count) so the floor scales with dataset size. Default 0.01 = 1% of rows.
+    min_non_null_fraction_for_text_promotion: float = Field(default=0.01, ge=0.0, le=1.0)
+    # Datetime decomposition methods applied to detected datetime columns
+    # before the pre-pipeline clone. Each entry is a polars/pandas ``.dt``
+    # accessor name; ``create_date_features`` casts the result to int8.
+    # Backward-compat default keeps the legacy {day, weekday, month, hour}
+    # quad. Per the richness-first policy, the set is exposed so callers can
+    # request richer decompositions (year / ordinal_day / minute / second).
+    # The historical name "dayofyear" maps to the polars accessor
+    # ``ordinal_day``; pandas exposes both names. To stay portable across
+    # backends, use ``ordinal_day``.
+    datetime_methods: Set[str] = Field(
+        default_factory=lambda: {"day", "weekday", "month", "hour"},
+    )
 
 
 class FeatureSelectionConfig(BaseConfig):
@@ -1101,6 +1122,9 @@ class TrainingBehaviorConfig(BaseConfig):
     # ``confidence_ensemble_quantile``: top-quantile of MOST-CONFIDENT rows used by the "Conf Ensemble" flavors. Default 0.1 (= top 10%); set 0.0 to disable Conf Ensembles entirely (saves ~6 flavor x 2 split = 12 log blocks + their charts per ensemble pass). The raw ensemble metrics still print - only the confidence-subset variant is suppressed.
     report_residual_audit: bool = True
     confidence_ensemble_quantile: float = 0.1
+
+    # Pre-pipeline LRU bound. Default 4 covers the common Linear+MLP+RFECV+catboost suite without thrashing; long-running services with bigger model rosters can bump this without monkey-patching the module global.
+    pre_pipeline_cache_max: int = 4
 
     # Fix 8 (2026-04-21): append a per-model input-schema fingerprint
     # (``__sch_<10 hex>``) to model filenames so two runs with different
@@ -2305,7 +2329,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # / 0 means keep all components (default).
     max_inference_components: Optional[int] = None
 
-    # Opt-in honest OOF for the ensemble gate / stacking.
+    # Honest OOF for the ensemble gate / stacking.
     #
     # When > 0, the suite carves an extra holdout slice (this fraction
     # of filtered_train_idx) and at ensemble-build time re-fits a
@@ -2314,9 +2338,20 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # predictions feed the stacking solvers (linear_stack /
     # nnls_stack) and the gain-over-baseline weights, replacing the
     # train-RMSE proxy that overstates accuracy. Cost: re-fits every
-    # component once on (1-frac) of train rows. Default 0.0 (use
-    # train-RMSE proxy, no extra fits).
-    oof_holdout_frac: float = 0.0
+    # component once on (1-frac) of train rows.
+    #
+    # Default flipped from 0.0 -> 0.2 on 2026-05-15 because the default
+    # cross_target_ensemble_strategy is ``nnls_stack``. Fitting NNLS on
+    # in-sample component predictions is a stacking leak: every
+    # component has effectively memorised its training rows, so NNLS
+    # picks weights that overweight whichever component fits noise
+    # best. A 20% honest holdout is the standard "stacking on OOF" cure
+    # documented in Sill et al. 2009 (Feature-Weighted Linear Stacking)
+    # and removes the leak at the cost of one extra fit per component
+    # on 80% of train rows. Set to 0.0 explicitly to opt out (e.g. when
+    # using a non-stacking strategy like ``mean`` where the train-RMSE
+    # proxy is harmless).
+    oof_holdout_frac: float = 0.2
     oof_random_state: int = DEFAULT_RANDOM_SEED
 
     @field_validator("cross_target_ensemble_strategy", mode="before")

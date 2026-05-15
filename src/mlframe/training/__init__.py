@@ -141,6 +141,7 @@ _LAZY_IMPORTS = {
     'create_polarsds_pipeline': ('.pipeline', 'create_polarsds_pipeline'),
     'fit_and_transform_pipeline': ('.pipeline', 'fit_and_transform_pipeline'),
     'prepare_df_for_catboost': ('.pipeline', 'prepare_df_for_catboost'),
+    'prepare_dfs_for_catboost_joint': ('.pipeline', 'prepare_dfs_for_catboost_joint'),
 
     # Utility functions
     'log_ram_usage': ('.utils', 'log_ram_usage'),
@@ -303,6 +304,7 @@ __all__ = [
     'create_polarsds_pipeline',
     'fit_and_transform_pipeline',
     'prepare_df_for_catboost',
+    'prepare_dfs_for_catboost_joint',
 
     # Utils
     'log_ram_usage',

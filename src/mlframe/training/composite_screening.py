@@ -31,7 +31,10 @@ def _extract_column_array(df: Any, col: str) -> np.ndarray:
     """Pull a single column out as a 1-D float64 ndarray. Polars / pandas
     only -- never materialise a whole-frame conversion."""
     if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
-        return np.asarray(df.get_column(col).to_numpy()).astype(np.float64)
+        # Polars Series.to_numpy() already returns an ndarray; the prior
+        # np.asarray wrapper allocated a redundant view. copy=False keeps
+        # the astype zero-copy when the source dtype already matches.
+        return df.get_column(col).to_numpy().astype(np.float64, copy=False)
     if isinstance(df, pd.DataFrame):
         return df[col].to_numpy(dtype=np.float64)
     raise TypeError(

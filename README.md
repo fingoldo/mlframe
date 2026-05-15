@@ -180,6 +180,12 @@ preds = batch_predict(
 - **sklearn-version pinning.** A dedicated [sklearn-matrix CI workflow](.github/workflows/sklearn-matrix-ci.yml) tests the composite-target wrapper surface against scikit-learn 1.5, 1.6, 1.7, and 1.8 on every PR; attribute-delegation breakage shows up before users hit it.
 - **Fuzz-tested.** ~150 pairwise + ~400 3-wise (IPOG-covering) parameter combos run per release, hitting axes the unit tests don't reach. Combo regressions get permanent sensors so they don't recur.
 
+## Roadmap
+
+Operations that do not fit the current pipeline-slot abstractions are parked here pending refactor:
+
+- **Row-wise transformations** (per-sample normalization). `Normalizer(norm="l2"/"l1"/"max")` projects each *sample* onto a unit hypersphere; appropriate for text/embedding similarity but it silently breaks tree-based models (CatBoost / LightGBM / XGBoost / HGB / RF) that rely on absolute feature magnitudes. Was previously routed through `PreprocessingExtensionsConfig.scaler="Normalizer_l2"`; removed 2026-05-15. A dedicated `row_transform` pipeline slot is planned so row-wise ops have an unambiguous home that cannot be confused with column scalers.
+
 ## Testing
 
 ```bash

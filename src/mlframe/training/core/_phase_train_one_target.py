@@ -1,6 +1,7 @@
 """_train_one_target - per-target training entry point."""
 from __future__ import annotations
 
+import inspect
 import logging
 from timeit import default_timer as timer
 from typing import Any, Dict, List, Optional
@@ -96,7 +97,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     imputer = ctx.imputer
     scaler = ctx.scaler
     trainset_features_stats = ctx.trainset_features_stats
-    can_skip_pandas_conv = ctx.can_skip_pandas_conv
+    defer_pandas_conv = ctx.defer_pandas_conv
     train_df_size_bytes_cached = ctx.train_df_size_bytes_cached
     val_df_size_bytes_cached = ctx.val_df_size_bytes_cached
     _all_target_audits = ctx._all_target_audits
@@ -104,7 +105,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     models = ctx.models
     slug_to_original_target_type = ctx.slug_to_original_target_type
     slug_to_original_target_name = ctx.slug_to_original_target_name
-    models_dir = ctx.models_dir
+    # Identity assignment is intentional: keep the slug key registered even when it equals the original name,
+    # so downstream lookups via slug never KeyError on round-trip identity targets.
     slug_to_original_target_name[slugify(cur_target_name)] = cur_target_name
     # Initialised pre-conditional so a later reference doesn't NameError when mlframe_models is empty.
     rfecv_models_params = {}
@@ -317,17 +319,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
 
         # Models sorted by feature tier (richest first) so text/embedding columns are dropped once per tier.
         # Strategy lookup keyed by id() because estimators / tuples are not hashable, and identity-distinct
-        # instances must stay distinct in the map.
-        strategy_by_model = {id(m): get_strategy(m) for m in mlframe_models}
-        sorted_models = sorted(
-            mlframe_models,
-            key=lambda m: (
-                is_neural_model(m),  # push neural to end
-                tuple(
-                    -int(t) for t in strategy_by_model[id(m)].feature_tier()
-                ),  # rich-feature models first
-            ),
-        )
+        # instances must stay distinct in the map. Pre-computed once per suite by setup_configuration;
+        # reading off ctx here avoids the O(targets * pre_pipelines * models) re-evaluation that used to
+        # rebuild this map per inner-loop iteration.
+        strategy_by_model = ctx.strategy_by_model
+        sorted_models = ctx.sorted_mlframe_models
         tier_dfs_cache = {}  # feature_tier -> {train_df, val_df, test_df}
         # Leak-free pl.Enum map built from train+val UNION only (test EXCLUDED to avoid label-time leakage).
         # Depends only on (feature_tier, strategy class) so we cache once per (target, tier, strategy).
@@ -337,7 +333,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         # Neural max_time defaults to P95 of non-neural train times so MLP can't run 2h while boosters take 5min.
         _non_neural_train_times: list[float] = []
 
-        _total_models_in_run = len(list(sorted_models))
+        _total_models_in_run = len(sorted_models)
         _model_idx_in_run = 0
         _break_model_loop = False
         for mlframe_model_name in tqdmu_lazy_start(sorted_models, desc="mlframe model"):
@@ -345,6 +341,9 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 continue
             _model_idx_in_run += 1
             if verbose:
+                # Per-model RSS sample is intentional: localising OOM-blame to a specific
+                # model+target+pre_pipeline tuple in the verbose-suite log saves hours of post-mortem
+                # log-correlation. The ~3ms/call Windows cost is dwarfed by per-model fit times.
                 try:
                     import psutil as _ps
                     _ram_gb_now = _ps.Process().memory_info().rss / (1024 ** 3)
@@ -563,6 +562,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     model_name_with_weight += f" w={weight_name}"
                     model_file_name +=f"_{weight_name}"
 
+                # Isolation copy: per-(model, weight) inner mutations (sample_weight, plot_file
+                # decoration, lazy pandas conversion, fastpath frame swap) must not bleed into
+                # the outer ``common_params`` template that the next iteration consumes. The
+                # 4-deep nesting (target_type x target x pre_pipeline x model x weight) has been
+                # verified across the suite -- removing the copy regresses the cross-weight
+                # contamination tests. Do NOT inline.
                 current_common_params = common_params.copy()
                 current_common_params["sample_weight"] = weight_values
 
@@ -608,9 +613,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     cloned_model = type(original_model)(**original_model.get_params())
                 except TypeError:
                     # NGBoost: get_params() exposes attributes the constructor doesn't accept.
-                    import inspect as _inspect
                     _cls = type(original_model)
-                    _sig_params = set(_inspect.signature(_cls.__init__).parameters) - {"self"}
+                    _sig_params = set(inspect.signature(_cls.__init__).parameters) - {"self"}
                     _raw = original_model.get_params(deep=False)
                     cloned_model = _cls(**{k: v for k, v in _raw.items() if k in _sig_params})
                 # sklearn.clone() strips non-param attributes; re-assert mlframe sticky flags so the
@@ -641,6 +645,10 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             setattr(cloned_model, _attr, getattr(original_model, _attr))
                         except Exception as _attr_err:
                             logger.debug("Could not forward %s to clone: %s", _attr, _attr_err)
+                # Isolation copy: each weight iteration installs its own cloned_model and may
+                # patch fit_params (CatBoost text/embedding fastpath); without copying we would
+                # mutate the suite-level models_params template and the next target would inherit
+                # this iteration's overrides.
                 current_model_params = models_params[mlframe_model_name].copy()
                 current_model_params["model"] = cloned_model
 
@@ -898,6 +906,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 uncertainty_quantile=_conf_q,
                 **common_params,
             )
+            # Persist the ensemble outputs so finalize_suite can serialise them and downstream
+            # consumers (predict, reporting) see them. Pre-fix this return value was bound to a
+            # local that nothing read, silently discarding every ensemble model the suite built.
+            if _ensembles:
+                ctx.ensembles.setdefault(target_type, {})[cur_target_name] = _ensembles
+                # Mirror into the per-target model list (same slot the per-family training loop
+                # uses) so any code iterating ``models[target_type][target_name]`` picks the
+                # ensembles up without needing a separate dispatch.
+                _target_models = models.setdefault(target_type, {}).setdefault(cur_target_name, [])
+                for _ens_method, _ens_result in _ensembles.items():
+                    _target_models.append(_ens_result)
 
     ctx.models = models
     ctx.metadata = metadata
@@ -914,7 +933,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     ctx.filtered_train_df = filtered_train_df
     ctx.filtered_val_df = filtered_val_df
     ctx.pipeline = pipeline
-    ctx.can_skip_pandas_conv = can_skip_pandas_conv
+    ctx.defer_pandas_conv = defer_pandas_conv
     ctx.baseline_rss_mb = baseline_rss_mb
     ctx.train_df_size_bytes_cached = train_df_size_bytes_cached
     ctx.val_df_size_bytes_cached = val_df_size_bytes_cached

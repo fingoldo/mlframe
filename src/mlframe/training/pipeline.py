@@ -49,8 +49,12 @@ _SCALER_FACTORIES = {
     "PowerTransformer_yj_nostd": lambda: __import__("sklearn.preprocessing", fromlist=["PowerTransformer"]).PowerTransformer(method="yeo-johnson", standardize=False),
     "QuantileTransformer_uniform": lambda: __import__("sklearn.preprocessing", fromlist=["QuantileTransformer"]).QuantileTransformer(output_distribution="uniform"),
     "QuantileTransformer_normal": lambda: __import__("sklearn.preprocessing", fromlist=["QuantileTransformer"]).QuantileTransformer(output_distribution="normal"),
-    "Normalizer_l2": lambda: __import__("sklearn.preprocessing", fromlist=["Normalizer"]).Normalizer(norm="l2"),
 }
+# Row-wise normalizers (Normalizer with norm=l2/l1/max) were previously listed
+# here under "scaler". They are NOT column scalers: they project each *sample*
+# onto a unit hypersphere, which silently breaks tree-based models that rely
+# on absolute feature magnitudes. Removed 2026-05-15; row-wise transforms will
+# get a dedicated `row_transform` slot (see README.md "Roadmap").
 
 
 def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: int, random_state: int = 42) -> list:
@@ -218,6 +222,10 @@ def _apply_pysr_fe(
         temp_target_col = "_" + temp_target_col
     train_df[temp_target_col] = np.asarray(y_train).ravel()
 
+    # Thread the suite-level seed through to PySR's internal sampler. Without
+    # this, run_pysr_feature_engineering's df.sample(...) draws a fresh row
+    # subset each call and equations drift run-to-run.
+    pysr_random_state = int(getattr(config, "random_seed", 42))
     try:
         model = run_pysr_feature_engineering(
             df=train_df,
@@ -226,6 +234,7 @@ def _apply_pysr_fe(
             encode_categoricals=False,
             verbose=0,
             pysr_params_override=merged_params,
+            random_state=pysr_random_state,
         )
     except Exception:
         if verbose:
@@ -362,6 +371,22 @@ def apply_preprocessing_extensions(
                 len(skipped_split_mismatch), skipped_split_mismatch,
             )
 
+        # When ``tfidf_keep_sparse=True`` (default), the per-column TF-IDF
+        # csr_matrix is wrapped as a pandas Sparse DataFrame; downstream
+        # sparse-aware backends extract csr without densifying. At
+        # ``max_features=5000`` on 1M rows this is ~40 GB dense vs ~hundreds
+        # of MB sparse. When False, retain the legacy ``.toarray()`` path.
+        _keep_sparse = bool(getattr(config, "tfidf_keep_sparse", True))
+
+        def _spmatrix_to_df(spmat, columns, index):
+            """Return a DataFrame whose ``columns`` are sparse-dtype when
+            ``_keep_sparse`` is on, dense otherwise. Sparse-dtype DataFrames
+            keep ``.columns`` and ``.index`` semantics; consumers densify
+            implicitly via ``.to_numpy()``."""
+            if _keep_sparse:
+                return pd.DataFrame.sparse.from_spmatrix(spmat, columns=columns, index=index)
+            return pd.DataFrame(spmat.toarray(), columns=columns, index=index)
+
         for col in usable_cols:
             vec = TfidfVectorizer(
                 max_features=config.tfidf_max_features,
@@ -371,15 +396,15 @@ def apply_preprocessing_extensions(
             tfidf_train = vec.fit_transform(train_text)
             tfidf_pipes[col] = vec
             new_cols = [f"{col}__tfidf_{i}" for i in range(tfidf_train.shape[1])]
-            tfidf_train_df = pd.DataFrame(tfidf_train.toarray(), columns=new_cols, index=train.index)
+            tfidf_train_df = _spmatrix_to_df(tfidf_train, columns=new_cols, index=train.index)
             train = train.drop(columns=[col]).join(tfidf_train_df)
             for split_name, split_df in (("val", val), ("test", test)):
                 if split_df is not None:
                     # Column presence was verified above in `usable_cols`
                     # filtering; this branch is now guaranteed safe.
                     text_arr = split_df[col].fillna("").astype(str).values
-                    tfidf_arr = vec.transform(text_arr).toarray()
-                    new_split_df = pd.DataFrame(tfidf_arr, columns=new_cols, index=split_df.index)
+                    tfidf_sparse = vec.transform(text_arr)
+                    new_split_df = _spmatrix_to_df(tfidf_sparse, columns=new_cols, index=split_df.index)
                     if split_name == "val":
                         val = split_df.drop(columns=[col]).join(new_split_df)
                     else:
@@ -404,13 +429,44 @@ def apply_preprocessing_extensions(
     val_arr = pipe.transform(val) if val is not None and len(val) > 0 else None
     test_arr = pipe.transform(test) if test is not None and len(test) > 0 else None
 
+    # Preserve named-transformer output column names so downstream
+    # diagnostics and feature-importance reports stay interpretable. Pre-fix
+    # we relabelled every column to ``ext_<i>`` which collapsed all
+    # provenance ("which scaler? which equation? which TF-IDF token?").
+    # sklearn>=1.3 exposes ``get_feature_names_out``; fall back to
+    # ``ext_<step>_<i>`` derived from the last step's name otherwise.
+    def _build_output_column_names(n_cols: int) -> list:
+        try:
+            names = pipe.get_feature_names_out()
+            if names is not None and len(names) == n_cols:
+                return [str(n) for n in names]
+        except (AttributeError, ValueError, NotImplementedError):
+            pass
+        # Fallback: tag with the final transformer's step name so at least
+        # the stage is recoverable (e.g. ``ext_dim_reducer_3``).
+        last_step_name = steps[-1][0] if steps else "ext"
+        return [f"ext_{last_step_name}_{i}" for i in range(n_cols)]
+
     def _to_df(arr, template):
         if arr is None:
             return None
-        if hasattr(arr, "toarray"):
+        # sklearn pipeline output may still be sparse if no dim_reducer was
+        # configured (PCA/TruncatedSVD/etc densify; pass-through stages preserve
+        # sparsity). Wrap into a Sparse-dtype DataFrame when keep-sparse is on.
+        try:
+            import scipy.sparse as _sp
+            _is_sparse = _sp.issparse(arr)
+        except ImportError:
+            _is_sparse = False
+        col_names = _build_output_column_names(arr.shape[1])
+        if _is_sparse:
+            if bool(getattr(config, "tfidf_keep_sparse", True)):
+                return pd.DataFrame.sparse.from_spmatrix(
+                    arr, columns=col_names,
+                    index=getattr(template, "index", None),
+                )
             arr = arr.toarray()
-        cols = [f"ext_{i}" for i in range(arr.shape[1])]
-        return pd.DataFrame(arr, columns=cols, index=getattr(template, "index", None))
+        return pd.DataFrame(arr, columns=col_names, index=getattr(template, "index", None))
 
     train_out = _to_df(train_arr, train)
     val_out = _to_df(val_arr, val)
@@ -445,6 +501,13 @@ def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]) -> None:
         ``skip_categorical_encoding=True`` + pandas input + 10-30% null_frac
         in cat columns. Fill NaN with a sentinel "__MISSING__" BEFORE the
         category cast so the sentinel lands as a valid category level.
+
+        Single-frame variant: each call builds an independent Categorical
+        dtype from the frame's own visible values, so codes can drift
+        between train/val/test splits ("A" -> code 0 in train but code 1
+        in val if val's first row is "B"). When preparing all three splits
+        of one training run, prefer ``prepare_dfs_for_catboost_joint`` which
+        builds the dtype once from train+val and reuses it.
     """
     for col in cat_features:
         if col in df.columns:
@@ -457,6 +520,67 @@ def prepare_df_for_catboost(df: pd.DataFrame, cat_features: List[str]) -> None:
                 df[col] = s.astype("category")
             elif s.dtype.name != "category":
                 df[col] = s.astype("category")
+
+
+def prepare_dfs_for_catboost_joint(
+    *,
+    train_df: pd.DataFrame,
+    val_df: Optional[pd.DataFrame],
+    test_df: Optional[pd.DataFrame],
+    cat_features: List[str],
+) -> None:
+    """Cast cat_features to a Categorical dtype whose category set is the
+    JOINT union of train + val. Held-out test must not contribute to the
+    union (it has to look "truly unseen" to the model); test values absent
+    from the train+val union land as null codes via ``strict=False`` semantics
+    of ``pd.Categorical``.
+
+    Pre-fix path used ``prepare_df_for_catboost`` separately per frame so the
+    same string value could receive different codes in train vs val vs test -
+    e.g. train ``{A,B} -> [0,1]`` and val ``{A,C} -> [0,1]`` mapped "B" and
+    "C" to the same code 1 - silently corrupting CatBoost's split decisions.
+
+    All three frames are mutated in place.
+    """
+    if train_df is None:
+        return
+    nullable_sentinel = "__MISSING__"
+    for col in cat_features:
+        if col not in train_df.columns:
+            continue
+        # Collect every value seen in train + val. Apply the same NaN->sentinel
+        # rewrite the per-frame variant did, otherwise the union would
+        # silently drop null-bearing rows from the category set.
+        def _stringify(series):
+            if series.isna().any():
+                return series.astype("string").fillna(nullable_sentinel)
+            if series.dtype.name == "category":
+                return series.astype("string")
+            return series.astype("string")
+
+        train_s = _stringify(train_df[col])
+        union_values = set(train_s.unique().tolist())
+        if val_df is not None and col in val_df.columns:
+            val_s = _stringify(val_df[col])
+            union_values |= set(val_s.unique().tolist())
+        else:
+            val_s = None
+
+        # Sorted for stable code assignment across reruns; CategoricalDtype
+        # uses the supplied order for code positions.
+        categories = sorted(union_values)
+        joint_dtype = pd.api.types.CategoricalDtype(categories=categories, ordered=False)
+
+        train_df[col] = train_s.astype(joint_dtype)
+        if val_df is not None and col in val_df.columns:
+            val_df[col] = val_s.astype(joint_dtype)
+        if test_df is not None and col in test_df.columns:
+            # Test must NOT enlarge the union (see docstring). Use the same
+            # dtype; pd.Categorical's astype maps OOV strings to NaN, which
+            # matches the polars ``cast(enum_dt, strict=False)`` semantics in
+            # apply_polars_categorical_fixes.
+            test_s = _stringify(test_df[col])
+            test_df[col] = test_s.astype(joint_dtype)
 
 
 def _select_scalable_numeric_columns(
@@ -964,9 +1088,14 @@ def fit_and_transform_pipeline(
             if verbose:
                 logger.info(f"Preparing {len(cat_features)} categorical features for CatBoost...")
 
-            for df in [train_df, val_df, test_df]:
-                if df is not None and len(df) > 0:
-                    prepare_df_for_catboost(df, cat_features)
+            # Joint train+val union for stable codes across splits.
+            _safe_val = val_df if (val_df is not None and len(val_df) > 0) else None
+            _safe_test = test_df if (test_df is not None and len(test_df) > 0) else None
+            if train_df is not None and len(train_df) > 0:
+                prepare_dfs_for_catboost_joint(
+                    train_df=train_df, val_df=_safe_val, test_df=_safe_test,
+                    cat_features=cat_features,
+                )
 
     # Clean up empty validation/test sets
     if val_df is not None and len(val_df) == 0:
@@ -993,6 +1122,7 @@ def fit_and_transform_pipeline(
 
 __all__ = [
     "prepare_df_for_catboost",
+    "prepare_dfs_for_catboost_joint",
     "create_polarsds_pipeline",
     "fit_and_transform_pipeline",
     "apply_preprocessing_extensions",

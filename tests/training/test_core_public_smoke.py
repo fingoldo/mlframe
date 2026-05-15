@@ -43,7 +43,7 @@ def test_apply_polars_categorical_fixes_no_polars_inputs_returns_pandas_branch_u
         filtered_val_df=val_df_pd,
         cat_features=None,
         align_polars_categorical_dicts=False,
-        can_skip_pandas_conv=False,
+        defer_pandas_conv=False,
         was_polars_input=False,
         verbose=False,
     )
@@ -65,7 +65,7 @@ def test_apply_polars_categorical_fixes_no_cat_features_is_noop():
         filtered_val_df=None,
         cat_features=[],
         align_polars_categorical_dicts=True,
-        can_skip_pandas_conv=False,
+        defer_pandas_conv=False,
         was_polars_input=True,
         verbose=False,
     )

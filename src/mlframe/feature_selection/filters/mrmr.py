@@ -16,8 +16,8 @@ import psutil
 import textwrap
 import time
 import warnings
-from collections import defaultdict
-from itertools import combinations
+from collections import OrderedDict, defaultdict
+from itertools import combinations, islice
 from os.path import exists
 from timeit import default_timer as timer
 from typing import Sequence
@@ -220,6 +220,23 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
     return n_replayed
 
 
+def _lazy_chunks(iterable, chunk_size: int):
+    """Lazily yield successive ``chunk_size``-sized lists from ``iterable``.
+
+    Peak memory is O(chunk_size), not O(len(iterable)). Used by ``_run_fe_step``
+    to avoid materialising all O(k^2) feature pairs at once on wide datasets
+    (k=5000 features = 12.5M pairs, ~300 MB tuple-list before chunking).
+    """
+    if chunk_size < 1:
+        raise ValueError(f"_lazy_chunks: chunk_size must be >= 1, got {chunk_size}")
+    it = iter(iterable)
+    while True:
+        chunk = list(islice(it, chunk_size))
+        if not chunk:
+            break
+        yield chunk
+
+
 class MRMR(BaseEstimator, TransformerMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
@@ -257,10 +274,11 @@ class MRMR(BaseEstimator, TransformerMixin):
     # Process-wide cache of fitted state, keyed by (content_sig(X), content_sig(y), params_signature). When the
     # training suite iterates over models (clone()ing the pre-pipeline MRMR each time, stripping
     # ``_cat_fe_cache_``), subsequent fits on the same arrays hit this cache and skip the full cat-FE +
-    # permutation work. Cache holds STRONG references; long-lived workers can call MRMR._FIT_CACHE.clear()
-    # between suites. Cache hit: replay all fitted attributes onto ``self`` and return early; constructor params
-    # are NEVER overwritten (the key already includes the params signature, so a hit guarantees matching state).
-    _FIT_CACHE: dict[tuple, MRMR] = {}
+    # permutation work. LRU-bounded via ``OrderedDict`` + ``fit_cache_max`` (default 4) so long-lived workers
+    # do not leak; ``MRMR._FIT_CACHE.clear()`` between suites still drains the lot. Cache hit: replay all
+    # fitted attributes onto ``self`` and return early; constructor params are NEVER overwritten (the key
+    # already includes the params signature, so a hit guarantees matching state).
+    _FIT_CACHE: "OrderedDict[tuple, MRMR]" = OrderedDict()
 
     def __init__(
         self,
@@ -355,6 +373,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
         # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
         cat_fe_config=None,
+        # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
+        fit_cache_max: int = 4,
         # hidden
         stop_file: str = "stop",
     ):
@@ -367,6 +387,20 @@ class MRMR(BaseEstimator, TransformerMixin):
             parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES)
 
         # assert isinstance(estimator, (BaseEstimator,))
+
+        # ``random_state`` was declared but never read internally (``random_seed`` is the only consumed alias).
+        # Treat sklearn-style ``random_state`` as a fallback alias: if the user passed only ``random_state``,
+        # promote it to ``random_seed`` so seeded behaviour does not silently disappear. Warn on conflicts.
+        if random_state is not None:
+            if random_seed is None:
+                random_seed = random_state
+            elif random_seed != random_state:
+                warnings.warn(
+                    "MRMR: both random_seed and random_state were set to different values; "
+                    f"using random_seed={random_seed} and ignoring random_state={random_state}.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
 
         # save params
         store_params_in_object(obj=self, params=get_parent_func_args())
@@ -460,6 +494,58 @@ class MRMR(BaseEstimator, TransformerMixin):
             pass
         return X
 
+    def _resolve_target_prefix(self) -> str:
+        """Stable, seedable prefix for the temporary target columns injected during fit.
+
+        Pre-fix code used ``str(np.random.random())[3:9]`` which (a) reseeded
+        nothing but consumed from the process-global numpy RNG, breaking
+        reproducibility across test orderings, and (b) produced a different
+        prefix every call. With ``random_seed`` set, derive a deterministic 6-hex
+        suffix from a local ``np.random.default_rng``; otherwise fall back to a
+        process-stable but seedable PID+id(self)-based source so concurrent
+        instances stay collision-resistant without touching global state.
+        """
+        if self.random_seed is not None:
+            local_rng = np.random.default_rng(int(self.random_seed))
+            tok = int(local_rng.integers(0, 2**24))
+        else:
+            tok = (os.getpid() ^ id(self)) & 0xFFFFFF
+        return f"targ_{tok:06x}"
+
+    def _coerce_target_dtype(self, vals: np.ndarray) -> np.ndarray:
+        """Memory-saving int64 -> int16 downcast, guarded against silent truncation.
+
+        Pre-fix path was unconditional: ``vals.dtype == np.int64`` triggered an
+        ``astype(np.int16)`` regardless of value range, silently truncating any
+        target outside [-32768, 32767]. New behaviour: downcast only when the
+        observed range fits; otherwise keep int64 and warn at logger level so
+        regression / multiclass-with-large-codes targets are preserved bit-exact.
+        """
+        if vals.dtype != np.int64:
+            return vals
+        vmin, vmax = vals.min(), vals.max()
+        info = np.iinfo(np.int16)
+        if vmin >= info.min and vmax <= info.max:
+            if self.verbose:
+                logger.info("Converted targets from int64 to int16.")
+            return vals.astype(np.int16)
+        if self.verbose:
+            logger.warning(
+                "MRMR: keeping int64 targets (range [%d, %d] exceeds int16 [%d, %d]); skipping memory-saving downcast.",
+                int(vmin), int(vmax), info.min, info.max,
+            )
+        return vals
+
+    def _rfecv_cv_kwargs(self) -> dict:
+        """Forward ``self.cv`` / ``self.cv_shuffle`` into the inner RFECV call.
+
+        These two MRMR constructor params used to be dead (zero callers read
+        ``self.cv``); they're now threaded into the RFECV instance built for the
+        post-screening ``run_additional_rfecv_minutes`` pass so users who pass
+        ``cv=5`` actually get 5-fold there.
+        """
+        return {"cv": self.cv, "cv_shuffle": self.cv_shuffle}
+
     # Pickle BC: old MRMR pickles lacking newer attributes resurface with the legacy defaults injected.
     def __setstate__(self, state):
         defaults = {
@@ -480,6 +566,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         self.__dict__.update(state)
 
     def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
+        """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
+        temporary target columns injected into a caller-supplied pandas frame are always dropped,
+        even if screening / cat-FE / discretization raises. Pre-fix code dropped only on success,
+        leaking ``targ_*`` columns into the caller's DataFrame on failure paths."""
+        self._pandas_frame_for_target_cleanup = None
+        self._target_names_for_cleanup = None
+        try:
+            return self._fit_impl(X, y, groups, **fit_params)
+        finally:
+            frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
+            names = getattr(self, "_target_names_for_cleanup", None)
+            if frame is not None and names:
+                # Drop only columns that actually exist (success path already removed them).
+                present = [c for c in names if c in frame.columns]
+                if present:
+                    try:
+                        frame.drop(columns=present, inplace=True)
+                    except Exception:
+                        pass
+            self._pandas_frame_for_target_cleanup = None
+            self._target_names_for_cleanup = None
+
+    def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
         """We run N selections on data subsets, and pick only features that appear in all selections"""
         X = self._validate_inputs(X, y)
 
@@ -509,6 +618,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             _cache_key = None
         if _cache_key is not None and _cache_key in MRMR._FIT_CACHE:
             _cached = MRMR._FIT_CACHE[_cache_key]
+            MRMR._FIT_CACHE.move_to_end(_cache_key)
             _replayed = _replay_fitted_state(self, _cached)
             if self.verbose:
                 logger.info(
@@ -570,19 +680,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Temporarily inject targets
         # ---------------------------------------------------------------------------------------------------------------
 
-        target_prefix = "targ_" + str(np.random.random())[3:9]
+        target_prefix = self._resolve_target_prefix()
         y_shape = y.shape
         if len(y_shape) == 2:
             y_shape = y_shape[1]
         else:
             y_shape = 1
-        target_names = [target_prefix + str(i) for i in range(y_shape)]
+        target_names = [target_prefix + "_" + str(i) for i in range(y_shape)]
 
         vals = _target_to_numpy_values(y)
-
-        if vals.dtype == np.int64:
-            print("Converted targets from int64 to int16.")
-            vals = vals.astype(np.int16)
+        vals = self._coerce_target_dtype(vals)
 
         # Native Polars support -- no `.to_pandas()` copy. Production frames are 100+ GB; full materialization
         # would OOM. Use Polars-native ops when the input is pl.DataFrame.
@@ -592,6 +699,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         except ImportError:
             _is_polars_input = False
 
+        # Track the caller-visible pandas frame so the ``finally`` below can always drop the injected target columns even if
+        # ``fit`` raises mid-way (e.g. categorize_dataset / screen_predictors / cat-FE step). Pre-fix code dropped only on
+        # the happy path, so a raised exception left ``targ_*`` columns on the caller's frame; downstream pipelines then
+        # baked them into ``feature_names_in_`` and crashed on ``transform``.
+        _caller_pandas_frame = None
         if _is_polars_input:
             # Polars is immutable; with_columns returns a new frame sharing buffers with X -- no data copy.
             target_series = [pl.Series(name, vals[:, i] if vals.ndim == 2 else vals) for i, name in enumerate(target_names)]
@@ -600,10 +712,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Multilabel target (N, K): pass through unchanged so each column maps to its target_names entry.
             # Previous .reshape(-1, 1) only worked for 1-D y; crashed on multilabel with "Must have equal len keys
             # and value when setting with an ndarray".
+            _caller_pandas_frame = X
             if vals.ndim == 2:
                 X.loc[:, target_names] = vals
             else:
                 X.loc[:, target_names] = vals.reshape(-1, 1)
+            # Register cleanup with the public ``fit`` wrapper so any later raise still strips ``targ_*``.
+            self._pandas_frame_for_target_cleanup = _caller_pandas_frame
+            self._target_names_for_cleanup = list(target_names)
 
         # ---------------------------------------------------------------------------------------------------------------
         # Discretize continuous data
@@ -933,6 +1049,9 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                 params = configs.COMMON_RFECV_PARAMS.copy()
                 params["max_runtime_mins"] = self.run_additional_rfecv_minutes
+                # Wire MRMR.cv / cv_shuffle into the additional RFECV pass; pre-fix they were dead constructor params.
+                # ``params`` may already carry ``cv`` from configs.COMMON_RFECV_PARAMS; MRMR's explicit setting wins.
+                params.update(self._rfecv_cv_kwargs())
 
                 if len(y) / len(np.unique(y)) > 100:  # classification
 
@@ -1016,9 +1135,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         self.ran_out_of_time_ = ran_out_of_time
 
         # Store self in process-wide cache so cloned MRMR instances fit on the same (X, y) arrays can replay
-        # this fitted state instead of re-running cat-FE + permutation.
+        # this fitted state instead of re-running cat-FE + permutation. Bound the LRU by ``fit_cache_max``;
+        # the default (4) covers a typical model suite without thrashing and long-lived workers no longer leak.
         if _cache_key is not None:
             MRMR._FIT_CACHE[_cache_key] = self
+            MRMR._FIT_CACHE.move_to_end(_cache_key)
+            _cap = int(getattr(self, "fit_cache_max", 4) or 4)
+            while len(MRMR._FIT_CACHE) > _cap:
+                MRMR._FIT_CACHE.popitem(last=False)
         return self
 
 
@@ -1097,14 +1221,25 @@ class MRMR(BaseEstimator, TransformerMixin):
             allowed = {cols.index(n) for n in self.factors_names_to_use if n in cols}
             numeric_vars_to_consider = numeric_vars_to_consider & allowed
 
-        all_pairs = list(combinations(numeric_vars_to_consider, 2))
+        # `combinations(...)` is consumed lazily by tqdmu (small path) or by
+        # `_lazy_chunks` (large path). Pair count is closed-form, avoiding
+        # `list(combinations(...))` materialisation (O(k^2) tuples, ~300 MB at
+        # k=5000) before chunking even starts.
+        _k = len(numeric_vars_to_consider)
+        n_pairs = (_k * (_k - 1)) // 2
 
         if verbose:
-            logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", len(all_pairs))
+            logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", n_pairs)
 
-        if len(numeric_vars_to_consider) < 50:
+        if _k < 50:
             compute_pairs_mis(
-                all_pairs=tqdmu(all_pairs, desc="getting pairs MIs", leave=False, mininterval=5),
+                all_pairs=tqdmu(
+                    combinations(numeric_vars_to_consider, 2),
+                    total=n_pairs,
+                    desc="getting pairs MIs",
+                    leave=False,
+                    mininterval=5,
+                ),
                 data=data,
                 target_indices=target_indices,
                 nbins=nbins,
@@ -1119,7 +1254,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
             )
         else:
-
+            chunk_size = max(1, n_pairs // (n_jobs * prefetch_factor))
             dicts = parallel_run(
                 [
                     delayed(compute_pairs_mis)(
@@ -1137,7 +1272,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         fe_min_pair_mi=fe_min_pair_mi,
                         fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
                     )
-                    for chunk in split_list_into_chunks(all_pairs, len(all_pairs) // (n_jobs * prefetch_factor))
+                    for chunk in _lazy_chunks(combinations(numeric_vars_to_consider, 2), chunk_size)
                 ],
                 n_jobs=n_jobs,
                 **parallel_kwargs,

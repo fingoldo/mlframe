@@ -69,6 +69,11 @@ class TrainingContext:
     custom_pre_pipelines: Any | None = None
     common_params_dict: dict = field(default_factory=dict)
     mlframe_models: list[str] = field(default_factory=list)
+    # Computed once per suite (strategies depend only on mlframe_models, which is suite-constant).
+    # Previously rebuilt inside the per-(target x pre_pipeline) inner loop, paying O(t * pp * m)
+    # get_strategy() calls; lifting here makes it O(m).
+    strategy_by_model: dict = field(default_factory=dict)
+    sorted_mlframe_models: list[str] = field(default_factory=list)
 
     df: pl.DataFrame | pd.DataFrame | None = None  # del'd after split
     target_by_type: dict = field(default_factory=dict)
@@ -135,13 +140,18 @@ class TrainingContext:
     imputer: TransformerMixin | None = None
     scaler: TransformerMixin | None = None
     trainset_features_stats: Any = None
-    can_skip_pandas_conv: bool = False
+    defer_pandas_conv: bool = False
     train_df_size_bytes_cached: int | None = None
     val_df_size_bytes_cached: int | None = None
     _all_target_audits: dict = field(default_factory=dict)
     _non_neural_train_times: list[float] = field(default_factory=list)
 
     models: dict = field(default_factory=lambda: {})
+    # Per-target ensemble outputs from ``score_ensemble`` (use_mlframe_ensembles=True). Keyed
+    # ``ensembles[target_type][target_name] = dict[ensemble_method -> ens_result]``. Mirrored
+    # into ``models`` under the same target slot so finalize_suite + downstream consumers see
+    # them without needing a new code path.
+    ensembles: dict = field(default_factory=lambda: {})
     metadata: dict = field(default_factory=dict)
     slug_to_original_target_type: dict = field(default_factory=dict)
     slug_to_original_target_name: dict = field(default_factory=dict)

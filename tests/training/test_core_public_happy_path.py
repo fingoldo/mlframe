@@ -47,7 +47,7 @@ def test_apply_polars_categorical_fixes_fills_nullable_categorical():
         filtered_val_df=None,
         cat_features=["cat_feat"],
         align_polars_categorical_dicts=False,
-        can_skip_pandas_conv=True,
+        defer_pandas_conv=True,
         was_polars_input=True,
         verbose=False,
     )

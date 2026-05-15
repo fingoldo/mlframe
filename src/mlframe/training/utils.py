@@ -18,7 +18,7 @@ import os
 import re
 import sys
 from textwrap import shorten
-from typing import Union, Optional
+from typing import Any, Union, Optional
 
 import numpy as np
 import pandas as pd
@@ -34,6 +34,42 @@ logger = logging.getLogger(__name__)
 
 from ._ram_helpers import _caller_logger, log_ram_usage, maybe_clean_ram_adaptive, clean_ram_and_gpu, estimate_df_size_mb, get_process_rss_mb, should_clean_ram, maybe_clean_ram_and_gpu  # noqa: E402,F401
 from pyutilz.system import get_own_memory_usage
+
+
+def coerce_to_numpy(arr, *, allow_none: bool = False):
+    """Coerce a pandas/polars/array-like value to a numpy ndarray without reshaping.
+
+    Single source of truth for the 3-way coercion previously duplicated in
+    ``drift_report.py``, ``baseline_diagnostics.py`` and ``composite_estimator.py``.
+    Keeps shape intact (the per-module duplicates differed only in whether they
+    reshaped to 1-D; reshape lives in ``coerce_to_1d_numpy`` below).
+
+    Parameters
+    ----------
+    arr
+        Anything with ``.to_numpy()`` (polars / pandas), ``.values`` (legacy pandas),
+        or numpy/list/scalar.
+    allow_none
+        When True, ``None`` passes through unchanged. Default raises ``TypeError`` so
+        accidental ``None`` inputs are caught at the boundary instead of producing
+        opaque downstream errors.
+    """
+    if arr is None:
+        if allow_none:
+            return None
+        raise TypeError("coerce_to_numpy: input is None; pass allow_none=True to opt in")
+    if hasattr(arr, "to_numpy"):
+        return arr.to_numpy()
+    if hasattr(arr, "values"):
+        return arr.values
+    return np.asarray(arr)
+
+
+def coerce_to_1d_numpy(arr) -> np.ndarray:
+    """Coerce to numpy then flatten to 1-D. Raises ``TypeError`` on ``None``."""
+    return np.asarray(coerce_to_numpy(arr)).reshape(-1)
+
+
 def filter_existing(df, cols) -> list:
     """Return only the column names from `cols` that exist in `df.columns`.
 
@@ -185,23 +221,29 @@ def compute_model_input_fingerprint(
     cat_features: list | None = None,
     text_features: list | None = None,
     embedding_features: list | None = None,
+    *,
+    target_name: str | None = None,
+    preprocessing_config: Any = None,
+    pipeline_config: Any = None,
+    model_family: str | None = None,
+    random_seed: int | None = None,
+    train_idx: Any = None,
+    val_idx: Any = None,
 ) -> tuple[str, list]:
     """Compute a 10-char SHA256 fingerprint of a model's fit-time input
-    schema (column names + canonical dtypes + roles).
+    schema PLUS the surrounding training context.
 
     Returns:
         (schema_hash, input_schema) where input_schema is the
         order-stable list of ``{"name": str, "dtype": str, "role":
         cat|text|embedding|numeric}`` records used to build the hash.
 
-    Rationale (Fix 8): hashes behaviour -- the realised data layout the
-    model saw at fit time -- not the config flags that produced it. Two
-    runs with different config flags (e.g. ``use_text_features=True``
-    vs ``False`` for LGB) that yield the same final schema at fit time
-    share the same hash, which is the right caching semantics. Changes
-    that DO affect the model's input (new column, different dtype,
-    dtype-alias swap, role promotion) produce a different hash so the
-    cached file isn't silently overwritten.
+    The hash now folds in: column row count, target column name, a
+    digest of the preprocessing config, a digest of the pipeline config,
+    model family, random_seed, and a digest of the train/val split
+    indices. Previously the hash was schema-only, so two runs that
+    differed in (e.g.) target column or preprocessing would collide on
+    the same model filename. The extra fields close that gap.
 
     Canonical JSON via ``json.dumps(..., sort_keys=True)`` -- required by
     the user's memory rule ``feedback_json_hash_sort_keys`` so the hash
@@ -236,7 +278,59 @@ def compute_model_input_fingerprint(
             role = "numeric"
         schema.append({"name": col, "dtype": _canonical_dtype_str(dt), "role": role})
 
-    canonical = _json.dumps(schema, sort_keys=True)
+    # Extra context dimensions. None is serialised stably; pydantic configs
+    # are reduced via ``model_dump``; ndarrays / lists are summarised by
+    # (length, first/middle/last) to keep the hash O(1).
+    def _idx_digest(idx) -> str:
+        if idx is None:
+            return "none"
+        try:
+            arr = np.asarray(idx).ravel()
+            n = int(arr.size)
+            if n == 0:
+                return "empty"
+            picks = [int(arr[0]), int(arr[n // 2]), int(arr[-1])]
+            return f"n{n}:{picks[0]}:{picks[1]}:{picks[2]}"
+        except Exception:
+            return f"unhashable_{type(idx).__name__}"
+
+    def _config_digest(cfg) -> str:
+        if cfg is None:
+            return "none"
+        try:
+            if hasattr(cfg, "model_dump"):
+                payload = cfg.model_dump(mode="json")
+            elif hasattr(cfg, "dict"):
+                payload = cfg.dict()
+            elif isinstance(cfg, dict):
+                payload = cfg
+            else:
+                payload = repr(cfg)
+            return hashlib.blake2b(
+                _json.dumps(payload, sort_keys=True, default=str).encode("utf-8"),
+                digest_size=8,
+            ).hexdigest()
+        except Exception:
+            return "uncached"
+
+    try:
+        n_rows = int(len(df_at_fit))
+    except Exception:
+        n_rows = -1
+
+    payload = {
+        "schema": schema,
+        "n_rows": n_rows,
+        "target_name": target_name,
+        "preprocessing_config": _config_digest(preprocessing_config),
+        "pipeline_config": _config_digest(pipeline_config),
+        "model_family": model_family,
+        "random_seed": random_seed,
+        "train_idx": _idx_digest(train_idx),
+        "val_idx": _idx_digest(val_idx),
+    }
+
+    canonical = _json.dumps(payload, sort_keys=True, default=str)
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
     return digest, schema
 

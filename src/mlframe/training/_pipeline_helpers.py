@@ -51,7 +51,57 @@ import threading as _threading  # noqa: E402
 
 _PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
 _PRE_PIPELINE_CACHE: OrderedDict[tuple, tuple] = OrderedDict()
-_PRE_PIPELINE_CACHE_MAX: int = 2
+# Default LRU bound; overridable per call via TrainingBehaviorConfig.pre_pipeline_cache_max so long-running services can tune memory vs reuse rate without monkey-patching.
+_PRE_PIPELINE_CACHE_MAX: int = 4
+
+
+def _content_fingerprint_for_cache(arr) -> tuple:
+    """Content-based fingerprint of an array / DataFrame / target.
+
+    id()-keying is unsafe: GC recycles ids and the suite's per-target loop
+    persists ``filtered_train_df`` across targets with the same id() so
+    target-2 would otherwise reuse target-1's fit-transform output. The
+    fingerprint samples shape + dtype + 10 evenly-spaced cells; column
+    names are folded in for DataFrame inputs so a rename invalidates the
+    key. Falls back to ``("uncached", id)`` so a failure forces a miss
+    rather than a wrong-cache hit.
+    """
+    if arr is None:
+        return ("none",)
+    try:
+        col_names = None
+        if hasattr(arr, "columns"):
+            try:
+                col_names = tuple(str(c) for c in arr.columns)
+            except Exception:
+                col_names = None
+        if hasattr(arr, "to_numpy"):
+            try:
+                np_arr = arr.to_numpy()
+            except Exception:
+                return ("uncached", id(arr))
+        elif hasattr(arr, "values"):
+            np_arr = arr.values
+        elif isinstance(arr, np.ndarray):
+            np_arr = arr
+        else:
+            np_arr = np.asarray(arr)
+        if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
+            return ("uncached", id(arr))
+        shape = tuple(int(s) for s in np_arr.shape)
+        dtype_str = str(np_arr.dtype)
+        flat = np_arr.ravel()
+        n = int(flat.size)
+        if n == 0:
+            return (shape, dtype_str, b"", col_names)
+        idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
+        try:
+            sampled = bytes(np.ascontiguousarray(flat[idx]).tobytes())
+        except Exception:
+            return ("uncached", id(arr))
+        return (shape, dtype_str, sampled, col_names)
+    except Exception:
+        return ("uncached", id(arr))
 
 
 def _prepare_test_split(
@@ -311,21 +361,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     return out
 
 
-# 2026-05-12: ad-hoc cache for the pre-pipeline fit+transform across
-# sklearn-non-native models in the SAME per-target iteration. The TVT log
-# showed Linear -> MLP re-fitting an identical SimpleImputer + StandardScaler
-# (~46s + ~18s = 64s wasted re-doing the same arithmetic). Cache key carries:
-#   * id(train_df) and id(val_df) -- same per-target frames across models;
-#   * pipeline signature -- step class names + step.get_params(deep=False)
-#     so two models that build a structurally identical pipeline collide.
-# Bounded LRU (max 2 entries) keeps the memory footprint within 2 x the
-# size of one transformed train+val frame -- bounded even on huge data.
-from collections import OrderedDict
-import threading as _threading
-
-_PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
-_PRE_PIPELINE_CACHE: OrderedDict[tuple, tuple] = OrderedDict()
-_PRE_PIPELINE_CACHE_MAX: int = 2
+# Cache + lock are defined once near the top; the duplicate definitions used to live here.
 
 
 def _pipeline_signature_for_cache(pipeline) -> str:
@@ -356,12 +392,30 @@ def _pipeline_signature_for_cache(pipeline) -> str:
     return "|".join(parts)
 
 
-def _pre_pipeline_cache_get(train_df, val_df, pipeline):
+def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, target_name=None):
+    """Compose a CONTENT-based cache key.
+
+    id()-keying was unsafe on two axes: GC-recycled ids can collide and
+    the per-target loop re-uses ``filtered_train_df`` (same id) across
+    different targets - the second target would otherwise see the first
+    target's fit-transform output. Including the target fingerprint AND
+    the target name guarantees per-target isolation.
+    """
+    sig = _pipeline_signature_for_cache(pipeline)
+    return (
+        _content_fingerprint_for_cache(train_df),
+        _content_fingerprint_for_cache(val_df),
+        _content_fingerprint_for_cache(train_target),
+        str(target_name) if target_name is not None else "",
+        sig,
+    )
+
+
+def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, target_name=None, cache_max: int | None = None):
     """LRU-touch lookup; returns ``(train_out, val_out)`` or ``None``."""
     if train_df is None or pipeline is None:
         return None
-    sig = _pipeline_signature_for_cache(pipeline)
-    key = (id(train_df), id(val_df) if val_df is not None else 0, sig)
+    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name)
     with _PRE_PIPELINE_CACHE_LOCK:
         if key in _PRE_PIPELINE_CACHE:
             _PRE_PIPELINE_CACHE.move_to_end(key)
@@ -369,16 +423,21 @@ def _pre_pipeline_cache_get(train_df, val_df, pipeline):
     return None
 
 
-def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out):
-    """Insert under LRU, evicting the oldest entry if over capacity."""
+def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, train_target=None, target_name=None, cache_max: int | None = None):
+    """Insert under LRU, evicting the oldest entry if over capacity.
+
+    ``cache_max`` overrides the module default; pass through from the
+    caller's ``TrainingBehaviorConfig.pre_pipeline_cache_max`` so
+    long-running services can tune memory vs hit-rate.
+    """
     if train_df is None or pipeline is None:
         return
-    sig = _pipeline_signature_for_cache(pipeline)
-    key = (id(train_df), id(val_df) if val_df is not None else 0, sig)
+    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name)
+    _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
     with _PRE_PIPELINE_CACHE_LOCK:
         _PRE_PIPELINE_CACHE[key] = (train_out, val_out)
         _PRE_PIPELINE_CACHE.move_to_end(key)
-        while len(_PRE_PIPELINE_CACHE) > _PRE_PIPELINE_CACHE_MAX:
+        while len(_PRE_PIPELINE_CACHE) > _cap:
             _PRE_PIPELINE_CACHE.popitem(last=False)
 
 
@@ -401,6 +460,8 @@ def _apply_pre_pipeline_transforms(
     model_file_name,
     verbose,
     selector_passthrough_cols=None,
+    target_name: str | None = None,
+    cache_max: int | None = None,
 ):
     """Apply pre-pipeline transformations to train and validation DataFrames.
 
@@ -432,11 +493,19 @@ def _apply_pre_pipeline_transforms(
         # re-fit the identical arithmetic on the same train_df (~46s linear
         # + ~18s mlp on the 4M-row TVT log). Only fires on the fresh
         # fit-transform path (the other branches are already cheap).
-        # Capture the INPUT frame identities BEFORE any rebind so the cache
-        # populate path keys on the original (caller-owned) df objects.
-        _train_df_in_id = id(train_df) if train_df is not None else 0
-        _val_df_in_id = id(val_df) if val_df is not None else 0
-        _cache_hit = _pre_pipeline_cache_get(train_df, val_df, pre_pipeline)
+        # Capture the INPUT content fingerprints BEFORE any rebind so the cache
+        # populate path keys on the original (caller-owned) df contents. The
+        # populate path computes the key from the SAME inputs so a cache miss
+        # followed by a populate is guaranteed to land in the slot the next
+        # lookup will read from.
+        _cache_key_entry = _pre_pipeline_cache_key(
+            train_df, val_df, pre_pipeline,
+            train_target=train_target, target_name=target_name,
+        )
+        _cache_hit = _pre_pipeline_cache_get(
+            train_df, val_df, pre_pipeline,
+            train_target=train_target, target_name=target_name,
+        )
         if _cache_hit is not None and not skip_pre_pipeline_transform and not skip_preprocessing and not _is_fitted(pre_pipeline):
             train_df_cached, val_df_cached = _cache_hit
             if verbose:
@@ -563,15 +632,13 @@ def _apply_pre_pipeline_transforms(
             # actually went through the fit-transform branch (the others
             # didn't have anything new to cache anyway).
             if not skip_pre_pipeline_transform and not skip_preprocessing:
-                # Inline ``_pre_pipeline_cache_set`` to avoid recomputing
-                # the signature; reuse the entry-time IDs captured above.
+                # Reuse the entry-time key so a populate after a miss is guaranteed to land in the slot the next lookup will read from.
                 try:
-                    _sig = _pipeline_signature_for_cache(pre_pipeline)
-                    _key = (_train_df_in_id, _val_df_in_id, _sig)
+                    _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
                     with _PRE_PIPELINE_CACHE_LOCK:
-                        _PRE_PIPELINE_CACHE[_key] = (train_df, val_df)
-                        _PRE_PIPELINE_CACHE.move_to_end(_key)
-                        while len(_PRE_PIPELINE_CACHE) > _PRE_PIPELINE_CACHE_MAX:
+                        _PRE_PIPELINE_CACHE[_cache_key_entry] = (train_df, val_df)
+                        _PRE_PIPELINE_CACHE.move_to_end(_cache_key_entry)
+                        while len(_PRE_PIPELINE_CACHE) > _cap:
                             _PRE_PIPELINE_CACHE.popitem(last=False)
                 except Exception as _cache_err:
                     logger.debug(

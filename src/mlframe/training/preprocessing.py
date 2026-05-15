@@ -44,24 +44,24 @@ from .utils import (
 from .configs import PreprocessingConfig, TrainingSplitConfig
 
 
-def _process_special_values_fused(
+def _process_special_values(
     df: Union[pl.DataFrame, pd.DataFrame],
     fill_value: float = 0.0,
     verbose: int = 1,
 ) -> Union[pl.DataFrame, pd.DataFrame]:
-    """2026-05-12 Wave 34: apply null+nan+inf fixes in one polars pass.
+    """Apply null + NaN + inf fixes with matching diagnostic logging on
+    both backends.
 
-    The old code called ``process_nulls`` → ``process_nans`` →
-    ``process_infinities`` sequentially, each doing a separate
-    ``.with_columns()`` expression-accumulation AND a separate
-    diagnostic ``.select()`` scan over all numeric columns. The
-    fixes themselves are lazy (zero-cost until collect), but the
-    diagnostic scans are eager — 3 full passes over the numeric
-    columns per frame.
+    Polars branch: combined diagnostic scan (single ``.select()``) and
+    fused fix expressions accumulated through ``.with_columns()``.
 
-    Wave 34 fuses all 3 fixes into one ``.with_columns()`` call.
-    The diagnostic logging is done with a single combined scan
-    (one ``.select()`` instead of three).
+    Pandas branch: per-column vectorised fillna + replace; the
+    diagnostics scan numeric columns once with ``.isna()`` / ``np.isinf``
+    so the operator sees the same null / NaN / inf counts in the log
+    they would see on the polars side. (Pre-rename name was
+    ``_process_special_values_fused`` but the pandas branch was never
+    truly fused; only the polars branch was. Renamed to drop the
+    misleading suffix and a backward-compat alias is retained below.)
     """
     is_polars = isinstance(df, pl.DataFrame)
     if is_polars:
@@ -77,7 +77,7 @@ def _process_special_values_fused(
         )
         # Apply fixes sequentially. Each .with_columns() is lazy (zero
         # computation, just accumulates expressions). The DIAGNOSTIC
-        # scan above is the only eager work — already combined into one.
+        # scan above is the only eager work - already combined into one.
         df = df.with_columns(cs.numeric().fill_null(fill_value))
         df = df.with_columns(cs.numeric().fill_nan(fill_value))
         df = df.with_columns(cs.numeric().replace([float("inf"), float("-inf")], fill_value))
@@ -88,14 +88,41 @@ def _process_special_values_fused(
                 if hasattr(vals, 'max') and vals.max() > 0:
                     parts.append(f"{kind}={vals.max()}")
             if parts:
-                logger.info("Preprocessing (fused): %s", ", ".join(parts))
+                logger.info("Preprocessing: %s", ", ".join(parts))
     else:
-        # Pandas: per-column operations (already vectorized, no easy fusion)
+        # Pandas: per-column vectorised ops + matching diagnostic counts so
+        # the operator sees the same null / NaN / inf telemetry as on the
+        # polars path. NaN is the pandas "null" surrogate (np.nan), so
+        # ``.isna()`` covers both null and NaN; inf is a separate np.inf
+        # check on the float subset.
         num_cols = df.select_dtypes(include="number").columns
         if len(num_cols) > 0:
+            if verbose:
+                num_view = df[num_cols]
+                null_count = int(num_view.isna().sum().sum())
+                # Integers cannot carry inf; restrict to floats to avoid
+                # ``isinf`` raising on int dtypes.
+                float_view = df.select_dtypes(include=["floating"])
+                if float_view.shape[1] > 0:
+                    inf_count = int(np.isinf(float_view.to_numpy()).sum())
+                else:
+                    inf_count = 0
+                parts = []
+                if null_count > 0:
+                    parts.append(f"null/NaN={null_count}")
+                if inf_count > 0:
+                    parts.append(f"inf={inf_count}")
+                if parts:
+                    logger.info("Preprocessing: %s", ", ".join(parts))
             df[num_cols] = df[num_cols].fillna(fill_value)
             df[num_cols] = df[num_cols].replace([float("inf"), float("-inf")], fill_value)
     return df
+
+
+# Backward-compat alias - some callers still import the old fused name.
+# Kept as a thin pass-through so existing imports don't break; the
+# canonical name above drops the misleading "_fused" suffix.
+_process_special_values_fused = _process_special_values
 
 
 def _frame_contains_inf(df) -> bool:
@@ -235,7 +262,7 @@ def preprocess_dataframe(
     # ``.select()`` scan is eager. Wave 34 fuses all three into a
     # single ``.with_columns()`` call + combined diagnostic log.
     if config.fillna_value is not None:
-        df = _process_special_values_fused(df, fill_value=config.fillna_value, verbose=verbose)
+        df = _process_special_values(df, fill_value=config.fillna_value, verbose=verbose)
     elif config.fix_infinities:
         df = process_infinities(df, fill_value=0.0, verbose=verbose)
     elif _frame_contains_inf(df):

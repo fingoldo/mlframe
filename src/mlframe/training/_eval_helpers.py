@@ -724,7 +724,11 @@ def run_confidence_analysis(
         # Pass a pandas view so the indexing falls back to pandas's
         # numpy-int-tolerant ``__getitem__``. Surfaced default-seed
         # c0074 (hgb / multiclass + confidence_analysis_cfg=True).
-        _test_df_for_shap = test_df.to_pandas() if isinstance(test_df, pl.DataFrame) else test_df
+        # Use the Arrow-backed split-blocks bridge: SHAP rejects polars frames and
+        # the default .to_pandas() consolidates blocks (~32x slower on multi-million-row
+        # frames). The view materialises lazily where SHAP indexes column-by-column.
+        from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+        _test_df_for_shap = _get_pandas_view(test_df) if isinstance(test_df, pl.DataFrame) else test_df
         explainer = shap.TreeExplainer(confidence_model)
         shap_values = explainer(_test_df_for_shap)
         shap.plots.beeswarm(

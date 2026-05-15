@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-05-15 — TF-IDF sparse pass-through, `Normalizer_l2` removed, helpers consolidated
+
+### `tfidf_keep_sparse=True` is the new default
+
+`PreprocessingExtensionsConfig.tfidf_keep_sparse: bool = True` (new field). When True (default), TF-IDF stage output flows downstream as `pd.DataFrame.sparse.from_spmatrix(...)` instead of being densified through `.toarray()`. At `tfidf_max_features=5000` on 1M rows this saves ~40 GB of dense float64 allocation.
+
+Sparse-aware backends (CatBoost, LightGBM, XGBoost, sklearn linear/ridge/sgd) extract `csr_matrix` via `.sparse.to_coo()`. Dense-only backends (HGB, RF, NGB, MLP, recurrent, TabNet) densify implicitly when their existing code calls `.to_numpy()` on the DataFrame.
+
+Set `tfidf_keep_sparse=False` to restore the pre-2026-05-15 dense path if any third-party consumer chokes on `pd.SparseDtype` columns.
+
+### `Normalizer_l2` removed from `PreprocessingExtensionsConfig.scaler`
+
+`Normalizer(norm="l2")` was a row-wise transform mislabeled as a column scaler. It silently broke GBDT models (CatBoost / LightGBM / XGBoost / HGB / RF) by projecting each *sample* (row) onto a unit hypersphere, destroying the absolute feature magnitudes those models rely on. Existing configs that set `scaler="Normalizer_l2"` now raise `pydantic.ValidationError` at construction time. A dedicated `row_transform` pipeline slot is planned — see README "Roadmap" section.
+
+### Internal: consolidated `_to_1d_numpy` helpers
+
+Three near-identical 3-way coercion helpers in `drift_report.py`, `baseline_diagnostics.py`, `composite_estimator.py` now delegate to single sources of truth in `mlframe.training.utils`: `coerce_to_numpy(arr, *, allow_none=False)` and `coerce_to_1d_numpy(arr)`. No behaviour change at call sites; the three local `_to_1d_numpy` names remain as thin aliases for downstream importers (e.g. `dummy_baselines`).
+
+### Internal: MRMR lazy pair-iteration
+
+`_run_fe_step` no longer materialises the full O(k²) pair list before chunking (`list(combinations(...))`). Peak memory during the FE step is now O(`chunk_size`) instead of O(k²). New private helper `mlframe.feature_selection.filters.mrmr._lazy_chunks(iterable, chunk_size)`.
+
 ## 2026-05-15 — Restructure: flat layout to `src/mlframe/` sub-packages (BREAKING)
 
 Repository converted to professional `src/`-based PEP 517 package layout, matching the sister project [`pyutilz`](https://github.com/fingoldo/pyutilz). The package is now pip-installable from a checkout (`pip install -e .`) and builds clean sdist + wheel artefacts (`python -m build`).

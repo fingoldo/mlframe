@@ -106,11 +106,14 @@ def test_pysr_enabled_with_y_train_calls_pysr():
 
     call_log = []
 
-    def fake_run_pysr(df, target_col, sample_size, encode_categoricals, verbose, pysr_params_override):
+    def fake_run_pysr(df, target_col, sample_size, encode_categoricals, verbose, pysr_params_override, **kwargs):
+        # Accept arbitrary kwargs (notably ``random_state``) so the stub
+        # tolerates additions to ``_apply_pysr_fe``'s call signature.
         call_log.append({
             "n_rows": len(df),
             "target_col": target_col,
             "has_target_col_in_df": target_col in df.columns,
+            "random_state": kwargs.get("random_state"),
         })
         # Wire predict() to match the split it's called on.
         def _pred(_df, index=0):

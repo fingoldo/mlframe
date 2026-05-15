@@ -266,11 +266,13 @@ def _apply_nan_guard(
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import StandardScaler
 
-    # Convert to numpy, impute NaN with mean, standardise
+    # Convert to numpy, impute NaN with mean, standardise.
+    # ``X.values`` is already an ndarray on legacy pandas paths; the prior
+    # ``np.asarray(X.values, dtype=...)`` wrapper was a no-op copy. ``np.asarray``
+    # with an explicit dtype already handles the ndarray fast path, so the
+    # single-arm fallback covers everything else without an extra wrapper.
     if hasattr(X, "to_numpy"):
         _arr = X.to_numpy(dtype=np.float64)
-    elif hasattr(X, "values"):
-        _arr = np.asarray(X.values, dtype=np.float64)
     else:
         _arr = np.asarray(X, dtype=np.float64)
 

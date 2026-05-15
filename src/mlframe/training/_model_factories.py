@@ -44,9 +44,18 @@ def _patch_lgb_feature_names_in_setter() -> None:
 
     Idempotent: safe to call multiple times (module re-import).
     """
-    if LGBMClassifier is None:
+    # 2026-05-16 (was 2026-04-21 bug, surfaced by post-migration tests):
+    # the previous early-return on ``LGBMClassifier is None`` was wrong -
+    # ``LGBMClassifier`` is a *lazy* module-level None that only gets
+    # populated by ``_lgb_classifier_cls()`` on first call. At module
+    # import time (when this patcher runs via the top-level call at the
+    # bottom of this file) it's ALWAYS None, so the patch was never
+    # installed. Import lightgbm.sklearn directly here - it's the actual
+    # target of the patch and doesn't depend on our lazy class-cache state.
+    try:
+        import lightgbm.sklearn as _lgbm_sk
+    except ImportError:
         return
-    import lightgbm.sklearn as _lgbm_sk
 
     _model_cls = _lgbm_sk.LGBMModel
     prop = _model_cls.__dict__.get("feature_names_in_")
@@ -88,6 +97,12 @@ def _patch_dataset_constructors_with_logging() -> None:
     """
     import time as _time
     import sys as _sys
+
+    # Use the trainer-level logger so external consumers / tests can filter
+    # dataset-build events with the stable name `mlframe.training.trainer`
+    # rather than chasing the internal module that happens to host the
+    # patcher (was trainer.py pre-migration, now _model_factories.py).
+    _build_logger = logging.getLogger("mlframe.training.trainer")
 
     def _infer_shape(args, kwargs):
         # First positional or the ``data`` kwarg is the payload; try shape.
@@ -151,10 +166,17 @@ def _patch_dataset_constructors_with_logging() -> None:
                     shape_str = f"{shape[0]}x?"
                 else:
                     shape_str = "?x?"
-                # I3 fix (2026-05-11): demote composite-screening builds (typically tiny CV folds, < 50K rows) to DEBUG so 50+ log lines per discovery pass don't drown out the actually-useful build events on production-size datasets. Heuristic: callsite originates in the composite module OR row count below 50K.
-                _is_screening = "composite" in (callsite or "") or (shape and shape[0] is not None and shape[0] < 50_000)
+                # I3 fix (2026-05-11): demote composite-screening builds to DEBUG so 50+
+                # log lines per discovery pass don't drown out the actually-useful build events
+                # on production-size datasets. Tightened 2026-05-16: only demote when callsite
+                # actually originates in the composite/screening modules. The previous "OR row
+                # count below 50K" half of the heuristic was too greedy - it hid every legitimate
+                # small-data DMatrix/Pool/Dataset build from INFO, including direct user calls
+                # (caught by test_fix9_build_logging_fires_on_dmatrix on a 200x5 frame).
+                _callsite_lc = (callsite or "").lower()
+                _is_screening = "composite" in _callsite_lc or "screening" in _callsite_lc
                 _level = logging.DEBUG if _is_screening else logging.INFO
-                logger.log(
+                _build_logger.log(
                     _level,
                     "[dataset-build] %s shape=%s took=%.3fs site=%s",
                     label,

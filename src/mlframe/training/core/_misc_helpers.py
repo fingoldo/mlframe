@@ -24,6 +24,18 @@ def _ensure_logging_visible(level: int = logging.INFO) -> None:
     root = logging.getLogger()
     desired_fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
     desired_datefmt = "%H:%M:%S"
+
+    # Fast-path: if a previous call already installed an asctime-bearing handler AND the
+    # root level is already at or below the requested threshold, there is nothing to do.
+    # Mutating handlers on every suite invocation when nothing needs to change makes
+    # back-to-back ``train_mlframe_models_suite`` calls re-walk the handler list and
+    # re-assign formatters that already satisfy the contract.
+    if root.handlers and (root.level != logging.NOTSET and root.level <= level):
+        for h in root.handlers:
+            existing = getattr(h.formatter, "_fmt", None) if h.formatter else None
+            if existing and "%(asctime)" in existing:
+                return
+
     timestamped = logging.Formatter(desired_fmt, datefmt=desired_datefmt)
 
     if not root.handlers:
@@ -483,10 +495,36 @@ def _auto_detect_feature_types(
     honored_user_dtype_cols: list = []
 
     if isinstance(df, pl.DataFrame):
+        # Accept all embedding-shaped dtypes:
+        # - pl.List(pl.Float32/Float64): the legacy variable-length float embedding.
+        # - pl.Array(<inner>, N):        polars>=0.20 fixed-size embeddings; backends
+        #                                that auto-densify treat the row as a length-N
+        #                                vector regardless of inner dtype.
+        # - pl.List(pl.Int*):            quantized 8/16/32-bit embeddings (e.g.
+        #                                Sentence-Transformers int8 export); the row
+        #                                is still a vector, just stored compact.
+        _pl_array_cls = getattr(pl, "Array", None)
+        _int_inner_dtypes = (pl.Int8, pl.Int16, pl.Int32, pl.Int64,
+                             pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64)
+
+        def _is_embedding_dtype(dt) -> bool:
+            # Variable-length float embedding (legacy path).
+            if dt == pl.List(pl.Float32) or dt == pl.List(pl.Float64):
+                return True
+            # Quantized int embedding stored as variable-length list.
+            inner = getattr(dt, "inner", None)
+            if isinstance(dt, pl.List) and inner is not None and inner in _int_inner_dtypes:
+                return True
+            # Fixed-size pl.Array(...) - any numeric inner is an embedding.
+            if _pl_array_cls is not None and isinstance(dt, _pl_array_cls):
+                if inner is not None and (inner in (pl.Float32, pl.Float64) or inner in _int_inner_dtypes):
+                    return True
+            return False
+
         for name, dtype in df.schema.items():
             if name in user_assigned:
                 continue
-            if dtype == pl.List(pl.Float32) or dtype == pl.List(pl.Float64):
+            if _is_embedding_dtype(dtype):
                 if name not in cat_features:
                     embedding_features.append(name)
                 continue
@@ -662,7 +700,13 @@ def _build_tier_dfs(
                 tier_dfs[key] = None
             else:
                 existing = [c for c in cols_to_exclude if c in df_.columns]
-                tier_dfs[key] = df_.drop(columns=existing) if existing else df_
+                if not existing:
+                    tier_dfs[key] = df_
+                elif isinstance(df_, pd.DataFrame):
+                    tier_dfs[key] = df_.drop(columns=existing)
+                else:
+                    # Polars: positional column names (no `columns=` kwarg)
+                    tier_dfs[key] = df_.drop(existing)
 
     tier_cache[tier_key] = tier_dfs
     return tier_dfs

@@ -274,10 +274,12 @@ class TestNnlsStack:
             y_train=y,
         )
         assert ens.strategy == "nnls_stack"
-        # All weights non-negative.
+        # All weights non-negative (NNLS constraint).
         assert np.all(ens.weights >= 0)
-        # Sum to 1 (normalised by constructor).
-        np.testing.assert_allclose(ens.weights.sum(), 1.0, atol=1e-10)
+        # F7: weights are the RAW NNLS output -- no post-fit renormalisation to sum=1.
+        # The deployed predictor must match the one NNLS solved for. Sum can be anything;
+        # mark as non-convex via the new flag.
+        assert ens.is_convex is False
 
     def test_too_few_rows_falls_back_to_mean(self) -> None:
         ens = CompositeCrossTargetEnsemble.from_nnls_stack(

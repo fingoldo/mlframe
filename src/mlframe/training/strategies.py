@@ -1382,8 +1382,14 @@ class PipelineCache:
         future, this class should be extended with proper locking mechanisms.
     """
 
-    def __init__(self):
+    def __init__(self, verbose: bool = False):
         self._cache: Dict[str, Tuple[Any, Any, Any]] = {}
+        # Observability counters. Cheap (two integer bumps per call); the
+        # bench in tests asserts microsecond-scale overhead so they stay on
+        # by default.
+        self.n_hits: int = 0
+        self.n_misses: int = 0
+        self.verbose: bool = bool(verbose)
 
     def get(self, cache_key: str) -> Optional[Tuple[Any, Any, Any]]:
         """
@@ -1395,7 +1401,16 @@ class PipelineCache:
         Returns:
             Tuple of (train_df, val_df, test_df) or None if not cached
         """
-        return self._cache.get(cache_key)
+        val = self._cache.get(cache_key)
+        if val is None:
+            self.n_misses += 1
+            if self.verbose:
+                logger.info("PipelineCache MISS key=%s (hits=%d misses=%d size=%d)", cache_key, self.n_hits, self.n_misses, len(self._cache))
+        else:
+            self.n_hits += 1
+            if self.verbose:
+                logger.info("PipelineCache HIT  key=%s (hits=%d misses=%d size=%d)", cache_key, self.n_hits, self.n_misses, len(self._cache))
+        return val
 
     def set(self, cache_key: str, train_df: Any, val_df: Any, test_df: Any) -> None:
         """
@@ -1408,6 +1423,8 @@ class PipelineCache:
             test_df: Transformed test DataFrame
         """
         self._cache[cache_key] = (train_df, val_df, test_df)
+        if self.verbose:
+            logger.info("PipelineCache SET  key=%s (size=%d)", cache_key, len(self._cache))
 
     def has(self, cache_key: str) -> bool:
         """Check if a cache key exists."""
@@ -1416,6 +1433,33 @@ class PipelineCache:
     def clear(self) -> None:
         """Clear all cached DataFrames."""
         self._cache.clear()
+
+    def cache_size_bytes(self) -> int:
+        """Best-effort ``sys.getsizeof`` sum across every cached frame slot.
+
+        ``sys.getsizeof`` on a pandas/polars frame reports the Python
+        container overhead, not the underlying Arrow / numpy buffer size,
+        so this is a LOWER BOUND - useful as a "did the cache grow?"
+        smoke signal rather than a precise memory accounting.
+        """
+        import sys
+        total = sys.getsizeof(self._cache)
+        for entry in self._cache.values():
+            try:
+                total += sys.getsizeof(entry)
+                for slot in entry:
+                    if slot is None:
+                        continue
+                    try:
+                        total += int(sys.getsizeof(slot))
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+        return int(total)
+
+    def __repr__(self) -> str:
+        return f"PipelineCache(keys={len(self._cache)}, hits={self.n_hits}, misses={self.n_misses})"
 
 
 __all__ = [

@@ -3,6 +3,13 @@
 1. Null-fill with ``__MISSING__`` sentinel (avoids CatBoost 1.2.x fused-cpdef TypeError on null-bearing cats).
 2. Dict alignment via pl.Enum(union) (avoids XGB silent process kill when val has unseen categories with different physical codes).
 3. Utf8 cast to Categorical (so pandas conversion produces ``category`` dtype, not ``object``, for XGB/LGB).
+
+Caller hook: ``apply_polars_categorical_fixes`` accepts an optional
+``precomputed_category_union`` mapping. When the suite computes
+per-cat-feature unions at frame-load time (BEFORE global outlier detection
+filters rows from train), it can thread that mapping in so rare categories
+that were OD-filtered out of train are still in the Enum domain - otherwise
+val rows carrying those categories silently cast to null.
 """
 from __future__ import annotations
 
@@ -38,11 +45,19 @@ def apply_polars_categorical_fixes(
     filtered_val_df: Any,
     cat_features: list[str] | None,
     align_polars_categorical_dicts: bool,
-    can_skip_pandas_conv: bool,
+    defer_pandas_conv: bool,
     was_polars_input: bool,
     verbose: bool,
+    precomputed_category_union: Optional[Dict[str, List[str]]] = None,
 ) -> tuple:
-    """Apply null-fill + dict alignment + utf8 cast to Polars cat features."""
+    """Apply null-fill + dict alignment + utf8 cast to Polars cat features.
+
+    ``precomputed_category_union`` (optional): per-column list of category
+    values computed PRE-outlier-detection (e.g. at frame-load time). When
+    supplied for a column, it wins over the post-OD train+val recomputation.
+    Mitigates the silent val->null cast that happens when OD filtered out
+    the only row in train carrying a rare category level.
+    """
     # 1. Null-fill. Null values in Polars Categorical cat_features trip CatBoost 1.2.10's fused-cpdef dispatcher.
     if train_df_polars is not None:
         from mlframe.training.trainer import (
@@ -103,11 +118,18 @@ def apply_polars_categorical_fixes(
                 continue
             try:
                 # ONLY train + val contribute to the Enum vocabulary - held-out test must remain "truly unseen". Test-only categories cast with ``strict=False`` so OOV values land as nulls.
-                tr_u = train_df_polars.select(pl.col(col).drop_nulls().unique())[col]
-                v_u = val_df_polars.select(pl.col(col).drop_nulls().unique())[col] if val_df_polars is not None else None
-                union = set(tr_u.to_list())
-                if v_u is not None:
-                    union |= set(v_u.to_list())
+                # If a pre-OD union was supplied for this column (computed at
+                # frame-load time before global outlier detection ran), use it
+                # verbatim - prevents rare categories filtered out of train by OD
+                # from being lost in the Enum and silently casting val to null.
+                if precomputed_category_union and col in precomputed_category_union:
+                    union = set(precomputed_category_union[col])
+                else:
+                    tr_u = train_df_polars.select(pl.col(col).drop_nulls().unique())[col]
+                    v_u = val_df_polars.select(pl.col(col).drop_nulls().unique())[col] if val_df_polars is not None else None
+                    union = set(tr_u.to_list())
+                    if v_u is not None:
+                        union |= set(v_u.to_list())
                 if len(union) > _DICT_ALIGN_SKIP_CARD:
                     skipped_cols.append((col, len(union)))
                     continue
@@ -145,8 +167,8 @@ def apply_polars_categorical_fixes(
                 len(skipped_cols), _DICT_ALIGN_SKIP_CARD, skipped_summary,
             )
 
-    # 3. Re-point pandas aliases to filled+aligned polars frames. With ``can_skip_pandas_conv=True``, train_df_pd / filtered_train_df were aliased to the ORIGINAL polars frames before fill_null / Enum-alignment.
-    if can_skip_pandas_conv and train_df_polars is not None:
+    # 3. Re-point pandas aliases to filled+aligned polars frames. With ``defer_pandas_conv=True``, train_df_pd / filtered_train_df were aliased to the ORIGINAL polars frames before fill_null / Enum-alignment.
+    if defer_pandas_conv and train_df_polars is not None:
         train_df_pd = train_df_polars
         filtered_train_df = train_df_polars
         if val_df_polars is not None:
@@ -160,7 +182,7 @@ def apply_polars_categorical_fixes(
         train_df_polars = _cast_utf8_cats_to_categorical(train_df_polars, cat_features)
         val_df_polars = _cast_utf8_cats_to_categorical(val_df_polars, cat_features)
         test_df_polars = _cast_utf8_cats_to_categorical(test_df_polars, cat_features)
-        if can_skip_pandas_conv:
+        if defer_pandas_conv:
             train_df_pd = train_df_polars if train_df_polars is not None else train_df_pd
             filtered_train_df = train_df_polars if train_df_polars is not None else filtered_train_df
             if val_df_polars is not None:

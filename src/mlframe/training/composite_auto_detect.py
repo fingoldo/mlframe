@@ -81,13 +81,16 @@ def detect_time_column_candidates(
             info["score"] = 100.0
             results.append((str(col), info))
             continue
-        # Numeric: check monotonicity.
+        # Numeric: check monotonicity. ``series.to_numpy()`` (polars/pandas)
+        # already returns an ndarray, no extra np.asarray wrap needed; the
+        # subsequent astype is copy=False so dtype-match becomes a no-op.
         try:
             if hasattr(series, "to_numpy"):
                 arr = series.to_numpy()
             else:
                 arr = np.asarray(series)
-            arr = arr.astype(np.float64) if not np.issubdtype(arr.dtype, np.number) else arr
+            if not np.issubdtype(arr.dtype, np.number):
+                arr = arr.astype(np.float64, copy=False)
         except (TypeError, ValueError):
             continue
         finite = np.isfinite(arr)
@@ -166,7 +169,9 @@ def detect_group_column_candidates(
                 if not _is_numeric_column(df, c)
             ]
         def get_col(c):
-            return np.asarray(df.get_column(c).to_numpy())
+            # Polars Series.to_numpy() already returns an ndarray -- the
+            # earlier np.asarray wrapper allocated a redundant view.
+            return df.get_column(c).to_numpy()
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
             # Default: ALL non-numeric columns + low-cardinality numeric (int) ones.
