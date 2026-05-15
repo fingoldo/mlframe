@@ -10,9 +10,9 @@
   },
   "CatBoostCallback": {
     "kind": "class",
-    "module": "mlframe.training.helpers",
+    "module": "mlframe.training._callbacks",
     "mro": [
-      "mlframe.training.helpers.UniversalCallback",
+      "mlframe.training._callbacks.UniversalCallback",
       "builtins.object"
     ]
   },
@@ -94,9 +94,9 @@
   },
   "LightGBMCallback": {
     "kind": "class",
-    "module": "mlframe.training.helpers",
+    "module": "mlframe.training._callbacks",
     "mro": [
-      "mlframe.training.helpers.UniversalCallback",
+      "mlframe.training._callbacks.UniversalCallback",
       "builtins.object"
     ]
   },
@@ -323,9 +323,9 @@
   },
   "XGBoostCallback": {
     "kind": "class",
-    "module": "mlframe.training.helpers",
+    "module": "mlframe.training._callbacks",
     "mro": [
-      "mlframe.training.helpers.UniversalCallback",
+      "mlframe.training._callbacks.UniversalCallback",
       "xgboost.callback.TrainingCallback",
       "abc.ABC",
       "builtins.object"
@@ -348,12 +348,12 @@
   },
   "canonical_predict_proba_shape": {
     "kind": "callable",
-    "module": "mlframe.training.helpers",
+    "module": "mlframe.training._classif_helpers",
     "signature": "(probs:any:0, classes_:any:1)"
   },
   "clean_ram_and_gpu": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._ram_helpers",
     "signature": "(verbose:any:1)"
   },
   "compute_label_distribution_drift": {
@@ -403,7 +403,7 @@
   },
   "estimate_df_size_mb": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._ram_helpers",
     "signature": "(df:any:0)"
   },
   "evaluate_model": {
@@ -458,12 +458,12 @@
   },
   "get_categorical_columns": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0, include_string:any:1)"
   },
   "get_numeric_columns": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0)"
   },
   "get_pandas_view_of_polars_df": {
@@ -473,7 +473,7 @@
   },
   "get_process_rss_mb": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._ram_helpers",
     "signature": "()"
   },
   "get_training_configs": {
@@ -523,7 +523,7 @@
   },
   "log_ram_usage": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._ram_helpers",
     "signature": "()"
   },
   "make_train_test_split": {
@@ -533,7 +533,7 @@
   },
   "maybe_clean_ram_and_gpu": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._ram_helpers",
     "signature": "(baseline_rss_mb:any:0, df_size_mb:any:0, verbose:any:1, reason:any:1)"
   },
   "parse_catboost_devices": {
@@ -553,7 +553,7 @@
   },
   "predict_from_probs": {
     "kind": "callable",
-    "module": "mlframe.training.helpers",
+    "module": "mlframe.training._classif_helpers",
     "signature": "(probs_NK:any:0, target_type:any:0, classes_:any:1, threshold:any:1)"
   },
   "predict_ranker_scores": {
@@ -573,7 +573,7 @@
   },
   "process_infinities": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0, fill_value:any:1, verbose:any:1)"
   },
   "process_model": {
@@ -583,17 +583,17 @@
   },
   "process_nans": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0, fill_value:any:1, verbose:any:1)"
   },
   "process_nulls": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0, fill_value:any:1, verbose:any:1)"
   },
   "remove_constant_columns": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0, verbose:any:1)"
   },
   "run_grid": {
@@ -623,7 +623,7 @@
   },
   "should_clean_ram": {
     "kind": "callable",
-    "module": "mlframe.training.utils",
+    "module": "mlframe.training._ram_helpers",
     "signature": "(baseline_rss_mb:any:0, df_size_mb:any:0, min_growth_mb:any:1)"
   },
   "train_and_evaluate_model": {
