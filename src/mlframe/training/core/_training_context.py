@@ -1,6 +1,7 @@
 """TrainingContext - shared mutable state for the training orchestrator phases."""
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -13,14 +14,21 @@ if TYPE_CHECKING:
     from sklearn.pipeline import Pipeline
 
 
-@dataclass(slots=True)
+# ``slots=True`` on @dataclass landed in Python 3.10. On 3.9 we lose the
+# performance + typo-catching benefits but the class still works (attribute
+# access goes through __dict__ as usual). Conditional kwarg keeps a single
+# dataclass declaration without splitting the class definition per version.
+_DATACLASS_KW = {"slots": True} if sys.version_info >= (3, 10) else {}
+
+
+@dataclass(**_DATACLASS_KW)
 class TrainingContext:
     """Mutable shared state for train_mlframe_models_suite phases.
 
-    ``slots=True`` skips per-instance ``__dict__`` allocation: attribute access reads via fixed-offset slot descriptors
-    instead of a hash-table lookup (~3-5x faster per ``ctx.X``) and the instance footprint shrinks to ~one pointer per field.
-    Adding undeclared attributes raises ``AttributeError`` at runtime, which catches typos that bare-dict instances silently
-    accepted. Requires Python 3.10+ (decorator parameter introduced then).
+    ``slots=True`` (Python 3.10+) skips per-instance ``__dict__`` allocation: attribute access reads via fixed-offset slot
+    descriptors instead of a hash-table lookup (~3-5x faster per ``ctx.X``) and the instance footprint shrinks to ~one
+    pointer per field. Adding undeclared attributes raises ``AttributeError`` at runtime, which catches typos that
+    bare-dict instances silently accepted. On Python 3.9 we fall back to the standard __dict__ form.
     """
 
     model_name: str = ""

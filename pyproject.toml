@@ -199,6 +199,8 @@ dev = [
     "pytest-xdist>=3.0",
     "pytest-timeout>=2.1",
     "pytest-benchmark>=4.0",
+    "pytest-order>=1.2",          # pytest.mark.order(index=N) in tests/training/test_biz_val_training_core.py
+    "pytest-randomly>=3.0",       # plugin referenced by `-p no:randomly` in addopts
     "coverage>=7.2",
     "hypothesis>=6.80",
     "ruff>=0.1",
