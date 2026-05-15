@@ -14,7 +14,15 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import polars as pl
 import polars.selectors as cs
-import polars_talib as plta
+
+# polars_talib wraps libta-lib (C extension) and only matters for the
+# add_ohlcv_ta_indicators() path. Deferred to that function so consumers
+# that only want the rolling-stats / market-wide helpers can import
+# mlframe.feature_engineering.financial without TA-Lib installed.
+try:
+    import polars_talib as plta  # type: ignore
+except ImportError:
+    plta = None  # noqa: F841 - guarded use inside the TA-indicator functions
 
 import pyutilz.polarslib as pllib
 from pyutilz.system import clean_ram
@@ -320,6 +328,11 @@ def add_ohlcv_ta_indicators(
     The frame must be sorted by timestamp. ``market_action_prefixes`` allows applying TA per
     buy/sell side separately, e.g. ``["", "buy_", "sell_"]``.
     """
+    if plta is None:
+        raise ImportError(
+            "polars_talib is required for add_ohlcv_ta_indicators(); install "
+            "mlframe[polars_ext] (which pulls polars-talib + libta-lib) to use this function."
+        )
     if not ta_windows:
         ta_windows = list(_DEFAULT_TA_WINDOWS)
     if not fss_rolling_windows:
