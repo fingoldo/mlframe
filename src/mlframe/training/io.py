@@ -98,8 +98,23 @@ _SAFE_MODULE_PREFIXES: tuple = (
     "category_encoders",
 )
 
-# Specific safe names in "types" (only SimpleNamespace).
-_SAFE_SPECIFIC: frozenset = frozenset({("types", "SimpleNamespace")})
+# Specific safe names. `typing.TypeAlias` lands in pickled MLPRegressor
+# attribute graphs since pytorch-lightning 2.x (its train/val dataloaders
+# carry typing-annotated dataclasses); it's a no-op marker symbol with no
+# code-execution surface.
+_SAFE_SPECIFIC: frozenset = frozenset({
+    ("types", "SimpleNamespace"),
+    ("typing", "TypeAlias"),
+    ("typing", "Any"),
+    ("typing", "Optional"),
+    ("typing", "Union"),
+    ("typing", "List"),
+    ("typing", "Dict"),
+    ("typing", "Tuple"),
+    ("typing", "Sequence"),
+    ("typing", "Callable"),
+    ("typing", "ClassVar"),
+})
 
 
 class _SafeUnpickler(dill.Unpickler):

@@ -770,18 +770,17 @@ def _phase_fit_pipeline(
         and target_by_type is not None
     ):
         try:
-            from ..configs import TargetTypes as _TT
             # target_by_type structure varies by extractor:
             #   (a) Dict[TargetTypes, Dict[str, ndarray]]  - nested
             #   (b) Dict[TargetTypes, ndarray]             - flat (single target)
             #   (c) Dict[str, ndarray]                     - "regression" -> arr
-            # Probe all three under-keys (enum, str, plus direct ndarray cases).
+            # Iterate items() and match by str-cast to dodge any
+            # StrEnum-identity-vs-string-equality quirks.
             _reg_targets = None
-            for _key in (_TT.regression, "regression", str(_TT.regression)):
-                if hasattr(target_by_type, "get"):
-                    _candidate = target_by_type.get(_key)
-                    if _candidate is not None:
-                        _reg_targets = _candidate
+            if hasattr(target_by_type, "items"):
+                for _k, _v in target_by_type.items():
+                    if str(_k).lower().endswith("regression"):
+                        _reg_targets = _v
                         break
             if _reg_targets is not None and not isinstance(_reg_targets, dict):
                 # Case (b)/(c): _reg_targets is already a 1-D array-like.
