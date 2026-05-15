@@ -15,7 +15,11 @@ jobs:
   test:
     name: pytest ${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    # 45 min was insufficient: 5 Python x 2 OS jobs with [all,dev] install
+    # (~5 GB of deps) plus 3970 tests under heavy ML libs ran for ~45 min and
+    # got cancelled. Bumped to 90 min and we now use pytest-xdist parallelism
+    # to halve the wall-clock per job.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +76,7 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           pytest -m "not slow and not gpu and not multigpu" \
+            -n auto \
             --cov=src/mlframe \
             --cov-report=xml \
             --cov-report=term-missing \
@@ -83,7 +88,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: |
-          pytest -m "not slow and not gpu and not multigpu and not linux_only" --no-cov -p no:randomly --timeout=300
+          pytest -m "not slow and not gpu and not multigpu and not linux_only" --no-cov -n auto -p no:randomly --timeout=300
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
