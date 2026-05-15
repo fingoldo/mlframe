@@ -40,13 +40,13 @@ jobs:
 
       - name: Clone & install pyutilz (sibling dependency)
         # pyutilz has unconditional top-level imports of optional libraries
-        # in several submodules (e.g. `pyutilz/text/strings.py` does
-        # `import psycopg2`). Installing the `all` extras pulls every
-        # transitive dep pyutilz might touch and keeps the CI matrix
-        # decoupled from pyutilz's internal import-hygiene state.
+        # in several submodules. Install the narrow subset of extras that
+        # mlframe transitively triggers, EXCLUDING [nlp] -- spacy>=3.0 pulls
+        # thinc>=8.3.12 which requires Python>=3.10, and our matrix still
+        # covers py3.9 for downstream consumers.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          pip install "./pyutilz[all]"
+          pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with all runtime extras + dev tooling
         # mlframe has unguarded top-level imports of heavy libs across

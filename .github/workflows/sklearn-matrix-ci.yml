@@ -79,12 +79,12 @@ jobs:
           cache: pip
 
       - name: Clone & install pyutilz (sibling dependency)
-        # pyutilz is not on PyPI; install from GitHub with the `all` extras
-        # so every transitive dep pyutilz touches via unguarded top-level
-        # imports (psutil/pympler/psycopg2/numba/...) is present.
+        # pyutilz is not on PyPI; install from GitHub with the narrow subset
+        # of extras that mlframe transitively imports. Skip [nlp] -- spacy
+        # forces thinc>=8.3.12 which requires Python>=3.10.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          pip install "./pyutilz[all]"
+          pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe with runtime extras needed for composite tests
         # Composite-target tests transitively import most of mlframe's source
