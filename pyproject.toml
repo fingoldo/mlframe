@@ -61,6 +61,15 @@ dependencies = [
     "numba>=0.56",
     "psutil>=5.9",
     "matplotlib>=3.7",
+    # The four below are imported UNCONDITIONALLY at module load time across
+    # src/mlframe/{feature_engineering/numerical,feature_selection/filters/*}
+    # and would otherwise raise ImportError on `import mlframe`. Audited via
+    # AST top-level scan on 2026-05-15.
+    "antropy>=0.1",
+    "astropy>=5.0",
+    "category-encoders>=2.6",
+    "expiringdict>=1.2",
+    "pympler>=1.0",   # used via pyutilz.system; unconditional import in tests/feature_engineering/*
     # pyutilz is not yet on PyPI. Install it from GitHub before mlframe:
     #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
     # The version specifier below works once pyutilz is published; until then,
@@ -77,12 +86,14 @@ boosting = [
 ]
 
 # Calibration + uncertainty + interpretability stack.
+# pycalib is dev-only on PyPI (no stable 0.1.0 release as of 2026-05-15);
+# we permit pre-releases via dev0 floor + post-release matching.
 calibration = [
     "shap>=0.44",
     "venn-abers>=1.4",
     "netcal>=1.3",
     "betacal>=1.1",
-    "pycalib>=0.1",
+    "pycalib>=0.1.0.dev0",
     "uncertainty-calibration>=0.1",
     "properscoring>=0.1",
 ]

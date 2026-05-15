@@ -79,16 +79,20 @@ jobs:
           cache: pip
 
       - name: Clone & install pyutilz (sibling dependency)
-        # pyutilz is not yet on PyPI; install from GitHub.
+        # pyutilz is not yet on PyPI; install from GitHub with the `system`
+        # extras (psutil/pympler/numba/...) since mlframe imports them
+        # transitively from pyutilz.system at module-load time.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          pip install ./pyutilz
+          pip install "./pyutilz[system]"
 
       - name: Install mlframe with boosting extras
+        # All transitive deps (matplotlib, pympler, expiringdict, astropy,
+        # antropy, category-encoders, polars) are now in [project].dependencies
+        # of pyproject.toml, so a clean `[boosting,dev]` install suffices.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[boosting,dev]" \
-            matplotlib pympler psycopg2-binary expiringdict astropy
+          pip install -e ".[boosting,dev]"
 
       - name: Pin scikit-learn to ${{ matrix.sklearn-version }}
         run: pip install --force-reinstall "scikit-learn==${{ matrix.sklearn-version }}"

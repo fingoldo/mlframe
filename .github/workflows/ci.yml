@@ -39,9 +39,13 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Clone & install pyutilz (sibling dependency)
+        # Install pyutilz with its `system` extras so transitive deps
+        # (psutil, pympler, numba, py-cpuinfo, etc.) that pyutilz.system
+        # imports unconditionally are available — otherwise mlframe test
+        # collection blows up on `from pyutilz.system import ...`.
         run: |
           git clone --depth 1 https://github.com/fingoldo/pyutilz.git
-          pip install ./pyutilz
+          pip install "./pyutilz[system]"
 
       - name: Install mlframe with boosting + dev extras
         run: |
