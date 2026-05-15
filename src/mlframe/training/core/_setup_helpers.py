@@ -27,6 +27,7 @@ except ImportError:
     pl = None  # type: ignore[assignment]
 
 from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 import category_encoders as ce
@@ -345,7 +346,20 @@ def _build_pre_pipelines(
         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
     if use_mrmr_fs:
-        pre_pipelines.append(MRMR(**mrmr_kwargs))
+        # MRMR.fit raises ValueError on any NaN in X (2026-05-14 strict-validation;
+        # silent "NaN-as-category" was the prior behaviour). When the user feeds
+        # NaN-tolerant models (cb / lgb / xgb) through suite.run with raw NaN
+        # features, MRMR needs a median imputer in front. set_output(pandas)
+        # preserves the feature names MRMR's cat-FE dispatch relies on.
+        # The imputer is a no-op on already-clean frames, so wrapping
+        # unconditionally is safe.
+        _mrmr_imputer = SimpleImputer(strategy="median").set_output(transform="pandas")
+        pre_pipelines.append(
+            Pipeline(steps=[
+                ("imp", _mrmr_imputer),
+                ("mrmr", MRMR(**mrmr_kwargs)),
+            ])
+        )
         pre_pipeline_names.append("MRMR ")
 
     if custom_pre_pipelines:
