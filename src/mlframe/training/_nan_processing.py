@@ -286,6 +286,11 @@ def remove_constant_columns(df: pl.DataFrame | pd.DataFrame, verbose: int = 1) -
     Notes:
         - Numeric columns: where min == max
         - Non-numeric columns: where n_unique == 1
+
+    Duplicates ``pyutilz.data.polarslib.drop_constant_columns`` (canonical
+    implementation upstream). Kept in-tree for the mlframe-internal pandas
+    code path and the polars eq_missing variant; consolidation requires an
+    upstream pyutilz PR + version pin, deferred to that follow-up.
     """
     is_polars = isinstance(df, pl.DataFrame)
 

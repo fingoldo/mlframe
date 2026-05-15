@@ -1,4 +1,6 @@
-"""Tests for ``bayesian_alpha_fit`` (R10c brainstorm round-2 extension B).
+"""Tests for ``bayesian_alpha_fit_bootstrap`` (the legacy bootstrap posterior
+that pre-dates the conjugate Normal-Inverse-Gamma implementation now exposed
+as :func:`bayesian_alpha_fit`).
 
 Bootstrap posterior for the (alpha, beta) of ``linear_residual``. Lock:
 - Mean recovers the OLS point estimate within sampling error.
@@ -14,7 +16,7 @@ import pytest
 
 from mlframe.training.composite import (
     _linear_residual_fit,
-    bayesian_alpha_fit,
+    bayesian_alpha_fit_bootstrap as bayesian_alpha_fit,
 )
 
 

@@ -133,27 +133,28 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
         return df
 
     for _col in cat_cols_to_align:
-        # Union of categories across train + val + test, preserving
-        # train's order first (keeps the train-fit decision-tree splits
-        # using the same integer codes as before).
+        # Union of categories across train + val ONLY (NOT test): test categories must never feed back into
+        # train at fit-time, that's the canonical leak. val is fair game because it participates in early-stopping /
+        # model selection, which the user has already authorised. test rows that carry an unseen category get
+        # cast with the existing union and surface as NaN under pandas' Categorical semantics; downstream
+        # NaN-tolerant backends (CB/HGB/LGB) handle the NaN natively. XGBoost's hard-rejection of unseen
+        # categories is the only path that requires upfront alignment - and for those, the upstream polars
+        # Enum builder (build_polars_enum_map) already does the leak-free train+val union.
         train_cats = list(train_df[_col].cat.categories)
         union_cats = list(train_cats)
         seen = set(train_cats)
-        for _other_df in (val_df, test_df):
-            if _other_df is None or not isinstance(_other_df, pd.DataFrame):
-                continue
-            if _col not in _other_df.columns:
-                continue
-            _other_dtype = _other_df[_col].dtype
-            if not isinstance(_other_dtype, pd.CategoricalDtype):
-                continue
-            for _cat in _other_dtype.categories:
-                if _cat not in seen:
-                    union_cats.append(_cat)
-                    seen.add(_cat)
+        if val_df is not None and isinstance(val_df, pd.DataFrame) and _col in val_df.columns:
+            _val_dtype = val_df[_col].dtype
+            if isinstance(_val_dtype, pd.CategoricalDtype):
+                for _cat in _val_dtype.categories:
+                    if _cat not in seen:
+                        union_cats.append(_cat)
+                        seen.add(_cat)
         if union_cats == train_cats:
             continue  # No new categories -- alignment unnecessary.
-        # Re-cast each split's column to the union categories.
+        # Re-cast each split's column to the union categories. test_df gets the train+val union as well
+        # (so XGB's "unseen category" check has the same vocabulary to compare against). Test rows whose
+        # native category isn't in the union get cast to NaN, which is the intended leak-free semantics.
         train_df = _ensure_copy(train_df, "_mlframe_filled")
         train_df[_col] = train_df[_col].cat.set_categories(union_cats)
         if val_df is not None and isinstance(val_df, pd.DataFrame) and _col in val_df.columns:
@@ -566,7 +567,15 @@ def run_confidence_analysis(
                 _dt = test_df[_c].dtype
             except Exception:
                 continue
-            if _dt is object or str(_dt) in ("string", "string[python]", "string[pyarrow]"):
+            # ``_dt is object`` is wrong: np.dtype('O') is NOT the Python
+            # type ``object`` (it's a numpy dtype wrapper). Identity check
+            # always returned False; the regression test
+            # ``test_confidence_analysis_pandas_object_dtype_still_dropped``
+            # surfaced this 2026-05-16 by feeding an explicit object-dtype
+            # text column - it bypassed the drop and reached CatBoost Pool
+            # which crashed on 'Cannot convert s_0 to float'. Use the dtype
+            # kind code instead (``"O"`` for object, ``"U"`` for unicode str).
+            if getattr(_dt, "kind", None) in ("O", "U") or str(_dt) in ("object", "string", "string[python]", "string[pyarrow]"):
                 _drop_for_conf.append(_c)
     elif isinstance(test_df, pl.DataFrame):
         # 2026-04-26 Session 7 batch 5: polars-side auto-detect. The

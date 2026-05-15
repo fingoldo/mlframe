@@ -646,6 +646,39 @@ class FeatureSelectionConfig(BaseConfig):
     # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
     skip_identity_equivalent_pre_pipelines: bool = True
 
+    @field_validator("mrmr_kwargs")
+    @classmethod
+    def _validate_mrmr_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.filters import MRMR
+        valid_keys = set(inspect.signature(MRMR.__init__).parameters) - {"self"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(
+                f"FeatureSelectionConfig.mrmr_kwargs: unknown key(s) {unknown}. "
+                f"Valid keys: {sorted(valid_keys)}"
+            )
+        return v
+
+    @field_validator("rfecv_kwargs")
+    @classmethod
+    def _validate_rfecv_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.wrappers._rfecv import RFECV
+        # ``cv_n_splits`` is consumed by get_training_configs to construct a CV splitter; not a direct RFECV.__init__ arg.
+        valid_keys = (set(inspect.signature(RFECV.__init__).parameters) - {"self"}) | {"cv_n_splits"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(
+                f"FeatureSelectionConfig.rfecv_kwargs: unknown key(s) {unknown}. "
+                f"Valid keys: {sorted(valid_keys)}"
+            )
+        return v
+
 
 class ModelConfig(BaseConfig):
     """Base configuration for all ML models.
@@ -996,6 +1029,12 @@ class ModelHyperparamsConfig(BaseConfig):
     iterations: int = Field(default=700, ge=1)
     early_stopping_rounds: Optional[int] = Field(default=100, ge=1)
     catboost_custom_classif_metrics: Optional[List[str]] = None
+    # Deprecated: prefer FeatureSelectionConfig.rfecv_kwargs which carries
+    # field-level validation against RFECV.__init__. This field remains for
+    # backward compatibility with callers that thread rfecv params through
+    # get_training_configs (see helpers.py:778); both fields stay live until
+    # downstream callers migrate. When both are populated, FSC's value
+    # should win (resolution policy enforced at the call site, not here).
     rfecv_kwargs: Dict[str, Any] = Field(default_factory=lambda: {
         "max_runtime_mins": DEFAULT_RFECV_MAX_RUNTIME_MINS,
         "cv_n_splits": DEFAULT_RFECV_CV_SPLITS,
@@ -2353,6 +2392,25 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # proxy is harmless).
     oof_holdout_frac: float = 0.2
     oof_random_state: int = DEFAULT_RANDOM_SEED
+
+    # Stacking-aware gate (measure-first NNLS gate). When True AND
+    # ``cross_target_ensemble_strategy`` is ``linear_stack`` or
+    # ``nnls_stack``, the ensemble-build path first runs
+    # :func:`stacking_aware_gate` over the component predictions to drop
+    # components whose NNLS weight falls below
+    # ``stacking_aware_gate_min_weight``. The surviving subset feeds the
+    # actual stacker. Skipped when fewer than 2 components survive (the
+    # stacker handles single-component falls back on its own).
+    stacking_aware_gate_enabled: bool = False
+    stacking_aware_gate_min_weight: float = 0.05
+
+    # Composite-feature stacking. When True, ``run_composite_target_discovery``
+    # produces an opt-in stub call to ``composite_oof_predictions`` /
+    # ``composite_predictions_as_feature`` on the discovered specs so
+    # downstream code can attach the predictions as engineered features.
+    # Default False; full wiring requires the downstream FE pipeline to
+    # consume the new column, which is caller-specific.
+    composite_feature_stacking_enabled: bool = False
 
     @field_validator("cross_target_ensemble_strategy", mode="before")
     @classmethod

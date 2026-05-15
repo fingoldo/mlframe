@@ -760,3 +760,14 @@ def _compute_neural_max_time(non_neural_train_times):
         p95,
         len(non_neural_train_times),
     )
+
+
+def _prep_polars_df(_df, strategy, cat_features, category_map):
+    """Strategy-driven polars preparation wrapper that lives here (not in core.main) so the
+    per-target trainer can import it without re-entering the main module - main imports
+    _train_one_target, so referencing _prep_polars_df from there would form an import cycle."""
+    if _df is None:
+        return None
+    if category_map is not None:
+        return strategy.prepare_polars_dataframe(_df, cat_features, category_map=category_map)
+    return strategy.prepare_polars_dataframe(_df, cat_features)

@@ -239,6 +239,7 @@ from .composite_streaming import (  # noqa: E402,F401
 )
 from .composite_bayesian import (  # noqa: E402,F401
     bayesian_alpha_fit,
+    bayesian_alpha_fit_bootstrap,
 )
 from .composite_forward_stepwise import (  # noqa: E402,F401
     forward_stepwise_multi_base,

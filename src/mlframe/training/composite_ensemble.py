@@ -113,6 +113,29 @@ def env_signature() -> dict[str, str | None]:
     return sig
 
 
+def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
+    """True iff arr is finite and weakly monotone non-decreasing.
+
+    Used to auto-detect timestamp / time-index columns so the OOF helper
+    can produce a time-respecting split (past-only train, future holdout)
+    instead of a random shuffle that leaks the future into the past.
+    """
+    try:
+        a = np.asarray(arr).ravel()
+    except Exception:
+        return False
+    if a.size < 2:
+        return False
+    # Cast to float so timestamps / ints alike work; non-numeric -> False.
+    try:
+        af = a.astype(np.float64, copy=False)
+    except Exception:
+        return False
+    if not np.all(np.isfinite(af)):
+        return False
+    return bool(np.all(np.diff(af) >= 0))
+
+
 def compute_oof_holdout_predictions(
     component_models: list[Any],
     component_names: list[str],
@@ -122,18 +145,27 @@ def compute_oof_holdout_predictions(
     base_train_full_per_spec: dict[str, np.ndarray],
     holdout_frac: float,
     random_state: int,
+    time_ordering: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute honest holdout predictions for each component.
 
-    Approach: take a single random ``holdout_frac`` slice of train,
-    re-fit a clone of each component's inner on the remaining
-    (1-holdout_frac) rows, and predict on the held-out slice. For
-    wrapped composite-target components we re-apply the spec's
-    transform on the same stack_train slice to get T values, train
-    the inner clone on (X_stack_train, T_stack_train), then wrap
-    using ``CompositeTargetEstimator.from_fitted_inner`` and predict
-    in y-scale on stack_holdout. For raw-target components the inner
-    clone is fit directly on (X_stack_train, y_stack_train).
+    Approach: take a ``holdout_frac`` slice of train, re-fit a clone of
+    each component's inner on the remaining (1-holdout_frac) rows, and
+    predict on the held-out slice. For wrapped composite-target components
+    we re-apply the spec's transform on the same stack_train slice to get
+    T values, train the inner clone on (X_stack_train, T_stack_train),
+    then wrap using ``CompositeTargetEstimator.from_fitted_inner`` and
+    predict in y-scale on stack_holdout. For raw-target components the
+    inner clone is fit directly on (X_stack_train, y_stack_train).
+
+    Split strategy:
+
+    - ``time_ordering`` provided and monotone-non-decreasing OR
+      ``time_ordering`` is ``None`` but rows are otherwise detected to
+      be time-ordered: take the trailing ``holdout_frac`` slice as the
+      holdout (past-only train, future holdout) -- the analogue of
+      a single ``sklearn.model_selection.TimeSeriesSplit`` fold.
+    - Otherwise: random shuffle by ``random_state`` (legacy behaviour).
 
     Single-split (not K-fold) keeps the additional compute bounded
     at ``len(components)`` re-fits. Returns:
@@ -150,11 +182,30 @@ def compute_oof_holdout_predictions(
     if n_train < 50 or holdout_frac <= 0 or holdout_frac >= 1:
         return np.zeros((0, len(component_models))), np.zeros(0), []
 
-    rng = np.random.default_rng(random_state)
-    perm = rng.permutation(n_train)
+    # Decide whether to do a time-aware split. We use the explicit
+    # ``time_ordering`` signal when supplied; absent that we attempt
+    # to detect monotone-time from base columns (a common shape when
+    # base is a lagged timestamp). Random shuffle is the safe fallback.
+    use_time_split = False
+    if time_ordering is not None:
+        use_time_split = _is_monotone_nondecreasing(time_ordering)
+    else:
+        # Probe the first base column; if it looks monotone, treat as time.
+        for _base in base_train_full_per_spec.values():
+            if _is_monotone_nondecreasing(_base):
+                use_time_split = True
+                break
+
     n_holdout = max(int(round(n_train * holdout_frac)), 1)
-    holdout_idx = np.sort(perm[:n_holdout])
-    train_idx = np.sort(perm[n_holdout:])
+    if use_time_split:
+        cutoff = n_train - n_holdout
+        train_idx = np.arange(cutoff, dtype=np.int64)
+        holdout_idx = np.arange(cutoff, n_train, dtype=np.int64)
+    else:
+        rng = np.random.default_rng(random_state)
+        perm = rng.permutation(n_train)
+        holdout_idx = np.sort(perm[:n_holdout])
+        train_idx = np.sort(perm[n_holdout:])
 
     # Subset X. Branch on type so we don't pull pandas APIs on
     # polars frames.
@@ -333,9 +384,10 @@ class CompositeCrossTargetEnsemble:
         component_names: list[str],
         component_predictions: np.ndarray,  # (n_train, K) y-scale predictions
         y_train: np.ndarray,
-        ridge_alpha: float = 1.0,
+        ridge_alpha: float | None = None,
+        ridge_alpha_grid: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0),
     ) -> CompositeCrossTargetEnsemble:
-        """Linear stacking via Ridge regression.
+        """Linear stacking via Ridge regression with internal CV alpha selection.
 
         Fits a Ridge model ``y_train ~ X @ w + b`` where ``X`` is the
         per-component prediction matrix on train. The resulting
@@ -343,16 +395,16 @@ class CompositeCrossTargetEnsemble:
         the bias by absorbing it as an extra ``+b/n`` per component
         (good enough when Ridge converges).
 
-        ``ridge_alpha`` is fixed (no internal CV) -- callers wanting
-        alpha tuning should ridge-CV externally and pass the chosen
-        alpha. Higher alpha -> more regularisation -> closer to mean.
+        When ``ridge_alpha`` is None (default), the alpha is chosen via
+        ``RidgeCV`` over ``ridge_alpha_grid`` using built-in efficient
+        leave-one-out CV. Pass a concrete ``ridge_alpha`` to bypass CV.
 
         Returns negative weights when a component is anti-correlated
         with the target -- this is fine, the ensemble may still work.
         ``predict`` re-normalises only the magnitudes, so a negative
         weight means the component's prediction is subtracted.
         """
-        from sklearn.linear_model import Ridge
+        from sklearn.linear_model import Ridge, RidgeCV
         n = len(component_models)
         if n == 0:
             raise ValueError("from_linear_stack: empty component list.")
@@ -378,8 +430,14 @@ class CompositeCrossTargetEnsemble:
             )
             return cls.from_uniform_weights(component_models, component_names)
 
-        ridge = Ridge(alpha=ridge_alpha, fit_intercept=True)
-        ridge.fit(component_predictions[finite], y[finite])
+        if ridge_alpha is None:
+            ridge = RidgeCV(alphas=tuple(ridge_alpha_grid), fit_intercept=True)
+            ridge.fit(component_predictions[finite], y[finite])
+            chosen_alpha = float(getattr(ridge, "alpha_", ridge_alpha_grid[0]))
+        else:
+            ridge = Ridge(alpha=ridge_alpha, fit_intercept=True)
+            ridge.fit(component_predictions[finite], y[finite])
+            chosen_alpha = float(ridge_alpha)
         raw_weights = np.asarray(ridge.coef_, dtype=np.float64)
         # Sanity: if all weights are zero or non-finite, fall back.
         if not np.any(raw_weights) or not np.all(np.isfinite(raw_weights)):
@@ -398,7 +456,9 @@ class CompositeCrossTargetEnsemble:
             weights=raw_weights,
             strategy="linear_stack",
             notes={
-                "ridge_alpha": ridge_alpha,
+                "ridge_alpha": chosen_alpha,
+                "ridge_alpha_was_cv_selected": ridge_alpha is None,
+                "ridge_alpha_grid": list(ridge_alpha_grid) if ridge_alpha is None else None,
                 "intercept": float(ridge.intercept_),
                 "raw_weights": raw_weights.tolist(),
                 "n_train_rows": int(finite.sum()),
@@ -413,7 +473,7 @@ class CompositeCrossTargetEnsemble:
         # FULL component set; with fewer components the bias is wrong by O(intercept)).
         instance._linear_stack_train_preds = component_predictions[finite].copy()
         instance._linear_stack_train_y = y[finite].copy()
-        instance._linear_stack_ridge_alpha = float(ridge_alpha)
+        instance._linear_stack_ridge_alpha = chosen_alpha
         return instance
 
     @classmethod

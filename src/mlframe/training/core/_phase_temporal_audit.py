@@ -6,7 +6,6 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 import pandas as pd
-import polars as pl
 from pyutilz.strings import slugify
 
 from ..target_temporal_audit import (
@@ -22,8 +21,7 @@ def run_temporal_audit_batch(
     *,
     behavior_config,
     features_and_targets_extractor,
-    df,  # may be None if del'd earlier
-    timestamps,  # FTE-returned ndarray, main fallback when df column dropped
+    timestamps,  # FTE-returned ndarray; df was already del'd by the caller, so this is the only source
     target_by_type: dict,
     verbose: bool = True,
 ) -> dict[Any, dict[str, Any]]:
@@ -42,12 +40,9 @@ def run_temporal_audit_batch(
 
     _audit_ts_override = getattr(behavior_config, "target_temporal_audit_column", None) if behavior_config else None
     if _audit_ts_override is None:
-        # df may have been deleted earlier; FTE-returned ``timestamps`` ndarray is the primary fallback.
+        # df was already del'd before this batch is called; ``timestamps`` is the only source.
         _fte_ts = getattr(features_and_targets_extractor, "ts_field", None)
-        _ts_in_df = (
-            df is not None and hasattr(df, "columns") and _fte_ts in df.columns
-        )
-        if _fte_ts and (timestamps is not None or _ts_in_df):
+        if _fte_ts and timestamps is not None:
             _audit_ts_col = _fte_ts
             logger.info(
                 "target_temporal_audit: auto-detected timestamp column '%s' "
@@ -65,31 +60,16 @@ def run_temporal_audit_batch(
         return _all_target_audits
 
     try:
-        # Prefer df column, fall back to the FTE-returned ``timestamps`` ndarray (the prod norm where ts_field is in columns_to_drop).
-        _audit_ts_values = None
-        _audit_src_kind = None
-        if df is not None and hasattr(df, "columns") and _audit_ts_col in df.columns:
-            _audit_ts_values = df[_audit_ts_col]
-            _audit_src_kind = "df_column"
-        elif timestamps is not None:
-            _audit_ts_values = timestamps
-            _audit_src_kind = "fte_timestamps"
-            logger.info(
-                "target_temporal_audit: column '%s' was dropped from df "
-                "(likely via columns_to_drop) -- using FTE-returned "
-                "timestamps ndarray as fallback.",
-                _audit_ts_col,
-            )
-        if _audit_ts_values is None:
+        if timestamps is None:
             logger.warning(
-                "target_temporal_audit: column '%s' not found in df and "
-                "FTE returned no timestamps -- audit skipped. Either "
-                "set behavior_config.target_temporal_audit_column to a "
-                "column present in df, or configure ts_field on your "
-                "FeaturesAndTargetsExtractor.",
+                "target_temporal_audit: timestamp column '%s' requested but "
+                "FTE returned no timestamps -- audit skipped. Configure "
+                "ts_field on your FeaturesAndTargetsExtractor or unset "
+                "behavior_config.target_temporal_audit_column.",
                 _audit_ts_col,
             )
             return _all_target_audits
+        _audit_ts_values = timestamps
 
         # audit_key is unique across target_types so same target_name under two target_types doesn't collide.
         _audit_input_cols: dict[str, np.ndarray] = {}
@@ -110,21 +90,11 @@ def run_temporal_audit_batch(
                 _audit_keys_by_pair[(_tt_outer, _tname)] = _audit_key
 
         if _audit_targets_spec:
-            if _audit_src_kind == "df_column" and isinstance(df, pl.DataFrame):
-                _batch_input = df.select([_audit_ts_col]).with_columns([
-                    pl.Series(name, arr) for name, arr in _audit_input_cols.items()
-                ])
-            elif _audit_src_kind == "df_column":
-                _batch_input = pd.DataFrame({
-                    _audit_ts_col: df[_audit_ts_col].values,
-                    **_audit_input_cols,
-                })
-            else:
-                _ts_arr = np.asarray(_audit_ts_values)
-                _batch_input = pd.DataFrame({
-                    _audit_ts_col: _ts_arr,
-                    **_audit_input_cols,
-                })
+            _ts_arr = np.asarray(_audit_ts_values)
+            _batch_input = pd.DataFrame({
+                _audit_ts_col: _ts_arr,
+                **_audit_input_cols,
+            })
             _gran = getattr(behavior_config, "target_temporal_audit_granularity", "auto")
             _batch_results = _audit_targets_over_time(
                 _batch_input,

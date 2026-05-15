@@ -932,14 +932,32 @@ class RFECV(BaseEstimator, TransformerMixin):
         if cv is None or str(cv).isnumeric():
             if cv is None:
                 cv = 3
-            # Time-series auto-detect: a monotonic DatetimeIndex means KFold-style shuffles would leak future into past; TimeSeriesSplit is
-            # the correct choice. Triggers ONLY when groups is None (group-aware splits already handle temporal grouping) and the index is
-            # strictly increasing (avoid TSS on randomly-shuffled datetime data, which has no ordering meaning).
+            # Time-series auto-detect: a monotonic datetime axis means KFold-style shuffles would leak future into past; TimeSeriesSplit is
+            # the correct choice. Triggers ONLY when groups is None (group-aware splits already handle temporal grouping) and the
+            # detected datetime axis is strictly increasing (avoid TSS on randomly-shuffled datetime data, which has no ordering meaning).
+            # Pandas path: DatetimeIndex.is_monotonic_increasing. Polars path: scan for a single datetime / date column that is
+            # monotonically increasing (polars has no row index; the time axis is necessarily a column).
             _is_time_series = False
             if groups is None and isinstance(X, pd.DataFrame):
                 _idx = X.index
                 if isinstance(_idx, pd.DatetimeIndex) and _idx.is_monotonic_increasing:
                     _is_time_series = True
+            elif groups is None:
+                try:
+                    import polars as _pl
+                    if isinstance(X, _pl.DataFrame):
+                        _dt_cols = [
+                            n for n, d in X.schema.items()
+                            if d in (_pl.Datetime, _pl.Date) or str(d).startswith(("Datetime", "Date"))
+                        ]
+                        # Exactly one datetime column = unambiguous time axis; multiple datetimes would require the
+                        # caller to disambiguate via an explicit cv= (we won't guess which column orders the rows).
+                        if len(_dt_cols) == 1:
+                            _col = X.get_column(_dt_cols[0])
+                            if _col.is_sorted(descending=False) and _col.null_count() == 0:
+                                _is_time_series = True
+                except ImportError:
+                    pass
             if _is_time_series:
                 cv = TimeSeriesSplit(n_splits=cv)
                 if verbose:

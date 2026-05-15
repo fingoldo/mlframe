@@ -677,6 +677,43 @@ def _phase_fit_pipeline(
             if verbose:
                 logger.info("  All models %s support Polars natively -- skipping categorical encoding in pipeline", mlframe_models)
 
+    # CatBoost-specific footgun warning: when CB is in the model suite AND categorical_encoding="ordinal"
+    # AND the input frame carries categorical columns (polars Categorical/Enum, or pandas category dtype),
+    # the ordinal encoder converts those columns to integer codes BEFORE CatBoost sees them. CatBoost then
+    # loses its native categorical handling (combinations, target-statistics, one-hot small-cardinality
+    # fast-path) and treats the int codes as ordered numerics, which silently degrades accuracy on
+    # high-cardinality cats. Detection here is preventive (warning only; no code-path change). Suppress
+    # when skip_categorical_encoding=True (then ordinal is moot). Cat columns are detected directly from
+    # the train_df schema because FeatureTypesConfig doesn't carry a cat_features list (the public surface
+    # is text_features + embedding_features; cat_features are auto-detected downstream).
+    _suite_models_lower = {str(m).lower() for m in (mlframe_models or [])}
+    _has_cb = bool(_suite_models_lower & {"cb", "catboost"})
+    _ordinal = (
+        getattr(pipeline_config, "categorical_encoding", None) == "ordinal"
+        and not getattr(pipeline_config, "skip_categorical_encoding", False)
+    )
+    _declared_cats: list[str] = []
+    if train_df is not None:
+        if isinstance(train_df, pl.DataFrame):
+            _declared_cats = [
+                n for n, d in train_df.schema.items()
+                if d == pl.Categorical or str(d).startswith("Enum") or str(d).startswith("Categorical")
+                or d == pl.Utf8 or d == pl.String
+            ]
+        elif hasattr(train_df, "select_dtypes"):
+            try:
+                _declared_cats = train_df.select_dtypes(include=["category", "object", "string"]).columns.tolist()
+            except Exception:
+                _declared_cats = []
+    if _has_cb and _ordinal and _declared_cats:
+        logger.warning(
+            "  CatBoost is in mlframe_models AND pipeline_config.categorical_encoding='ordinal' AND "
+            "cat_features is non-empty (%d cols). CB will see integer-coded inputs instead of categoricals "
+            "and lose its native cat-handling (combinations, target-statistics). Set "
+            "categorical_encoding=None or skip_categorical_encoding=True to let CatBoost handle cat_features natively.",
+            len(_declared_cats),
+        )
+
     # Datetime columns must be decomposed BEFORE the pre-pipeline clone, otherwise the
     # cloned frames retain raw datetimes and reach downstream where numpy/sklearn/CB raise.
     def _detect_datetime_cols(df_):

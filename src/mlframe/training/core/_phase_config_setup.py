@@ -75,11 +75,14 @@ def setup_configuration(
     target_name: str,
     mlframe_models: list[str] | None,
     verbose: int,
-    # These two get plumbed into the TrainingContext so the LTR ranker-suite
-    # dispatcher (which reads them off ctx) sees the caller's intent. Adding
-    # at the end so older call-sites that don't pass them still work.
+    # These get plumbed into the TrainingContext so dispatchers downstream
+    # (LTR ranker-suite, pre-pipeline builder, ensemble-builder) see the
+    # caller's intent. Defaults match the public-API defaults in
+    # train_mlframe_models_suite so older call-sites that don't pass them
+    # explicitly preserve current behaviour.
     ranking_config: Any = None,
     use_mlframe_ensembles: bool = False,
+    use_ordinary_models: bool = True,
 ) -> TrainingContext:
     """Convert and validate all configs, return processed state dict."""
     if verbose:
@@ -221,7 +224,10 @@ def setup_configuration(
             "same-type target. Upgrade CatBoost to pick up the Pool label-swap PR."
         )
 
-    # Python reuses ids across independent suite invocations - clear cache to prevent stale Pool reuse.
+    # Pool cache is keyed by id(df), and Python recycles object ids across independent suite
+    # invocations. Without this clear, suite N would see a id() collision against a Pool from
+    # suite N-1, fetch the stale Pool, and feed CatBoost stale binned data + stale labels.
+    # The cache is small and rebuilds cheaply, so per-suite reset is the safe default.
     try:
         from mlframe.training.trainer import (
             _CB_POOL_CACHE,
@@ -292,6 +298,7 @@ def setup_configuration(
         strategy_by_model=_strategy_by_model,
         sorted_mlframe_models=_sorted_mlframe_models,
         use_mlframe_ensembles=use_mlframe_ensembles,
+        use_ordinary_models=use_ordinary_models,
         metadata=metadata,
     )
     return ctx

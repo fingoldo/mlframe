@@ -407,7 +407,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         self.signature = None
 
     # Input validation contract: explicit guards for memory-exhaustion shapes, malformed dtypes,
-    # all-constant features, and polars LazyFrame / Expr edge cases. Each guard raises ValueError or warns.
+    # +/-inf values, single-class y, and polars LazyFrame / Expr edge cases. Each guard raises ValueError or warns.
+    # All-constant features are NOT rejected here: zero-variance columns survive validation and surface as MI=0
+    # in the screening loop, which is the documented downstream behaviour.
     def _validate_inputs(self, X, y):
         import warnings as _w
         n_rows = getattr(X, "shape", (None,))[0]
@@ -1053,8 +1055,14 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # ``params`` may already carry ``cv`` from configs.COMMON_RFECV_PARAMS; MRMR's explicit setting wins.
                 params.update(self._rfecv_cv_kwargs())
 
-                if len(y) / len(np.unique(y)) > 100:  # classification
+                # Heuristic classifier-vs-regressor detection: len(y) / nunique(y) > 100 means each label
+                # has 100+ samples on average, which is the classification regime; everything else is treated
+                # as regression. Pre-fix, the regression else-branch silently skipped the additional-RFECV
+                # pass entirely, so regression callers got no benefit from run_additional_rfecv_minutes.
+                _is_classification = len(y) / max(1, len(np.unique(y))) > 100
+                temp_columns = list(set(X.columns) - set(X.columns[selected_vars]))
 
+                if _is_classification:
                     cb_num_rfecv = RFECV(
                         estimator=CatBoostClassifier(**configs.CB_CLASSIF),
                         fit_params=dict(plot=False),
@@ -1064,18 +1072,28 @@ class MRMR(BaseEstimator, TransformerMixin):
                         ),
                         **params,
                     )
-                    temp_columns = list(set(X.columns) - set(X.columns[selected_vars]))
-                    cb_num_rfecv.fit(X[temp_columns], y)
+                else:
+                    # Regression branch: CatBoostRegressor with the same shared params; default scoring lets
+                    # RFECV pick from the estimator (negative-MSE-like). Keeping the import local avoids
+                    # paying the CatBoostRegressor import cost when only classification is exercised.
+                    from catboost import CatBoostRegressor
+                    cb_num_rfecv = RFECV(
+                        estimator=CatBoostRegressor(**configs.CB_REGR),
+                        fit_params=dict(plot=False),
+                        cat_features=categorical_vars_names,
+                        **params,
+                    )
+                cb_num_rfecv.fit(X[temp_columns], y)
 
-                    if cb_num_rfecv.n_features_ > 0:
-                        new_features = np.array(temp_columns)[cb_num_rfecv.support_]
-                        if verbose:
-                            logger.info("RFECV selected %d additional feature(s): %s", cb_num_rfecv.n_features_, new_features)
-                        for feature in new_features:
-                            selected_vars.append(self.feature_names_in_.index(feature))
-                    else:
-                        if verbose:
-                            logger.info("RFECV selected no additional features.")
+                if cb_num_rfecv.n_features_ > 0:
+                    new_features = np.array(temp_columns)[cb_num_rfecv.support_]
+                    if verbose:
+                        logger.info("RFECV selected %d additional feature(s): %s", cb_num_rfecv.n_features_, new_features)
+                    for feature in new_features:
+                        selected_vars.append(self.feature_names_in_.index(feature))
+                else:
+                    if verbose:
+                        logger.info("RFECV selected no additional features.")
 
         # ---------------------------------------------------------------------------------------------------------------
         # Assign support

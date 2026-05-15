@@ -73,15 +73,7 @@ from ._phase_train_one_target import _train_one_target
 from ._training_context import TrainingContext
 
 
-from ._misc_helpers import _split_preds_probs  # noqa: F401
-
-
-def _prep_polars_df(_df, strategy, cat_features, category_map):
-    if _df is None:
-        return None
-    if category_map is not None:
-        return strategy.prepare_polars_dataframe(_df, cat_features, category_map=category_map)
-    return strategy.prepare_polars_dataframe(_df, cat_features)
+from ._misc_helpers import _split_preds_probs, _prep_polars_df  # noqa: F401
 
 
 def train_mlframe_models_suite(
@@ -221,6 +213,7 @@ def train_mlframe_models_suite(
         target_name=target_name,
         mlframe_models=mlframe_models,
         use_mlframe_ensembles=use_mlframe_ensembles,
+        use_ordinary_models=use_ordinary_models,
         verbose=verbose,
     )
 
@@ -408,6 +401,10 @@ def train_mlframe_models_suite(
     ctx.imputer = imputer
     ctx.scaler = scaler
 
+    # train_df is still polars at this point IFF the upstream split kept the polars fastpath alive
+    # (no pandas-only preprocessor forced a conversion). The polars stats path lazily expresses the
+    # numeric/categorical summaries without materialising a pandas copy, so we must branch here
+    # rather than always falling through to the pandas-typed get_trainset_features_stats below.
     if isinstance(train_df, pl.DataFrame):
         if verbose:
             logger.info("Computing trainset_features_stats on Polars...")
@@ -539,7 +536,6 @@ def train_mlframe_models_suite(
     _all_target_audits = run_temporal_audit_batch(
         behavior_config=behavior_config,
         features_and_targets_extractor=features_and_targets_extractor,
-        df=None,  # df already deleted after split; timestamps is the active source
         timestamps=timestamps,
         target_by_type=target_by_type,
         verbose=bool(verbose),

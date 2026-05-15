@@ -470,7 +470,17 @@ class BaselineReport(NamedTuple):
     def to_dict(self) -> dict[str, Any]:
         """JSON-serializable dict (D14 schema_version + D15 NaN->None)."""
         # D15: replace NaN with None so json.dumps() succeeds.
+        # Handle both Python float AND numpy.float* - orjson does NOT
+        # accept numpy scalars (TypeError: numpy.float64 not serializable);
+        # pd.DataFrame iter rows yields numpy scalars on numeric columns.
+        # Cast every numpy floating to native float after the finite-check.
         def _scrub(v: Any) -> Any:
+            if isinstance(v, np.floating):
+                if not np.isfinite(v):
+                    return None
+                return float(v)
+            if isinstance(v, np.integer):
+                return int(v)
             if isinstance(v, float) and not np.isfinite(v):
                 return None
             return v

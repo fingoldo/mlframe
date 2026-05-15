@@ -25,7 +25,7 @@ from ..models import is_neural_model
 from ..strategies import get_strategy
 from ..train_eval import process_model, select_target
 from ..utils import compute_model_input_fingerprint, filter_existing, get_pandas_view_of_polars_df, log_ram_usage
-from ._misc_helpers import _build_tier_dfs, _compute_neural_max_time, _elapsed_str, _filter_polars_cat_features_by_dtype, _maybe_clear_shim_cache, _split_preds_probs
+from ._misc_helpers import _build_tier_dfs, _compute_neural_max_time, _elapsed_str, _filter_polars_cat_features_by_dtype, _maybe_clear_shim_cache, _prep_polars_df, _split_preds_probs
 from ._phase_diagnostics import run_per_target_diagnostics
 from ._phase_dummy_baselines import run_dummy_baselines
 from ._phase_temporal_audit import _format_temporal_audit_report, _plot_target_over_time
@@ -33,6 +33,19 @@ from ._setup_helpers import _build_common_params_for_target, _build_pre_pipeline
 from ..strategies import PipelineCache
 
 logger = logging.getLogger(__name__)
+
+
+# XGB DMatrix / LGB Dataset reuse cache attribute names: forwarded across sklearn.clone() in both
+# directions (template -> clone before fit; clone -> template after fit) so the weight-schema loop
+# reuses the heavy binned dataset via set_label / set_weight instead of rebuilding.
+_DATASET_REUSE_CACHE_ATTRS = (
+    "_cached_train_dmatrix",
+    "_cached_train_key",
+    "_cached_val_dmatrix",
+    "_cached_val_key",
+    "_cached_train_dataset",
+    "_cached_val_dataset",
+)
 
 
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
@@ -272,9 +285,14 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
 
         # Skip identity-equivalent pre_pipelines: marker survives across targets, so a selector
         # that was a no-op on a prior target gets skipped here before any model trains.
+        # Honour ``feature_selection_config.skip_identity_equivalent_pre_pipelines``: when False
+        # the caller asked to retrain even on identity-equivalent pre_pipelines (e.g. for
+        # ensembling-diversity-via-RNG-seed scenarios), so this early-exit must not fire.
         _pp_name_stripped = pre_pipeline_name.strip()
-        if _pp_name_stripped and getattr(
-            pre_pipeline, "_mlframe_identity_equivalent", False
+        if (
+            _pp_name_stripped
+            and feature_selection_config.skip_identity_equivalent_pre_pipelines
+            and getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
         ):
             logger.info(
                 "[Dedup] Skipping pre_pipeline '%s' -- "
@@ -331,6 +349,9 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         prev_tier = None
 
         # Neural max_time defaults to P95 of non-neural train times so MLP can't run 2h while boosters take 5min.
+        # Per-target reset (shadows the suite-level ctx default seeded at top of this function): each target's
+        # neural budget is computed only from the same target's non-neural runs, so an unusually fast/slow
+        # earlier target cannot widen or starve the current target's neural budget.
         _non_neural_train_times: list[float] = []
 
         _total_models_in_run = len(sorted_models)
@@ -460,8 +481,6 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 else:
                     _xgb_category_map = None
                     tier_enum_map_cache[_enum_cache_key] = None
-
-                from .main import _prep_polars_df  # local import: .main imports _train_one_target, would otherwise cycle
 
                 prepared_train = _prep_polars_df(tier_polars["train_df"], strategy, _cat_features, _xgb_category_map)
                 prepared_val = _prep_polars_df(tier_polars.get("val_df"), strategy, _cat_features, _xgb_category_map)
@@ -632,14 +651,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # Hand the XGB DMatrix / LGB Dataset reuse caches forward across clone() so the
                 # weight-schema loop (uniform -> recency on the same train_df) reuses the heavy binned
                 # dataset in place via set_label / set_weight instead of rebuilding.
-                for _attr in (
-                    "_cached_train_dmatrix",
-                    "_cached_train_key",
-                    "_cached_val_dmatrix",
-                    "_cached_val_key",
-                    "_cached_train_dataset",
-                    "_cached_val_dataset",
-                ):
+                for _attr in _DATASET_REUSE_CACHE_ATTRS:
                     if hasattr(original_model, _attr):
                         try:
                             setattr(cloned_model, _attr, getattr(original_model, _attr))
@@ -789,14 +801,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # Hand the dataset-reuse cache from cloned_model back to the template so the next
                 # weight-schema iteration's clone() carries it forward (symmetric to the forward-transfer
                 # block above). Without this the cache would be born and die in a single iteration.
-                for _attr in (
-                    "_cached_train_dmatrix",
-                    "_cached_train_key",
-                    "_cached_val_dmatrix",
-                    "_cached_val_key",
-                    "_cached_train_dataset",
-                    "_cached_val_dataset",
-                ):
+                for _attr in _DATASET_REUSE_CACHE_ATTRS:
                     if hasattr(cloned_model, _attr):
                         _val = getattr(cloned_model, _attr)
                         if _val is not None:

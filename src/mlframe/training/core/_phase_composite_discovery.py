@@ -416,6 +416,33 @@ def run_composite_target_discovery(
         len(v) for tt_specs in metadata["composite_target_specs"].values()
         for v in tt_specs.values()
     )
+    # Composite-feature-stacking stub: surface the discovered specs so the
+    # downstream FE pipeline (caller-specific) can opt in via
+    # ``composite_oof_predictions`` / ``composite_predictions_as_feature``.
+    # Wiring the columns into a generic FE pipeline is non-trivial because
+    # the consumer is project-specific, so we ship a metadata marker + warn.
+    if getattr(
+        composite_target_discovery_config,
+        "composite_feature_stacking_enabled", False,
+    ) and n_specs_total > 0:
+        metadata.setdefault("composite_feature_stacking", {})["enabled"] = True
+        metadata["composite_feature_stacking"]["available_specs"] = [
+            {"target_type": _tt_str, "target_name": _tname,
+             "spec_name": _spec.get("name") if isinstance(_spec, dict) else getattr(_spec, "name", "?"),
+             "base_column": _spec.get("base_column") if isinstance(_spec, dict) else getattr(_spec, "base_column", "?"),
+             "transform_name": _spec.get("transform_name") if isinstance(_spec, dict) else getattr(_spec, "transform_name", "?")}
+            for _tt_str, _by_t in metadata["composite_target_specs"].items()
+            for _tname, _spec_list in _by_t.items()
+            for _spec in (_spec_list or [])
+        ]
+        logger.warning(
+            "[CompositeFeatureStacking] enabled by config; %d composite "
+            "spec(s) surfaced under metadata['composite_feature_stacking']. "
+            "Caller must wire ``composite_oof_predictions`` / "
+            "``composite_predictions_as_feature`` into the downstream FE "
+            "pipeline -- the generic suite does not auto-attach.",
+            len(metadata["composite_feature_stacking"]["available_specs"]),
+        )
     if n_specs_total > 0:
         logger.info(
             "[CompositeTargetDiscovery] %d composite target(s) added to "

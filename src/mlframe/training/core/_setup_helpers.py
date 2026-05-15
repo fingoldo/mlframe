@@ -346,25 +346,31 @@ def _build_pre_pipelines(
         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
     if use_mrmr_fs:
-        # MRMR.fit raises ValueError on any NaN in X (2026-05-14 strict-validation;
-        # silent "NaN-as-category" was the prior behaviour). When the user feeds
-        # NaN-tolerant models (cb / lgb / xgb) through suite.run with raw NaN
-        # features, MRMR needs a median imputer in front. set_output(pandas)
-        # preserves the feature names MRMR's cat-FE dispatch relies on.
-        # The imputer is a no-op on already-clean frames, so wrapping
-        # unconditionally is safe.
-        _mrmr_imputer = SimpleImputer(strategy="median").set_output(transform="pandas")
-        pre_pipelines.append(
-            Pipeline(steps=[
-                ("imp", _mrmr_imputer),
-                ("mrmr", MRMR(**mrmr_kwargs)),
-            ])
-        )
+        # MRMR handles NaN natively via ``nan_strategy`` (default
+        # "separate_bin" routes NaN rows to a dedicated discretization bin
+        # instead of imputing them; see MRMR._validate_inputs). Wrapping
+        # in SimpleImputer would discard that signal and silently degrade
+        # downstream NaN-aware backends (catboost / lgb / xgb).
+        pre_pipelines.append(MRMR(**mrmr_kwargs))
         pre_pipeline_names.append("MRMR ")
 
     if custom_pre_pipelines:
+        # Clone every user-supplied pre-pipeline before insertion so fit-time
+        # state from one model never leaks across the others in this suite.
+        # sklearn.base.clone is the canonical path; non-BaseEstimator objects
+        # fall back to copy.deepcopy so callers can pass custom transformers
+        # that don't implement the sklearn estimator protocol.
+        import copy as _copy
+        try:
+            from sklearn.base import clone as _sk_clone
+        except Exception:
+            _sk_clone = None
         for pipeline_name, pipeline_obj in custom_pre_pipelines.items():
-            pre_pipelines.append(pipeline_obj)
+            try:
+                _cloned = _sk_clone(pipeline_obj) if _sk_clone is not None else _copy.deepcopy(pipeline_obj)
+            except Exception:
+                _cloned = _copy.deepcopy(pipeline_obj)
+            pre_pipelines.append(_cloned)
             pre_pipeline_names.append(f"{pipeline_name} ")
 
     return pre_pipelines, pre_pipeline_names

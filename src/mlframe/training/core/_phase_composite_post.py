@@ -591,6 +591,52 @@ def run_composite_post_processing(
                         if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
                             _pred_matrix = _oof_pred_matrix
                             _y_for_stack = _oof_y_holdout
+                            # Stacking-aware gate (opt-in) -- drop components whose NNLS
+                            # weight on the honest OOF preds falls below the configured
+                            # threshold BEFORE running the actual stacker. Keeps the final
+                            # weight vector concentrated on signal-bearing components.
+                            if (getattr(
+                                composite_target_discovery_config,
+                                "stacking_aware_gate_enabled", False,
+                            ) and _pred_matrix.shape[1] >= 2):
+                                try:
+                                    from ..composite_stacking import stacking_aware_gate
+                                    _gate_preds = {
+                                        _oof_names[_i]: _pred_matrix[:, _i]
+                                        for _i in range(_pred_matrix.shape[1])
+                                    }
+                                    _gate_min = float(getattr(
+                                        composite_target_discovery_config,
+                                        "stacking_aware_gate_min_weight", 0.05,
+                                    ))
+                                    _survivors, _gate_w = stacking_aware_gate(
+                                        _gate_preds, _y_for_stack, min_weight=_gate_min,
+                                    )
+                                    if 2 <= len(_survivors) < len(_oof_names):
+                                        _keep_mask = np.array([
+                                            n in set(_survivors) for n in _oof_names
+                                        ], dtype=bool)
+                                        _pred_matrix = _pred_matrix[:, _keep_mask]
+                                        _oof_components = [
+                                            c for c, k in zip(_oof_components, _keep_mask) if k
+                                        ]
+                                        _oof_names = [
+                                            n for n, k in zip(_oof_names, _keep_mask) if k
+                                        ]
+                                        _oof_rmses = _oof_rmses[_keep_mask]
+                                        logger.info(
+                                            "[CompositeCrossTargetEnsemble] target='%s' "
+                                            "stacking_aware_gate kept %d of %d components "
+                                            "(min_weight=%.3f).",
+                                            _orig_tname, len(_survivors),
+                                            len(_gate_w), _gate_min,
+                                        )
+                                except Exception as _gate_err:
+                                    logger.warning(
+                                        "[CompositeCrossTargetEnsemble] stacking_aware_gate "
+                                        "failed for target='%s': %s. Proceeding with full set.",
+                                        _orig_tname, _gate_err,
+                                    )
                         else:
                             _y_for_stack = (
                                 np.asarray(_oof_y_full)[filtered_train_idx]

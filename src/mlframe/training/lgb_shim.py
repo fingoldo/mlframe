@@ -428,7 +428,15 @@ class _DatasetReuseMixin:
                 if eval_names and i < len(eval_names):
                     valid_names.append(eval_names[i])
                 else:
-                    valid_names.append(f"validation_{i}")
+                    # LGB's native convention for default eval-set name is
+                    # ``valid_{i}`` (matches LGBMClassifier.fit + lgb.train).
+                    # mlframe's LightGBMCallback defaults monitor_dataset to
+                    # ``"valid_0"`` so this lookup has to agree - previously
+                    # the shim used ``validation_{i}`` and the callback's
+                    # set_default_monitor_metric raised on every shim-routed
+                    # fit (test_tree_model_with_early_stopping[lgb], surfaced
+                    # 2026-05-16 by tests/training run after the migration).
+                    valid_names.append(f"valid_{i}")
 
         # ---- Resolve params for lgb.train() --------------------------
         # ``_process_params("fit")`` strips sklearn-only fields
