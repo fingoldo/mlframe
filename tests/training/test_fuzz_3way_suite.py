@@ -67,6 +67,13 @@ from .test_fuzz_suite import (
     _skip_if_deps_missing,
 )
 
+# 3-wise covering suite: 400 combos x ~50s = ~5.5h serial (~45min with -n 8).
+# Per the suite docstring it's intended for nightly / pre-merge, not per-push.
+# Mark slow so the default `-m "not slow"` excludes it, matching the doctring
+# guidance. Run it explicitly via `pytest tests/training/test_fuzz_3way_suite.py`
+# or `pytest -m slow` in the FINAL phase.
+pytestmark = pytest.mark.slow
+
 _FUZZ_3WAY_SEED = int(os.environ.get("FUZZ_3WAY_SEED", "20260424"))
 _FUZZ_3WAY_TARGET = int(os.environ.get("FUZZ_3WAY_TARGET", "400"))
 COMBOS_3WAY: list[FuzzCombo] = enumerate_combos_3way(
