@@ -337,12 +337,34 @@ def _phase_pandas_conversion_and_cat_prep(
 
     train_df_size_bytes_cached: float | None = None
     val_df_size_bytes_cached: float | None = None
+    # CACHE-P1-7: cat-heavy frames inflate roughly 1.4-1.6x when going
+    # polars->pandas (string columns gain per-row object overhead, category
+    # columns lose dictionary compression). Apply a 1.5x safety factor when
+    # the pre-conversion size is the pandas-sizing input; downstream GPU /
+    # RAM heuristics over-allocate slightly rather than starving allocators.
+    _CAT_SIZE_SAFETY_FACTOR = 1.5
+
+    def _cat_heavy_size(df, raw_bytes):
+        try:
+            if not isinstance(df, pl.DataFrame):
+                return raw_bytes
+            cat_cols = [c for c in (cat_features or []) if c in df.columns]
+            n_cols = max(int(len(df.columns)), 1)
+            cat_frac = float(len(cat_cols)) / n_cols
+            # Linear interp between 1.0x (no cat cols) and 1.5x (>=50% cat).
+            scale = 1.0 + (_CAT_SIZE_SAFETY_FACTOR - 1.0) * min(cat_frac / 0.5, 1.0)
+            return float(raw_bytes) * float(scale)
+        except Exception:
+            return raw_bytes
+
     if was_polars_input:
         try:
             if isinstance(train_df, pl.DataFrame):
-                train_df_size_bytes_cached = float(train_df.estimated_size())
+                raw = float(train_df.estimated_size())
+                train_df_size_bytes_cached = _cat_heavy_size(train_df, raw)
             if val_df is not None and isinstance(val_df, pl.DataFrame):
-                val_df_size_bytes_cached = float(val_df.estimated_size())
+                raw_v = float(val_df.estimated_size())
+                val_df_size_bytes_cached = _cat_heavy_size(val_df, raw_v)
         except Exception:
             train_df_size_bytes_cached = None
             val_df_size_bytes_cached = None
@@ -388,6 +410,22 @@ def _phase_pandas_conversion_and_cat_prep(
                 "; ".join(reasons) or "unknown",
             )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
+        # CACHE-P1-7: recompute size from the post-conversion pandas frame so
+        # downstream GPU-sizing heuristics use the actual realised footprint
+        # instead of the polars pre-conversion estimate. The pandas frame
+        # ``memory_usage(deep=True)`` is heavier than ``estimated_size`` but
+        # only fires when conversion already paid the materialisation cost.
+        try:
+            if isinstance(train_df_pd, pd.DataFrame):
+                train_df_size_bytes_cached = float(
+                    train_df_pd.memory_usage(deep=True, index=False).sum()
+                )
+            if val_df_pd is not None and isinstance(val_df_pd, pd.DataFrame):
+                val_df_size_bytes_cached = float(
+                    val_df_pd.memory_usage(deep=True, index=False).sum()
+                )
+        except Exception:
+            pass
 
     if cat_features and not defer_pandas_conv:
         if verbose:
@@ -546,13 +584,25 @@ def _phase_auto_detect_feature_types(
     feature_types_config: Any,
     metadata: dict,
     verbose: bool,
+    train_df_pandas_pre: pd.DataFrame | None = None,
 ) -> tuple:
     """Auto-detect text + embedding features, optionally drop high-card columns, validate exclusivity, one-time Polars string->Categorical cast.
 
     Mutates ``metadata`` in-place with ``columns`` and ``cat_features``.
     """
     # Use pre-pipeline DF so auto-detection sees original dtypes.
-    detect_df = train_df_polars_pre if was_polars_input else train_df
+    # For polars input: ``train_df_polars_pre`` (always populated).
+    # For pandas input: ``train_df_pandas_pre`` when available
+    # (FeatureTypesConfig.feature_types_first=True), else the post-pipeline
+    # ``train_df``. The pre-fit snapshot lets us see object/string dtypes
+    # BEFORE the ordinal encoder converts them to int codes, so text columns
+    # can be promoted instead of silently ordinal-encoded. fix audit row FE-P1-2.
+    if was_polars_input:
+        detect_df = train_df_polars_pre
+    elif train_df_pandas_pre is not None:
+        detect_df = train_df_pandas_pre
+    else:
+        detect_df = train_df
     raw_cat_features = list(set((cat_features or []) + (cat_features_polars or [])))
     # Honor only strictly-user-declared pl.Categorical columns as already-assigned.
     if was_polars_input:
@@ -772,6 +822,15 @@ def _phase_fit_pipeline(
                     methods=_dt_methods,
                 )
 
+    # CONV-HIGH-1: the clone() is gated to the categorical-encoding path because polars-ds'
+    # Blueprint.ordinal_encode / one_hot_encode (see pipeline.py:838-851) builds an encoder whose
+    # mapping is fitted against the source frame's categorical dictionary. With Polars' global
+    # string cache enabled, that mapping shares state with the source pl.Categorical column's
+    # interned dict (search reference: "polars 1.x global string cache" feedback note); training
+    # then ordinal/one-hot encoding the source frame in-place would shift codes between train and
+    # val/test calls. We pay one clone here so downstream consumers see the pristine
+    # pre-encoding frame. When categorical_encoding is None or skip_categorical_encoding is True
+    # we skip the clone entirely (RAM-free fastpath). Keep the gate narrow.
     needs_polars_pre_clone = (
         was_polars_input
         and not pipeline_config.skip_categorical_encoding
@@ -797,6 +856,29 @@ def _phase_fit_pipeline(
         test_df_polars_pre = None
         cat_features_polars = []
 
+    # Snapshot a pandas-input train_df BEFORE fit_pipeline applies ordinal /
+    # one-hot encoding so the downstream auto-detect phase can see the raw
+    # string / object dtypes. Without this snapshot the ordinal encoder runs
+    # first, converts all string columns to integer codes, and the subsequent
+    # auto-detect step (run on the post-pipeline frame) silently classifies
+    # everything as numeric -- text columns never get promoted to text_features.
+    # Polars input already has ``train_df_polars_pre`` for this purpose.
+    # Gated on ``FeatureTypesConfig.feature_types_first`` so byte-for-byte
+    # legacy reproductions can disable. fix audit row FE-P1-2.
+    _feature_types_first = bool(
+        getattr(feature_types_config, "feature_types_first", True)
+        if feature_types_config is not None else True
+    )
+    train_df_pandas_pre = None
+    if _feature_types_first and (not was_polars_input) and isinstance(train_df, pd.DataFrame):
+        # Shallow column-wise view; we only ever read dtypes / nunique downstream,
+        # and the auto-detect code path doesn't mutate. .copy(deep=False) shares
+        # block-manager but gives us a stable column index even if the pipeline
+        # later mutates train_df in-place.
+        try:
+            train_df_pandas_pre = train_df.copy(deep=False)
+        except Exception:
+            train_df_pandas_pre = None
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,
@@ -873,6 +955,12 @@ def _phase_fit_pipeline(
                 )
             _y_train_for_ext = None
     t0_ext = timer()
+    # Snapshot the train_df_polars_pre column set so we can detect which new
+    # columns the extensions produced and back-merge them into the polars-pre
+    # frames. fix audit row FE-P1-3.
+    _pre_polars_columns_snapshot = (
+        list(train_df_polars_pre.columns) if isinstance(train_df_polars_pre, pl.DataFrame) else None
+    )
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
         train_df, val_df, test_df, preprocessing_extensions, verbose=verbose, y_train=_y_train_for_ext,
     )
@@ -880,6 +968,61 @@ def _phase_fit_pipeline(
         logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
     if extensions_pipeline is not None:
         cat_features = []
+        # Polars-fastpath consumers (CB / XGB polars-native path) only see the
+        # polars-pre frames; copy the extension-produced new columns onto them
+        # so models downstream see consistent feature sets. We use a pandas
+        # bridge for the new columns only (existing polars-pre columns are kept
+        # as-is to preserve native dtypes / categorical metadata).
+        try:
+            if (
+                isinstance(train_df, pd.DataFrame)
+                and _pre_polars_columns_snapshot is not None
+                and was_polars_input
+            ):
+                _new_cols = [c for c in train_df.columns if c not in set(_pre_polars_columns_snapshot)]
+                if _new_cols:
+                    for _label, _pd_df, _pl_attr in (
+                        ("train", train_df, "train_df_polars_pre"),
+                        ("val", val_df, "val_df_polars_pre"),
+                        ("test", test_df, "test_df_polars_pre"),
+                    ):
+                        _pl_df = locals().get(_pl_attr)
+                        if not isinstance(_pl_df, pl.DataFrame) or not isinstance(_pd_df, pd.DataFrame):
+                            continue
+                        if _pd_df.shape[0] != _pl_df.shape[0]:
+                            # Row counts must match; otherwise the join could mis-align silently.
+                            if verbose:
+                                logger.warning(
+                                    "polars-pre %s frame row mismatch for extension columns "
+                                    "(pd=%d, pl=%d); skipping back-merge for this split.",
+                                    _label, _pd_df.shape[0], _pl_df.shape[0],
+                                )
+                            continue
+                        # Only the new columns we want to merge.
+                        _new_df_pd = _pd_df[[c for c in _new_cols if c in _pd_df.columns]]
+                        if _new_df_pd.shape[1] == 0:
+                            continue
+                        try:
+                            _new_pl = pl.from_pandas(_new_df_pd)
+                            _merged = _pl_df.hstack(_new_pl)
+                            if _label == "train":
+                                train_df_polars_pre = _merged
+                            elif _label == "val":
+                                val_df_polars_pre = _merged
+                            else:
+                                test_df_polars_pre = _merged
+                        except Exception as _exc:
+                            if verbose:
+                                logger.warning(
+                                    "Failed to back-merge extension columns into polars-pre %s frame: %s",
+                                    _label, _exc,
+                                )
+        except Exception as _exc:
+            if verbose:
+                logger.warning(
+                    "Polars-pre extension back-merge skipped (%s); polars-fastpath models will not see extension columns.",
+                    _exc,
+                )
 
     metadata["pipeline"] = pipeline
     metadata["extensions_pipeline"] = extensions_pipeline
@@ -899,6 +1042,7 @@ def _phase_fit_pipeline(
         was_polars_input, all_models_polars_native, polars_pipeline_applied,
         train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
         pipeline_config, preprocessing_extensions,
+        train_df_pandas_pre,
     )
 
 

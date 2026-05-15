@@ -48,6 +48,29 @@ _DATASET_REUSE_CACHE_ATTRS = (
 )
 
 
+def _forward_dataset_reuse_cache(src, dst, attrs=_DATASET_REUSE_CACHE_ATTRS, *, skip_none: bool = False):
+    """Copy each present attr from ``src`` onto ``dst``.
+
+    CODE-LOW-7: both the template -> clone forward and the clone -> template back transfer used to
+    inline the same loop with slightly different ``if _val is not None`` guard. Centralised here so
+    additions to ``_DATASET_REUSE_CACHE_ATTRS`` flow to both call sites automatically.
+
+    ``skip_none=True`` matches the back-transfer's behaviour: only carry non-None caches up to the
+    template, otherwise a clone that did not populate the cache would NULL out the template's prior
+    value and defeat the reuse.
+    """
+    for _attr in attrs:
+        if not hasattr(src, _attr):
+            continue
+        _val = getattr(src, _attr)
+        if skip_none and _val is None:
+            continue
+        try:
+            setattr(dst, _attr, _val)
+        except Exception as _attr_err:
+            logger.debug("Could not transfer %s from %r to %r: %s", _attr, type(src).__name__, type(dst).__name__, _attr_err)
+
+
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
     """Train all models for one (target_type, target_name) pair."""
     model_name = ctx.model_name
@@ -349,10 +372,14 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         prev_tier = None
 
         # Neural max_time defaults to P95 of non-neural train times so MLP can't run 2h while boosters take 5min.
-        # Per-target reset (shadows the suite-level ctx default seeded at top of this function): each target's
-        # neural budget is computed only from the same target's non-neural runs, so an unusually fast/slow
-        # earlier target cannot widen or starve the current target's neural budget.
-        _non_neural_train_times: list[float] = []
+        # CODE-LOW-4: per-target reset is INTENTIONAL -- each target's neural budget is computed only from the
+        # same target's non-neural runs, so an unusually fast/slow earlier target cannot widen or starve the
+        # current target's neural budget. We rebind both the local AND ctx._non_neural_train_times to the
+        # SAME fresh list so the writeback at end-of-function is a no-op (the dict the caller sees is the
+        # one we just mutated) and downstream readers of ctx._non_neural_train_times observe the per-target
+        # contents in-flight, not the previous target's tail.
+        _non_neural_train_times = []
+        ctx._non_neural_train_times = _non_neural_train_times
 
         _total_models_in_run = len(sorted_models)
         _model_idx_in_run = 0
@@ -526,7 +553,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # preserves RAM when CB/XGB can run natively on polars. Two trigger cases get distinct log
                 # messages: (a) strategy genuinely non-Polars-native; (b) strategy IS native but polars
                 # originals were released earlier in the run.
+                # CONV-MED-5: cache the polars->pandas view by id() of the source frame on ctx so two
+                # non-Polars-native strategies sharing the same source polars frame pay one conversion
+                # total, not one per strategy.
                 _logged_lazy_conv = False
+                _view_cache = ctx._pandas_view_cache
                 for df_key in ("train_df", "val_df", "test_df"):
                     df_ = common_params.get(df_key)
                     if isinstance(df_, pl.DataFrame):
@@ -548,7 +579,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                                 mlframe_model_name, _reason,
                             )
                             _logged_lazy_conv = True
-                        common_params[df_key] = get_pandas_view_of_polars_df(df_)
+                        _src_id = id(df_)
+                        _pd_view = _view_cache.get(_src_id)
+                        if _pd_view is None:
+                            _pd_view = get_pandas_view_of_polars_df(df_)
+                            _view_cache[_src_id] = _pd_view
+                        common_params[df_key] = _pd_view
 
                 # Defense-in-depth: after lazy conversion, every common_params DF must be non-polars.
                 # Surfacing here (rather than at trainer.fit time) makes the cross-iteration leakage cause
@@ -573,6 +609,31 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     {"train_df": common_params.get("train_df"), "val_df": common_params.get("val_df"), "test_df": common_params.get("test_df")},
                     strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
                 )
+
+            # CODE-P1-10: compute input-schema fingerprint ONCE per (model, pre_pipeline) outside the
+            # weight loop. The fingerprinted train_df is the same across all weight schemas (only
+            # sample_weight changes inside the weight loop), so the previous per-iteration call was
+            # pure waste. Cache key folds in target+strategy+tier+kind+pp_name so it survives reuse
+            # across sibling sub-loops within the same target.
+            _fp_train_df_pre = prepared_train if polars_fastpath_active else tier_pandas["train_df"]
+            _fp_cache_key = (
+                target_type,
+                cur_target_name,
+                id(strategy),
+                _tier_suffix,
+                _kind_suffix,
+                pre_pipeline_name,
+            )
+            if _fp_cache_key in ctx._model_input_fingerprint_cache:
+                _schema_hash, _input_schema = ctx._model_input_fingerprint_cache[_fp_cache_key]
+            else:
+                _schema_hash, _input_schema = compute_model_input_fingerprint(
+                    _fp_train_df_pre,
+                    cat_features=cat_features,
+                    text_features=text_features,
+                    embedding_features=embedding_features,
+                )
+                ctx._model_input_fingerprint_cache[_fp_cache_key] = (_schema_hash, _input_schema)
 
             for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items(), desc="weighting schema"):
                 model_name_with_weight = common_params["model_name"]
@@ -602,15 +663,6 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         current_common_params["val_df"] = tier_pandas["val_df"]
                     if tier_pandas.get("test_df") is not None:
                         current_common_params["test_df"] = tier_pandas["test_df"]
-
-                # Per-model input-schema fingerprint goes into model_file_name so two runs with different
-                # feature-type configs don't silently overwrite each other.
-                _schema_hash, _input_schema = compute_model_input_fingerprint(
-                    current_common_params.get("train_df"),
-                    cat_features=cat_features,
-                    text_features=text_features,
-                    embedding_features=embedding_features,
-                )
                 if getattr(behavior_config, "model_file_hash_suffix", True):
                     model_file_name += f"__sch_{_schema_hash}"
 
@@ -651,12 +703,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # Hand the XGB DMatrix / LGB Dataset reuse caches forward across clone() so the
                 # weight-schema loop (uniform -> recency on the same train_df) reuses the heavy binned
                 # dataset in place via set_label / set_weight instead of rebuilding.
-                for _attr in _DATASET_REUSE_CACHE_ATTRS:
-                    if hasattr(original_model, _attr):
-                        try:
-                            setattr(cloned_model, _attr, getattr(original_model, _attr))
-                        except Exception as _attr_err:
-                            logger.debug("Could not forward %s to clone: %s", _attr, _attr_err)
+                _forward_dataset_reuse_cache(original_model, cloned_model)
                 # Isolation copy: each weight iteration installs its own cloned_model and may
                 # patch fit_params (CatBoost text/embedding fastpath); without copying we would
                 # mutate the suite-level models_params template and the next target would inherit
@@ -801,14 +848,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # Hand the dataset-reuse cache from cloned_model back to the template so the next
                 # weight-schema iteration's clone() carries it forward (symmetric to the forward-transfer
                 # block above). Without this the cache would be born and die in a single iteration.
-                for _attr in _DATASET_REUSE_CACHE_ATTRS:
-                    if hasattr(cloned_model, _attr):
-                        _val = getattr(cloned_model, _attr)
-                        if _val is not None:
-                            try:
-                                setattr(original_model, _attr, _val)
-                            except Exception as _attr_err:
-                                logger.debug("Could not hand %s back to template: %s", _attr, _attr_err)
+                _forward_dataset_reuse_cache(cloned_model, original_model, skip_none=True)
 
                 # Persist this model's input-schema fingerprint in metadata so load-time can verify it
                 # against the serving frame. Multi-output extensions (target_type / n_classes /
@@ -926,9 +966,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     ctx.models = models
     ctx.metadata = metadata
     ctx.trainset_features_stats = trainset_features_stats
-    ctx.slug_to_original_target_type = slug_to_original_target_type
-    ctx.slug_to_original_target_name = slug_to_original_target_name
-    ctx._non_neural_train_times = _non_neural_train_times
+    # CODE-LOW-2 + CODE-LOW-4: slug_to_original_target_{type,name} and _non_neural_train_times
+    # are mutable containers we already rebound on ctx (the slugs are bound by reference at the top
+    # of this function and mutated in place; _non_neural_train_times is rebound to a fresh list each
+    # target with a matching ``ctx._non_neural_train_times = _non_neural_train_times`` at that point).
+    # The earlier writeback of these three was a no-op.
     ctx.train_df_polars = train_df_polars
     ctx.val_df_polars = val_df_polars
     ctx.test_df_polars = test_df_polars

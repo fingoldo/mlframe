@@ -14,6 +14,21 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
+try:
+    import polars as pl  # type: ignore
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover - polars optional dep
+    pl = None  # type: ignore
+    _HAS_POLARS = False
+
+
+def _is_polars_df(x: Any) -> bool:
+    """ENS-P2-6: prefer explicit isinstance check over duck-typing on
+    ``hasattr(x, "to_pandas")`` (which mis-detects any object exposing that
+    method - mocks, custom wrappers, sklearn pipeline stubs)."""
+    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+
+
 from .composite_transforms import (
     DomainViolationError,
     Transform,
@@ -77,7 +92,7 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
     selection config).
     """
     # Polars
-    if hasattr(X, "to_pandas") and not isinstance(X, pd.DataFrame):
+    if _is_polars_df(X):
         if base_column not in X.columns:
             raise KeyError(
                 f"CompositeTargetEstimator: base column '{base_column}' missing from X. "
@@ -108,7 +123,7 @@ def _extract_groups(X: Any, group_column: str) -> np.ndarray:
     integer / categorical) so per-row group lookups work in the
     grouped transform. Returns a 1-D ndarray.
     """
-    if hasattr(X, "to_pandas") and not isinstance(X, pd.DataFrame):
+    if _is_polars_df(X):
         if group_column not in X.columns:
             raise KeyError(
                 f"CompositeTargetEstimator: group column '{group_column}' "
@@ -822,7 +837,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     def _subset_rows(X: Any, mask: np.ndarray) -> Any:
         """Row-subset X, preserving the dataframe flavour. Polars / pandas
         / ndarray supported. Raises TypeError otherwise."""
-        if hasattr(X, "to_pandas") and not isinstance(X, pd.DataFrame):
+        if _is_polars_df(X):
             # Polars: lazy-import to keep the module light when polars
             # isn't installed in the environment.
             import polars as pl
@@ -848,7 +863,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         columns that were already dropped upstream by feature selection).
         """
         # Polars
-        if hasattr(X, "to_pandas") and not isinstance(X, pd.DataFrame):
+        if _is_polars_df(X):
             present = [c for c in columns if c in X.columns]
             return X.drop(present) if present else X
         if isinstance(X, pd.DataFrame):

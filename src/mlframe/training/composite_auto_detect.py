@@ -8,6 +8,19 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+try:
+    import polars as pl  # type: ignore
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover
+    pl = None  # type: ignore
+    _HAS_POLARS = False
+
+
+def _is_polars_df(x: Any) -> bool:
+    """ENS-P2-6: prefer explicit isinstance check over duck-typing."""
+    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+
+
 from .composite_screening import _is_numeric_column
 
 
@@ -42,7 +55,7 @@ def detect_time_column_candidates(
 
     Empty when no column qualifies.
     """
-    if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
+    if _is_polars_df(df):
         if candidate_columns is None:
             candidate_columns = list(df.columns)
         import polars as pl  # lazy
@@ -116,7 +129,7 @@ def sort_df_by_time_column(df: Any, time_column: str, *, ascending: bool = True)
 
     Required precondition for the time-series composite transforms (ewma_residual, rolling_quantile_ratio, frac_diff). Caller is responsible for keeping aligned arrays (y, base) in the SAME sort order.
     """
-    if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
+    if _is_polars_df(df):
         return df.sort(time_column, descending=not ascending)
     if isinstance(df, pd.DataFrame):
         return df.sort_values(by=time_column, ascending=ascending).reset_index(drop=True)
@@ -162,7 +175,7 @@ def detect_group_column_candidates(
 
     Empty list when no column meets all the thresholds.
     """
-    if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
+    if _is_polars_df(df):
         if candidate_columns is None:
             candidate_columns = [
                 c for c in df.columns

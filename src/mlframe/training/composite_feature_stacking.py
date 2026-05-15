@@ -61,8 +61,13 @@ def composite_predictions_as_feature(
             raise
         n = len(df)
         preds = np.full(n, float(fallback_value), dtype=np.float64)
-    if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
-        import polars as pl  # lazy
+    try:
+        import polars as pl  # type: ignore
+        _is_polars = isinstance(df, pl.DataFrame)
+    except Exception:
+        pl = None  # type: ignore
+        _is_polars = False
+    if _is_polars:
         return df.with_columns(pl.Series(name=column_name, values=preds))
     if isinstance(df, pd.DataFrame):
         out = df.copy()
@@ -112,12 +117,21 @@ def composite_oof_predictions(
     out = np.full(n, np.nan, dtype=np.float64)
     kf = KFold(n_splits=int(n_splits), shuffle=True, random_state=int(random_state))
     indices = np.arange(n)
+    try:
+        import polars as pl  # type: ignore
+        _HAS_POLARS = True
+    except Exception:
+        pl = None  # type: ignore
+        _HAS_POLARS = False
     for train_idx, val_idx in kf.split(indices):
         # Subset X for the fold. Polars / pandas handled separately to avoid silent materialisation.
-        if hasattr(X, "to_pandas") and not isinstance(X, pd.DataFrame):
-            import polars as pl  # lazy
-            X_train = X.filter(pl.Series([i in set(train_idx.tolist()) for i in range(n)]))
-            X_val = X.filter(pl.Series([i in set(val_idx.tolist()) for i in range(n)]))
+        if _HAS_POLARS and isinstance(X, pl.DataFrame):
+            # Build boolean masks once per fold (ENS-P1-7): np.isin avoids
+            # the O(n^2) python list-comp + set(train_idx.tolist()) rebuild.
+            train_mask = np.isin(indices, train_idx, assume_unique=True)
+            val_mask = np.isin(indices, val_idx, assume_unique=True)
+            X_train = X.filter(pl.Series(train_mask))
+            X_val = X.filter(pl.Series(val_mask))
         elif isinstance(X, pd.DataFrame):
             X_train = X.iloc[train_idx].reset_index(drop=True)
             X_val = X.iloc[val_idx].reset_index(drop=True)

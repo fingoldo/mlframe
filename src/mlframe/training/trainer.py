@@ -559,6 +559,21 @@ def train_and_evaluate_model(
         test_df=test_df,
     )
 
+    # Thread group_ids into the pre_pipeline fit so RFECV(cv=GroupKFold())
+    # and grouped MRMR receive the same sample-grouping signal the suite-level
+    # callers already pass into trainer.fit. Only forwarded on train+val sample
+    # range (no test). fix audit row FS-P1-1.
+    _pre_pipeline_groups = None
+    if group_ids is not None:
+        try:
+            _gi = np.asarray(group_ids)
+            if train_idx is not None and len(_gi) >= int(np.max(np.asarray(train_idx))) + 1:
+                _pre_pipeline_groups = _gi[np.asarray(train_idx)]
+            elif train_df is not None and hasattr(train_df, "shape") and len(_gi) == train_df.shape[0]:
+                _pre_pipeline_groups = _gi
+        except (TypeError, ValueError, IndexError):
+            _pre_pipeline_groups = None
+
     train_df, val_df = _apply_pre_pipeline_transforms(
         model=model,
         pre_pipeline=pre_pipeline,
@@ -571,6 +586,7 @@ def train_and_evaluate_model(
         model_file_name=model_file_name,
         verbose=verbose,
         selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
+        groups=_pre_pipeline_groups,
     )
 
     # Check if feature selection removed all features

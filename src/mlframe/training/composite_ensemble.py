@@ -14,6 +14,25 @@ from typing import (
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+# ENS-Low-7: hoist sklearn.linear_model imports out of the predict()
+# hot path so an inference round-trip does not pay the import cost on
+# the first call (previously imported inside CompositeCrossTargetEnsemble
+# fitting helpers; predict already touched the cached Ridge class but the
+# cold-import cost still showed up in profiling).
+from sklearn.linear_model import Ridge, ElasticNetCV, RidgeCV
+
+try:
+    import polars as pl  # type: ignore
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover
+    pl = None  # type: ignore
+    _HAS_POLARS = False
+
+
+def _is_polars_df(x: Any) -> bool:
+    """ENS-P2-6: prefer explicit isinstance check over duck-typing."""
+    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+
 
 from .composite_estimator import CompositeTargetEstimator
 from .composite_transforms import get_transform
@@ -146,6 +165,7 @@ def compute_oof_holdout_predictions(
     holdout_frac: float,
     random_state: int,
     time_ordering: np.ndarray | None = None,
+    kfold: int = 1,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute honest holdout predictions for each component.
 
@@ -167,11 +187,20 @@ def compute_oof_holdout_predictions(
       a single ``sklearn.model_selection.TimeSeriesSplit`` fold.
     - Otherwise: random shuffle by ``random_state`` (legacy behaviour).
 
-    Single-split (not K-fold) keeps the additional compute bounded
-    at ``len(components)`` re-fits. Returns:
+    Parameters
+    ----------
+    kfold
+        ENS-Low-1: when > 1, perform K-fold OOF prediction instead of a single
+        holdout slice. Each fold contributes its hold-out predictions; the
+        concatenated (n_train, K) matrix is returned in the natural row order.
+        ``kfold=1`` preserves the legacy single-split behaviour. Random-shuffle
+        only (time-aware K-fold remains the single-split trailing slice).
 
-    - ``holdout_preds_matrix``: (n_holdout, K) y-scale predictions.
-    - ``y_holdout``: (n_holdout,) original-scale targets.
+    Returns
+    -------
+    - ``holdout_preds_matrix``: y-scale predictions; shape
+      ``(n_holdout, K)`` for kfold=1, ``(n_train, K)`` for kfold>1 random.
+    - ``y_holdout``: y-scale targets aligned row-for-row.
     - ``surviving_names``: subset of ``component_names`` whose
       re-fit succeeded (any failures are dropped from the matrix
       so callers can re-align weight vectors).
@@ -181,6 +210,106 @@ def compute_oof_holdout_predictions(
     n_train = len(y_train_full)
     if n_train < 50 or holdout_frac <= 0 or holdout_frac >= 1:
         return np.zeros((0, len(component_models))), np.zeros(0), []
+
+    # ENS-Low-1: K-fold path. We recurse on the single-split implementation
+    # by inducing the desired splits manually. Each fold's holdout slice is
+    # predicted by inner clones trained on the remaining (K-1) folds; OOF
+    # predictions are stitched back to row-order. Time-aware split is NOT
+    # K-folded (semantics would be ambiguous for past-only training); we
+    # fall through to the single-split path when ``time_ordering`` is given.
+    if int(kfold) > 1 and time_ordering is None:
+        from sklearn.model_selection import KFold
+        kf = KFold(n_splits=int(kfold), shuffle=True, random_state=int(random_state))
+        oof_preds_by_name: dict[str, np.ndarray] = {}
+        survived_set: set[str] | None = None
+        for fold_train_idx, fold_holdout_idx in kf.split(np.arange(n_train)):
+            fold_frac = float(fold_holdout_idx.size) / float(n_train)
+            # Sub-frame views by index. Reuse the single-split path by
+            # creating a synthetic ``time_ordering`` that forces the
+            # specific fold_holdout slice -- simpler: inline the fit/predict
+            # for this fold.
+            if _is_polars_df(train_X):
+                fold_train_mask = np.zeros(n_train, dtype=bool)
+                fold_train_mask[fold_train_idx] = True
+                X_stack = train_X.filter(pl.Series(fold_train_mask))
+                X_holdout = train_X.filter(pl.Series(~fold_train_mask))
+            elif isinstance(train_X, pd.DataFrame):
+                X_stack = train_X.iloc[fold_train_idx].reset_index(drop=True)
+                X_holdout = train_X.iloc[fold_holdout_idx].reset_index(drop=True)
+            else:
+                X_stack = train_X[fold_train_idx]
+                X_holdout = train_X[fold_holdout_idx]
+            y_stack = y_train_full[fold_train_idx].astype(np.float64)
+            y_holdout_fold = y_train_full[fold_holdout_idx].astype(np.float64)
+            fold_cols: dict[str, np.ndarray] = {}
+            for model, name, spec in zip(component_models, component_names, component_specs):
+                try:
+                    if isinstance(model, CompositeTargetEstimator):
+                        if spec is None:
+                            raise ValueError("composite component with no spec")
+                        base_full = base_train_full_per_spec.get(spec["base_column"])
+                        if base_full is None:
+                            raise ValueError(
+                                f"missing base column '{spec['base_column']}'"
+                            )
+                        base_stack = base_full[fold_train_idx]
+                        transform = get_transform(spec["transform_name"])
+                        valid = transform.domain_check(y_stack, base_stack)
+                        if valid.sum() < 10:
+                            raise ValueError("too few valid rows after domain filter")
+                        t_stack = transform.forward(
+                            y_stack[valid], base_stack[valid], spec["fitted_params"],
+                        )
+                        inner_clone = clone(model.estimator_)
+                        if isinstance(X_stack, pd.DataFrame):
+                            X_stack_valid = X_stack.iloc[valid].reset_index(drop=True)
+                        elif _is_polars_df(X_stack):
+                            X_stack_valid = X_stack.filter(pl.Series(valid))
+                        else:
+                            X_stack_valid = X_stack[valid]
+                        inner_clone.fit(X_stack_valid, t_stack)
+                        wrapped = CompositeTargetEstimator.from_fitted_inner(
+                            fitted_inner=inner_clone,
+                            transform_name=spec["transform_name"],
+                            base_column=spec["base_column"],
+                            transform_fitted_params=spec["fitted_params"],
+                            y_train=y_stack[valid],
+                        )
+                        preds = wrapped.predict(X_holdout)
+                    else:
+                        inner_clone = clone(model)
+                        inner_clone.fit(X_stack, y_stack)
+                        preds = inner_clone.predict(X_holdout)
+                    preds = np.asarray(preds).reshape(-1).astype(np.float64)
+                    if not np.all(np.isfinite(preds)):
+                        raise ValueError("non-finite holdout predictions")
+                    fold_cols[name] = preds
+                except Exception as exc:
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] kfold OOF refit failed "
+                        "for component '%s' (kfold=%d): %s. Excluded.",
+                        name, int(kfold), exc,
+                    )
+                    continue
+            if survived_set is None:
+                survived_set = set(fold_cols.keys())
+            else:
+                survived_set &= set(fold_cols.keys())
+            for nm, preds in fold_cols.items():
+                buf = oof_preds_by_name.setdefault(nm, np.full(n_train, np.nan, dtype=np.float64))
+                buf[fold_holdout_idx] = preds
+        if not oof_preds_by_name or not survived_set:
+            return np.zeros((n_train, 0)), y_train_full.astype(np.float64), []
+        surviving_names = [n for n in component_names if n in survived_set]
+        cols = [oof_preds_by_name[n] for n in surviving_names]
+        oof_matrix = np.column_stack(cols)
+        # Drop rows with any NaN (folds that lost every component) - rare.
+        finite_rows = np.all(np.isfinite(oof_matrix), axis=1)
+        return (
+            oof_matrix[finite_rows],
+            y_train_full.astype(np.float64)[finite_rows],
+            surviving_names,
+        )
 
     # Decide whether to do a time-aware split. We use the explicit
     # ``time_ordering`` signal when supplied; absent that we attempt
@@ -209,8 +338,7 @@ def compute_oof_holdout_predictions(
 
     # Subset X. Branch on type so we don't pull pandas APIs on
     # polars frames.
-    if hasattr(train_X, "to_pandas") and not isinstance(train_X, pd.DataFrame):
-        import polars as pl
+    if _is_polars_df(train_X):
         train_mask = np.zeros(n_train, dtype=bool)
         train_mask[train_idx] = True
         X_stack = train_X.filter(pl.Series(train_mask))
@@ -250,10 +378,9 @@ def compute_oof_holdout_predictions(
                     y_stack[valid], base_stack[valid], spec["fitted_params"],
                 )
                 inner_clone = clone(model.estimator_)
-                if hasattr(X_stack, "iloc"):
+                if isinstance(X_stack, pd.DataFrame):
                     X_stack_valid = X_stack.iloc[valid].reset_index(drop=True)
-                elif hasattr(X_stack, "filter") and not isinstance(X_stack, np.ndarray):
-                    import polars as pl
+                elif _is_polars_df(X_stack):
                     X_stack_valid = X_stack.filter(pl.Series(valid))
                 else:
                     X_stack_valid = X_stack[valid]
@@ -404,7 +531,7 @@ class CompositeCrossTargetEnsemble:
         ``predict`` re-normalises only the magnitudes, so a negative
         weight means the component's prediction is subtracted.
         """
-        from sklearn.linear_model import Ridge, RidgeCV
+        # ENS-Low-7: Ridge / RidgeCV hoisted to module-top imports.
         n = len(component_models)
         if n == 0:
             raise ValueError("from_linear_stack: empty component list.")
@@ -698,10 +825,9 @@ class CompositeCrossTargetEnsemble:
                         f"{len(self.component_models)}) but no training matrix is available "
                         "to refit Ridge. Refusing to predict to avoid intercept-induced bias."
                     )
-                from sklearn.linear_model import Ridge as _Ridge
-
+                # ENS-Low-7: Ridge hoisted to module-top imports.
                 alpha = float(getattr(self, "_linear_stack_ridge_alpha", 1.0))
-                refit = _Ridge(alpha=alpha, fit_intercept=True)
+                refit = Ridge(alpha=alpha, fit_intercept=True)
                 refit.fit(np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y))
                 new_w = np.asarray(refit.coef_, dtype=np.float64)
                 new_intercept = float(refit.intercept_)

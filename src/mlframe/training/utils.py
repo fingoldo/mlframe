@@ -200,6 +200,11 @@ def _canonical_dtype_str(dtype) -> str:
     category palettes (e.g. union vs partial) produce different hashes --
     that's the correct signal for Fix 8's fingerprint, since CatBoost's
     internal dict ordering depends on the category list.
+
+    CACHE-Low-3: explicit coverage for List / Struct / Datetime / Duration so
+    minor polars-version repr drift does not change the canonical form.
+    Datetime / Duration records both the time unit and timezone (datetime
+    only) so naive vs tz-aware columns hash to distinct values.
     """
     s = str(dtype)
     # pl.String is an alias for pl.Utf8 as of polars 1.x; collapse.
@@ -213,6 +218,36 @@ def _canonical_dtype_str(dtype) -> str:
             return "Enum[" + ",".join(sorted(str(c) for c in cats)) + "]"
         except Exception:
             return s
+    # pl.List(inner) -- record inner dtype recursively so List[Int64] != List[Float64].
+    inner = getattr(dtype, "inner", None)
+    if inner is not None and s.startswith("List"):
+        return "List[" + _canonical_dtype_str(inner) + "]"
+    # pl.Struct(fields=[...]) -- record field name + dtype pairs sorted by name.
+    if s.startswith("Struct"):
+        fields = getattr(dtype, "fields", None)
+        if fields is not None:
+            try:
+                parts = sorted(
+                    f"{getattr(f, 'name', '?')}:{_canonical_dtype_str(getattr(f, 'dtype', '?'))}"
+                    for f in fields
+                )
+                return "Struct{" + ",".join(parts) + "}"
+            except Exception:
+                return s
+    # pl.Datetime(time_unit='us', time_zone='UTC') -- include unit + tz so
+    # naive vs UTC-aware columns differ.
+    if s.startswith("Datetime"):
+        tu = getattr(dtype, "time_unit", None)
+        tz = getattr(dtype, "time_zone", None)
+        if tu is not None or tz is not None:
+            return f"Datetime[{tu or '?'},{tz or 'naive'}]"
+        return s
+    # pl.Duration(time_unit='us') -- include unit so ms vs us hash differently.
+    if s.startswith("Duration"):
+        tu = getattr(dtype, "time_unit", None)
+        if tu is not None:
+            return f"Duration[{tu}]"
+        return s
     return s
 
 
@@ -253,7 +288,9 @@ def compute_model_input_fingerprint(
     import json as _json
 
     if df_at_fit is None:
-        return "__nodf_____", []
+        # CACHE-Low-1: marker length must equal SHA-256 prefix length (10) so
+        # downstream `len(fingerprint) == 10` invariants hold.
+        return "__nodf____", []
 
     cat_set = set(cat_features or [])
     text_set = set(text_features or [])

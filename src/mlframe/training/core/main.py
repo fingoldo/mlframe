@@ -62,15 +62,10 @@ from .utils import (
     _phase_pandas_conversion_and_cat_prep,
     _phase_train_val_test_split,
 )
-from ._phase_composite_discovery import run_composite_target_discovery
-from ._phase_composite_post import run_composite_post_processing
-from ._phase_temporal_audit import run_temporal_audit_batch
-from ._phase_polars_fixes import apply_polars_categorical_fixes
-from ._phase_recurrent import train_recurrent_models
-from ._phase_finalize import finalize_suite
-from ._phase_config_setup import setup_configuration
-from ._phase_train_one_target import _train_one_target
 from ._training_context import TrainingContext
+# CODE-P1-8: single consolidated import for all per-phase entry points (was 8 separate ``from
+# ._phase_X import Y`` lines). Call e.g. ``pr.apply_polars_categorical_fixes(...)``.
+from . import _phase_runners as pr
 
 
 from ._misc_helpers import _split_preds_probs, _prep_polars_df  # noqa: F401
@@ -191,7 +186,7 @@ def train_mlframe_models_suite(
     if features_and_targets_extractor is None:
         raise ValueError("features_and_targets_extractor is required")
 
-    ctx = setup_configuration(
+    ctx = pr.setup_configuration(
         preprocessing_config=preprocessing_config,
         pipeline_config=pipeline_config,
         feature_types_config=feature_types_config,
@@ -321,6 +316,7 @@ def train_mlframe_models_suite(
         was_polars_input, all_models_polars_native, polars_pipeline_applied,
         train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
         pipeline_config, preprocessing_extensions,
+        train_df_pandas_pre,
     ) = _phase_fit_pipeline(
         train_df=train_df,
         val_df=val_df,
@@ -341,7 +337,8 @@ def train_mlframe_models_suite(
                "cat_features", "cat_features_polars", "was_polars_input",
                "all_models_polars_native", "polars_pipeline_applied",
                "train_df_polars_pre", "val_df_polars_pre", "test_df_polars_pre",
-               "pipeline_config", "preprocessing_extensions"):
+               "pipeline_config", "preprocessing_extensions",
+               "train_df_pandas_pre"):
         setattr(ctx, _k, locals()[_k])
 
     (
@@ -364,6 +361,7 @@ def train_mlframe_models_suite(
         feature_types_config=feature_types_config,
         metadata=metadata,
         verbose=verbose,
+        train_df_pandas_pre=train_df_pandas_pre,
     )
 
     if verbose:
@@ -395,12 +393,23 @@ def train_mlframe_models_suite(
             mrmr_kwargs=mrmr_kwargs,
         )
 
-    category_encoder, imputer, scaler = _get_pipeline_components(preprocessing_config, cat_features)
+    # Propagate split-config random_seed so the default CatBoostEncoder is
+    # deterministic across runs. fix audit row FE-P2-5.
+    _seed_for_components = getattr(split_config, "random_seed", None) if split_config is not None else None
+    category_encoder, imputer, scaler = _get_pipeline_components(
+        preprocessing_config, cat_features, random_seed=_seed_for_components,
+    )
     # Propagate to ctx so _phase_train_one_target reads the resolved components, not the None defaults from TrainingContext (LinearModelStrategy.build_pipeline silently skips imputation when imputer=None, sending raw NaN into LinearRegression.fit).
     ctx.category_encoder = category_encoder
     ctx.imputer = imputer
     ctx.scaler = scaler
 
+    # CACHE-P2-1: MUST run BEFORE _phase_pandas_conversion_and_cat_prep. The
+    # polars vs pandas branch below picks its backend from ``train_df``'s
+    # current type; if the pandas conversion fires first the polars fastpath
+    # silently degrades to pandas without surfacing the regression. Keep
+    # this block ABOVE the ``_phase_pandas_conversion_and_cat_prep`` call.
+    #
     # train_df is still polars at this point IFF the upstream split kept the polars fastpath alive
     # (no pandas-only preprocessor forced a conversion). The polars stats path lazily expresses the
     # numeric/categorical summaries without materialising a pandas copy, so we must branch here
@@ -487,7 +496,7 @@ def train_mlframe_models_suite(
             _discovery_cache_dir = str(_P(data_dir) / ".discovery_cache")
     except Exception:
         _discovery_cache_dir = None
-    target_by_type, metadata = run_composite_target_discovery(
+    target_by_type, metadata = pr.run_composite_target_discovery(
         composite_target_discovery_config=composite_target_discovery_config,
         target_by_type=target_by_type,
         mlframe_models=mlframe_models,
@@ -510,7 +519,7 @@ def train_mlframe_models_suite(
         train_df_polars, val_df_polars, test_df_polars,
         train_df_pd, val_df_pd, test_df_pd,
         filtered_train_df, filtered_val_df,
-    ) = apply_polars_categorical_fixes(
+    ) = pr.apply_polars_categorical_fixes(
         train_df_polars=train_df_polars,
         val_df_polars=val_df_polars,
         test_df_polars=test_df_polars,
@@ -533,7 +542,7 @@ def train_mlframe_models_suite(
     slug_to_original_target_type = {}
     slug_to_original_target_name = {}
 
-    _all_target_audits = run_temporal_audit_batch(
+    _all_target_audits = pr.run_temporal_audit_batch(
         behavior_config=behavior_config,
         features_and_targets_extractor=features_and_targets_extractor,
         timestamps=timestamps,
@@ -546,7 +555,7 @@ def train_mlframe_models_suite(
 
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
         for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):
-            _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
+            pr._train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     models = ctx.models
     metadata = ctx.metadata
@@ -568,9 +577,11 @@ def train_mlframe_models_suite(
     slug_to_original_target_type = ctx.slug_to_original_target_type
     slug_to_original_target_name = ctx.slug_to_original_target_name
 
-    models = train_recurrent_models(
+    # CODE-P1-12: read recurrent_models from ctx (not the closed-over function param) so any
+    # mid-flow mutation of ctx.recurrent_models propagates correctly to train_recurrent_models.
+    models = pr.train_recurrent_models(
         models=models,
-        recurrent_models=recurrent_models,
+        recurrent_models=ctx.recurrent_models,
         recurrent_config=recurrent_config,
         train_sequences=train_sequences,
         val_sequences=val_sequences,
@@ -592,9 +603,9 @@ def train_mlframe_models_suite(
         log_phase(f"Training suite completed for {model_name}, {sum(len(v) for targets in models.values() for v in targets.values())} models.")
         log_ram_usage()
 
-    metadata = finalize_suite(ctx)
+    metadata = pr.finalize_suite(ctx)
 
-    models, metadata = run_composite_post_processing(
+    models, metadata = pr.run_composite_post_processing(
         models=models,
         metadata=metadata,
         target_by_type=target_by_type,

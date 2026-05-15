@@ -851,8 +851,33 @@ def create_polarsds_pipeline(
                 bp = bp.one_hot_encode(cols=cols_arg, drop_first=False, drop_cols=True)
     # Add more encoding methods as needed
 
-    # Convert int to float32 for better compatibility
-    bp = bp.int_to_float(f32=True)
+    # Convert int to float32 for better compatibility.
+    # Skip already-narrow Int8/Int16 columns (typically datetime decomposition
+    # outputs: day/weekday/month/hour all fit Int8); widening them to float32
+    # quadruples memory for zero downstream benefit since tree models accept
+    # int8 directly. We cast only Int32/Int64/UInt32/UInt64 to f32. fix audit
+    # row FE-L-3.
+    try:
+        _narrow_int_dtypes = {pl.Int8, pl.Int16, pl.UInt8, pl.UInt16}
+        _wide_int_cols = [
+            name for name, dtype in train_df.schema.items()
+            if dtype.is_integer() and dtype not in _narrow_int_dtypes
+        ]
+        if _wide_int_cols:
+            _cast_exprs = [pl.col(c).cast(pl.Float32) for c in _wide_int_cols]
+            # polars-ds Blueprint.with_columns is ``*exprs`` style; unpack.
+            bp = bp.with_columns(*_cast_exprs)
+    except Exception as _exc:  # pragma: no cover - polars-ds API drift fallback
+        # If the per-column path errors (older polars-ds without with_columns,
+        # schema dtype detection failure, ...) fall back to the legacy
+        # whole-frame cast so we never silently emit raw int to consumers that
+        # historically expected float.
+        if verbose:
+            logger.warning(
+                "Narrow-int-aware int_to_float gating failed (%s); falling back to legacy int_to_float(f32=True).",
+                _exc,
+            )
+        bp = bp.int_to_float(f32=True)
 
     # Materialize the pipeline
     pipeline = bp.materialize()

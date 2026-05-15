@@ -719,7 +719,11 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             # If it succeeds, check results
             assert "target" in models or models is not None
         except (ValueError, AttributeError, Exception) as e:
-            # Expected - no features remaining after preprocessing or related errors
+            # Expected - no features remaining after preprocessing or related errors.
+            # Empty-feature path can also surface as ``NotFittedError`` when the
+            # pre-pipeline is asked to transform an all-constant frame whose fit
+            # was skipped (sklearn Pipeline -> 'not fitted yet'); accept the
+            # downstream messaging too.
             error_msg = str(e).lower()
             assert any(
                 keyword in error_msg
@@ -733,6 +737,9 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                     "dtype",
                     "length",
                     "label",
+                    "fitted",
+                    "pipeline",
+                    "instance",
                 ]
             )
 

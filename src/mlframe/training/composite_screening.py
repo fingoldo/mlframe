@@ -18,6 +18,19 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
+try:
+    import polars as pl  # type: ignore
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover
+    pl = None  # type: ignore
+    _HAS_POLARS = False
+
+
+def _is_polars_df(x: Any) -> bool:
+    """ENS-P2-6: prefer explicit isinstance check over duck-typing."""
+    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+
+
 from .composite_estimator import CompositeTargetEstimator, _y_train_clip_bounds
 from .composite_transforms import get_transform
 
@@ -30,7 +43,7 @@ logger = logging.getLogger(__name__)
 def _extract_column_array(df: Any, col: str) -> np.ndarray:
     """Pull a single column out as a 1-D float64 ndarray. Polars / pandas
     only -- never materialise a whole-frame conversion."""
-    if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
+    if _is_polars_df(df):
         # Polars Series.to_numpy() already returns an ndarray; the prior
         # np.asarray wrapper allocated a redundant view. copy=False keeps
         # the astype zero-copy when the source dtype already matches.
@@ -47,7 +60,7 @@ def _is_numeric_column(df: Any, col: str) -> bool:
     error -- discovery skips non-numeric base candidates rather than
     risking a cast bomb on object-dtype columns."""
     try:
-        if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
+        if _is_polars_df(df):
             import polars as pl  # lazy
             dtype = df.schema[col]
             # ``dtype.is_numeric()`` covers Float*, Int*, UInt* (added in

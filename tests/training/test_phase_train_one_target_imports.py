@@ -31,8 +31,25 @@ def test_module_level_name_resolves(module_path, name):
 
 
 def test_prep_polars_df_local_import_does_not_cycle():
-    # _train_one_target does `from .main import _prep_polars_df` locally; main.py imports _train_one_target at top level.
-    # Both must be importable in either order without ImportError.
-    importlib.import_module("mlframe.training.core._phase_train_one_target")
+    # CODE-P1-7: _prep_polars_df was hoisted to _misc_helpers.py so .main and ._phase_train_one_target
+    # both import it from there at module top — no in-function local import remains in the hot loop.
+    # Both modules must be importable in either order without ImportError.
+    pt_mod = importlib.import_module("mlframe.training.core._phase_train_one_target")
     main_mod = importlib.import_module("mlframe.training.core.main")
+    misc_mod = importlib.import_module("mlframe.training.core._misc_helpers")
+    assert hasattr(misc_mod, "_prep_polars_df"), "_prep_polars_df must live in _misc_helpers"
+    assert hasattr(pt_mod, "_prep_polars_df"), "_phase_train_one_target must re-expose via top-level import"
+    # Back-compat: main.py still re-exports the symbol for downstream callers.
     assert hasattr(main_mod, "_prep_polars_df")
+
+
+def test_prep_polars_df_no_local_import_in_train_one_target():
+    """Regression for CODE-P1-7: ensure the hot loop does not perform `from .main import _prep_polars_df`."""
+    import inspect
+
+    from mlframe.training.core import _phase_train_one_target as pt
+
+    src = inspect.getsource(pt)
+    assert "from .main import _prep_polars_df" not in src, (
+        "CODE-P1-7 regression: _prep_polars_df is being locally imported from .main inside the hot loop"
+    )

@@ -76,7 +76,6 @@ def test_run_temporal_audit_batch_with_timestamps_returns_per_target_results():
     result = run_temporal_audit_batch(
         behavior_config=None,
         features_and_targets_extractor=_ts_extractor("ts"),
-        df=None,
         timestamps=timestamps,
         target_by_type={"REGRESSION": {"y": target_y}},
         verbose=False,

@@ -8,6 +8,18 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+try:
+    import polars as pl  # type: ignore
+    _HAS_POLARS = True
+except Exception:  # pragma: no cover
+    pl = None  # type: ignore
+    _HAS_POLARS = False
+
+
+def _is_polars_df(x: Any) -> bool:
+    """ENS-P2-6: prefer explicit isinstance check over duck-typing."""
+    return _HAS_POLARS and isinstance(x, pl.DataFrame)
+
 
 # ----------------------------------------------------------------------
 # Discovery caching layer (R10c brainstorm round-2 extension E; content-hash cache for discovery).
@@ -24,6 +36,10 @@ import pandas as pd
 
 
 _DISCOVERY_SIGNATURE_SAMPLE_N: int = 1000
+# CACHE-P2-5: single source of truth for discovery cache seed; both
+# ``data_signature`` and ``make_discovery_cache_key`` reference it so a
+# downstream override touches one constant, not two function defaults.
+_DISCOVERY_DEFAULT_SEED: int = 42
 
 
 def data_signature(
@@ -32,7 +48,7 @@ def data_signature(
     feature_cols: Sequence[str],
     *,
     sample_n: int = _DISCOVERY_SIGNATURE_SAMPLE_N,
-    random_state: int = 42,
+    random_state: int = _DISCOVERY_DEFAULT_SEED,
 ) -> str:
     """Content-hash signature for a (df, target_col, feature_cols) triple.
 
@@ -61,27 +77,72 @@ def data_signature(
     sample_n_eff = min(n_rows, int(sample_n))
     sample_idx = np.sort(rng.choice(n_rows, size=sample_n_eff, replace=False))
     h = hashlib.blake2b(digest_size=16)
+    # CACHE-P0-2: row count goes into the hash so appending rows invalidates
+    # the cache even when the deterministic sample happens to coincide.
+    h.update(b"nrows=")
+    h.update(str(int(n_rows)).encode("utf-8"))
     # Hash 1: target column + feature cols (names + order).
     h.update(target_col.encode("utf-8"))
     for c in feature_cols:
         h.update(b"|")
         h.update(str(c).encode("utf-8"))
-    # Hash 2: per-column dtype + per-column sampled values.
-    if hasattr(df, "to_pandas") and not isinstance(df, pd.DataFrame):
+
+    def _col_stats(arr: np.ndarray) -> bytes:
+        """CACHE-P0-2: per-column WHOLE-frame summary (min, max, null count).
+        Folded into the hash so a single appended row that lands in the
+        unsampled portion still changes the signature - which the sampled-
+        values-only hash misses. ``np.nan`` is reduced to a deterministic
+        token so NaN vs missing-in-mask hash identically across numpy
+        versions.
+        """
+        if arr.size == 0:
+            return b"empty"
+        # Null counts: NaN for floats, ``None`` -> NaN after numeric coerce;
+        # for object / string columns just count is-None.
+        try:
+            isnan = ~np.isfinite(arr.astype(np.float64, copy=False))
+            n_null = int(isnan.sum())
+            finite = arr[~isnan]
+            if finite.size == 0:
+                return f"all_null:{n_null}".encode("utf-8")
+            return (
+                f"min={float(np.min(finite)):.12g};"
+                f"max={float(np.max(finite)):.12g};"
+                f"null={n_null}"
+            ).encode("utf-8")
+        except (TypeError, ValueError):
+            # Object / string dtype: hash a fingerprint of distinct values.
+            try:
+                u = np.unique(arr.astype(str, copy=False))
+                return (
+                    f"uniq={int(u.size)};first={u[0] if u.size else ''};"
+                    f"last={u[-1] if u.size else ''}"
+                ).encode("utf-8")
+            except Exception:
+                return b"opaque"
+
+    # Hash 2: per-column dtype + whole-column stats + per-column sampled values.
+    if _is_polars_df(df):
         # Polars path.
         for c in [target_col] + list(feature_cols):
             if c not in df.columns:
                 continue
             col = df.get_column(c)
             h.update(str(col.dtype).encode("utf-8"))
-            sampled = col.to_numpy()[sample_idx]
+            full = col.to_numpy()
+            h.update(b"|stats=")
+            h.update(_col_stats(full))
+            sampled = full[sample_idx]
             h.update(np.ascontiguousarray(sampled).tobytes())
     elif isinstance(df, pd.DataFrame):
         for c in [target_col] + list(feature_cols):
             if c not in df.columns:
                 continue
             h.update(str(df[c].dtype).encode("utf-8"))
-            sampled = df[c].to_numpy()[sample_idx]
+            full = df[c].to_numpy()
+            h.update(b"|stats=")
+            h.update(_col_stats(full))
+            sampled = full[sample_idx]
             h.update(np.ascontiguousarray(sampled).tobytes())
     else:
         raise TypeError(f"data_signature: unsupported df type {type(df).__name__}")
@@ -92,7 +153,7 @@ def make_discovery_cache_key(
     df_sig: str,
     target_col: str,
     config_signature: str,
-    random_state: int = 42,
+    random_state: int = _DISCOVERY_DEFAULT_SEED,
 ) -> str:
     """Combine the parts of a discovery cache key into a stable hex string. The ``config_signature`` is caller-supplied (usually a hash of the JSON-serialised CompositeTargetDiscoveryConfig)."""
     import hashlib

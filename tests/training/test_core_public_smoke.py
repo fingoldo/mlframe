@@ -84,7 +84,6 @@ def test_run_temporal_audit_batch_no_timestamp_returns_empty():
     result = run_temporal_audit_batch(
         behavior_config=behavior_config,
         features_and_targets_extractor=fte,
-        df=None,
         timestamps=None,
         target_by_type={},
         verbose=False,
@@ -99,7 +98,6 @@ def test_run_temporal_audit_batch_no_behavior_config_returns_empty():
     result = run_temporal_audit_batch(
         behavior_config=None,
         features_and_targets_extractor=fte,
-        df=None,
         timestamps=None,
         target_by_type={},
         verbose=False,

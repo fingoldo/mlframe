@@ -477,14 +477,23 @@ def _convert_dfs_to_pandas(
 def _get_pipeline_components(
     preprocessing_config: PreprocessingConfig,
     cat_features: list[str],
+    random_seed: int | None = None,
 ) -> tuple[Any | None, SimpleImputer, StandardScaler]:
-    """Get pipeline components (category_encoder, imputer, scaler) from typed config or defaults."""
+    """Get pipeline components (category_encoder, imputer, scaler) from typed config or defaults.
+
+    ``random_seed`` is used to seed the default ``CatBoostEncoder`` so two calls
+    with the same seed produce deterministic encodings. CatBoostEncoder draws
+    permutations internally; without an explicit ``random_state`` the encoder
+    re-shuffles on every fit, breaking determinism across reruns (fix audit
+    row FE-P2-5).
+    """
     category_encoder = preprocessing_config.category_encoder
     imputer = preprocessing_config.imputer
     scaler = preprocessing_config.scaler
 
     if category_encoder is None and cat_features:
-        category_encoder = ce.CatBoostEncoder()
+        _seed = int(random_seed) if random_seed is not None else 42
+        category_encoder = ce.CatBoostEncoder(random_state=_seed)
 
     if imputer is None:
         imputer = SimpleImputer()

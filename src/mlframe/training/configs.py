@@ -617,6 +617,14 @@ class FeatureTypesConfig(BaseConfig):
     datetime_methods: Set[str] = Field(
         default_factory=lambda: {"day", "weekday", "month", "hour"},
     )
+    # Phase ordering: run auto-detect-feature-types BEFORE fit_pipeline so
+    # pandas-input datasets with high-cardinality string columns can be promoted
+    # to text_features before the ordinal encoder ingests them. Pre-fix (default
+    # False) the call order was fit_pipeline -> auto_detect_feature_types, which
+    # silently ordinal-encoded text columns (the encoder ran first and the
+    # detect step saw integer codes). Default True per audit row FE-P1-2; flip
+    # to False to restore legacy ordering for byte-for-byte reproducibility.
+    feature_types_first: bool = True
 
 
 class FeatureSelectionConfig(BaseConfig):

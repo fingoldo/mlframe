@@ -272,7 +272,7 @@ def _multilabel_target_to_1d_for_supervised_encoders(target):
     return (arr.sum(axis=1) > 0).astype(np.int8)
 
 
-def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None):
+def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None, groups=None):
     """Run a selector fit/transform on df with passthrough_cols hidden, then re-attach them.
 
     Feature selectors (MRMR, RFECV) can't encode text or list-of-float embedding columns;
@@ -286,6 +286,10 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     crashes LGB's Dataset construction on the ``'HOURLY'`` path. We now rebuild a
     pd.DataFrame from the reduced-input column names so passthrough_cols re-attach
     and downstream models take the native-pandas fastpath.
+
+    ``groups`` is threaded through fit/fit_transform so GroupKFold-aware feature
+    selectors (RFECV with cv=GroupKFold(), MRMR with grouped CV) receive the
+    sample-grouping signal. fix audit row FS-P1-1.
     """
 
     # 2026-05-11 Wave 20: convert sklearn/polars "empty output" errors into
@@ -300,9 +304,23 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     #     (polars.to_numpy -> vstack on empty list).
     # Surfaced by Wave 15 MRMR fuzz axes (c0008 with interactions_max_order=3
     # + fe_max_steps=2 confirming 0 predictors).
+    def _call_fit(_fn, _arg, _target_arg):
+        """Invoke fit/fit_transform with ``groups`` when supported. sklearn
+        feature selectors that consume groups (RFECV(cv=GroupKFold()), MRMR)
+        accept ``groups`` as a kwarg on ``fit`` / ``fit_transform``. Best-effort:
+        if the underlying transformer does not accept the kwarg we retry
+        without it instead of failing.
+        """
+        if groups is None:
+            return _fn(_arg, _target_arg)
+        try:
+            return _fn(_arg, _target_arg, groups=groups)
+        except TypeError:
+            return _fn(_arg, _target_arg)
+
     def _run_and_empty_check(_fn, _arg, _target_arg):
         try:
-            return _fn(_arg, _target_arg) if fit else _fn(_arg)
+            return _call_fit(_fn, _arg, _target_arg) if fit else _fn(_arg)
         except ValueError as _exc:
             _m = str(_exc)
             if "need at least one array to concatenate" in _m or "at least one array or dtype is required" in _m:
@@ -328,7 +346,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     else:
         held = df[present]
         reduced = df.drop(columns=present)
-    out = fn(reduced, target) if fit else fn(reduced)
+    out = _call_fit(fn, reduced, target) if fit else fn(reduced)
     if hasattr(out, "columns"):
         if isinstance(out, pl.DataFrame):
             out = out.with_columns([held[c] for c in present])
@@ -462,6 +480,7 @@ def _apply_pre_pipeline_transforms(
     selector_passthrough_cols=None,
     target_name: str | None = None,
     cache_max: int | None = None,
+    groups=None,
 ):
     """Apply pre-pipeline transformations to train and validation DataFrames.
 
@@ -476,6 +495,10 @@ def _apply_pre_pipeline_transforms(
         use_cache: Whether to use cached pipeline
         model_file_name: Model file path for cache checking
         verbose: Verbosity level
+        groups: optional grouping array for grouped-CV-aware selectors (RFECV with
+            GroupKFold(), grouped MRMR). Threaded into ``fit_transform`` /
+            ``fit_transform_resample`` when the underlying transformer accepts it
+            (fix audit row FS-P1-1).
     """
     if model is not None and pre_pipeline:
         t0_pre = timer()
@@ -544,6 +567,7 @@ def _apply_pre_pipeline_transforms(
                             passthrough_cols=selector_passthrough_cols,
                             fit=True,
                             target=train_target,
+                            groups=groups,
                         )
                     if verbose:
                         log_ram_usage()
@@ -606,6 +630,7 @@ def _apply_pre_pipeline_transforms(
                     passthrough_cols=selector_passthrough_cols,
                     fit=True,
                     target=_enc_target,
+                    groups=groups,
                 )
                 if verbose:
                     log_ram_usage()

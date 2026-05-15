@@ -112,6 +112,15 @@ class TrainingContext:
     train_df_polars_pre: pl.DataFrame | None = None
     val_df_polars_pre: pl.DataFrame | None = None
     test_df_polars_pre: pl.DataFrame | None = None
+    # Pandas-side counterparts of the *_polars_pre fields above. Set by
+    # _phase_pandas_conversion_and_cat_prep when the caller passed a pandas
+    # frame originally; main.py's bulk-setattr() at line 346 set this attr
+    # but slots=True forbids new runtime attrs - missing slot raised
+    # AttributeError on every pandas-input run (test_multiple_custom_pre_pipelines
+    # surfaced 2026-05-16).
+    train_df_pandas_pre: pd.DataFrame | None = None
+    val_df_pandas_pre: pd.DataFrame | None = None
+    test_df_pandas_pre: pd.DataFrame | None = None
     preprocessing_extensions: Any = None
 
     cat_features: list[str] = field(default_factory=list)
@@ -145,6 +154,15 @@ class TrainingContext:
     val_df_size_bytes_cached: int | None = None
     _all_target_audits: dict = field(default_factory=dict)
     _non_neural_train_times: list[float] = field(default_factory=list)
+    # CODE-P1-10: per-suite cache of compute_model_input_fingerprint results keyed by
+    # (target_type, target_name, id(strategy), tier_suffix, kind_suffix, pre_pipeline_name) so the
+    # weight-schema inner loop reuses the (schema_hash, input_schema) tuple instead of recomputing
+    # it once per weight iteration.
+    _model_input_fingerprint_cache: dict = field(default_factory=dict)
+    # CONV-MED-5: per-suite cache of pandas views of polars DFs keyed by id(polars_df) so two
+    # non-Polars-native strategies that share the same source polars frame only pay one
+    # ``get_pandas_view_of_polars_df`` conversion total within a single _train_one_target call.
+    _pandas_view_cache: dict = field(default_factory=dict)
 
     models: dict = field(default_factory=lambda: {})
     # Per-target ensemble outputs from ``score_ensemble`` (use_mlframe_ensembles=True). Keyed

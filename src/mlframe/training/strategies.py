@@ -291,7 +291,6 @@ class ModelPipelineStrategy(ABC):
         category_encoder: Optional[Any] = None,
         imputer: Optional[Any] = None,
         scaler: Optional[Any] = None,
-        output_format: str = "pandas",
     ) -> Optional[Pipeline]:
         """
         Build the preprocessing pipeline for this model type.
@@ -303,13 +302,6 @@ class ModelPipelineStrategy(ABC):
             category_encoder: Encoder for categorical features
             imputer: Imputer for missing values
             scaler: Scaler for feature normalization
-            output_format: ``"pandas"`` (default) or ``"polars"``. Routed to the
-                Pipeline's ``set_output(transform=...)`` so DataFrame dtypes
-                survive the chain. Choose ``"polars"`` when the downstream
-                consumer is Polars-native (CB / XGB Polars fastpath, HGB) and
-                you want to skip the arrow->pandas bridge; ``"pandas"`` for LGB
-                and other pandas-only consumers. Requires sklearn >= 1.4 for
-                ``"polars"`` support.
 
         Returns:
             Configured sklearn Pipeline or None if no preprocessing needed
@@ -317,6 +309,11 @@ class ModelPipelineStrategy(ABC):
         Note:
             Feature selectors (MRMR, RFECV, SelectorMixin) run FIRST (before preprocessing).
             Custom transformers (PCA, etc.) run LAST (after preprocessing).
+
+            Set-output is hard-wired to ``"pandas"`` (the only format any caller
+            ever used). Polars-native consumers take the polars fastpath upstream
+            of this builder; the sklearn pipeline always emits pandas. fix audit
+            row FE-L-1.
         """
         from sklearn.feature_selection import SelectorMixin
         from mlframe.feature_selection.filters import MRMR
@@ -404,21 +401,14 @@ class ModelPipelineStrategy(ABC):
         # sklearn's default returns numpy, which destroys categoricals -- LGB/CB/XGB
         # then receive numpy with string values and crash on Dataset construction
         # (e.g. "could not convert string to float: 'HOURLY'"). set_output keeps
-        # the frame as the requested type so downstream isinstance(X, pd_DataFrame)
-        # / pl.DataFrame branches take the native fastpath. Best-effort: some
-        # nested transformers (custom, third-party) don't declare
-        # get_feature_names_out and sklearn refuses to configure; swallow and
-        # continue. "polars" requires sklearn >= 1.4 -- older versions raise.
+        # the frame as pandas so downstream isinstance(X, pd.DataFrame) branches
+        # take the native fastpath. Best-effort: some nested transformers
+        # (custom, third-party) don't declare get_feature_names_out and sklearn
+        # refuses to configure; swallow and continue.
         try:
-            pipeline = pipeline.set_output(transform=output_format)
+            pipeline = pipeline.set_output(transform="pandas")
         except Exception:
-            if output_format != "pandas":
-                # Fall back to pandas (works on sklearn >= 1.2) if polars is
-                # rejected by the installed sklearn or by an inner transformer.
-                try:
-                    pipeline = pipeline.set_output(transform="pandas")
-                except Exception:
-                    pass
+            pass
         return pipeline
 
 
@@ -1343,25 +1333,12 @@ def _resolve_model_spec(
     return key, entry, strat
 
 
-def get_cache_key(model_name: str, pre_pipeline_name: str = "") -> str:
-    """
-    Get the cache key for a model's transformed DataFrames.
-
-    Models with the same cache key can share transformed DataFrames.
-    The pre_pipeline_name is included to differentiate between different
-    feature selectors (e.g., MRMR vs RFECV) that would otherwise share cache.
-
-    Args:
-        model_name: Name of the model
-        pre_pipeline_name: Name/identifier of the pre-pipeline (e.g., "mrmr", "rfecv")
-
-    Returns:
-        Cache key string (e.g., "tree", "tree_mrmr", "neural_rfecv")
-    """
-    base_key = get_strategy(model_name).cache_key
-    if pre_pipeline_name:
-        return f"{base_key}_{pre_pipeline_name}"
-    return base_key
+# CACHE-P1-2: get_cache_key removed. The helper was exported in __all__ but
+# carried no internal callers - PipelineCache (below) does its own cache-key
+# composition via ``get_strategy(model_name).cache_key`` directly. Tests that
+# exercised it were removed in the same change. External callers that still
+# reference ``strategies.get_cache_key`` should switch to
+# ``get_strategy(model_name).cache_key`` (same value, fewer indirections).
 
 
 # =============================================================================
@@ -1477,6 +1454,6 @@ __all__ = [
     "MODEL_STRATEGIES",
     "get_strategy",
     "_resolve_model_spec",
-    "get_cache_key",
+    # CACHE-P1-2: ``get_cache_key`` removed (dead helper). See module body.
     "PipelineCache",
 ]

@@ -27,7 +27,6 @@ from mlframe.training.strategies import (
     LinearModelStrategy,
     MODEL_STRATEGIES,
     get_strategy,
-    get_cache_key,
     PipelineCache,
 )
 
@@ -314,34 +313,9 @@ class TestGetStrategy:
             assert "Unknown model" in str(w[0].message)
 
 
-class TestGetCacheKey:
-    """Tests for get_cache_key function."""
-
-    def test_tree_models_share_cache_key(self):
-        """Test all tree models share the same cache key."""
-        tree_models = ['cb', 'lgb', 'xgb']
-        keys = [get_cache_key(m) for m in tree_models]
-        assert len(set(keys)) == 1  # All same key
-        assert keys[0] == 'tree'
-
-    def test_hgb_has_own_cache_key(self):
-        """Test HGB has its own cache key."""
-        assert get_cache_key('hgb') == 'hgb'
-        assert get_cache_key('hgb') != get_cache_key('cb')
-
-    def test_neural_models_share_cache_key(self):
-        """Test neural models share cache key."""
-        neural_models = ['mlp', 'ngb']
-        keys = [get_cache_key(m) for m in neural_models]
-        assert len(set(keys)) == 1
-        assert keys[0] == 'neural'
-
-    def test_linear_models_share_cache_key(self):
-        """Test linear models share cache key."""
-        linear_models = ['linear', 'ridge', 'lasso']
-        keys = [get_cache_key(m) for m in linear_models]
-        assert len(set(keys)) == 1
-        assert keys[0] == 'linear'
+# CACHE-P1-2: TestGetCacheKey class removed alongside the deleted helper. The
+# underlying behaviour is still exercised by TestTreeModelStrategy etc. which
+# assert ``get_strategy(model_name).cache_key`` directly.
 
 
 # =============================================================================

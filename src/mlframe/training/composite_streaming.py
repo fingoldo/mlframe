@@ -78,16 +78,24 @@ def streaming_alpha_check_and_refit(
     fit_params = _linear_residual_fit(y_clean, base_clean)
     alpha_buf = float(fit_params["alpha"])
     beta_buf = float(fit_params["beta"])
-    # Approx SE(alpha) on the buffer; same heuristic as the discovery-time drift detector.
+    # ENS-Low-3: residual-based OLS slope SE (was y_std / sqrt(n)/base_std,
+    # which inflates SE when the regressor explains most variance). Correct
+    # form: SE(alpha) = sqrt(SSE / (n-2)) / (sqrt(n) * base_std).
     base_std = float(np.std(base_clean))
-    y_std = float(np.std(y_clean))
+    n_buf = int(finite.sum())
     if base_std < 1e-12:
         return current_alpha, current_beta, {
             "refit": False, "z_score": float("nan"),
             "alpha_buffer": alpha_buf, "beta_buffer": beta_buf,
             "reason": "degenerate_buffer",
         }
-    se_alpha = y_std / (np.sqrt(finite.sum()) * base_std)
+    if n_buf > 2:
+        residuals = y_clean - (alpha_buf * base_clean + beta_buf)
+        sse = float(np.sum(residuals * residuals))
+        sigma_resid = float(np.sqrt(max(sse / (n_buf - 2), 0.0)))
+    else:
+        sigma_resid = float(np.std(y_clean))
+    se_alpha = sigma_resid / (np.sqrt(n_buf) * base_std)
     z = abs(alpha_buf - current_alpha) / max(se_alpha, 1e-12)
     if z > z_threshold:
         return alpha_buf, beta_buf, {

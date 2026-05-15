@@ -114,8 +114,15 @@ logger = logging.getLogger(__name__)
 def _hashable_params_signature(params: dict) -> tuple:
     """Build a hashable tuple-of-(key, value) signature from ``get_params`` output.
 
-    Non-hashable values (numpy arrays, callables, dicts of unhashables) fall back to ``repr(v)``. Used by
-    ``MRMR._FIT_CACHE`` so two clones with the same constructor parameters and (X, y) share fitted state.
+    Non-hashable values (numpy arrays, callables, dicts of unhashables) fall
+    back to content-based hashing. Used by ``MRMR._FIT_CACHE`` so two clones
+    with the same constructor parameters and (X, y) share fitted state.
+
+    CACHE-Low-2: numpy arrays are content-hashed via
+    ``(arr.tobytes(), arr.shape, str(arr.dtype))`` instead of ``repr(v)``;
+    ``repr`` is array-summary on numpy >= 2 (e.g. ``array([1, ..., 4])``)
+    so two arrays with identical content but different sizes / abbreviation
+    behaviour produced different signatures before, defeating the cache.
     """
     items = []
     for k, v in sorted(params.items()):
@@ -123,6 +130,17 @@ def _hashable_params_signature(params: dict) -> tuple:
             hash(v)
             items.append((k, v))
         except TypeError:
+            # CACHE-Low-2: content-hash numpy arrays so a copy hashes equal
+            # to the original. ``np.ndarray.tobytes`` + shape + dtype is the
+            # cheapest exact fingerprint and works for all numpy versions.
+            if isinstance(v, np.ndarray):
+                try:
+                    items.append(
+                        (k, (v.tobytes(), v.shape, str(v.dtype)))
+                    )
+                    continue
+                except Exception:
+                    pass
             try:
                 items.append((k, repr(v)))
             except Exception:
@@ -406,11 +424,52 @@ class MRMR(BaseEstimator, TransformerMixin):
         store_params_in_object(obj=self, params=get_parent_func_args())
         self.signature = None
 
+    # Allowed string values for the constructor params. Kept module-private rather
+    # than a typing.Literal alias so the runtime check can produce a richer error
+    # listing the valid options. fix audit row FS-P2-1.
+    _VALID_QUANTIZATION_METHODS = ("quantile", "uniform")
+    _VALID_NAN_STRATEGIES = ("separate_bin", "fillna_zero", "ffill_bfill", "propagate", "raise")
+    _VALID_MRMR_RELEVANCE_ALGOS = ("fleuret", "pld")
+    _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
+    _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
+    _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")
+
+    def _validate_string_params(self):
+        """Raise ValueError on bad constructor strings. Each branch lists the
+        accepted values verbatim so the error message is actionable. fix audit
+        row FS-P2-1."""
+        _checks = (
+            ("quantization_method", self._VALID_QUANTIZATION_METHODS),
+            ("nan_strategy", self._VALID_NAN_STRATEGIES),
+            ("mrmr_relevance_algo", self._VALID_MRMR_RELEVANCE_ALGOS),
+            ("mrmr_redundancy_algo", self._VALID_MRMR_REDUNDANCY_ALGOS),
+            ("fe_unary_preset", self._VALID_FE_UNARY_PRESETS),
+            ("fe_binary_preset", self._VALID_FE_BINARY_PRESETS),
+        )
+        for _name, _valid in _checks:
+            _val = getattr(self, _name, None)
+            if _val is None:
+                continue
+            if not isinstance(_val, str):
+                raise ValueError(
+                    f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. "
+                    f"Valid values: {_valid}."
+                )
+            if _val not in _valid:
+                raise ValueError(
+                    f"MRMR: {_name}={_val!r} is not a recognised value. "
+                    f"Valid values: {_valid}."
+                )
+
     # Input validation contract: explicit guards for memory-exhaustion shapes, malformed dtypes,
     # +/-inf values, single-class y, and polars LazyFrame / Expr edge cases. Each guard raises ValueError or warns.
     # All-constant features are NOT rejected here: zero-variance columns survive validation and surface as MI=0
     # in the screening loop, which is the documented downstream behaviour.
     def _validate_inputs(self, X, y):
+        # Validate string-valued constructor params on every fit. We intentionally
+        # do NOT validate inside __init__ to preserve sklearn-style "no work in
+        # __init__" semantics (clone() must not raise).
+        self._validate_string_params()
         import warnings as _w
         n_rows = getattr(X, "shape", (None,))[0]
         if n_rows is not None:
@@ -653,9 +712,6 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_binary_preset = self.fe_binary_preset
         fe_max_pair_features = self.fe_max_pair_features
 
-        # MRMR feature engineering (fe_max_steps > 0) uses pandas-only ops at multiple sites. Adapting all to
-        # polars is a separate large refactor; for now FE is disabled when input is polars (the selector itself
-        # still works via the zero-copy polars categorize_dataset path).
         fe_min_nonzero_confidence = self.fe_min_nonzero_confidence
         fe_min_pair_mi = self.fe_min_pair_mi
         fe_min_pair_mi_prevalence = self.fe_min_pair_mi_prevalence
@@ -787,8 +843,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                     unary_transformations["poly_" + str(coef)] = coef
 
             if verbose > 2:
-                print(f"nunary_transformations: {len(unary_transformations):_}")
-                print(f"nbinary_transformations: {len(binary_transformations):_}")
+                logger.info("nunary_transformations: %s", f"{len(unary_transformations):_}")
+                logger.info("nbinary_transformations: %s", f"{len(binary_transformations):_}")
 
             engineered_features = set()
             checked_pairs = set()
@@ -979,7 +1035,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 break  # uncomment to avoid recheck of single-rounded FE
 
         if verbose > 2:
-            print("time spent by binary func:", sort_dict_by_value(times_spent))
+            logger.info("time spent by binary func: %s", sort_dict_by_value(times_spent))
         # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)
 
         # ---------------------------------------------------------------------------------------------------------------
@@ -1055,11 +1111,34 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # ``params`` may already carry ``cv`` from configs.COMMON_RFECV_PARAMS; MRMR's explicit setting wins.
                 params.update(self._rfecv_cv_kwargs())
 
-                # Heuristic classifier-vs-regressor detection: len(y) / nunique(y) > 100 means each label
-                # has 100+ samples on average, which is the classification regime; everything else is treated
-                # as regression. Pre-fix, the regression else-branch silently skipped the additional-RFECV
-                # pass entirely, so regression callers got no benefit from run_additional_rfecv_minutes.
-                _is_classification = len(y) / max(1, len(np.unique(y))) > 100
+                # Classifier-vs-regressor detection. Preference order:
+                #   1) Explicit ``target_type`` attribute on self (set by the caller / harness).
+                #   2) Honest dtype + cardinality heuristic: float dtype is regression by
+                #      construction (zero-inflated targets like ``[0]*900 + [1.7, 2.4, ...]``
+                #      satisfy the legacy ratio>100 but are NOT classification). Integer
+                #      dtype with ratio>100 AND small absolute cardinality (<=64 unique
+                #      values) is classification. Everything else is regression.
+                # Pre-fix, the regression else-branch silently skipped the
+                # additional-RFECV pass entirely, so regression callers got no benefit
+                # from run_additional_rfecv_minutes. The dtype guard prevents misclassifying
+                # zero-inflated float targets. fix audit row FS-L-2.
+                _explicit_tt = getattr(self, "target_type", None)
+                if _explicit_tt is not None:
+                    _tt_str = str(_explicit_tt).lower()
+                    _is_classification = "classif" in _tt_str or _tt_str in ("binary", "multiclass", "multilabel")
+                else:
+                    _y_arr = np.asarray(y)
+                    _n_unique = len(np.unique(_y_arr))
+                    _ratio = len(_y_arr) / max(1, _n_unique)
+                    _is_float = _y_arr.dtype.kind == "f"
+                    _is_classification = (not _is_float) and _ratio > 100 and _n_unique <= 64
+                    if _ratio > 100 and _is_float:
+                        logger.warning(
+                            "MRMR.run_additional_rfecv: target is float dtype with %d unique values; "
+                            "treating as regression despite samples/unique ratio %.1f>100. Pass "
+                            "target_type='classification' explicitly to override.",
+                            _n_unique, _ratio,
+                        )
                 temp_columns = list(set(X.columns) - set(X.columns[selected_vars]))
 
                 if _is_classification:

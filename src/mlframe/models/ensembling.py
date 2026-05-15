@@ -1362,22 +1362,27 @@ def score_ensemble(
         _has_zero_crossing = False
         _sign_sensitive_in_methods = any(m in ensembling_methods for m in ("harm", "geo", "quad"))
         if _sign_sensitive_in_methods:
+            # ENS-P2-4 vectorised zero-crossing scan: flatten every member's
+            # train/val/test pred arrays into one stacked float view and call
+            # np.nanmin / np.any once instead of looping per (member, split).
+            _flat_arrays: list[np.ndarray] = []
             for _m in level_models_and_predictions:
                 for _attr in ("val_preds", "test_preds", "train_preds"):
                     _arr = getattr(_m, _attr, None)
                     if _arr is None:
                         continue
-                    _arr_f = np.asarray(_arr, dtype=np.float64)
-                    if _arr_f.size == 0:
-                        continue
-                    _abs_min = float(np.nanmin(np.abs(_arr_f)))
-                    _has_neg = bool(np.any(_arr_f < 0))
-                    _has_pos = bool(np.any(_arr_f > 0))
-                    if _abs_min < 1e-6 or (_has_neg and _has_pos):
-                        _has_zero_crossing = True
-                        break
-                if _has_zero_crossing:
-                    break
+                    _arr_f = np.asarray(_arr, dtype=np.float64).ravel()
+                    if _arr_f.size:
+                        _flat_arrays.append(_arr_f)
+            if _flat_arrays:
+                _stacked = np.concatenate(_flat_arrays)
+                # NaN-safe: nanmin of abs handles fully-NaN arrays gracefully.
+                with np.errstate(invalid="ignore"):
+                    _abs_min = float(np.nanmin(np.abs(_stacked))) if np.isfinite(_stacked).any() else np.inf
+                    _has_neg = bool(np.nanmin(_stacked) < 0) if np.isfinite(_stacked).any() else False
+                    _has_pos = bool(np.nanmax(_stacked) > 0) if np.isfinite(_stacked).any() else False
+                if _abs_min < 1e-6 or (_has_neg and _has_pos):
+                    _has_zero_crossing = True
             if _has_zero_crossing:
                 _filtered_methods = [m for m in ensembling_methods if m not in ("harm", "geo", "quad")]
                 if verbose and len(_filtered_methods) != len(ensembling_methods):

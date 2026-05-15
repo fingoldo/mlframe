@@ -523,25 +523,44 @@ class CompositeTargetDiscovery:
                         continue
                     a1 = float(params1.get("alpha", 0.0))
                     a2 = float(params2.get("alpha", 0.0))
-                    # Pooled SE estimate via residual variance / std(base).
+                    # ENS-Low-2: residual-based OLS slope SE. The previous
+                    # formula y_std / (sqrt(n) * base_std) used the marginal
+                    # y-variance which overstates SE when the regressor
+                    # explains most variance. Correct form is
+                    # SE(alpha) = sqrt(SSE / (n-2)) / (sqrt(n) * base_std).
                     base_t = base_full[train_idx]
-                    base_t_finite = base_t[np.isfinite(base_t)]
+                    finite_pair = np.isfinite(base_t) & np.isfinite(y_full_arr[train_idx])
+                    base_finite = base_t[finite_pair]
                     base_std = (
-                        float(base_t_finite.std()) if base_t_finite.size > 1
+                        float(base_finite.std()) if base_finite.size > 1
                         else 1.0
                     )
-                    y_t = y_full_arr[train_idx]
-                    y_t_finite = y_t[np.isfinite(y_t)]
-                    y_std = (
-                        float(y_t_finite.std()) if y_t_finite.size > 1
-                        else 1.0
-                    )
-                    # Approximate SE(alpha_hat) ~ y_std / (sqrt(n_half) *
-                    # base_std). The factor of 2 from the half-sample.
                     if base_std < 1e-12 or half < 2:
                         drift_kept.append(s)
                         continue
-                    se_alpha = y_std / (np.sqrt(half) * base_std)
+                    # Use the pooled alpha/beta from full train_idx for a
+                    # single residual sum estimate; degrees-of-freedom
+                    # subtracts 2 (slope + intercept). ``half`` rows fit
+                    # alpha/beta on each half - reuse params1's beta on the
+                    # pooled segment for the residual scale.
+                    y_finite = y_full_arr[train_idx][finite_pair]
+                    n_pair = int(finite_pair.sum())
+                    if n_pair > 2:
+                        # Use the average of (a1, a2) and average beta as a
+                        # pooled OLS estimate to compute residuals; cheap
+                        # robust pooled fit on (y, base).
+                        b1 = float(params1.get("beta", 0.0))
+                        b2 = float(params2.get("beta", 0.0))
+                        alpha_pool = 0.5 * (a1 + a2)
+                        beta_pool = 0.5 * (b1 + b2)
+                        residuals = y_finite - (alpha_pool * base_finite + beta_pool)
+                        sse = float(np.sum(residuals * residuals))
+                        sigma_resid = float(np.sqrt(max(sse / (n_pair - 2), 0.0)))
+                    else:
+                        # Fall back to marginal y-std if too few points to
+                        # compute residual variance.
+                        sigma_resid = float(y_finite.std()) if y_finite.size > 1 else 1.0
+                    se_alpha = sigma_resid / (np.sqrt(half) * base_std)
                     z = abs(a1 - a2) / max(se_alpha, 1e-12)
                     self._alpha_drift_flags[s.name] = {
                         "alpha_first_half": a1,
@@ -662,19 +681,31 @@ class CompositeTargetDiscovery:
             _multi_max_k = int(getattr(self.config, "multi_base_max_k", 3))
             _multi_min_gain = float(getattr(self.config, "multi_base_min_marginal_rmse_gain", 0.02))
             _upgraded_specs: list[CompositeSpec] = []
+            # ENS-Low-6: hoist the (base_column, pool_signature) -> pool_arrays
+            # build outside the per-spec loop so K linear_residual specs that
+            # share the same auto_base_pool + base_column do ONE pool build
+            # (and one _extract_column_array call), not K. Cache key includes
+            # the pool signature (frozenset of pool keys) so config-driven
+            # pool changes invalidate cleanly.
+            _pool_arrays_cache: dict[tuple[str, frozenset], dict[str, np.ndarray]] = {}
+            _base_pool_keys_frozen = frozenset(self._auto_base_pool.keys())
+            _y_train_local = y_full[train_idx] if y_full is not None else _extract_column_array(df, target_col)[train_idx]
             for _spec in kept_specs:
                 if _spec.transform_name != "linear_residual":
                     _upgraded_specs.append(_spec)
                     continue
-                # Build candidate pool: the auto-base candidates (top-K MI-ranked bases) PLUS the spec's own seed base.
-                _pool_cols = list(self._auto_base_pool.keys())
-                if _spec.base_column not in _pool_cols:
-                    _pool_cols.append(_spec.base_column)
-                # Materialise arrays once (the pool stores arrays).
-                _pool_arrays = {c: self._auto_base_pool.get(c) for c in _pool_cols if self._auto_base_pool.get(c) is not None}
-                if _spec.base_column not in _pool_arrays:
-                    _pool_arrays[_spec.base_column] = _extract_column_array(df, _spec.base_column)[train_idx]
-                _y_train_local = y_full[train_idx] if y_full is not None else _extract_column_array(df, target_col)[train_idx]
+                _cache_key = (_spec.base_column, _base_pool_keys_frozen)
+                _pool_arrays = _pool_arrays_cache.get(_cache_key)
+                if _pool_arrays is None:
+                    # Build candidate pool: the auto-base candidates (top-K MI-ranked bases) PLUS the spec's own seed base.
+                    _pool_cols = list(self._auto_base_pool.keys())
+                    if _spec.base_column not in _pool_cols:
+                        _pool_cols.append(_spec.base_column)
+                    # Materialise arrays once (the pool stores arrays).
+                    _pool_arrays = {c: self._auto_base_pool.get(c) for c in _pool_cols if self._auto_base_pool.get(c) is not None}
+                    if _spec.base_column not in _pool_arrays:
+                        _pool_arrays[_spec.base_column] = _extract_column_array(df, _spec.base_column)[train_idx]
+                    _pool_arrays_cache[_cache_key] = _pool_arrays
                 try:
                     _kept_bases, _fwd_diag = forward_stepwise_multi_base(
                         _y_train_local, _pool_arrays,
@@ -1474,6 +1505,17 @@ class CompositeTargetDiscovery:
             if not families:
                 families = ["lightgbm"]
 
+        # ENS-P2-5: hoist per-bin-enabled check above the first pass so we
+        # request per-bin RMSE during the SAME multiseed sweep that produces
+        # the global scores. The legacy second pass refit every fold to get
+        # per-bin breakdowns; with this change the K-fold LGBM fit count is
+        # halved when the regime-aware gate is on.
+        per_bin_n_bins_pre = int(getattr(self.config, "per_bin_n_bins", 0) or 0)
+        per_bin_enabled_pre = (
+            per_bin_n_bins_pre > 0
+            and getattr(self.config, "require_beats_raw_baseline", True)
+        )
+
         # Per-spec CV-RMSE per family. When K specs share a base
         # (the typical case: auto-base picks one TVT_prev-style
         # dominant feature, all K transforms operate on it), the
@@ -1482,6 +1524,10 @@ class CompositeTargetDiscovery:
         # to avoid K redundant builds (each ~50 ndarray copies on a
         # 200K-row sample).
         per_family_scores: dict[str, list[float]] = {f: [] for f in families}
+        # ENS-P2-5: parallel buffer for per-bin RMSE captured during the
+        # first pass. Keyed by spec.name -> per-bin ndarray. Only populated
+        # when ``per_bin_enabled_pre`` is True.
+        _per_bin_first_pass: dict[str, np.ndarray] = {}
         _per_base_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for spec in kept_specs:
             cached = _per_base_cache.get(spec.base_column)
@@ -1506,6 +1552,11 @@ class CompositeTargetDiscovery:
                 self.config, "use_wilcoxon_gate", False,
             ))
             for family in families:
+                # ENS-P2-5: capture per-bin alongside RMSE in the SAME pass
+                # for the first family only (per-bin breakdown only checks
+                # families[0] in the legacy second pass).
+                _is_first_family = (family == families[0])
+                want_per_bin = bool(per_bin_enabled_pre and _is_first_family)
                 if use_wilcoxon:
                     result = _tiny_cv_rmse_y_scale_multiseed(
                         y_train=y_screen,
@@ -1525,8 +1576,15 @@ class CompositeTargetDiscovery:
                         n_seed_repeats=n_seed_repeats,
                         base_random_state=self.config.random_state,
                         return_per_seed=True,
+                        return_per_bin=want_per_bin,
+                        n_bins=per_bin_n_bins_pre or 5,
                     )
-                    rmse, per_seed = result[0], result[-1]
+                    if want_per_bin:
+                        # (rmse, per_bin, per_seed)
+                        rmse, per_bin_first, per_seed = result[0], result[1], result[-1]
+                        _per_bin_first_pass[spec.name] = per_bin_first
+                    else:
+                        rmse, per_seed = result[0], result[-1]
                     # Stash per-seed array on the discovery instance
                     # (keyed by spec.name + family) for the Wilcoxon
                     # gate to compare against raw-y per-seed.
@@ -1537,7 +1595,7 @@ class CompositeTargetDiscovery:
                         (spec.name, family)
                     ] = per_seed
                 else:
-                    rmse = _tiny_cv_rmse_y_scale_multiseed(
+                    result = _tiny_cv_rmse_y_scale_multiseed(
                         y_train=y_screen,
                         base_train=base_screen,
                         transform=transform,
@@ -1554,7 +1612,14 @@ class CompositeTargetDiscovery:
                         ),
                         n_seed_repeats=n_seed_repeats,
                         base_random_state=self.config.random_state,
+                        return_per_bin=want_per_bin,
+                        n_bins=per_bin_n_bins_pre or 5,
                     )
+                    if want_per_bin and isinstance(result, tuple):
+                        rmse, per_bin_first = result[0], result[1]
+                        _per_bin_first_pass[spec.name] = per_bin_first
+                    else:
+                        rmse = result
                 per_family_scores[family].append(rmse)
 
         # Aggregate -> single score per spec.
@@ -1608,19 +1673,21 @@ class CompositeTargetDiscovery:
         # Per-spec per-bin RMSE: spec_name -> ndarray(n_bins,)
         spec_per_bin_rmse: dict[str, np.ndarray] = {}
         if per_bin_enabled:
-            # Recompute per-spec scores with return_per_bin=True. This
-            # is a SECOND pass; cost is the per-bin breakdown only
-            # (the LGBM fits already happened in the first pass --
-            # per-bin reuses fold predictions). For simplicity we just
-            # rerun the inner loop with the same params; future
-            # optimization can cache predictions from the first pass.
+            # ENS-P2-5: REUSE the per-bin breakdown captured during the
+            # first-pass multiseed sweep instead of re-running the K-fold
+            # LGBM fits. Falls back to a recompute only if first-pass
+            # was disabled (e.g. when ``per_bin_n_bins`` was changed
+            # mid-run) or a spec is missing from the cache (NaN result).
             for _i, spec in enumerate(kept_specs):
+                cached_pb = _per_bin_first_pass.get(spec.name)
+                if cached_pb is not None:
+                    spec_per_bin_rmse[spec.name] = cached_pb
+                    continue
                 cached = _per_base_cache.get(spec.base_column)
                 if cached is None:
                     continue
                 base_screen, x_remaining_matrix = cached
                 transform = get_transform(spec.transform_name)
-                # One-family per-bin (use first family for speed).
                 family = families[0]
                 result = _tiny_cv_rmse_y_scale(
                     y_train=y_screen, base_train=base_screen,
