@@ -161,10 +161,18 @@ def _apply_pysr_fe(
     splits, and add predictions as new numeric columns in-place. Returns
     the list of added column names.
 
-    Gracefully skips on ImportError (Julia/PySR not installed) or
-    when ``y_train`` is None (target not available at this stage).
+    Gracefully skips on ImportError (Julia/PySR not installed). Raises a
+    ``logger.warning`` when ``y_train`` is None (target not threaded through
+    from the calling phase) - silent skip used to mask wiring bugs where
+    ``pysr_enabled=True`` was set but the suite never invoked PySR.
     """
     if y_train is None:
+        import logging
+        logging.getLogger(__name__).warning(
+            "_apply_pysr_fe: pysr_enabled=True but y_train was not passed in "
+            "(caller did not thread the target through). PySR feature "
+            "engineering SKIPPED. Pass a 1-D y_train array to enable it."
+        )
         return []
     try:
         from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering

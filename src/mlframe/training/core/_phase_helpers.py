@@ -641,6 +641,7 @@ def _phase_fit_pipeline(
     preprocessing_extensions: Any,
     metadata: dict,
     verbose: bool,
+    target_by_type: Any = None,
 ) -> tuple:
     """Pipeline fitting and transformation.
 
@@ -757,9 +758,47 @@ def _phase_fit_pipeline(
 
     if preprocessing_extensions is not None and isinstance(preprocessing_extensions, dict):
         preprocessing_extensions = PreprocessingExtensionsConfig(**preprocessing_extensions)
+    # PySR symbolic regression (inside apply_preprocessing_extensions) needs a
+    # 1-D y_train. Multi-target pipelines pass a target_by_type dict; pick the
+    # first regression target as the supervised signal for symbolic feature
+    # discovery. Classification-only setups: PySR is regression-only, falls
+    # back to None and the function logs a warning.
+    _y_train_for_ext = None
+    if (
+        preprocessing_extensions is not None
+        and getattr(preprocessing_extensions, "pysr_enabled", False)
+        and target_by_type is not None
+    ):
+        try:
+            from ..configs import TargetTypes as _TT
+            _reg_targets = target_by_type.get(_TT.regression) or target_by_type.get("regression") or {}
+            if _reg_targets:
+                # First registered regression target wins. The user can override
+                # by manually re-ordering target_by_type before suite invocation.
+                _first_name = next(iter(_reg_targets))
+                _vals = _reg_targets[_first_name]
+                # Polars Series or numpy array - both have to_numpy / asarray paths.
+                if hasattr(_vals, "to_numpy"):
+                    _y_train_for_ext = _vals.to_numpy()
+                else:
+                    _y_train_for_ext = np.asarray(_vals)
+                # Trim to train rows (target_by_type holds the full split-pre-split
+                # series; train_df is post-split). Length-mismatch triggers a
+                # safer skip with explicit warning.
+                if hasattr(train_df, "shape") and _y_train_for_ext is not None and len(_y_train_for_ext) != train_df.shape[0]:
+                    if verbose:
+                        logger.warning(
+                            "PySR y_train length mismatch (target=%d, train rows=%d); skipping symbolic FE.",
+                            len(_y_train_for_ext), train_df.shape[0],
+                        )
+                    _y_train_for_ext = None
+        except Exception as _exc:
+            if verbose:
+                logger.warning("Could not extract y_train for PySR FE: %s", _exc)
+            _y_train_for_ext = None
     t0_ext = timer()
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
-        train_df, val_df, test_df, preprocessing_extensions, verbose=verbose,
+        train_df, val_df, test_df, preprocessing_extensions, verbose=verbose, y_train=_y_train_for_ext,
     )
     if verbose and preprocessing_extensions is not None:
         logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))

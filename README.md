@@ -16,7 +16,8 @@ pip install mlframe                       # core: numpy + pandas + scipy + sklea
 pip install mlframe[boosting]             # catboost + lightgbm + xgboost
 pip install mlframe[calibration]          # shap + venn-abers + netcal + betacal + pycalib
 pip install mlframe[neural]               # torch + pytorch-lightning
-pip install mlframe[automl]               # flaml + optbinning + pysr
+pip install mlframe[automl]                # flaml (HPO)
+pip install mlframe[feature_engineering]    # pysr (symbolic regression) + optbinning (WoE / monotonic binning)
 pip install mlframe[sampling]             # imbalanced-learn + category-encoders + iterative-stratification
 pip install mlframe[polars_ext]            # polars-talib + polars-ds (polars itself is a core dep)
 pip install mlframe[viz]                  # matplotlib + plotly + seaborn + altair + hvplot

@@ -268,6 +268,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,
         quantization_dtype: object = np.int32,
+        # NaN handling at discretization. "separate_bin" (default): assign a
+        # dedicated post-max bin for NaN values per column, so MI estimators see
+        # them as an honest category. "ffill_bfill": legacy forward/backward
+        # fill (preserves temporal smoothness for time-series). "fillna_zero":
+        # legacy pandas behaviour - mixes NaN into bin-0 with true-zero values,
+        # which biases MI; only kept for reproducibility of pre-2026-05-15 runs.
+        nan_strategy: str = "separate_bin",
         # factors
         factors_names_to_use: Sequence[str] = None,
         factors_to_use: Sequence[int] = None,
@@ -429,10 +436,11 @@ class MRMR(BaseEstimator, TransformerMixin):
                     raise ValueError(
                         "MRMR.fit: input X contains +/-inf values. Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
                     )
-                if np.isnan(_arr).any():
-                    raise ValueError(
-                        "MRMR.fit: input X contains NaN values. Impute (e.g. sklearn SimpleImputer) or drop these rows before fitting; downstream MI estimators treat NaN as a separate category which silently degrades signal."
-                    )
+                # NaN is allowed and routed through `self.nan_strategy` (default
+                # "separate_bin": NaN rows get an honest dedicated bin instead of
+                # being merged into bin-0 or imputed silently). transform()
+                # preserves NaN in the returned X for downstream NaN-aware models
+                # (catboost, lightgbm, xgboost histogram tree).
         except ValueError:
             raise  # re-raise our own ValueError
         except Exception:
@@ -602,16 +610,28 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ---------------------------------------------------------------------------------------------------------------
 
         logger.info("categorizing dataset...")
-        if _is_polars_input:
-            # Polars: fill_null forward then backward (no-copy lazy op).
-            _filled = X.fill_null(strategy="forward").fill_null(strategy="backward")
+        # NaN handling is delegated to `categorize_dataset` via
+        # `missing_strategy`. The legacy ffill/bfill path was a temporal-fill
+        # workaround that injected fake signal correlated with the row's
+        # neighbours; the default "separate_bin" treats NaN as an honest
+        # category (its own bin per column), which an MI estimator handles
+        # correctly with no special-casing on the receiving side.
+        if self.nan_strategy in ("ffill_bfill",):
+            # Legacy path retained for reproducibility of pre-2026-05-15 runs.
+            if _is_polars_input:
+                _x_for_cat = X.fill_null(strategy="forward").fill_null(strategy="backward")
+            else:
+                _x_for_cat = X.ffill().bfill()
+            _strategy_for_categorize = "fillna_zero"  # any residual NaN -> 0 (legacy)
         else:
-            _filled = X.ffill().bfill()
+            _x_for_cat = X
+            _strategy_for_categorize = self.nan_strategy
         data, cols, nbins = categorize_dataset(
-            df=_filled,
+            df=_x_for_cat,
             method=self.quantization_method,
             n_bins=self.quantization_nbins,
             dtype=self.quantization_dtype,
+            missing_strategy=_strategy_for_categorize,
         )
         logger.info("categorized.")
 

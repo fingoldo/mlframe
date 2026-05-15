@@ -38,18 +38,38 @@ logger = logging.getLogger(__name__)
 def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.ndarray:
     """Apply the configured NaN handling strategy.
 
-    ``"fillna_zero"`` (default, legacy pandas behaviour): replace NaN with 0.0. ``"raise"``: refuse a column with NaN (use when downstream cannot distinguish
-    imputed-zero from true-zero). ``"propagate"``: leave NaN in place (legacy polars behaviour); the numba kernel will route to the lowest bin or raise
-    depending on bounds-checking. Private -- external callers should use the public ``discretize_*`` family.
+    ``"fillna_zero"`` (legacy pandas behaviour): replace NaN with 0.0. Biases
+    MI by mixing NaN rows into bin-0 with true-zero values; kept only for
+    reproducibility of pre-2026-05-15 runs.
+    ``"separate_bin"``: pass-through here; ``categorize_dataset`` handles the
+    post-discretize bin-assignment so NaN rows land in a dedicated max+1 bin
+    per column, making MI estimators see them as an honest category.
+    ``"raise"``: refuse a column with NaN.
+    ``"propagate"``: leave NaN in place (legacy polars behaviour); the
+    numba kernel will route to the lowest bin or raise depending on
+    bounds-checking.
+    Private -- external callers should use the public ``discretize_*`` family.
     """
     if not np.isnan(arr).any():
         return arr
     if strategy == "fillna_zero":
         return np.where(np.isnan(arr), 0.0, arr)
+    if strategy == "separate_bin":
+        # The actual bin re-routing happens in categorize_dataset after
+        # discretization. Here we replace NaN with column median so np.percentile
+        # produces clean bin edges; the original NaN positions are preserved
+        # via the caller's nan-mask and overwritten back to max_bin+1 below.
+        col_medians = np.nanmedian(arr, axis=0)
+        # Empty / all-NaN columns: median is NaN; fall back to 0.0 for the
+        # discretize edges (the column will be all-NaN-bin anyway).
+        col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
+        # Broadcast-fill (rows, cols) where row is NaN.
+        filled = np.where(np.isnan(arr), col_medians, arr)
+        return filled
     if strategy == "propagate":
         return arr
     if strategy == "raise":
-        raise ValueError("input contains NaN values; pass strategy='fillna_zero' or 'propagate' to discretize anyway")
+        raise ValueError("input contains NaN values; pass strategy='fillna_zero' or 'separate_bin' or 'propagate' to discretize anyway")
     raise ValueError(f"unknown missing-value strategy: {strategy!r}")
 
 
@@ -344,6 +364,13 @@ def categorize_dataset(
     else:
         arr = df[numerical_cols].to_numpy(dtype=np.float64, na_value=np.nan)
 
+    # Snapshot the NaN positions BEFORE _handle_missing rewrites them: the
+    # "separate_bin" strategy fills NaN with the column median so np.percentile
+    # produces clean edges, then we overwrite the same positions in the
+    # discretized output with bin=n_bins (max+1 per column). Net effect: NaN
+    # gets its own honest category that MI estimators see correctly.
+    _nan_mask = np.isnan(arr) if (missing_strategy == "separate_bin" and arr.size > 0) else None
+
     # Unified NaN handling for both pandas and polars.
     arr = _handle_missing(arr, strategy=missing_strategy)
 
@@ -351,6 +378,22 @@ def categorize_dataset(
         arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats,
         min_values=None, max_values=None, dtype=dtype,
     )
+
+    if _nan_mask is not None and _nan_mask.any():
+        # Verify dtype width before overwriting: max bin index after assignment
+        # is n_bins (one past the regular [0, n_bins-1] range). Most callers
+        # use int16/int32 which handle this trivially; raise if int8 would
+        # overflow (n_bins>=127 would also overflow regular bins, so practical
+        # n_bins is well below int8 max anyway).
+        max_bin_after = n_bins
+        if max_bin_after > np.iinfo(data.dtype).max:
+            raise ValueError(
+                f"separate_bin strategy needs dtype able to hold {max_bin_after}; "
+                f"current dtype {data.dtype} max is {np.iinfo(data.dtype).max}. "
+                "Pass a wider dtype to categorize_dataset."
+            )
+        # Overwrite NaN-row, NaN-col positions with the dedicated bin index.
+        data[_nan_mask] = max_bin_after
 
     if _is_polars:
         if categorical_cols_detected:

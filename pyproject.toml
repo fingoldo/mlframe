@@ -110,8 +110,16 @@ neural = [
 # AutoML + hyperparameter optimization.
 automl = [
     "flaml>=2.0",
-    "optbinning>=0.19",
+]
+
+# Feature-engineering generators: PySR (symbolic regression) discovers
+# polynomial/algebraic features; optbinning emits WoE / monotonic-binned
+# encodings. Both are used by ``preprocessing_extensions_config`` /
+# ``MRMR.fe_max_steps`` paths -- they belong with feature engineering,
+# not with AutoML hyperparameter search.
+feature_engineering = [
     "pysr>=0.18",
+    "optbinning>=0.19",
 ]
 
 # Resampling, encoding, stratification.
@@ -181,7 +189,7 @@ gpu = [
 
 # Convenience meta-extra: union of all runtime extras.
 all = [
-    "mlframe[boosting,calibration,neural,automl,sampling,polars_ext,viz,mlflow,db,signal,unsupervised,stats]",
+    "mlframe[boosting,calibration,neural,automl,feature_engineering,sampling,polars_ext,viz,mlflow,db,signal,unsupervised,stats]",
 ]
 
 # Development tooling.

@@ -403,6 +403,10 @@ def train_mlframe_models_suite(
         preprocessing_extensions=preprocessing_extensions,
         metadata=metadata,
         verbose=verbose,
+        # Threaded through so apply_preprocessing_extensions can grab a 1-D
+        # regression target for PySR symbolic feature discovery (used to be
+        # silently None -> PySR-skip wiring bug).
+        target_by_type=target_by_type,
     )
     for _k in ("train_df", "val_df", "test_df", "pipeline", "extensions_pipeline",
                "cat_features", "cat_features_polars", "was_polars_input",
