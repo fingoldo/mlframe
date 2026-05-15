@@ -8,8 +8,8 @@ from sklearn.utils.validation import check_is_fitted
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
-from mlframe.custom_estimators import ArithmAvgClassifier, GeomAvgClassifier
-from mlframe.estimators import ClassifierWithEarlyStopping
+from mlframe.estimators.custom import ArithmAvgClassifier, GeomAvgClassifier
+from mlframe.estimators.base import ClassifierWithEarlyStopping
 
 
 @pytest.fixture
@@ -68,14 +68,14 @@ def test_classifier_with_early_stopping_proxies_predict_proba():
 
 def test_cluster_module_imports_cleanly():
     # regression guard for DBSCAN NameError at cluster.py:26
-    import mlframe.cluster as cluster
+    import mlframe.preprocessing.cluster as cluster
     assert hasattr(cluster, "DBSCAN")
     assert hasattr(cluster, "clusterize")
 
 
 def test_get_model_best_iter_with_pipeline():
     lgbm = pytest.importorskip("lightgbm")
-    from mlframe.helpers import get_model_best_iter
+    from mlframe.core.helpers import get_model_best_iter
 
     rng = np.random.default_rng(2)
     X = rng.normal(size=(200, 4))

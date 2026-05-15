@@ -23,7 +23,7 @@ pytest.importorskip("matplotlib")
 import numpy as np
 from matplotlib.text import Text
 
-from mlframe.metrics import show_calibration_plot, fast_calibration_binning
+from mlframe.metrics.core import show_calibration_plot, fast_calibration_binning
 
 
 @pytest.fixture

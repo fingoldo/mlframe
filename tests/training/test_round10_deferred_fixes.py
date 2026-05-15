@@ -94,7 +94,7 @@ class TestPrepareDfForXgboostContract:
         """Pre-fix: ``df[var].dtype`` on polars raised obscure
         AttributeError deep inside the function. Now: explicit
         TypeError at the entry naming the class."""
-        from mlframe.preprocessing import prepare_df_for_xgboost
+        from mlframe.preprocessing.transforms import prepare_df_for_xgboost
         df = pl.DataFrame({"a": [1, 2], "b": ["x", "y"]})
         with pytest.raises(TypeError, match="pandas DataFrame"):
             prepare_df_for_xgboost(df)
@@ -103,7 +103,7 @@ class TestPrepareDfForXgboostContract:
         """Pre-fix returned None. Now: returns the (possibly
         dtype-mutated) df so callers can chain the same way they
         chain prepare_df_for_catboost."""
-        from mlframe.preprocessing import prepare_df_for_xgboost
+        from mlframe.preprocessing.transforms import prepare_df_for_xgboost
         df = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "x"]})
         cat_features = ["b"]
         out = prepare_df_for_xgboost(df, cat_features=cat_features)
@@ -114,7 +114,7 @@ class TestPrepareDfForXgboostContract:
     def test_cat_features_none_accepted(self):
         """Pre-fix: ``var not in None`` raised TypeError. Now: coerced
         to empty list."""
-        from mlframe.preprocessing import prepare_df_for_xgboost
+        from mlframe.preprocessing.transforms import prepare_df_for_xgboost
         df = pd.DataFrame({"a": [1, 2, 3]})
         out = prepare_df_for_xgboost(df, cat_features=None)
         assert out is df
@@ -123,7 +123,7 @@ class TestPrepareDfForXgboostContract:
         """Existing behavior preserved: pd.Categorical columns not in
         cat_features get appended (mutation contract). Confirm the
         fix didn't regress this."""
-        from mlframe.preprocessing import prepare_df_for_xgboost
+        from mlframe.preprocessing.transforms import prepare_df_for_xgboost
         df = pd.DataFrame({
             "a": [1.0, 2.0, 3.0],
             "b": pd.Categorical(["x", "y", "x"]),

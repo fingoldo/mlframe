@@ -45,7 +45,7 @@ def _tvt_dataset(n: int = 800, seed: int = 0) -> pd.DataFrame:
 
 def _build_minimal_fte(target_col: str = "target"):
     """Construct the simple FTE used by the existing core tests."""
-    from mlframe.tests.training.shared import SimpleFeaturesAndTargetsExtractor
+    from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
     return SimpleFeaturesAndTargetsExtractor(
         target_column=target_col, regression=True,

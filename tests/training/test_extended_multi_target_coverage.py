@@ -77,7 +77,7 @@ class TestLinearMultiClassKwargFix:
         """End-to-end: linear+multiclass through the suite produces a
         fitted LR that auto-detects K classes."""
         from mlframe.training import train_mlframe_models_suite, TargetTypes
-        from mlframe.tests.training.shared import SimpleFeaturesAndTargetsExtractor
+        from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
         rng = np.random.default_rng(42)
         n = 300
@@ -144,7 +144,7 @@ class TestNGBoostMulticlass:
     def test_ngb_multiclass_via_suite(self):
         """End-to-end: trainer auto-picks k_categorical(K) for multiclass."""
         from mlframe.training import train_mlframe_models_suite, TargetTypes
-        from mlframe.tests.training.shared import SimpleFeaturesAndTargetsExtractor
+        from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
         rng = np.random.default_rng(42)
         n = 400

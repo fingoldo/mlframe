@@ -1,5 +1,5 @@
 """
-Comprehensive test suite for mlframe.metrics module.
+Comprehensive test suite for mlframe.metrics.core module.
 
 Tests include:
 - Correctness tests comparing with sklearn implementations
@@ -23,7 +23,7 @@ from sklearn.metrics import (
     f1_score,
 )
 
-from mlframe.metrics import (
+from mlframe.metrics.core import (
     fast_roc_auc,
     fast_aucs,
     fast_numba_aucs,
@@ -1205,7 +1205,7 @@ class TestPerGroupAUCEdgeCases:
     """
 
     def _build(self, group_ids, y_true, y_score):
-        from mlframe.metrics import fast_aucs_per_group_optimized
+        from mlframe.metrics.core import fast_aucs_per_group_optimized
         return fast_aucs_per_group_optimized(
             y_true=np.asarray(y_true, dtype=np.int8),
             y_score=np.asarray(y_score, dtype=np.float64),
@@ -1229,7 +1229,7 @@ class TestPerGroupAUCEdgeCases:
         """End-to-end: compute_mean_aucs_per_group must not include the
         NaN from single-sample groups in the mean (was depressing mean
         toward 0 when treated as legitimate 0.0 data)."""
-        from mlframe.metrics import compute_mean_aucs_per_group
+        from mlframe.metrics.core import compute_mean_aucs_per_group
         _, _, per_group = self._build(
             group_ids=[0, 0, 0, 0, 1, 2],  # group 0 valid; 1,2 single-sample
             y_true=[0, 1, 0, 1, 1, 0],
@@ -1267,7 +1267,7 @@ class TestPerGroupAUCEdgeCases:
         gids = [0, 0, 0, 1, 2, 3]
         y_true = [0, 1, 0, 1, 0, 1]
         y_score = [0.1, 0.9, 0.2, 0.5, 0.5, 0.5]
-        with caplog.at_level(logging.WARNING, logger="mlframe.metrics"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.metrics.core"):
             self._build(gids, y_true, y_score)
         msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert any("groups returned NaN" in m for m in msgs), (
@@ -1286,7 +1286,7 @@ class TestPerGroupAUCEdgeCases:
         gids = sum([[i, i] for i in range(9)], []) + [9]  # groups 0..8 have 2 samples; group 9 has 1
         y_true = ([0, 1] * 9) + [1]
         y_score = list(np.linspace(0.1, 0.9, 19))
-        with caplog.at_level(logging.WARNING, logger="mlframe.metrics"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.metrics.core"):
             self._build(gids, y_true, y_score)
         warn_msgs = [r.message for r in caplog.records if r.levelname == "WARNING"]
         assert not any("groups returned NaN" in m for m in warn_msgs), (
@@ -1322,7 +1322,7 @@ class TestFastAucsOverallParity:
         ],
     )
     def test_fast_aucs_matches_per_group_overall(self, y_true, y_score):
-        from mlframe.metrics import fast_aucs, fast_aucs_per_group_optimized
+        from mlframe.metrics.core import fast_aucs, fast_aucs_per_group_optimized
         y_true_arr = np.asarray(y_true, dtype=np.int8)
         y_score_arr = np.asarray(y_score, dtype=np.float64)
         roc_direct, pr_direct = fast_aucs(y_true_arr, y_score_arr)
@@ -1341,7 +1341,7 @@ class TestFastAucsOverallParity:
     def test_fast_ice_only_matches_manual_recomputation(self):
         """End-to-end sensor for the ``fast_ice_only`` AUC-call swap: recompute
         ICE manually using the same parts and assert equality."""
-        from mlframe.metrics import (
+        from mlframe.metrics.core import (
             fast_aucs,
             fast_brier_score_loss,
             fast_calibration_binning,
@@ -1370,7 +1370,7 @@ class TestFastAucsOverallParity:
     def test_fast_ice_only_empty_input_returns_one(self):
         """The empty-input early-return is the only branch that does NOT go through
         ``fast_aucs``; lock its contract."""
-        from mlframe.metrics import fast_ice_only
+        from mlframe.metrics.core import fast_ice_only
         empty_y = np.array([], dtype=np.int8)
         empty_p = np.array([], dtype=np.float64)
         assert fast_ice_only(y_true=empty_y, y_pred=empty_p) == 1.0
@@ -1385,14 +1385,14 @@ except ImportError:
 
 @pytest.mark.skipif(not _cupy_available, reason="GPU tests require cupy")
 class TestGpuMetrics:
-    """Correctness checks for the cupy GPU batch metrics in mlframe.metrics.
+    """Correctness checks for the cupy GPU batch metrics in mlframe.metrics.core.
 
     cupy is optional; missing -> whole class is skipped (no GPU is required
     to run the rest of the suite).
     """
 
     def test_rmse_matches_numpy_continuous(self):
-        from mlframe.metrics import gpu_multiple_rmse_scores
+        from mlframe.metrics.core import gpu_multiple_rmse_scores
         import cupy as cp
 
         rng = np.random.default_rng(42)
@@ -1404,7 +1404,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, cpu, rtol=0, atol=1e-12)
 
     def test_rmse_accepts_2d_actual(self):
-        from mlframe.metrics import gpu_multiple_rmse_scores
+        from mlframe.metrics.core import gpu_multiple_rmse_scores
         import cupy as cp
 
         rng = np.random.default_rng(0)
@@ -1416,7 +1416,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, cpu, rtol=0, atol=1e-12)
 
     def test_roc_auc_matches_sklearn_continuous(self):
-        from mlframe.metrics import gpu_multiple_roc_auc_scores
+        from mlframe.metrics.core import gpu_multiple_roc_auc_scores
         import cupy as cp
 
         rng = np.random.default_rng(11)
@@ -1431,7 +1431,7 @@ class TestGpuMetrics:
         """avg-rank impl must match sklearn bit-for-bit on heavily tied
         scores (probability bins). The naive ``argsort(argsort)`` snippet
         drifts ~1e-5 here -- this test guards against re-introducing it."""
-        from mlframe.metrics import gpu_multiple_roc_auc_scores
+        from mlframe.metrics.core import gpu_multiple_roc_auc_scores
         import cupy as cp
 
         rng = np.random.default_rng(22)
@@ -1444,7 +1444,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
 
     def test_pr_auc_matches_sklearn_continuous(self):
-        from mlframe.metrics import gpu_multiple_pr_auc_scores
+        from mlframe.metrics.core import gpu_multiple_pr_auc_scores
         from sklearn.metrics import average_precision_score
         import cupy as cp
 
@@ -1457,7 +1457,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
 
     def test_pr_auc_matches_sklearn_with_ties(self):
-        from mlframe.metrics import gpu_multiple_pr_auc_scores
+        from mlframe.metrics.core import gpu_multiple_pr_auc_scores
         from sklearn.metrics import average_precision_score
         import cupy as cp
 
@@ -1470,7 +1470,7 @@ class TestGpuMetrics:
         np.testing.assert_allclose(gpu, ref, rtol=0, atol=1e-12)
 
     def test_pr_auc_returns_nan_on_single_class(self):
-        from mlframe.metrics import gpu_multiple_pr_auc_scores
+        from mlframe.metrics.core import gpu_multiple_pr_auc_scores
         import cupy as cp
         rng = np.random.default_rng(77)
         N = 1_000
@@ -1480,7 +1480,7 @@ class TestGpuMetrics:
         assert np.all(np.isnan(gpu)), gpu
 
     def test_aucs_accept_1d_predicted(self):
-        from mlframe.metrics import (
+        from mlframe.metrics.core import (
             gpu_multiple_pr_auc_scores,
             gpu_multiple_roc_auc_scores,
         )
@@ -1504,7 +1504,7 @@ class TestGpuDispatchers:
     """``compute_batch_aucs`` / ``compute_batch_rmse`` / threshold knobs."""
 
     def test_compute_batch_rmse_auto_below_threshold_uses_cpu(self):
-        from mlframe.metrics import compute_batch_rmse, _GPU_BATCH_THRESHOLD_N
+        from mlframe.metrics.core import compute_batch_rmse, _GPU_BATCH_THRESHOLD_N
 
         rng = np.random.default_rng(0)
         # Below threshold (default 100k): auto picks CPU.
@@ -1517,7 +1517,7 @@ class TestGpuDispatchers:
         assert isinstance(out, np.ndarray)
 
     def test_compute_batch_aucs_force_cpu_matches_loop(self):
-        from mlframe.metrics import compute_batch_aucs, fast_aucs
+        from mlframe.metrics.core import compute_batch_aucs, fast_aucs
 
         rng = np.random.default_rng(7)
         N, M = 2_000, 3
@@ -1532,7 +1532,7 @@ class TestGpuDispatchers:
         np.testing.assert_allclose(pr, ref_pr, rtol=0, atol=1e-12)
 
     def test_compute_batch_aucs_force_gpu_matches_sklearn(self):
-        from mlframe.metrics import compute_batch_aucs
+        from mlframe.metrics.core import compute_batch_aucs
         from sklearn.metrics import average_precision_score
 
         rng = np.random.default_rng(8)
@@ -1546,7 +1546,7 @@ class TestGpuDispatchers:
         np.testing.assert_allclose(pr, ref_pr, rtol=0, atol=1e-12)
 
     def test_set_gpu_thresholds_changes_dispatch(self):
-        from mlframe.metrics import (
+        from mlframe.metrics.core import (
             compute_batch_aucs,
             set_gpu_thresholds,
             _GPU_BATCH_THRESHOLD_N,
@@ -1570,7 +1570,7 @@ class TestGpuDispatchers:
             set_gpu_thresholds(n=original)
 
     def test_force_backend_invalid_raises(self):
-        from mlframe.metrics import compute_batch_aucs
+        from mlframe.metrics.core import compute_batch_aucs
 
         rng = np.random.default_rng(10)
         y = (rng.standard_normal(100) > 0).astype(np.int8)
@@ -1586,14 +1586,14 @@ class TestGpuMetricsImportError:
     fall back to CPU silently."""
 
     def test_rmse_raises_clear_error_without_cupy(self):
-        from mlframe.metrics import gpu_multiple_rmse_scores
+        from mlframe.metrics.core import gpu_multiple_rmse_scores
         with pytest.raises(ImportError, match="cupy"):
             gpu_multiple_rmse_scores(np.zeros(10), np.zeros((10, 2)))
 
     def test_dispatcher_falls_back_to_cpu_without_cupy(self):
         """Dispatcher should NOT raise when cupy is missing -- it just
         runs on CPU."""
-        from mlframe.metrics import compute_batch_rmse
+        from mlframe.metrics.core import compute_batch_rmse
         rng = np.random.default_rng(0)
         y = rng.standard_normal(200)
         p = rng.standard_normal((200, 3))
@@ -1618,26 +1618,26 @@ class TestFastRegressionMetrics:
 
     def test_mae_1d_unweighted(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
-        from mlframe.metrics import fast_mean_absolute_error
+        from mlframe.metrics.core import fast_mean_absolute_error
         y, p = self._data(rng, 5_000)
         assert abs(fast_mean_absolute_error(y, p) - sk(y, p)) < 1e-12
 
     def test_mae_1d_weighted(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
-        from mlframe.metrics import fast_mean_absolute_error
+        from mlframe.metrics.core import fast_mean_absolute_error
         y, p = self._data(rng, 5_000)
         w = rng.random(5_000) + 0.1
         assert abs(fast_mean_absolute_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_mae_2d_uniform_average(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
-        from mlframe.metrics import fast_mean_absolute_error
+        from mlframe.metrics.core import fast_mean_absolute_error
         y, p = self._data(rng, (5_000, 4))
         assert abs(fast_mean_absolute_error(y, p) - sk(y, p)) < 1e-12
 
     def test_mae_2d_raw_values(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
-        from mlframe.metrics import fast_mean_absolute_error
+        from mlframe.metrics.core import fast_mean_absolute_error
         y, p = self._data(rng, (5_000, 4))
         ref = sk(y, p, multioutput="raw_values")
         out = fast_mean_absolute_error(y, p, multioutput="raw_values")
@@ -1645,7 +1645,7 @@ class TestFastRegressionMetrics:
 
     def test_mae_2d_weighted_array_multioutput(self, rng):
         from sklearn.metrics import mean_absolute_error as sk
-        from mlframe.metrics import fast_mean_absolute_error
+        from mlframe.metrics.core import fast_mean_absolute_error
         y, p = self._data(rng, (5_000, 3))
         w = rng.random(5_000) + 0.1
         out_w = np.array([2.0, 1.0, 0.5])
@@ -1655,13 +1655,13 @@ class TestFastRegressionMetrics:
 
     def test_mse_1d_weighted(self, rng):
         from sklearn.metrics import mean_squared_error as sk
-        from mlframe.metrics import fast_mean_squared_error
+        from mlframe.metrics.core import fast_mean_squared_error
         y, p = self._data(rng, 5_000)
         w = rng.random(5_000) + 0.1
         assert abs(fast_mean_squared_error(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_rmse_2d_raw_values(self, rng):
-        from mlframe.metrics import fast_root_mean_squared_error, fast_mean_squared_error
+        from mlframe.metrics.core import fast_root_mean_squared_error, fast_mean_squared_error
         y, p = self._data(rng, (5_000, 3))
         # sklearn rmse = per-output RMSE, then aggregated. raw_values returns sqrt(mse_per_col).
         ref = np.sqrt(fast_mean_squared_error(y, p, multioutput="raw_values"))
@@ -1673,7 +1673,7 @@ class TestFastRegressionMetrics:
             from sklearn.metrics import root_mean_squared_error as sk
         except ImportError:
             pytest.skip("sklearn root_mean_squared_error not available")
-        from mlframe.metrics import fast_root_mean_squared_error
+        from mlframe.metrics.core import fast_root_mean_squared_error
         y, p = self._data(rng, (5_000, 3))
         w = rng.random(5_000) + 0.1
         assert abs(fast_root_mean_squared_error(y, p, sample_weight=w)
@@ -1681,12 +1681,12 @@ class TestFastRegressionMetrics:
 
     def test_max_error_1d_matches_sklearn(self, rng):
         from sklearn.metrics import max_error as sk
-        from mlframe.metrics import fast_max_error
+        from mlframe.metrics.core import fast_max_error
         y, p = self._data(rng, 5_000)
         assert abs(fast_max_error(y, p) - sk(y, p)) < 1e-12
 
     def test_max_error_2d_per_output(self, rng):
-        from mlframe.metrics import fast_max_error
+        from mlframe.metrics.core import fast_max_error
         y, p = self._data(rng, (5_000, 3))
         out = fast_max_error(y, p)  # default raw_values
         # Verify against direct numpy
@@ -1695,14 +1695,14 @@ class TestFastRegressionMetrics:
 
     def test_r2_1d_weighted(self, rng):
         from sklearn.metrics import r2_score as sk
-        from mlframe.metrics import fast_r2_score
+        from mlframe.metrics.core import fast_r2_score
         y, p = self._data(rng, 5_000)
         w = rng.random(5_000) + 0.1
         assert abs(fast_r2_score(y, p, sample_weight=w) - sk(y, p, sample_weight=w)) < 1e-12
 
     def test_r2_2d_raw_values(self, rng):
         from sklearn.metrics import r2_score as sk
-        from mlframe.metrics import fast_r2_score
+        from mlframe.metrics.core import fast_r2_score
         y, p = self._data(rng, (5_000, 4))
         ref = sk(y, p, multioutput="raw_values")
         out = fast_r2_score(y, p, multioutput="raw_values")
@@ -1710,7 +1710,7 @@ class TestFastRegressionMetrics:
 
     def test_r2_2d_variance_weighted(self, rng):
         from sklearn.metrics import r2_score as sk
-        from mlframe.metrics import fast_r2_score
+        from mlframe.metrics.core import fast_r2_score
         y, p = self._data(rng, (5_000, 4))
         ref = sk(y, p, multioutput="variance_weighted")
         out = fast_r2_score(y, p, multioutput="variance_weighted")
@@ -1718,7 +1718,7 @@ class TestFastRegressionMetrics:
 
     def test_r2_2d_variance_weighted_with_sample_weight(self, rng):
         from sklearn.metrics import r2_score as sk
-        from mlframe.metrics import fast_r2_score
+        from mlframe.metrics.core import fast_r2_score
         y, p = self._data(rng, (5_000, 3))
         w = rng.random(5_000) + 0.1
         ref = sk(y, p, sample_weight=w, multioutput="variance_weighted")
@@ -1726,7 +1726,7 @@ class TestFastRegressionMetrics:
         assert abs(out - ref) < 1e-12
 
     def test_unknown_multioutput_raises(self, rng):
-        from mlframe.metrics import fast_mean_absolute_error
+        from mlframe.metrics.core import fast_mean_absolute_error
         y, p = self._data(rng, (5_000, 3))
         with pytest.raises(ValueError, match="multioutput"):
             fast_mean_absolute_error(y, p, multioutput="not-a-thing")

@@ -1,4 +1,4 @@
-"""Tests for mlframe.custom_estimators.
+"""Tests for mlframe.estimators.custom.
 
 Covers audit 05 T1-T3: averager classifier probability sum, fit/predict smoke
 across shapes, and sklearn `check_estimator` status (xfail for averagers that
@@ -11,7 +11,7 @@ import pytest
 from hypothesis import given, settings, strategies as st
 from hypothesis.extra.numpy import arrays
 
-from mlframe.custom_estimators import (
+from mlframe.estimators.custom import (
     ArithmAvgClassifier,
     GeomAvgClassifier,
     PureRandomClassifier,

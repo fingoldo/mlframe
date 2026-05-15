@@ -16,7 +16,7 @@ import pytest
 # ---------------------------------------------------------------------------
 class TestEwma:
     def test_matches_pandas_adjust_false(self):
-        from mlframe.ewma import ewma
+        from mlframe.core.ewma import ewma
 
         rng = np.random.default_rng(0)
         for _ in range(5):
@@ -28,7 +28,7 @@ class TestEwma:
             np.testing.assert_allclose(got, expected, atol=1e-9, rtol=1e-9)
 
     def test_matches_pandas_adjust_true(self):
-        from mlframe.ewma import ewma
+        from mlframe.core.ewma import ewma
 
         rng = np.random.default_rng(1)
         x = rng.normal(size=500).astype(np.float64)
@@ -42,7 +42,7 @@ class TestEwma:
         psutil = pytest.importorskip("psutil")
         import os
 
-        from mlframe.ewma import ewma
+        from mlframe.core.ewma import ewma
 
         # Warm up numba JIT so compilation memory doesn't inflate the delta.
         _ = ewma(np.zeros(32, dtype=np.float64), alpha=0.1)
@@ -65,14 +65,14 @@ class TestEwma:
 # ---------------------------------------------------------------------------
 class TestCalibrationPITEdges:
     def test_anderson_darling_boundary(self):
-        from mlframe.calibration import anderson_darling_statistic
+        from mlframe.calibration.quality import anderson_darling_statistic
 
         pit = np.array([0.0, 1.0])
         result = anderson_darling_statistic(pit)
         assert np.isfinite(result)
 
     def test_entropy_calibration_index_finite(self):
-        from mlframe.calibration import entropy_calibration_index
+        from mlframe.calibration.quality import entropy_calibration_index
 
         rng = np.random.default_rng(0)
         pit = rng.uniform(size=500)
@@ -80,7 +80,7 @@ class TestCalibrationPITEdges:
         assert np.isfinite(eci)
 
     def test_weighted_pit_deviation_stable_near_boundary(self):
-        from mlframe.calibration import weighted_pit_deviation
+        from mlframe.calibration.quality import weighted_pit_deviation
 
         pit = np.array([1e-9, 0.5, 1 - 1e-9])
         wpd = weighted_pit_deviation(pit)
@@ -96,7 +96,7 @@ class TestPostcalibrationClip:
     def test_vstack_clips_out_of_range(self):
         # postcalibration imports a heavy dependency chain (report_model_perf etc.) that
         # may not be available in every environment; skip cleanly rather than fail.
-        postcal = pytest.importorskip("mlframe.postcalibration")
+        postcal = pytest.importorskip("mlframe.calibration.post")
         BinaryPostCalibrator = postcal.BinaryPostCalibrator
 
         class _Identity:
@@ -121,7 +121,7 @@ class TestPostcalibrationClip:
 # ---------------------------------------------------------------------------
 class TestArrays:
     def test_topk_does_not_mutate(self):
-        from mlframe.arrays import topk_by_partition
+        from mlframe.core.arrays import topk_by_partition
 
         x = np.array([3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0])
         x_copy = x.copy()
@@ -132,7 +132,7 @@ class TestArrays:
         assert set(val.tolist()) == {9.0, 6.0, 5.0}
 
     def test_topk_k_equals_len(self):
-        from mlframe.arrays import topk_by_partition
+        from mlframe.core.arrays import topk_by_partition
 
         x = np.array([3.0, 1.0, 4.0])
         ind, val = topk_by_partition(x.copy(), k=3)
@@ -140,14 +140,14 @@ class TestArrays:
         assert sorted(ind.tolist()) == [0, 1, 2]
 
     def test_arrayMinMax_empty(self):
-        from mlframe.arrays import arrayMinMax
+        from mlframe.core.arrays import arrayMinMax
 
         # numba path requires a typed empty array
         out = arrayMinMax(np.empty(0, dtype=np.float64))
         assert np.isnan(out[0]) and np.isnan(out[1])
 
     def test_arrayMinMax_regular(self):
-        from mlframe.arrays import arrayMinMax
+        from mlframe.core.arrays import arrayMinMax
 
         x = np.array([2.0, -1.0, 5.0, 3.0])
         mn, mx = arrayMinMax(x)
@@ -159,7 +159,7 @@ class TestArrays:
 # ---------------------------------------------------------------------------
 class TestMetricsBounds:
     def test_classification_report_oob_label(self):
-        from mlframe.metrics import fast_classification_report
+        from mlframe.metrics.core import fast_classification_report
 
         # class_id way out of range should NOT segfault / should be silently dropped.
         y_true = np.array([0, 1, 0, 1, 7], dtype=np.int64)
@@ -169,7 +169,7 @@ class TestMetricsBounds:
         assert len(res) == 10
 
     def test_fast_roc_auc_rejects_sample_weight(self):
-        from mlframe.metrics import fast_roc_auc
+        from mlframe.metrics.core import fast_roc_auc
 
         y = np.array([0, 1, 0, 1], dtype=np.int64)
         p = np.array([0.1, 0.9, 0.2, 0.8], dtype=np.float64)
@@ -182,7 +182,7 @@ class TestMetricsBounds:
     def test_pr_auc_matches_sklearn(self):
         from sklearn.metrics import average_precision_score
 
-        from mlframe.metrics import fast_aucs
+        from mlframe.metrics.core import fast_aucs
 
         rng = np.random.default_rng(0)
         for seed in range(5):
@@ -246,7 +246,7 @@ class TestStats:
     def test_tukey_multiplier_uses_dist_kwargs(self, df):
         from scipy.stats import t as t_dist
 
-        from mlframe.stats import get_tukey_fences_multiplier_for_quantile
+        from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
 
         # With sd_sigma=None, get_sd_for_dist_percentage is called — bug was passing
         # dist_kwargs as a literal kwarg. Different df should give different results.

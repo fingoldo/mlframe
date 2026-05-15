@@ -1,4 +1,4 @@
-"""Tests for mlframe.baselines — covers audit 05 T6."""
+"""Tests for mlframe.estimators.baselines — covers audit 05 T6."""
 
 import numpy as np
 import pytest
@@ -6,7 +6,7 @@ from sklearn.cluster import KMeans
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import accuracy_score, make_scorer, r2_score
 
-from mlframe.baselines import get_best_dummy_score
+from mlframe.estimators.baselines import get_best_dummy_score
 
 
 def _xy_clf():

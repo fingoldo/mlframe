@@ -1,6 +1,6 @@
 """Verify the opt-in DSL render path on the 3 legacy chart functions:
 
-- ``mlframe.metrics.show_calibration_plot``
+- ``mlframe.metrics.core.show_calibration_plot``
 - ``mlframe.training.regression_residual_audit.plot_residual_diagnostics``
 - ``mlframe.training.target_temporal_audit.plot_target_over_time``
 
@@ -44,7 +44,7 @@ def calib_inputs():
 
 class TestShowCalibrationPlot:
     def test_legacy_path_unchanged(self, calib_inputs, tmp_path):
-        from mlframe.metrics import show_calibration_plot
+        from mlframe.metrics.core import show_calibration_plot
         fp, ft, h = calib_inputs
         # No opt-in kwargs -> legacy matplotlib path. Asserts no crash.
         with warnings.catch_warnings():
@@ -58,7 +58,7 @@ class TestShowCalibrationPlot:
         assert os.path.exists(tmp_path / "legacy.png")
 
     def test_dsl_optin_matplotlib(self, calib_inputs, tmp_path):
-        from mlframe.metrics import show_calibration_plot
+        from mlframe.metrics.core import show_calibration_plot
         fp, ft, h = calib_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -74,7 +74,7 @@ class TestShowCalibrationPlot:
         assert os.path.getsize(tmp_path / "dsl.png") > 5000
 
     def test_dsl_optin_plotly(self, calib_inputs, tmp_path):
-        from mlframe.metrics import show_calibration_plot
+        from mlframe.metrics.core import show_calibration_plot
         fp, ft, h = calib_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -87,7 +87,7 @@ class TestShowCalibrationPlot:
         assert os.path.exists(tmp_path / "dsl.html")
 
     def test_dsl_dual_backend(self, calib_inputs, tmp_path):
-        from mlframe.metrics import show_calibration_plot
+        from mlframe.metrics.core import show_calibration_plot
         fp, ft, h = calib_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

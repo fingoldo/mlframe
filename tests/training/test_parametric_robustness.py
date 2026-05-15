@@ -230,7 +230,7 @@ class TestFastCalibrationBinningRobustness:
     ))
     def test_binning_on_normal_floats_returns_valid_shapes(self, df: pl.DataFrame):
         import numpy as np
-        from mlframe.metrics import fast_calibration_binning
+        from mlframe.metrics.core import fast_calibration_binning
         # adversarial_frame's default num_f32 uses st.floats(width=32) which
         # permits NaN / +-inf without passing include_inf_in_float — they
         # leak through even when we only asked for "normal". Filter
@@ -260,7 +260,7 @@ class TestFastCalibrationBinningRobustness:
         pathological input that used to trip the numba binner before
         the span-guard was added."""
         import numpy as np
-        from mlframe.metrics import fast_calibration_binning
+        from mlframe.metrics.core import fast_calibration_binning
         y_pred = np.full(100, 0.3, dtype=np.float64)
         y_true = np.random.default_rng(0).integers(0, 2, size=100).astype(np.int8)
         freqs_pred, freqs_true, hits = fast_calibration_binning(

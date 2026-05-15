@@ -13,7 +13,7 @@ def test_boruta_shap_imports_without_binom_test_error():
     """Module must import cleanly even on SciPy >=1.12 where binom_test was removed."""
     pytest.importorskip("scipy")
     pytest.importorskip("shap")
-    import mlframe.boruta_shap as bs
+    import mlframe.feature_selection.boruta_shap as bs
 
     # binom_test wrapper must be callable and return a float p-value.
     p = bs.binom_test(3, 10, 0.5, alternative="greater")
@@ -22,7 +22,7 @@ def test_boruta_shap_imports_without_binom_test_error():
 
 def test_boruta_zscore_no_divzero_on_equal_values():
     pytest.importorskip("shap")
-    from mlframe.boruta_shap import BorutaShap
+    from mlframe.feature_selection.boruta_shap import BorutaShap
 
     out = BorutaShap.calculate_Zscore(np.array([1.0, 1.0, 1.0, 1.0]))
     arr = np.asarray(out, dtype=np.float64)

@@ -78,7 +78,7 @@ def _prewarm_numba_once():
         yield
         return
     try:
-        from mlframe.metrics import prewarm_numba_cache
+        from mlframe.metrics.core import prewarm_numba_cache
         prewarm_numba_cache()
     except Exception:
         pass

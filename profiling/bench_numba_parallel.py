@@ -1,6 +1,6 @@
 """Benchmark sequential vs parallel numba kernels for mlframe metrics.
 
-For each candidate kernel from mlframe.metrics: write a ``_par`` variant
+For each candidate kernel from mlframe.metrics.core: write a ``_par`` variant
 that adds ``parallel=True`` + ``prange``, verify correctness, then time
 both variants across N in {10k, 100k, 1M, 10M}.
 
@@ -26,8 +26,8 @@ import numpy as np
 import numba
 from numba import prange
 
-# Reuse the canonical config from mlframe.metrics.
-from mlframe.metrics import (
+# Reuse the canonical config from mlframe.metrics.core.
+from mlframe.metrics.core import (
     fast_brier_score_loss,
     fast_log_loss_binary,
     fast_calibration_binning,

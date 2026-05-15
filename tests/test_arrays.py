@@ -6,7 +6,7 @@ use pytest-benchmark via the ``@pytest.mark.benchmark`` marker.
 import numpy as np
 import pytest
 
-import mlframe.arrays as m
+import mlframe.core.arrays as m
 
 
 MIN_ELEM = 50

@@ -1,4 +1,4 @@
-"""Tests for mlframe.estimators — covers audit 05 T4 (pickle roundtrip)."""
+"""Tests for mlframe.estimators.base — covers audit 05 T4 (pickle roundtrip)."""
 
 import pickle
 
@@ -7,7 +7,7 @@ import pytest
 from sklearn.datasets import make_classification, make_regression
 from sklearn.linear_model import LogisticRegression, Ridge
 
-from mlframe.estimators import (
+from mlframe.estimators.base import (
     ClassifierWithEarlyStopping,
     EstimatorWithEarlyStopping,
     RegressorWithEarlyStopping,
@@ -78,7 +78,7 @@ def test_estimator_with_early_stopping_logs_and_fits_non_catboost(caplog):
     X, y = _xy_reg()
     base = Ridge()
     est = EstimatorWithEarlyStopping(base_estimator=base, random_state=0)
-    with caplog.at_level(logging.WARNING, logger="mlframe.estimators"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.estimators.base"):
         est.fit(X, y)
     assert any("Early stopping" in rec.message for rec in caplog.records)
     assert est.n_features_in_ == X.shape[1]

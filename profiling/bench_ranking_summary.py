@@ -18,7 +18,7 @@ import time
 
 import numpy as np
 
-from mlframe.ranking_metrics import (
+from mlframe.metrics.ranking import (
     compute_ranking_summary,
     _summary_batched_kernel,
     _iter_group_slices,

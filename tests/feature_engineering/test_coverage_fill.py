@@ -1532,6 +1532,25 @@ class TestFinancialGapClosing:
 # ============================================================================
 
 
+# Module-level apply_fcn for create_ts_features_parallel test - must be picklable for joblib spawn.
+def _ts_apply_fcn_module_level(df, row_features, targets, features_names, dataset_name):
+    row_features.extend([float(df["x"].mean()), float(df["x"].std())])
+    if not features_names:
+        features_names.extend([f"{dataset_name}-mean", f"{dataset_name}-std"])
+
+
+def _ts_processing_fcn_module_level(df, base_point, windows, apply_fcn, window_index_name,
+                                      overlapping, forward_direction, window_features_names,
+                                      window_features, create_features_names, verbose):
+    """Module-level adapter that joblib can pickle (closures over local funcs cannot)."""
+    from mlframe.feature_engineering.timeseries import create_and_process_windows
+    return create_and_process_windows(
+        df=base_point, base_point=0, apply_fcn=_ts_apply_fcn_module_level,
+        windows=windows, window_features_names=window_features_names,
+        window_features=window_features,
+    )
+
+
 class TestTimeseriesFinalGaps:
     """Narrow tests targeting the last untested branches (~44 missed lines in timeseries.py)."""
 

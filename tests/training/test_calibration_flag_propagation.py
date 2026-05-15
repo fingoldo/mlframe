@@ -30,7 +30,7 @@ from mlframe.training.trainer import (
     configure_training_params,
 )
 from mlframe.training.helpers import get_training_configs
-from mlframe.metrics import ICE
+from mlframe.metrics.core import ICE
 
 
 def _identity(x):

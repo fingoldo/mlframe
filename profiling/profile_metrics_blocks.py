@@ -45,7 +45,7 @@ logging.basicConfig(level=logging.WARNING)  # suppress INFO noise, keep WARN+
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
-from mlframe.metrics import prewarm_numba_cache
+from mlframe.metrics.core import prewarm_numba_cache
 
 
 # ============================================================================

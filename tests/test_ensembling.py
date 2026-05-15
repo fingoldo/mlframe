@@ -1,4 +1,4 @@
-"""Comprehensive tests for mlframe.ensembling module using hypothesis."""
+"""Comprehensive tests for mlframe.models.ensembling module using hypothesis."""
 
 import pytest
 import numpy as np
@@ -6,7 +6,7 @@ import pandas as pd
 from hypothesis import given, strategies as st, settings, assume, HealthCheck
 from hypothesis.extra.numpy import arrays
 
-from mlframe.ensembling import (
+from mlframe.models.ensembling import (
     batch_numaggs,
     enrich_ensemble_preds_with_numaggs,
     ensemble_probabilistic_predictions,

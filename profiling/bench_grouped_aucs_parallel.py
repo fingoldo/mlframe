@@ -23,7 +23,7 @@ from numba import prange
 
 sys.path.insert(0, ".")
 
-from mlframe.metrics import (  # noqa: E402
+from mlframe.metrics.core import (  # noqa: E402
     compute_grouped_group_aucs,
     fast_numba_aucs_simple,
     NUMBA_NJIT_PARAMS,

@@ -1,4 +1,4 @@
-"""Unit tests for ``mlframe.ranking_metrics`` (NDCG / MAP / MRR).
+"""Unit tests for ``mlframe.metrics.ranking`` (NDCG / MAP / MRR).
 
 Binary-relevance NDCG matches sklearn ``ndcg_score`` exactly because the
 exponential gain formula ``(2^rel - 1)`` reduces to linear when y in {0,1}
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from sklearn.metrics import ndcg_score
 
-from mlframe.ranking_metrics import (
+from mlframe.metrics.ranking import (
     compute_ranking_summary,
     map_at_k,
     mrr,

@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        include:
+          # Windows coverage on representative versions only — runner-minute budget.
+          - os: windows-latest
+            python-version: "3.11"
+          - os: windows-latest
+            python-version: "3.13"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Clone & install pyutilz (sibling dependency)
+        run: |
+          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+          pip install ./pyutilz
+
+      - name: Install mlframe with boosting + dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[boosting,dev]"
+
+      - name: Show installed versions
+        run: |
+          python -c "import mlframe; print('mlframe', mlframe.__version__)"
+          python -c "import sklearn; print('sklearn', sklearn.__version__)"
+          python -c "import numpy; print('numpy', numpy.__version__)"
+
+      # On Windows, pytest-cov can hit a PermissionError on .coverage file locks
+      # (see project memory `feedback_pytest_no_cov`); drop coverage there.
+      - name: Run tests (Linux, with coverage)
+        if: runner.os != 'Windows'
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest -m "not slow and not gpu and not multigpu" \
+            --cov=src/mlframe \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -p no:randomly \
+            --timeout=300
+
+      - name: Run tests (Windows, no coverage)
+        if: runner.os == 'Windows'
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest -m "not slow and not gpu and not multigpu and not linux_only" --no-cov -p no:randomly --timeout=300
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  lint:
+    name: lint + security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install linting tools
+        run: pip install ruff black bandit
+
+      - name: Run ruff
+        run: ruff check src/mlframe
+        continue-on-error: true
+
+      - name: Run black --check
+        run: black --check src/mlframe
+        continue-on-error: true
+
+      - name: Run bandit security scan
+        run: bandit -r src/mlframe -ll -f json -o bandit-report.json
+        continue-on-error: true
+
+      - name: Upload bandit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  build:
+    name: build sdist + wheel + install smoke
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Verify distributions with twine
+        run: twine check dist/*
+
+      # Install the BUILT wheel (not the editable checkout) into a clean venv
+      # to confirm package layout, MANIFEST.in, py.typed, and __init__.py
+      # exports are all wired so an end user's `pip install mlframe` works.
+      - name: Install wheel + smoke import
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --upgrade pip
+          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
+          /tmp/smoke/bin/pip install dist/*.whl
+          /tmp/smoke/bin/python -c "import mlframe; print('mlframe', mlframe.__version__, 'at', mlframe.__file__)"
+          /tmp/smoke/bin/python -c "from mlframe.metrics.core import *; from mlframe.training import train_and_evaluate_model; from mlframe.models.ensembling import *; from mlframe.calibration.quality import *; print('smoke OK')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

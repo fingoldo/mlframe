@@ -1,5 +1,91 @@
 # Changelog
 
+## 2026-05-15 — Restructure: flat layout to `src/mlframe/` sub-packages (BREAKING)
+
+Repository converted to professional `src/`-based PEP 517 package layout, matching the sister project [`pyutilz`](https://github.com/fingoldo/pyutilz). The package is now pip-installable from a checkout (`pip install -e .`) and builds clean sdist + wheel artefacts (`python -m build`).
+
+### Breaking import changes
+
+External callers must rewrite their imports per the table below. Re-export shims are intentionally NOT provided.
+
+| Old import path                | New import path                              |
+| ------------------------------ | -------------------------------------------- |
+| `mlframe.arrays`               | `mlframe.core.arrays`                        |
+| `mlframe.stats`                | `mlframe.core.stats`                         |
+| `mlframe.ewma`                 | `mlframe.core.ewma`                          |
+| `mlframe.helpers`              | `mlframe.core.helpers`                       |
+| `mlframe.datasets`             | `mlframe.data.datasets`                      |
+| `mlframe.synthetic`            | `mlframe.data.synthetic`                     |
+| `mlframe.feature_cleaning`     | `mlframe.preprocessing.cleaning`             |
+| `mlframe.preprocessing` (mod)  | `mlframe.preprocessing.transforms`           |
+| `mlframe.scalers`              | `mlframe.preprocessing.scalers`              |
+| `mlframe.outliers`             | `mlframe.preprocessing.outliers`             |
+| `mlframe.cluster`              | `mlframe.preprocessing.cluster`              |
+| `mlframe.boruta_shap`          | `mlframe.feature_selection.boruta_shap`     |
+| `mlframe.feature_importance`   | `mlframe.feature_selection.importance`       |
+| `mlframe.estimators` (mod)     | `mlframe.estimators.base`                    |
+| `mlframe.custom_estimators`    | `mlframe.estimators.custom`                  |
+| `mlframe.baselines`            | `mlframe.estimators.baselines`               |
+| `mlframe.early_stopping`       | `mlframe.estimators.early_stopping`          |
+| `mlframe.pipelines`            | `mlframe.estimators.pipelines`               |
+| `mlframe.metrics` (module)     | `mlframe.metrics.core`                       |
+| `mlframe.quantile_metrics`     | `mlframe.metrics.quantile`                   |
+| `mlframe.ranking_metrics`      | `mlframe.metrics.ranking`                    |
+| `mlframe.scoring`              | `mlframe.metrics.scoring`                    |
+| `mlframe.evaluation` (module)  | `mlframe.evaluation.reports`                 |
+| `mlframe.calibration` (mod)    | `mlframe.calibration.quality`                |
+| `mlframe.postcalibration`      | `mlframe.calibration.post`                   |
+| `mlframe.probabilities`        | `mlframe.calibration.probabilities`          |
+| `mlframe.ensembling`           | `mlframe.models.ensembling`                  |
+| `mlframe.optimization`         | `mlframe.models.optimization`                |
+| `mlframe.tuning`               | `mlframe.models.tuning`                      |
+| `mlframe.model_selection`      | `mlframe.models.selection`                   |
+| `mlframe.inference` (module)   | `mlframe.inference.predict`                  |
+| `mlframe.explainability`       | `mlframe.inference.explainability`           |
+| `mlframe.postanalysis`         | `mlframe.inference.postanalysis`             |
+| `mlframe.mlflowlib`            | `mlframe.integrations.mlflow`                |
+| `mlframe.utils` (module)       | `mlframe.utils.misc`                         |
+| `mlframe.eda`                  | `mlframe.utils.eda`                          |
+| `mlframe.experiments`          | `mlframe.utils.experiments`                  |
+| `mlframe.text`                 | `mlframe.utils.text`                         |
+
+Each `<subpackage>/__init__.py` re-exports its sub-modules' public symbols via `from .<mod> import *`, so existing `from mlframe.<subpackage> import X` calls keep working when X is a public symbol from any sub-module.
+
+Removed (deprecated stubs):
+- `lightninglib.py` — use `mlframe.training.neural` instead.
+- Empty `core.py` abstract stub.
+
+Moved to `legacy/` (no longer packaged):
+- `FeatureEngineering.py` (49 KB) — superseded by `mlframe.feature_engineering` sub-package.
+- `Features.py` (20 KB) — same.
+
+### Added
+
+- `src/mlframe/` layout with 17 cohesive sub-packages.
+- `pyproject.toml` with full PEP 517/621 metadata, dynamic version, 15 extras groups (`boosting`, `calibration`, `neural`, `automl`, `sampling`, `polars`, `viz`, `mlflow`, `db`, `signal`, `unsupervised`, `stats`, `gpu`, `all`, `dev`).
+- `MANIFEST.in` and `src/mlframe/py.typed` (PEP 561).
+- `.github/workflows/ci.yml`: Python 3.9 / 3.11 / 3.13 × {Linux, Windows} matrix, lint job (ruff + black + bandit), wheel build + install smoke job, Codecov upload.
+- README rewritten with badges, install + extras matrix, modules table, and copy-pasteable quick-examples.
+
+### Changed
+
+- `pytest.ini` removed; pytest config consolidated into `[tool.pytest.ini_options]` in `pyproject.toml`. Test coverage now targets `src/mlframe`.
+- `.coveragerc` removed; coverage config consolidated into `[tool.coverage]` in `pyproject.toml`.
+- `.flake8` removed; lint config consolidated into `[tool.ruff]` in `pyproject.toml`.
+- `sklearn-matrix-ci.yml` install step uses `pip install -e .[boosting]` instead of the previous inline mega-list of dependencies; `paths:` triggers point at new `src/mlframe/training/*.py` locations.
+- `.gitignore` reorganised by category; added missing entries for mlframe-specific runtime outputs (catboost_info, lightning_logs, mutation-test caches, fuzz-suite trail).
+
+### PyPI publishing
+
+`pyutilz` is not yet on PyPI, so `pip install mlframe` from PyPI will fail until pyutilz is published. From source the install works as documented:
+
+```bash
+pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
+pip install -e ".[boosting,calibration,viz,dev]"
+```
+
+`python -m build` produces a valid sdist + wheel for `twine upload` once both packages are on PyPI.
+
 ## 2026-05-14 — `tests/feature_selection/`: 14 new `*_coverage.py` test files (-> ~55% line coverage)
 
 Targeted coverage expansion via 8 parallel agents + manual completion. Each new test file (`test_<module>_coverage.py`) is standalone and exercises branches missed by the existing test suite.
@@ -1108,7 +1194,7 @@ Closes the perf gap surfaced by the PR-13 h2h bench: `reg_easy ridge` was 20x sl
 ### Added
 
 - **`RFECV(optimizer_config=None)`** -- escape hatch for the MBH surrogate. Pass any subset of `MBHOptimizer.__init__` kwargs (`model_name`, `model_params`, etc.) to override the auto-tuned defaults. Example: `optimizer_config={"model_name": "CBQ", "model_params": {"iterations": 200}}` forces the legacy CatBoost path with custom tree count.
-- **`MBHOptimizer(model_name="ETR")`** -- ExtraTreesRegressor surrogate for low-budget runs. Pure-Python sklearn (no FFI overhead), `n_estimators=20` fits in ~20ms on the same MBH workload (vs ~500ms for CatBoost) -- ~27x faster surrogate fit. Quantile-style uncertainty via per-tree-prediction std (Breiman 2001 OOB variance estimate) so the existing exploration/exploitation logic works unchanged. The wrapper is a module-level class (`mlframe.optimization._ETRWithStd`) so MBHOptimizer instances stay picklable for resume-from-checkpoint.
+- **`MBHOptimizer(model_name="ETR")`** -- ExtraTreesRegressor surrogate for low-budget runs. Pure-Python sklearn (no FFI overhead), `n_estimators=20` fits in ~20ms on the same MBH workload (vs ~500ms for CatBoost) -- ~27x faster surrogate fit. Quantile-style uncertainty via per-tree-prediction std (Breiman 2001 OOB variance estimate) so the existing exploration/exploitation logic works unchanged. The wrapper is a module-level class (`mlframe.models.optimization._ETRWithStd`) so MBHOptimizer instances stay picklable for resume-from-checkpoint.
 
 ### Changed
 
@@ -1754,7 +1840,7 @@ rule, and fixes an unrelated CatBoost+ICE clone bug surfaced by the regression r
 
 ### CatBoost+ICE eval_metric clone bug — root cause + fix
 
-`mlframe.metrics.ICE` (a custom probabilistic-prediction-error metric used as
+`mlframe.metrics.core.ICE` (a custom probabilistic-prediction-error metric used as
 CatBoost's `eval_metric`) interacted with sklearn's `clone()` in a way that
 broke RFECV (`test_rfecv_pipeline_runs_for_each_model_family`,
 `test_mrmr_and_rfecv_stack_runs`).
@@ -1780,7 +1866,7 @@ as the constructor either does not set or modifies parameter eval_metric
   `copy.deepcopy(model)` call leaks unpicklable cyfunctions to dill.
 
 **Working fix**: install `__sklearn_clone__` directly on `CatBoostClassifier` /
-`CatBoostRegressor` via a one-time monkey-patch at `mlframe.metrics` module
+`CatBoostRegressor` via a one-time monkey-patch at `mlframe.metrics.core` module
 load. The patch reuses the same `eval_metric` instance for the cloned
 estimator (skipping CB's internal deep-copy by setting after construction)
 and bypasses sklearn's parametric identity check entirely. ICE itself
@@ -1985,7 +2071,7 @@ PR-3 of the RFECV rework. Closes the multi-PR sequence (PR-1: bug fixes; PR-2: h
 
 ### Critical UX fix: modal-window blocking
 
-When ``optimizer_plotting='OnScoreImprovement'`` (or any plot mode), the previous code called ``plt.show()`` (default ``block=True``) inside ``mlframe.optimization.plot_search_state`` and inside ``RFECV.select_optimal_nfeatures_``. With Qt as the default matplotlib backend on Windows, this opened a MODAL window per score improvement; the optimisation loop blocked until the user closed each window manually. Several stuck modals would pile up on the desktop. Fix: ``plt.show(block=False); plt.pause(0.001)`` in both call sites, with a try/except wrap so headless runs don't crash.
+When ``optimizer_plotting='OnScoreImprovement'`` (or any plot mode), the previous code called ``plt.show()`` (default ``block=True``) inside ``mlframe.models.optimization.plot_search_state`` and inside ``RFECV.select_optimal_nfeatures_``. With Qt as the default matplotlib backend on Windows, this opened a MODAL window per score improvement; the optimisation loop blocked until the user closed each window manually. Several stuck modals would pile up on the desktop. Fix: ``plt.show(block=False); plt.pause(0.001)`` in both call sites, with a try/except wrap so headless runs don't crash.
 
 ### Phase 4 N3: parallel CV folds with smart auto-fallback
 
@@ -2049,7 +2135,7 @@ The old ``feature_selection/wrappers.py`` is deleted. Public API is unchanged (a
 3. **Multi-estimator voting** — accept ``estimators: list[BaseEstimator]`` and aggregate FI rankings across them. Robust to single-estimator FI bias.
 4. **Sequential Floating Feature Selection (SFFS)** — after backward elimination, try re-introducing dropped features one at a time. Catches interaction features.
 5. **Coefficient z-scoring** for linear ``importance_getter``.
-6. **Boruta integration** via ``importance_getter='boruta'`` (``mlframe.boruta_shap`` already exists).
+6. **Boruta integration** via ``importance_getter='boruta'`` (``mlframe.feature_selection.boruta_shap`` already exists).
 
 ## 2026-05-10 — Refactor: `feature_selection/filters.py` (4187 LOC) → 12-file `filters/` package + 25+ bug fixes
 
@@ -2131,7 +2217,7 @@ PR-2 of the multi-stage RFECV rework. Phase 1+2 was 5ec67ee. This commit lands:
 
 ### Hygiene cleanup (Phase 3)
 
-- Replaced 4 star imports (`from typing import *`, `from ..config import *`, `from mlframe.config import *`, `from mlframe.optimization import *`) with explicit imports. Star imports forced every reader to grep for symbol origin and broke linters.
+- Replaced 4 star imports (`from typing import *`, `from ..config import *`, `from mlframe.config import *`, `from mlframe.models.optimization import *`) with explicit imports. Star imports forced every reader to grep for symbol origin and broke linters.
 - Dropped the dead `import polars as _pl` try/except shim (lines 21-24 of the prior file) - `import polars as pl` at the top is unconditional, the alternative was unreachable.
 - Dropped the unused `from enum import auto` import.
 - Removed the dead `ENSURE_ARROW_DF_SUPPORT = True` module constant and its always-True branch in `transform()` - the constant was never reassigned anywhere.
@@ -3134,7 +3220,7 @@ process there's no human AND no ``plot_file`` to disk -- pure waste.
 
 ### Fixed
 
-- **`mlframe.metrics.show_calibration_plot`** -- short-circuit when
+- **`mlframe.metrics.core.show_calibration_plot`** -- short-circuit when
   ``show_plots=True AND plot_file="" AND not is_interactive_session``.
   Detects interactive via the same ``__IPYTHON__`` builtin /
   ``sys.ps1`` pair as the leak fix. Caller can opt back in by passing
@@ -3169,12 +3255,12 @@ have been opened`` plus a real per-fit slowdown.
 
 ### Fixed
 
-- **`mlframe.metrics.show_calibration_plot`** -- closed the figure
+- **`mlframe.metrics.core.show_calibration_plot`** -- closed the figure
   in the ``show_plots=True`` path. Previously only the
   ``show_plots=False`` path called ``plt.close``; the default
   ``show_plots=True`` ran ``plt.ion(); plt.show()`` and left the
   figure open.
-- **`mlframe.feature_importance.plot_feature_importances`** --
+- **`mlframe.feature_selection.importance.plot_feature_importances`** --
   closed BOTH (top + bottom) figs in all paths. Previously the
   ``show_plots=False`` branch only closed the last-assigned fig
   (top-FI leak when the bottom branch fired); the
@@ -3185,7 +3271,7 @@ have been opened`` plus a real per-fit slowdown.
 
 ### Added
 
-- **`mlframe.metrics._close_unless_interactive(figs, was_shown)`** --
+- **`mlframe.metrics.core._close_unless_interactive(figs, was_shown)`** --
   shared helper. Detects a true IPython / Jupyter kernel via the
   ``__IPYTHON__`` builtin (set only by an active
   ``IPython.core.interactiveshell``) and falls back to ``hasattr(
@@ -4478,7 +4564,7 @@ returns a ``FigureSpec`` ready to render through either backend.
   visualises grade separation), ``TOP1_BY_QSIZE`` (top-1 accuracy
   bucketed by query size [2,3] [4,5] [6,8] [9,15] [16+] -- reveals
   whether ranker degrades on tiny / huge queries). Reuses
-  ``mlframe.ranking_metrics.ndcg_at_k`` + ``_ndcg_one_query`` from
+  ``mlframe.metrics.ranking.ndcg_at_k`` + ``_ndcg_one_query`` from
   the LTR addendum.
 - **`mlframe/reporting/charts/__init__.py`** re-exports the 3 new
   composers + their allowed-token frozensets.
@@ -4835,7 +4921,7 @@ native rankers; mlframe now wires them up.
   per-library knobs (``cb_loss_fn``, ``xgb_objective``,
   ``lgb_objective``), eval cutoffs (``eval_at``), and ensembling
   method (``ensemble_method`` -- RRF default).
-- **``mlframe.ranking_metrics``**: NDCG@k, MAP@k, MRR -- numba kernels
+- **``mlframe.metrics.ranking``**: NDCG@k, MAP@k, MRR -- numba kernels
   with the same NUMBA_NJIT_PARAMS as the existing metric stack.
   Exponential gain (Burges 2005) matches LightGBM / CatBoost / XGBoost
   internals; binary cases match sklearn's ``ndcg_score`` exactly.
@@ -5124,7 +5210,7 @@ D1 (provider contract — interface coverage), D2 (file-open encoding kwarg), D3
 - **`test_estimator_kwarg_parity.py`** — every `<flavor>_kwargs` field on every config (`cb_kwargs`, `lgb_kwargs`, `xgb_kwargs`, `hgb_kwargs`, `mlp_kwargs`, `ngb_kwargs`, `rfecv_kwargs`) must reach a constructor via `**field_name`, `.update(field_name)`, `field_name.get(...)`, or extract-then-splat. Catches the audit-2026-04-28 finding where `ModelHyperparamsConfig.{hgb,ngb}_kwargs` were declared but never threaded into helpers.py.
 - **`test_subconfig_wiring_parity.py`** — every BaseModel-typed field on a parent config (e.g. `TrainingConfig.linear_config: LinearModelConfig`) must show up as a bare attribute access or kwarg in production. Catches the orphaning pattern where `TrainingConfig` declared sub-configs but the trainer accepted standalone parameters with similar-but-different names.
 - **`test_dead_helpers.py`** — public top-level `def`/`class` symbols inside `training/` and `feature_selection/` must be referenced ≥ 2× in the production corpus (definition + ≥ 1 call). Top-level `mlframe/*.py` modules excluded by design (they are the public-API surface for notebook users). Surfaces 9 candidates currently held in `_USER_DEFERRED_DEAD_HELPERS`.
-- **`test_metric_invariants.py`** — Hypothesis-driven property tests on `mlframe.metrics`: Brier decomposition identity (`BinnedBrier == REL - RES + UNC`, Murphy 1973), all decomposition components in `[0, 1]`, AUC bounds + monotonic-affine invariance, perfect-prediction Brier=0, log-loss non-negativity, hamming/jaccard/subset-accuracy bounds, plus `_predict_from_probs` boundary cases (threshold=0 → all positive, threshold>1 → all negative, NaN-safe behaviour).
+- **`test_metric_invariants.py`** — Hypothesis-driven property tests on `mlframe.metrics.core`: Brier decomposition identity (`BinnedBrier == REL - RES + UNC`, Murphy 1973), all decomposition components in `[0, 1]`, AUC bounds + monotonic-affine invariance, perfect-prediction Brier=0, log-loss non-negativity, hamming/jaccard/subset-accuracy bounds, plus `_predict_from_probs` boundary cases (threshold=0 → all positive, threshold>1 → all negative, NaN-safe behaviour).
 - **`test_enum_exhaustiveness.py`** — every `Literal[...]` / `StrEnum` string value declared on a config field must appear quoted somewhere in the production corpus (i.e. is dispatched on, not just accepted-then-ignored).
 - **`test_utility_fuzz.py`** — targeted Hypothesis fuzz on the prepare-for-estimator transforms: `prepare_df_for_catboost` (NaN handling at varying null fractions, missing-column noop), `_canonical_predict_proba_shape` (dense 2-D round-trip, multilabel `list[(N,2)]` → `(N,K)` reduction), `_predict_from_probs` (boundary thresholds, NaN-safe).
 
@@ -5495,7 +5581,7 @@ Trainer-side polars cat-alignment helper (``_align_polars_cat_categories``) dele
 
 ## 2026-04-27 — Calibration reporting upgrades + suite-config sweep (BREAKING)
 
-### Calibration reporting (mlframe.metrics)
+### Calibration reporting (mlframe.metrics.core)
 
 - **ECE always-computed**: standard Expected Calibration Error now lives next
   to the existing CMAEW (mlframe-native power-weighted variant). Same bins so
@@ -8411,7 +8497,7 @@ String cast was both slower (CatBoost hashes strings per row during fit and pred
 - `ModelHyperparamsConfig.early_stopping_rounds` is now `Optional[int]`; setting it to `None` disables early stopping across all strategies (CB/LGB/XGB/MLP/RFECV/HGB/NGB).
 
 ### Fixed
-- `_SafeUnpickler` allowlist now includes the `mlframe` prefix — fixes silent drop of CatBoost models that reference `mlframe.metrics.ICE` during `predict_mlframe_models_suite`.
+- `_SafeUnpickler` allowlist now includes the `mlframe` prefix — fixes silent drop of CatBoost models that reference `mlframe.metrics.core.ICE` during `predict_mlframe_models_suite`.
 
 ### Tests
 - 8 new unit test files for previously untested helpers: `tests/training/test_untested_*.py` (83 tests).

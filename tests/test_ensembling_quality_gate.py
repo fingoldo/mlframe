@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.ensembling import compute_member_quality_gate
+from mlframe.models.ensembling import compute_member_quality_gate
 
 
 def _make_members(n_members: int, n_rows: int = 100, *, outlier_idx: int = -1,
@@ -120,7 +120,7 @@ def test_score_ensemble_label_drops_excluded_member(caplog):
     """
     import logging
     from types import SimpleNamespace
-    from mlframe.ensembling import score_ensemble
+    from mlframe.models.ensembling import score_ensemble
 
     rng = np.random.default_rng(0)
     n_rows = 200
@@ -139,7 +139,7 @@ def test_score_ensemble_label_drops_excluded_member(caplog):
             columns=[], pre_pipeline=None,
         ))
 
-    with caplog.at_level(logging.INFO, logger="mlframe.ensembling"):
+    with caplog.at_level(logging.INFO, logger="mlframe.models.ensembling"):
         score_ensemble(
             models_and_predictions=members,
             ensemble_name="[cb+xgb+lgb+linear] ",
@@ -223,7 +223,7 @@ def test_ensemble_scoring_respects_reporting_metric_switches(monkeypatch):
     from types import SimpleNamespace
 
     import mlframe.training as training_mod
-    from mlframe.ensembling import _process_single_ensemble_method
+    from mlframe.models.ensembling import _process_single_ensemble_method
 
     captured = []
 

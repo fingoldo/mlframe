@@ -3,7 +3,7 @@
 Retained for archival reference; imports `sklearn.externals.joblib` (removed in
 sklearn 0.23) and contains a script-style body with undefined globals
 (`y_up`, `pipe_up`, `my_class_weight`, `K`, `tf`, …). Anything worth keeping has
-been salvaged to ``mlframe.scoring`` (``log_uniform``, ``rmse_loss``,
+been salvaged to ``mlframe.metrics.scoring`` (``log_uniform``, ``rmse_loss``,
 ``rmsle_loss``, ``rmse_score``, ``rmsle_score``, ``ProbaScoreProxy``).
 """
 

@@ -1,8 +1,282 @@
-# Linter / formatter config. Pytest config lives in pytest.ini.
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
+[project]
+name = "mlframe"
+dynamic = ["version"]
+description = "Production-grade machine learning framework for tabular data: training pipelines, feature engineering & selection, ensembling, calibration, ranking, and quantile regression."
+authors = [{name = "Anatoly Alexeev", email = "fingoldo@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = [
+    "machine-learning",
+    "scikit-learn",
+    "catboost",
+    "lightgbm",
+    "xgboost",
+    "feature-engineering",
+    "feature-selection",
+    "ensembling",
+    "calibration",
+    "ranking",
+    "quantile-regression",
+    "tabular",
+    "automl",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# Minimal hard requirements so `pip install mlframe` stays light.
+# Domain-specific stacks (catboost / lightgbm / shap / mlflow / ...) ship as extras.
+dependencies = [
+    "numpy>=1.23",
+    "pandas>=1.5",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+    "pyarrow>=10.0",
+    "joblib>=1.2",
+    "tqdm>=4.65",
+    "pydantic>=2.0",
+    "portalocker>=2.7",
+    "dill>=0.3.6",
+    "orjson>=3.9",
+    "numba>=0.56",
+    "psutil>=5.9",
+    "matplotlib>=3.7",
+    # pyutilz is not yet on PyPI. Install it from GitHub before mlframe:
+    #   pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git"
+    # The version specifier below works once pyutilz is published; until then,
+    # pip needs to resolve pyutilz from the user's environment (already installed).
+    "pyutilz>=1.0.0",
+]
+
+[project.optional-dependencies]
+# Gradient-boosting backends used by the training pipeline.
+boosting = [
+    "catboost>=1.2",
+    "lightgbm>=4.0",
+    "xgboost>=2.0",
+]
+
+# Calibration + uncertainty + interpretability stack.
+calibration = [
+    "shap>=0.44",
+    "venn-abers>=1.4",
+    "netcal>=1.3",
+    "betacal>=1.1",
+    "pycalib>=0.1",
+    "uncertainty-calibration>=0.1",
+    "properscoring>=0.1",
+]
+
+# Neural-network training stack (PyTorch + Lightning).
+neural = [
+    "torch>=2.0",
+    "pytorch-lightning>=2.0",
+]
+
+# AutoML + hyperparameter optimization.
+automl = [
+    "flaml>=2.0",
+    "optbinning>=0.19",
+    "pysr>=0.18",
+]
+
+# Resampling, encoding, stratification.
+sampling = [
+    "imbalanced-learn>=0.11",
+    "category-encoders>=2.6",
+    "iterative-stratification>=0.1.7",
+]
+
+# Polars stack: native Polars + TA-Lib + extras.
+polars = [
+    "polars>=0.20",
+    "polars-talib>=0.1",
+    "polars-ds>=0.4",
+]
+
+# Plotting and dashboards.
+viz = [
+    "matplotlib>=3.7",
+    "plotly>=5.15",
+    "seaborn>=0.13",
+    "altair>=5.0",
+    "hvplot>=0.9",
+    "vegafusion[embed]>=1.5",
+    "vl-convert-python>=1.0",
+]
+
+# Experiment tracking.
+mlflow = [
+    "mlflow>=2.5",
+]
+
+# Database and storage backends.
+db = [
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "pymongo>=4.5",
+    "duckdb>=0.9",
+    "zstandard>=0.21",
+]
+
+# Signal-processing / scientific extras (entropy, wavelets, astropy).
+signal = [
+    "antropy>=0.1.4",
+    "astropy>=5.3",
+    "entropy-estimators>=0.0.1",
+    "pywavelets>=1.4",
+    "ruptures>=1.1",
+]
+
+# Dimensionality reduction and clustering.
+unsupervised = [
+    "hdbscan>=0.8.33",
+    "umap-learn>=0.5",
+]
+
+# Classical statistics.
+stats = [
+    "statsmodels>=0.14",
+]
+
+# GPU acceleration (CuPy). Install matches your CUDA toolkit via pip extras at install time.
+gpu = [
+    "cupy>=12.0",
+    "gpu-info>=0.1",
+]
+
+# Convenience meta-extra: union of all runtime extras.
+all = [
+    "mlframe[boosting,calibration,neural,automl,sampling,polars,viz,mlflow,db,signal,unsupervised,stats]",
+]
+
+# Development tooling.
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-xdist>=3.0",
+    "pytest-timeout>=2.1",
+    "pytest-benchmark>=4.0",
+    "coverage>=7.2",
+    "hypothesis>=6.80",
+    "ruff>=0.1",
+    "black>=23.0",
+    "mypy>=1.0",
+    "bandit>=1.7",
+    "pre-commit>=3.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/fingoldo/mlframe"
+Repository = "https://github.com/fingoldo/mlframe.git"
+Issues = "https://github.com/fingoldo/mlframe/issues"
+Changelog = "https://github.com/fingoldo/mlframe/blob/master/CHANGELOG.md"
+
+[tool.setuptools.dynamic]
+version = {attr = "mlframe.version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["mlframe*"]
+exclude = ["tests*", "legacy*", "benchmarks*", "profiling*", "docs*", "scripts*"]
+
+# Static data files shipped with the wheel (if any).
+[tool.setuptools.package-data]
+mlframe = ["py.typed"]
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers --strict-config --ignore=legacy --ignore=benchmarks --ignore=profiling"
+xfail_strict = true
+doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests requiring full pipeline",
+    "gpu: marks tests requiring GPU hardware",
+    "benchmark: pytest-benchmark timing tests",
+    "multigpu: requires multiple GPUs",
+    "windows_only: skip on non-Windows",
+    "linux_only: skip on non-Linux",
+    "fast: fast subset (select with '-m fast'). Every new ML feature ships with a representative subset marked @pytest.mark.fast so the full code path runs in <15s total.",
+]
+filterwarnings = [
+    "error::DeprecationWarning:mlframe",
+    "ignore::DeprecationWarning",
+    "ignore:.*penalty.*deprecated.*1\\.8:FutureWarning:sklearn",
+    "ignore:.*quantile_method.*linear.*averaged_inverted_cdf:FutureWarning:sklearn",
+    "ignore:X does not have valid feature names.*LGBMClassifier:UserWarning:sklearn",
+    "ignore:Falling back to prediction using DMatrix due to mismatched devices:UserWarning:xgboost",
+    "ignore:Skipping features without any observed values:UserWarning:sklearn",
+    "ignore:The '.*dataloader' does not have many workers:UserWarning:lightning",
+    "ignore:CheckpointDir.*exists and is not empty:UserWarning:lightning",
+    "ignore:The number of training batches.*smaller than.*log_every_n_steps:UserWarning:lightning",
+    "ignore:GPU available but not used:UserWarning:lightning",
+    "ignore:You are trying to `self.log\\(\\)`.*trainer.*not registered:UserWarning:lightning",
+    "ignore:Found.*module.*in val module that:UserWarning:lightning",
+]
+log_cli = false
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["src/mlframe"]
+omit = [
+    "tests/*",
+    "legacy/*",
+    "benchmarks/*",
+    "profiling/*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    ".venv/*",
+    "*/integrations/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if 0:",
+    "if False:",
+]
+precision = 2
+show_missing = true
+
+# ---------------------------------------------------------------------------
+# Black
+# ---------------------------------------------------------------------------
 [tool.black]
 line-length = 160
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312', 'py313', 'py314']
+target-version = ["py39", "py310", "py311", "py312", "py313"]
 exclude = '''
 /(
     \.git
@@ -11,13 +285,17 @@ exclude = '''
   | build
   | dist
   | __pycache__
+  | legacy
 )/
 '''
 
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 160
-target-version = "py38"
-exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy"]
+target-version = "py39"
+exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy", "benchmarks", "profiling"]
 
 [tool.ruff.lint]
 select = [
@@ -31,30 +309,40 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by black)
-    "E401",  # multiple imports on one line (legacy code style)
-    "E402",  # module level import not at top of file (our style uses comment blocks)
-    "E701",  # multiple statements on one line (colon) - legacy code style
-    "I001",  # import block is un-sorted or un-formatted (not enforcing import sorting)
-    "N802",  # function name should be lowercase (legacy code, fixing separately)
-    "N803",  # argument name should be lowercase (camelCase, Hungarian notation in legacy code)
-    "N806",  # variable name should be lowercase (legacy code)
-    "B006",  # mutable default (fixing separately)
-    "F401",  # unused imports (cleaning up separately)
-    "F541",  # f-string without placeholders (sometimes used for consistency)
-    "UP031", # use format specifiers instead of percent format (legacy code, not urgent)
-    # PEP 585 / PEP 604 generics + union syntax. These rewrites require either py3.10+ runtime OR `from __future__ import annotations` in every file
-    # that uses the annotation at runtime (e.g. via `typing.get_type_hints()` or pydantic). Since target=py38 is a hard requirement for this codebase
-    # (downstream consumers, deployment environments), we silence the suggestions globally rather than per-file. Re-enable when py38 is dropped.
-    "UP006", # use `list` instead of `List` for type annotation -- needs py3.9+ at runtime
-    "UP007", # use `X | Y` for type annotations -- needs py3.10+ at runtime
-    "UP045", # use `X | None` for type annotations -- needs py3.10+ at runtime
-    "UP037", # remove quotes from type annotation -- forward refs may still be needed for circular imports under py38
+    "E401",
+    "E402",
+    "E701",
+    "I001",
+    "N802",
+    "N803",
+    "N806",
+    "B006",
+    "F401",
+    "F541",
+    "UP031",
+    "UP006",
+    "UP007",
+    "UP045",
+    "UP037",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]  # unused imports OK in __init__
-# Test class names follow an audit-tag convention (TestA1_SingleClassY, TestB6_FooBar) where the underscore separates a structured tag from a descriptive suffix.
+"__init__.py" = ["F401", "F403"]
 "tests/**" = ["N801"]
-# Profile / benchmark scripts use `_bench("label", lambda: f(loop_var, ...))` -- the lambda is consumed synchronously by _bench within the same iteration so the
-# late-binding capture is safe. Adding default-arg defenses to every benchmark lambda is pure noise.
-"training/_profile_*.py" = ["B023"]
+"src/mlframe/training/_profile_*.py" = ["B023"]
+
+# ---------------------------------------------------------------------------
+# MyPy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+check_untyped_defs = true
+exclude = "(legacy|benchmarks|profiling)/"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true

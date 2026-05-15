@@ -1,15 +1,16 @@
+# ============================================================================
 # Byte-compiled / optimized / DLL files
+# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Fuzz-suite per-combo audit trail (append-only, regenerated per run)
-tests/training/_fuzz_results.jsonl
-
 # C extensions
 *.so
 
+# ============================================================================
 # Distribution / packaging
+# ============================================================================
 .Python
 build/
 develop-eggs/
@@ -31,8 +32,6 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -40,11 +39,9 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Unit test / coverage reports
-logs/
-checkpoints/
-*.ckpt
-catboost_info/
+# ============================================================================
+# Test / coverage / typecheck caches
+# ============================================================================
 htmlcov/
 .tox/
 .nox/
@@ -53,14 +50,17 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+coverage.lcov
 *.cover
 *.py,cover
 .hypothesis/
 .pytest_cache/
-lightning_logs/
-
-# Windows-specific (> NUL redirect accidents)
-NUL
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.ruff_cache/
+.black_cache/
 
 # Mutation testing
 .mutmut-cache
@@ -68,105 +68,96 @@ mutatest_results/
 test-session.toml
 .cosmic-ray/
 
-# Translations
-*.mo
-*.pot
+# ============================================================================
+# ML runtime artefacts (CatBoost / Lightning / training outputs)
+# ============================================================================
+catboost_info/
+checkpoints/
+*.ckpt
+lightning_logs/
+logs/
+outputs/
+profiling/output/
+reporting/output/
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
+tests/**/catboost_info/
+tests/**/lightning_logs/
+tests/**/checkpoints/
+tests/**/logs/
 
-# Flask stuff:
-instance/
-.webassets-cache
+# Fuzz-suite per-combo audit trail (append-only, regenerated per run)
+tests/training/_fuzz_results.jsonl
 
-# Scrapy stuff:
-.scrapy
+# Profiling outputs
+*.prof
 
-# Sphinx documentation
-docs/_build/
+# Misc backups
+*.backup
+*.py.backup
 
-# PyBuilder
-target/
-
-# Jupyter Notebook
+# ============================================================================
+# Jupyter / IPython
+# ============================================================================
 .ipynb_checkpoints
-
-# IPython
 profile_default/
 ipython_config.py
 
-# pyenv
-.python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
+# ============================================================================
 # Environments
+# ============================================================================
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# JetBrains
-.idea/
-
-# Cloud Translation service key
-app/cloud_translation_key.json
-
-# Pickle file
-app/all_data.pkl
-
-# Added 2026-04-14 hygiene sweep
-*.prof
-*.backup
-*.py.backup
-.benchmarks/
-.ruff_cache/
-.black_cache/
-.vscode/
 .direnv/
 .envrc
-coverage.lcov
-tests/**/catboost_info/
-tests/**/lightning_logs/
-tests/**/checkpoints/
-tests/**/logs/
-outputs/
+
+# pyenv / pipenv
+.python-version
+#Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# ============================================================================
+# Editor / IDE
+# ============================================================================
+.idea/
+.vscode/
+.spyderproject
+.spyproject
+.ropeproject
+
+# ============================================================================
+# OS-specific
+# ============================================================================
+NUL
+.DS_Store
+Thumbs.db
+
+# ============================================================================
+# Documentation builds
+# ============================================================================
+docs/_build/
+/site
+
+# ============================================================================
+# Benchmarks
+# ============================================================================
+.benchmarks/
+benchmarks/*.png
+benchmarks/*_results.json
+
+# ============================================================================
+# Project-specific
+# ============================================================================
+# Local migration / one-shot scripts (not part of the published package)
+scripts/*.local.py
+# Audit / report outputs
+mlframe_audit_report.txt
+*.audit.txt

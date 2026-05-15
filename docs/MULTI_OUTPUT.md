@@ -111,7 +111,7 @@ preds = predict_from_probs(probs_NK, TargetTypes.MULTILABEL_CLASSIFICATION,
 ## Multilabel metrics
 
 ```python
-from mlframe.metrics import (
+from mlframe.metrics.core import (
     hamming_loss,           # mean fraction of incorrect labels
     subset_accuracy,        # exact-match (all labels correct per row)
     jaccard_score_multilabel,  # per-row averaged Jaccard, empty-union → 1.0
@@ -200,7 +200,7 @@ result = fte.transform(df)
 
 ## Ensembling for multi-output
 
-`mlframe.ensembling.ensemble_probabilistic_predictions` works on multi-output
+`mlframe.models.ensembling.ensemble_probabilistic_predictions` works on multi-output
 shapes after the materialisation-dedup refactor (Session-1 landed) — single
 `_preds_arr = np.asarray(preds)` cache, ~5× peak-memory reduction.
 
@@ -209,7 +209,7 @@ is 2.16 GB — uncomfortably close to Win32 4 GB ceiling. Use the streaming
 accumulator API:
 
 ```python
-from mlframe.ensembling import _WelfordAccumulator
+from mlframe.models.ensembling import _WelfordAccumulator
 
 acc = _WelfordAccumulator(shape=(N, K))
 for model in models:

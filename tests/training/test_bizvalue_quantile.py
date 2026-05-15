@@ -8,7 +8,7 @@ import warnings
 import numpy as np
 import pytest
 
-from mlframe.quantile_metrics import coverage, mean_interval_width
+from mlframe.metrics.quantile import coverage, mean_interval_width
 
 
 @pytest.fixture

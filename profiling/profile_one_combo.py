@@ -89,7 +89,7 @@ def main():
 
     print("Pre-warming numba JIT cache...", flush=True)
     try:
-        from mlframe.metrics import prewarm_numba_cache
+        from mlframe.metrics.core import prewarm_numba_cache
         prewarm_numba_cache()
     except Exception:
         pass

@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.ensembling import (
+from mlframe.models.ensembling import (
     _WelfordAccumulator,
     ensemble_probabilistic_predictions,
     ensemble_probabilistic_predictions_streaming,

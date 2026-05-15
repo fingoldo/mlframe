@@ -30,7 +30,7 @@ import torch.nn.functional as F
 
 from mlframe.training import train_mlframe_models_suite, TargetTypes
 from mlframe.training.strategies import NeuralNetStrategy
-from mlframe.tests.training.shared import SimpleFeaturesAndTargetsExtractor
+from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 # ----------------------------------------------------------------------------

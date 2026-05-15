@@ -35,7 +35,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from mlframe.feature_importance import (
+from mlframe.feature_selection.importance import (
     _FI_DEFAULT_MAX_ZERO,
     _FI_LOG_DEFAULT_TOP_N,
     _FI_PLOT_DEFAULT_N,
@@ -195,7 +195,7 @@ class TestFigsizeUnification:
     def test_fi_function_default_figsize_is_half_perf_chart(self) -> None:
         """``plot_feature_importance(figsize=...)`` defaults to half the
         regression-diagnostic 3-panel chart."""
-        from mlframe.feature_importance import _FI_DEFAULT_FIGSIZE
+        from mlframe.feature_selection.importance import _FI_DEFAULT_FIGSIZE
         from mlframe.training.evaluation import DEFAULT_FIGSIZE
         assert _FI_DEFAULT_FIGSIZE == (
             DEFAULT_FIGSIZE[0] / 2,

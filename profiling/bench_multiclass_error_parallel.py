@@ -23,7 +23,7 @@ import numpy as np
 
 sys.path.insert(0, ".")
 
-from mlframe.metrics import compute_probabilistic_multiclass_error  # noqa: E402
+from mlframe.metrics.core import compute_probabilistic_multiclass_error  # noqa: E402
 
 
 def threaded_compute(y_true, y_score, **kwargs):

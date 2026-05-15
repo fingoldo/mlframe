@@ -1,4 +1,4 @@
-"""Tests for mlframe.utils."""
+"""Tests for mlframe.utils.misc."""
 
 import os
 import random
@@ -10,7 +10,7 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from mlframe.utils import (
+from mlframe.utils.misc import (
     get_full_classifier_name,
     get_pipeline_last_element,
     set_random_seed,
@@ -74,7 +74,7 @@ def test_classifier_name_dummy():
 
 def test_is_cuda_available():
     numba = pytest.importorskip("numba")
-    from mlframe.utils import is_cuda_available
+    from mlframe.utils.misc import is_cuda_available
 
     result = is_cuda_available()
     assert isinstance(result, bool)
@@ -84,7 +84,7 @@ def test_is_cuda_available():
 
 def test_check_cpu_flag():
     pytest.importorskip("cpuinfo")
-    from mlframe.utils import check_cpu_flag
+    from mlframe.utils.misc import check_cpu_flag
 
     result = check_cpu_flag("sse2")
     assert isinstance(result, bool)

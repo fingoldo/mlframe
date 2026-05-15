@@ -191,12 +191,19 @@ def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlf
     X_test = test_df[feature_cols].values
     y_test = test_df["target"].values
 
-    # Build the base model.
+    # Build the base model. CatBoost uses ~3x the RAM of LightGBM/XGBoost for
+    # equivalent iterations (workspace + ordered-boosting permutations are kept
+    # per tree); with CalibratedClassifierCV cv=5 the workspace is held 5x in
+    # parallel and 300 iterations on 40k x 120 features OOM'd on a 16GB box at
+    # cb-{42,7} runs (cb-99 squeaked through). Halving iterations to 150 keeps
+    # the calibration signal (Brier delta stayed ~constant in re-runs) and
+    # cuts peak RSS by ~45%.
+    cb_iters = 150
     model_cls_map = {
         "lgb": lambda: __import__("lightgbm").LGBMClassifier(
             n_estimators=300, random_state=seed, verbose=-1),
         "cb": lambda: __import__("catboost").CatBoostClassifier(
-            iterations=300, random_seed=seed, verbose=0),
+            iterations=cb_iters, random_seed=seed, verbose=0),
         "xgb": lambda: __import__("xgboost").XGBClassifier(
             n_estimators=300, random_state=seed, verbosity=0),
     }
@@ -253,7 +260,7 @@ def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed)
 
     probs_dict = results.get("probabilities") or {}
     assert probs_dict, "Ensemble run returned no probabilities"
-    # Bug A fix 2026-04-15: _SafeUnpickler allowlist now includes mlframe.metrics.ICE
+    # Bug A fix 2026-04-15: _SafeUnpickler allowlist now includes mlframe.metrics.core.ICE
     # so CatBoost models load and the ensemble has multiple streams to combine.
     assert len(probs_dict) >= 2, (
         f"Predict suite returned <2 streams; cannot compare ensemble vs singles. "

@@ -35,7 +35,7 @@ from pyutilz.system import ensure_dir_exists, tqdmu, get_own_memory_usage
 from pyutilz.system import compute_total_gpus_ram, get_gpuinfo_gpu_info
 from pyutilz.pythonlib import prefix_dict_elems, get_human_readable_set_size, is_jupyter_notebook
 
-from mlframe.helpers import get_model_best_iter, ensure_no_infinity
+from mlframe.core.helpers import get_model_best_iter, ensure_no_infinity
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -84,7 +84,7 @@ from sklearn.ensemble import IsolationForest
 # Ensembling
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from mlframe.ensembling import ensemble_probabilistic_predictions, score_ensemble, compare_ensembles, SIMPLE_ENSEMBLING_METHODS
+from mlframe.models.ensembling import ensemble_probabilistic_predictions, score_ensemble, compare_ensembles, SIMPLE_ENSEMBLING_METHODS
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # FE
@@ -191,7 +191,7 @@ try:
 except Exception:
     pass
 
-from mlframe.custom_estimators import log_plus_c, inv_log_plus_c, box_cox_plus_c, inv_box_cox_plus_c
+from mlframe.estimators.custom import log_plus_c, inv_log_plus_c, box_cox_plus_c, inv_box_cox_plus_c
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Cats
@@ -226,7 +226,7 @@ from sklearn.preprocessing import PowerTransformer
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.preprocessing import StandardScaler, RobustScaler
 
-from mlframe.preprocessing import prepare_df_for_catboost
+from mlframe.preprocessing.transforms import prepare_df_for_catboost
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # FIs
@@ -234,7 +234,7 @@ from mlframe.preprocessing import prepare_df_for_catboost
 
 
 import shap
-from mlframe.feature_importance import plot_feature_importance
+from mlframe.feature_selection.importance import plot_feature_importance
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -242,8 +242,8 @@ from mlframe.feature_importance import plot_feature_importance
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 from sklearn.metrics import make_scorer
-from mlframe.metrics import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, ICE
-from mlframe.metrics import create_fairness_subgroups, create_fairness_subgroups_indices, compute_fairness_metrics, robust_mlperf_metric
+from mlframe.metrics.core import fast_roc_auc, fast_calibration_report, compute_probabilistic_multiclass_error, ICE
+from mlframe.metrics.core import create_fairness_subgroups, create_fairness_subgroups_indices, compute_fairness_metrics, robust_mlperf_metric
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Config Classes for train_and_evaluate_model
@@ -512,7 +512,7 @@ def load_production_models(
     explainers = {}
     postcalibrators = {}
 
-    from mlframe.ensembling import SIMPLE_ENSEMBLING_METHODS
+    from mlframe.models.ensembling import SIMPLE_ENSEMBLING_METHODS
 
     logger.info("Loading trained production %s %s models for target %s...", featureset_name, task_type, target_name)
 

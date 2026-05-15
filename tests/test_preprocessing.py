@@ -1,4 +1,4 @@
-"""Tests for mlframe.preprocessing.prepare_df_for_catboost.
+"""Tests for mlframe.preprocessing.transforms.prepare_df_for_catboost.
 
 Focus: dtype preservation when converting nullable/extension columns to
 CatBoost-friendly numpy floats. Historical bug: everything was widened to
@@ -23,7 +23,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from mlframe.preprocessing import prepare_df_for_catboost
+from mlframe.preprocessing.transforms import prepare_df_for_catboost
 
 
 # ---------------------------------------------------------------------------

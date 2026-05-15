@@ -12,7 +12,7 @@ import io
 import numpy as np
 from line_profiler import LineProfiler
 
-from mlframe.metrics import (
+from mlframe.metrics.core import (
     fast_calibration_report,
     prewarm_numba_cache,
     brier_score_loss,

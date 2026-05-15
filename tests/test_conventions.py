@@ -1,7 +1,7 @@
 """Meta-tests enforcing repo conventions.
 
 - No stdlib ``json`` imports in test files (MEMORY.md: always orjson).
-- ``mlframe.postcalibration`` exposes a precompiled ``_INCLUDE_RE`` sentinel.
+- ``mlframe.calibration.post`` exposes a precompiled ``_INCLUDE_RE`` sentinel.
 - No ``ensure_installed(...)`` calls in test files (use ``pytest.importorskip``).
 """
 
@@ -47,10 +47,10 @@ def test_no_ensure_installed_in_tests() -> None:
 
 def test_postcalibration_include_re_is_compiled() -> None:
     pytest.importorskip("sklearn")
-    postcalibration = pytest.importorskip("mlframe.postcalibration")
+    postcalibration = pytest.importorskip("mlframe.calibration.post")
     include_re = getattr(postcalibration, "_INCLUDE_RE", None)
     assert isinstance(include_re, re.Pattern), (
-        "mlframe.postcalibration._INCLUDE_RE must be a module-level compiled re.Pattern"
+        "mlframe.calibration.post._INCLUDE_RE must be a module-level compiled re.Pattern"
     )
     # Also validate the lru_cache-wrapped compiler is present and returns a Pattern.
     compile_pattern = getattr(postcalibration, "_compile_pattern", None)

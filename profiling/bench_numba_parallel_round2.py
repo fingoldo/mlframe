@@ -1,6 +1,6 @@
 """Round-2 bench: candidates not covered by bench_numba_parallel.py.
 
-Targets the remaining numba kernels in mlframe.metrics that show up in
+Targets the remaining numba kernels in mlframe.metrics.core that show up in
 suite reports / charts but weren't parallelised in commit 1f84017:
 
 - cb_logits_to_probs_binary: element-wise sigmoid (CB postproc)
@@ -27,7 +27,7 @@ import numba
 from numba import prange
 
 sys.path.insert(0, ".")
-from mlframe.metrics import (  # noqa: E402
+from mlframe.metrics.core import (  # noqa: E402
     cb_logits_to_probs_binary,
     cb_logits_to_probs_multiclass,
     _max_abs_pct_error_kernel,

@@ -1,4 +1,4 @@
-"""Tests for ``mlframe.quantile_metrics``: pinball / coverage /
+"""Tests for ``mlframe.metrics.quantile``: pinball / coverage /
 mean_interval_width / winkler / pit / quantile_summary.
 
 Verifies bit-equivalence with sklearn's ``mean_pinball_loss`` where
@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.quantile_metrics import (
+from mlframe.metrics.quantile import (
     coverage, mean_interval_width, pinball_loss, pinball_loss_per_alpha,
     pit_values, quantile_summary, winkler_score,
 )

@@ -1,4 +1,4 @@
-"""RNG determinism tests for mlframe.tuning and mlframe.optimization.
+"""RNG determinism tests for mlframe.models.tuning and mlframe.models.optimization.
 
 Verifies that:
 - MBHOptimizer(random_state=42) produces identical suggest_candidate sequence
@@ -13,8 +13,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import mlframe.tuning as tuning_mod
-import mlframe.optimization as opt_mod
+import mlframe.models.tuning as tuning_mod
+import mlframe.models.optimization as opt_mod
 
 
 # --------------------------------------------------------------------

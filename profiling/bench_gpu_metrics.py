@@ -1,4 +1,4 @@
-"""Benchmark GPU vs CPU implementations of mlframe.metrics batch helpers.
+"""Benchmark GPU vs CPU implementations of mlframe.metrics.core batch helpers.
 
 Runs four sweeps:
 
@@ -37,7 +37,7 @@ from typing import Callable
 import numpy as np
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-from mlframe.metrics import (
+from mlframe.metrics.core import (
     compute_batch_aucs,
     compute_batch_rmse,
     fast_aucs,

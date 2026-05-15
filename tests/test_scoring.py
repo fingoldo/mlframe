@@ -1,9 +1,9 @@
-"""Tests for mlframe.scoring — the salvaged Models.py symbols."""
+"""Tests for mlframe.metrics.scoring — the salvaged Models.py symbols."""
 
 import numpy as np
 import pytest
 
-from mlframe.scoring import (
+from mlframe.metrics.scoring import (
     ProbaScoreProxy,
     log_uniform,
     rmse_loss,

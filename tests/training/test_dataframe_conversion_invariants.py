@@ -366,7 +366,7 @@ class TestEnsembleMethodsEdgeCases:
         case_name,
         preds,
     ):
-        from mlframe.ensembling import ensemble_probabilistic_predictions
+        from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         pred_arrays = [np.asarray(p, dtype=np.float64).reshape(-1, 1) for p in preds]
 

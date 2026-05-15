@@ -87,7 +87,7 @@ def test_xgb_num_class_inference_survives_y_val_none():
 def test_multilabel_K1_degenerate_metrics_ok():
     """K=1 multilabel is degenerate (just a single binary label stored as
     2-D). Numba metrics and canonicalizer should not crash."""
-    from mlframe.metrics import (
+    from mlframe.metrics.core import (
         hamming_loss, subset_accuracy, jaccard_score_multilabel,
     )
     from mlframe.training.helpers import _canonical_predict_proba_shape

@@ -16,7 +16,7 @@ from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.multioutput import MultiOutputClassifier
 
-from mlframe.metrics import jaccard_score_multilabel
+from mlframe.metrics.core import jaccard_score_multilabel
 from mlframe.training.helpers import _ChainEnsemble
 
 

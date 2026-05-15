@@ -1,4 +1,4 @@
-"""Tests for ``mlframe.feature_importance.plot_feature_importance``:
+"""Tests for ``mlframe.feature_selection.importance.plot_feature_importance``:
 
 * **inline display fix (2026-05-11)** -- the renderer-induced Agg
   backend mutation in ``reporting/renderers/matplotlib.py`` made
@@ -20,7 +20,7 @@ matplotlib.use("Agg")  # keep CI headless; tests must NOT call plt.show
 import numpy as np
 import pytest
 
-from mlframe.feature_importance import (
+from mlframe.feature_selection.importance import (
     plot_feature_importance,
     _format_top_fi_for_log,
 )
@@ -60,7 +60,7 @@ class TestTopNTextLog:
         fi = np.array([0.4, 0.3, 0.2, 0.05, 0.05])
         columns = ["f0", "f1", "f2", "f3", "f4"]
         with caplog.at_level(logging.INFO,
-                              logger="mlframe.feature_importance"):
+                              logger="mlframe.feature_selection.importance"):
             plot_feature_importance(
                 feature_importances=fi, columns=columns,
                 kind="UNIT_TEST_KIND",
@@ -84,7 +84,7 @@ class TestTopNTextLog:
         fi = np.array([0.4, 0.3, 0.2])
         columns = ["a", "b", "c"]
         with caplog.at_level(logging.INFO,
-                              logger="mlframe.feature_importance"):
+                              logger="mlframe.feature_selection.importance"):
             plot_feature_importance(
                 feature_importances=fi, columns=columns,
                 kind="SILENT", show_plots=False, plot_file="",
@@ -99,7 +99,7 @@ class TestTopNTextLog:
         fi = np.array([0.4, 0.3, 0.2])
         columns = ["a", "b", "c"]
         with caplog.at_level(logging.INFO,
-                              logger="mlframe.feature_importance"):
+                              logger="mlframe.feature_selection.importance"):
             plot_feature_importance(
                 feature_importances=fi, columns=columns,
                 kind="ZERO_TOP", show_plots=False, plot_file="",
@@ -114,7 +114,7 @@ class TestTopNTextLog:
         fi = np.array([0.5, 0.3, 0.2])
         columns = ["x", "y", "z"]
         with caplog.at_level(logging.INFO,
-                              logger="mlframe.feature_importance"):
+                              logger="mlframe.feature_selection.importance"):
             # No log_fi / log_top_n -- use defaults.
             plot_feature_importance(
                 feature_importances=fi, columns=columns,

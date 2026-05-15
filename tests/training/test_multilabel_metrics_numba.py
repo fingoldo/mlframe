@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.metrics import (
+from mlframe.metrics.core import (
     hamming_loss as fast_hamming_loss,
     subset_accuracy as fast_subset_accuracy,
     jaccard_score_multilabel as fast_jaccard_score,

@@ -62,7 +62,7 @@ def test_make_train_test_split_does_not_pollute_global_rng():
 # ---------------------------------------------------------------------------
 
 def test_get_sapp_dataset_reproducible():
-    from mlframe.datasets import get_sapp_dataset
+    from mlframe.data.datasets import get_sapp_dataset
 
     X1, y1 = get_sapp_dataset(N=200, random_state=42)
     X2, y2 = get_sapp_dataset(N=200, random_state=42)
@@ -71,14 +71,14 @@ def test_get_sapp_dataset_reproducible():
 
 
 def test_get_sapp_dataset_no_inf_in_target():
-    from mlframe.datasets import get_sapp_dataset
+    from mlframe.data.datasets import get_sapp_dataset
 
     X, y = get_sapp_dataset(N=500, random_state=7, binarize=False)
     assert np.all(np.isfinite(np.asarray(y))), "Target contains non-finite values (log guard failed)"
 
 
 def test_get_sapp_dataset_no_global_pollution():
-    from mlframe.datasets import get_sapp_dataset
+    from mlframe.data.datasets import get_sapp_dataset
 
     before = np.random.get_state()[1][0]
     get_sapp_dataset(N=50, random_state=99)
@@ -91,7 +91,7 @@ def test_get_sapp_dataset_no_global_pollution():
 # ---------------------------------------------------------------------------
 
 def test_generate_modelling_data_reproducible():
-    from mlframe.synthetic import generate_modelling_data
+    from mlframe.data.synthetic import generate_modelling_data
 
     kw = dict(
         n_samples=300,
@@ -117,7 +117,7 @@ def test_generate_modelling_data_reproducible():
 # ---------------------------------------------------------------------------
 
 def test_pure_random_classifier_reproducible_and_labels():
-    from mlframe.custom_estimators import PureRandomClassifier
+    from mlframe.estimators.custom import PureRandomClassifier
 
     X = np.arange(20).reshape(-1, 1)
     y = np.array(["cat", "dog"] * 10)

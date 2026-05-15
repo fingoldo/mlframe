@@ -179,7 +179,7 @@ def test_fix5_upfront_filter_preserves_valid_group_aucs():
     """Upfront filter must produce bit-identical valid-group AUCs vs the
     pre-filter path. We compute directly via compute_grouped_group_aucs as
     the reference."""
-    from mlframe.metrics import fast_aucs_per_group_optimized, compute_grouped_group_aucs
+    from mlframe.metrics.core import fast_aucs_per_group_optimized, compute_grouped_group_aucs
 
     rng = np.random.default_rng(1337)
     # Small but diverse: mix of single-sample, single-class, valid-multiclass groups.
@@ -206,7 +206,7 @@ def test_fix5_upfront_filter_faster_on_skewed_workload():
     every group. Uses a large synthetic frame; tolerance generous — this is
     a smoke check, not a benchmark gate."""
     import time
-    from mlframe.metrics import fast_aucs_per_group_optimized
+    from mlframe.metrics.core import fast_aucs_per_group_optimized
 
     rng = np.random.default_rng(0)
     n = 200_000

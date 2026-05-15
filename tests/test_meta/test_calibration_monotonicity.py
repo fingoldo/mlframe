@@ -44,7 +44,7 @@ def test_isotonic_calibration_does_not_worsen_per_label_brier(n, k, miscal, seed
     per label, fit + applied on the same data)."""
     from mlframe.training.configs import TargetTypes
     from mlframe.training.trainer import _PerClassIsotonicCalibrator
-    from mlframe.metrics import fast_brier_score_loss
+    from mlframe.metrics.core import fast_brier_score_loss
 
     rng = np.random.default_rng(seed)
     p_true = rng.random((n, k))
@@ -100,7 +100,7 @@ def test_isotonic_calibration_constant_label_returns_identity():
 def test_brier_score_in_unit_interval_for_random_input():
     """Sanity for ``fast_brier_score_loss`` itself — Brier on
     [0, 1] inputs must stay in [0, 1]. Backstop for a metric refactor."""
-    from mlframe.metrics import fast_brier_score_loss
+    from mlframe.metrics.core import fast_brier_score_loss
     rng = np.random.default_rng(42)
     for _ in range(5):
         n = rng.integers(50, 500)

@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from mlframe.ensembling import _process_single_ensemble_method
+from mlframe.models.ensembling import _process_single_ensemble_method
 
 
 def _make_member(*, val_preds=None, test_preds=None, train_preds=None,

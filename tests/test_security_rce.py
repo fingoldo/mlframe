@@ -91,7 +91,7 @@ def test_read_trained_models_rejects_untrusted_path(tmp_path):
 # ---------------------------------------------------------------------------
 def test_experiments_field_whitelist():
     pytest.importorskip("pyutilz")
-    from mlframe.experiments import _validate_and_join_fields, _ALLOWED_EXPERIMENT_FIELDS
+    from mlframe.utils.experiments import _validate_and_join_fields, _ALLOWED_EXPERIMENT_FIELDS
 
     # SQL injection attempt must be rejected.
     with pytest.raises(ValueError):

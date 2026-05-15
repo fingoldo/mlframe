@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
-from mlframe.metrics import prewarm_numba_cache
+from mlframe.metrics.core import prewarm_numba_cache
 
 
 def create_synthetic_data(n_rows: int = 1_000_000, n_cols: int = 50) -> pl.DataFrame:

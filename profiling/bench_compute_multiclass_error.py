@@ -22,7 +22,7 @@ import time
 
 import numpy as np
 
-from mlframe.metrics import (
+from mlframe.metrics.core import (
     compute_probabilistic_multiclass_error,
     fast_ice_only,
 )

@@ -156,7 +156,7 @@ class TestEnsembleHarmonicDivByZero:
         Returns only the ensembled prediction array; the function
         returns a tuple ``(predictions, confident_indices, uncertainty)``.
         """
-        from mlframe.ensembling import ensemble_probabilistic_predictions
+        from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         pred_arrays = [np.asarray(p, dtype=np.float64).reshape(-1, 1) for p in preds]
         out = ensemble_probabilistic_predictions(
@@ -923,7 +923,7 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
     def test_int8_with_na_does_not_crash_isinf_check(self):
         """The exact prod repro: Int8 + pd.NA + a float column with one
         inf. Must not raise; the float inf must still be sanitised."""
-        from mlframe.helpers import ensure_no_infinity_pd
+        from mlframe.core.helpers import ensure_no_infinity_pd
 
         pdf = pd.DataFrame(
             {
@@ -946,7 +946,7 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
         be sanitised correctly. Old code's ``df[num_cols].to_numpy()``
         path also failed on this, since to_numpy() on Float64Dtype
         with pd.NA returns object-dtype too."""
-        from mlframe.helpers import ensure_no_infinity_pd
+        from mlframe.core.helpers import ensure_no_infinity_pd
 
         pdf = pd.DataFrame(
             {
@@ -964,7 +964,7 @@ class TestEnsureNoInfinityPdHandlesExtensionDtypes:
         can't hold inf and to_numpy() on them is meaningless. This was
         already the historical behaviour, the test pins it for the new
         code path."""
-        from mlframe.helpers import ensure_no_infinity_pd
+        from mlframe.core.helpers import ensure_no_infinity_pd
 
         pdf = pd.DataFrame(
             {
@@ -1233,7 +1233,7 @@ class TestEnsembleAdaptiveMedianFilter:
         excluded under default relative-2.5× thresholds. Locks in the
         2026-04-24 fix that turned the previous "exclude all" behaviour
         into a useful filter."""
-        from mlframe.ensembling import ensemble_probabilistic_predictions
+        from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         _, preds = self._make_clustered_preds()
         out, _, _ = ensemble_probabilistic_predictions(
@@ -1253,7 +1253,7 @@ class TestEnsembleAdaptiveMedianFilter:
     def test_relative_filter_catches_real_outlier(self, capsys):
         """Six clustered members + one 10× outlier → only the outlier
         excluded; remaining 6 used."""
-        from mlframe.ensembling import ensemble_probabilistic_predictions
+        from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         rng = np.random.default_rng(0)
         median, preds = self._make_clustered_preds()
@@ -1280,7 +1280,7 @@ class TestEnsembleAdaptiveMedianFilter:
         """Caller can opt back into the old absolute-threshold semantics
         by passing ``max_mae``/``max_std`` non-zero (and disabling
         relative). Ensures we didn't break the public API."""
-        from mlframe.ensembling import ensemble_probabilistic_predictions
+        from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         _, preds = self._make_clustered_preds(jitter_scale=0.05)  # ~0.04-0.05 MAE
         # Relative off, absolute strict.
@@ -1300,7 +1300,7 @@ class TestEnsembleAdaptiveMedianFilter:
 
     def test_disabled_filter_no_op(self, capsys):
         """Both threshold styles set to 0 ⇒ no filtering, no log noise."""
-        from mlframe.ensembling import ensemble_probabilistic_predictions
+        from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         _, preds = self._make_clustered_preds()
         out, _, _ = ensemble_probabilistic_predictions(
@@ -1320,7 +1320,7 @@ class TestEnsembleAdaptiveMedianFilter:
     def test_two_member_ensemble_skips_filter_entirely(self, capsys):
         """``len(preds) <= 2`` short-circuits the filter (median is
         ill-defined). Locks in this corner case."""
-        from mlframe.ensembling import ensemble_probabilistic_predictions
+        from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         rng = np.random.default_rng(0)
         p1 = rng.random((50, 1))

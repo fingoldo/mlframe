@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 
-from mlframe.tests.feature_selection.golden import _capture
+from tests.feature_selection.golden import _capture
 
 logger = logging.getLogger("golden_capture")
 

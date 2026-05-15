@@ -26,7 +26,7 @@ import numpy as np
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from mlframe.metrics import (
+from mlframe.metrics.core import (
     fast_calibration_report,
     fast_brier_score_loss,
     fast_calibration_binning,
@@ -34,7 +34,7 @@ from mlframe.metrics import (
     fast_aucs_per_group_optimized,
     integral_calibration_error_from_metrics,
 )
-from mlframe.metrics import prewarm_numba_cache
+from mlframe.metrics.core import prewarm_numba_cache
 
 
 def fast_ice_only(

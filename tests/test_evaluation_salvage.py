@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.evaluation import (
+from mlframe.evaluation.reports import (
     predictions_beautify_linear,
     plot_beautified_lift,
     plot_pr_curve,
@@ -23,12 +23,12 @@ from mlframe.training.evaluation import (
     compute_ml_perf_by_time,
     visualize_ml_metric_by_time,
 )
-from mlframe.outliers import (
+from mlframe.preprocessing.outliers import (
     compute_outlier_detector_score,
     count_num_outofranges,
     compute_naive_outlier_score,
 )
-from mlframe.metrics import brier_and_precision_score, make_brier_precision_scorer
+from mlframe.metrics.core import brier_and_precision_score, make_brier_precision_scorer
 from mlframe.training.callbacks import stop_file
 
 

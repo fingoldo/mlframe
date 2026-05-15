@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.quantile_metrics import coverage
+from mlframe.metrics.quantile import coverage
 from mlframe.training.configs import QuantileRegressionConfig
 from mlframe.training.quantile_wrapper import _QuantileMultiOutputWrapper
 from mlframe.training.strategies import (

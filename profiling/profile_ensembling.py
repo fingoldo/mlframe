@@ -14,7 +14,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from mlframe.ensembling import score_ensemble, SIMPLE_ENSEMBLING_METHODS
+from mlframe.models.ensembling import score_ensemble, SIMPLE_ENSEMBLING_METHODS
 from mlframe.training.configs import PredictionsContainer
 
 # Pre-import to avoid counting import time in profiling

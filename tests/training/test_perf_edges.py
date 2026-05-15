@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from mlframe.metrics import show_calibration_plot
+from mlframe.metrics.core import show_calibration_plot
 
 
 PYEXE = r"D:/ProgramData/anaconda3/python.exe"
@@ -114,7 +114,7 @@ def test_agg_path_headless_no_display(tmp_path, calib_inputs, monkeypatch):
 # =====================================================================
 _NUMBA_SCRIPT = textwrap.dedent("""
     import sys, time, numpy as np
-    from mlframe.metrics import NUMBA_NJIT_PARAMS
+    from mlframe.metrics.core import NUMBA_NJIT_PARAMS
     from numba import njit
 
     @njit(**NUMBA_NJIT_PARAMS)
@@ -159,7 +159,7 @@ def test_numba_nogil_releases_gil():
     suite. Pure-isolation runs still see scaling well below 1.7×.
     """
     from numba import njit
-    from mlframe.metrics import NUMBA_NJIT_PARAMS
+    from mlframe.metrics.core import NUMBA_NJIT_PARAMS
 
     assert NUMBA_NJIT_PARAMS.get("nogil") is True
 
@@ -200,7 +200,7 @@ def test_numba_nogil_releases_gil():
 
 def test_numba_njit_params_consistency():
     """Both modules must expose the SAME dict (cache=True, nogil=True, fastmath=False)."""
-    from mlframe.metrics import NUMBA_NJIT_PARAMS as A
+    from mlframe.metrics.core import NUMBA_NJIT_PARAMS as A
     from mlframe.feature_engineering.numerical import NUMBA_NJIT_PARAMS as B
     assert A == B == {"fastmath": False, "cache": True, "nogil": True}
 

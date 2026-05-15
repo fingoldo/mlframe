@@ -14,7 +14,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from mlframe.training import utils as u
+from mlframe.training import _ram_helpers as u
 
 
 # ----------------------------- helpers ----------------------------------------
