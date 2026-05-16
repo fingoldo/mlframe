@@ -353,6 +353,39 @@ def predict_from_models(
                         if model_obj.pre_pipeline != pipeline:
                             input_for_model = model_obj.pre_pipeline.transform(df)
 
+                    # Subset to the model's own expected feature list. The
+                    # shared metadata["columns"] keeps every column the suite
+                    # saw (including text/embedding cols routed to CB-only
+                    # text_features / embedding_features). XGB/LGB sklearn
+                    # wrappers reject object-dtype columns at predict time
+                    # ("DataFrame.dtypes for data must be int, float, bool or
+                    # category"). Each fitted model exposes its own
+                    # ``feature_names_in_`` (sklearn API used by XGB/LGB) or
+                    # ``feature_names_`` (CatBoost); subsetting df by it
+                    # drops the framework-incompatible columns symmetrically
+                    # with the training-side per-strategy column selection.
+                    # Surfaced by fuzz iter#52 (regression x xgb x text_col).
+                    _expected = getattr(model, "feature_names_in_", None)
+                    if _expected is None:
+                        _expected = getattr(model, "feature_names_", None)
+                    if _expected is not None and hasattr(input_for_model, "columns"):
+                        _expected_list = list(_expected)
+                        _have = set(input_for_model.columns)
+                        _drop_extra = [c for c in input_for_model.columns if c not in _expected_list]
+                        if _drop_extra:
+                            input_for_model = input_for_model.drop(columns=_drop_extra)
+                        _missing = [c for c in _expected_list if c not in _have]
+                        if _missing:
+                            # Surface missing-feature error before the framework's
+                            # opaque "shape mismatch" / "feature_names mismatch"
+                            # crash; predict_from_models already catches and logs
+                            # at the outer try/except.
+                            raise ValueError(
+                                f"Model {model_name} expects features missing "
+                                f"from input: {_missing}. Restore the upstream "
+                                f"extraction or retrain on the current schema."
+                            )
+
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = model.predict_proba(input_for_model)
                         results["probabilities"][model_name] = probs
