@@ -563,6 +563,25 @@ def _auto_detect_feature_types(
                 honored_user_dtype_cols.append(col)
                 continue
             if dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category":
+                # Skip object columns whose cells are ndarray / list (embedding
+                # vectors). nunique() hashes the cells via PyObjectHashTable
+                # which raises ``TypeError: unhashable type: 'numpy.ndarray'``.
+                # Treat them as embeddings: route to embedding_features and
+                # skip the cardinality check (iter#44 fuzz finding).
+                if dtype_name.startswith("object"):
+                    _series = df[col]
+                    try:
+                        _first = next((v for v in _series.head(8) if v is not None), None)
+                    except Exception:
+                        _first = None
+                    if _first is not None and (
+                        hasattr(_first, "shape")
+                        or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
+                    ):
+                        embedding_features.append(col)
+                        if col in cat_features:
+                            promoted.append(col)
+                        continue
                 n_unique = df[col].nunique()
                 if n_unique > threshold:
                     non_null = int(df[col].notna().sum())
