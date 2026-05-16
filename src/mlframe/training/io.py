@@ -173,7 +173,12 @@ def save_mlframe_model(
         # the same file concurrently (2026-04-19 probe finding).
         def _writer(f):
             compressor = zstd.ZstdCompressor(**zstd_kwargs)
-            with compressor.stream_writer(f) as zf:
+            # closefd=False: stream_writer.__exit__ would otherwise close the wrapped
+            # file (deterministic on Windows when threads=-1 hands the descriptor to
+            # a background flush thread). atomic_write_bytes still needs the fd open
+            # for its post-write f.flush() / os.fsync(fileno()) — the durability
+            # invariant established for the same-FS atomic rename.
+            with compressor.stream_writer(f, closefd=False) as zf:
                 # Note: BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
                 # 2026-04-14 on a fitted RandomForest + 1M-element ndarray payload —
                 # all sizes landed within ±5% of the direct write (high variance).
