@@ -444,6 +444,16 @@ class _DatasetReuseMixin:
         # ``objective`` based on _n_classes. It also sets
         # ``self._objective`` if it was None -- our pre-fit hook left
         # it None for that resolution path.
+        #
+        # Pre-fill ``n_jobs`` so LightGBM's _process_n_jobs() doesn't
+        # shell out via joblib -> loky -> wmic to count physical cores
+        # (~1.5s on Windows, per cProfile against
+        # _count_physical_cores_win32). LightGBM only probes when n_jobs
+        # is None; setting it here to os.cpu_count() short-circuits the
+        # subprocess. Honour an explicit user choice if already set.
+        if getattr(self, "n_jobs", None) is None:
+            import os as _os
+            self.n_jobs = _os.cpu_count() or 1
         params: dict = self._process_params("fit")
         n_estimators = self.get_params().get("n_estimators", 100) or 100
 

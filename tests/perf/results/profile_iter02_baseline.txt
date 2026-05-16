@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=300_000, models=('lgb',), save_charts=False)
+
+=== regression x lgb ===
+  built frame: 300_000 rows x 9 cols
+  wall: 5.0s  status: OK
+         118479 function calls (115461 primitive calls) in 4.965 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2196 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.002    0.002    4.958    4.958 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.000    0.000    4.838    4.838 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000    4.660    4.660 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000    4.660    4.660 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000    4.659    4.659 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        1    0.000    0.000    4.225    4.225 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.000    0.000    4.223    4.223 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
+        1    0.011    0.011    2.738    2.738 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
+      490    2.337    0.005    2.339    0.005 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4092(update)
+        2    0.000    0.000    1.511    0.756 D:\ProgramData\anaconda3\Lib\subprocess.py:1165(communicate)
+        3    0.000    0.000    1.486    0.495 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:801(_process_params)
+        3    0.000    0.000    1.458    0.486 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:887(_process_n_jobs)
+        3    0.000    0.000    1.458    0.486 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\compat.py:351(_LGBMCpuCount)
+        3    0.000    0.000    1.458    0.486 D:\ProgramData\anaconda3\Lib\site-packages\joblib\parallel.py:631(cpu_count)
+        3    0.000    0.000    1.458    0.486 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:78(cpu_count)
+        3    0.000    0.000    1.457    0.486 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:227(_count_physical_cores)
+        1    0.000    0.000    1.457    1.457 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:286(_count_physical_cores_win32)
+        1    0.000    0.000    1.457    1.457 D:\ProgramData\anaconda3\Lib\subprocess.py:506(run)
+        1    0.000    0.000    1.440    1.440 D:\ProgramData\anaconda3\Lib\subprocess.py:1601(_communicate)
+       10    1.440    0.144    1.440    0.144 {method 'acquire' of '_thread.lock' objects}
+        2    0.000    0.000    1.438    0.719 D:\ProgramData\anaconda3\Lib\threading.py:1080(join)
+        2    0.000    0.000    1.438    0.719 D:\ProgramData\anaconda3\Lib\threading.py:1118(_wait_for_tstate_lock)
+        2    0.000    0.000    0.428    0.214 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    0.427    0.214 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.000    0.000    0.423    0.211 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
+        2    0.000    0.000    0.318    0.159 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:316(_predict_with_fallback)
+        2    0.000    0.000    0.318    0.159 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:1093(predict)
+        2    0.000    0.000    0.315    0.158 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4701(predict)
+        2    0.000    0.000    0.315    0.157 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1100(predict)
+        2    0.000    0.000    0.312    0.156 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1327(__pred_for_np2d)
+
+
+
+
+# Wall-time summary:
+  regression x lgb                                            5.0s  OK
