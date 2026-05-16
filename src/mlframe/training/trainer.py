@@ -436,9 +436,22 @@ def train_and_evaluate_model(
     val_od_idx: np.ndarray | None = None,
     trainset_features_stats: dict | None = None,
     trusted_root: str | None = None,
-    oof_n_splits: int = 5,
+    oof_n_splits: int = 0,
 ):
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
+
+    ``oof_n_splits=0`` (default, changed from 5 in fuzz iter#195) opts the K-fold OOF prediction
+    pass OUT by default. The pass runs ``cross_val_predict`` with K refits of the model and at
+    1M rows on a single HGB/LGB classifier this costs ~60-120 s -- pure waste when the suite is
+    not running ``score_ensemble`` (use_mlframe_ensembles=False) or any level-1 stacker
+    (max_ensembling_level=1). The downstream consumers tolerate missing OOF:
+      - ``score_ensemble`` at ``max_ensembling_level=1`` falls back to in-sample train preds for
+        single-level aggregation (ensembling.py:1097-1098); only ``max_ensembling_level>=2``
+        requires OOF and raises a clear error when missing (ensembling.py:1524).
+      - ``post_calibrate_model`` accepts a separate ``calib_probs`` argument or a caller-reserved
+        calibration slice; the OOF-probs path is opt-in ("preferred", evaluation.py:393/430).
+    Callers that need OOF (level-1 stacking or OOF-preferred calibration) MUST pass
+    ``oof_n_splits>=2`` explicitly.
 
     Parameters
     ----------
