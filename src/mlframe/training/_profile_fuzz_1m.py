@@ -84,20 +84,68 @@ logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 
 def _make_synthetic_frame(target_type: str, n_rows: int, seed: int = 42):
-    """Build a synthetic 1M-row pandas frame (8 numeric features +
-    target). Polars input would exercise more code paths but pandas
-    keeps the harness self-contained without polars edge cases."""
+    """Build a synthetic frame whose shape varies by seed to exercise
+    diverse mlframe code paths:
+
+    - frame_type: 50/50 pandas vs polars (seeded). Polars input
+      activates the polars-fastpath in CB/LGB/XGB and the
+      get_pandas_view_of_polars_df bridge for sklearn consumers.
+    - cat_columns: 1-2 string-categorical columns (low + mid card)
+      added with 50% probability each. Exercises CatBoostEncoder /
+      ordinal / one-hot paths.
+    - text_column: free-form short-string column added with 30%
+      probability. Exercises the TF-IDF path when downstream config
+      enables it (off by default in this harness).
+    - embedding_column: pl.List(Float32) / pd.Series-of-arrays added
+      with 20% probability. Exercises the embedding-column auto-
+      detect path.
+
+    Always keeps 6 numeric features + a low/mid card int column so the
+    suite always has enough usable features for the model fit. The
+    seed-derived choices are deterministic, so re-runs with the same
+    seed reproduce the same frame shape.
+    """
     import pandas as pd
 
     rng = np.random.default_rng(seed)
+    use_polars = bool(rng.integers(0, 2))
+    add_cat_low = bool(rng.integers(0, 2))
+    add_cat_mid = bool(rng.integers(0, 2))
+    add_text = rng.random() < 0.30
+    add_embedding = rng.random() < 0.20
+
     cols = {
         f"x{i}": rng.normal(size=n_rows).astype("float32")
         for i in range(6)
     }
-    # Add a low-card categorical (int) and a moderate-card group_id-like
-    # column to stress the cat / group paths.
+    # Always keep two int "id-like" columns so the suite has enough
+    # usable features regardless of the cat / text / embedding axes.
     cols["c_low"] = rng.integers(0, 5, n_rows).astype("int32")
     cols["c_mid"] = rng.integers(0, 50, n_rows).astype("int32")
+    if add_cat_low:
+        # String-categorical low-card column (5 levels) - the canonical
+        # CatBoost native-cat + OneHot/Ordinal-encoder path.
+        _labels = np.array(["A", "B", "C", "D", "E"], dtype=object)
+        cols["cat_low"] = _labels[rng.integers(0, 5, n_rows)]
+    if add_cat_mid:
+        # Higher-card string-categorical column (50 levels).
+        _labels = np.array([f"M{j:02d}" for j in range(50)], dtype=object)
+        cols["cat_mid"] = _labels[rng.integers(0, 50, n_rows)]
+    if add_text:
+        # Short free-form text column; the suite ignores it for tree
+        # models unless tfidf_columns lists it explicitly. Mostly
+        # exercises auto-detect-feature-types text-promotion logic.
+        _vocab = np.array(
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa".split(),
+            dtype=object,
+        )
+        # 3-5 words per row; np.choice is slow for 1M rows so build via index.
+        _idx = rng.integers(0, len(_vocab), (n_rows, 4))
+        cols["text_col"] = np.array([" ".join(_vocab[r]) for r in _idx], dtype=object)
+    if add_embedding:
+        # Per-row 8-dim embedding vector. Stored as object-of-ndarray on
+        # pandas (the auto-detect path) or as pl.List(pl.Float32) on polars.
+        cols["emb"] = [rng.normal(size=8).astype("float32") for _ in range(n_rows)]
 
     if target_type == "regression":
         y = (
@@ -131,6 +179,28 @@ def _make_synthetic_frame(target_type: str, n_rows: int, seed: int = 42):
             cols[f"y_{k}"] = (rng.uniform(0, 1, n_rows) < prob).astype("int32")
     else:
         raise ValueError(f"unsupported target_type {target_type!r}")
+    if use_polars:
+        try:
+            import polars as pl
+            # Polars rejects object-dtype mixed columns; cast text/emb
+            # explicitly to a polars-friendly representation.
+            pl_cols: dict = {}
+            for _k, _v in cols.items():
+                if isinstance(_v, list) and _v and hasattr(_v[0], "shape"):
+                    # Embedding column: list-of-ndarray -> pl.List(Float32)
+                    pl_cols[_k] = pl.Series(
+                        name=_k, values=_v, dtype=pl.List(pl.Float32)
+                    )
+                elif isinstance(_v, np.ndarray) and _v.dtype == object:
+                    # String column (cat or text)
+                    pl_cols[_k] = pl.Series(name=_k, values=_v.tolist(), dtype=pl.String)
+                else:
+                    pl_cols[_k] = pl.Series(name=_k, values=_v)
+            print(f"  frame type: POLARS  cols: {list(pl_cols.keys())}")
+            return pl.DataFrame(pl_cols)
+        except Exception as _exc:
+            print(f"  polars construction failed ({type(_exc).__name__}); falling back to pandas")
+    print(f"  frame type: PANDAS  cols: {list(cols.keys())}")
     return pd.DataFrame(cols)
 
 
