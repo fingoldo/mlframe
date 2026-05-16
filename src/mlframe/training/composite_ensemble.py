@@ -155,6 +155,23 @@ def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
     return bool(np.all(np.diff(af) >= 0))
 
 
+def _maybe_pass_sample_weight(fit_callable, X, y, sw: np.ndarray | None):
+    """Call ``fit_callable.fit(X, y, sample_weight=sw)`` when sw is given AND fit accepts it; else ``fit(X, y)``.
+
+    Avoids hard-coding which inner estimators support sample_weight (CatBoost / LGB / sklearn all do; some
+    custom shims may not). Falls back to the plain call on TypeError so missing-kwarg shims keep working."""
+    if sw is None:
+        return fit_callable.fit(X, y)
+    try:
+        import inspect as _inspect
+        _sig = _inspect.signature(fit_callable.fit)
+        if "sample_weight" in _sig.parameters or any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()):
+            return fit_callable.fit(X, y, sample_weight=sw)
+    except (TypeError, ValueError):
+        pass
+    return fit_callable.fit(X, y)
+
+
 def compute_oof_holdout_predictions(
     component_models: list[Any],
     component_names: list[str],
@@ -166,6 +183,7 @@ def compute_oof_holdout_predictions(
     random_state: int,
     time_ordering: np.ndarray | None = None,
     kfold: int = 1,
+    sample_weight: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute honest holdout predictions for each component.
 
@@ -267,7 +285,8 @@ def compute_oof_holdout_predictions(
                             X_stack_valid = X_stack.filter(pl.Series(valid))
                         else:
                             X_stack_valid = X_stack[valid]
-                        inner_clone.fit(X_stack_valid, t_stack)
+                        _sw_stack_valid = None if sample_weight is None else sample_weight[fold_train_idx][valid]
+                        _maybe_pass_sample_weight(inner_clone, X_stack_valid, t_stack, _sw_stack_valid)
                         wrapped = CompositeTargetEstimator.from_fitted_inner(
                             fitted_inner=inner_clone,
                             transform_name=spec["transform_name"],
@@ -278,7 +297,8 @@ def compute_oof_holdout_predictions(
                         preds = wrapped.predict(X_holdout)
                     else:
                         inner_clone = clone(model)
-                        inner_clone.fit(X_stack, y_stack)
+                        _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
+                        _maybe_pass_sample_weight(inner_clone, X_stack, y_stack, _sw_stack)
                         preds = inner_clone.predict(X_holdout)
                     preds = np.asarray(preds).reshape(-1).astype(np.float64)
                     if not np.all(np.isfinite(preds)):
@@ -393,7 +413,8 @@ def compute_oof_holdout_predictions(
                     X_stack_valid = X_stack.filter(pl.Series(valid))
                 else:
                     X_stack_valid = X_stack[valid]
-                inner_clone.fit(X_stack_valid, t_stack)
+                _sw_stack_valid = None if sample_weight is None else sample_weight[train_idx][valid]
+                _maybe_pass_sample_weight(inner_clone, X_stack_valid, t_stack, _sw_stack_valid)
                 wrapped = CompositeTargetEstimator.from_fitted_inner(
                     fitted_inner=inner_clone,
                     transform_name=spec["transform_name"],
@@ -406,7 +427,8 @@ def compute_oof_holdout_predictions(
                 # Raw-target component. Re-fit the inner on
                 # (X_stack, y_stack) and predict on X_holdout.
                 inner_clone = clone(model)
-                inner_clone.fit(X_stack, y_stack)
+                _sw_stack = None if sample_weight is None else sample_weight[train_idx]
+                _maybe_pass_sample_weight(inner_clone, X_stack, y_stack, _sw_stack)
                 preds = inner_clone.predict(X_holdout)
             preds = np.asarray(preds).reshape(-1).astype(np.float64)
             if not np.all(np.isfinite(preds)):
@@ -522,6 +544,7 @@ class CompositeCrossTargetEnsemble:
         y_train: np.ndarray,
         ridge_alpha: float | None = None,
         ridge_alpha_grid: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0),
+        sample_weight: np.ndarray | None = None,
     ) -> CompositeCrossTargetEnsemble:
         """Linear stacking via Ridge regression with internal CV alpha selection.
 
@@ -566,13 +589,27 @@ class CompositeCrossTargetEnsemble:
             )
             return cls.from_uniform_weights(component_models, component_names)
 
+        # Optional per-row weighting for the Ridge fit. Ridge / RidgeCV both accept sample_weight natively;
+        # we slice it on the same ``finite`` mask used for X / y so weight rows stay aligned with kept rows.
+        _ridge_sw = None
+        if sample_weight is not None:
+            _ridge_sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+            if _ridge_sw.shape[0] != component_predictions.shape[0]:
+                raise ValueError(
+                    f"from_linear_stack: sample_weight length {_ridge_sw.shape[0]} != "
+                    f"prediction matrix rows {component_predictions.shape[0]}."
+                )
+            if not np.all(np.isfinite(_ridge_sw)) or (_ridge_sw < 0).any():
+                raise ValueError("from_linear_stack: sample_weight must be finite and non-negative.")
+            _ridge_sw = _ridge_sw[finite]
+
         if ridge_alpha is None:
             ridge = RidgeCV(alphas=tuple(ridge_alpha_grid), fit_intercept=True)
-            ridge.fit(component_predictions[finite], y[finite])
+            ridge.fit(component_predictions[finite], y[finite], sample_weight=_ridge_sw)
             chosen_alpha = float(getattr(ridge, "alpha_", ridge_alpha_grid[0]))
         else:
             ridge = Ridge(alpha=ridge_alpha, fit_intercept=True)
-            ridge.fit(component_predictions[finite], y[finite])
+            ridge.fit(component_predictions[finite], y[finite], sample_weight=_ridge_sw)
             chosen_alpha = float(ridge_alpha)
         raw_weights = np.asarray(ridge.coef_, dtype=np.float64)
         # Sanity: if all weights are zero or non-finite, fall back.
@@ -619,6 +656,7 @@ class CompositeCrossTargetEnsemble:
         component_names: list[str],
         component_predictions: np.ndarray,
         y_train: np.ndarray,
+        sample_weight: np.ndarray | None = None,
     ) -> CompositeCrossTargetEnsemble:
         """Non-negative least squares stacking.
 
@@ -629,6 +667,11 @@ class CompositeCrossTargetEnsemble:
         any downstream RMSE-on-y-scale evaluation) measured. The
         is_convex=False flag signals this to downstream consumers so
         they don't assume sum=1.
+
+        sample_weight: optional per-row weights. scipy.nnls has no native sample_weight kwarg, so we
+        emulate weighted least squares by row-scaling: replace ``A x = b`` with ``diag(sqrt(w)) A x =
+        diag(sqrt(w)) b``. The NNLS minimiser of the scaled system is identical to the weighted-LS
+        minimiser of the original system because ||sqrt(w) (Ax - b)||_2^2 == sum_i w_i (a_i x - b_i)^2.
         """
         from scipy.optimize import nnls
         n = len(component_models)
@@ -645,8 +688,25 @@ class CompositeCrossTargetEnsemble:
             )
             return cls.from_uniform_weights(component_models, component_names)
 
+        _A_for_nnls = component_predictions[finite]
+        _b_for_nnls = y[finite]
+        _nnls_sw = None
+        if sample_weight is not None:
+            _nnls_sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+            if _nnls_sw.shape[0] != component_predictions.shape[0]:
+                raise ValueError(
+                    f"from_nnls_stack: sample_weight length {_nnls_sw.shape[0]} != "
+                    f"prediction matrix rows {component_predictions.shape[0]}."
+                )
+            if not np.all(np.isfinite(_nnls_sw)) or (_nnls_sw < 0).any():
+                raise ValueError("from_nnls_stack: sample_weight must be finite and non-negative.")
+            _nnls_sw = _nnls_sw[finite]
+            _sqrt_w = np.sqrt(_nnls_sw).reshape(-1, 1)
+            _A_for_nnls = _A_for_nnls * _sqrt_w
+            _b_for_nnls = _b_for_nnls * _sqrt_w.reshape(-1)
+
         try:
-            w, _residual = nnls(component_predictions[finite], y[finite])
+            w, _residual = nnls(_A_for_nnls, _b_for_nnls)
         except RuntimeError as exc:
             logger.warning(
                 "[CompositeCrossTargetEnsemble] nnls_stack: solver failed (%s); "
