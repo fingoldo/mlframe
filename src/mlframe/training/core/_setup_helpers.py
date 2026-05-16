@@ -104,9 +104,28 @@ def _apply_outlier_detection_global(
         return df_
 
     _train_numeric = _numeric_only_view(train_df)
-    outlier_detector.fit(_train_numeric)
-
-    is_inlier = outlier_detector.predict(_train_numeric)
+    # LocalOutlierFactor and OneClassSVM reject NaN inputs (unlike IsolationForest which
+    # tolerates NaN on recent sklearn). The mlframe outlier-detection step runs BEFORE
+    # the preprocessing pipeline's imputer/fix_infinities, so a NaN-bearing train frame
+    # crashes the fit at this line for naive (un-wrapped) detectors. Wrap fit+predict in
+    # try/except so the suite degrades gracefully (skips OD + logs the actionable reason)
+    # instead of taking down the whole training run. Caller best practice: wrap LOF/OCSVM
+    # in ``sklearn.pipeline.Pipeline([SimpleImputer(), detector])`` to keep OD active.
+    # Surfaced by fuzz iter#190 (regression x lgb x outlier=lof x NaN-bearing synthetic
+    # frame) where a bare ``LocalOutlierFactor`` raised
+    # ``ValueError: Input X contains NaN. LocalOutlierFactor does not accept missing values``.
+    try:
+        outlier_detector.fit(_train_numeric)
+        is_inlier = outlier_detector.predict(_train_numeric)
+    except Exception as _od_exc:
+        logger.error(
+            "Outlier detector %s raised during fit/predict on train: %s. Skipping outlier "
+            "detection for this run; train_df / val_df returned unfiltered. Wrap the detector "
+            "in sklearn.pipeline.Pipeline([SimpleImputer(), %s]) to keep OD active when the "
+            "input frame may contain NaN.",
+            type(outlier_detector).__name__, _od_exc, type(outlier_detector).__name__,
+        )
+        return train_df, val_df, train_idx, val_idx, None, None
     train_od_idx = is_inlier == 1
 
     filtered_train_df = train_df
@@ -184,7 +203,19 @@ def _apply_outlier_detection_global(
     val_od_idx = None
 
     if val_df is not None and od_val_set:
-        is_inlier = outlier_detector.predict(_numeric_only_view(val_df))
+        # Same NaN-tolerance caveat as the train-side fit: skip the val OD filter if
+        # the detector raises on the val frame (e.g. NaN inputs without an imputer
+        # wrapper). Train-side OD already succeeded by this point, so don't fail the
+        # whole suite on the val-side raise.
+        try:
+            is_inlier = outlier_detector.predict(_numeric_only_view(val_df))
+        except Exception as _od_exc:
+            logger.error(
+                "Outlier detector %s raised on val frame: %s. Skipping val-side OD filter; "
+                "original val_df retained for evaluation.",
+                type(outlier_detector).__name__, _od_exc,
+            )
+            return filtered_train_df, val_df, filtered_train_idx, val_idx, train_od_idx, None
         val_od_idx = is_inlier == 1
         val_kept = val_od_idx.sum()
         # Mirror of train-side class-balance pre-check: skip OD on val if it would wipe out a class.
