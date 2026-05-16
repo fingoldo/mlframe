@@ -28,12 +28,12 @@ Universal across polars and pandas.
 from __future__ import annotations
 
 import hashlib
-import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+import orjson
 
 
 # =====================================================================
@@ -162,11 +162,14 @@ class DiskKey:
 def canonical_params_hash(params: Any) -> str:
     """Deterministic hash of a params object / dict.
 
-    Accepts: pydantic ``BaseModel``, dict, or scalar. Converts to a
-    JSON-canonical-form string (sort_keys=True) then blake2b to
-    16 bytes. Round-3 R3-11: ``json.dumps(d, sort_keys=True)`` is the
-    pinned canonical form; nested dicts sort recursively via
-    ``sort_keys=True``.
+    Accepts: pydantic ``BaseModel``, dict, or scalar. Converts to a JSON-canonical-form string with
+    keys sorted recursively (orjson ``OPT_SORT_KEYS``) then blake2b to 16 bytes. orjson is preferred
+    over stdlib ``json`` (user memory rule `feedback_orjson_compile_regex`) and the sort-keys option
+    is mandatory for any payload used in a hash (user memory rule `feedback_json_hash_sort_keys`) --
+    pre-fix the scalar branch dropped ``sort_keys`` which is harmless for true scalars but a footgun
+    if a caller ever passed a dict-shaped non-dict (e.g. ``OrderedDict``) down that path.
+
+    ``default=str`` mirrors the prior stdlib fallback so custom objects coerce instead of raising.
     """
     try:
         from pydantic import BaseModel
@@ -176,10 +179,11 @@ def canonical_params_hash(params: Any) -> str:
             return h.hexdigest()
     except ImportError:  # pragma: no cover
         pass
-    if isinstance(params, dict):
-        payload = json.dumps(params, sort_keys=True, default=str)
-    else:
-        payload = json.dumps(params, default=str)
+    payload = orjson.dumps(
+        params,
+        option=orjson.OPT_SORT_KEYS | orjson.OPT_SERIALIZE_NUMPY,
+        default=str,
+    ).decode("utf-8")
     h = hashlib.blake2b(payload.encode("utf-8"), digest_size=16)
     return h.hexdigest()
 
