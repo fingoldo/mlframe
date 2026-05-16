@@ -430,7 +430,34 @@ def predict_from_models(
                     # don't reach the pre_pipeline's input-feature checker.
                     if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
                         if model_obj.pre_pipeline != pipeline:
-                            input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+                            # Tree models (hgb / lgb / xgb / cb) with a
+                            # polars-ds main pipeline often carry an
+                            # UNFITTED placeholder sklearn Pipeline in
+                            # ``pre_pipeline`` (the strategy set it up
+                            # for sklearn-compat introspection but never
+                            # called ``.fit()`` because the main pipeline
+                            # did all preprocessing). Calling .transform
+                            # on it raises ``NotFittedError``. Skip the
+                            # transform when the pipeline has no fitted
+                            # steps; the main pipeline already prepared
+                            # the frame. Surfaced by fuzz iter#79
+                            # (regression x lgb,hgb x polars).
+                            from sklearn.utils.validation import check_is_fitted
+                            from sklearn.exceptions import NotFittedError
+                            try:
+                                check_is_fitted(model_obj.pre_pipeline)
+                                _pp_fitted = True
+                            except (NotFittedError, Exception):
+                                _pp_fitted = False
+                            if _pp_fitted:
+                                input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+                            elif verbose:
+                                logger.debug(
+                                    "predict_from_models: %s has unfitted "
+                                    "pre_pipeline; skipping .transform (main "
+                                    "pipeline already prepared the frame)",
+                                    model_name,
+                                )
 
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = model.predict_proba(input_for_model)
