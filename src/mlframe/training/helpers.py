@@ -270,12 +270,23 @@ def get_training_configs(
     # via .update(). Using **cb_kwargs for merge crashes when the
     # caller passes a key that's already in the defaults dict
     # (TypeError: got multiple values).
+    # ``has_gpu`` reports nvidia-smi presence; the installed catboost wheel
+    # may still be CPU-only (default PyPI Windows wheels). Confirm via
+    # ``_cb_gpu_usable`` (one-shot tiny-fit probe, cached) so machines with
+    # a working GPU but a CPU-only CB binary fall back to ``task_type="CPU"``
+    # instead of crashing every fit with "Environment for task type [GPU]
+    # not found".
+    if has_gpu:
+        from ._cb_pool import _cb_gpu_usable as _cb_gpu_probe
+        _cb_task = "GPU" if _cb_gpu_probe() else "CPU"
+    else:
+        _cb_task = "CPU"
     CB_GENERAL_PARAMS = dict(
         iterations=iterations,
         has_time=has_time,
         learning_rate=learning_rate,
         eval_fraction=(0.0 if use_explicit_early_stopping else validation_fraction),
-        task_type="GPU" if has_gpu else "CPU",
+        task_type=_cb_task,
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
     )

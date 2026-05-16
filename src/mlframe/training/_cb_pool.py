@@ -493,6 +493,40 @@ def _cached_gpu_info() -> list:
     return result
 
 
+_CB_GPU_USABLE_CACHE: bool | None = None
+
+
+def _cb_gpu_usable() -> bool:
+    """Verify the installed CatBoost wheel can actually fit on GPU.
+
+    Decouples "machine has NVIDIA GPU" (``nvidia-smi`` on PATH) from
+    "this CatBoost binary was compiled with CUDA support". Default
+    catboost wheels from PyPI on Windows are CPU-only despite the host
+    having a working CUDA toolkit; passing ``task_type="GPU"`` to such
+    a wheel raises ``CatBoostError: Environment for task type [GPU]
+    not found`` on every fit. Probe once via a tiny dummy fit; cache
+    the result for the process lifetime.
+    """
+    global _CB_GPU_USABLE_CACHE
+    if _CB_GPU_USABLE_CACHE is not None:
+        return _CB_GPU_USABLE_CACHE
+    if not _cached_gpu_info():
+        _CB_GPU_USABLE_CACHE = False
+        return False
+    try:
+        from catboost import CatBoostRegressor
+        import numpy as _np
+        _probe = CatBoostRegressor(
+            iterations=1, task_type="GPU", devices="0",
+            allow_writing_files=False, verbose=False,
+        )
+        _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
+        _CB_GPU_USABLE_CACHE = True
+    except Exception:
+        _CB_GPU_USABLE_CACHE = False
+    return _CB_GPU_USABLE_CACHE
+
+
 def _cb_reuse_capable() -> bool:
     """True iff installed CatBoost Pool exposes both set_label and
     set_weight (the two mutators we rely on for in-place label/weight

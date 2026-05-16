@@ -1,0 +1,50 @@
+# 1M-row e2e profile (n_rows=200_000, models=('cb',), save_charts=False)
+
+=== regression x cb ===
+  built frame: 200_000 rows x 9 cols
+MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+[phase] model.fit RAISED CatBoostError after 0.01s model=CatBoostRegressor n_rows=162000 n_cols=8
+[phase] process_model RAISED CatBoostError after 0.02s model=cb weight=uniform
+  wall: 0.3s  status: CatBoostError: catboost/libs/train_lib/trainer_env.cpp:9: Environment for task type [GPU] not found
+         68889 function calls (65671 primitive calls) in 0.284 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1859 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    0.278    0.278 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.000    0.000    0.189    0.189 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000    0.154    0.154 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
+        1    0.000    0.000    0.152    0.152 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1222(configure_training_params)
+        1    0.000    0.000    0.151    0.151 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:469(_cached_gpu_info)
+        1    0.000    0.000    0.142    0.142 D:\Upd\Programming\PythonCodeRepository\pyutilz\src\pyutilz\system\system.py:1599(get_gpuutil_gpu_info)
+     60/4    0.001    0.000    0.093    0.023 <frozen importlib._bootstrap>:1165(_find_and_load)
+     60/4    0.000    0.000    0.093    0.023 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
+     53/4    0.000    0.000    0.091    0.023 <frozen importlib._bootstrap>:666(_load_unlocked)
+     48/4    0.000    0.000    0.091    0.023 <frozen importlib._bootstrap_external>:934(exec_module)
+    121/6    0.000    0.000    0.090    0.015 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
+     96/4    0.007    0.000    0.087    0.022 {built-in method builtins.exec}
+    57/12    0.001    0.000    0.071    0.006 <frozen importlib._bootstrap>:1054(_find_spec)
+        1    0.000    0.000    0.071    0.071 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\GPUtil.py:68(getGPUs)
+        1    0.000    0.000    0.069    0.069 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\__init__.py:1(<module>)
+        1    0.000    0.000    0.067    0.067 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\GPUtil.py:1(<module>)
+    59/12    0.000    0.000    0.067    0.006 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:101(find_spec)
+      2/1    0.000    0.000    0.067    0.067 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:111(spec_for_distutils)
+      5/1    0.000    0.000    0.067    0.067 D:\ProgramData\anaconda3\Lib\importlib\__init__.py:108(import_module)
+      6/1    0.000    0.000    0.067    0.067 <frozen importlib._bootstrap>:1192(_gcd_import)
+       49    0.066    0.001    0.066    0.001 {method 'read' of '_io.BufferedReader' objects}
+        1    0.000    0.000    0.066    0.066 D:\ProgramData\anaconda3\Lib\subprocess.py:1165(communicate)
+    18/10    0.000    0.000    0.065    0.006 {built-in method builtins.__import__}
+        1    0.000    0.000    0.065    0.065 D:\ProgramData\anaconda3\Lib\site-packages\setuptools\__init__.py:1(<module>)
+        1    0.000    0.000    0.046    0.046 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\override.py:1(<module>)
+        1    0.000    0.000    0.046    0.046 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:80(do_override)
+        1    0.000    0.000    0.046    0.046 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:63(ensure_local_distutils)
+    33/23    0.000    0.000    0.045    0.002 <frozen importlib._bootstrap>:1207(_handle_fromlist)
+        1    0.000    0.000    0.041    0.041 D:\ProgramData\anaconda3\Lib\site-packages\setuptools\_distutils\core.py:1(<module>)
+        1    0.000    0.000    0.039    0.039 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1223(_phase_load_and_preprocess)
+
+
+
+
+# Wall-time summary:
+  regression x cb                                             0.3s  CatBoostError: catboost/libs/train_lib/trainer_env.cpp:9: Environment for task type [GPU] not found
