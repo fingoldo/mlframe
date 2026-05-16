@@ -664,6 +664,10 @@ def train_mlframe_models_suite(
 
     # CODE-P1-12: read recurrent_models from ctx (not the closed-over function param) so any
     # mid-flow mutation of ctx.recurrent_models propagates correctly to train_recurrent_models.
+    # ctx is threaded through so train_recurrent_models can rerun score_ensemble with the recurrent member
+    # entries appended (otherwise the recurrent models silently bypass the ensemble that already ran for the
+    # same target during _train_one_target). test_df_pd added for the same reason - the helper needs all
+    # three splits to compute per-member preds for the rerun.
     models = pr.train_recurrent_models(
         models=models,
         recurrent_models=ctx.recurrent_models,
@@ -674,6 +678,7 @@ def train_mlframe_models_suite(
         train_df=train_df,
         train_df_pd=train_df_pd,
         val_df_pd=val_df_pd,
+        test_df_pd=test_df_pd,
         target_by_type=target_by_type,
         train_idx=train_idx,
         val_idx=val_idx,
@@ -681,6 +686,7 @@ def train_mlframe_models_suite(
         _non_neural_train_times=_non_neural_train_times,
         model_name=model_name,
         verbose=bool(verbose),
+        ctx=ctx,
     )
     ctx.models = models
 
