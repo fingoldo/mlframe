@@ -1072,6 +1072,37 @@ class TrainMlframeSuitePrecomputed:
     train_df_fingerprint: Optional[str] = None  # for cross-process disk-cache reuse later
 
 
+def precompute_composite_target_specs(
+    train_df=None,
+    target_by_type: Optional[dict] = None,
+    config: Optional[Any] = None,
+) -> dict:
+    """Pre-compute the ``metadata["composite_target_specs"]`` payload the suite would compute in ``run_composite_target_discovery``.
+
+    STUB / TODO: the discovery surface is large (composite_cache wiring, library version
+    signatures, DiscoveryCache fingerprints) and lives behind locked files. Implement after
+    composite_cache wiring lands so this helper can reuse the same cache key path as the suite
+    and stay byte-equal across runs.
+
+    The bundle slot still works: callers who have a prior run's ``metadata["composite_target_specs"]``
+    saved to disk can pass it via ``TrainMlframeSuitePrecomputed(composite_target_specs=...)`` and
+    the suite will skip the discovery step.
+
+    Args:
+        train_df: train frame (unused in stub).
+        target_by_type: per-target mapping (unused in stub).
+        config: CompositeTargetDiscoveryConfig (unused in stub).
+
+    Returns:
+        Empty dict -- a no-op precompute. See ``precompute_dummy_baselines`` for the same caveat:
+        the bundle skip is gated only on non-None, not on dict content.
+    """
+    # TODO: implement after composite_cache wiring lands. See ``core/_phase_composite_discovery.py``
+    # for the full discovery surface; mirror its cache-key derivation here so the helper stays
+    # byte-equal with the in-suite path.
+    return {}
+
+
 def precompute_dummy_baselines(
     train_df,
     target_by_type: dict,
