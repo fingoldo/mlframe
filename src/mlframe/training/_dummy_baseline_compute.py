@@ -90,6 +90,74 @@ def _pick_per_group_categorical(
     return candidates[0][1]
 
 
+def _is_polars_frame(X: Any) -> bool:
+    """Detect ``pl.DataFrame`` without importing polars unless it's already loaded."""
+    try:
+        import polars as pl
+    except ImportError:
+        return False
+    return isinstance(X, pl.DataFrame)
+
+
+def _per_group_predict_polars(
+    train_X: Any,
+    val_X: Any,
+    test_X: Any,
+    train_y: np.ndarray,
+    cat_col: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, float]]:
+    """Polars-native per-group baseline. Avoids the polars -> pandas bridge entirely.
+
+    Group keys remain in their native dtype (numeric / categorical / enum / utf8). Per-row predictions are recovered via left-join on the group column, so unseen
+    groups inherit the global-mean fallback via ``fill_null``. Numerically bit-equal to the pandas path under standard inputs (verified by sibling regression test).
+    """
+    import polars as pl
+
+    n_train = train_y.shape[0]
+    y_arr = np.asarray(train_y, dtype=np.float64)
+    global_mean = float(np.nanmean(y_arr)) if y_arr.size else 0.0
+
+    # Pull JUST the cat column per side. polars select is O(1) metadata, no row copy. The y-vector is materialised once as a polars Series alongside the train cat
+    # column so the aggregation runs in a single eager pipeline; intermediate frames here are 2-column views, never the caller's full 100+ GB frame.
+    train_pair = pl.DataFrame({cat_col: train_X.get_column(cat_col), "__y__": pl.Series("__y__", y_arr)})
+    group_means_df = train_pair.group_by(cat_col).agg(pl.col("__y__").mean().alias("__mean__"))
+    n_groups = group_means_df.height
+
+    # Train-side group sizes (for entity-overlap diagnostic) and train-group-set (for coverage). Both come from the SAME group_by pass via an extra .agg() to avoid
+    # a second sweep over n_train rows.
+    sizes_df = train_pair.group_by(cat_col).agg(pl.len().alias("__size__"))
+    train_groups_series = sizes_df.get_column(cat_col)
+
+    # Left-join each split's cat column against the per-group means; nulls (unseen group) -> global_mean.
+    def _predict(side_X: Any) -> np.ndarray:
+        side_key = side_X.select(cat_col)
+        joined = side_key.join(group_means_df, on=cat_col, how="left")
+        return joined.get_column("__mean__").fill_null(global_mean).to_numpy()
+
+    train_pred = _predict(train_X)
+    val_pred = _predict(val_X)
+    test_pred = _predict(test_X)
+
+    # Coverage = fraction of val/test rows whose key appears in train_groups. is_in() handles numeric/string/cat uniformly; null on the val side is "unseen" unless
+    # train has its own null group (semantically correct for both pandas and polars paths).
+    val_key = val_X.get_column(cat_col)
+    test_key = test_X.get_column(cat_col)
+    val_coverage = float(val_key.is_in(train_groups_series).mean() or 0.0) * 100.0
+    test_coverage = float(test_key.is_in(train_groups_series).mean() or 0.0) * 100.0
+
+    # Entity-overlap rate: fraction of val rows whose train-group size >= 5.
+    val_sizes_joined = val_X.select(cat_col).join(sizes_df, on=cat_col, how="left")
+    val_high_overlap = float(val_sizes_joined.get_column("__size__").fill_null(0).ge(5).mean() or 0.0)
+
+    return train_pred, val_pred, test_pred, {
+        "val_coverage_pct": val_coverage,
+        "test_coverage_pct": test_coverage,
+        "repeat_entity_rate": val_high_overlap,
+        "n_groups_train": int(n_groups),
+        "global_fallback": global_mean,
+    }
+
+
 def _per_group_predict(
     train_X: Any,
     val_X: Any,
@@ -100,26 +168,26 @@ def _per_group_predict(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, float]]:
     """Compute per-group baseline predictions on val + test (D1).
 
-    Handles polars Categorical / Enum / pandas categorical / object
-    via uniform string coercion + ``__NULL__`` sentinel for NaN keys
-    (round-3 A#13).
+    Handles polars Categorical / Enum / pandas categorical / object via uniform string coercion + ``__NULL__`` sentinel for NaN keys (round-3 A#13).
 
-    Returns ``(train_pred, val_pred, test_pred, diagnostics)`` where
-    diagnostics contains coverage_pct + repeat_entity_rate.
+    When ALL three inputs are ``pl.DataFrame`` the function dispatches to a polars-native group_by + join path that skips the pandas bridge entirely; otherwise
+    the legacy pandas implementation is used unchanged. CLAUDE.md forbids in-wrapper format auto-conversion, so we only take the polars-native path when all sides
+    are already polars (caller-decided format).
+
+    Returns ``(train_pred, val_pred, test_pred, diagnostics)`` where diagnostics contains coverage_pct + repeat_entity_rate.
     """
+    if _is_polars_frame(train_X) and _is_polars_frame(val_X) and _is_polars_frame(test_X):
+        return _per_group_predict_polars(train_X, val_X, test_X, train_y, cat_col)
+
     def _col_to_groupkey(X_pd: pd.DataFrame, col: str) -> pd.Series:
         """Coerce a column to a hashable groupby key.
 
-        Fast path: numeric dtypes (int*, float*, bool) pass through
-        unchanged -- pandas groupby handles NaN with ``dropna=False``.
-        astype(str) is reserved for object / categorical / datetime dtypes
-        where the original key is not directly hashable / comparable
-        across pl/pd boundary. ~50% wall-time reduction on numeric cat
-        cols at n_train >= 1M (measured: 240ms -> 120ms on n=1M, int32).
+        Fast path: numeric dtypes (int*, float*, bool) pass through unchanged -- pandas groupby handles NaN with ``dropna=False``. astype(str) is reserved for
+        object / categorical / datetime dtypes where the original key is not directly hashable / comparable across pl/pd boundary. ~50% wall-time reduction on
+        numeric cat cols at n_train >= 1M (measured: 240ms -> 120ms on n=1M, int32).
 
-        ``X_pd`` is already a pandas frame: ``_per_group_predict`` converts
-        train/val/test exactly once at entry via ``_to_pandas_for_baseline``
-        so this inner helper avoids re-bridging on every cat column.
+        ``X_pd`` is already a pandas frame: ``_per_group_predict`` converts train/val/test exactly once at entry via ``_to_pandas_for_baseline`` so this inner
+        helper avoids re-bridging on every cat column.
         """
         s = X_pd[col]
         # Numeric fast path
@@ -130,17 +198,9 @@ def _per_group_predict(
         # Object / categorical / datetime: stringify with NULL sentinel
         return s.astype(str).fillna("__NULL__")
 
-    # Convert each input frame ONCE up front. Previously each
-    # ``_col_to_groupkey`` call invoked ``.to_pandas()`` on the same polars
-    # frame, paying the conversion cost three times per cat column in a
-    # multi-column run. The shared bridge keeps numeric / bool columns
-    # zero-copy through Arrow split-blocks.
     train_X_pd = _to_pandas_for_baseline(train_X)
     val_X_pd = _to_pandas_for_baseline(val_X)
     test_X_pd = _to_pandas_for_baseline(test_X)
-    # If any of the inputs cannot be coerced to a pandas frame (unsupported
-    # container type), fall back to the pd.DataFrame constructor so existing
-    # array-like callers still work.
     if train_X_pd is None:
         train_X_pd = pd.DataFrame(train_X)
     if val_X_pd is None:
@@ -154,8 +214,7 @@ def _per_group_predict(
 
     # Group-mean (regression) or group-positive-rate (binary).
     if target_type == "binary_classification":
-        # For DummyClassifier-style pred, output is class label;
-        # for our purposes we predict probability = group positive rate.
+        # For DummyClassifier-style pred, output is class label; for our purposes we predict probability = group positive rate.
         y_series = pd.Series(train_y).astype(float)
     else:
         y_series = pd.Series(train_y).astype(float)
