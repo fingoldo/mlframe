@@ -64,17 +64,27 @@ def test_main_no_dead_models_defaultdict():
     assert not matches, "dead `models = defaultdict(...)` still present"
 
 
-# Fix 3: migration-debt WHY comment near first setattr block.
+# Fix 3: migration-debt WHY rationale on the bulk setattr helper.
+# Original test substring-matched the inline ``setattr(ctx, _k, locals()[_k])`` loop in
+# main.py; Wave-7 routed every block through ``_bulk_setattr_to_ctx`` so the rationale
+# now lives on the helper's docstring. Asserting on the helper is behavioural (docstring
+# is part of the public contract, exposed via ``__doc__``), not source-inspection.
 def test_main_setattr_block_has_why_comment():
-    src = _read("main.py")
-    # Locate the first ``setattr(ctx, _k, locals()[_k])`` block and require a
-    # nearby comment that explicitly motivates the pattern (migration intent).
-    idx = src.find("setattr(ctx, _k, locals()[_k])")
-    assert idx >= 0, "first setattr migration block missing"
-    window = src[max(0, idx - 800): idx]
-    assert "migration" in window.lower() or "phase-extraction" in window.lower() \
-        or "ctx-form" in window.lower(), \
-        "expected migration-debt WHY comment near first setattr-locals() block"
+    sys.path.insert(0, str(CORE.parents[3]))  # repo/src
+    from mlframe.training.core._misc_helpers import _bulk_setattr_to_ctx
+    doc = _bulk_setattr_to_ctx.__doc__
+    assert doc, "_bulk_setattr_to_ctx must carry a docstring with the migration WHY"
+    low = doc.lower()
+    assert "migration" in low or "phase-extraction" in low or "ctx-form" in low or "phase->ctx" in low, (
+        "expected migration-debt WHY rationale in _bulk_setattr_to_ctx.__doc__; "
+        f"got: {doc!r}"
+    )
+    # Behavioural pin on the helper's fail-loud contract: a missing slot must raise rather
+    # than silently degrade into an ``AttributeError: 'NoneType' has no attribute ...`` later.
+    class _Bag:
+        pass
+    with pytest.raises(KeyError):
+        _bulk_setattr_to_ctx(_Bag(), ("definitely_absent_slot",), {})
 
 
 # Fix 4: strategies_for_check removed (or wired) -- it must NOT be a dead variable.
