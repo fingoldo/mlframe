@@ -310,6 +310,12 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
         accept ``groups`` as a kwarg on ``fit`` / ``fit_transform``. Best-effort:
         if the underlying transformer does not accept the kwarg we retry
         without it instead of failing.
+
+        sklearn Pipeline.fit raises ``ValueError`` (not ``TypeError``) when an
+        unrecognised kwarg like ``groups`` is passed - the routing layer rejects
+        non-step-namespaced parameters with a "Pipeline.fit does not accept"
+        message. Treat that as the same "does not consume groups" signal as
+        a plain ``TypeError`` from a bare transformer.
         """
         if groups is None:
             return _fn(_arg, _target_arg)
@@ -317,6 +323,15 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             return _fn(_arg, _target_arg, groups=groups)
         except TypeError:
             return _fn(_arg, _target_arg)
+        except ValueError as _exc:
+            _msg = str(_exc)
+            if (
+                "does not accept the groups parameter" in _msg
+                or "got an unexpected keyword argument" in _msg
+                or "unexpected keyword argument 'groups'" in _msg
+            ):
+                return _fn(_arg, _target_arg)
+            raise
 
     def _run_and_empty_check(_fn, _arg, _target_arg):
         try:

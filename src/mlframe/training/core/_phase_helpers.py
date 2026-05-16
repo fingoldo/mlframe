@@ -720,22 +720,16 @@ def _phase_fit_pipeline(
         s.supports_polars for s in _strategies_for_polars_check
     )
 
-    # Auto-skip categorical encoding when all models handle categoricals natively.
-    if was_polars_input and not pipeline_config.skip_categorical_encoding:
-        if all_models_polars_native:
-            pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
-            if verbose:
-                logger.info("  All models %s support Polars natively -- skipping categorical encoding in pipeline", mlframe_models)
-
     # CatBoost-specific footgun warning: when CB is in the model suite AND categorical_encoding="ordinal"
     # AND the input frame carries categorical columns (polars Categorical/Enum, or pandas category dtype),
     # the ordinal encoder converts those columns to integer codes BEFORE CatBoost sees them. CatBoost then
     # loses its native categorical handling (combinations, target-statistics, one-hot small-cardinality
     # fast-path) and treats the int codes as ordered numerics, which silently degrades accuracy on
-    # high-cardinality cats. Detection here is preventive (warning only; no code-path change). Suppress
-    # when skip_categorical_encoding=True (then ordinal is moot). Cat columns are detected directly from
-    # the train_df schema because FeatureTypesConfig doesn't carry a cat_features list (the public surface
-    # is text_features + embedding_features; cat_features are auto-detected downstream).
+    # high-cardinality cats. Detection here is preventive (warning only; no code-path change). Fire the
+    # WARN BEFORE the polars-fastpath auto-flip below otherwise the auto-flip silences the check on the
+    # most common polars input path. Cat columns are detected directly from the train_df schema because
+    # FeatureTypesConfig doesn't carry a cat_features list (the public surface is text_features +
+    # embedding_features; cat_features are auto-detected downstream).
     _suite_models_lower = {str(m).lower() for m in (mlframe_models or [])}
     _has_cb = bool(_suite_models_lower & {"cb", "catboost"})
     _ordinal = (
@@ -763,6 +757,14 @@ def _phase_fit_pipeline(
             "categorical_encoding=None or skip_categorical_encoding=True to let CatBoost handle cat_features natively.",
             len(_declared_cats),
         )
+
+    # Auto-skip categorical encoding when all models handle categoricals natively. Runs AFTER the CB+ordinal
+    # WARN above so the warning fires on the user's *requested* config rather than the auto-flipped one.
+    if was_polars_input and not pipeline_config.skip_categorical_encoding:
+        if all_models_polars_native:
+            pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
+            if verbose:
+                logger.info("  All models %s support Polars natively -- skipping categorical encoding in pipeline", mlframe_models)
 
     # Datetime columns must be decomposed BEFORE the pre-pipeline clone, otherwise the
     # cloned frames retain raw datetimes and reach downstream where numpy/sklearn/CB raise.
@@ -822,33 +824,21 @@ def _phase_fit_pipeline(
                     methods=_dt_methods,
                 )
 
-    # CONV-HIGH-1: the clone() is gated to the categorical-encoding path because polars-ds'
-    # Blueprint.ordinal_encode / one_hot_encode (see pipeline.py:838-851) builds an encoder whose
-    # mapping is fitted against the source frame's categorical dictionary. With Polars' global
-    # string cache enabled, that mapping shares state with the source pl.Categorical column's
-    # interned dict (search reference: "polars 1.x global string cache" feedback note); training
-    # then ordinal/one-hot encoding the source frame in-place would shift codes between train and
-    # val/test calls. We pay one clone here so downstream consumers see the pristine
-    # pre-encoding frame. When categorical_encoding is None or skip_categorical_encoding is True
-    # we skip the clone entirely (RAM-free fastpath). Keep the gate narrow.
-    needs_polars_pre_clone = (
-        was_polars_input
-        and not pipeline_config.skip_categorical_encoding
-        and pipeline_config.categorical_encoding is not None
-    )
+    # Pre-pipeline polars-pre frames are unconditionally ALIASED to the input frames -- never cloned.
+    # Audit-time concern (CONV-HIGH-1) was that polars-ds Blueprint.ordinal_encode / one_hot_encode
+    # might mutate the source frame in place. Verified non-issue: ``bp.ordinal_encode(...)`` returns a
+    # new Blueprint; ``bp.materialize()`` produces a pipeline; ``pipeline.transform(df)`` returns a
+    # new DataFrame (see pipeline.py:1037). Polars frames are conceptually immutable through the
+    # public API; Arrow buffers are Arc-counted (clone is a refcount bump, not a deep copy). The
+    # global string cache (memory note: "polars 1.x global string cache") grows monotonically -- codes
+    # for existing strings never shift, so aliasing the pre-encoding frame is safe even when the
+    # encoder later sees additional strings. Downstream rebindings of ``train_df_polars_pre`` (via
+    # ``_drop_cols_df`` at L645 / ``_precast_strings`` at L674) all return NEW frames and reassign,
+    # so the aliased input is never mutated either.
     if was_polars_input:
-        if needs_polars_pre_clone:
-            train_df_polars_pre = train_df.clone()
-            val_df_polars_pre = val_df.clone() if isinstance(val_df, pl.DataFrame) else None
-            test_df_polars_pre = test_df.clone() if isinstance(test_df, pl.DataFrame) else None
-            if verbose:
-                logger.info(f"  Cloned pre-pipeline Polars originals (pipeline will modify categoricals)")
-        else:
-            train_df_polars_pre = train_df
-            val_df_polars_pre = val_df if isinstance(val_df, pl.DataFrame) else None
-            test_df_polars_pre = test_df if isinstance(test_df, pl.DataFrame) else None
-            if verbose:
-                logger.info(f"  Skipped pre-pipeline clone (skip_categorical_encoding=True)")
+        train_df_polars_pre = train_df
+        val_df_polars_pre = val_df if isinstance(val_df, pl.DataFrame) else None
+        test_df_polars_pre = test_df if isinstance(test_df, pl.DataFrame) else None
         cat_features_polars = get_polars_cat_columns(train_df)
     else:
         train_df_polars_pre = None
@@ -1075,34 +1065,74 @@ def _phase_train_val_test_split(
     t0_phase2 = timer()
     if verbose:
         logger.info(f"Making train_val_test split...")
-    # Auto-stratify by target for single-target classification when no timestamps are present
-    # (without stratification, rare-imbalance shuffles can produce all-class-0 val slices).
+    # Auto-stratify by target when no timestamps are present (without stratification,
+    # rare-imbalance shuffles produce all-class-0 val slices). Three regimes:
+    #   (a) single classification target  -> stratify on its ndarray directly
+    #   (b) multiple classification targets (e.g. several binary heads) -> stratify on
+    #       a composite key built from the row-tuple, encoded as an int class id.
+    #       Gated on combined-cardinality <= MAX_COMPOSITE_CARDINALITY so the
+    #       sklearn StratifiedShuffleSplit doesn't reject for sparse classes.
+    #   (c) multilabel target (N, K)      -> if iterative-stratification is installed,
+    #       pass its ndarray through; otherwise fall back to first-label stratification
+    #       as a best-effort over the all-classes-fully-balanced corner case.
+    _MAX_COMPOSITE_CARDINALITY = 200  # caps the (b) regime at ~200 distinct row-tuples
     _stratify_y = None
     if timestamps is None and isinstance(target_by_type, dict):
         _classification_targets = []
-        _has_multilabel = False
+        _multilabel_target = None
         for _tt, _named in target_by_type.items():
             _tt_name = getattr(_tt, "name", str(_tt)).upper()
             if "MULTILABEL" in _tt_name:
-                _has_multilabel = True
-                break
+                # Multilabel arrives as (N, K) ndarray under one key; capture and stop.
+                if isinstance(_named, dict):
+                    _ml_vals = next(iter(_named.values()), None)
+                else:
+                    _ml_vals = _named
+                _multilabel_target = _ml_vals
+                continue
             if "CLASS" in _tt_name and isinstance(_named, dict):
                 for _tn, _tv in _named.items():
                     if _tv is not None:
                         _classification_targets.append(_tv)
-        # Multilabel stratification needs the optional ``iterative-stratification`` dep;
-        # skip rather than force it on every user.
-        if _has_multilabel:
-            _stratify_y = None
+        if _multilabel_target is not None:
+            try:
+                _ml_arr = np.asarray(_multilabel_target)
+                if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
+                    # Prefer the proper iterative-stratification path when available.
+                    try:
+                        from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
+                        _stratify_y = _ml_arr
+                    except ImportError:
+                        # Best-effort fallback: stratify on the first label column. Better
+                        # than nothing when one of the K labels is the rare class.
+                        _first = _ml_arr[:, 0]
+                        _u, _c = np.unique(_first, return_counts=True)
+                        if len(_u) >= 2 and _c.min() >= 2:
+                            _stratify_y = _first
+            except Exception:
+                _stratify_y = None
         elif len(_classification_targets) == 1:
             try:
                 _arr = np.asarray(_classification_targets[0])
-                # Only stratify when meaningful: all classes have >=2 rows (sklearn raises
-                # otherwise) and target is 1-D.
                 if _arr.ndim == 1:
                     _u, _c = np.unique(_arr, return_counts=True)
                     if len(_u) >= 2 and _c.min() >= 2:
                         _stratify_y = _arr
+            except Exception:
+                _stratify_y = None
+        elif len(_classification_targets) > 1:
+            try:
+                _arrs = [np.asarray(_t) for _t in _classification_targets]
+                _n = len(_arrs[0])
+                if all(_a.ndim == 1 and len(_a) == _n for _a in _arrs):
+                    # Composite key: each row maps to an integer class id from
+                    # (val_t0, val_t1, ..., val_tK) tuple. np.unique on stacked (N, K)
+                    # returns_inverse for the encoding in one pass.
+                    _stack = np.stack(_arrs, axis=1)
+                    _, _composite_ids = np.unique(_stack, axis=0, return_inverse=True)
+                    _u, _c = np.unique(_composite_ids, return_counts=True)
+                    if 2 <= len(_u) <= _MAX_COMPOSITE_CARDINALITY and _c.min() >= 2:
+                        _stratify_y = _composite_ids
             except Exception:
                 _stratify_y = None
     # Group-aware splitting opt-in: when the extractor produced ``group_ids`` and

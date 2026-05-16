@@ -463,6 +463,7 @@ _CB_POOL_CACHE_MAX_ENTRIES = 16  # hard cap per cache; ring-buffer eviction olde
 # a one-shot cache is safe. Override with ``MLFRAME_NO_GPU_INFO_CACHE=1``
 # if a future use case needs live re-probing.
 _GPU_INFO_CACHE: list | None = None
+_GPU_INFO_PROBED: bool = False
 
 
 def _cached_gpu_info() -> list:
@@ -471,12 +472,24 @@ def _cached_gpu_info() -> list:
     First call runs the real probe (nvidia-smi subprocess); subsequent
     calls return the cached list. Saves ~0.5s on every
     ``configure_training_params`` invocation past the first.
+
+    Cheap pre-check via ``shutil.which("nvidia-smi")`` short-circuits the
+    GPUtil import (which transitively pulls setuptools / _distutils_hack /
+    distutils, ~0.7s cold) on machines without a CUDA toolkit. The
+    distinction between "probed and empty" vs "not yet probed" is held
+    in ``_GPU_INFO_PROBED`` so the empty-list cache hit also short-circuits.
     """
-    global _GPU_INFO_CACHE
-    if _GPU_INFO_CACHE is not None and not os.environ.get("MLFRAME_NO_GPU_INFO_CACHE"):
+    global _GPU_INFO_CACHE, _GPU_INFO_PROBED
+    if _GPU_INFO_PROBED and not os.environ.get("MLFRAME_NO_GPU_INFO_CACHE"):
+        return _GPU_INFO_CACHE or []
+    import shutil
+    if shutil.which("nvidia-smi") is None:
+        _GPU_INFO_CACHE = []
+        _GPU_INFO_PROBED = True
         return _GPU_INFO_CACHE
     result = get_gpuinfo_gpu_info()
     _GPU_INFO_CACHE = result
+    _GPU_INFO_PROBED = True
     return result
 
 

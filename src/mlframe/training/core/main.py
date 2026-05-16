@@ -534,6 +534,18 @@ def train_mlframe_models_suite(
         was_polars_input=was_polars_input,
         verbose=bool(verbose),
     )
+    # 2026-05-16 wiring fix: write the filled frames BACK to ctx.
+    # _train_one_target later does ``train_df_polars = ctx.train_df_polars``
+    # (main.py:563+); without this back-write it would read the pre-fix
+    # frames with nulls still in cat columns, causing CB Arrow Pool to
+    # crash with 'Data with nulls is not supported for categorical
+    # columns'. Surfaced 2026-05-16 by
+    # test_sensor_polars_utf8_nullable_cat_fills_before_cb +
+    # test_sensor_enum_null_fill_reaches_lazy_pandas_conversion.
+    for _k in ("train_df_polars", "val_df_polars", "test_df_polars",
+               "train_df_pd", "val_df_pd", "test_df_pd",
+               "filtered_train_df", "filtered_val_df"):
+        setattr(ctx, _k, locals()[_k])
 
     # Save metadata early so partial training runs leave already-trained models usable.
     _finalize_and_save_metadata(ctx)

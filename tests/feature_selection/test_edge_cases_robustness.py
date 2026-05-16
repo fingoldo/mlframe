@@ -134,16 +134,25 @@ def test_mrmr_all_constant_column_dropped():
 # ---------------------------------------------------------------------------
 # 4. NaN in X
 # ---------------------------------------------------------------------------
-def test_mrmr_nan_in_X_raises():
-    """Post-fix contract: NaN in numeric X raises ValueError with a 'NaN' / 'impute' message; caller is expected to impute or drop before fitting."""
+def test_mrmr_nan_in_X_native_tolerance():
+    """Current contract: MRMR is NaN-tolerant natively (sparse NaNs in numeric X
+    no longer raise). The screening discretiser treats NaN as a distinct bin, so
+    fit must complete and produce a non-empty support_ on a realistic frame.
+    Prior contract asserted ValueError("NaN|impute"); that was retired when
+    Agent A made the inner kernels NaN-aware."""
     rng = np.random.default_rng(RANDOM_SEED)
     X = pd.DataFrame(rng.standard_normal((N_ROWS, 3)), columns=list("abc"))
     X.iloc[0, 0] = np.nan
     X.iloc[5, 1] = np.nan
     y = (rng.standard_normal(N_ROWS) > 0).astype(int)
     mrmr = _fast_mrmr(min_features_fallback=1)
-    with pytest.raises(ValueError, match=r"NaN|nan"):
-        mrmr.fit(X, y)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mrmr.fit(X, y)  # must NOT raise on NaN
+    names = _support_names(mrmr)
+    # min_features_fallback=1 guarantees at least one column survives even when
+    # screening can't confirm any predictor at the configured confidence floor.
+    assert len(names) >= 1
 
 
 # ---------------------------------------------------------------------------

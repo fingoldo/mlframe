@@ -144,8 +144,10 @@ def test_fs_low_rfecv_timeseries_autodetect_polars():
     })
     y = (np.arange(n) * 0.5 + np.random.default_rng(0).normal(0, 0.1, n)).astype(np.float64)
 
-    # Pass cv=3 (numeric) so the auto-detect block fires.
-    rfecv = RFECV(estimator=Ridge(), cv=3, min_features_to_select=1, max_runtime_mins=1)
+    # Pass cv=3 (numeric) so the auto-detect block fires. (mlframe's RFECV wrapper
+    # exposes ``max_nfeatures`` for upper-bound; there is no lower-bound counterpart
+    # so ``min_features_to_select`` from sklearn's RFECV is not part of the API here.)
+    rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1)
     # Probe through the constructor path that triggers auto-detect: call fit and inspect cv on the
     # resulting estimator. RFECV.fit assigns the resolved cv to self.cv_ in mlframe; if not, check the
     # ``cv`` argument was upgraded by reading the logger output. Here we use the public reflected

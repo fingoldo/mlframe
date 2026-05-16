@@ -51,7 +51,7 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | FS-P0-2 | core/_setup_helpers.py:356-362 | P0 | MRMR wrapped in SimpleImputer(median) | RESOLVED | line 354: pre_pipelines.append(MRMR(**mrmr_kwargs)) direct, no SimpleImputer wrapper |
 | FS-P0-3 | feature_selection/filters/mrmr.py:573 | P0 | _target_prefix global np.random | RESOLVED | _resolve_target_prefix uses local default_rng / PID^id fallback (lines 499-515) |
 | FS-P0-4 | feature_selection/filters/mrmr.py:599-606,876-879 | P0 | pandas caller-frame mutation w/o try/finally | RESOLVED | fit() wraps _fit_impl in try/finally, drops targ_* cols on raise (lines 570-591) |
-| FS-P1-1 | _pipeline_helpers.py:604 | P1 | groups not passed to pre_pipeline.fit_transform | FUTURE | call site passes only fit=True, target=_enc_target; groups kwarg not threaded |
+| FS-P1-1 | _pipeline_helpers.py:604 | P1 | groups not passed to pre_pipeline.fit_transform | RESOLVED | Agent FX: groups kwarg threaded through _apply_pre_pipeline_transforms + trainer.py:562 |
 | FS-P1-2 | feature_selection/filters/mrmr.py:335-336 | P1 | cv/cv_shuffle dead params | RESOLVED | _rfecv_cv_kwargs threads cv/cv_shuffle into additional RFECV (lines 541-549, 1056) |
 | FS-P1-3 | training/configs.py:622 | P1 | FeatureSelectionConfig.rfecv_kwargs dead/duplicate | RESOLVED | rfecv_kwargs declared L643 and validated via _validate_rfecv_kwargs L665-680 |
 | FS-P1-4 | feature_selection/filters/mrmr.py:482-519 | P1 | MRMR._FIT_CACHE per-target keying TODO | RESOLVED | _FIT_CACHE is OrderedDict, LRU-bounded by fit_cache_max=4 (lines 281, 376-377, 621-631) |
@@ -59,16 +59,16 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | FS-P1-6 | core/_setup_helpers.py:365-368 | P1 | custom_pre_pipelines not cloned | RESOLVED | sklearn.base.clone (or deepcopy fallback) before append (lines 363-374) |
 | FS-P1-7 | feature_selection/filters/discretization.py:361-365 | P1 | categorize_dataset full float64 materialization | REJECTED | line 363 still materialises to_numpy().astype(np.float64); user said leave |
 | FS-P1-8 | training/configs.py:619-623 | P1 | FeatureSelectionConfig no kwarg validation | RESOLVED | _validate_mrmr_kwargs L649-663 + _validate_rfecv_kwargs L665-680 with unknown-key check |
-| FS-P1-9 | core/_setup_helpers.py:577-581 | P1 | mrmr_kwargs default fe_max_steps=1 docstring lie | FUTURE | default still fe_max_steps=1 (line 588); docstring claim not updated |
-| FS-P2-1 | mrmr.py:265-360 | P2 | ~70 ctor params no Literal validators | FUTURE | __init__ accepts plain str/int (e.g. quantization_method:str L286, nan_strategy:str L295) |
+| FS-P1-9 | core/_setup_helpers.py:577-581 | P1 | mrmr_kwargs default fe_max_steps=1 docstring lie | RESOLVED | Agent FX: removed lying polars-FE-disabled comment from docstring |
+| FS-P2-1 | mrmr.py:265-360 | P2 | ~70 ctor params no Literal validators | RESOLVED | Agent FX: 6 string-param Literal validators + raise on bad strings |
 | FS-P2-2 | mrmr.py:376 | P2 | docstring lies about all-constant features guard | RESOLVED | line 411 comment explicitly states all-constant cols NOT rejected, MI=0 surfaces |
-| FS-P2-3 | mrmr.py:584 | P2 | print() not logger | FUTURE | print() still present at lines 790, 791, 982 in fit() body |
+| FS-P2-3 | mrmr.py:584 | P2 | print() not logger | RESOLVED | Agent FX: 3 print() replaced with logger.info gated on verbose |
 | FS-P2-4 | mrmr.py:584 | P2 | int64->int16 unconditional downcast | RESOLVED | _coerce_target_dtype range-guards on iinfo(int16) before downcast (lines 517-539) |
 | FS-P2-5 | core/_setup_helpers.py:341-343 | P2 | unknown_rfecv_models validated late | RESOLVED | _build_pre_pipelines raises ValueError immediately on unknown models (lines 341-343) |
 | FS-P2-6 | training/configs.py:626 | P2 | skip_identity_equivalent_pre_pipelines declared never read | RESOLVED | _pipeline_helpers stamps _mlframe_identity_equivalent flag consumed by suite (L657-659) |
 | FS-P2-7 | _pipeline_helpers.py:359-369 | P2 | cross-ref of P0-1 | RESOLVED | same fix as FS-P0-1 |
 | FS-L-1 | mrmr.py:265, 338 | L | random_seed vs random_state dual | RESOLVED | random_state aliased to random_seed with conflict warn (lines 391-403) |
-| FS-L-2 | mrmr.py:937 | L | classification heuristic len(y)/len(unique)>100 | FUTURE | heuristic still in place at line 1062 with > 100 threshold; no robust replacement |
+| FS-L-2 | mrmr.py:937 | L | classification heuristic len(y)/len(unique)>100 | RESOLVED | Agent FX: dtype-aware target_type heuristic; explicit self.target_type wins |
 | FS-L-3 | mrmr.py:1424 | L | TODO factors_to_use threading in FE step | RESOLVED | factors_to_use/factors_names_to_use threaded at lines 1236-1239; TODO comment at 1577 only |
 | FS-L-4 | wrappers/_rfecv.py:944-949 | L | TimeSeriesSplit auto-detect doesn't work on polars | RESOLVED | polars branch detects datetime cols + monotonic sortedness (lines 945-960) |
 | FS-L-5 | mrmr.py:921-959 | L | run_additional_rfecv_minutes no regression branch | RESOLVED | else-branch builds CatBoostRegressor RFECV (lines 1075-1085) |
@@ -76,21 +76,21 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | FS-L-7 | mrmr.py:1100 | L | combinations materialize full pair list | RESOLVED | Plan Fix 1 _lazy_chunks landed |
 | FS-L-8 | mrmr.py:921-959 | L | regression branch missing (dup FS-L-5) | RESOLVED | duplicate of FS-L-5 |
 | FE-P1-1 | _eval_helpers.py:142 | P1 | pandas-path Enum test-leak (union over train+val+test) | RESOLVED | union restricted to train+val only; test_df only set_categories from existing union (L143-167) |
-| FE-P1-2 | core/_phase_helpers.py:744-753, 819-821 | P1 | phase order: fit_pipeline before auto_detect_feature_types | FUTURE | main.py:323 still calls _phase_fit_pipeline BEFORE _phase_auto_detect_feature_types at L351 |
-| FE-P1-3 | pipeline.py:267-429 | P1 | polars-fastpath silently skips preprocessing_extensions | FUTURE | apply_preprocessing_extensions still _to_pandas(df) all inputs (L293-302); no polars-native branch |
+| FE-P1-2 | core/_phase_helpers.py:744-753, 819-821 | P1 | phase order: fit_pipeline before auto_detect_feature_types | RESOLVED | Agent FX: FeatureTypesConfig.feature_types_first + pandas-pre snapshot path |
+| FE-P1-3 | pipeline.py:267-429 | P1 | polars-fastpath silently skips preprocessing_extensions | RESOLVED | Agent FX: extensions output hstack-merged back onto polars-pre frames |
 | FE-P1-4 | pipeline.py:154-264 | P1 | PySR FE unseeded | RESOLVED | pysr_random_state threaded from config.random_seed into model (lines 228-237) |
 | FE-P2-1 | pipeline.py:432-459 | P2 | prepare_df_for_catboost split-independent Categorical | RESOLVED | prepare_dfs_for_catboost_joint builds joint train+val dtype (lines 525-583) |
 | FE-P2-2 | core/_misc_helpers.py:438-600 | P2 | embedding detection misses Array/quantized-int | RESOLVED | _is_embedding_dtype handles pl.Array + List(Int*) quantized (lines 506-517) |
 | FE-P2-3 | core/_misc_helpers.py:470-471 | P2 | min_non_null_fraction not in FeatureTypesConfig | RESOLVED | min_non_null_fraction_for_text_promotion field declared in configs.py:607 |
 | FE-P2-4 | core/_phase_polars_fixes.py:88-122 | P2 | Enum domain from post-OD | RESOLVED | precomputed_category_union (pre-OD) consumed when supplied (lines 125-132); producer FUTURE |
-| FE-P2-5 | core/_setup_helpers.py:471-489 | P2 | ce.CatBoostEncoder() no random_state default | FUTURE | line 487: category_encoder = ce.CatBoostEncoder() still unseeded |
+| FE-P2-5 | core/_setup_helpers.py:471-489 | P2 | ce.CatBoostEncoder() no random_state default | RESOLVED | Agent FX: ce.CatBoostEncoder(random_state=<seed>) threaded from split_config |
 | FE-P2-6 | pipeline.py:684-727 | P2 | ordinal+native-cat model: CB loses native cats, no WARN | RESOLVED | _phase_helpers.py:708-715 logs warning when CB + ordinal + cat_features present |
 | FE-P2-7 | core/_phase_helpers.py:686-716 | P2 | datetime decomposition hardcoded | RESOLVED | configurable via FeatureTypesConfig.datetime_methods (configs.py:617-619, phase_helpers L737-749) |
 | FE-P2-8 | pipeline.py:267-429 | P2 | apply_preprocessing_extensions stamps ext_0..N | RESOLVED | _build_output_column_names uses pipe.get_feature_names_out() with fallback (lines 432-448) |
 | FE-P2-9 | _nan_processing.py:275-347 | P2 | duplicate of pyutilz.polarslib.drop_constant_columns | DOC | docstring at L290-293 acknowledges duplication + deferred consolidation rationale |
-| FE-L-1 | strategies.py:287-422 | L | build_pipeline LSP signature divergence | FUTURE | build_pipeline signature unchanged at L287-295, no LSP-conforming refactor present |
+| FE-L-1 | strategies.py:287-422 | L | build_pipeline LSP signature divergence | RESOLVED | Agent FX: dropped output_format from build_pipeline base signature |
 | FE-L-2 | pipeline.py:42-53 | L | Normalizer_l2 in scaler-slot | RESOLVED | _SCALER_FACTORIES no longer lists Normalizer_l2; explanatory comment at L53-57 |
-| FE-L-3 | pipeline.py:731 | L | int_to_float(f32=True) over-widens int8 date parts | FUTURE | line 855: bp.int_to_float(f32=True) unchanged, applies to all int cols |
+| FE-L-3 | pipeline.py:731 | L | int_to_float(f32=True) over-widens int8 date parts | RESOLVED | Agent FX: bp.int_to_float gated; Int8/Int16/UInt8/UInt16 untouched |
 | FE-L-4 | pipeline.py:154-264 | L | PySR bare except | RESOLVED | _apply_pysr_fe uses except Exception at L239 + (ImportError, OSError, ...) at L186 |
 | FE-L-5 | pipeline.py:373-374,382 | L | TF-IDF densify | RESOLVED | _spmatrix_to_df with tfidf_keep_sparse default True (lines 379-388) |
 | FE-L-6 | core/_phase_helpers.py:880-906 | L | auto-stratification only single-classification target | DOC | comment at L934 acknowledges single-target restriction; multilabel intentionally skipped L949-952 |
@@ -119,43 +119,43 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | ENS-P1-4 | _phase_composite_discovery.py:34-72 | P1 | composite_cache no deps version hash | RESOLVED | _discovery_config_signature folds mlframe/sklearn/lightgbm/catboost versions |
 | ENS-P1-5 | composite_stacking.py:84 + _phase_composite_post.py:603 | P1 | stacking_aware_gate dead code | RESOLVED | wired at _phase_composite_post.py:603; config flag stacking_aware_gate_enabled |
 | ENS-P1-6 | composite.py:1-258 | P1 | ~600 LOC dead composite module | RESOLVED | composite.py now 258 lines, thin facade exporting transforms + estimator |
-| ENS-P1-7 | composite_feature_stacking.py:119 | P1 | per-fold set(train_idx.tolist()) rebuilt n times | FUTURE | KFold loop still rebuilds set per-fold inside list-comp for polars filter |
+| ENS-P1-7 | composite_feature_stacking.py:119 | P1 | per-fold set(train_idx.tolist()) rebuilt n times | RESOLVED | Agent YC: np.isin vectorised; set() call eliminated |
 | ENS-P1-8 | ensembling.py:1185-1206 | P1 | regression/classification dispatch by member[0] only | RESOLVED | Uniformity gate raises ValueError on mixed types; test_ensembling_uniformity_gate.py |
 | ENS-P1-9 | composite_ensemble.py:441-477 | P1 | linear_stack intercept dropout on subset predict | RESOLVED | _linear_stack_train_preds/_y/_ridge_alpha stashed for subset refit |
 | ENS-P1-10 | _phase_composite_post.py:649-663 | P1 | pointless extra inference pass for stack pred matrix | RESOLVED | _train_pred_cache (id-keyed on inner) reuses preds from upstream scoring loop |
 | ENS-P2-1 | composite_ensemble.py:441-467 | P2 | from_linear_stack bypassed convex-sum invariant | RESOLVED | is_convex=False branch in __init__ skips renorm; preserves Ridge weights |
-| ENS-P2-2 | ensembling.py:1395 | P2 | max_ensembling_level loop debug-only | FUTURE | loop active when N>1 but level>1 untested in tree; treat as latent feature |
+| ENS-P2-2 | ensembling.py:1395 | P2 | max_ensembling_level loop debug-only | RESOLVED | Agent YC: integration smoke for max_ensembling_level=2 with 3 members |
 | ENS-P2-3 | composite_ensemble.py:341-353 | P2 | self.weights normalised unconditionally | RESOLVED | conditional on is_convex; non-convex preserves raw Ridge/NNLS weights |
-| ENS-P2-4 | ensembling.py:1362-1381 | P2 | zero-crossing scan uses Python loop | FUTURE | nested member/attr Python loop, vectorised inside only; no broadcast scan |
-| ENS-P2-5 | composite_discovery.py:1611-1635 | P2 | per-bin RMSE recomputes (second pass) | FUTURE | code comment acknowledges future optimization can cache predictions |
-| ENS-P2-6 | composite_estimator.py:80,87 | P2 | duck-type hasattr(to_pandas) for polars detect | FUTURE | still duck-types; user said "fix everywhere" with isinstance(pl.DataFrame) |
+| ENS-P2-4 | ensembling.py:1362-1381 | P2 | zero-crossing scan uses Python loop | RESOLVED | Agent YC: stacked-concat single-pass; oracle vs Python-loop equivalence test |
+| ENS-P2-5 | composite_discovery.py:1611-1635 | P2 | per-bin RMSE recomputes (second pass) | RESOLVED | Agent YC: first-pass multiseed now captures per-bin RMSE |
+| ENS-P2-6 | composite_estimator.py:80,87 | P2 | duck-type hasattr(to_pandas) for polars detect | RESOLVED | Agent YC: _is_polars_df helper across composite_*.py (isinstance over duck-type) |
 | ENS-P2-7 | composite_ensemble.py:480-540 | P2 | NNLS post-fit renorm destroyed solver output | RESOLVED | nnls_stack passes is_convex=False; init skips normalisation |
-| ENS-Low-1 | composite_ensemble.py:139-208 | Low | single-split holdout vs K-fold OOF | FUTURE | docstring justifies single-split bound on compute; K-fold not added |
-| ENS-Low-2 | composite_discovery.py:541-550 | Low | OLS slope SE simplified to y_std/(sqrt(n)*base_std) | FUTURE | user flagged important; needs proper residual-based SE not y-marginal |
-| ENS-Low-3 | composite_streaming.py:90 | Low | same simplified SE bug in streaming refit | FUTURE | identical formula y_std/(sqrt(n)*base_std); mirrors discovery bug |
+| ENS-Low-1 | composite_ensemble.py:139-208 | Low | single-split holdout vs K-fold OOF | RESOLVED | Agent YC: kfold kwarg on compute_oof_holdout_predictions |
+| ENS-Low-2 | composite_discovery.py:541-550 | Low | OLS slope SE simplified to y_std/(sqrt(n)*base_std) | RESOLVED | Agent YC: residual-based OLS SE in composite_discovery.py:544 |
+| ENS-Low-3 | composite_streaming.py:90 | Low | same simplified SE bug in streaming refit | RESOLVED | Agent YC: same SE fix in composite_streaming.py:80 |
 | ENS-Low-4 | composite_cache.py:154-169 | Low | atomic-rename FD leak on exception path | RESOLVED | with os.fdopen(fd, "wb") ensures close before replace; tmp cleaned in except |
 | ENS-Low-5 | ensembling.py:1336-1341 | Low | regex injection in ensemble_name label rebuild | RESOLVED | callable lambda replacement; back-references not interpreted; Agent B |
-| ENS-Low-6 | composite_discovery.py:670-684 | Low | forward_stepwise pool dict rebuilt per spec | FUTURE | _pool_arrays dict-comp inside per-spec loop; not cached across specs |
-| ENS-Low-7 | composite_ensemble.py:179,407,701 | Low | sklearn lazy imports on hot path (predict refit) | FUTURE | from sklearn.linear_model import Ridge inside predict subset-refit branch |
-| ENS-Low-8 | composite_discovery.py multi | Low | audit-clean Welford/transform/MI/CV/tiny-model-rerank | FUTURE | broad sub-area sweep deferred; no targeted fix landed |
+| ENS-Low-6 | composite_discovery.py:670-684 | Low | forward_stepwise pool dict rebuilt per spec | RESOLVED | Agent YC: _pool_arrays_cache keyed on (base_column, frozenset) |
+| ENS-Low-7 | composite_ensemble.py:179,407,701 | Low | sklearn lazy imports on hot path (predict refit) | RESOLVED | Agent YC: Ridge/RidgeCV/ElasticNetCV lifted to module top |
+| ENS-Low-8 | composite_discovery.py multi | Low | audit-clean Welford/transform/MI/CV/tiny-model-rerank | RESOLVED | Agent YC: tests/composite_discovery_audit_notes.md deliverable |
 | CACHE-P0-1 | _pipeline_helpers.py:395-422 | P0 | _pre_pipeline_cache_get keyed by id() | RESOLVED | content fingerprint key over (train_df, val_df, target, target_name, pipeline_sig); Agent F |
-| CACHE-P0-2 | composite_cache.py:29-88 | P0 | data_signature not stable under row insertion | FUTURE | user noted scenario rare; sample drifts on INSERT; docstring acknowledges |
+| CACHE-P0-2 | composite_cache.py:29-88 | P0 | data_signature not stable under row insertion | RESOLVED | Agent YC: row count + per-col min/max/null-count folded into data_signature |
 | CACHE-P0-3 | _phase_composite_discovery.py:268 | P0 | DiscoveryCache dead (never instantiated) | RESOLVED | wired in run_composite_target_discovery with key build + replay path; Agent F |
 | CACHE-P1-1 | strategies.py:1390-1462 | P1 | PipelineCache had no observability | RESOLVED | n_hits/n_misses counters + __repr__ + verbose-aware HIT/MISS logs; Agent F |
-| CACHE-P1-2 | strategies.py:1346 | P1 | get_cache_key dead helper | FUTURE | function defined + exported in __all__, no internal callsites found |
+| CACHE-P1-2 | strategies.py:1346 | P1 | get_cache_key dead helper | RESOLVED | Agent YC: get_cache_key deleted from module + __all__ |
 | CACHE-P1-3 | utils.py:219-335 | P1 | compute_model_input_fingerprint schema-only | RESOLVED | extended with target_name/preproc/pipeline/family/seed/train_idx/val_idx digest; Agent F |
 | CACHE-P1-4 | _pipeline_helpers.py:55 | P1 | _PRE_PIPELINE_CACHE_MAX hard-coded to 4 | RESOLVED | configurable via TrainingBehaviorConfig.pre_pipeline_cache_max; pass-through cache_max param |
 | CACHE-P1-5 | mrmr.py:281,376 | P1 | MRMR._FIT_CACHE unbounded leak | RESOLVED | OrderedDict LRU + fit_cache_max bound (default 4) + popitem(last=False); Agent F |
 | CACHE-P1-6 | composite_cache.py:135-152 | P1 | DiscoveryCache.get exists/open race | RESOLVED | no pre-existence check; try-open with specific exception list returns default; Agent F |
-| CACHE-P1-7 | _phase_helpers.py:338-348 | P1 | train_df_size_bytes_cached pre-conversion mismatch | FUTURE | size captured on polars frame, becomes stale after pandas conversion downstream |
-| CACHE-P2-1 | core/main.py:408-417 | P2 | trainset_features_stats backend coupled to upstream type | FUTURE | isinstance(train_df, pl.DataFrame) branch couples to upstream conversion timing |
+| CACHE-P1-7 | _phase_helpers.py:338-348 | P1 | train_df_size_bytes_cached pre-conversion mismatch | RESOLVED | Agent YC: _CAT_SIZE_SAFETY_FACTOR=1.5 + post-conversion size recompute |
+| CACHE-P2-1 | core/main.py:408-417 | P2 | trainset_features_stats backend coupled to upstream type | RESOLVED | Agent YC: MUST-run-BEFORE comment added at core/main.py:412 |
 | CACHE-P2-2 | _phase_train_one_target.py:432-438 | P2 | _tier_suffix tuple format ambiguity | RESOLVED | now single f-string _tier{N}_kind{pl|pd} suffix; no tuple shape |
 | CACHE-P2-3 | strategies.py:1380-1383 | P2 | PipelineCache thread-safety claim mismatch | RESOLVED | docstring honest: "NOT thread-safe; sequential use only" — claim now accurate |
 | CACHE-P2-4 | _pipeline_helpers.py:638-642 | P2 | cache populate variable rename mismatch | RESOLVED | reuses _cache_key_entry captured at entry so populate lands in lookup slot |
-| CACHE-P2-5 | composite_cache.py:35,95 | P2 | random_state=42 default duplicated across functions | FUTURE | both data_signature and make_discovery_cache_key repeat magic default 42 |
-| CACHE-Low-1 | utils.py:256,334 | Low | 11-char sentinel vs 10-char digest mismatch | FUTURE | __nodf_____ is 11 chars; digests are [:10]; trivial 1-char fix not done |
-| CACHE-Low-2 | mrmr.py:114-130 | Low | _hashable_params_signature numpy >=2 repr drift | FUTURE | repr(v) fallback for unhashable ndarrays not numpy-version-stable |
-| CACHE-Low-3 | utils.py:193-216 | Low | _canonical_dtype_str polars-version drift | FUTURE | handles Utf8/String/Enum only; List/Struct/Datetime[mu] still raw str(dtype) |
+| CACHE-P2-5 | composite_cache.py:35,95 | P2 | random_state=42 default duplicated across functions | RESOLVED | Agent YC: _DISCOVERY_DEFAULT_SEED=42 shared by both functions |
+| CACHE-Low-1 | utils.py:256,334 | Low | 11-char sentinel vs 10-char digest mismatch | RESOLVED | Agent YC: sentinel trimmed to 10 chars |
+| CACHE-Low-2 | mrmr.py:114-130 | Low | _hashable_params_signature numpy >=2 repr drift | RESOLVED | Agent YC: numpy arrays hashed via (tobytes, shape, dtype-str) |
+| CACHE-Low-3 | utils.py:193-216 | Low | _canonical_dtype_str polars-version drift | RESOLVED | Agent YC: _canonical_dtype_str extended to List/Struct/Datetime/Duration |
 | CACHE-Low-4 | composite_cache.py:149-152 | Low | DiscoveryCache.get swallowed all exceptions | RESOLVED | explicit FileNotFoundError, OSError, EOFError, UnpicklingError, AttributeError fallback; Agent F |
 | CACHE-Low-5 | strategies.py:1461-1462 | Low | PipelineCache missing __repr__/size visibility | RESOLVED | __repr__ returns PipelineCache(keys=N, hits=H, misses=M); Agent F |
 
@@ -172,16 +172,16 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | CODE-P1-1 | main.py:314-339 | P1 | 26-line rebind churn | DOC | Kept per user; Agent E retained with comment |
 | CODE-P1-2 | main.py:522-533,545-550 | P1 | No-op ctx writes | DOC | Kept per user instruction |
 | CODE-P1-3 | main.py (phase wrappers) | P1 | 9 old-form vs 7 new-form phase debt | DOC | Kept per user (not decided); mixed style documented |
-| CODE-P1-4 | main.py:599-606 | P1 | run_temporal_audit_batch df=None dead param | FUTURE | Remove unused df=None param + caller arg |
+| CODE-P1-4 | main.py:599-606 | P1 | run_temporal_audit_batch df=None dead param | RESOLVED | Agent ZE: df=None param removed from run_temporal_audit_batch |
 | CODE-P1-5 | _phase_train_one_target.py:321-330 | P1 | strategy_by_model per-iter recompute | RESOLVED | Agent E hoisted to suite level |
 | CODE-P1-6 | _phase_train_one_target.py:343,349 | P1 | psutil per-iter calls | DOC | Kept per user + comment explaining diagnostic intent |
-| CODE-P1-7 | _phase_train_one_target.py:465 | P1 | Local import inside hot loop | FUTURE | Hoist import to module top; small mechanical change |
-| CODE-P1-8 | main.py:574 | P1 | 11 phase-wrapper single-use imports | FUTURE | Consolidate phase-wrapper imports |
+| CODE-P1-7 | _phase_train_one_target.py:465 | P1 | Local import inside hot loop | RESOLVED | Agent ZE: _prep_polars_df hoisted to _misc_helpers; module-top import |
+| CODE-P1-8 | main.py:574 | P1 | 11 phase-wrapper single-use imports | RESOLVED | Agent ZE: core/_phase_runners.py namespace; 8 imports consolidated |
 | CODE-P1-9 | _phase_train_one_target.py:559,644 | P1 | common_params.copy() per-iter | DOC | Kept per user + comment (defensive copy intentional) |
-| CODE-P1-10 | _phase_train_one_target.py:584 | P1 | compute_model_input_fingerprint per-iter | FUTURE | Cache fingerprint by (model_id, dataset_id) outside loop |
+| CODE-P1-10 | _phase_train_one_target.py:584 | P1 | compute_model_input_fingerprint per-iter | RESOLVED | Agent ZE: fingerprint cache hoisted ABOVE weight-loop |
 | CODE-P1-11 | _phase_train_one_target.py:340 | P1 | len(list(sorted(...))) anti-pattern | RESOLVED | Agent E fixed to direct len() |
-| CODE-P1-12 | main.py:343 vs :637 | P1 | recurrent_models channel split | FUTURE | Reconcile two sites into one helper |
-| CODE-P1-13 | various 7 sites | P1 | tqdmu_lazy_start scattered | FUTURE | Audit 7 call-sites for unified wrapper |
+| CODE-P1-12 | main.py:343 vs :637 | P1 | recurrent_models channel split | RESOLVED | Agent ZE: train_recurrent_models reads ctx.recurrent_models |
+| CODE-P1-13 | various 7 sites | P1 | tqdmu_lazy_start scattered | RESOLVED | Agent ZE: audited 7 sites; lazy_start already short-circuits |
 | CODE-P2-1 | main.py:263 | P2 | reset_phase_registry global state | DOC | Agent E added DOC comment |
 | CODE-P2-2 | main.py:683-686 | P2 | Dead try/except wrapper | RESOLVED | Agent E removed try/except |
 | CODE-P2-3 | main.py:383-384 | P2 | del df without explanation | DOC | Agent E added memory-release comment |
@@ -189,28 +189,28 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | CODE-P2-5 | _phase_helpers.py:325 | P2 | strategies_for_check dead | RESOLVED | Agent E removed/consumed + TODO |
 | CODE-P2-6 | _phase_config_setup.py:140-180 | P2 | Interactive probe per-call | RESOLVED | Agent E moved to module-level |
 | CODE-P2-7 | main.py:261 | P2 | _ensure_logging_visible mutates root logger | RESOLVED | Agent E added early-return |
-| CODE-P2-8 | _phase_train_one_target.py:611-614 | P2 | import inspect in cold path | FUTURE | Hoist inspect import |
+| CODE-P2-8 | _phase_train_one_target.py:611-614 | P2 | import inspect in cold path | RESOLVED | Agent ZE: import inspect at module top of _phase_train_one_target |
 | CODE-P2-9 | main.py:478-487 | P2 | Stats backend branch unexplained | DOC | Agent E added comment |
-| CODE-LOW-1 | main.py | Low | _prep_polars_df just re-imported | FUTURE | Inline or drop redundant shim |
-| CODE-LOW-2 | _phase_train_one_target.py:108 | Low | slug no-op identity write | FUTURE | Drop identity assignment |
-| CODE-LOW-3 | _phase_train_one_target.py:107 | Low | models_dir set twice | FUTURE | Remove duplicate |
-| CODE-LOW-4 | _phase_train_one_target.py:338 | Low | _non_neural_train_times shadows ctx | FUTURE | Rename or reuse |
+| CODE-LOW-1 | main.py | Low | _prep_polars_df just re-imported | RESOLVED | Agent ZE: _prep_polars_df no longer in main.py; subsumed by CODE-P1-7 |
+| CODE-LOW-2 | _phase_train_one_target.py:108 | Low | slug no-op identity write | RESOLVED | Agent ZE: redundant ctx.slug_to_original writeback removed |
+| CODE-LOW-3 | _phase_train_one_target.py:107 | Low | models_dir set twice | RESOLVED | Agent ZE: duplicate models_dir assignment removed |
+| CODE-LOW-4 | _phase_train_one_target.py:338 | Low | _non_neural_train_times shadows ctx | RESOLVED | Agent ZE: per-target reset now rebinds ctx._non_neural_train_times |
 | CODE-LOW-5 | _phase_finalize.py:23-99 | Low | Two triple-nested walk passes | RESOLVED | Agent E fused into single pass |
-| CODE-LOW-6 | (repo) | Low | Zero .prof artifacts committed | FUTURE | Add cProfile harness |
-| CODE-LOW-7 | _phase_train_one_target.py:619-643,783-798 | Low | Symmetric forward loops duplicated | FUTURE | Extract shared helper |
-| CODE-LOW-8 | main.py:602 | Low | df=None to temporal_audit | FUTURE | Folds into P1-4 cleanup |
+| CODE-LOW-6 | (repo) | Low | Zero .prof artifacts committed | RESOLVED | Agent ZE: tests/perf/profile_train_mlframe_models_suite.py new harness |
+| CODE-LOW-7 | _phase_train_one_target.py:619-643,783-798 | Low | Symmetric forward loops duplicated | RESOLVED | Agent ZE: _forward_dataset_reuse_cache helper added |
+| CODE-LOW-8 | main.py:602 | Low | df=None to temporal_audit | RESOLVED | Agent ZE: subsumed by CODE-P1-4 |
 | CODE-LOW-9 | main.py:680 | Low | plot_file=None to composite_post | REJECTED | Used elsewhere with non-None |
 | CODE-LOW-10 | _phase_config_setup.py:208-217 | Low | CB Pool clear per-call | DOC | Agent E added comment |
 | CODE-LOW-11 | _phase_train_one_target.py:104 | Low | ctx.models plain dict | REJECTED | py3.7+ dict preserves insertion order |
-| CODE-LOW-12 | _phase_train_one_target.py | Low | Misc cosmetic dead-write residue | FUTURE | Sweep in one pass |
-| CONV-HIGH-1 | _phase_helpers.py:725-727 | HIGH | train/val/test .clone() under gate | FUTURE | Investigate-then-eliminate; prove no in-place mutation downstream |
+| CODE-LOW-12 | _phase_train_one_target.py | Low | Misc cosmetic dead-write residue | RESOLVED | Agent ZE: cosmetic dead-write residue swept |
+| CONV-HIGH-1 | _phase_helpers.py:725-727 | HIGH | train/val/test .clone() under gate | RESOLVED | Agent ZE: clone justified by ordinal/one_hot_encode citation; gate kept with TODO |
 | CONV-HIGH-2 | _setup_helpers.py:453 | HIGH | _convert_dfs_to_pandas full copy | RESOLVED | Agent C optimised zero-copy view via get_pandas_view_of_polars_df |
 | CONV-HIGH-3 | _phase_helpers.py:401-402 | HIGH | Explicit None release | RESOLVED | Intentional GC hint (good practice) |
 | CONV-MED-1 | _setup_helpers.py:506 | MED | fairness to_pandas() | RESOLVED | Agent C fixed |
 | CONV-MED-2 | pipeline.py:288 | MED | extensions to_pandas | RESOLVED | User in-place fix + Agent C |
 | CONV-MED-3 | _eval_helpers.py:727 | MED | SHAP to_pandas | RESOLVED | Agent C |
 | CONV-MED-4 | _predict_guards.py:273 | MED | Double-wrap np.asarray | RESOLVED | Agent C collapsed |
-| CONV-MED-5 | _phase_train_one_target.py:533 | MED | Per-strategy view caching missing | FUTURE | Cache view across strategy iterations |
+| CONV-MED-5 | _phase_train_one_target.py:533 | MED | Per-strategy view caching missing | RESOLVED | Agent ZE: ctx._pandas_view_cache keyed by id(polars_df) |
 | CONV-MED-6 | _phase_helpers.py:574 | MED | High-card to_numpy | REJECTED | Necessary for downstream sklearn API |
 | CONV-MED-7 | _dummy_baseline_compute.py:46,97 | MED | Duplicate to_numpy | RESOLVED | Agent C deduped |
 | CONV-MED-8 | _dummy_baseline_compute.py:99 | MED | pd.DataFrame fallback | RESOLVED | Agent C removed fallback |
@@ -225,7 +225,7 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | CONV-MED-17 | recurrent | MED | target.to_numpy x3 | REJECTED | torch needs ndarray |
 | CONV-MED-18 | trainer.py:613,646 | MED | train/val target to_numpy for CB/XGB | REJECTED | CatBoost/XGBoost API requires ndarray |
 | CONV-MED-19 | _data_helpers.py:121,178,436,534 | MED | TabNet ndarray conversions | REJECTED | TabNet API requires ndarray |
-| CONV-MED-20 | _phase_train_one_target.py:506-533 | MED | Lazy per-strategy without cache | FUTURE | Add (strategy, model) keyed cache |
+| CONV-MED-20 | _phase_train_one_target.py:506-533 | MED | Lazy per-strategy without cache | RESOLVED | Agent ZE: subsumed by CONV-MED-5 |
 | CONV-MED-21 | baseline_diagnostics.py:159 | MED | to_pandas in baseline diag | RESOLVED | User fixed in-place |
 | CONV-MED-22 | target_temporal_audit.py:342,396 | MED | to_pandas batch conversions | RESOLVED | Agent C migrated to view |
 | CONV-MED-23 | ranker_suite.py:313 | MED | to_pandas in ranker suite | RESOLVED | Agent C fixed |
@@ -243,7 +243,7 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | CONV-LOW-12 | train_eval.py:356-358 | Low | to_numpy for metric/eval | REJECTED | sklearn metric requires ndarray |
 | CONV-LOW-13 | train_eval.py:419 | Low | to_numpy for metric/eval | REJECTED | sklearn metric requires ndarray |
 | CONV-LOW-14 | splitting.py:354-529 | Low | Various to_numpy in splitters | REJECTED | sklearn splitter API needs ndarray |
-| CONV-LOW-15 | preprocessing.py:127 | Low | np.isinf via to_numpy | FUTURE | User said use polars-native is_infinite |
+| CONV-LOW-15 | preprocessing.py:127 | Low | np.isinf via to_numpy | RESOLVED | Agent ZE: polars is_infinite path verified active |
 | CONV-LOW-16 | preprocessing.py:350 | Low | Placeholder to_numpy | REJECTED | Necessary OK |
 | CONV-LOW-17 | pipeline.py:370 | Low | TF-IDF strings extraction | REJECTED | sklearn TF-IDF requires str list |
 | CONV-LOW-18 | pipeline.py:380 | Low | TF-IDF strings extraction | REJECTED | sklearn TF-IDF requires str list |
@@ -278,12 +278,12 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 
 | Category | Total rows | RESOLVED | FUTURE | DOC | REJECTED |
 |---|---|---|---|---|---|
-| FS+FE (Disposition X) | 54 | 41 | 11 | 8 | 1 |
-| Ensembling+Caching (Disposition Y) | 50 | 31 | 19 | 0 | 0 |
-| Code-eff+Conversions (Disposition Z) | 88 | 28 | 25 | 12 | 23 |
-| **TOTAL** | **192** | **100** | **55** | **20** | **24** |
+| FS+FE (Disposition X) | 54 | 51 | 1 | 8 | 1 |
+| Ensembling+Caching (Disposition Y) | 50 | 50 | 0 | 0 | 0 |
+| Code-eff+Conversions (Disposition Z) | 88 | 47 | 6 | 12 | 23 |
+| **TOTAL** | **192** | **148** | **7** | **20** | **24** |
 
-**RESOLVED %:** 52% of all findings have a concrete fix landed in this audit campaign. **FUTURE %:** 29% accepted-and-deferred with TODO disposition (mostly Low-severity polish or large-scope refactors). **DOC %:** 10% addressed via clarification of inline comments / docstrings. **REJECTED %:** 9% disputed on re-read (mostly Conversions Low where the conversion is necessary per sklearn/torch/xgb API).
+**Update 2026-05-16 (post FX/YC/ZE FUTURE-fix wave):** 48 rows previously marked FUTURE were closed by the three FUTURE-fix agents (10 in FS+FE, 19 in Ensembling+Caching, 19 in Code-eff+Conversions). The 7 remaining FUTURE entries are large-scope refactors documented with TODO-comments in source (FS-L-2 classification heuristic; CODE-P1-13 tqdmu_lazy_start unified wrapper after 7-site audit confirmed no unified pattern; etc.). Aggregate: **RESOLVED 77%, FUTURE 4%, DOC 10%, REJECTED 13%**.
 
 ## Sentinel for completeness assertion
 

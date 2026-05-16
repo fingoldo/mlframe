@@ -504,7 +504,21 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         # Polars -> pandas at entry. RFECV uses pandas / numpy idioms throughout (KFold.split, current_features.index(...), passthrough_cols).
         # Inner estimators (notably CatBoost) crash on polars Enum columns, so convert once here and let every downstream caller see pandas.
+        # Before lossy conversion, stash a "polars-detected monotonic datetime axis" hint so the CV auto-detect block below can route
+        # to TimeSeriesSplit. After to_pandas() the original polars schema is gone and the .index becomes a plain RangeIndex.
+        _polars_time_series_hint = False
         if isinstance(X, pl.DataFrame):
+            try:
+                _dt_cols = [
+                    n for n, d in X.schema.items()
+                    if d in (pl.Datetime, pl.Date) or str(d).startswith(("Datetime", "Date"))
+                ]
+                if len(_dt_cols) == 1:
+                    _col = X.get_column(_dt_cols[0])
+                    if _col.is_sorted(descending=False) and _col.null_count() == 0:
+                        _polars_time_series_hint = True
+            except Exception:
+                pass
             X = X.to_pandas()
         if isinstance(y, pl.Series):
             y = y.to_pandas()
@@ -938,7 +952,11 @@ class RFECV(BaseEstimator, TransformerMixin):
             # Pandas path: DatetimeIndex.is_monotonic_increasing. Polars path: scan for a single datetime / date column that is
             # monotonically increasing (polars has no row index; the time axis is necessarily a column).
             _is_time_series = False
-            if groups is None and isinstance(X, pd.DataFrame):
+            # Polars-input path: the schema-level monotonic-datetime check happens BEFORE the to_pandas() at fit entry; the hint is set
+            # there so the conversion doesn't erase the per-column polars dtype information needed for unambiguous detection.
+            if groups is None and _polars_time_series_hint:
+                _is_time_series = True
+            elif groups is None and isinstance(X, pd.DataFrame):
                 _idx = X.index
                 if isinstance(_idx, pd.DatetimeIndex) and _idx.is_monotonic_increasing:
                     _is_time_series = True
@@ -983,6 +1001,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                         cv = KFold(n_splits=cv, shuffle=False)
             if verbose and not _is_time_series:
                 logger.info("Using cv=%s", cv)
+
+        # Expose the resolved splitter for introspection (auto-detect tests / callers checking which CV strategy was picked).
+        self.cv_ = cv
 
         if early_stopping_val_nsplits:
             try:
