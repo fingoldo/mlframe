@@ -1072,6 +1072,40 @@ class TrainMlframeSuitePrecomputed:
     train_df_fingerprint: Optional[str] = None  # for cross-process disk-cache reuse later
 
 
+def precompute_dummy_baselines(
+    train_df,
+    target_by_type: dict,
+    config: Optional[Any] = None,
+) -> dict:
+    """Pre-compute the ``metadata["dummy_baselines"]`` payload the suite would compute per-target.
+
+    STUB / TODO: the in-suite dummy-baseline compute lives in ``core/_phase_dummy_baselines.py``
+    and needs the post-split train/val/test frames plus per-target slices, which the caller does
+    NOT have access to before the suite has run the split phase. A faithful precompute helper would
+    have to either (a) replicate the suite's split logic here (duplication risk) or (b) accept the
+    already-split frames + per-target targets as arguments (large signature). Both are deferred.
+
+    The bundle slot still works: callers who have a prior run's ``metadata["dummy_baselines"]``
+    saved to disk can pass it via ``TrainMlframeSuitePrecomputed(dummy_baselines=...)`` and the
+    suite will skip the per-target recompute. This helper is the convenience builder that's still
+    missing; until it lands, build the dict from a prior run's metadata.
+
+    Args:
+        train_df: train frame (unused in stub).
+        target_by_type: per-target mapping (unused in stub).
+        config: DummyBaselinesConfig (unused in stub).
+
+    Returns:
+        Empty dict -- a no-op precompute. The bundle's skip-when-supplied behaviour is gated on
+        the dict being non-None, so passing this empty dict to ``TrainMlframeSuitePrecomputed`` will
+        disable the per-target in-suite compute without supplying real baseline values; only use
+        once a future implementation populates the result.
+    """
+    # TODO: implement after the per-target split surface is reachable from precompute caller. Until then,
+    # callers should obtain ``metadata["dummy_baselines"]`` from a prior run and pass it directly.
+    return {}
+
+
 def precompute_trainset_features_stats(train_df, max_ncats_to_track: int = 1000) -> dict:
     """Compute the trainset_features_stats dict the suite would compute inline.
 
