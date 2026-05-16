@@ -40,6 +40,7 @@ from ..configs import (
 from ..extractors import FeaturesAndTargetsExtractor
 from ..feature_handling.fingerprint import reset_session as reset_fh_session
 from ..helpers import (
+    TrainMlframeSuitePrecomputed,
     get_trainset_features_stats,
     get_trainset_features_stats_polars,
 )
@@ -107,6 +108,7 @@ def train_mlframe_models_suite(
     # MLFRAME_DISABLE_COMPOSITE=1 env var forces OFF regardless of config (kill switch).
     composite_target_discovery_config: Optional[Union["CompositeTargetDiscoveryConfig", Dict]] = None,
     feature_handling_config: Optional[Any] = None,
+    precomputed: Optional["TrainMlframeSuitePrecomputed"] = None,
     verbose: int = 1,
 ) -> Tuple[Dict, Dict]:
     """
@@ -146,6 +148,15 @@ def train_mlframe_models_suite(
         outlier_detection_config: Outlier-detector + ``apply_to_val``.
 
         verbose: Verbosity level (0=silent, 1=info, 2=debug)
+
+        precomputed: Opt-in ``TrainMlframeSuitePrecomputed`` bundle for repeated-suite-on-same-train
+            benchmarking. When supplied, each non-None field skips the matching in-suite compute step:
+            ``trainset_features_stats`` (skips the stats pass), ``dummy_baselines`` (skips the per-target
+            dummy-baseline pass by short-circuiting via ``dummy_baselines_config.enabled=False`` and
+            pre-seeding ``metadata["dummy_baselines"]``), ``composite_target_specs`` (skips the
+            composite discovery phase and pre-seeds ``metadata["composite_target_specs"]``). Build the
+            bundle via ``mlframe.training.helpers.precompute_all`` or by hand from a prior run's
+            metadata. None (default) preserves legacy behaviour: every step computes inline.
 
     Returns:
         Tuple of (models_dict, metadata_dict)
@@ -439,7 +450,13 @@ def train_mlframe_models_suite(
     # (no pandas-only preprocessor forced a conversion). The polars stats path lazily expresses the
     # numeric/categorical summaries without materialising a pandas copy, so we must branch here
     # rather than always falling through to the pandas-typed get_trainset_features_stats below.
-    if isinstance(train_df, pl.DataFrame):
+    # Opt-in fast path: when caller supplies a pre-computed stats dict via ``precomputed``, skip the
+    # inline pass entirely. Useful for repeated suite runs on the same train frame (benchmarking).
+    if precomputed is not None and precomputed.trainset_features_stats is not None:
+        if verbose:
+            logger.info("Using caller-supplied trainset_features_stats (precomputed bundle); skipping inline compute.")
+        trainset_features_stats = precomputed.trainset_features_stats
+    elif isinstance(train_df, pl.DataFrame):
         if verbose:
             logger.info("Computing trainset_features_stats on Polars...")
         with phase("trainset_features_stats", backend="polars"):
@@ -521,24 +538,33 @@ def train_mlframe_models_suite(
             _discovery_cache_dir = str(_P(data_dir) / ".discovery_cache")
     except Exception:
         _discovery_cache_dir = None
-    target_by_type, metadata = pr.run_composite_target_discovery(
-        composite_target_discovery_config=composite_target_discovery_config,
-        target_by_type=target_by_type,
-        mlframe_models=mlframe_models,
-        metadata=metadata,
-        filtered_train_df=filtered_train_df,
-        filtered_train_idx=filtered_train_idx,
-        train_df_pd=train_df_pd,
-        val_df_pd=val_df_pd,
-        test_df_pd=test_df_pd,
-        train_idx=train_idx,
-        val_idx=val_idx,
-        test_idx=test_idx,
-        baseline_diagnostics_config=baseline_diagnostics_config,
-        cat_features=cat_features,
-        verbose=verbose,
-        discovery_cache_dir=_discovery_cache_dir,
-    )
+    # Opt-in fast path: caller-supplied composite_target_specs bypasses the discovery phase entirely.
+    # Pre-seed metadata so downstream readers (per-target dummy-baseline inversion, predict-time
+    # composite inverse transforms) find the specs in their usual location. target_by_type is left
+    # unchanged because the caller-supplied specs imply the augmented targets already live in it.
+    if precomputed is not None and precomputed.composite_target_specs is not None:
+        if verbose:
+            logger.info("Using caller-supplied composite_target_specs (precomputed bundle); skipping discovery.")
+        metadata["composite_target_specs"] = precomputed.composite_target_specs
+    else:
+        target_by_type, metadata = pr.run_composite_target_discovery(
+            composite_target_discovery_config=composite_target_discovery_config,
+            target_by_type=target_by_type,
+            mlframe_models=mlframe_models,
+            metadata=metadata,
+            filtered_train_df=filtered_train_df,
+            filtered_train_idx=filtered_train_idx,
+            train_df_pd=train_df_pd,
+            val_df_pd=val_df_pd,
+            test_df_pd=test_df_pd,
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            baseline_diagnostics_config=baseline_diagnostics_config,
+            cat_features=cat_features,
+            verbose=verbose,
+            discovery_cache_dir=_discovery_cache_dir,
+        )
 
     (
         train_df_polars, val_df_polars, test_df_polars,
@@ -571,6 +597,24 @@ def train_mlframe_models_suite(
                "train_df_pd", "val_df_pd", "test_df_pd",
                "filtered_train_df", "filtered_val_df"):
         setattr(ctx, _k, locals()[_k])
+
+    # Opt-in fast path: caller-supplied dummy_baselines bypasses the per-target dummy compute.
+    # Pre-seed metadata so downstream summary / verdict consumers find the payload in its usual
+    # location, then shallow-copy dummy_baselines_config with enabled=False so the per-target
+    # ``run_dummy_baselines`` short-circuits (its first guard checks ``config.enabled``).
+    if precomputed is not None and precomputed.dummy_baselines is not None:
+        if verbose:
+            logger.info("Using caller-supplied dummy_baselines (precomputed bundle); skipping per-target compute.")
+        metadata["dummy_baselines"] = precomputed.dummy_baselines
+        try:
+            dummy_baselines_config = dummy_baselines_config.model_copy(update={"enabled": False})
+        except AttributeError:
+            # Defensive: when the config slot is plain dict / SimpleNamespace fall back to attribute set.
+            try:
+                dummy_baselines_config.enabled = False
+            except Exception:
+                pass
+        ctx.dummy_baselines_config = dummy_baselines_config
 
     # Save metadata early so partial training runs leave already-trained models usable.
     _finalize_and_save_metadata(ctx)
