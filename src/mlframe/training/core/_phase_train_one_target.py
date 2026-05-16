@@ -36,6 +36,87 @@ from ..strategies import PipelineCache
 logger = logging.getLogger(__name__)
 
 
+# Candidate metric paths probed (in order) to rank ensemble flavours. ``oof.*`` is the only honest
+# selection surface (cross_val_predict held-out signal, never used for ES); val.* would double-dip on
+# the same surface burned for ES. ``integral_error`` is the canonical calibration metric for
+# classifiers; ``rmse`` is the regression fallback. ``None`` for any metric we can't read => skip.
+_ENSEMBLE_RANK_METRIC_CANDIDATES = (
+    ("oof", "integral_error", "lower"),
+    ("oof", "rmse", "lower"),
+    ("test", "integral_error", "lower"),
+    ("test", "rmse", "lower"),
+    ("val", "integral_error", "lower"),
+    ("val", "rmse", "lower"),
+)
+
+
+def _read_ensemble_metric(ens_result, split: str, metric: str):
+    """Read ``ens_result.metrics[split][metric]`` (or nested int-keyed dict 1) returning float or None.
+
+    The metric layout produced by ``train_and_evaluate_model`` is ``model.metrics[split]`` where the
+    value is either a flat dict or a ``{1: {...}}`` class-indexed nested dict (binary / multiclass).
+    For classifier metrics nested under class 1 the read drills one level; otherwise the flat lookup
+    wins. Any access / type error returns ``None`` so the chooser silently skips the flavour.
+    """
+    try:
+        _m = getattr(ens_result, "metrics", None)
+        if not isinstance(_m, dict):
+            return None
+        _split = _m.get(split)
+        if not isinstance(_split, dict):
+            return None
+        _val = _split.get(metric)
+        if _val is None and 1 in _split and isinstance(_split[1], dict):
+            _val = _split[1].get(metric)
+        if _val is None:
+            return None
+        _f = float(_val)
+        if not np.isfinite(_f):
+            return None
+        return _f
+    except Exception:
+        return None
+
+
+def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
+    """Pick the winning ensemble flavour key from ``score_ensemble``'s return dict.
+
+    ``score_ensemble`` returns ``{flavour_name: ens_result}`` for every candidate it evaluated; the
+    suite has no native "winner" concept so we apply the same selection rule as ``compare_ensembles``
+    (oof.integral_error / rmse ascending). ``" conf"``-suffixed entries (confident-subset variants of
+    each flavour) are skipped here -- they reuse the parent flavour's preds on a different subset and
+    aren't independent candidates. ``_diversity`` is a side-channel report stamped by
+    ``score_ensemble`` rather than an ensemble; skip it too.
+
+    Returns ``None`` when no candidate exposes any of the canonical ranking metrics.
+    """
+    if not isinstance(ensembles_dict, dict) or not ensembles_dict:
+        return None
+    _candidates = {
+        k: v for k, v in ensembles_dict.items()
+        if isinstance(k, str) and not k.endswith(" conf") and not k.startswith("_")
+    }
+    if not _candidates:
+        return None
+    for _split, _metric, _direction in _ENSEMBLE_RANK_METRIC_CANDIDATES:
+        _scored = [
+            (k, _read_ensemble_metric(v, _split, _metric))
+            for k, v in _candidates.items()
+        ]
+        _scored = [(k, s) for k, s in _scored if s is not None]
+        if not _scored:
+            continue
+        if _direction == "lower":
+            _scored.sort(key=lambda kv: kv[1])
+        else:
+            _scored.sort(key=lambda kv: -kv[1])
+        return _scored[0][0]
+    # No candidate exposed any ranking metric: fall back to the first flavour the suite emitted so the
+    # predict path has a deterministic answer rather than None. ``score_ensemble``'s iteration order
+    # mirrors ``ensembling_methods``, so the fallback is reproducible across runs.
+    return next(iter(_candidates.keys()))
+
+
 def _unwrap_selector(pre_pipeline) -> Any:
     """Return the inner MRMR / RFECV / BorutaShap instance, unwrapping a sklearn Pipeline if needed.
 
@@ -1615,6 +1696,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 _target_models = models.setdefault(target_type, {}).setdefault(cur_target_name, [])
                 for _ens_method, _ens_result in _ensembles.items():
                     _target_models.append(_ens_result)
+                # Stamp the winning ensemble flavour so the predict path picks the same flavour the
+                # training selection rule would have picked. Predict reads ``ensembles_chosen``
+                # (see core/predict.py::_resolve_chosen_flavour) which expects the nested layout
+                # ``{target_type: {target_name: flavour}}``. A None winner (no candidate exposed a
+                # ranking metric) is intentionally NOT stamped so the predict-side fallback fires.
+                try:
+                    _chosen = _choose_ensemble_flavour(_ensembles)
+                    if _chosen is not None:
+                        metadata.setdefault("ensembles_chosen", {}).setdefault(target_type, {})[cur_target_name] = _chosen
+                except Exception as _choose_err:
+                    logger.warning("ensembles_chosen stamp failed for %s/%s: %s", target_type, cur_target_name, _choose_err)
 
     ctx.models = models
     ctx.metadata = metadata
