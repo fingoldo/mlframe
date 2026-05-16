@@ -1096,3 +1096,68 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_wins_on_low_entropy_targe
     assert auc_rel >= auc_abs - 0.01, (
         f"relative-mode AUC must not be more than 0.01 below absolute-mode AUC; got auc_rel={auc_rel:.4f}, auc_abs={auc_abs:.4f} (k_rel={k_rel}, k_abs={k_abs})"
     )
+
+
+# ---------------------------------------------------------------------------
+# sample_weight: recency-weighted FS picks a different top-1 than uniform
+# ---------------------------------------------------------------------------
+
+
+def test_biz_val_mrmr_sample_weight_flips_top_feature_under_recency_vs_uniform():
+    """Two informative features split by time-half: feature A drives y on the recent half, feature B drives
+    y on the older half. Under uniform weighting, the older half pulls relevance toward B (and they tie or
+    B edges A); under recency-weighted MRMR, A's relevance dominates -> top-1 selection differs.
+
+    The biz-value win: weight-aware MRMR can surface a feature that captures CURRENT regime signal even when
+    the historical regime carried different signal -- a real production scenario where the feature universe
+    has changed but training data still mixes both regimes.
+    """
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(123)
+    n = 1500
+    # Time axis: index 0..n-1 (0=oldest, n-1=newest). Older slice is 2x bigger than recent slice so under
+    # uniform weighting, B (older-regime driver) edges out A on relevance; under recency weighting the
+    # imbalance reverses and A (recent-regime driver) wins top-1.
+    n_recent = n // 3
+    is_recent = np.zeros(n, dtype=bool)
+    is_recent[-n_recent:] = True
+    x_a = rng.normal(size=n)
+    x_b = rng.normal(size=n)
+    # Strong signal: y_cont = active_feature + small noise. Stronger signal-to-noise -> easier for MRMR to
+    # discriminate per-regime.
+    noise_y = 0.1 * rng.normal(size=n)
+    # On recent rows y depends only on A; on older rows y depends only on B.
+    y_cont = np.where(is_recent, 2.0 * x_a, 2.0 * x_b) + noise_y
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+
+    # Two distractor features so MRMR has 4 candidates total (top-1 selection is meaningful).
+    x_c = rng.normal(size=n)
+    x_d = rng.normal(size=n)
+    df = pd.DataFrame({"A": x_a, "B": x_b, "C": x_c, "D": x_d})
+    ys = pd.Series(y, name="y")
+
+    # Step-function recency weights: zero on older half, full on recent half. With binary mass-on-recent the
+    # resampled distribution is exactly the recent-only subset -- A is the only relevance driver there.
+    recency_w = np.where(is_recent, 1.0, 0.0001)
+
+    def _top1_with_weights(sw):
+        sel = MRMR(verbose=0, random_seed=11, max_runtime_mins=1.0)
+        sel.fit(df, ys, sample_weight=sw)
+        if len(sel.support_) == 0:
+            return None
+        # support_ is integer column index; convert back to column name for human-readable assertions.
+        idx = int(sel.support_[0])
+        return df.columns[idx] if idx < len(df.columns) else str(sel.support_[0])
+
+    top1_uniform = _top1_with_weights(None)
+    top1_recency = _top1_with_weights(recency_w)
+    # The biz-value claim: recency weighting selects a different top-1, AND that top-1 is A (recent driver),
+    # i.e. the encoder-style "stable across schemas" assumption is violated when the operator opts in.
+    assert top1_recency == "A", (
+        f"recency-weighted MRMR should surface feature A (recent-regime driver) as top-1; got {top1_recency!r}"
+    )
+    assert top1_uniform != top1_recency, (
+        f"uniform-weight top-1 must differ from recency-weighted top-1 to demonstrate the biz-value win; "
+        f"got uniform={top1_uniform!r}, recency={top1_recency!r}"
+    )
