@@ -1125,6 +1125,64 @@ def _process_single_ensemble_method(
     return (internal_ensemble_method, next_ens_results, conf_results)
 
 
+def compute_high_correlation_pairs(
+    members: Sequence,
+    member_tags: Sequence[str],
+    threshold: float = 0.98,
+) -> tuple[list[dict], Optional[str]]:
+    """Return pairs of ensemble members whose predictions are correlated above ``threshold`` plus the split that fed the check.
+
+    Diversity is checked once on whichever prediction array is universally available across members, in this precedence:
+    ``val_preds -> test_preds -> train_preds -> val_probs -> test_probs -> train_probs``. Probabilistic outputs collapse
+    to a single column (last) for the correlation proxy; full multinomial diversity is overkill for near-duplicate detection.
+    Members with a constant vector on the chosen split (std == 0) or fewer than 2 finite shared samples are skipped, not flagged.
+
+    No mutation here - the caller decides what to do (WARN, persist, drop). Today the only caller (``score_ensemble``) just warns.
+    """
+    pairs: list[dict] = []
+    if len(members) < 2:
+        return pairs, None
+    arrays: list[np.ndarray] = []
+    split_used: Optional[str] = None
+    for attr in ("val_preds", "test_preds", "train_preds"):
+        cand = [getattr(m, attr, None) for m in members]
+        if all(p is not None for p in cand):
+            arrays = [np.asarray(p, dtype=np.float64).ravel() for p in cand]
+            split_used = attr
+            break
+    if not arrays:
+        for attr in ("val_probs", "test_probs", "train_probs"):
+            cand = [getattr(m, attr, None) for m in members]
+            if all(p is not None for p in cand):
+                arrays = []
+                for p in cand:
+                    arr = np.asarray(p, dtype=np.float64)
+                    arrays.append(arr[:, -1].ravel() if arr.ndim == 2 and arr.shape[1] >= 1 else arr.ravel())
+                split_used = attr
+                break
+    if not arrays:
+        return pairs, None
+    if not all(a.size == arrays[0].size and a.size >= 2 for a in arrays):
+        return pairs, split_used
+    for i in range(len(arrays)):
+        for j in range(i + 1, len(arrays)):
+            a, b = arrays[i], arrays[j]
+            mask = np.isfinite(a) & np.isfinite(b)
+            if int(mask.sum()) < 2:
+                continue
+            av, bv = a[mask], b[mask]
+            if float(av.std()) == 0.0 or float(bv.std()) == 0.0:
+                continue
+            corr = float(np.corrcoef(av, bv)[0, 1])
+            if not np.isfinite(corr):
+                continue
+            if abs(corr) > threshold:
+                m1 = member_tags[i] if i < len(member_tags) else f"member_{i}"
+                m2 = member_tags[j] if j < len(member_tags) else f"member_{j}"
+                pairs.append({"m1": m1, "m2": m2, "corr": corr})
+    return pairs, split_used
+
+
 def score_ensemble(
     models_and_predictions: Sequence,
     ensemble_name: str,
@@ -1163,6 +1221,7 @@ def score_ensemble(
     verbose: bool = True,
     flag_degenerate_conf_subset: bool = True,
     degenerate_class_ratio: float = 0.01,
+    diversity_corr_warn_threshold: float = 0.98,
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models.
@@ -1348,6 +1407,28 @@ def score_ensemble(
             max_std = 0.0
             max_mae_relative = 0.0
             max_std_relative = 0.0
+
+    # Observational diversity check: pairs of kept members whose val-pred Pearson correlation exceeds the threshold are
+    # surfaced via WARN + persisted to the returned dict under ``_diversity.high_correlation_pairs``. No member is removed
+    # here -- the user explicitly rejected auto-drop: ensembles tolerate redundancy fine (mean / median absorb it), but
+    # operators want visibility on near-duplicates to prune at the suite-definition stage rather than silently.
+    _high_corr_pairs, _div_split_used = compute_high_correlation_pairs(
+        level_models_and_predictions,
+        _ensemble_member_tags,
+        threshold=diversity_corr_warn_threshold,
+    )
+    for _pair in _high_corr_pairs:
+        logger.warning(
+            "[ensemble] high-correlation member pair (split=%s): %s vs %s -- Pearson corr=%.4f > threshold=%.4f. "
+            "Both members retained; consider pruning one at suite-definition time to reduce wasted compute.",
+            _div_split_used,
+            _pair["m1"],
+            _pair["m2"],
+            _pair["corr"],
+            diversity_corr_warn_threshold,
+        )
+    if _high_corr_pairs:
+        res["_diversity"] = {"high_correlation_pairs": _high_corr_pairs, "threshold": diversity_corr_warn_threshold, "split_used": _div_split_used}
 
     # I2 (2026-05-11): for regression, gate-out harmonic / geometric ensemble flavours when ANY member's predictions contain near-zero values or sign changes. Harmonic mean = N / sum(1/p) and geometric mean = exp(mean(log p)) both diverge / are undefined on signals that cross zero. Symptom seen in the prod log: ``EnsHARM ... RMSE=178.84 MaxError=55206`` and ``RMSE=1299.55 MaxError=920165`` on composite residuals which cluster around zero by construction.
     #
