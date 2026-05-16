@@ -27,7 +27,7 @@ def _is_polars_df(x: Any) -> bool:
 # R&D workflows often re-run ``CompositeTargetDiscovery`` on the same data while only varying the inner-model hyperparameters. The discovery step (MI permutation null, Wilcoxon per spec, tiny-model rerank) burns minutes on multi-million-row datasets. The caching layer keys discovery results by a content hash of (data-sample, target-column, config-signature, random_state) so repeated discovery calls with the same inputs return the cached specs in milliseconds.
 #
 # Three primitives:
-# 1. ``data_signature(df, target_col, feature_cols, sample_n=1000, random_state=42)`` -- blake2b hash over a deterministic sample of the data + column names + dtypes. Quantises to a 16-byte fingerprint that survives row-permutation.
+# 1. ``data_signature(df, target_col, feature_cols, sample_n=1000, random_state=42)`` -- blake2b hash over a deterministic sample of the data + column names + dtypes + a head/tail row-order fingerprint. Quantises to a 16-byte fingerprint that is SENSITIVE to row reorder (changed in commit 4e2f031 / 2026-05-16): a shuffled frame produces a different signature than the original, so reorder no longer replays a stale spec.
 # 2. ``DiscoveryCache(cache_dir)`` -- disk-backed key->value store. Keys are hex strings; values are pickled (using stdlib ``pickle``; safe since the values are dataclass-derived dicts, not arbitrary user objects). API: ``get(key)`` / ``set(key, value)`` / ``invalidate(key)`` / ``clear()`` / ``__contains__``.
 # 3. Convenience ``make_discovery_cache_key(df_sig, target_col, config_signature, random_state)`` -- combines the parts into a stable hex key.
 #
@@ -79,7 +79,17 @@ def data_signature(
 ) -> str:
     """Content-hash signature for a (df, target_col, feature_cols) triple.
 
-    Deterministic sample of ``min(n_rows, sample_n)`` rows + column names + dtypes + a cheap first-and-last row fingerprint, hashed via blake2b to a 16-byte hex fingerprint. The first/last row fingerprint makes the signature change when rows are reordered -- pre-2026-05-16 the signature was stable under row REORDER, so a shuffled frame got cache hits on a stale spec. Still NOT stable under row INSERTION (which would change the sample composition). Suitable for the R&D workflow where the underlying frame is the same across runs.
+    Deterministic sample of ``min(n_rows, sample_n)`` rows + column names + dtypes + a cheap first-and-last row fingerprint, hashed via blake2b to a 16-byte hex fingerprint.
+
+    Row-order sensitivity (commit 4e2f031, 2026-05-16): the signature is now
+    SENSITIVE TO ROW ORDER. ``_row_order_fingerprint`` hashes the head and
+    tail of the frame, so a shuffled frame produces a different signature
+    than the original. The pre-fix docstring stated the signature was
+    "stable under row REORDER" - that was the bug (shuffled frames got
+    cache hits on stale specs). Note that this also means: the signature
+    DOES change when row insertion shifts the sample composition or
+    perturbs head/tail rows, which is the intended behaviour for the R&D
+    workflow where the underlying frame is the same across runs.
 
     Parameters
     ----------
