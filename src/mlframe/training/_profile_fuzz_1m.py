@@ -113,11 +113,34 @@ def _make_synthetic_frame(target_type: str, n_rows: int, seed: int = 42):
     add_cat_mid = bool(rng.integers(0, 2))
     add_text = rng.random() < 0.30
     add_embedding = rng.random() < 0.20
+    # Data-quality variability: exercise the NaN-handling, drop-constant-
+    # columns and correlation-aware paths. Probabilities deliberately
+    # high enough to fire in most iterations.
+    nan_fraction = float(rng.choice([0.0, 0.0, 0.05, 0.2]))  # 50% no-NaN, 25% sparse, 25% heavy
+    add_constant_col = rng.random() < 0.30
+    add_correlated_col = rng.random() < 0.30
 
     cols = {
         f"x{i}": rng.normal(size=n_rows).astype("float32")
         for i in range(6)
     }
+    if nan_fraction > 0:
+        # Inject NaN into TWO numeric columns at the given fraction
+        # so the imputer / fill_null paths actually fire. Cast to
+        # float32 explicitly because numpy.where + nan upcasts.
+        for _c in ("x2", "x4"):
+            _mask = rng.random(n_rows) < nan_fraction
+            cols[_c] = np.where(_mask, np.float32("nan"), cols[_c]).astype("float32")
+    if add_constant_col:
+        # A constant column - exercise remove_constant_columns. Using a
+        # single value forces both min==max and (with eq_missing) the
+        # all-null edge case to be reachable through the same code path.
+        cols["x_const"] = np.full(n_rows, 7.0, dtype="float32")
+    if add_correlated_col:
+        # Heavily correlated with x0 (rho ~0.99). Stresses the MRMR /
+        # RFECV redundancy detection and any covariance-based path.
+        _noise = rng.normal(scale=0.05, size=n_rows).astype("float32")
+        cols["x_corr_x0"] = (cols["x0"] + _noise).astype("float32")
     # Always keep two int "id-like" columns so the suite has enough
     # usable features regardless of the cat / text / embedding axes.
     cols["c_low"] = rng.integers(0, 5, n_rows).astype("int32")

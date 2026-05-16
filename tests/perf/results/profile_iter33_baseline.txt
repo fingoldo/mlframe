@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=1_000_000, models=('lgb',), save_charts=False)
+
+=== binary_classification x lgb ===
+  built frame: 1_000_000 rows x 9 cols
+  wall: 11.0s  status: OK
+         536989 function calls (518630 primitive calls) in 11.035 seconds
+
+   Ordered by: cumulative time
+   List reduced from 3328 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.003    0.003   11.030   11.030 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.003    0.003   10.094   10.094 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000    9.856    9.856 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000    9.856    9.856 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000    9.855    9.855 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        1    0.001    0.001    8.668    8.668 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.000    0.000    8.666    8.666 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
+        1    0.007    0.007    8.630    8.630 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
+      198    0.001    0.000    5.220    0.026 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4410(eval_valid)
+      198    0.002    0.000    5.219    0.026 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4442(<listcomp>)
+      198    0.135    0.001    5.217    0.026 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:5170(__inner_eval)
+      198    0.003    0.000    4.251    0.021 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:280(__call__)
+      202    0.058    0.000    4.224    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2858(compute_probabilistic_multiclass_error)
+      198    0.001    0.000    4.215    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:576(lgbm_integral_calibration_error)
+      198    0.057    0.000    4.214    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:399(integral_calibration_error)
+      202    3.839    0.019    3.840    0.019 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2606(_batch_per_class_ice_kernel)
+      198    3.125    0.016    3.126    0.016 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4092(update)
+        2    0.000    0.000    1.165    0.582 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    1.164    0.582 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.002    0.001    1.160    0.580 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+      198    0.819    0.004    0.823    0.004 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:5215(__inner_predict)
+        1    0.001    0.001    0.755    0.755 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1056(_phase_train_val_test_split)
+        1    0.006    0.006    0.710    0.710 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\splitting.py:79(make_train_test_split)
+        2    0.020    0.010    0.680    0.340 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\splitting.py:23(_stratified_split)
+2703/2641    0.001    0.000    0.669    0.000 {built-in method builtins.next}
+        4    0.004    0.001    0.659    0.165 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\model_selection\_split.py:1897(split)
+        4    0.424    0.106    0.656    0.164 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\model_selection\_split.py:2318(_iter_indices)
+       16    0.000    0.000    0.640    0.040 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+       16    0.001    0.000    0.636    0.040 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+        1    0.000    0.000    0.595    0.595 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+
+
+
+
+# Wall-time summary:
+  binary_classification x lgb                                11.0s  OK
