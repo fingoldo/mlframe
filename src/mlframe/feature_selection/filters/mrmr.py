@@ -685,13 +685,71 @@ class MRMR(BaseEstimator, TransformerMixin):
             state.setdefault(k, v)
         self.__dict__.update(state)
 
-    def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
+    def _maybe_resample_for_sample_weight(self, X, y, sample_weight: np.ndarray | None):
+        """When ``sample_weight`` is provided AND not effectively uniform, draw n=len(X) rows with replacement
+        using probabilities w_i / sum(w). The resampled empirical bincount approximates the weighted bincount
+        (np.bincount(x, weights=w) up to MC noise), so MI relevance / redundancy estimated downstream from
+        binned joint histograms becomes weight-aware without touching info_theory / screen internals.
+        Returns (X, y) unchanged when sample_weight is None / all-equal (preserves byte-for-byte legacy path
+        and lets the FS cache reuse a single fit across uniform-weight callers)."""
+        if sample_weight is None:
+            return X, y
+        sw = np.asarray(sample_weight, dtype=np.float64)
+        if sw.ndim != 1:
+            raise ValueError(f"MRMR.fit sample_weight must be 1-D, got shape {sw.shape}")
+        n_rows = X.shape[0]
+        if sw.shape[0] != n_rows:
+            raise ValueError(f"MRMR.fit sample_weight length {sw.shape[0]} != n_rows {n_rows}")
+        if not np.all(np.isfinite(sw)) or (sw < 0).any():
+            raise ValueError("MRMR.fit sample_weight must be finite and non-negative")
+        total = float(sw.sum())
+        if total <= 0:
+            raise ValueError("MRMR.fit sample_weight sums to zero")
+        # Uniform -> nothing to do (preserves bit-exact legacy + cache reuse).
+        if float(sw.max() - sw.min()) <= 1e-12 * max(1.0, abs(float(sw.mean()))):
+            return X, y
+        rng = np.random.default_rng(self.random_seed if self.random_seed is not None else 0)
+        probs = sw / total
+        idx = rng.choice(n_rows, size=n_rows, replace=True, p=probs)
+        # iloc preserves dtypes / category metadata; works on pandas + polars (via take) + numpy.
+        try:
+            import polars as _pl
+            if isinstance(X, _pl.DataFrame):
+                X_rs = X[idx.tolist()] if hasattr(X, "__getitem__") else X.take(idx)
+            elif isinstance(X, pd.DataFrame):
+                X_rs = X.iloc[idx]
+            else:
+                X_rs = np.asarray(X)[idx]
+        except ImportError:
+            if isinstance(X, pd.DataFrame):
+                X_rs = X.iloc[idx]
+            else:
+                X_rs = np.asarray(X)[idx]
+        if isinstance(y, (pd.Series, pd.DataFrame)):
+            y_rs = y.iloc[idx]
+        else:
+            y_rs = np.asarray(y)[idx]
+        return X_rs, y_rs
+
+    def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
         """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
         temporary target columns injected into a caller-supplied pandas frame are always dropped,
         even if screening / cat-FE / discretization raises. Pre-fix code dropped only on success,
-        leaking ``targ_*`` columns into the caller's DataFrame on failure paths."""
+        leaking ``targ_*`` columns into the caller's DataFrame on failure paths.
+
+        sample_weight: optional per-row weights. When provided and non-uniform, rows of (X, y) are
+        resampled with replacement using probabilities proportional to sample_weight before screening;
+        the resampled distribution converges to the weighted bincount target distribution as N grows,
+        so MI relevance / redundancy (computed downstream via binned joint histograms) becomes
+        weight-aware without modifying screen / info_theory internals. sample_weight=None retains the
+        old code path byte-for-byte (regression sentry)."""
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
+        # Persist user-supplied weights so cached _cat_fe_state_ / FE replay can introspect; cache key
+        # below already excludes weights so the FS-cache reuse contract stays intact when the suite
+        # caller decides to gate weight-aware MRMR behind FeatureSelectionConfig.use_sample_weights_in_fs.
+        self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
+        X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
         try:
             return self._fit_impl(X, y, groups, **fit_params)
         finally:
