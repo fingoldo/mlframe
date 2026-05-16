@@ -1,0 +1,51 @@
+# 1M-row e2e profile (n_rows=1_000_000, models=('cb', 'lgb'), save_charts=False)
+
+=== regression x cb,lgb ===
+  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_const', 'x_corr_x0', 'c_low', 'c_mid', 'cat_low', 'text_col', 'y']
+  built frame: 1_000_000 rows x 13 cols
+  CatBoost is in mlframe_models AND pipeline_config.categorical_encoding='ordinal' AND cat_features is non-empty (2 cols). CB will see integer-coded inputs instead of categoricals and lose its native cat-handling (combinations, target-statistics). Set categorical_encoding=None or skip_categorical_encoding=True to let CatBoost handle cat_features natively.
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s][phase] process_model RAISED ValueError after 0.02s model=cb weight=uniform
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]
+  wall: 2.0s  status: ValueError: train target contains 162_335 NaN value(s). Clean the target before training.
+         87929 function calls (84149 primitive calls) in 2.023 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1936 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.013    0.013    2.018    2.018 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.007    0.007    0.859    0.859 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:691(_phase_fit_pipeline)
+        1    0.000    0.000    0.840    0.840 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\pipeline.py:974(fit_and_transform_pipeline)
+      5/3    0.000    0.000    0.839    0.280 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\_set_output.py:314(wrapped)
+        1    0.003    0.003    0.760    0.760 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:851(fit_transform)
+        5    0.041    0.008    0.726    0.145 D:\ProgramData\anaconda3\Lib\site-packages\category_encoders\ordinal.py:213(ordinal_encoding)
+        4    0.022    0.005    0.689    0.172 D:\ProgramData\anaconda3\Lib\site-packages\category_encoders\utils.py:649(transform)
+        1    0.011    0.011    0.655    0.655 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1240(_phase_load_and_preprocess)
+        4    0.000    0.000    0.588    0.147 D:\ProgramData\anaconda3\Lib\site-packages\category_encoders\ordinal.py:142(_transform)
+        1    0.009    0.009    0.446    0.446 D:\ProgramData\anaconda3\Lib\site-packages\category_encoders\utils.py:435(fit)
+        4    0.000    0.000    0.366    0.091 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\frame.py:3677(memory_usage)
+        4    0.000    0.000    0.361    0.090 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\frame.py:3767(<listcomp>)
+        1    0.000    0.000    0.359    0.359 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_ram_helpers.py:113(estimate_df_size_mb)
+       48    0.000    0.000    0.359    0.007 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\series.py:5451(memory_usage)
+       48    0.358    0.007    0.359    0.007 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\base.py:1139(_memory_usage)
+       68    0.001    0.000    0.319    0.005 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:317(apply)
+        8    0.000    0.000    0.306    0.038 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\series.py:2356(unique)
+        8    0.000    0.000    0.306    0.038 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\base.py:1023(unique)
+        8    0.004    0.001    0.306    0.038 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\algorithms.py:307(unique)
+        8    0.257    0.032    0.302    0.038 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\algorithms.py:427(unique_with_mask)
+        8    0.000    0.000    0.290    0.036 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\series.py:4639(map)
+       11    0.002    0.000    0.289    0.026 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\base.py:895(_map_values)
+       11    0.000    0.000    0.286    0.026 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\algorithms.py:1667(map_array)
+       16    0.000    0.000    0.273    0.017 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\indexes\base.py:3827(get_indexer)
+        1    0.000    0.000    0.248    0.248 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\preprocessing.py:231(preprocess_dataframe)
+       31    0.000    0.000    0.239    0.008 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:576(copy)
+      153    0.239    0.002    0.239    0.002 {method 'copy' of 'numpy.ndarray' objects}
+       16    0.234    0.015    0.234    0.015 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\indexes\base.py:3962(_get_indexer)
+        1    0.001    0.001    0.227    0.227 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        4    0.000    0.000    0.212    0.053 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\base.py:1032(nunique)
+
+
+
+
+# Wall-time summary:
+  regression x cb,lgb                                         2.0s  ValueError: train target contains 162_335 NaN value(s). Clean the target before training.

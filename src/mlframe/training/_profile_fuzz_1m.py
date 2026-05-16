@@ -124,13 +124,6 @@ def _make_synthetic_frame(target_type: str, n_rows: int, seed: int = 42):
         f"x{i}": rng.normal(size=n_rows).astype("float32")
         for i in range(6)
     }
-    if nan_fraction > 0:
-        # Inject NaN into TWO numeric columns at the given fraction
-        # so the imputer / fill_null paths actually fire. Cast to
-        # float32 explicitly because numpy.where + nan upcasts.
-        for _c in ("x2", "x4"):
-            _mask = rng.random(n_rows) < nan_fraction
-            cols[_c] = np.where(_mask, np.float32("nan"), cols[_c]).astype("float32")
     if add_constant_col:
         # A constant column - exercise remove_constant_columns. Using a
         # single value forces both min==max and (with eq_missing) the
@@ -202,6 +195,18 @@ def _make_synthetic_frame(target_type: str, n_rows: int, seed: int = 42):
             cols[f"y_{k}"] = (rng.uniform(0, 1, n_rows) < prob).astype("int32")
     else:
         raise ValueError(f"unsupported target_type {target_type!r}")
+    if nan_fraction > 0:
+        # Inject NaN AFTER target build so the target stays clean (any
+        # column referenced in the target formula would propagate NaN
+        # into y otherwise, crashing process_model with "train target
+        # contains N NaN values"). x4, x5 are unreferenced in every
+        # target_type formula above; safe to perturb.
+        # Skip x_const so remove_constant_columns still flags it.
+        for _c in ("x4", "x5"):
+            if _c in cols:
+                _mask = rng.random(n_rows) < nan_fraction
+                cols[_c] = np.where(_mask, np.float32("nan"), cols[_c]).astype("float32")
+
     if use_polars:
         try:
             import polars as pl

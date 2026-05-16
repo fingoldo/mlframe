@@ -751,13 +751,25 @@ def _phase_fit_pipeline(
             except Exception:
                 _declared_cats = []
     if _has_cb and _ordinal and _declared_cats:
+        # Previously a WARN-only check. Surfaced by the diverse-harness
+        # fuzz profile (iter#36 with cat_low + text_col + cb): the ordinal
+        # encoder turned text_col into ints, which CatBoost then refused
+        # with "Invalid type for text_feature ... must have string type".
+        # Auto-flip skip_categorical_encoding=True so CB sees the original
+        # categorical/text columns and uses its native handling. Caller can
+        # still force the old behaviour via
+        # PreprocessingBackendConfig(skip_categorical_encoding=False).
         logger.warning(
-            "  CatBoost is in mlframe_models AND pipeline_config.categorical_encoding='ordinal' AND "
-            "cat_features is non-empty (%d cols). CB will see integer-coded inputs instead of categoricals "
-            "and lose its native cat-handling (combinations, target-statistics). Set "
-            "categorical_encoding=None or skip_categorical_encoding=True to let CatBoost handle cat_features natively.",
+            "  CatBoost in mlframe_models + categorical_encoding='ordinal' + %d "
+            "categorical column(s) detected. Auto-flipping "
+            "skip_categorical_encoding=True so CB keeps native cat-handling "
+            "(combinations, target-statistics) and text_features stay string-typed. "
+            "Set skip_categorical_encoding=False explicitly to restore the previous "
+            "ordinal-then-CB behaviour.",
             len(_declared_cats),
         )
+        pipeline_config = pipeline_config.model_copy(update={"skip_categorical_encoding": True})
+        _ordinal = False
 
     # Auto-skip categorical encoding when all models handle categoricals natively. Runs AFTER the CB+ordinal
     # WARN above so the warning fires on the user's *requested* config rather than the auto-flipped one.
