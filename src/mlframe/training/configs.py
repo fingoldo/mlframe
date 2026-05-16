@@ -657,6 +657,8 @@ class FeatureSelectionConfig(BaseConfig):
     # Suite-level override for the RFECV leakage check that was previously hardcoded as a constructor default. Exposed here so operators can retune the threshold without instantiating RFECV objects manually.
     # rfecv_leakage_corr_threshold: at fit entry RFECV checks |Pearson(X_i, y)| against this; columns above the threshold are routed through ``leakage_action`` ('warn'/'exclude'/'raise'). Set ``None`` to disable the check.
     rfecv_leakage_corr_threshold: Optional[float] = 0.95
+    # rfecv_mbh_adaptive_threshold: when the per-fit MBH evaluation budget is <= this value, the surrogate switches from a CatBoost model (~500ms fixed overhead per fit) to a sklearn ExtraTreesRegressor (~20ms). 30 was the historical hardcoded crossover; tune up on tiny outer estimators (LR / Ridge) where CB overhead still dominates at larger budgets, tune down when the surrogate noise from a 20-tree ETR hurts selection quality.
+    rfecv_mbh_adaptive_threshold: int = 30
 
     @field_validator("mrmr_kwargs")
     @classmethod

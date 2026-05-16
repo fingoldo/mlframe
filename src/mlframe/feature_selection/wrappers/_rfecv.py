@@ -212,6 +212,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         leakage_corr_threshold: Union[float, None] = 0.95,
         # leakage_action: 'warn' only logs; 'exclude' auto-drops the column (treats it like must_exclude); 'raise' aborts the fit.
         leakage_action: str = "warn",
+        # mbh_adaptive_threshold: cutoff (in MBH evaluation budget) below which the surrogate switches from CatBoost (~500ms fixed overhead) to sklearn ExtraTreesRegressor (~20ms).
+        # The historical hardcoded value was 30; tune up when the outer estimator is so cheap that CB's fixed cost dominates even at larger budgets, tune down when ETR's 20-tree noise hurts selection.
+        mbh_adaptive_threshold: int = 30,
         # feature_groups: maps group_name -> list of column names; support_ then reflects an all-or-nothing decision at the group level (all members in, or all out).
         # Resolves the "5 collinear copies" caveat at configuration level when the operator knows the groups (e.g. one-hot expansions).
         feature_groups: Union[dict, None] = None,
@@ -1111,8 +1114,10 @@ class RFECV(BaseEstimator, TransformerMixin):
             _user_cfg = dict(self.optimizer_config) if self.optimizer_config else {}
             _user_model_name = _user_cfg.pop("model_name", None)
             _user_model_params = dict(_user_cfg.pop("model_params", {}) or {})
+            # Adaptive surrogate threshold is operator-tunable: 30 was the historical hardcoded crossover, but very-cheap outer estimators benefit from higher cutoffs (CB overhead still dominates at budgets in the 30..60 range) while heavy outer estimators may prefer the noisier ETR even lower.
+            _mbh_adaptive_threshold = getattr(self, "mbh_adaptive_threshold", 30)
             if _user_model_name is None:
-                if _max_evals_budget <= 30:
+                if _max_evals_budget <= _mbh_adaptive_threshold:
                     _auto_model_name = "ETR"
                 else:
                     _auto_model_name = "CBQ"

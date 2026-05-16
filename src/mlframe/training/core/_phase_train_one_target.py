@@ -19,7 +19,7 @@ from pyutilz.strings import slugify
 from pyutilz.system import tqdmu_lazy_start
 
 from mlframe.models.ensembling import score_ensemble
-from .._ram_helpers import maybe_clean_ram_and_gpu
+from .._ram_helpers import estimate_df_size_mb, get_process_rss_mb, maybe_clean_ram_and_gpu
 from ..phases import phase
 from ..models import is_neural_model
 from ..strategies import get_strategy
@@ -69,6 +69,55 @@ def _forward_dataset_reuse_cache(src, dst, attrs=_DATASET_REUSE_CACHE_ATTRS, *, 
             setattr(dst, _attr, _val)
         except Exception as _attr_err:
             logger.debug("Could not transfer %s from %r to %r: %s", _attr, type(src).__name__, type(dst).__name__, _attr_err)
+
+
+# Heuristic: if reclaim is under this share of the dropped-frame footprint, something is still pinning the buffers.
+_POLARS_RELEASE_MIN_RECLAIM_FRACTION = 0.05
+
+
+def _release_ctx_polars_frames(
+    ctx,
+    baseline_rss_mb: float,
+    df_size_mb: float,
+    *,
+    verbose: bool,
+    reason: str,
+) -> float:
+    """Drop ctx.{train,val,test}_df_polars strong refs, then trigger maybe_clean_ram_and_gpu and verify reclaim.
+
+    The naked ``del train_df_polars`` at each call site only released the local alias inside
+    ``_train_one_target``; the ctx attributes (assigned at lines 123-125 from ctx.*_df_polars) kept the
+    real strong reference alive, so ``maybe_clean_ram_and_gpu`` had nothing to reclaim and the log line
+    claiming a release was misleading. Centralised here so both call sites stay in sync and the post-release
+    sanity check (RSS drop vs estimated frame footprint) flags any future regression where a new strong
+    ref to the same frames is introduced upstream without being scrubbed here.
+    """
+    expected_mb = 0.0
+    for _attr in ("train_df_polars", "val_df_polars", "test_df_polars"):
+        _frame = getattr(ctx, _attr, None)
+        if _frame is None:
+            continue
+        try:
+            _sz = estimate_df_size_mb(_frame)
+        except Exception:
+            _sz = 0.0
+        if _sz and _sz != float("inf"):
+            expected_mb += float(_sz)
+    rss_before_mb = get_process_rss_mb()
+    ctx.train_df_polars = None
+    ctx.val_df_polars = None
+    ctx.test_df_polars = None
+    new_baseline = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason=reason)
+    if expected_mb > 0.0:
+        rss_after_mb = get_process_rss_mb()
+        delta_mb = rss_before_mb - rss_after_mb
+        if delta_mb < _POLARS_RELEASE_MIN_RECLAIM_FRACTION * expected_mb:
+            logger.warning(
+                "ctx polars frames released but RSS dropped only %.1f MB; expected at least %.1f MB - check for lingering refs",
+                delta_mb,
+                expected_mb,
+            )
+    return new_baseline
 
 
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
@@ -296,6 +345,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         mrmr_kwargs=mrmr_kwargs,
         custom_pre_pipelines=custom_pre_pipelines,
         rfecv_leakage_corr_threshold=feature_selection_config.rfecv_leakage_corr_threshold,
+        rfecv_mbh_adaptive_threshold=feature_selection_config.rfecv_mbh_adaptive_threshold,
     )
 
     # Custom transformers run AFTER preprocessing, so the preprocessing output is shared across
@@ -419,12 +469,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 not strategy.supports_polars
                 and train_df_polars is not None
             ):
+                # Drop locals AND ctx attributes -- ctx still pins the strong ref to the same frames
+                # assigned via ctx.*_df_polars at function entry, so a bare ``del`` of the locals would
+                # leave maybe_clean_ram_and_gpu with nothing to reclaim and turn the log line into a lie.
                 del train_df_polars, val_df_polars, test_df_polars
                 train_df_polars = val_df_polars = test_df_polars = None
                 tier_dfs_cache.clear()
                 tier_enum_map_cache.clear()
-                baseline_rss_mb = maybe_clean_ram_and_gpu(
-                    baseline_rss_mb, df_size_mb,
+                baseline_rss_mb = _release_ctx_polars_frames(
+                    ctx,
+                    baseline_rss_mb,
+                    df_size_mb,
                     verbose=verbose,
                     reason="non-polars-native strategy entry",
                 )
@@ -921,11 +976,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             cur_tier = strategy.feature_tier()
             if prev_tier is not None and cur_tier != prev_tier and not strategy.supports_polars:
                 if train_df_polars is not None:
+                    # Same rationale as the entry-site release: locals AND ctx attributes must both drop their refs.
                     del train_df_polars, val_df_polars, test_df_polars
                     train_df_polars = val_df_polars = test_df_polars = None
                     tier_dfs_cache.clear()
                     tier_enum_map_cache.clear()
-                    baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="tier transition")
+                    baseline_rss_mb = _release_ctx_polars_frames(ctx, baseline_rss_mb, df_size_mb, verbose=verbose, reason="tier transition")
                     if verbose:
                         logger.info("  Released pre-pipeline Polars originals (tier transition)")
             prev_tier = cur_tier

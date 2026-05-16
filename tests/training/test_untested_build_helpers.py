@@ -204,6 +204,23 @@ def test_build_pre_pipelines_rfecv_leakage_corr_threshold_applied():
     assert fake.leakage_corr_threshold == 0.80
 
 
+def test_build_pre_pipelines_rfecv_mbh_adaptive_threshold_applied():
+    """``FeatureSelectionConfig.rfecv_mbh_adaptive_threshold`` must reach the RFECV instance so operators can shift the CB/ETR surrogate crossover off the hardcoded 30."""
+    class FakeRFECV:
+        mbh_adaptive_threshold = 30
+    fake = FakeRFECV()
+    pipes, _ = _build_pre_pipelines(
+        use_ordinary_models=False,
+        rfecv_models=["cb_rfecv"],
+        rfecv_models_params={"cb_rfecv": fake},
+        use_mrmr_fs=False,
+        mrmr_kwargs={},
+        rfecv_mbh_adaptive_threshold=75,
+    )
+    assert pipes[0] is fake
+    assert fake.mbh_adaptive_threshold == 75
+
+
 # ----- _build_process_model_kwargs -----
 
 def test_build_process_model_kwargs_minimal():
