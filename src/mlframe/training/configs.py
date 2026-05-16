@@ -1348,6 +1348,16 @@ class LearningToRankConfig(BaseConfig):
     ``score_mean`` requires comparable scales (asserted via
     ``assume_comparable_scales``)."""
 
+    ltr_ensemble_method: Literal["rrf", "borda"] = "rrf"
+    """Typed rank-fusion choice for LTR ensembling: ``rrf`` (scale-invariant,
+    TREC default) or ``borda`` (per-query rank averaging, simpler and also
+    scale-invariant but underweights long lists). Distinct from
+    ``ensemble_method`` because this field is restricted to the two
+    rank-fusion strategies that survive cross-library score-scale divergence
+    without external calibration; ``score_mean`` is intentionally excluded
+    here (use ``ensemble_method=score_mean`` with ``assume_comparable_scales``
+    if you have calibrated scores)."""
+
     rrf_k: int = 60
     """RRF damping constant. 60 is the TREC default. Larger ``k`` flattens
     the position weight; smaller emphasises top-1."""

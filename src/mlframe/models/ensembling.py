@@ -30,6 +30,13 @@ from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_n
 
 SIMPLE_ENSEMBLING_METHODS: list = "arithm harm median quad qube geo".split()
 
+# Rank-fusion methods are NOT moment-based (RRF / Borda operate on rank
+# positions, not on raw values), so they live in their own bucket and are
+# not in SIMPLE_ENSEMBLING_METHODS by default. Classification flavours in
+# score_ensemble opt-in by extending the iteration list at call-site;
+# regression must skip RRF entirely (no rank notion on continuous y).
+RANK_FUSION_METHODS: list = ["rrf"]
+
 _MEANS_COLS: list = "arimean,quadmean,qubmean,geomean,harmmean".split(",")
 
 basic_features_names = get_basic_feature_names(
@@ -390,6 +397,107 @@ def compute_member_quality_gate(
     )
 
 
+def _rrf_aggregate_probs(preds_arr: np.ndarray, k: int = 60) -> np.ndarray:
+    """Per-class RRF aggregation of a stacked (M, N, K) probability tensor.
+
+    Each member's per-class column is ranked across the N rows independently
+    (descending: higher probability -> rank 1). The reciprocal-rank score
+    ``1/(k + rank)`` is summed across members. The per-row K-vector is then
+    re-normalised to sum to 1 so the output remains a proper probability
+    distribution (per-row min-max-to-sum-1 is monotone in the RRF score and
+    keeps the simplex invariant that AUC / logloss expect).
+
+    The 1-D scalar-binary case is handled implicitly: when K=1, the re-norm
+    step collapses to all-ones which is wrong for binary -- callers passing
+    a (N, 1) shape get the raw RRF score back (no normalisation), and the
+    binary path in score_ensemble drives this via the (N, 2) two-column
+    probability matrix that classifiers already emit.
+    """
+    if preds_arr.ndim != 3:
+        # Promote (M, N) -> (M, N, 1) for the scalar / 1-D path
+        preds_arr = preds_arr.reshape(preds_arr.shape[0], preds_arr.shape[1], -1)
+    M, N, K = preds_arr.shape
+
+    aggregated = np.zeros((N, K), dtype=np.float64)
+    for k_class in range(K):
+        # (M, N) -> per-column ranks across N rows for each member, descending.
+        col = preds_arr[:, :, k_class]  # (M, N)
+        # argsort-of-argsort gives 0-based ranks (largest -> 0). RRF wants 1-based.
+        order = np.argsort(-col, axis=1, kind="stable")  # (M, N), positions
+        ranks = np.empty_like(order)
+        np.put_along_axis(ranks, order, np.arange(N), axis=1)
+        # 1-based ranks: rank+1.
+        rr = 1.0 / (k + (ranks + 1).astype(np.float64))
+        aggregated[:, k_class] = rr.sum(axis=0)
+
+    # Re-normalise per-row to sum-1 when K > 1 (proper probability simplex).
+    # K == 1 (1-D binary score path) returns the raw RRF score; the wrapper
+    # call-site clip-to-[0,1] step handles bounding.
+    if K > 1:
+        row_sums = aggregated.sum(axis=1, keepdims=True)
+        # Guard against degenerate row_sum==0 (all members tied identically across all rows)
+        safe = np.where(row_sums > 0, row_sums, 1.0)
+        aggregated = aggregated / safe
+
+    if aggregated.shape[1] == 1:
+        # Restore (N,) for 1-D input.
+        return aggregated[:, 0]
+    return aggregated
+
+
+def rrf_ensemble(
+    probs_list: Sequence[np.ndarray],
+    k: int = 60,
+) -> np.ndarray:
+    """Reciprocal Rank Fusion ensemble of classifier probability outputs.
+
+    Scale-invariant probabilistic blend: ranks each member's per-class column
+    across the n_samples axis (descending), accumulates ``1/(k + rank)`` and
+    re-normalises rows to a probability distribution. Survives wildly
+    heterogeneous probability scales (calibrated CB ~ [0.1, 0.9], raw sigmoid
+    /100 ~ [0.005, 0.01]) where arithmetic / geometric mean would be dominated
+    by the larger-scale member.
+
+    Use this for CLASSIFICATION ensembles only (binary -> (n_samples, 2) or
+    (n_samples,) probability vectors; multiclass -> (n_samples, K)). It has
+    no rank meaning for regression (continuous y has no rank-1 vs rank-N
+    distinction in the same sense).
+
+    Parameters
+    ----------
+    probs_list : sequence of arrays
+        Each member's probability output. All must share shape:
+        - (n_samples,) for binary positive-class probability
+        - (n_samples, K) for K-class probabilities
+    k : int
+        RRF damping constant; 60 is the TREC default. Smaller k emphasises
+        the top of each member's ranking; larger k flattens it.
+
+    Returns
+    -------
+    np.ndarray
+        Aggregated probabilities, same shape as each member.
+
+    Raises
+    ------
+    ValueError
+        On empty list, mismatched shapes, or non-positive k.
+    """
+    if not probs_list:
+        raise ValueError("rrf_ensemble: probs_list is empty")
+    if k <= 0:
+        raise ValueError(f"rrf_ensemble: k must be > 0, got {k!r}")
+    arrs = [np.asarray(p, dtype=np.float64) for p in probs_list]
+    base_shape = arrs[0].shape
+    for i, a in enumerate(arrs):
+        if a.shape != base_shape:
+            raise ValueError(
+                f"rrf_ensemble: member {i} shape {a.shape!r} != member 0 shape {base_shape!r}"
+            )
+    stacked = np.stack(arrs, axis=0)
+    return _rrf_aggregate_probs(stacked, k=k)
+
+
 def ensemble_probabilistic_predictions(
     *preds,
     ensemble_method="harm",
@@ -434,7 +542,10 @@ def ensemble_probabilistic_predictions(
     The previous defaults (``max_mae=0.04`` / ``max_std=0.06`` absolute) are
     kept reachable by passing them explicitly; defaults are now relative.
     """
-    assert ensemble_method in SIMPLE_ENSEMBLING_METHODS
+    assert ensemble_method in SIMPLE_ENSEMBLING_METHODS or ensemble_method in RANK_FUSION_METHODS, (
+        f"unknown ensemble_method {ensemble_method!r}; expected one of "
+        f"{SIMPLE_ENSEMBLING_METHODS + RANK_FUSION_METHODS}"
+    )
     confident_indices = None
 
     preds = [p for p in preds if p is not None]
@@ -548,6 +659,14 @@ def ensemble_probabilistic_predictions(
         # calibrated boosted trees.
         with np.errstate(divide="ignore"):
             ensembled_predictions = np.exp(np.mean(np.log(np.clip(_preds_arr, 1e-300, None)), axis=0))
+    elif ensemble_method == "rrf":
+        # Reciprocal Rank Fusion: scale-invariant blend that survives wildly
+        # heterogeneous member scales (calibrated probs vs raw sigmoid/100 vs
+        # logit). Per column, rank members by per-row probability (higher prob
+        # -> better rank), accumulate 1/(k + rank), then per-row min-max to a
+        # sum-to-1 probability so the output stays in the [0, 1] simplex that
+        # downstream metrics (logloss, AUC) expect.
+        ensembled_predictions = _rrf_aggregate_probs(_preds_arr, k=60)
 
     # Replace non-finite values (NaN, inf) with arithmetic mean fallback
     non_finite_mask = ~np.isfinite(ensembled_predictions)
@@ -637,6 +756,16 @@ def ensemble_probabilistic_predictions_streaming(
             "a cross-member quantile sketch (e.g. P^2-Quantile) not yet "
             "available. Use ensemble_probabilistic_predictions (materialised) "
             "or pick a moment-based method (arithm/harm/quad/qube/geo)."
+        )
+    if ensemble_method == "rrf":
+        # Rank-fusion needs to see ALL N rows together to assign ranks; cannot
+        # be done with O(N*K)-memory streaming over one (N, K) chunk at a time
+        # without sacrificing the cross-row ordering RRF depends on.
+        raise NotImplementedError(
+            "ensemble_probabilistic_predictions_streaming: 'rrf' requires "
+            "the full N-row tensor to compute cross-row ranks. Use the "
+            "materialised ensemble_probabilistic_predictions path or call "
+            "rrf_ensemble directly."
         )
 
     preds = [p for p in preds if p is not None]
