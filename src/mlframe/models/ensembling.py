@@ -870,9 +870,16 @@ def _process_single_ensemble_method(
     # during fit and leak that fit's residual structure into a meta-learner. Falling back to ``train_*`` keeps the path
     # alive when OOF was unavailable (e.g. tiny datasets, multi-output paths where ``cross_val_predict`` skipped); a
     # higher-level guard in ``score_ensemble`` raises when ``max_ensembling_level > 1`` AND any member is missing OOF.
+    #
+    # Existence check uses ``isinstance(..., np.ndarray)`` rather than ``is not None`` because MagicMock-based test
+    # doubles auto-fabricate any attribute access (mock.oof_probs returns a MagicMock, never None); falling back on
+    # the array-instance check keeps the production path identical while letting test mocks still hit the train_*
+    # branch when they only stamp train_*/val_* arrays.
     def _oof_or_train(el, oof_attr, train_attr):
         _oof = getattr(el, oof_attr, None)
-        return _oof if _oof is not None else getattr(el, train_attr, None)
+        if isinstance(_oof, np.ndarray):
+            return _oof
+        return getattr(el, train_attr, None)
 
     if not is_regression:
         predictions = (_oof_or_train(el, "oof_probs", "train_probs") for el in level_models_and_predictions)
@@ -1278,10 +1285,15 @@ def score_ensemble(
     # level-1 ensemble outputs as features, and if any member contributes an in-sample ``train_preds`` row instead of
     # a ``cross_val_predict`` OOF row the meta-learner sees leaked targets. Fail fast rather than silently fold the
     # leakage forward. Single-level (``max_ensembling_level == 1``) aggregation tolerates missing OOF by falling back
-    # to ``train_*`` because no downstream meta-learner consumes the train slice in that case.
+    # to ``train_*`` because no downstream meta-learner consumes the train slice in that case. Membership uses
+    # ``isinstance(..., np.ndarray)`` for the same reason as ``_oof_or_train``: MagicMock test doubles fabricate
+    # any attribute on access, so ``is None`` would never fire on a real-world stub.
     if max_ensembling_level > 1:
         _oof_attr = "oof_probs" if not is_regression else "oof_preds"
-        _missing_oof = [i for i, m in enumerate(level_models_and_predictions) if getattr(m, _oof_attr, None) is None]
+        _missing_oof = [
+            i for i, m in enumerate(level_models_and_predictions)
+            if not isinstance(getattr(m, _oof_attr, None), np.ndarray)
+        ]
         if _missing_oof:
             raise ValueError(
                 f"score_ensemble(max_ensembling_level={max_ensembling_level}) requires {_oof_attr} on every member; "
@@ -1312,17 +1324,21 @@ def score_ensemble(
     val_target_arr = val_target.to_numpy() if isinstance(val_target, pd.Series) else val_target
     target_arr = target.to_numpy() if isinstance(target, pd.Series) else target
 
-    # 2026-05-10: ONE-pass member quality gate before iterating ensemble
-    # flavors. The previous behaviour ran the same outlier filter inside
-    # ``ensemble_probabilistic_predictions`` once per flavor x split,
-    # which on a 4-model x 5-flavor x (full+conf) x 2-split layout
-    # printed the same "ens member N excluded ..." line ~20x per suite
-    # call. Compute on val_preds (or test/train fallback) ONCE here,
-    # log the decision once, then pass only kept members to the flavor
-    # loop and disable the embedded filter so no duplicate prints fire.
+    # ONE-pass member quality gate before iterating ensemble flavors. The previous behaviour ran the same outlier
+    # filter inside ``ensemble_probabilistic_predictions`` once per flavor x split, which on a 4-model x 5-flavor x
+    # (full+conf) x 2-split layout printed the same "ens member N excluded ..." line ~20x per suite call. Compute
+    # ONCE here, log the decision once, then pass only kept members to the flavor loop and disable the embedded
+    # filter so no duplicate prints fire.
+    #
+    # Source ordering: OOF preds/probs come FIRST -- the gate's job is to drop members whose preds are outliers vs
+    # the ensemble median, and val_preds are already burned for early-stopping (gating on them double-dips val).
+    # OOF preds are the only honest train-side signal (cross_val_predict held-out rows). Fallback chain: oof_* ->
+    # val_* -> test_* -> train_* preserves the legacy behaviour for members trained without oof_n_splits.
     _gate_source_split = None
     _gate_preds_for_check: Optional[List[np.ndarray]] = None
     for _attr, _label in (
+        ("oof_preds", "oof"),
+        ("oof_probs", "oof"),
         ("val_preds", "val"),
         ("test_preds", "test"),
         ("train_preds", "train"),
@@ -1331,7 +1347,9 @@ def score_ensemble(
         ("train_probs", "train"),
     ):
         _candidate = [getattr(m, _attr, None) for m in level_models_and_predictions]
-        if all(p is not None for p in _candidate):
+        # MagicMock test doubles fabricate any attribute access, so ``p is not None`` would always pass; require an
+        # actual numpy array to gate the source-split selection.
+        if all(isinstance(p, np.ndarray) for p in _candidate):
             _gate_preds_for_check = _candidate
             _gate_source_split = _label
             break
@@ -1581,18 +1599,29 @@ def score_ensemble(
 
 def compare_ensembles(
     ensembles: dict,
-    sort_metric: str = "val.1.integral_error",
+    sort_metric: str = "oof.1.integral_error",
     show_plot: bool = True,
     figsize: tuple = (15, 3),
 ) -> pd.DataFrame:
-    # Default flipped from "test.*" to "val.*" 2026-05-15: sorting by a test-set metric biases ensemble selection
-    # toward the holdout (test-set selection bias). Caller may still pass an explicit "test.*" for manual override --
-    # we WARN once so the override is visible in the log.
+    # Default flipped from "val.*" to "oof.*": ``val`` is already burned for early-stopping (the model's last-iter
+    # snapshot was chosen because it scored best on val), so re-using val to pick a flavour is selecting twice on
+    # the same surface. ``oof`` is the cross_val_predict held-out signal -- never seen at fit, never used for ES.
+    # Test-set sort still WARNs via logger (the obvious test-set selection bias is preserved); val.* sort now WARNs
+    # via warnings.warn(UserWarning) so the message shows up even when the logger is silenced (debugger / scripts).
+    import warnings as _warnings_mod
     if isinstance(sort_metric, str) and sort_metric.startswith("test."):
         logger.warning(
             "[compare_ensembles] sort_metric='%s' uses the TEST split; this re-introduces test-set "
-            "selection bias. Prefer a 'val.*' metric for ensemble selection.",
+            "selection bias. Prefer an 'oof.*' metric for ensemble selection.",
             sort_metric,
+        )
+    if isinstance(sort_metric, str) and sort_metric.startswith("val."):
+        _warnings_mod.warn(
+            f"[compare_ensembles] sort_metric='{sort_metric}' uses the VAL split; val is already burned for early "
+            f"stopping, so selecting an ensemble flavour on it double-dips the same surface. Prefer 'oof.*' "
+            f"(cross_val_predict held-out signal) for ensemble flavour selection.",
+            UserWarning,
+            stacklevel=2,
         )
     items = []
     for ens_name, ens_perf in ensembles.items():

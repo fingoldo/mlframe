@@ -373,26 +373,38 @@ def test_harmonic_mean_smaller_than_arithmetic():
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 def _create_mock_model_result(n_samples=50, n_classes=3):
-    """Create a mock model result object for testing score_ensemble."""
+    """Create a mock model result object for testing score_ensemble.
+
+    Stamps ``oof_probs`` as a real ndarray so the multi-level guard added in Fix 1 doesn't reject the mock --
+    without an explicit ndarray, MagicMock auto-fabricates the attribute as a sub-MagicMock and the guard sees
+    "missing OOF" on every member (numpy isinstance check on a MagicMock returns False).
+    """
     mock = MagicMock()
     mock.train_probs = np.random.rand(n_samples, n_classes).astype(np.float32)
     mock.test_probs = np.random.rand(n_samples, n_classes).astype(np.float32)
     mock.val_probs = np.random.rand(n_samples, n_classes).astype(np.float32)
+    mock.oof_probs = np.random.rand(n_samples, n_classes).astype(np.float32)
     mock.train_preds = None
     mock.test_preds = None
     mock.val_preds = None
+    mock.oof_preds = None
     return mock
 
 
 def _create_mock_regression_result(n_samples=50):
-    """Create a mock regression result object for testing score_ensemble."""
+    """Create a mock regression result object for testing score_ensemble.
+
+    Stamps ``oof_preds`` as a real ndarray for the same reason as ``_create_mock_model_result``.
+    """
     mock = MagicMock()
     mock.train_probs = None
     mock.test_probs = None
     mock.val_probs = None
+    mock.oof_probs = None
     mock.train_preds = np.random.rand(n_samples).astype(np.float32)
     mock.test_preds = np.random.rand(n_samples).astype(np.float32)
     mock.val_preds = np.random.rand(n_samples).astype(np.float32)
+    mock.oof_preds = np.random.rand(n_samples).astype(np.float32)
     return mock
 
 
