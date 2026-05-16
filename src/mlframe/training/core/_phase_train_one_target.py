@@ -152,6 +152,81 @@ def _release_ctx_polars_frames(
     return new_baseline
 
 
+def _maybe_run_feature_handling_apply(
+    ctx,
+    *,
+    cur_target_name: str,
+    train_df,
+    val_df,
+    test_df,
+    current_train_target,
+    sample_weight=None,
+):
+    """Run feature_handling_apply once per target when ctx carries a FeatureHandlingConfig; else no-op.
+
+    Returns the FeatureHandlingResult on success or None when disabled / failed. Fitted state is also
+    stashed under ctx.artifacts["feature_handling_fitted"][cur_target_name] so a future predict-side
+    wave can replay handlers without re-fitting. ctx.artifacts is the only ctx slot we may write to
+    here -- TrainingContext uses slots=True so adding a new attribute would AttributeError, and the
+    SCOPE constraint forbids touching _training_context.py in this wave.
+
+    sample_weight is accepted for forward compatibility: feature_handling_apply does not yet take it
+    (validated against apply.py 2026-05-16). The keyword is plumbed through so a later apply.py
+    extension picks it up without a second wire-in change here. NOTE: the underlying handlers do
+    consume sample_weight via LeakageSafeEncoder -- once apply.py grows the kwarg, drop the silent
+    discard below.
+
+    model_kind comes from ctx.sorted_mlframe_models[0] -- the first concrete kind drives FHC
+    validation; the resulting fitted state is model-agnostic for the handlers wired in v1 (TF-IDF,
+    target-encoder, custom), so one call seeds the FeatureCache for every model that follows.
+    """
+    fhc = getattr(ctx, "feature_handling_config", None)
+    if fhc is None:
+        return None
+    try:
+        from mlframe.training.feature_handling import feature_handling_apply  # local: avoid suite-import cost when FHC is off
+    except ImportError:  # pragma: no cover
+        return None
+
+    sorted_models = getattr(ctx, "sorted_mlframe_models", None) or getattr(ctx, "mlframe_models", None) or []
+    if not sorted_models:
+        return None
+    model_kind = sorted_models[0]
+
+    try:
+        result = feature_handling_apply(
+            train_df=train_df,
+            val_df=val_df,
+            test_df=test_df,
+            train_target=current_train_target,
+            fhc=fhc,
+            model_kind=model_kind,
+        )
+    except ValueError as fhc_err:
+        # Surface configuration errors with the kwarg name so users grep the right place; chain so the
+        # original validation traceback is preserved.
+        raise ValueError(
+            f"feature_handling_config rejected for model_kind={model_kind!r} on target "
+            f"{cur_target_name!r}: {fhc_err}"
+        ) from fhc_err
+    except Exception as fhc_err:
+        logger.warning(
+            "feature_handling_apply failed for target %r (model_kind=%s): %s; continuing without FHC enrichment for this target.",
+            cur_target_name, model_kind, fhc_err,
+        )
+        return None
+
+    # ctx.artifacts is a plain dict on the dataclass, so we can nest a sub-dict here without slots issues.
+    fitted_store = ctx.artifacts.setdefault("feature_handling_fitted", {})
+    fitted_store[cur_target_name] = result
+
+    # TODO(wave-N): downstream consumption -- the assembled matrices in `result.train/val/test` are
+    # currently fit-and-stash-only. Phase F (CB embedding_features) / phase G (TabularInputEncoder)
+    # will route these into the model.fit() path. Until then the call exists to seed the per-suite
+    # FeatureCache and exercise the validate_against_models guard so misconfig is caught at fit time.
+    return result
+
+
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
     """Train all models for one (target_type, target_name) pair."""
     model_name = ctx.model_name
@@ -259,6 +334,28 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 if isinstance(cur_target_values, (np.ndarray, pl.Series))
                 else cur_target_values.iloc[test_idx]
             )
+
+        # Feature-handling wire-in: opt-in via ctx.feature_handling_config. Sits after the per-target
+        # OD-filtered frames + targets are bound (this is the "post-FS / pre-final-pipeline" seam for
+        # the inner pre_pipelines x models loops below) and before per-target diagnostics so any
+        # FHC-detected text columns surface in the same log block. No-op when fhc is None, so the
+        # default code path is unchanged. polars-fastpath frames are preferred when present; the
+        # underlying handlers detect polars vs pandas via _extract_column_values. A blanket
+        # polars->pandas conversion here would defeat the suite's polars fastpath -- left to apply.py
+        # to keep frame container as-given.
+        _fhc_train_df = train_df_polars if train_df_polars is not None else filtered_train_df
+        _fhc_val_df = val_df_polars if val_df_polars is not None else filtered_val_df
+        _fhc_test_df = test_df_polars if test_df_polars is not None else test_df_pd
+        _maybe_run_feature_handling_apply(
+            ctx,
+            cur_target_name=cur_target_name,
+            train_df=_fhc_train_df,
+            val_df=_fhc_val_df,
+            test_df=_fhc_test_df,
+            current_train_target=current_train_target,
+            sample_weight=sample_weights,
+        )
+
         metadata = run_per_target_diagnostics(
             target_type=target_type,
             cur_target_name=cur_target_name,
