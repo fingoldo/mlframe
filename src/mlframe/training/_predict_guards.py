@@ -263,6 +263,29 @@ def _apply_nan_guard(
         type(model).__name__, n_rows,
     )
 
+    # Polars-native fast path: do impute (fill_nan with column mean) + standardisation entirely inside polars, then hand the result back through the Arrow
+    # split-blocks bridge as a pandas frame so downstream model.predict sees the same container type it always did. Avoids the polars -> numpy -> sklearn ->
+    # pandas round-trip; column-data shared zero-copy through with_columns. Matches sklearn SimpleImputer(strategy='mean') + StandardScaler bit-for-bit
+    # (verified by sibling regression test): polars .mean()/.std(ddof=0) on NaN-converted-to-null produces the same column statistics as numpy nanmean/nanstd
+    # which sklearn uses internally; the zero-std guard mirrors sklearn's "scale_=1 when var=0" convention.
+    try:
+        import polars as pl
+        _pl_avail = True
+    except ImportError:
+        _pl_avail = False
+
+    if _pl_avail and isinstance(X, pl.DataFrame) and all(dt.is_numeric() for dt in X.dtypes):
+        from .utils import get_pandas_view_of_polars_df
+        cols = X.columns
+        df_imp = X.with_columns([pl.col(c).fill_nan(pl.col(c).drop_nans().mean()) for c in cols])
+        zero_std = 0.0
+        df_std = df_imp.with_columns([
+            (pl.col(c) - pl.col(c).mean()) / pl.when(pl.col(c).std(ddof=0) == zero_std).then(1.0).otherwise(pl.col(c).std(ddof=0))
+            for c in cols
+        ])
+        X_clean: Any = get_pandas_view_of_polars_df(df_std)
+        return fn(X_clean)
+
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import StandardScaler
 
@@ -281,7 +304,7 @@ def _apply_nan_guard(
     # Re-wrap as the original container type
     if hasattr(X, "columns"):
         import pandas as pd
-        X_clean: Any = pd.DataFrame(
+        X_clean = pd.DataFrame(
             _arr, columns=list(X.columns),
             index=getattr(X, "index", None),
         )
