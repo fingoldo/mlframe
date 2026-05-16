@@ -327,10 +327,14 @@ def _build_pre_pipelines(
     custom_pre_pipelines: dict[str, Any] | None = None,
     rfecv_leakage_corr_threshold: float | None = 0.95,
     rfecv_mbh_adaptive_threshold: int = 30,
+    use_boruta_shap: bool = False,
+    boruta_shap_kwargs: dict[str, Any] | None = None,
 ) -> tuple[list[Any], list[str]]:
     """Build lists of pre-pipelines and their names for feature selection.
 
     Both ``rfecv_leakage_corr_threshold`` and ``rfecv_mbh_adaptive_threshold`` are applied to every RFECV instance fetched from ``rfecv_models_params`` via ``setattr``; ``configure_training_params`` constructs those instances before the suite-level config is in scope, so this is the canonical place to override the suite-controllable knobs without rebuilding the RFECV objects.
+
+    ``use_boruta_shap`` appends a BorutaShap selector AFTER MRMR / RFECV: SHAP-driven Boruta is a comparatively-expensive wrapper (per-trial TreeExplainer on a doubled feature matrix) so it makes sense to evaluate it as an alternative branch rather than chained behind the cheaper selectors. Default OFF preserves the legacy pre_pipelines ordering byte-for-byte.
     """
     pre_pipelines = []
     pre_pipeline_names = []
@@ -363,6 +367,12 @@ def _build_pre_pipelines(
         # downstream NaN-aware backends (catboost / lgb / xgb).
         pre_pipelines.append(MRMR(**mrmr_kwargs))
         pre_pipeline_names.append("MRMR ")
+
+    if use_boruta_shap:
+        # Lazy import: BorutaShap pulls in shap + matplotlib + seaborn, which add ~2s to every training-module import even when the selector is OFF. Importing here keeps the cost gated behind the opt-in flag.
+        from mlframe.feature_selection.boruta_shap import BorutaShap
+        pre_pipelines.append(BorutaShap(**(boruta_shap_kwargs or {})))
+        pre_pipeline_names.append("BorutaShap ")
 
     if custom_pre_pipelines:
         # Clone every user-supplied pre-pipeline before insertion so fit-time
