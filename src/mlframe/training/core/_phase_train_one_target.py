@@ -36,6 +36,222 @@ from ..strategies import PipelineCache
 logger = logging.getLogger(__name__)
 
 
+def _unwrap_selector(pre_pipeline) -> Any:
+    """Return the inner MRMR / RFECV / BorutaShap instance, unwrapping a sklearn Pipeline if needed.
+
+    ``_build_pre_pipelines`` returns selectors directly (MRMR / a CatBoostRFECV instance / BorutaShap)
+    OR a custom sklearn Pipeline whose last step may be a selector. Probe ``.steps[-1][1]`` lazily; if
+    the input isn't a Pipeline or doesn't end in a selector, fall back to the input itself so callers
+    can still introspect attributes on a plain selector.
+
+    ``getattr`` is wrapped: pathological transformers that override ``__getattr__`` to raise on every
+    miss (rare but seen in third-party FS libs) would break the report-build otherwise.
+    """
+    if pre_pipeline is None:
+        return None
+    try:
+        _steps = getattr(pre_pipeline, "steps", None)
+    except Exception:
+        return pre_pipeline
+    if isinstance(_steps, list) and _steps:
+        _last = _steps[-1]
+        if isinstance(_last, tuple) and len(_last) == 2:
+            return _last[1]
+    return pre_pipeline
+
+
+def _selector_kind(selector) -> str | None:
+    """Classify the fitted selector as 'MRMR' / 'RFECV' / 'BorutaShap' / None.
+
+    Uses class-name suffix rather than ``isinstance`` so the import of MRMR / RFECV / BorutaShap stays
+    confined to ``_build_pre_pipelines`` (BorutaShap pulls shap + matplotlib + seaborn). ``None`` for
+    the ordinary (no-FS) branch and for unrecognised custom pipelines.
+    """
+    if selector is None:
+        return None
+    try:
+        _cls_name = type(selector).__name__
+    except Exception:
+        return None
+    if _cls_name == "MRMR":
+        return "MRMR"
+    if "RFECV" in _cls_name:
+        return "RFECV"
+    if _cls_name == "BorutaShap":
+        return "BorutaShap"
+    # Defence: the suite stamps ``_mlframe_use_sample_weights_in_fs_`` on MRMR / RFECV but not
+    # BorutaShap; if the marker exists, classify via attribute shape (support_ -> selector-like).
+    try:
+        _has_marker = hasattr(selector, "_mlframe_use_sample_weights_in_fs_") and hasattr(selector, "support_")
+    except Exception:
+        return None
+    if _has_marker:
+        if hasattr(selector, "cv_results_"):
+            return "RFECV"
+        return "MRMR"
+    return None
+
+
+def _selector_params_hash(selector) -> str | None:
+    """Hash the selector's ``get_params()`` (sklearn) or ``__dict__`` (BorutaShap) so the report key
+    invalidates when the operator changes selector hyperparameters between runs.
+
+    Returns ``None`` on any introspection / serialisation failure so the report never blocks training.
+    Uses ``repr`` over JSON because selector params can carry sklearn estimators / callables that JSON
+    can't serialise; ``repr`` is stable per-process and good enough for change detection.
+    """
+    if selector is None:
+        return None
+    try:
+        if hasattr(selector, "get_params"):
+            _params = selector.get_params(deep=False)
+        else:
+            _params = {k: v for k, v in vars(selector).items() if not k.startswith("_") and not k.endswith("_")}
+        _digest_src = repr(sorted(_params.items(), key=lambda kv: kv[0]))
+        return hashlib.blake2b(_digest_src.encode("utf-8", errors="replace"), digest_size=8).hexdigest()
+    except Exception:
+        return None
+
+
+def _build_feature_selection_report(
+    pre_pipeline,
+    pre_pipeline_name: str | None,
+    fitted_columns_in: list[str] | None,
+    kept_columns: list[str] | None,
+) -> dict:
+    """Build the per-model FS report stamped onto ``metadata["model_schemas"][file_name]``.
+
+    Layout (per task spec):
+        selector_name : "MRMR" | "RFECV" | "BorutaShap" | None
+        selector_params_hash : 8-byte blake2b hex of selector.get_params(), or None
+        kept_features : list[str] -- post-FS surviving feature names
+        dropped_features : list[str] -- pre-FS names NOT in kept_features
+        scores : {feature: float} -- per-feature score from the selector's natural attribute
+                                     (None when the selector exposes no per-feature score)
+        reason_per_feature : {feature: str} -- per-feature decision label
+                                                (None when the selector lacks a reason)
+
+    Reads selector-specific attributes:
+      * MRMR: ``support_`` (integer index list into ``feature_names_in_``); no per-feature score is
+        exposed, so ``scores=None``. Reason: "kept" / "dropped".
+      * RFECV: ``feature_importances_`` is a ``{nfeatures_nfold: ndarray}`` dict keyed by
+        ``"<best_top_n>_<n_folds>"``; aggregate over folds at ``best_top_n=self.n_features_`` by mean
+        across folds. ``ranking_`` (when present) gives the eliminated-order; we surface it as a
+        per-feature reason ("kept@rank=N" / "dropped@rank=N").
+      * BorutaShap: ``history_x`` is a DataFrame of per-iteration shap importances (one row per
+        iteration, one column per feature); mean across rows is the canonical "average importance"
+        score. Reason: "accepted" / "rejected" / "tentative" via ``self.accepted`` / ``self.rejected``
+        / ``self.tentative`` (set when ``calculate_rejected_accepted_tentative`` ran).
+
+    Falls back to a minimal report (selector_name + kept/dropped only) if any attribute access fails;
+    a failed FS report must never abort the training run.
+    """
+    selector = _unwrap_selector(pre_pipeline)
+    _kind = _selector_kind(selector)
+    _report: dict = {
+        "selector_name": _kind,
+        "selector_params_hash": _selector_params_hash(selector),
+        "kept_features": list(kept_columns) if kept_columns is not None else None,
+        "dropped_features": None,
+        "scores": None,
+        "reason_per_feature": None,
+    }
+    # Compute dropped = feature_names_in_ \ kept; selectors stamp ``feature_names_in_`` post-fit.
+    _all_in = None
+    if selector is not None:
+        try:
+            _all_in = getattr(selector, "feature_names_in_", None)
+        except Exception:
+            _all_in = None
+    if _all_in is None:
+        _all_in = fitted_columns_in
+    if _all_in is not None and kept_columns is not None:
+        try:
+            _kept_set = set(kept_columns)
+            _report["dropped_features"] = [c for c in _all_in if c not in _kept_set]
+        except Exception:
+            _report["dropped_features"] = None
+
+    if _kind == "MRMR":
+        # MRMR exposes ``support_`` as integer indices into ``feature_names_in_``; no per-feature score.
+        _report["scores"] = None
+        if _all_in is not None and kept_columns is not None:
+            try:
+                _kept_set = set(kept_columns)
+                _report["reason_per_feature"] = {
+                    str(c): ("kept" if c in _kept_set else "dropped") for c in _all_in
+                }
+            except Exception:
+                pass
+    elif _kind == "RFECV":
+        # ``feature_importances_`` is dict keyed by "<nfeatures>_<fold>"; pick the rows matching
+        # ``n_features_`` (the chosen size) and mean across folds. ``ranking_`` exposes the per-
+        # feature elimination order when the suite went through the full RFECV loop.
+        try:
+            _fi_dict = getattr(selector, "feature_importances_", None)
+            _n_feat = getattr(selector, "n_features_", None)
+            if isinstance(_fi_dict, dict) and _n_feat and _all_in is not None:
+                _stride = str(int(_n_feat))
+                _rows = [v for k, v in _fi_dict.items() if str(k).startswith(_stride + "_")]
+                if _rows:
+                    _arr = np.asarray(_rows, dtype=np.float64)
+                    _mean = np.nanmean(_arr, axis=0)
+                    if _mean.shape[0] == len(_all_in):
+                        _report["scores"] = {str(c): float(_mean[i]) for i, c in enumerate(_all_in)}
+        except Exception:
+            _report["scores"] = None
+        # Ranking-based reason
+        try:
+            _ranking = getattr(selector, "ranking_", None)
+            if _ranking is not None and _all_in is not None and kept_columns is not None:
+                _kept_set = set(kept_columns)
+                _rank_arr = list(_ranking)
+                if len(_rank_arr) == len(_all_in):
+                    _report["reason_per_feature"] = {
+                        str(c): (
+                            f"kept@rank={_rank_arr[i]}" if c in _kept_set
+                            else f"dropped@rank={_rank_arr[i]}"
+                        )
+                        for i, c in enumerate(_all_in)
+                    }
+        except Exception:
+            pass
+    elif _kind == "BorutaShap":
+        # ``history_x`` columns map 1:1 to ``all_columns``; the per-feature score is the mean
+        # historical SHAP importance across all Boruta iterations. ``accepted`` / ``rejected`` /
+        # ``tentative`` carry the final per-feature verdicts.
+        try:
+            _history = getattr(selector, "history_x", None)
+            if _history is not None and hasattr(_history, "mean"):
+                _means = _history.mean(axis=0)
+                if hasattr(_means, "to_dict"):
+                    _report["scores"] = {str(k): float(v) for k, v in _means.to_dict().items()}
+        except Exception:
+            _report["scores"] = None
+        try:
+            _accepted = set(getattr(selector, "accepted", None) or [])
+            _rejected = set(getattr(selector, "rejected", None) or [])
+            _tentative = set(getattr(selector, "tentative", None) or [])
+            _all_cols_attr = getattr(selector, "all_columns", None)
+            _iter = list(_all_cols_attr) if _all_cols_attr is not None else (_all_in or [])
+            if _iter:
+                _reasons = {}
+                for c in _iter:
+                    _cs = str(c)
+                    if c in _accepted:
+                        _reasons[_cs] = "accepted"
+                    elif c in _rejected:
+                        _reasons[_cs] = "rejected"
+                    elif c in _tentative:
+                        _reasons[_cs] = "tentative"
+                    else:
+                        _reasons[_cs] = "unknown"
+                _report["reason_per_feature"] = _reasons
+        except Exception:
+            pass
+    return _report
+
+
 def _compute_pipeline_cache_key(
     strategy_cache_key: str,
     pre_pipeline_name: str | None,
@@ -1290,6 +1506,33 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     # Never fail the metadata write because of an introspection error on optional fields.
                     # Surface as warning since load_mlframe_suite dispatches on n_classes/multilabel_strategy.
                     logger.warning("n_classes/multilabel_strategy introspection failed for %s: %s", mlframe_model_name, _intro_err)
+
+                # Per-model feature-selection report. ``pre_pipeline`` returned by ``process_model``
+                # is the FITTED selector / pipeline (or None for the ordinary branch). ``train_df_
+                # transformed.columns`` gives the post-FS surviving features for both pandas and
+                # polars frames. The report is always stamped (selector_name=None for ordinary) so
+                # downstream consumers can rely on the key existing.
+                try:
+                    _kept_cols = None
+                    if train_df_transformed is not None and hasattr(train_df_transformed, "columns"):
+                        _kept_cols = list(train_df_transformed.columns)
+                    _record["feature_selection_report"] = _build_feature_selection_report(
+                        pre_pipeline=pre_pipeline,
+                        pre_pipeline_name=pre_pipeline_name,
+                        fitted_columns_in=None,
+                        kept_columns=_kept_cols,
+                    )
+                except Exception as _fsr_err:
+                    logger.warning("feature_selection_report build failed for %s: %s", mlframe_model_name, _fsr_err)
+                    _record["feature_selection_report"] = {
+                        "selector_name": None,
+                        "selector_params_hash": None,
+                        "kept_features": None,
+                        "dropped_features": None,
+                        "scores": None,
+                        "reason_per_feature": None,
+                    }
+
                 metadata.setdefault("model_schemas", {})[model_file_name] = _record
 
                 if cached_dfs is None:
