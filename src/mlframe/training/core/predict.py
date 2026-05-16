@@ -305,18 +305,25 @@ def predict_from_models(
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
         df = _drop_cols_df(df, columns_to_drop)
 
-    if isinstance(df, pl.DataFrame):
-        df = get_pandas_view_of_polars_df(df)
-
-    metadata.get("columns", [])
-
     df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
 
     pipeline = metadata.get("pipeline")
     if pipeline is not None:
         if verbose:
             logger.info("Applying pipeline transformation...")
+        # Polars-ds pipelines (saved when prefer_polarsds=True at fit
+        # time) call ``.lazy()`` on the input -- they require a Polars
+        # DataFrame. Sklearn pipelines accept pandas. Previously the
+        # pandas conversion happened BEFORE pipeline.transform, which
+        # crashed PdsPipeline with "AttributeError: 'DataFrame' object
+        # has no attribute 'lazy'" on every Polars-input predict call.
+        # Surfaced by fuzz iter#53 (binary lgb + Polars frame). Defer
+        # the conversion until AFTER pipeline.transform so each pipeline
+        # type sees the format it was fitted on.
         df = pipeline.transform(df)
+
+    if isinstance(df, pl.DataFrame):
+        df = get_pandas_view_of_polars_df(df)
 
     if verbose:
         logger.info("Running predictions on in-memory models...")
