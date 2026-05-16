@@ -163,15 +163,17 @@ def _apply_pysr_fe(
     y_train,
     config: "PreprocessingExtensionsConfig",
     verbose: int = 1,
+    out_equations: Optional[Dict[str, str]] = None,
 ) -> list:
     """Run PySR symbolic regression on train, apply top equations to all
     splits, and add predictions as new numeric columns in-place. Returns
     the list of added column names.
 
-    Gracefully skips on ImportError (Julia/PySR not installed). Raises a
-    ``logger.warning`` when ``y_train`` is None (target not threaded through
-    from the calling phase) - silent skip used to mask wiring bugs where
-    ``pysr_enabled=True`` was set but the suite never invoked PySR.
+    Column naming uses ``pysr__{blake2b(equation_str)[:8]}__{seed}`` so a given symbolic equation always lands on the same column across seeds / runs / processes; two seeds that discover different equations get distinct column names instead of silently overlaying onto a shared ``pysr_eq{idx}`` slot (the prior naming collided across runs).
+
+    When ``out_equations`` is provided, the equation-string -> column-name map is populated for predict-time replay persistence.
+
+    Gracefully skips on ImportError (Julia/PySR not installed). Raises a ``logger.warning`` when ``y_train`` is None (target not threaded through from the calling phase) - silent skip used to mask wiring bugs where ``pysr_enabled=True`` was set but the suite never invoked PySR.
     """
     if y_train is None:
         import logging
@@ -253,11 +255,23 @@ def _apply_pysr_fe(
         return []
     eq_df = eq_df.sort_values(["score"], ascending=[False]).head(top_k)
 
+    import hashlib
+
     new_cols = []
+    # Equation-string column lives under several possible names depending on the PySR version (``equation``, ``sympy_format``, ``lambda_format``); fall back to the row repr if none are present so the hash still has a deterministic basis.
+    _eq_col = next((c for c in ("equation", "sympy_format", "lambda_format") if c in eq_df.columns), None)
     for idx in eq_df.index:
         try:
-            col_name = f"pysr_eq{idx}"
+            if _eq_col is not None:
+                equation_str = str(eq_df.loc[idx, _eq_col])
+            else:
+                equation_str = repr(eq_df.loc[idx].to_dict())
+            hash8 = hashlib.blake2b(equation_str.encode("utf-8"), digest_size=4).hexdigest()
+            col_name = f"pysr__{hash8}__{pysr_random_state}"
             if col_name in train_df.columns:
+                # Same equation rediscovered in this seed -- the column already carries the same values, skip recompute.
+                if out_equations is not None:
+                    out_equations[col_name] = equation_str
                 continue
             train_df[col_name] = np.asarray(
                 model.predict(train_df, index=idx), dtype=np.float32)
@@ -268,6 +282,8 @@ def _apply_pysr_fe(
                 test_df[col_name] = np.asarray(
                     model.predict(test_df, index=idx), dtype=np.float32)
             new_cols.append(col_name)
+            if out_equations is not None:
+                out_equations[col_name] = equation_str
         except Exception:
             continue
     return new_cols
@@ -280,11 +296,14 @@ def apply_preprocessing_extensions(
     config: Optional[PreprocessingExtensionsConfig],
     verbose: int = 1,
     y_train=None,
+    out_pysr_equations: Optional[Dict[str, str]] = None,
 ):
     """Apply shared sklearn-based extensions to train/val/test after the Polars-ds pipeline.
 
     Returns (train, val, test, fitted_pipeline_or_None). Fastpath: when ``config``
     is None OR has zero active stages, returns inputs untouched with None pipeline.
+
+    When ``out_pysr_equations`` is provided AND the PySR stage runs, the dict is populated with ``{column_name: equation_str}`` so the caller can persist the mapping under ``metadata["pysr_equations"]`` for predict-time replay (column names are content-hashed so different seeds discover distinct columns; loaders need the equation -> column mapping to rebind predict-time features).
     """
     if config is None:
         return train_df, val_df, test_df, None
@@ -312,6 +331,7 @@ def apply_preprocessing_extensions(
             y_train=y_train,
             config=config,
             verbose=verbose,
+            out_equations=out_pysr_equations,
         )
         # _pysr_cols are the names of the new columns; already added to
         # train/val/test in-place inside _apply_pysr_fe.

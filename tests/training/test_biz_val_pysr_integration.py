@@ -73,8 +73,8 @@ def _make_synth(n=500, seed=42):
 
 def test_biz_val_pysr_pipeline_adds_equation_columns():
     """``apply_preprocessing_extensions`` with ``pysr_enabled=True``
-    must ADD pysr_eq* columns to the train DataFrame. Catches
-    regressions where the PySR step is silently skipped."""
+    must ADD ``pysr__{hash8}__{seed}`` columns to the train DataFrame.
+    Catches regressions where the PySR step is silently skipped."""
     pytest.importorskip("lightgbm")
     from mlframe.training.pipeline import apply_preprocessing_extensions
     from mlframe.training.configs import PreprocessingExtensionsConfig
@@ -102,10 +102,10 @@ def test_biz_val_pysr_pipeline_adds_equation_columns():
         train_df=train, val_df=val, test_df=test,
         config=config, y_train=y_train, verbose=0,
     )
-    # Must have added at least one pysr_eq* column.
-    pysr_cols = [c for c in train_out.columns if c.startswith("pysr_eq")]
+    # Must have added at least one PySR column. Naming is ``pysr__{hash8}__{seed}`` (content-hashed for cross-run determinism).
+    pysr_cols = [c for c in train_out.columns if c.startswith("pysr__")]
     assert len(pysr_cols) >= 1, (
-        f"PySR must add >=1 pysr_eq column; got {pysr_cols}, "
+        f"PySR must add >=1 pysr__ column; got {pysr_cols}, "
         f"columns={list(train_out.columns)}"
     )
     # Same columns must appear in val and test.
@@ -161,7 +161,7 @@ def test_biz_val_pysr_pipeline_improves_downstream_model():
         config=config, y_train=y_train, verbose=0,
     )
     # Apply same columns to test.
-    pysr_cols = [c for c in train_out.columns if c.startswith("pysr_eq")]
+    pysr_cols = [c for c in train_out.columns if c.startswith("pysr__")]
     if not pysr_cols:
         pytest.skip("PySR did not discover any equations")
     test_out = test[feats].copy()

@@ -980,9 +980,14 @@ def _phase_fit_pipeline(
     _pre_polars_columns_snapshot = (
         list(train_df_polars_pre.columns) if isinstance(train_df_polars_pre, pl.DataFrame) else None
     )
+    # Capture PySR's equation -> column-name map so predict can replay symbolic features against the same content-hashed column names that training emitted.
+    _pysr_equations_out: dict = {}
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
         train_df, val_df, test_df, preprocessing_extensions, verbose=verbose, y_train=_y_train_for_ext,
+        out_pysr_equations=_pysr_equations_out,
     )
+    if _pysr_equations_out:
+        metadata["pysr_equations"] = dict(_pysr_equations_out)
     if verbose and preprocessing_extensions is not None:
         logger.info("  apply_preprocessing_extensions done in %s", _elapsed_str(t0_ext))
     if extensions_pipeline is not None:
