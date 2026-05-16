@@ -16,7 +16,8 @@ try:
     from scipy.stats import binomtest as _binomtest
 
     def binom_test(x, n, p, alternative="two-sided"):
-        return _binomtest(x, n=n, p=p, alternative=alternative).pvalue
+        # SciPy 1.7+ ``binomtest`` requires ``k`` integer; our hit-count vector is float (np.zeros), so coerce on the boundary.
+        return _binomtest(int(x), n=int(n), p=p, alternative=alternative).pvalue
 except ImportError:  # SciPy < 1.7 fallback
     from scipy.stats import binom_test  # type: ignore
 from scipy.stats import ks_2samp
@@ -30,11 +31,14 @@ import shap
 import os
 import re
 
+try:
+    import polars as pl
+except ImportError:
+    pl = None  # type: ignore[assignment]
+
 import warnings
 
-# Narrowed scope (was a blanket filter that silenced legitimate warnings).
-warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
+# Filters live inside ``fit()`` (scoped via warnings.catch_warnings) so importing this module no longer mutes legitimate sklearn FutureWarning / DeprecationWarning anywhere else in the process.
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # LOGGING
@@ -225,7 +229,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         model_name = str(type(self.model)).lower()
         if X_missing or Y_missing:
             if any([x in model_name for x in models_to_check]):
-                print("Warning there are missing values in your data !")
+                logger.warning("There are missing values in your data !")
 
             else:
                 raise ValueError("There are missing values in your Data")
@@ -320,8 +324,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         Parameters
         ----------
-        X: Dataframe
-            A pandas dataframe of the features.
+        X: pandas.DataFrame or polars.DataFrame
+            A dataframe of the features. polars frames are converted via a zero-copy Arrow-backed pandas view (``get_pandas_view_of_polars_df``) so downstream code keeps the pandas-only invariants ``check_X`` / ``create_shadow_features`` rely on.
 
         y: Series/ndarray
             A pandas series or numpy ndarray of the target
@@ -351,54 +355,75 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         """
 
-        self.starting_X = X.copy()
-        self.X = X.copy()
-        self.y = y.copy()
+        # polars input convert-on-the-spot; the rest of BorutaShap calls pandas idioms (``.copy()``, ``.columns.to_numpy()``, ``.apply``, ``.drop(inplace=True)``) and shap.TreeExplainer expects a pandas frame to read ``feature_names_in_``.
+        if pl is not None and isinstance(X, pl.DataFrame):
+            try:
+                from mlframe.training.utils import get_pandas_view_of_polars_df
+                X = get_pandas_view_of_polars_df(X)
+            except ImportError:
+                X = X.to_pandas(use_pyarrow_extension_array=True)
+        if pl is not None and isinstance(y, pl.Series):
+            y = y.to_pandas()
 
-        self.ncols = self.X.shape[1]
-        self.all_columns = self.X.columns.to_numpy()
-        self.rejected_columns = []
-        self.accepted_columns = []
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
-        self.check_X()
-        # self.check_missing_values()
+            self.starting_X = X.copy()
+            self.X = X.copy()
+            self.y = y.copy()
 
-        self.features_to_remove = []
-        self.hits = np.zeros(self.ncols)
-        self.order = self.create_mapping_between_cols_and_indices()
-        self.create_importance_history()
+            self.ncols = self.X.shape[1]
+            self.all_columns = self.X.columns.to_numpy()
+            self.rejected_columns = []
+            self.accepted_columns = []
 
-        if self.sample:
-            self.preds = self.isolation_forest(self.X)
+            self.check_X()
+            # self.check_missing_values()
 
-        pbar = tqdmu(range(self.n_trials), desc="Feature selection")
-        last_ncols = 0
-        for trial in pbar:
-            self.remove_features_if_rejected()
-            self.columns = self.X.columns.to_numpy()
-            self.create_shadow_features()
+            self.features_to_remove = []
+            self.hits = np.zeros(self.ncols)
+            self.order = self.create_mapping_between_cols_and_indices()
+            self.create_importance_history()
 
-            # early stopping
-            if self.X.shape[1] == 0:
-                break
+            if self.sample:
+                self.preds = self.isolation_forest(self.X)
 
-            else:
-                self.Check_if_chose_train_or_test_and_train_model()
+            pbar = tqdmu(range(self.n_trials), desc="Feature selection")
+            last_ncols = 0
+            for trial in pbar:
+                self.remove_features_if_rejected()
+                self.columns = self.X.columns.to_numpy()
+                self.create_shadow_features()
 
-                self.X_feature_import, self.Shadow_feature_import = self.feature_importance(normalize=self.normalize)
-                self.update_importance_history()
-                hits = self.calculate_hits()
-                self.hits += hits
-                self.history_hits = np.vstack((self.history_hits, self.hits))
-                self.test_features(iteration=trial + 1)
+                # early stopping
+                if self.X.shape[1] == 0:
+                    break
 
-        self.store_feature_importance()
-        self.calculate_rejected_accepted_tentative(verbose=self.verbose)
-        pbar.set_description(f"Undecided features: {len(self.tentative):_}")
-        new_ncols = len(self.columns)
-        if new_ncols != last_ncols or trial % 5 == 0:
-            logger.info(f"Undecided features: {len(self.tentative):_}")
-            last_ncols = new_ncols
+                else:
+                    self.Check_if_chose_train_or_test_and_train_model()
+
+                    self.X_feature_import, self.Shadow_feature_import = self.feature_importance(normalize=self.normalize)
+                    self.update_importance_history()
+                    hits = self.calculate_hits()
+                    self.hits += hits
+                    self.history_hits = np.vstack((self.history_hits, self.hits))
+                    self.test_features(iteration=trial + 1)
+
+            self.store_feature_importance()
+            self.calculate_rejected_accepted_tentative(verbose=self.verbose)
+            pbar.set_description(f"Undecided features: {len(self.tentative):_}")
+            new_ncols = len(self.columns)
+            if new_ncols != last_ncols or trial % 5 == 0:
+                logger.info(f"Undecided features: {len(self.tentative):_}")
+                last_ncols = new_ncols
+
+        # sklearn-style outputs so callers can treat BorutaShap like any other selector: ``support_`` is the boolean mask aligned with the input column order, ``selected_features_`` is the list of kept names (accepted + tentative when ``optimistic``).
+        kept = set(self.accepted)
+        if self.optimistic:
+            kept |= set(self.tentative)
+        self.support_ = np.array([c in kept for c in self.all_columns], dtype=bool)
+        self.selected_features_ = [c for c in self.all_columns if c in kept]
 
     def transform(
         self,
@@ -462,8 +487,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         """
 
-        padded_history_shadow = np.full((self.ncols), np.NaN)
-        padded_history_x = np.full((self.ncols), np.NaN)
+        padded_history_shadow = np.full((self.ncols), np.nan)
+        padded_history_x = np.full((self.ncols), np.nan)
 
         for index, col in enumerate(self.columns):
             map_index = self.order[col]
