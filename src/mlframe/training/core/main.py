@@ -486,6 +486,11 @@ def train_mlframe_models_suite(
         cat_features=cat_features,
         was_polars_input=was_polars_input,
         all_models_polars_native=all_models_polars_native,
+        # Wave-7: _phase_fit_pipeline reports whether the pre-fit polars-stage actually ran (skipped when caller passed
+        # pandas or when no model is polars-native). The pandas-conversion phase needs the truthful value, not the
+        # default=True placeholder, to decide whether the polars-side cat fixes (Utf8 -> Categorical fills) need to be
+        # mirrored back into the pandas-side frames before CatBoost Pool construction.
+        polars_pipeline_applied=polars_pipeline_applied,
         needs_polars_pre_clone=(
             was_polars_input
             and not pipeline_config.skip_categorical_encoding
