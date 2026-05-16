@@ -595,6 +595,7 @@ def _initialize_training_defaults(
             n_workers=max(1, psutil.cpu_count(logical=False)),
             verbose=2,
             fe_max_steps=1,
+            max_runtime_mins=300,
         )
 
     return (

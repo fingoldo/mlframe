@@ -24,6 +24,12 @@ def test_init_defaults_all_none():
     assert "n_workers" in m
 
 
+def test_init_defaults_mrmr_max_runtime_mins_capped():
+    """MRMR has no natural convergence on noise-heavy data; without a runtime cap a forgotten run can sit for days. 300 min default keeps the suite bounded while letting genuine selections complete."""
+    _, _, m = _initialize_training_defaults(None, None, None)
+    assert m.get("max_runtime_mins") == 300
+
+
 def test_init_defaults_mutable_safety():
     # Calling twice with None must produce independent dicts (no shared mutable default)
     p1, r1, m1 = _initialize_training_defaults(None, None, None)
