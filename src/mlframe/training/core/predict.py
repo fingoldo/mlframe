@@ -381,23 +381,28 @@ def predict_from_models(
                     model = model_obj.model
 
                     input_for_model = df
-                    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
-                        if model_obj.pre_pipeline != pipeline:
-                            input_for_model = model_obj.pre_pipeline.transform(df)
 
-                    # Subset to the model's own expected feature list. The
-                    # shared metadata["columns"] keeps every column the suite
-                    # saw (including text/embedding cols routed to CB-only
-                    # text_features / embedding_features). XGB/LGB sklearn
-                    # wrappers reject object-dtype columns at predict time
-                    # ("DataFrame.dtypes for data must be int, float, bool or
-                    # category"). Each fitted model exposes its own
-                    # ``feature_names_in_`` (sklearn API used by XGB/LGB) or
-                    # ``feature_names_`` (CatBoost); subsetting df by it
-                    # drops the framework-incompatible columns symmetrically
-                    # with the training-side per-strategy column selection.
-                    # Surfaced by fuzz iter#52 (regression x xgb x text_col).
-                    _expected = getattr(model, "feature_names_in_", None)
+                    # Subset to the per-model expected feature list BEFORE
+                    # routing through pre_pipeline (sklearn pipelines for
+                    # linear / ridge / sgd reject text/embedding columns at
+                    # transform time with "Feature names unseen at fit
+                    # time"). The shared metadata["columns"] keeps every
+                    # column the suite saw at fit time (including text /
+                    # embedding cols routed to CB-only text_features /
+                    # embedding_features), but each fitted model exposes
+                    # its own ``feature_names_in_`` (sklearn API used by
+                    # XGB / LGB / linear) or ``feature_names_`` (CatBoost).
+                    # Prefer the pre_pipeline's feature_names_in_ when a
+                    # pre_pipeline is present (it sees raw input before
+                    # the imputer / scaler reshape feature names); fall
+                    # back to the model's own feature_names_in_ otherwise.
+                    # Surfaced by fuzz iter#52 (xgb + text_col) and iter#64
+                    # (linear + text_col -> pre_pipeline.transform crash).
+                    _expected = None
+                    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
+                        _expected = getattr(model_obj.pre_pipeline, "feature_names_in_", None)
+                    if _expected is None:
+                        _expected = getattr(model, "feature_names_in_", None)
                     if _expected is None:
                         _expected = getattr(model, "feature_names_", None)
                     if _expected is not None and hasattr(input_for_model, "columns"):
@@ -417,6 +422,15 @@ def predict_from_models(
                                 f"from input: {_missing}. Restore the upstream "
                                 f"extraction or retrain on the current schema."
                             )
+
+                    # Per-model pre_pipeline (sklearn Pipeline of imputer +
+                    # scaler for linear / ridge / sgd; identity for tree
+                    # models that handle NaN natively). Apply AFTER the
+                    # per-model column subset so text/embedding columns
+                    # don't reach the pre_pipeline's input-feature checker.
+                    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
+                        if model_obj.pre_pipeline != pipeline:
+                            input_for_model = model_obj.pre_pipeline.transform(input_for_model)
 
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = model.predict_proba(input_for_model)
