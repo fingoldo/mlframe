@@ -71,11 +71,28 @@ class LocalDiskBackend:
     not here -- this class is a primitive.
     """
 
-    def __init__(self, root: str):
+    def __init__(
+        self,
+        root: str,
+        *,
+        max_entries: "int | None" = None,
+        max_size_mb: "float | None" = None,
+    ):
+        """Construct the local-disk backend.
+
+        ``max_entries`` / ``max_size_mb`` are optional LRU caps. When set,
+        a successful ``write()`` evicts the least-recently-accessed
+        ``.bin`` entries (tracked via the sidecar ``<root>/.lru``) to fit
+        the cap. ``None`` (default) preserves the pre-cap behaviour - no
+        eviction, suitable for the v1 solo-greenfield workload.
+        """
         self.root = long_path_safe(os.path.abspath(root))
         os.makedirs(self.root, mode=0o700, exist_ok=True)
         self._locks_dir = os.path.join(self.root, ".locks")
         os.makedirs(self._locks_dir, mode=0o700, exist_ok=True)
+        self.max_entries = max_entries
+        self.max_size_mb = max_size_mb
+        self._lru_path = os.path.join(self.root, ".lru")
 
     # ---- path helpers ------------------------------------------------
 
@@ -102,6 +119,15 @@ class LocalDiskBackend:
             fileobj.write(data)
 
         atomic_write_bytes(path, _writer)
+        # LRU tracking + cap enforcement only kick in when caps are set;
+        # the unbounded path bypasses sidecar I/O entirely so the
+        # zero-config workload pays nothing.
+        if self.max_entries is not None or self.max_size_mb is not None:
+            try:
+                self._touch_lru(key)
+                self._evict_to_caps()
+            except Exception:
+                pass
 
     def exists(self, key: str) -> bool:
         return os.path.exists(self._value_path(key))
@@ -112,6 +138,93 @@ class LocalDiskBackend:
             os.unlink(path)
         except FileNotFoundError:
             pass
+        if self.max_entries is not None or self.max_size_mb is not None:
+            try:
+                lru = self._load_lru()
+                if lru.pop(key, None) is not None:
+                    self._save_lru(lru)
+            except Exception:
+                pass
+
+    # ---- LRU sidecar -------------------------------------------------
+    # Mirrors DiscoveryCache's sidecar: NTFS / noatime mounts make atime
+    # unreliable, so a separate ledger gives portable access tracking.
+
+    def _load_lru(self) -> "dict[str, float]":
+        import json
+        if not os.path.exists(self._lru_path):
+            return {}
+        try:
+            with open(self._lru_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            if isinstance(d, dict):
+                return {str(k): float(v) for k, v in d.items()}
+        except (OSError, ValueError):
+            pass
+        return {}
+
+    def _save_lru(self, lru: "dict[str, float]") -> None:
+        import json
+        atomic_write_bytes(
+            self._lru_path,
+            lambda f: f.write(json.dumps(lru, sort_keys=True).encode("utf-8")),
+        )
+
+    def _touch_lru(self, key: str) -> None:
+        import time
+        lru = self._load_lru()
+        lru[key] = time.time()
+        self._save_lru(lru)
+
+    def _evict_to_caps(self) -> int:
+        """Evict least-recently-accessed entries until both caps fit.
+        Returns the number of entries removed.
+        """
+        if self.max_entries is None and self.max_size_mb is None:
+            return 0
+        lru = self._load_lru()
+        # Collect every on-disk entry; pre-cap legacy keys default to
+        # timestamp 0 so they evict first.
+        entries: List[tuple] = []
+        try:
+            names = os.listdir(self.root)
+        except OSError:
+            return 0
+        for name in names:
+            if name.startswith(".") or not name.endswith(".bin"):
+                continue
+            key = name[:-4]
+            try:
+                size = os.path.getsize(os.path.join(self.root, name))
+            except OSError:
+                size = 0
+            entries.append((key, float(lru.get(key, 0.0)), size))
+        entries.sort(key=lambda e: e[1])
+
+        n = len(entries)
+        total = sum(s for _, _, s in entries)
+        max_bytes = (
+            int(self.max_size_mb * 1024 * 1024)
+            if self.max_size_mb is not None else None
+        )
+
+        removed = 0
+        for key, _ts, size in entries:
+            over_count = self.max_entries is not None and n > self.max_entries
+            over_size = max_bytes is not None and total > max_bytes
+            if not over_count and not over_size:
+                break
+            try:
+                os.unlink(self._value_path(key))
+                removed += 1
+                n -= 1
+                total -= size
+                lru.pop(key, None)
+            except OSError:
+                pass
+        if removed:
+            self._save_lru(lru)
+        return removed
 
     def lock(self, key: str) -> ContextManager:
         return PIDAwareFileLock(self._lock_path(key))

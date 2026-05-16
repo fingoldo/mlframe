@@ -209,10 +209,82 @@ class DiscoveryCache:
     Thread-safe for single-process use only; concurrent writers from multiple processes will race on the same key (caller's responsibility).
     """
 
-    def __init__(self, cache_dir: Any) -> None:
+    def __init__(
+        self,
+        cache_dir: Any,
+        *,
+        max_entries: Optional[int] = None,
+        max_size_mb: Optional[float] = None,
+    ) -> None:
+        """Construct a disk-backed discovery cache.
+
+        Parameters
+        ----------
+        cache_dir
+            Directory hosting one ``<key>.pkl`` per entry.
+        max_entries
+            Hard cap on the number of cached entries. When ``set()`` would
+            push the count above the cap, the least-recently-accessed
+            entries are evicted to fit. ``None`` (default) means no cap -
+            R&D workflows that re-run discovery thousands of times grow
+            unboundedly without this.
+        max_size_mb
+            Soft cap on the total cache footprint in megabytes. Evaluated
+            after the count cap. ``None`` (default) means no size cap.
+
+        LRU tracking uses a sidecar ``<cache_dir>/.lru`` JSON file rather
+        than ``os.path.getatime``: Windows / NTFS frequently mounts with
+        noatime semantics so atime is unreliable; the sidecar gives us a
+        portable monotonic-time access ledger that survives process exit.
+        """
         import os
         self.cache_dir = str(cache_dir)
         os.makedirs(self.cache_dir, exist_ok=True)
+        self.max_entries = max_entries
+        self.max_size_mb = max_size_mb
+        self._lru_path = os.path.join(self.cache_dir, ".lru")
+
+    # ------------------------------------------------------------------
+    # LRU sidecar (key -> access timestamp). Plain JSON; tiny so we read
+    # / write the whole file on every touch. Atime is too unreliable on
+    # NTFS to depend on.
+    # ------------------------------------------------------------------
+
+    def _load_lru(self) -> Dict[str, float]:
+        import os, json
+        if not os.path.exists(self._lru_path):
+            return {}
+        try:
+            with open(self._lru_path, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            if isinstance(d, dict):
+                return {str(k): float(v) for k, v in d.items()}
+        except (OSError, ValueError):
+            pass
+        return {}
+
+    def _save_lru(self, lru: Dict[str, float]) -> None:
+        import os, json, tempfile
+        # Same atomic-rename + fsync discipline as the value writes - LRU
+        # corruption would silently break eviction order.
+        fd, tmp_path = tempfile.mkstemp(dir=self.cache_dir, prefix=".lru.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(lru, f, sort_keys=True)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self._lru_path)
+        except Exception:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    def _touch_lru(self, key: str) -> None:
+        import time
+        lru = self._load_lru()
+        lru[key] = time.time()
+        self._save_lru(lru)
 
     def _path(self, key: str) -> str:
         import os
@@ -234,19 +306,105 @@ class DiscoveryCache:
         ``FileNotFoundError`` after the existence check passed. The two-step
         guard is gone now - we just try-open and treat any failure (missing
         file, locked file, corrupt pickle) as a cache miss.
+
+        A successful read updates the LRU sidecar so subsequent eviction
+        picks the least-recently-USED (not just least-recently-WRITTEN)
+        entry.
         """
         import pickle  # lazy
         path = self._path(key)
         try:
             with open(path, "rb") as f:
-                return pickle.load(f)
+                value = pickle.load(f)
         except (FileNotFoundError, OSError, EOFError, pickle.UnpicklingError, AttributeError):
             return default
         except Exception:
             return default
+        # Successful read: bump LRU. Done outside the read try/except so
+        # an LRU file failure doesn't break the read path.
+        try:
+            self._touch_lru(self._safe_key(key))
+        except Exception:
+            pass
+        return value
+
+    def _safe_key(self, key: str) -> str:
+        """Sanitised key (matches the on-disk filename stem)."""
+        return "".join(c for c in key if c.isalnum())
+
+    def _entry_size_bytes(self, safe_key: str) -> int:
+        import os
+        path = os.path.join(self.cache_dir, f"{safe_key}.pkl")
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+
+    def _evict_to_caps(self) -> int:
+        """Evict least-recently-accessed entries to satisfy the configured
+        ``max_entries`` / ``max_size_mb`` caps. Returns the number of
+        entries removed. Called from ``set()`` after the new entry has
+        been written so the new key participates in the LRU ordering.
+
+        Entries missing from the LRU sidecar (legacy / external writes)
+        are treated as least-recently-accessed (timestamp 0) so they
+        evict first - keeping pre-existing-without-LRU entries pinned
+        forever would defeat the cap.
+        """
+        import os, glob
+        if self.max_entries is None and self.max_size_mb is None:
+            return 0
+        lru = self._load_lru()
+        # Enumerate every on-disk entry, defaulting unseen ones to ts=0.
+        files = glob.glob(os.path.join(self.cache_dir, "*.pkl"))
+        entries: List[Tuple[str, float, int]] = []
+        for path in files:
+            stem = os.path.splitext(os.path.basename(path))[0]
+            ts = float(lru.get(stem, 0.0))
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                size = 0
+            entries.append((stem, ts, size))
+        # Oldest first - that's the eviction order.
+        entries.sort(key=lambda e: e[1])
+
+        n = len(entries)
+        total_bytes = sum(s for _, _, s in entries)
+        max_bytes = (
+            int(self.max_size_mb * 1024 * 1024)
+            if self.max_size_mb is not None else None
+        )
+
+        removed = 0
+        i = 0
+        while i < len(entries):
+            over_count = self.max_entries is not None and n > self.max_entries
+            over_size = max_bytes is not None and total_bytes > max_bytes
+            if not over_count and not over_size:
+                break
+            stem, _ts, size = entries[i]
+            path = os.path.join(self.cache_dir, f"{stem}.pkl")
+            try:
+                os.remove(path)
+                removed += 1
+                n -= 1
+                total_bytes -= size
+                lru.pop(stem, None)
+            except OSError:
+                pass
+            i += 1
+        if removed:
+            self._save_lru(lru)
+        return removed
 
     def set(self, key: str, value: Any) -> None:
-        """Write ``value`` to ``<cache_dir>/<key>.pkl``. Atomic via tmp-file rename so a crash mid-write doesn't leave corrupt cache files. ``f.flush()`` + ``os.fsync()`` run BEFORE ``os.replace`` so a power loss between pickle.dump returning and the OS flushing dirty pages cannot leave a zero-byte file under the visible name."""
+        """Write ``value`` to ``<cache_dir>/<key>.pkl``. Atomic via tmp-file rename so a crash mid-write doesn't leave corrupt cache files. ``f.flush()`` + ``os.fsync()`` run BEFORE ``os.replace`` so a power loss between pickle.dump returning and the OS flushing dirty pages cannot leave a zero-byte file under the visible name.
+
+        After a successful write, the LRU sidecar is bumped and, if
+        ``max_entries`` / ``max_size_mb`` are configured, least-recently-
+        accessed entries are evicted to fit the caps.
+        """
         import os, pickle, tempfile  # lazy
         path = self._path(key)
         # Write to a temp file in the same directory, then rename atomically.
@@ -268,6 +426,13 @@ class DiscoveryCache:
             except OSError:
                 pass
             raise
+        # Touch LRU AFTER the rename so the timestamp reflects the new
+        # entry; then evict if caps are configured.
+        try:
+            self._touch_lru(self._safe_key(key))
+            self._evict_to_caps()
+        except Exception:
+            pass
 
     def invalidate(self, key: str) -> bool:
         """Remove a cached entry. Returns True if the entry existed, False otherwise."""
@@ -275,6 +440,14 @@ class DiscoveryCache:
         path = self._path(key)
         if os.path.exists(path):
             os.remove(path)
+            # Mirror the deletion in the LRU sidecar so a stale ledger
+            # doesn't keep ghost keys pinning the count.
+            try:
+                lru = self._load_lru()
+                if lru.pop(self._safe_key(key), None) is not None:
+                    self._save_lru(lru)
+            except Exception:
+                pass
             return True
         return False
 
@@ -287,4 +460,9 @@ class DiscoveryCache:
                 os.remove(f)
             except OSError:
                 pass
+        try:
+            if os.path.exists(self._lru_path):
+                os.remove(self._lru_path)
+        except OSError:
+            pass
         return len(files)
