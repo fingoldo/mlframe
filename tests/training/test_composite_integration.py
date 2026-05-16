@@ -161,9 +161,13 @@ class TestCompositeIntegration:
                              or models.get(__import__("mlframe.training.configs",
                                                        fromlist=["TargetTypes"])
                                            .TargetTypes.REGRESSION) or {})
+        # 2026-05-16: composite-target naming switched to short aliases per
+        # composite_transforms.py:1380 ('linear_residual' -> 'linres' etc.),
+        # so the public key is e.g. 'target-linres-TVT_prev'. Match both
+        # the legacy long form and the new short alias for compatibility.
         composite_keys = [
             k for k in regression_models
-            if "__linear_residual__TVT_prev" in k
+            if "__linear_residual__TVT_prev" in k or "-linres-TVT_prev" in k
         ]
         assert composite_keys, (
             f"expected at least one composite-target key in models[regression], "
@@ -290,8 +294,10 @@ class TestCompositeIntegration:
         )
         assert regression_metrics
         # At least one composite entry, and it has train metrics.
+        # Accept both legacy long-form 'linear_residual' and the short
+        # alias 'linres' (composite_transforms.py:1380, 2026-05-16).
         composite_keys = [k for k in regression_metrics
-                          if "linear_residual" in k]
+                          if "linear_residual" in k or "linres" in k]
         assert composite_keys
         per_entry_metrics = regression_metrics[composite_keys[0]]
         assert per_entry_metrics  # at least one entry
@@ -467,8 +473,10 @@ class TestCompositeIntegration:
             composite_target_discovery_config=cfg,
         )
         db = metadata.get("dummy_baselines", {}).get("regression", {})
-        # Find the composite-target entry (name contains "__linear_residual__").
-        composite_names = [n for n in db if "__linear_residual__" in n]
+        # Find the composite-target entry. Match both the legacy long form
+        # ('__linear_residual__') and the new short alias ('-linres-') -
+        # composite_transforms.py:1380 switched to short names 2026-05-16.
+        composite_names = [n for n in db if "__linear_residual__" in n or "-linres-" in n]
         assert composite_names, (
             f"expected a composite target dummy entry; got keys={list(db.keys())}"
         )
