@@ -711,8 +711,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 target_type,
                 cur_target_name,
                 id(strategy),
-                _tier_suffix,
-                _kind_suffix,
+                strategy.feature_tier(),
+                strategy.supports_polars,
                 pre_pipeline_name,
             )
             if _fp_cache_key in ctx._model_input_fingerprint_cache:
