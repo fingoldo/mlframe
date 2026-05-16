@@ -160,8 +160,9 @@ class TestPreprocessing:
 
         # Constant column should be removed
         assert "constant_col" not in result.columns
-        # NaNs and infinities should be filled
-        assert not result.isna().any().any()
+        # Inf is normalised to NaN so the downstream imputer handles it; the original NaN survives. Pre-split null-fill was removed to avoid biasing SimpleImputer.fit (see test_imputation_order_unbiased.py).
+        assert not np.isinf(result.select_dtypes(include=["floating"]).to_numpy()).any()
+        assert int(result.isna().sum().sum()) == 2
 
     def test_preprocess_polars_dataframe(self, sample_polars_data):
         """Test preprocessing with Polars DataFrame."""

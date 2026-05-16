@@ -49,19 +49,14 @@ def _process_special_values(
     fill_value: float = 0.0,
     verbose: int = 1,
 ) -> Union[pl.DataFrame, pd.DataFrame]:
-    """Apply null + NaN + inf fixes with matching diagnostic logging on
-    both backends.
+    """Normalise inf to NaN on numeric columns and log null / NaN / inf telemetry.
 
-    Polars branch: combined diagnostic scan (single ``.select()``) and
-    fused fix expressions accumulated through ``.with_columns()``.
+    Nulls and NaNs are intentionally NOT filled here: pre-split null-fill biases the downstream imputer (e.g. SimpleImputer.fit) into computing mean/median over zero-padded rows
+    instead of the real non-null distribution. The imputer is fit on train only after the split and learns the unbiased statistic, then transforms val/test consistently.
 
-    Pandas branch: per-column vectorised fillna + replace; the
-    diagnostics scan numeric columns once with ``.isna()`` / ``np.isinf``
-    so the operator sees the same null / NaN / inf counts in the log
-    they would see on the polars side. (Pre-rename name was
-    ``_process_special_values_fused`` but the pandas branch was never
-    truly fused; only the polars branch was. Renamed to drop the
-    misleading suffix and a backward-compat alias is retained below.)
+    inf -> NaN (not ``fill_value``) so the downstream imputer treats it as missing rather than swallowing a sentinel value into the learned statistic.
+
+    ``fill_value`` is kept in the signature for back-compat with callers that still pass it; the value itself is no longer applied here.
     """
     is_polars = isinstance(df, pl.DataFrame)
     if is_polars:
@@ -75,12 +70,8 @@ def _process_special_values(
             cs.numeric().is_nan().sum().name.prefix("nans_"),
             cs.numeric().is_infinite().sum().name.prefix("infs_"),
         )
-        # Apply fixes sequentially. Each .with_columns() is lazy (zero
-        # computation, just accumulates expressions). The DIAGNOSTIC
-        # scan above is the only eager work - already combined into one.
-        df = df.with_columns(cs.numeric().fill_null(fill_value))
-        df = df.with_columns(cs.numeric().fill_nan(fill_value))
-        df = df.with_columns(cs.numeric().replace([float("inf"), float("-inf")], fill_value))
+        # Only inf is rewritten -> NaN so the downstream imputer sees a real missing marker. Lazy single .with_columns(); diagnostic scan above is the only eager work.
+        df = df.with_columns(cs.numeric().replace([float("inf"), float("-inf")], float("nan")))
         if verbose and diag.height > 0:
             row = diag.row(0)
             parts = []
@@ -90,18 +81,13 @@ def _process_special_values(
             if parts:
                 logger.info("Preprocessing: %s", ", ".join(parts))
     else:
-        # Pandas: per-column vectorised ops + matching diagnostic counts so
-        # the operator sees the same null / NaN / inf telemetry as on the
-        # polars path. NaN is the pandas "null" surrogate (np.nan), so
-        # ``.isna()`` covers both null and NaN; inf is a separate np.inf
-        # check on the float subset.
+        # Pandas: matching telemetry on the same numeric subset. NaN is the pandas null surrogate (np.nan), so ``.isna()`` covers both null and NaN; inf is a
+        # separate np.isinf check on the float subset (integers cannot carry inf).
         num_cols = df.select_dtypes(include="number").columns
         if len(num_cols) > 0:
             if verbose:
                 num_view = df[num_cols]
                 null_count = int(num_view.isna().sum().sum())
-                # Integers cannot carry inf; restrict to floats to avoid
-                # ``isinf`` raising on int dtypes.
                 float_view = df.select_dtypes(include=["floating"])
                 if float_view.shape[1] > 0:
                     inf_count = int(np.isinf(float_view.to_numpy()).sum())
@@ -114,8 +100,10 @@ def _process_special_values(
                     parts.append(f"inf={inf_count}")
                 if parts:
                     logger.info("Preprocessing: %s", ", ".join(parts))
-            df[num_cols] = df[num_cols].fillna(fill_value)
-            df[num_cols] = df[num_cols].replace([float("inf"), float("-inf")], fill_value)
+            # Restrict inf -> NaN to floats: integer columns cannot hold inf and pandas .replace on int dtypes would coerce them to float unnecessarily.
+            float_cols = df.select_dtypes(include=["floating"]).columns
+            if len(float_cols) > 0:
+                df[float_cols] = df[float_cols].replace([float("inf"), float("-inf")], float("nan"))
     return df
 
 
@@ -254,13 +242,9 @@ def preprocess_dataframe(
     if config.ensure_float32_dtypes:
         df = ensure_dataframe_float32_convertability(df)
 
-    # 2026-05-12 Wave 34: fused null+nan+inf in one pass per frame.
-    # The old code called ``process_nulls`` → ``process_nans`` →
-    # ``process_infinities`` sequentially — 3 separate diagnostic
-    # scans + 3 separate fix applications per frame. For polars the
-    # fixes are lazy (zero-cost until collect) but each diagnostic
-    # ``.select()`` scan is eager. Wave 34 fuses all three into a
-    # single ``.with_columns()`` call + combined diagnostic log.
+    # Inf is normalised to NaN here so the post-split imputer (SimpleImputer / polars-ds Blueprint) treats it as missing. Pre-split null-fill was removed: filling
+    # before the split biases the imputer's learned mean/median toward the sentinel value (e.g. 70 instead of true 100 when 30 percent of rows are 0-padded).
+    # ``fillna_value`` is retained as a config flag so existing call sites still hit this branch; the value itself is no longer applied pre-split.
     if config.fillna_value is not None:
         df = _process_special_values(df, fill_value=config.fillna_value, verbose=verbose)
     elif config.fix_infinities:
