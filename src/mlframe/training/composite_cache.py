@@ -236,9 +236,18 @@ class DiscoveryCache:
         than ``os.path.getatime``: Windows / NTFS frequently mounts with
         noatime semantics so atime is unreliable; the sidecar gives us a
         portable monotonic-time access ledger that survives process exit.
+
+        The cache directory is wrapped through
+        :func:`mlframe.training.feature_handling.system.long_path_safe`
+        on Windows so deep cache trees (>= 260 chars) survive
+        ``os.replace`` in ``set()``. ``LocalDiskBackend`` already did
+        this; ``DiscoveryCache`` did not, so a deep run-name + nested
+        artifact path crashed on Windows even though the same directory
+        worked under ``LocalDiskBackend``.
         """
         import os
-        self.cache_dir = str(cache_dir)
+        from .feature_handling.system import long_path_safe
+        self.cache_dir = long_path_safe(os.path.abspath(str(cache_dir)))
         os.makedirs(self.cache_dir, exist_ok=True)
         self.max_entries = max_entries
         self.max_size_mb = max_size_mb
