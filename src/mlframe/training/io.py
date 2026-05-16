@@ -56,6 +56,12 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None]) -> No
     try:
         with os.fdopen(fd, "wb") as f:
             writer_fn(f)
+            # fsync inside the with-block: pickle.dump / dill.dump / numpy.save
+            # only flush their own buffers, not the OS page cache. Without an
+            # explicit fsync, a power loss between rename and writeback can
+            # publish a visible filename whose contents are still dirty pages.
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, target_path)
     except Exception:
         try:

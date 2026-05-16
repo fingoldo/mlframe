@@ -246,7 +246,7 @@ class DiscoveryCache:
             return default
 
     def set(self, key: str, value: Any) -> None:
-        """Write ``value`` to ``<cache_dir>/<key>.pkl``. Atomic via tmp-file rename so a crash mid-write doesn't leave corrupt cache files."""
+        """Write ``value`` to ``<cache_dir>/<key>.pkl``. Atomic via tmp-file rename so a crash mid-write doesn't leave corrupt cache files. ``f.flush()`` + ``os.fsync()`` run BEFORE ``os.replace`` so a power loss between pickle.dump returning and the OS flushing dirty pages cannot leave a zero-byte file under the visible name."""
         import os, pickle, tempfile  # lazy
         path = self._path(key)
         # Write to a temp file in the same directory, then rename atomically.
@@ -254,6 +254,13 @@ class DiscoveryCache:
         try:
             with os.fdopen(fd, "wb") as f:
                 pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
+                # fsync inside the with-block so the data is on stable storage
+                # BEFORE rename makes the path visible to readers. Without this,
+                # rename can publish a name whose contents are still dirty pages
+                # in the OS cache; a crash between rename and writeback leaves
+                # a zero-byte file under the cache key.
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, path)
         except Exception:
             try:
