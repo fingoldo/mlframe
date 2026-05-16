@@ -746,7 +746,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     # ------------------------------------------------------------------
 
     def predict_quantile(
-        self, X: Any, alpha: float = 0.5,
+        self, X: Any, alpha: float | Sequence[float] = 0.5,
     ) -> np.ndarray:
         """y-scale quantile prediction by inverting the inner's
         T-scale quantile.
@@ -755,6 +755,12 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         alpha)`` -- e.g. CatBoost ``MultiQuantile``, LightGBM
         ``quantile_alpha``, sklearn ``QuantileRegressor``. The wrapper
         calls inner -> ``T_q`` then applies the transform's inverse.
+
+        Accepts either a scalar ``alpha`` (returns ``(n_samples,)``) or
+        an array-like of K quantile levels (returns ``(n_samples, K)``);
+        the 2-D path preserves the quantile dimension so per-quantile
+        ensemble blending (``predict_quantile_ensemble``) can operate
+        column-wise instead of collapsing to a single point estimate.
 
         **Quantile preservation under inverse**:
 
@@ -807,22 +813,43 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                     "predict() with the wrapper's domain fallback."
                 )
 
+        alpha_is_scalar = np.isscalar(alpha)
         try:
-            t_q = np.asarray(
+            t_raw = np.asarray(
                 inner.predict_quantile(X, alpha), dtype=np.float64,
-            ).reshape(-1)
+            )
         except TypeError:
             # Some libs name the kwarg differently (e.g. quantile=, q=).
-            t_q = np.asarray(
+            t_raw = np.asarray(
                 inner.predict_quantile(X, alpha=alpha), dtype=np.float64,
-            ).reshape(-1)
-        y_q = transform.inverse(t_q, base_arr, params)
-        # Reuse the same y-clip bounds applied in predict() to defend
-        # against extreme tail T-quantiles producing physically
-        # implausible y.
+            )
+
+        # Preserve quantile dimensionality: scalar alpha -> 1-D (n_samples,);
+        # array alpha -> 2-D (n_samples, K). Flattening unconditionally would
+        # collapse a (n_samples, K) multi-quantile head into one mean-like
+        # vector and destroy the predictive interval downstream blenders need.
         low = params.get("y_clip_low", float("-inf"))
         high = params.get("y_clip_high", float("inf"))
-        return np.clip(y_q, low, high)
+        if alpha_is_scalar:
+            t_q = t_raw.reshape(-1)
+            y_q = transform.inverse(t_q, base_arr, params)
+            return np.clip(y_q, low, high)
+
+        if t_raw.ndim == 1:
+            # Inner emits per-alpha 1-D and was called with a vector -- broadcast
+            # against the single base column we already extracted (which is 1-D).
+            y_q = transform.inverse(t_raw, base_arr, params)
+            return np.clip(y_q, low, high).reshape(-1, 1)
+        if t_raw.ndim != 2:
+            raise ValueError(
+                f"CompositeTargetEstimator.predict_quantile: inner returned ndim={t_raw.ndim}; expected 1 or 2."
+            )
+        # Per-column inverse: base_arr is (n_samples,), so reshape to broadcast.
+        cols: list[np.ndarray] = []
+        for k in range(t_raw.shape[1]):
+            y_col = transform.inverse(t_raw[:, k], base_arr, params)
+            cols.append(np.clip(y_col, low, high))
+        return np.column_stack(cols)
 
     # ------------------------------------------------------------------
     # Delegation
@@ -985,3 +1012,142 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "alpha_current": float(getattr(self, "fitted_params_", {}).get("alpha", float("nan"))),
             "beta_current": float(getattr(self, "fitted_params_", {}).get("beta", float("nan"))),
         }
+
+
+# ----------------------------------------------------------------------
+# Per-quantile ensemble blending
+# ----------------------------------------------------------------------
+
+def predict_quantile_ensemble(
+    members: Sequence[Any],
+    X: Any,
+    quantiles: Sequence[float],
+    weights: Optional[Sequence[float]] = None,
+) -> np.ndarray:
+    """Blend multi-quantile predictions from ``members`` PER-QUANTILE COLUMN.
+
+    Each member ``m`` must expose ``predict_quantile(X, alpha)`` returning a scalar-alpha
+    1-D vector OR a multi-alpha 2-D ``(n_samples, n_quantiles)`` matrix. The blend is
+    elementwise (per row x per quantile column) -- it preserves the quantile dimension
+    rather than collapsing to a single ``.predict()``-style scalar per row.
+
+    Why this matters: arithmetic-mean of the POINT predictions of K quantile heads
+    discards the predictive interval entirely (each member would have answered a
+    different question if asked for q10 vs q90). The correct blend stacks the q10
+    columns from every member, the q50 columns from every member, the q90 columns
+    from every member, and averages each STACK independently.
+
+    Parameters
+    ----------
+    members : sequence of fitted estimators
+        Each must expose ``predict_quantile(X, alpha=float)``. When the member's
+        ``predict_quantile`` natively supports a multi-quantile array (CatBoost
+        MultiQuantile, XGBoost ``quantile_alpha=[...]``), it is called once per
+        ``alpha`` for back-compat with the scalar-alpha contract on
+        ``CompositeTargetEstimator.predict_quantile``.
+    X : feature frame
+        Passed through to each member unchanged.
+    quantiles : sequence of float
+        Quantile levels to blend at. Must be sorted ascending; values in (0, 1).
+    weights : sequence of float, optional
+        Per-member non-negative weights. Renormalised to sum to 1. ``None`` means
+        equal weights (arithmetic mean across members per column).
+
+    Returns
+    -------
+    np.ndarray, shape (n_samples, n_quantiles)
+        Blended per-quantile predictions in original y-scale.
+
+    Raises
+    ------
+    ValueError
+        On empty member list, mismatched per-member output shapes, mismatched
+        quantile sets across members, weights length mismatch, non-sorted /
+        out-of-range quantiles, or weights summing to zero.
+    """
+    if not members:
+        raise ValueError("predict_quantile_ensemble: members is empty")
+
+    quantiles_arr = np.asarray(quantiles, dtype=np.float64)
+    if quantiles_arr.ndim != 1 or quantiles_arr.size == 0:
+        raise ValueError(
+            f"predict_quantile_ensemble: quantiles must be a non-empty 1-D sequence, got shape {quantiles_arr.shape!r}"
+        )
+    if np.any((quantiles_arr <= 0.0) | (quantiles_arr >= 1.0)):
+        raise ValueError(
+            f"predict_quantile_ensemble: quantiles must be strictly between 0 and 1; got {quantiles_arr.tolist()!r}"
+        )
+    if not np.all(np.diff(quantiles_arr) > 0):
+        raise ValueError(
+            f"predict_quantile_ensemble: quantiles must be sorted ascending and unique; got {quantiles_arr.tolist()!r}"
+        )
+
+    if weights is None:
+        w = np.full(len(members), 1.0 / len(members), dtype=np.float64)
+    else:
+        w = np.asarray(weights, dtype=np.float64)
+        if w.shape != (len(members),):
+            raise ValueError(
+                f"predict_quantile_ensemble: weights length {w.shape!r} != n_members {len(members)}"
+            )
+        if np.any(w < 0):
+            raise ValueError(
+                f"predict_quantile_ensemble: weights must be non-negative; got {w.tolist()!r}"
+            )
+        w_sum = float(w.sum())
+        if w_sum <= 0:
+            raise ValueError("predict_quantile_ensemble: weights sum to zero")
+        w = w / w_sum
+
+    # Materialise every member's (n_samples, n_quantiles) matrix. Different quantile sets
+    # MUST raise -- silently truncating the union would hand back a confidence interval
+    # at the wrong nominal coverage.
+    per_member: list[np.ndarray] = []
+    expected_shape: Optional[Tuple[int, int]] = None
+    for idx, m in enumerate(members):
+        if not hasattr(m, "predict_quantile"):
+            raise ValueError(
+                f"predict_quantile_ensemble: member {idx} ({type(m).__name__!r}) lacks predict_quantile(X, alpha); "
+                "wrap each member in CompositeTargetEstimator or another quantile-aware estimator."
+            )
+        # Per-alpha calls: portable across libraries whose native multi-quantile signature differs
+        # (CB MultiQuantile takes alpha=[...], LightGBM scalar-only, sklearn QuantileRegressor scalar-only).
+        cols: list[np.ndarray] = []
+        for alpha_v in quantiles_arr:
+            try:
+                pred = m.predict_quantile(X, float(alpha_v))
+            except TypeError:
+                pred = m.predict_quantile(X, alpha=float(alpha_v))
+            pred_arr = np.asarray(pred, dtype=np.float64)
+            if pred_arr.ndim == 2:
+                # Member already returned multi-quantile; pick the column matching this alpha.
+                # Members that natively emit multi-quantile must expose the same quantile set we asked for;
+                # if shapes do not match the requested 1-D contract treat as a mis-aligned member.
+                if pred_arr.shape[1] != 1:
+                    raise ValueError(
+                        f"predict_quantile_ensemble: member {idx} returned shape {pred_arr.shape!r} for scalar alpha={alpha_v}; "
+                        "expected (n_samples,) or (n_samples, 1)."
+                    )
+                pred_arr = pred_arr[:, 0]
+            elif pred_arr.ndim != 1:
+                raise ValueError(
+                    f"predict_quantile_ensemble: member {idx} predict_quantile returned ndim={pred_arr.ndim} (expected 1 or 2)"
+                )
+            cols.append(pred_arr)
+        member_mat = np.column_stack(cols)
+        if expected_shape is None:
+            expected_shape = member_mat.shape
+        elif member_mat.shape != expected_shape:
+            raise ValueError(
+                f"predict_quantile_ensemble: member {idx} produced shape {member_mat.shape!r}, "
+                f"member 0 produced {expected_shape!r}. Per-quantile blend requires identical "
+                "(n_samples, n_quantiles) across members -- different quantile sets are ambiguous "
+                "(union vs intersection vs interpolated re-evaluation)."
+            )
+        per_member.append(member_mat)
+
+    # Stack along a new member axis -> (M, N, K), then weighted-mean over M -> (N, K).
+    stacked = np.stack(per_member, axis=0)
+    # Broadcast weights along (N, K) without materialising a full (M, N, K) weight tensor.
+    blended = np.tensordot(w, stacked, axes=(0, 0))
+    return blended
