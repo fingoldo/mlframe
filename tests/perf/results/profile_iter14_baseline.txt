@@ -1,0 +1,48 @@
+# 1M-row e2e profile (n_rows=100_000, models=('cb',), save_charts=False)
+
+=== regression x cb ===
+  built frame: 100_000 rows x 9 cols
+MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+  wall: 5.9s  status: OK
+         97214 function calls (93699 primitive calls) in 5.850 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2194 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    5.841    5.841 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.000    0.000    5.743    5.743 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000    5.560    5.560 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000    5.560    5.560 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000    5.559    5.559 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        1    0.000    0.000    5.439    5.439 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        2    0.000    0.000    5.439    2.719 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
+        2    0.001    0.000    5.438    2.719 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        2    5.406    2.703    5.407    2.704 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+        1    0.000    0.000    0.171    0.171 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
+        1    0.000    0.000    0.170    0.170 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1222(configure_training_params)
+        2    0.000    0.000    0.169    0.084 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:152(get_training_configs)
+        1    0.000    0.000    0.168    0.168 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:499(_cb_gpu_usable)
+        2    0.000    0.000    0.163    0.082 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:469(_cached_gpu_info)
+        1    0.000    0.000    0.148    0.148 D:\Upd\Programming\PythonCodeRepository\pyutilz\src\pyutilz\system\system.py:1599(get_gpuutil_gpu_info)
+    70/14    0.001    0.000    0.131    0.009 <frozen importlib._bootstrap>:1165(_find_and_load)
+     62/6    0.001    0.000    0.131    0.022 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
+     55/6    0.001    0.000    0.127    0.021 <frozen importlib._bootstrap>:666(_load_unlocked)
+     50/6    0.000    0.000    0.127    0.021 <frozen importlib._bootstrap_external>:934(exec_module)
+   125/10    0.000    0.000    0.125    0.012 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
+    101/6    0.012    0.000    0.122    0.020 {built-in method builtins.exec}
+        2    0.000    0.000    0.109    0.054 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    0.108    0.054 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.000    0.000    0.105    0.053 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
+        1    0.000    0.000    0.098    0.098 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+    59/14    0.002    0.000    0.095    0.007 <frozen importlib._bootstrap>:1054(_find_spec)
+    18/10    0.000    0.000    0.091    0.009 {built-in method builtins.__import__}
+        1    0.000    0.000    0.090    0.090 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\__init__.py:1(<module>)
+        1    0.000    0.000    0.088    0.088 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\GPUtil.py:1(<module>)
+    61/14    0.000    0.000    0.087    0.006 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:101(find_spec)
+
+
+
+
+# Wall-time summary:
+  regression x cb                                             5.9s  OK

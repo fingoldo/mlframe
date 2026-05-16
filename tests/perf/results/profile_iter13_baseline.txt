@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=50_000, models=('hgb',), save_charts=False)
+
+=== regression x hgb ===
+  built frame: 50_000 rows x 9 cols
+  wall: 4.3s  status: OK
+         365758 function calls (349170 primitive calls) in 4.335 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2299 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    4.329    4.329 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.000    0.000    4.240    4.240 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.011    0.011    4.066    4.066 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000    4.055    4.055 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000    4.054    4.054 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        1    0.000    0.000    3.870    3.870 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.000    0.000    3.869    3.869 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
+        1    0.077    0.077    3.867    3.867 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\gradient_boosting.py:512(fit)
+        2    0.000    0.000    1.832    0.916 D:\ProgramData\anaconda3\Lib\subprocess.py:1165(communicate)
+        1    0.000    0.000    1.802    1.802 D:\ProgramData\anaconda3\Lib\site-packages\joblib\parallel.py:631(cpu_count)
+        1    0.000    0.000    1.802    1.802 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:78(cpu_count)
+        1    0.000    0.000    1.802    1.802 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:227(_count_physical_cores)
+        1    0.000    0.000    1.802    1.802 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:286(_count_physical_cores_win32)
+        1    0.000    0.000    1.802    1.802 D:\ProgramData\anaconda3\Lib\subprocess.py:506(run)
+       58    1.778    0.031    1.778    0.031 {method 'acquire' of '_thread.lock' objects}
+        1    0.000    0.000    1.771    1.771 D:\ProgramData\anaconda3\Lib\subprocess.py:1601(_communicate)
+        5    0.000    0.000    1.769    0.354 D:\ProgramData\anaconda3\Lib\threading.py:1080(join)
+        6    0.000    0.000    1.768    0.295 D:\ProgramData\anaconda3\Lib\threading.py:1118(_wait_for_tstate_lock)
+      228    0.010    0.000    1.319    0.006 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:385(grow)
+     6840    0.836    0.000    1.304    0.000 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:488(split_next)
+    10133    0.257    0.000    0.286    0.000 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:463(_compute_best_split_and_push)
+      228    0.050    0.000    0.248    0.001 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:246(__init__)
+      228    0.002    0.000    0.211    0.001 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:711(make_predictor)
+13908/228    0.206    0.000    0.206    0.001 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:747(_fill_predictor_arrays)
+        2    0.000    0.000    0.178    0.089 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    0.178    0.089 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.000    0.000    0.177    0.088 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
+      228    0.096    0.000    0.174    0.001 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:404(_initialize_root)
+        1    0.000    0.000    0.163    0.163 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
+        1    0.000    0.000    0.163    0.163 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1222(configure_training_params)
+
+
+
+
+# Wall-time summary:
+  regression x hgb                                            4.3s  OK

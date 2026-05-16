@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=300_000, models=('linear',), save_charts=False)
+
+=== binary_classification x linear ===
+  built frame: 300_000 rows x 9 cols
+  wall: 4.2s  status: OK
+         488999 function calls (471267 primitive calls) in 4.212 seconds
+
+   Ordered by: cumulative time
+   List reduced from 3322 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    4.206    4.206 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.001    0.001    2.839    2.839 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000    2.684    2.684 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000    2.684    2.684 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000    2.683    2.683 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+      4/2    0.001    0.000    1.324    0.662 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
+        2    0.000    0.000    1.253    0.626 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    1.252    0.626 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.001    0.000    1.250    0.625 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+        1    0.000    0.000    1.205    1.205 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+       14    0.000    0.000    1.163    0.083 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+       14    0.001    0.000    1.158    0.083 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+        1    0.000    0.000    1.086    1.086 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.000    0.000    1.084    1.084 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_logistic.py:1086(fit)
+        1    0.002    0.002    1.040    1.040 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_logistic.py:86(_logistic_regression_path)
+        1    0.000    0.000    1.019    1.019 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_minimize.py:54(minimize)
+        1    0.000    0.000    1.019    1.019 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_lbfgsb_py.py:294(_minimize_lbfgsb)
+       10    0.002    0.000    1.018    0.102 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:71(_compute_if_needed)
+        6    0.000    0.000    1.018    0.170 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_differentiable_functions.py:351(_update_fun)
+        5    0.000    0.000    1.018    0.204 D:\ProgramData\anaconda3\Lib\site-packages\scipy\_lib\_util.py:587(__call__)
+        5    0.000    0.000    1.018    0.204 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:78(__call__)
+        5    0.278    0.056    1.016    0.203 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_linear_loss.py:269(loss_gradient)
+        1    0.001    0.001    0.987    0.987 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1039(_phase_train_val_test_split)
+        1    0.001    0.001    0.938    0.938 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\splitting.py:79(make_train_test_split)
+        2    0.017    0.009    0.886    0.443 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\splitting.py:23(_stratified_split)
+       12    0.000    0.000    0.879    0.073 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:713(load_overload)
+       12    0.000    0.000    0.869    0.072 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:724(_load_overload)
+2554/2502    0.001    0.000    0.856    0.000 {built-in method builtins.next}
+        4    0.001    0.000    0.841    0.210 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\model_selection\_split.py:1897(split)
+        4    0.207    0.052    0.840    0.210 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\model_selection\_split.py:2318(_iter_indices)
+
+
+
+
+# Wall-time summary:
+  binary_classification x linear                              4.2s  OK

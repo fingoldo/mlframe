@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=1_000_000, models=('lgb',), save_charts=False)
+
+=== regression x lgb ===
+  built frame: 1_000_000 rows x 9 cols
+  wall: 11.7s  status: OK
+         152603 function calls (149447 primitive calls) in 11.673 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2185 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.005    0.005   11.671   11.671 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.001    0.001   11.450   11.450 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000   11.234   11.234 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000   11.233   11.233 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000   11.233   11.233 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        1    0.000    0.000    9.208    9.208 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.000    0.000    9.207    9.207 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
+        1    0.022    0.022    9.203    9.203 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
+      700    8.636    0.012    8.639    0.012 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4092(update)
+        2    0.000    0.000    2.008    1.004 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    2.008    1.004 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.000    0.000    2.005    1.003 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
+        1    0.000    0.000    1.427    1.427 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:863(_run_test_metrics)
+        2    0.000    0.000    1.002    0.501 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:316(_predict_with_fallback)
+        2    0.000    0.000    1.001    0.500 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:1093(predict)
+        2    0.001    0.001    0.997    0.499 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4701(predict)
+        2    0.000    0.000    0.996    0.498 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1100(predict)
+        2    0.000    0.000    0.991    0.495 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1327(__pred_for_np2d)
+        2    0.991    0.495    0.991    0.495 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1286(__inner_predict_np2d)
+        7    0.000    0.000    0.965    0.138 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+        7    0.000    0.000    0.964    0.138 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+        7    0.000    0.000    0.962    0.137 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:713(load_overload)
+        7    0.000    0.000    0.957    0.137 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:724(_load_overload)
+        7    0.000    0.000    0.760    0.109 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:567(load)
+        1    0.000    0.000    0.581    0.581 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+        7    0.000    0.000    0.448    0.064 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:614(_load_data)
+       15    0.446    0.030    0.446    0.030 {built-in method io.open}
+        2    0.000    0.000    0.333    0.166 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3604(fast_mean_absolute_error)
+        2    0.000    0.000    0.323    0.161 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3741(fast_r2_score)
+        7    0.000    0.000    0.311    0.044 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:581(_load_index)
+
+
+
+
+# Wall-time summary:
+  regression x lgb                                           11.7s  OK

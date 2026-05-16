@@ -1,0 +1,50 @@
+# 1M-row e2e profile (n_rows=200_000, models=('linear', 'ridge'), save_charts=False)
+
+=== multiclass_classification x linear,ridge ===
+  built frame: 200_000 rows x 9 cols
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:  50%|#####     | 1/2 [00:02<00:02,  2.01s/it]predict_proba not available for RidgeClassifier, using predict() instead: RidgeClassifier has no callable 'predict_proba'
+predict_proba not available for RidgeClassifier, using predict() instead: RidgeClassifier has no callable 'predict_proba'
+mlframe model: 100%|##########| 2/2 [00:03<00:00,  1.85s/it]mlframe model: 100%|##########| 2/2 [00:03<00:00,  1.87s/it]
+  wall: 4.8s  status: OK
+         693602 function calls (669157 primitive calls) in 4.749 seconds
+
+   Ordered by: cumulative time
+   List reduced from 3612 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    4.744    4.744 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.001    0.001    4.349    4.349 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+       14    0.001    0.000    4.133    0.295 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        2    0.000    0.000    3.732    1.866 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        2    0.000    0.000    3.731    1.866 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+      6/3    0.001    0.000    2.528    0.843 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
+        2    0.000    0.000    2.455    1.227 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.002    0.002    1.472    1.472 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_ridge.py:1575(fit)
+       28    0.001    0.000    1.464    0.052 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+       28    0.001    0.000    1.461    0.052 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+       28    0.011    0.000    1.451    0.052 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+        1    0.002    0.002    1.198    1.198 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_ridge.py:925(fit)
+       14    0.000    0.000    1.179    0.084 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+        1    0.000    0.000    1.142    1.142 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_ridge.py:612(_ridge_regression)
+        1    0.000    0.000    1.114    1.114 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_ridge.py:216(_solve_cholesky)
+        1    0.000    0.000    0.979    0.979 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_logistic.py:1086(fit)
+        1    0.000    0.000    0.960    0.960 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_logistic.py:86(_logistic_regression_path)
+        1    0.000    0.000    0.951    0.951 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_minimize.py:54(minimize)
+        1    0.000    0.000    0.951    0.951 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_lbfgsb_py.py:294(_minimize_lbfgsb)
+      260    0.005    0.000    0.780    0.003 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+        1    0.000    0.000    0.749    0.749 D:\ProgramData\anaconda3\Lib\site-packages\scipy\_lib\_util.py:1203(wrapper)
+        1    0.563    0.563    0.748    0.748 D:\ProgramData\anaconda3\Lib\site-packages\scipy\linalg\_basic.py:76(solve)
+      260    0.004    0.000    0.729    0.003 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+       26    0.010    0.000    0.643    0.025 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:71(_compute_if_needed)
+       14    0.000    0.000    0.643    0.046 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_differentiable_functions.py:351(_update_fun)
+       13    0.000    0.000    0.643    0.049 D:\ProgramData\anaconda3\Lib\site-packages\scipy\_lib\_util.py:587(__call__)
+       13    0.000    0.000    0.643    0.049 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:78(__call__)
+      112    0.011    0.000    0.641    0.006 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2421(fast_calibration_report)
+       13    0.038    0.003    0.633    0.049 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_linear_loss.py:269(loss_gradient)
+        1    0.000    0.000    0.466    0.466 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:1128(score_ensemble)
+
+
+
+
+# Wall-time summary:
+  multiclass_classification x linear,ridge                    4.8s  OK

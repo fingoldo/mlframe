@@ -468,7 +468,8 @@ def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, trai
     key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name)
     _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
     with _PRE_PIPELINE_CACHE_LOCK:
-        _PRE_PIPELINE_CACHE[key] = (train_out, val_out)
+        # Store the pipeline as third element so future hits can transfer fit state.
+        _PRE_PIPELINE_CACHE[key] = (train_out, val_out, pipeline)
         _PRE_PIPELINE_CACHE.move_to_end(key)
         while len(_PRE_PIPELINE_CACHE) > _cap:
             _PRE_PIPELINE_CACHE.popitem(last=False)
@@ -545,7 +546,23 @@ def _apply_pre_pipeline_transforms(
             train_target=train_target, target_name=target_name,
         )
         if _cache_hit is not None and not skip_pre_pipeline_transform and not skip_preprocessing and not _is_fitted(pre_pipeline):
-            train_df_cached, val_df_cached = _cache_hit
+            _cache_entry = _cache_hit
+            # Older entries hold a 2-tuple; new entries hold (train, val, fitted_pipeline).
+            if len(_cache_entry) == 3:
+                train_df_cached, val_df_cached, fitted_cached = _cache_entry
+            else:
+                train_df_cached, val_df_cached = _cache_entry
+                fitted_cached = None
+            # Transfer fit state from cached pipeline so the caller's (cloned, unfitted) instance
+            # can transform test_df at predict time. Without this, _prepare_test_split called
+            # pre_pipeline.transform on an unfitted Pipeline and raised NotFittedError (surfaced
+            # 2026-05-16 by test_train_mixed_linear_and_lgb after value-transforming pipelines
+            # stopped being marked identity-equivalent).
+            if fitted_cached is not None:
+                try:
+                    pre_pipeline.__dict__.update(fitted_cached.__dict__)
+                except Exception as _state_err:
+                    logger.debug("pre_pipeline cache state transfer skipped: %s", _state_err)
             if verbose:
                 logger.info("Reusing pre_pipeline fit-transform from cache " "(same train_df + structurally identical pipeline).")
             shape_str = f"{train_df_cached.shape[0]:_}x{train_df_cached.shape[1]}" if hasattr(train_df_cached, "shape") else ""
@@ -673,10 +690,12 @@ def _apply_pre_pipeline_transforms(
             # didn't have anything new to cache anyway).
             if not skip_pre_pipeline_transform and not skip_preprocessing:
                 # Reuse the entry-time key so a populate after a miss is guaranteed to land in the slot the next lookup will read from.
+                # Store the now-fitted pre_pipeline alongside (train_df, val_df); future cache hits
+                # transfer fit state to the caller's cloned instance so test_df.transform works.
                 try:
                     _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
                     with _PRE_PIPELINE_CACHE_LOCK:
-                        _PRE_PIPELINE_CACHE[_cache_key_entry] = (train_df, val_df)
+                        _PRE_PIPELINE_CACHE[_cache_key_entry] = (train_df, val_df, pre_pipeline)
                         _PRE_PIPELINE_CACHE.move_to_end(_cache_key_entry)
                         while len(_PRE_PIPELINE_CACHE) > _cap:
                             _PRE_PIPELINE_CACHE.popitem(last=False)

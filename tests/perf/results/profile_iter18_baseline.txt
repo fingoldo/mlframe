@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=120_000, models=('xgb',), save_charts=False)
+
+=== multiclass_classification x xgb ===
+  built frame: 120_000 rows x 9 cols
+  wall: 13.7s  status: OK
+         5389584 function calls (5144647 primitive calls) in 13.700 seconds
+
+   Ordered by: cumulative time
+   List reduced from 4668 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001   13.698   13.698 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.001    0.001   13.335   13.335 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000   13.162   13.162 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000   13.161   13.161 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000   13.161   13.161 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        2    0.000    0.000    8.130    4.065 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    8.129    4.065 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.002    0.001    8.123    4.061 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+        1    0.000    0.000    8.027    8.027 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+       26    0.001    0.000    8.012    0.308 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+    65/26    0.002    0.000    8.002    0.308 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+     16/7    0.000    0.000    7.583    1.083 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:79(compile)
+     16/7    0.000    0.000    7.583    1.083 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:86(_compile_cached)
+     15/6    0.001    0.000    7.583    1.264 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:101(_compile_core)
+     15/6    0.000    0.000    7.581    1.263 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:713(compile_extra)
+     21/6    0.000    0.000    7.571    1.262 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:433(compile_extra)
+     21/6    0.000    0.000    7.550    1.258 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:500(_compile_bytecode)
+     21/6    0.001    0.000    7.550    1.258 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:456(_compile_core)
+     21/6    0.005    0.000    7.543    1.257 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:342(run)
+  723/171    0.005    0.000    7.542    0.044 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_lock.py:32(_acquire_compile_lock)
+  558/153    0.031    0.000    7.535    0.049 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:267(_runPass)
+ 1673/458    0.004    0.000    7.489    0.016 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:271(check)
+        8    0.002    0.000    7.479    0.935 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2421(fast_calibration_report)
+    20/14    0.003    0.000    5.185    0.370 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\typed_passes.py:439(run_pass)
+     28/9    0.000    0.000    5.060    0.562 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:534(inner_f)
+        1    0.000    0.000    5.026    5.026 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.000    0.000    5.022    5.022 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\xgb_shim.py:269(fit)
+        1    0.002    0.002    4.903    4.903 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\training.py:52(train)
+      158    4.346    0.028    4.386    0.028 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:2174(update)
+    20/14    0.001    0.000    3.120    0.223 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\lowering.py:188(lower)
+
+
+
+
+# Wall-time summary:
+  multiclass_classification x xgb                            13.7s  OK

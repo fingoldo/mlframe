@@ -296,6 +296,14 @@ def get_training_configs(
         task_type=_cb_task,
         early_stopping_rounds=early_stopping_rounds,
         random_seed=random_seed,
+        # metric_period=5: evaluate the custom eval metric every 5th boost
+        # iteration instead of every iteration. On 1M-row multiclass with
+        # the ICE calibration metric this cut suite wall from ~95s to ~60s
+        # (the per-iter metric was 110ms and CB ran 350+ boost rounds).
+        # Trade-off: early-stopping detects "best iteration" with a 5-iter
+        # granularity instead of 1-iter; on a 100+-iter run this is a
+        # negligible accuracy hit. CB caller can override via cb_kwargs.
+        metric_period=5,
     )
     CB_GENERAL_PARAMS.update(cb_kwargs)
 

@@ -82,7 +82,12 @@ def test_pre_pipeline_cache_hits_when_inputs_match():
     hit = _pre_pipeline_cache_get(
         X, None, pipe, train_target=y.to_numpy(), target_name="t",
     )
-    assert hit == sentinel
+    # Cache entry is (train_out, val_out, fitted_pipeline) since the 2026-05-16
+    # fit-state-transfer fix; first two slots remain the sentinel.
+    assert hit is not None
+    assert hit[0] == sentinel[0]
+    assert hit[1] == sentinel[1]
+    assert hit[2] is pipe
 
 
 def test_pre_pipeline_cache_size_respects_cache_max_override():

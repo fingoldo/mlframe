@@ -122,15 +122,15 @@ class TestLookupAndStore:
 class TestLRUEviction:
     def test_lru_caps_at_two_entries(self) -> None:
         """Three different (train_df, pipeline) keys -> only the latest two
-        survive (LRU eviction)."""
+        survive (LRU eviction). Cap is per-call (CACHE-P1-4)."""
         train = _make_df(seed=0)
         # Three different val_df identities -> three distinct keys.
         v1, v2, v3 = _make_df(seed=1), _make_df(seed=2), _make_df(seed=3)
         pipe = _make_pipeline()
-        _pre_pipeline_cache_set(train, v1, pipe, train.copy(), v1.copy())
-        _pre_pipeline_cache_set(train, v2, pipe, train.copy(), v2.copy())
+        _pre_pipeline_cache_set(train, v1, pipe, train.copy(), v1.copy(), cache_max=2)
+        _pre_pipeline_cache_set(train, v2, pipe, train.copy(), v2.copy(), cache_max=2)
         assert len(_PRE_PIPELINE_CACHE) == 2
-        _pre_pipeline_cache_set(train, v3, pipe, train.copy(), v3.copy())
+        _pre_pipeline_cache_set(train, v3, pipe, train.copy(), v3.copy(), cache_max=2)
         assert len(_PRE_PIPELINE_CACHE) == 2
         # v1 (oldest) was evicted.
         assert _pre_pipeline_cache_get(train, v1, _make_pipeline()) is None
@@ -144,12 +144,12 @@ class TestLRUEviction:
         train = _make_df(seed=0)
         v1, v2, v3 = _make_df(seed=1), _make_df(seed=2), _make_df(seed=3)
         pipe = _make_pipeline()
-        _pre_pipeline_cache_set(train, v1, pipe, train.copy(), v1.copy())
-        _pre_pipeline_cache_set(train, v2, pipe, train.copy(), v2.copy())
+        _pre_pipeline_cache_set(train, v1, pipe, train.copy(), v1.copy(), cache_max=2)
+        _pre_pipeline_cache_set(train, v2, pipe, train.copy(), v2.copy(), cache_max=2)
         # Bump v1 to most-recent by reading it.
         _ = _pre_pipeline_cache_get(train, v1, _make_pipeline())
         # Adding v3 should evict v2 (LRU now), NOT v1.
-        _pre_pipeline_cache_set(train, v3, pipe, train.copy(), v3.copy())
+        _pre_pipeline_cache_set(train, v3, pipe, train.copy(), v3.copy(), cache_max=2)
         assert _pre_pipeline_cache_get(train, v1, _make_pipeline()) is not None
         assert _pre_pipeline_cache_get(train, v2, _make_pipeline()) is None
         assert _pre_pipeline_cache_get(train, v3, _make_pipeline()) is not None
