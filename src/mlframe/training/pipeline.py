@@ -1096,11 +1096,30 @@ def fit_and_transform_pipeline(
 
     # Handle pandas DataFrames with sklearn-style pipeline
     elif isinstance(train_df, pd.DataFrame):
-        # Identify categorical features (exclude text/embedding columns)
+        # Identify categorical features (exclude text/embedding columns).
+        # Embedding columns can sneak past the dtype filter when stored as
+        # pandas object-of-ndarray (an embedding vector per row). They look
+        # categorical via dtype.name=='object' but their cells are ndarrays
+        # that hash() raises on, crashing category_encoders.OrdinalEncoder's
+        # internal .unique() call. Detect and exclude via first-cell shape.
+        def _looks_embedding(_series):
+            if _series.dtype != object:
+                return False
+            try:
+                _first = next((v for v in _series.head(8) if v is not None), None)
+            except Exception:
+                return False
+            if _first is None:
+                return False
+            return hasattr(_first, "shape") or (
+                hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+            )
+
         cat_features = [
             col for col in train_df.columns
             if train_df[col].dtype.name in PANDAS_CATEGORICAL_DTYPES
             and col not in _exclude_from_encoding
+            and not _looks_embedding(train_df[col])
         ]
 
         # Apply categorical encoding if specified (for models that don't support categorical natively)
