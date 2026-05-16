@@ -1,5 +1,77 @@
 # Changelog
 
+## 2026-05-16 — `train_mlframe_models_suite` multi-agent audit overhaul (branch `audit-fixes-2026-05-16`)
+
+A coordinated 83-commit overhaul of `train_mlframe_models_suite` driven by a multi-agent critique pass on top of the same-day 192-finding campaign documented below. Focus areas: cache-key correctness (cross-target / row-order / version-tuple), honest val/test/OOF discipline through stacking and calibration, predict-path parity for polars-fastpath suites, sample_weight plumbing through MRMR / RFECV / Ridge / NNLS / target encoders, recurrent and rank-fusion ensembling, and ~3-7x speedups on the polars hot paths (drift-snapshot, per-col auto-detect, per-group baseline, NaN-guard, content fingerprint). ~150 new regression / biz_value / sensor tests cover the changes. Known follow-ups (predict-path parity completion, observability wave 8, `train_df_pandas_pre` consumer rewiring, `feature_handling_config` alignment, two pre-existing test failures) are itemised at the bottom of this section.
+
+### Added
+
+- New `TrainMlframeSuitePrecomputed` dataclass + `precompute_trainset_features_stats` / `precompute_all` one-shot helpers; `train_mlframe_models_suite` now accepts a `precomputed=` kwarg and skips inline compute where the bundle supplies stats. Bundle path measured at ~0.4us vs inline ~3.5ms per call in the biz_value test (>99% saving floor pinned at 90%). Stubs landed for `precompute_dummy_baselines` and `precompute_composite_target_specs` to be implemented once split-time access and composite_cache wiring complete.
+- Per-quantile ensemble blending now preserves the K-quantile dimension instead of collapsing to a single mean estimate.
+- Rank-fusion ensembling: RRF + Borda helpers wired as a `LearningToRankConfig.ltr_ensemble_method` and as a `score_ensemble` flavour (with a regression skip-guard); back-compat resolution order preserved.
+- Recurrent models (LSTM / GRU / Transformer) integrated into `score_ensemble` via `_rerun_ensemble_with_recurrent`; ctx is threaded through `train_recurrent_models` with an integration test.
+- BorutaSHAP wired into `_build_pre_pipelines` behind `FeatureSelectionConfig.use_boruta_shap` (+ `boruta_shap_kwargs`); accepts polars frames; scoped warning filter; `logger.warning` over `print`. Biz_value test recovers signal and rejects noise on a synthetic 10-feature frame.
+- `feature_handling_apply` wired into the `_train_one_target` per-target loop with storage of the persisted methods.
+- Polars-native dummy baselines: `_dummy_baseline_compute` and `_per_group_predict` now group_by on polars directly (fused mean + size); biz_value harness pins the polars-native vs pandas wall-time win.
+- `composite_estimator` now exposes `predict_pre_clip` and emits raw + wrapped y-scale RMSE/MAE pairs per split.
+- `LeakageSafeEncoder.fit / fit_transform`, MRMR, RFECV, and Ridge / NNLS composite stack solvers now accept `sample_weight`. NNLS uses sqrt-weight row scaling; default-None preserves byte-for-byte legacy behaviour.
+
+### Changed
+
+- K-fold OOF predictions now replace in-sample train_preds for level-1 stacking. The previous in-sample feed gave the stacker an unrealistic view of base-learner skill.
+- Validation rows are now used ONLY for early-stopping. Outlier gating and flavour selection were moved off val and onto OOF where they belong. `post_calibrate_model` no longer fits on test rows; calibration is opt-in via the new `TrainingSplitConfig.calib_size`.
+- `score_ensemble` ensemble models persist through ctx and merge into the models dict (the prior local binding was never read).
+- `_phase_pandas_conversion_and_cat_prep` and `defer_pandas_conv` are now gated through `polars_pipeline_applied` so the polars fastpath cannot be silently degraded by a missing marker.
+- `_release_ctx_polars_frames` covered by a regression net; bulk `setattr` loops in `core/main.py` replaced by a typed `_bulk_setattr_to_ctx` helper; ctx-null and RSS audit logging added.
+- `__MISSING__` sentinel relocated to the LAST category code in `prepare_dfs_for_catboost_joint` so legitimate category codes are never silently overwritten.
+- `PipelineCache.verbose` default flipped to True so HIT / MISS lines log under the locked caller.
+- Pre-split null-fill dropped from preprocessing; the imputer now learns unbiased stats on train rows only.
+- `DiscoveryCache` cache_dir wrapped through `long_path_safe`; version tuple expanded to cover xgboost / polars / numpy / scipy / pandas / python (was sklearn + lightgbm + catboost only).
+- Near-duplicate ensemble member pairs now WARN instead of being silently dropped.
+- Default MRMR runtime cap raised to 300 minutes (was lower and routinely interrupted long fits).
+- MRMR iteration-loop GC routed through `maybe_clean_ram_and_gpu` instead of an unconditional `iter % 5 == 0` collect.
+
+### Fixed
+
+- **Cross-target FS cache key leak (multiple sites).** `MRMR._FIT_CACHE` key now includes full y content hash + target name; target-encoder `InMemoryKey` now hashes y content; `canonical_params_hash` migrated to orjson with `OPT_SORT_KEYS`; `composite_cache` data_signature folds in row-order fingerprint; FH session token now resets alongside the phase registry at suite entry; `PipelineCache` key digest folds in the (cat, text, embedding) feature-list tuples; RFECV dedup uses `pandas.util.hash_array` over the prior sentinel hash and now covers categoricals; RFECV `skip_retraining` signature folds in a blake2b hash of y content.
+- **Atomic writes.** All atomic-write helpers now `os.fsync` the tmp fd before `os.replace`.
+- **Predict-path corner cases.** `predict_from_models` skips an unfitted placeholder `pre_pipeline`; the pre-pipeline fallback resolves the iter#80 lgb+hgb mixed mode regression. `_apply_nan_guard` now runs polars-native impute + scale instead of a sklearn round-trip. PySR equation column names are content-hashed and the equation map is persisted to avoid name collisions across re-fits. Datetime decomposition methods are persisted at suite level and FTE-emitted columns skip re-decomposition.
+- `_phase_helpers`: `calib_size` excluded from `make_train_test_split` kwargs (it is a split-budget knob, not a split-strategy arg). `_phase_train_one_target`: repaired `_tier_suffix` / `_kind_suffix` NameError introduced by the cache-key refactor.
+- MRMR `min_relevance_gain` default switched to H(y)-relative mode; the absolute `1e9`-cell cap replaced with a RAM-relative working-set check.
+- `composite_ensemble` logs the base column that triggered the time-aware OOF auto-detect (was silent).
+
+### Performance
+
+- **Polars hot paths.** `_pipeline_helpers` cache fingerprint now point-samples instead of full-materialising; bench harness pins 762x at 100k rows and 2740x at 1M rows. Drift-snapshot uniques batched into one lazy collect (3.56x). Per-col auto-detect n_unique + count fused into one lazy collect (2.74x). Per-group baseline polars dispatch (2.57x). Polars-native NaN-guard (7.32x vs sklearn round-trip). LightGBM shim now routes polars X through an Arrow split-blocks bridge with a dedicated bench harness.
+- **Per-target hoist.** Pool / Dataset / DMatrix reuse via per-target hoisting yields 30-70% wall-time reduction on the inner loop (measured in `bench/per_target_hoist`).
+- `_bulk_setattr_to_ctx` typed helper replaces dict-copy setattr loops in `core/main.py`.
+
+### Tests
+
+- ~150 new regression / biz_value / sensor tests across the above changes. Biz_value tests quantify the behavioural delta (e.g. RFECV recency `sample_weight` flips the best single-feature pick from B to A; MRMR recency-weighted flips top-1 vs uniform; composite ensemble recency flips Ridge `c1` sign and NNLS sqrt-weight matches WLS; target encoders recency shifts category-a mean from 0.33 to ~1.0 with matching WoE shift).
+- Bench harnesses (kept in `benchmarks/`): `content_fingerprint`, `predict_nan_guard`, `per_group_baseline`, `lgb_dataset_polars_bridge`.
+
+### Configuration surface (new / changed knobs)
+
+- `FeatureSelectionConfig.use_sample_weights_in_fs: bool = False` — default OFF preserves FS cache reuse across runs that differ only in `sample_weight`; flip ON to let FS see weights.
+- `FeatureSelectionConfig.use_boruta_shap: bool = False` + `boruta_shap_kwargs: dict | None = None`.
+- `FeatureSelectionConfig.rfecv_leakage_corr_threshold: float` — exposes the previously-hardcoded leakage corr threshold.
+- `FeatureSelectionConfig.rfecv_mbh_adaptive_threshold: float` — exposes the MBH adaptive-surrogate threshold.
+- `FeatureTypesConfig.cat_text_cardinality_threshold_pct: float` — size-aware cat/text auto-detection (the previous absolute threshold mis-classified large frames).
+- `TrainingSplitConfig.calib_size: float = 0.0` (opt-in) — carves a dedicated calibration slice so `post_calibrate_model` never fits on test rows.
+- `EnsembleConfig.diversity_corr_warn_threshold: float` — controls the near-duplicate ensemble member WARN (no drop).
+- `LearningToRankConfig.ltr_ensemble_method: Literal["mean", "rrf", "borda"]` — rank-fusion ensembling for LTR (and `score_ensemble` flavour).
+- `OutlierDetectionConfig.apply_to_feature_selection: bool` — gates whether the outlier mask is propagated into FS fits.
+- MRMR default `runtime_max_mins` raised to 300.
+
+### Known follow-ups
+
+- Predict-path parity for polars-fastpath suites: pre-pipeline extensions / flavour / `_CT_ENSEMBLE` save+load + polars fastpath at predict entry. Tracked separately because save+load is shared with the upcoming `mlframe.inference.predict` rewrite.
+- Wave 8 observability: per-model FS report + cache stats in run metadata.
+- `train_df_pandas_pre` full consumer rewiring (currently dual-stored alongside the mutation-immune snapshot landed in `6b2c4bc`).
+- `feature_handling_config` consumer / storage alignment now that `setup_configuration` plumbs it onto ctx (`6f2c05f`).
+- Two pre-existing test failures triaged but not fixed in this branch (will be addressed in their own changesets): `test_core_loop_forward_transfers_dataset_cache_to_clone`, `test_temporal_audit_autodetect`.
+
 ## 2026-05-16 — `train_mlframe_models_suite` audit campaign (192 findings dispositioned)
 
 A 6-agent critique pass surfaced 192 findings across feature selection, feature engineering, ensembling, code efficiency, pipeline caching, and polars→pandas/numpy conversions. ~100 are now RESOLVED with regression tests; ~55 are DOC clarifications; ~24 were REJECTED on re-read (the cited code was correct as written). See `audit_disposition.md` for the per-finding table.

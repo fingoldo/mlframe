@@ -9,6 +9,36 @@
 
 A production-grade machine-learning framework for tabular data. One uniform entry point (`train_mlframe_models_suite`) trains, evaluates, calibrates, ensembles, and reports across scikit-learn, CatBoost, LightGBM, XGBoost, HistGradientBoosting, and PyTorch Lightning models on the same dataset, with proper handling of polars/pandas frames, mixed dtypes, text features, ranking and quantile targets, and composite-target stacking.
 
+## Recent changes
+
+2026-05-16 multi-agent audit overhaul of `train_mlframe_models_suite` (branch `audit-fixes-2026-05-16`, 83 commits). User-facing highlights:
+
+- **Honest stacking and calibration.** Level-1 stacking now consumes K-fold OOF predictions instead of in-sample train_preds; val rows are reserved for early stopping only; opt-in `TrainingSplitConfig.calib_size` carves a dedicated calibration slice so `post_calibrate_model` never fits on test rows.
+- **Cross-target cache correctness.** y content + target name are now folded into every FS cache key (MRMR `_FIT_CACHE`, target-encoder `InMemoryKey`, RFECV dedup / skip_retraining, PipelineCache digest, `composite_cache` data_signature including row-order). Long-path-safe cache dirs and atomic-write `fsync` before `os.replace`.
+- **New ensembling.** Per-quantile blending preserves the K-quantile dimension; RRF + Borda rank-fusion wired as a `LearningToRankConfig.ltr_ensemble_method` and a `score_ensemble` flavour; recurrent models (LSTM / GRU / Transformer) are now consumed by `score_ensemble`.
+- **Polars-fastpath speedups.** Drift-snapshot lazy plan 3.56x; per-col auto-detect single-pass 2.74x; per-group baseline polars dispatch 2.57x; polars-native NaN-guard 7.32x; content-fingerprint point-sample 762x at 100k rows / 2740x at 1M; LightGBM shim now uses an Arrow split-blocks bridge for polars X.
+- **`sample_weight` plumbed end-to-end.** MRMR (row-resample), RFECV (CV fold + scorer), Ridge / NNLS composite stack solvers (NNLS uses sqrt-weight row scaling), and `LeakageSafeEncoder` all accept weights; default-None preserves byte-for-byte legacy. Gated by `FeatureSelectionConfig.use_sample_weights_in_fs` (default OFF) to preserve FS cache reuse across weight-only variations.
+- **Predict-path hardening.** PySR equation column names content-hashed and persisted; datetime methods persisted at suite level with FTE-emitted skip; `_apply_nan_guard` runs polars-native impute + scale; `predict_from_models` skips unfitted placeholder pre_pipelines and resolves the iter#80 lgb+hgb mixed-mode regression.
+- **`BorutaSHAP` wired** into `_build_pre_pipelines` behind `FeatureSelectionConfig.use_boruta_shap` (accepts polars; warning filter scoped to `fit`).
+- **Precompute bundle.** New `TrainMlframeSuitePrecomputed` dataclass + `precompute_all` one-shot helper lets long-running services hand pre-baked stats into `train_mlframe_models_suite(precomputed=...)` and skip the inline compute.
+
+New / changed config knobs (see CHANGELOG.md for full descriptions):
+
+| Config class                  | Field                                      | Default                | Purpose                                                                       |
+| ----------------------------- | ------------------------------------------ | ---------------------- | ----------------------------------------------------------------------------- |
+| `FeatureSelectionConfig`      | `use_sample_weights_in_fs`                 | `False`                | Opt-in so FS cache reuses across weight-only variations                       |
+| `FeatureSelectionConfig`      | `use_boruta_shap` + `boruta_shap_kwargs`   | `False` / `None`       | Wire BorutaSHAP into `_build_pre_pipelines`                                   |
+| `FeatureSelectionConfig`      | `rfecv_leakage_corr_threshold`             | (previously hardcoded) | Expose RFECV leakage corr cutoff                                              |
+| `FeatureSelectionConfig`      | `rfecv_mbh_adaptive_threshold`             | (previously hardcoded) | Expose RFECV MBH adaptive-surrogate threshold                                 |
+| `FeatureTypesConfig`          | `cat_text_cardinality_threshold_pct`       | size-aware             | Replaces absolute threshold; scales with row count                            |
+| `TrainingSplitConfig`         | `calib_size`                               | `0.0` (off)            | Opt-in calibration slice; keeps `post_calibrate_model` off test rows          |
+| `EnsembleConfig`              | `diversity_corr_warn_threshold`            | -                      | Near-duplicate member WARN threshold (no drop)                                |
+| `LearningToRankConfig`        | `ltr_ensemble_method`                      | `"mean"`               | One of `mean` / `rrf` / `borda`                                               |
+| `OutlierDetectionConfig`      | `apply_to_feature_selection`               | -                      | Gate outlier mask propagation into FS fits                                    |
+| MRMR `__init__`               | `runtime_max_mins` default                 | `300`                  | Raised from the previous lower value                                          |
+
+Known follow-ups not landed in this branch are listed at the bottom of the CHANGELOG section.
+
 ## Installation
 
 ```bash
