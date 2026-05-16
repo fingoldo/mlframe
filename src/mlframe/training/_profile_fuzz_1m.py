@@ -239,9 +239,16 @@ def _run_suite_profiled(
     seed: int,
     top_n: int,
     save_charts: bool = False,
-) -> tuple[float, bool, str, str]:
-    """Returns (wall_seconds, ok, suite_status, profile_text)."""
+    profile_predict: bool = True,
+) -> tuple[float, bool, str, str, float, str]:
+    """Returns ``(train_wall, ok, status, train_profile, predict_wall, predict_profile)``.
+
+    ``predict_wall`` is 0.0 and ``predict_profile`` is "" when training did
+    not return usable models (training crash, empty model dict, or
+    ``profile_predict=False``).
+    """
     from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.core.predict import predict_from_models
     from mlframe.training.configs import (
         TargetTypes, BaselineDiagnosticsConfig, DummyBaselinesConfig,
         OutputConfig, ReportingConfig, CompositeTargetDiscoveryConfig,
@@ -275,18 +282,20 @@ def _run_suite_profiled(
         # Multilabel needs a different FTE setup; out of scope for
         # SimpleFeaturesAndTargetsExtractor's defaults — skip from
         # this profile harness for now (TODO: extend when needed).
-        return 0.0, False, "MULTILABEL_FTE_SETUP_OOS", ""
+        return 0.0, False, "MULTILABEL_FTE_SETUP_OOS", "", 0.0, ""
     else:
-        return 0.0, False, "UNSUPPORTED_TARGET_TYPE", ""
+        return 0.0, False, "UNSUPPORTED_TARGET_TYPE", "", 0.0, ""
 
     fte = SimpleFeaturesAndTargetsExtractor(**fte_kwargs)
 
-    profiler = cProfile.Profile()
+    train_profiler = cProfile.Profile()
     t0 = time.perf_counter()
-    profiler.enable()
+    train_profiler.enable()
     status = "OK"
+    trained_models: dict | None = None
+    trained_metadata: dict | None = None
     try:
-        train_mlframe_models_suite(
+        trained_models, trained_metadata = train_mlframe_models_suite(
             df=df,
             target_name=target_col,
             model_name="prof",
@@ -315,13 +324,55 @@ def _run_suite_profiled(
     except Exception as e:
         status = f"{type(e).__name__}: {e}"[:120]
     finally:
-        profiler.disable()
-    wall = time.perf_counter() - t0
+        train_profiler.disable()
+    train_wall = time.perf_counter() - t0
 
     s = io.StringIO()
-    ps = pstats.Stats(profiler, stream=s).sort_stats("cumulative")
+    ps = pstats.Stats(train_profiler, stream=s).sort_stats("cumulative")
     ps.print_stats(top_n)
-    return wall, status == "OK", status, s.getvalue()
+    train_profile_text = s.getvalue()
+
+    # Predict pass — exercise the full predict path (preprocess, per-model
+    # predict, ensemble average) on the SAME input frame. Surfaces hot
+    # spots in pipeline.transform / model.predict / ensemble averaging
+    # that the training-only profile misses entirely.
+    predict_wall = 0.0
+    predict_profile_text = ""
+    if (
+        profile_predict
+        and status == "OK"
+        and trained_models is not None
+        and trained_metadata is not None
+        and any(trained_models.values())
+    ):
+        # Fresh FTE: the training FTE captures fit-time state; predict
+        # path should reuse the public API the way a real downstream
+        # would (load suite, run predict on raw input).
+        predict_fte = SimpleFeaturesAndTargetsExtractor(**fte_kwargs)
+        predict_profiler = cProfile.Profile()
+        p0 = time.perf_counter()
+        predict_profiler.enable()
+        try:
+            predict_from_models(
+                df=df,
+                models=trained_models,
+                metadata=trained_metadata,
+                features_and_targets_extractor=predict_fte,
+                return_probabilities=(target_type != "regression"),
+                verbose=0,
+            )
+        except Exception as e:
+            # Don't clobber the training status; surface predict-only failure separately.
+            status = f"{status} | PREDICT:{type(e).__name__}: {e}"[:200]
+        finally:
+            predict_profiler.disable()
+        predict_wall = time.perf_counter() - p0
+        sp = io.StringIO()
+        psp = pstats.Stats(predict_profiler, stream=sp).sort_stats("cumulative")
+        psp.print_stats(top_n)
+        predict_profile_text = sp.getvalue()
+
+    return train_wall, status.startswith("OK"), status, train_profile_text, predict_wall, predict_profile_text
 
 
 def main():
@@ -338,6 +389,11 @@ def main():
     p.add_argument("--save-charts", action="store_true",
                    help="Enable chart saving (default off — measures core suite, "
                         "not chart export). Use to surface plotly+kaleido cost.")
+    p.add_argument("--no-predict", action="store_true",
+                   help="Skip the post-training predict-on-full-frame profile "
+                        "pass. Default ON because predict-path hotspots "
+                        "(pipeline.transform, per-model predict, ensemble averaging) "
+                        "are invisible to the training-only profile.")
     args = p.parse_args()
 
     models = tuple(m.strip() for m in args.models.split(",") if m.strip())
@@ -348,22 +404,30 @@ def main():
     )
 
     print(f"# 1M-row e2e profile (n_rows={args.n_rows:_}, models={models}, "
-          f"save_charts={args.save_charts})")
-    summary: list[tuple[str, float, str]] = []
+          f"save_charts={args.save_charts}, profile_predict={not args.no_predict})")
+    summary: list[tuple[str, float, float, str]] = []
     for tt in targets:
         label = f"{tt} x {','.join(models)}"
         print(f"\n=== {label} ===")
-        wall, ok, status, prof = _run_suite_profiled(
+        train_wall, ok, status, train_prof, predict_wall, predict_prof = _run_suite_profiled(
             tt, args.n_rows, models, args.seed, args.top,
             save_charts=args.save_charts,
+            profile_predict=not args.no_predict,
         )
-        summary.append((label, wall, status))
-        print(f"  wall: {wall:.1f}s  status: {status}")
-        print(prof[:6000])
+        summary.append((label, train_wall, predict_wall, status))
+        print(f"  train wall: {train_wall:.1f}s  status: {status}")
+        print(train_prof[:6000])
+        if predict_wall > 0 or predict_prof:
+            print(f"\n--- PREDICT phase (same input frame, predict_from_models) ---")
+            print(f"  predict wall: {predict_wall:.1f}s")
+            print(predict_prof[:6000])
 
     print("\n# Wall-time summary:")
-    for label, t, status in summary:
-        print(f"  {label:<55} {t:>7.1f}s  {status}")
+    for label, t_train, t_pred, status in summary:
+        if t_pred > 0:
+            print(f"  {label:<55} train={t_train:>7.1f}s  predict={t_pred:>6.1f}s  {status}")
+        else:
+            print(f"  {label:<55} train={t_train:>7.1f}s  predict=---     {status}")
 
 
 if __name__ == "__main__":
