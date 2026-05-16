@@ -351,7 +351,7 @@ def train_mlframe_models_suite(
         was_polars_input, all_models_polars_native, polars_pipeline_applied,
         train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
         pipeline_config, preprocessing_extensions,
-        train_df_pandas_pre,
+        train_df_pandas_pre_meta,
     ) = _phase_fit_pipeline(
         train_df=train_df,
         val_df=val_df,
@@ -376,7 +376,7 @@ def train_mlframe_models_suite(
         "all_models_polars_native", "polars_pipeline_applied",
         "train_df_polars_pre", "val_df_polars_pre", "test_df_polars_pre",
         "pipeline_config", "preprocessing_extensions",
-        "train_df_pandas_pre",
+        "train_df_pandas_pre_meta",
     ), locals())
 
     (
@@ -399,7 +399,7 @@ def train_mlframe_models_suite(
         feature_types_config=feature_types_config,
         metadata=metadata,
         verbose=verbose,
-        train_df_pandas_pre=train_df_pandas_pre,
+        train_df_pandas_pre_meta=train_df_pandas_pre_meta,
     )
 
     if verbose:

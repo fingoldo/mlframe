@@ -161,36 +161,54 @@ def test_fe_p1_2_feature_types_first_flag_on_config():
 
 
 def test_fe_p1_2_phase_auto_detect_accepts_pandas_pre_snapshot():
-    """``_phase_auto_detect_feature_types`` must accept ``train_df_pandas_pre`` kwarg."""
+    """``_phase_auto_detect_feature_types`` must accept ``train_df_pandas_pre_meta`` kwarg.
+
+    The original FE-P1-2 fix carried a full-frame ``train_df_pandas_pre`` shallow-copy; the follow-up
+    refactor swapped it for a mutation-immune dict snapshot (column / dtype / n_unique / non-null /
+    embedding-shape-sniff) so the source frame can no longer leak in-place numpy pokes into the
+    auto-detect view.
+    """
     from mlframe.training.core._phase_helpers import _phase_auto_detect_feature_types
     sig = inspect.signature(_phase_auto_detect_feature_types)
-    assert "train_df_pandas_pre" in sig.parameters, (
-        "train_df_pandas_pre kwarg missing from _phase_auto_detect_feature_types; "
-        "FE-P1-2 fix not landed."
+    assert "train_df_pandas_pre_meta" in sig.parameters, (
+        "train_df_pandas_pre_meta kwarg missing from _phase_auto_detect_feature_types; "
+        "FE-P1-2 metadata-dict rewire not landed."
     )
 
 
 def test_fe_p1_2_pandas_pre_snapshot_used_when_provided():
-    """Verifies the detection code path: when ``train_df_pandas_pre`` is supplied
-    and ``was_polars_input=False``, the auto-detect uses the snapshot, not the
-    post-fit ``train_df``. We assert that a pandas object-dtype column in the
-    snapshot ends up classified as a text candidate (cardinality > threshold)
-    whereas the same column in the post-fit (ordinal-encoded) frame would not
-    be promoted because its dtype is int."""
+    """Verifies the detection code path: when ``train_df_pandas_pre_meta`` is supplied
+    and ``was_polars_input=False``, the auto-detect uses the metadata snapshot, not the
+    post-fit ``train_df``. We assert that a pandas object-dtype column captured in the
+    snapshot ends up classified as a text candidate (cardinality > threshold) whereas
+    the same column in the post-fit (ordinal-encoded) frame would not be promoted
+    because its dtype is int."""
     import pandas as pd
     from mlframe.training.configs import FeatureTypesConfig
     from mlframe.training.core._phase_helpers import _phase_auto_detect_feature_types
 
     n = 600  # rows -- above 1% min_non_null floor for promotion (default 0.01 * n = 6)
     rng = np.random.default_rng(0)
-    # Pre-fit pandas frame: high-cardinality string column "skills_text"
+    # Pre-fit pandas frame: high-cardinality string column "skills_text". We materialise the dict
+    # snapshot directly (mirroring what _phase_fit_pipeline bakes) so the test exercises the dict
+    # consumer path without depending on the upstream phase running.
     pre_pd = pd.DataFrame({
         "skills_text": [f"unique_token_{i % 500}" for i in range(n)],
         "numeric_a": rng.standard_normal(n),
     })
-    # Post-fit pandas frame: same skills_text but ordinal-encoded to int (what the
-    # ordinal encoder would produce). If detection ran on this it would silently
-    # treat the column as numeric and skip text promotion.
+    pre_meta = {
+        "columns": list(pre_pd.columns),
+        "dtypes": {c: str(pre_pd[c].dtype) for c in pre_pd.columns},
+        "n_unique": {c: int(pre_pd[c].nunique(dropna=True)) for c in pre_pd.columns
+                     if pre_pd[c].dtype.kind in "OUSb" or isinstance(pre_pd[c].dtype, pd.CategoricalDtype)},
+        "non_null": {c: int(pre_pd[c].notna().sum()) for c in pre_pd.columns
+                     if pre_pd[c].dtype.kind in "OUSb" or isinstance(pre_pd[c].dtype, pd.CategoricalDtype)},
+        "embedding_object_cols": [],
+        "shape": tuple(pre_pd.shape),
+    }
+    # Post-fit pandas frame: same skills_text but ordinal-encoded to int (what the ordinal encoder
+    # produces). If detection ran on this it would silently treat the column as numeric and skip
+    # text promotion.
     post_pd = pd.DataFrame({
         "skills_text": rng.integers(0, 500, size=n, dtype=np.int32),
         "numeric_a": rng.standard_normal(n),
@@ -201,7 +219,7 @@ def test_fe_p1_2_pandas_pre_snapshot_used_when_provided():
         cat_text_cardinality_threshold=50,
     )
 
-    # With train_df_pandas_pre supplied -> detection uses pre_pd -> promotes skills_text.
+    # With pre-snapshot meta supplied -> detection uses the dict -> promotes skills_text.
     result_pre = _phase_auto_detect_feature_types(
         train_df=post_pd, val_df=None, test_df=None,
         train_df_polars_pre=None, val_df_polars_pre=None, test_df_polars_pre=None,
@@ -209,7 +227,7 @@ def test_fe_p1_2_pandas_pre_snapshot_used_when_provided():
         was_polars_input=False, all_models_polars_native=False,
         pipeline_config=None, feature_types_config=ft_cfg,
         metadata={}, verbose=False,
-        train_df_pandas_pre=pre_pd,
+        train_df_pandas_pre_meta=pre_meta,
     )
     _, _, _, _, _, _, text_features_pre, _, _, _, _ = result_pre
 
@@ -221,7 +239,7 @@ def test_fe_p1_2_pandas_pre_snapshot_used_when_provided():
         was_polars_input=False, all_models_polars_native=False,
         pipeline_config=None, feature_types_config=ft_cfg,
         metadata={}, verbose=False,
-        train_df_pandas_pre=None,
+        train_df_pandas_pre_meta=None,
     )
     _, _, _, _, _, _, text_features_post, _, _, _, _ = result_post
 

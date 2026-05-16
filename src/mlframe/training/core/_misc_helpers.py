@@ -452,11 +452,17 @@ def _auto_detect_feature_types(
     feature_types_config,
     cat_features: list,
     verbose: bool = False,
+    pandas_meta: dict | None = None,
 ) -> tuple:
     """Auto-detect text/embedding features and promote high-cardinality string/categorical columns to text_features.
 
     Promotion criteria: not user-assigned, dtype is pl.String/pl.Utf8/pl.Categorical (pl.Enum stays nominal),
     n_unique > threshold. Does NOT mutate ``cat_features`` (caller filters via set-difference).
+
+    ``pandas_meta`` is the mutation-immune snapshot built by ``_phase_fit_pipeline`` (``train_df_pandas_pre_meta``);
+    when supplied AND the caller is on the pandas path, every read goes through the dict instead of ``df``, so any
+    later in-place mutation on the source frame cannot corrupt the detection result. Polars path is unchanged (the
+    polars-pre frame is already a public-API alias and is conceptually immutable).
 
     Returns: ``(text_features, embedding_features, auto_detected_high_card_to_drop)``.
     """
@@ -476,13 +482,19 @@ def _auto_detect_feature_types(
     if cat_features is None:
         cat_features = []
 
+    # Metadata-dict path is only meaningful for pandas inputs; polars inputs use the (immutable-by-API) polars-pre frame.
+    use_meta = pandas_meta is not None and not isinstance(df, pl.DataFrame)
+
     abs_threshold = feature_types_config.cat_text_cardinality_threshold
     # Minimum non-null FRACTION to promote; below it CB's TF-IDF estimator yields an empty dictionary and raises
     # "Dictionary size is 0" (text_feature_estimators.cpp). Fraction (not count) scales with dataset size.
     min_non_null_frac = getattr(
         feature_types_config, "min_non_null_fraction_for_text_promotion", 0.01
     )
-    total_rows = df.height if hasattr(df, "height") else len(df)
+    if use_meta:
+        total_rows = int(pandas_meta["shape"][0])
+    else:
+        total_rows = df.height if hasattr(df, "height") else len(df)
     min_non_null_abs = max(1, int(round(total_rows * min_non_null_frac)))
     # Size-aware effective promotion threshold: a flat 300-uniq floor is wrong at both ends of the data-size axis
     # (on 100-row data every string column stays "cat"; on 10M-row data 300 is still a sliver). pct=0 keeps legacy
@@ -578,33 +590,51 @@ def _auto_detect_feature_types(
                     else:
                         auto_detected_high_card_to_drop.append(name)
     else:
-        # pandas: no reliable embedding auto-detect, only text. First pass routes embedding-shaped object cols and
-        # collects the residual nunique-eligible list; one batched ``df[cols].agg(["nunique","count"])`` then
-        # produces both stats in a single pass (was: 2 separate per-col Series calls = 2N ops on 60 cols).
+        # pandas path: prefer the mutation-immune ``pandas_meta`` dict snapshot when supplied (built by
+        # ``_phase_fit_pipeline`` before the pipeline mutates dtypes / column set). Both branches share
+        # the same promotion logic; only the source of column-list / dtype-string / n_unique / non-null /
+        # embedding-shape-sniff differs.
+        if use_meta:
+            _columns = pandas_meta["columns"]
+            _dtypes = pandas_meta["dtypes"]
+            _meta_n_unique = pandas_meta.get("n_unique", {})
+            _meta_non_null = pandas_meta.get("non_null", {})
+            _meta_embed_obj = set(pandas_meta.get("embedding_object_cols", []))
+        else:
+            _columns = list(df.columns)
+            _dtypes = {c: str(df[c].dtype) for c in _columns}
+            _meta_n_unique = None
+            _meta_non_null = None
+            _meta_embed_obj = None
+
         nunique_cols: list = []
-        for col in df.columns:
+        for col in _columns:
             if col in user_assigned:
                 continue
-            dtype_name = str(df[col].dtype)
+            dtype_name = _dtypes[col]
             if honor_user_dtype and dtype_name == "category":
                 honored_user_dtype_cols.append(col)
                 continue
             if dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category":
-                # Skip object columns whose cells are ndarray / list (embedding
-                # vectors). nunique() hashes the cells via PyObjectHashTable
-                # which raises ``TypeError: unhashable type: 'numpy.ndarray'``.
-                # Treat them as embeddings: route to embedding_features and
-                # skip the cardinality check (iter#44 fuzz finding).
+                # Skip object columns whose cells are ndarray / list (embedding vectors). nunique() hashes
+                # the cells via PyObjectHashTable which raises ``TypeError: unhashable type: 'numpy.ndarray'``.
+                # Treat them as embeddings: route to embedding_features and skip the cardinality check
+                # (iter#44 fuzz finding). With the metadata dict the sniff was done at snapshot time so we
+                # only consult the precomputed list; the legacy fallback path still probes the live series.
                 if dtype_name.startswith("object"):
-                    _series = df[col]
-                    try:
-                        _first = next((v for v in _series.head(8) if v is not None), None)
-                    except Exception:
-                        _first = None
-                    if _first is not None and (
-                        hasattr(_first, "shape")
-                        or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
-                    ):
+                    if use_meta:
+                        _is_embedding = col in _meta_embed_obj
+                    else:
+                        _series = df[col]
+                        try:
+                            _first = next((v for v in _series.head(8) if v is not None), None)
+                        except Exception:
+                            _first = None
+                        _is_embedding = _first is not None and (
+                            hasattr(_first, "shape")
+                            or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
+                        )
+                    if _is_embedding:
                         embedding_features.append(col)
                         if col in cat_features:
                             promoted.append(col)
@@ -612,14 +642,26 @@ def _auto_detect_feature_types(
                 nunique_cols.append(col)
 
         if nunique_cols:
-            # ``df[cols].agg(["nunique","count"])`` returns a 2 x len(cols) frame where row 0 is nunique and row 1 is
-            # count. pandas dispatches both reductions via its block manager which is materially cheaper than the
-            # legacy N x (nunique + notna().sum()) per-column Python -> C round-trip.
-            _agg = df[nunique_cols].agg(["nunique", "count"])
-            for col in nunique_cols:
-                n_unique = int(_agg.at["nunique", col])
+            if use_meta:
+                # n_unique / non_null are precomputed in the metadata snapshot for every text-candidate
+                # column (string / object / category / bool). No frame is touched here -- the dict is the
+                # sole source of truth, immune to any in-place mutation on the source train_df.
+                _stats = [
+                    (col, int(_meta_n_unique[col]), int(_meta_non_null[col]))
+                    for col in nunique_cols
+                ]
+            else:
+                # Legacy fallback: ``df[cols].agg(["nunique","count"])`` returns a 2 x len(cols) frame
+                # where row 0 is nunique and row 1 is count. pandas dispatches both reductions via its
+                # block manager which is materially cheaper than the legacy N x (nunique + notna().sum())
+                # per-column Python -> C round-trip.
+                _agg = df[nunique_cols].agg(["nunique", "count"])
+                _stats = [
+                    (col, int(_agg.at["nunique", col]), int(_agg.at["count", col]))
+                    for col in nunique_cols
+                ]
+            for col, n_unique, non_null in _stats:
                 if n_unique > threshold:
-                    non_null = int(_agg.at["count", col])
                     if non_null < min_non_null_abs:
                         skipped_low_non_null.append((col, n_unique, non_null))
                         continue

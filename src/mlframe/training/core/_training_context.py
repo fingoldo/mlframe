@@ -112,15 +112,13 @@ class TrainingContext:
     train_df_polars_pre: pl.DataFrame | None = None
     val_df_polars_pre: pl.DataFrame | None = None
     test_df_polars_pre: pl.DataFrame | None = None
-    # Pandas-side counterparts of the *_polars_pre fields above. Set by
-    # _phase_pandas_conversion_and_cat_prep when the caller passed a pandas
-    # frame originally; main.py's bulk-setattr() at line 346 set this attr
-    # but slots=True forbids new runtime attrs - missing slot raised
-    # AttributeError on every pandas-input run (test_multiple_custom_pre_pipelines
-    # surfaced 2026-05-16).
-    train_df_pandas_pre: pd.DataFrame | None = None
-    val_df_pandas_pre: pd.DataFrame | None = None
-    test_df_pandas_pre: pd.DataFrame | None = None
+    # Pandas-side mutation-immune metadata snapshot of the PRE-pipeline train_df. Replaces the legacy
+    # ``train_df_pandas_pre`` shallow-copy that shared the source block-manager and leaked in-place numpy
+    # pokes (``df[col].values[i] = x``) into the downstream auto-detect phase. The dict captures column
+    # names / dtype strings / cardinality / non-null counts / embedding-shape sniff result at snapshot
+    # time so any subsequent mutation on train_df cannot corrupt the auto-detect view. The val/test
+    # pandas-pre slots are no longer carried -- auto-detect only ever reads train.
+    train_df_pandas_pre_meta: dict | None = None
     preprocessing_extensions: Any = None
 
     cat_features: list[str] = field(default_factory=list)

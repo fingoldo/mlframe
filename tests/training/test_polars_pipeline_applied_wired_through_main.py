@@ -40,7 +40,7 @@ def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypa
             False,                           # polars_pipeline_applied -- forced False so default=True can't masquerade
             out[10], out[11], out[12],       # train_df_polars_pre, val_df_polars_pre, test_df_polars_pre
             out[13], out[14],                # pipeline_config, preprocessing_extensions
-            out[15],                         # train_df_pandas_pre
+            out[15],                         # train_df_pandas_pre_meta
         )
 
     def fake_pandas_conv(*args, **kwargs):

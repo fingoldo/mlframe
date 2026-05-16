@@ -106,7 +106,7 @@ def test_phase_fit_pipeline_aliases_polars_pre_when_encoding_enabled(monkeypatch
     #  cat_features, cat_features_polars,
     #  was_polars_input, all_models_polars_native, polars_pipeline_applied,
     #  train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
-    #  pipeline_config, preprocessing_extensions, train_df_pandas_pre)
+    #  pipeline_config, preprocessing_extensions, train_df_pandas_pre_meta)
     train_df_polars_pre = out[10]
     val_df_polars_pre = out[11]
     test_df_polars_pre = out[12]

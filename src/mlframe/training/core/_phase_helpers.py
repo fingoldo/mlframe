@@ -605,23 +605,19 @@ def _phase_auto_detect_feature_types(
     feature_types_config: Any,
     metadata: dict,
     verbose: bool,
-    train_df_pandas_pre: pd.DataFrame | None = None,
+    train_df_pandas_pre_meta: dict | None = None,
 ) -> tuple:
     """Auto-detect text + embedding features, optionally drop high-card columns, validate exclusivity, one-time Polars string->Categorical cast.
 
     Mutates ``metadata`` in-place with ``columns`` and ``cat_features``.
     """
-    # Use pre-pipeline DF so auto-detection sees original dtypes.
-    # For polars input: ``train_df_polars_pre`` (always populated).
-    # For pandas input: ``train_df_pandas_pre`` when available
-    # (FeatureTypesConfig.feature_types_first=True), else the post-pipeline
-    # ``train_df``. The pre-fit snapshot lets us see object/string dtypes
-    # BEFORE the ordinal encoder converts them to int codes, so text columns
-    # can be promoted instead of silently ordinal-encoded. fix audit row FE-P1-2.
+    # Use pre-pipeline view so auto-detection sees original dtypes BEFORE the ordinal encoder converts strings to int codes.
+    # Polars: ``train_df_polars_pre`` (frame alias, always populated; polars frames are conceptually immutable through the
+    # public API so the alias is safe). Pandas: ``train_df_pandas_pre_meta`` dict, mutation-immune by construction
+    # (column names / dtype-strings / cardinality / non-null counts baked at snapshot time). Fallback to post-pipeline
+    # ``train_df`` only when both pre-views are absent (legacy callers / feature_types_first=False).
     if was_polars_input:
         detect_df = train_df_polars_pre
-    elif train_df_pandas_pre is not None:
-        detect_df = train_df_pandas_pre
     else:
         detect_df = train_df
     raw_cat_features = list(set((cat_features or []) + (cat_features_polars or [])))
@@ -635,6 +631,7 @@ def _phase_auto_detect_feature_types(
         user_polars_cats = []
     text_features, embedding_features, auto_high_card_drop = _auto_detect_feature_types(
         detect_df, feature_types_config, user_polars_cats, verbose=verbose,
+        pandas_meta=train_df_pandas_pre_meta if not was_polars_input else None,
     )
 
     # Capture pre-drop column data so dummy_baselines per_group_mean can use these as group
@@ -917,37 +914,50 @@ def _phase_fit_pipeline(
         getattr(feature_types_config, "feature_types_first", True)
         if feature_types_config is not None else True
     )
-    train_df_pandas_pre = None
-    # Metadata-dict snapshot (mutation-immune). The full-frame ``train_df_pandas_pre`` below shares the underlying block-manager with
-    # ``train_df`` via ``.copy(deep=False)``; any in-place numpy-level mutation on the source frame (rare, but possible through
-    # ``df[col].values[i] = x`` or block-manager surgery) propagates into the snapshot, silently corrupting downstream auto-detect.
-    # The metadata-dict captures column-name / dtype / cardinality up front so the values are baked at snapshot time and immune to
-    # any later mutation. ``_auto_detect_feature_types`` still consumes the full-frame snapshot today, so we keep both. TODO: rewire
-    # the auto-detect consumer to read this metadata dict so the shallow-copy can be dropped (next wave; touches _misc_helpers.py).
+    # Mutation-immune snapshot for the downstream auto-detect phase. A frame-level snapshot (even ``.copy(deep=False)``) shares
+    # the source block-manager and leaks any in-place numpy poke (``df[col].values[i] = x``) into the snapshot, silently
+    # corrupting auto-detect's view of pre-encoding dtypes / cardinality. The dict captures every datum auto-detect needs
+    # (column names, dtype strings, cardinality + non-null counts on text-candidate cols, embedding-shape sniff result on
+    # object cols) at snapshot time so the recorded values are baked and immune to any later mutation on ``train_df``.
+    # 100 GB frame discipline: only string/object/category columns get nunique / count scans; numeric blocks are never touched.
     train_df_pandas_pre_meta: dict | None = None
     if _feature_types_first and (not was_polars_input) and isinstance(train_df, pd.DataFrame):
         try:
+            _text_cand_cols = [
+                c for c in train_df.columns
+                if train_df[c].dtype.kind in "OUSb" or isinstance(train_df[c].dtype, pd.CategoricalDtype)
+            ]
+            _n_unique: dict[str, int] = {}
+            _non_null: dict[str, int] = {}
+            for _c in _text_cand_cols:
+                _s = train_df[_c]
+                _n_unique[_c] = int(_s.nunique(dropna=True))
+                _non_null[_c] = int(_s.notna().sum())
+            # Embedding-shape sniff: object-dtype cells holding ndarray / list (e.g. sentence-transformer vectors) cannot
+            # be auto-detected from dtype alone. Probe the first 8 non-null cells per object column at snapshot time so the
+            # downstream consumer can route them to embedding_features without touching the (potentially-mutated) source.
+            _embedding_object_cols: list[str] = []
+            for _c in train_df.columns:
+                if str(train_df[_c].dtype).startswith("object"):
+                    try:
+                        _first = next((v for v in train_df[_c].head(8) if v is not None), None)
+                    except Exception:
+                        _first = None
+                    if _first is not None and (
+                        hasattr(_first, "shape")
+                        or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
+                    ):
+                        _embedding_object_cols.append(_c)
             train_df_pandas_pre_meta = {
                 "columns": list(train_df.columns),
                 "dtypes": {c: str(train_df[c].dtype) for c in train_df.columns},
-                # Cardinality is only needed for object / categorical columns (cat-vs-text threshold). Numeric columns skip the
-                # full-column scan so 100 GB float blocks aren't touched.
-                "n_unique": {
-                    c: int(train_df[c].nunique(dropna=True))
-                    for c in train_df.columns
-                    if train_df[c].dtype.kind in "OUSb" or isinstance(train_df[c].dtype, pd.CategoricalDtype)
-                },
+                "n_unique": _n_unique,
+                "non_null": _non_null,
+                "embedding_object_cols": _embedding_object_cols,
                 "shape": tuple(train_df.shape),
             }
         except Exception:
             train_df_pandas_pre_meta = None
-        # Shallow column-wise view kept for the current ``_auto_detect_feature_types`` consumer which still expects a DataFrame.
-        # .copy(deep=False) shares the block-manager so the source frame's columns/dtypes are still observable, and adding columns
-        # to ``train_df`` after this point doesn't appear in the snapshot. The known leak (numpy-array mutation) is documented above.
-        try:
-            train_df_pandas_pre = train_df.copy(deep=False)
-        except Exception:
-            train_df_pandas_pre = None
     t0_fit_pipeline = timer()
     train_df, val_df, test_df, pipeline, cat_features = fit_and_transform_pipeline(
         train_df=train_df,
@@ -1132,7 +1142,7 @@ def _phase_fit_pipeline(
         was_polars_input, all_models_polars_native, polars_pipeline_applied,
         train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
         pipeline_config, preprocessing_extensions,
-        train_df_pandas_pre,
+        train_df_pandas_pre_meta,
     )
 
 
