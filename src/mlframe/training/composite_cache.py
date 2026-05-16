@@ -42,6 +42,33 @@ _DISCOVERY_SIGNATURE_SAMPLE_N: int = 1000
 _DISCOVERY_DEFAULT_SEED: int = 42
 
 
+def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
+    """Cheap fingerprint of a frame's row order (first/last ``n_edge`` rows).
+
+    Folded into ``data_signature`` so a shuffled frame produces a different signature than the
+    original. O(1) in row count -- we never materialise the whole frame. The fingerprint reads the
+    first and last rows directly and hashes their string representations; this catches the common
+    shuffle / reorder case without inducing the cost of a full row-by-row hash.
+
+    Returns ``""`` on any access failure (degrades to the prior reorder-stable behaviour rather
+    than crashing on exotic frame types).
+    """
+    import hashlib
+    try:
+        if _is_polars_df(df):
+            head_repr = str(df.head(n_edge).rows())
+            tail_repr = str(df.tail(n_edge).rows())
+        elif isinstance(df, pd.DataFrame):
+            head_repr = df.head(n_edge).to_csv(index=False)
+            tail_repr = df.tail(n_edge).to_csv(index=False)
+        else:
+            return ""
+        payload = (head_repr + "|" + tail_repr).encode("utf-8")
+        return hashlib.blake2b(payload, digest_size=8).hexdigest()
+    except Exception:
+        return ""
+
+
 def data_signature(
     df: Any,
     target_col: str,
@@ -52,7 +79,7 @@ def data_signature(
 ) -> str:
     """Content-hash signature for a (df, target_col, feature_cols) triple.
 
-    Deterministic sample of ``min(n_rows, sample_n)`` rows + column names + dtypes hashed via blake2b to a 16-byte hex fingerprint. Stable under row REORDER (we sample by indices drawn from a seeded RNG, so identical inputs always produce identical samples) but NOT stable under row INSERTION (which would change the sample composition). Suitable for the R&D workflow where the underlying frame is the same across runs.
+    Deterministic sample of ``min(n_rows, sample_n)`` rows + column names + dtypes + a cheap first-and-last row fingerprint, hashed via blake2b to a 16-byte hex fingerprint. The first/last row fingerprint makes the signature change when rows are reordered -- pre-2026-05-16 the signature was stable under row REORDER, so a shuffled frame got cache hits on a stale spec. Still NOT stable under row INSERTION (which would change the sample composition). Suitable for the R&D workflow where the underlying frame is the same across runs.
 
     Parameters
     ----------
@@ -81,6 +108,12 @@ def data_signature(
     # the cache even when the deterministic sample happens to coincide.
     h.update(b"nrows=")
     h.update(str(int(n_rows)).encode("utf-8"))
+    # CACHE-row-order: the seeded sample misses row swaps in unsampled positions, and the per-column
+    # min/max/null stats are permutation-invariant. Fold in a cheap fingerprint of the first/last
+    # row content so head/tail swaps burst the cache (re-running with reordered rows must NOT
+    # replay the prior spec).
+    h.update(b"|roworder=")
+    h.update(_row_order_fingerprint(df).encode("utf-8"))
     # Hash 1: target column + feature cols (names + order).
     h.update(target_col.encode("utf-8"))
     for c in feature_cols:
