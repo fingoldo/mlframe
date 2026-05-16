@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import gc
+import hashlib
 import logging
 import math
 import os
@@ -208,6 +209,47 @@ def _target_to_numpy_values(y) -> np.ndarray:
     if hasattr(y, "values"):
         return y.values
     return np.asarray(y)
+
+
+def _target_name_signature(y) -> tuple:
+    """Return a tuple of column names (or Series ``name``) for ``y`` if available.
+
+    Two distinct targets with statistically-similar 10-cell samples (e.g. both balanced binary) must produce
+    different cache keys; the target name (when the caller gave us a named Series / DataFrame) is the cheapest
+    discriminator. Falls back to ``()`` when y is a bare ndarray.
+    """
+    try:
+        if hasattr(y, "columns"):
+            return tuple(str(c) for c in y.columns)
+        name = getattr(y, "name", None)
+        if name is not None:
+            return (str(name),)
+    except Exception:
+        pass
+    return ()
+
+
+def _full_y_content_hash(y) -> str:
+    """Return a hex digest covering the full content of ``y`` for cache-key disambiguation.
+
+    The 10-sample ``_content_array_signature`` collides on targets whose sampled cells coincide (common for
+    balanced binary classification). A full blake2b over y.tobytes() rules this out; the cost is O(len(y))
+    bytes hashed, which is negligible next to the actual MRMR fit. Returns ``""`` on any conversion failure
+    so the caller can choose to skip the cache.
+    """
+    try:
+        arr = _target_to_numpy_values(y)
+        if not isinstance(arr, np.ndarray):
+            arr = np.asarray(arr)
+        # ascontiguousarray covers non-contiguous slices; tobytes itself would copy too but this is explicit.
+        buf = np.ascontiguousarray(arr).tobytes()
+        h = hashlib.blake2b(buf, digest_size=16)
+        # Fold shape + dtype so reshape-only changes also bust the key.
+        h.update(str(arr.shape).encode())
+        h.update(str(arr.dtype).encode())
+        return h.hexdigest()
+    except Exception:
+        return ""
 
 
 # Constructor-parameter names of ``MRMR``. Populated lazily to avoid importing inspect at module load.
@@ -674,7 +716,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             _params_sig = _hashable_params_signature(self.get_params(deep=False))
             _x_sig = _content_array_signature(X)
             _y_sig = _content_array_signature(y)
-            _cache_key = (_x_sig, _y_sig, _params_sig)
+            # Two targets with statistically-similar 10-cell samples (e.g. balanced binary) collide on _y_sig
+            # alone and replay one another's support_. Include the target name AND a full blake2b over y to
+            # disambiguate. Empty hash => skip cache (don't risk a wrong replay).
+            _y_name = _target_name_signature(y)
+            _y_full_hash = _full_y_content_hash(y)
+            if not _y_full_hash:
+                _cache_key = None
+            else:
+                _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _params_sig)
         except Exception:
             _cache_key = None
         if _cache_key is not None and _cache_key in MRMR._FIT_CACHE:
