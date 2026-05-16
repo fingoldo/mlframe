@@ -1,3 +1,12 @@
+# expected: passes after the corresponding fix shipped on 2026-05-16
+# (audit-fixes-2026-05-16). Kept as a manual repro script; not collected by
+# pytest because the regression coverage now lives in tests/training/.
+__test__ = False
+
+import tempfile
+import os
+_REPRO_OUTDIR = os.environ.get("REPRO_OUTDIR") or tempfile.mkdtemp(prefix="mlframe_repro_")
+
 from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
 """Reproduce _rule_mrmr_plus_linear_multi_pandas — feature names mismatch."""
 import sys
@@ -20,7 +29,7 @@ fte = SimpleFeaturesAndTargetsExtractor(target_column=target_col, regression=Fal
 from mlframe.training.core import train_mlframe_models_suite
 
 try:
-    trained, _ = train_mlframe_models_suite(df=df, target_name='repro', model_name='repro', features_and_targets_extractor=fte, mlframe_models=['cb', 'hgb', 'lgb', 'linear', 'xgb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}, 'xgb_kwargs': {'device': 'cpu', 'verbosity': 0}, 'lgb_kwargs': {'device_type': 'cpu', 'verbose': -1}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir='D:/Temp/repro_fnmismatch_models', models_dir='models'), feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
+    trained, _ = train_mlframe_models_suite(df=df, target_name='repro', model_name='repro', features_and_targets_extractor=fte, mlframe_models=['cb', 'hgb', 'lgb', 'linear', 'xgb'], hyperparams_config={'iterations': 3, 'cb_kwargs': {'task_type': 'CPU', 'verbose': 0}, 'xgb_kwargs': {'device': 'cpu', 'verbosity': 0}, 'lgb_kwargs': {'device_type': 'cpu', 'verbose': -1}}, preprocessing_config=PreprocessingConfig(drop_columns=[]), use_ordinary_models=True, use_mlframe_ensembles=False, verbose=0, output_config=OutputConfig(data_dir=_REPRO_OUTDIR, models_dir='models'), feature_selection_config=FeatureSelectionConfig(mrmr_kwargs={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3}))
     print("PASS")
 except Exception as e:
     import traceback

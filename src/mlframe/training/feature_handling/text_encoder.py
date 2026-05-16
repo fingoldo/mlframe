@@ -58,24 +58,36 @@ if TYPE_CHECKING:
     import scipy.sparse as sp  # noqa: F401
 
 
-def _column_to_string_list(
+def _column_to_string_iter(
     df: Any,
     column: str,
-) -> List[str]:
-    """Polars / pandas -agnostic extraction of a column as List[str].
+):
+    """Polars / pandas -agnostic extraction of a column as an iterable of str.
 
-    Coerces None / NaN to "" so the underlying vectoriser doesn't
-    crash (round-3 T8). Non-string types are stringified -- caller
-    should not pass numeric columns here (auto-detector excludes them).
+    Coerces None / NaN to "" so the underlying vectoriser doesn't crash (round-3 T8). Non-string types
+    are stringified -- caller should not pass numeric columns here (auto-detector excludes them).
+
+    Returns a LAZY generator (not a materialised list) so 1M-row text columns don't double-allocate:
+    sklearn's TfidfVectorizer / HashingVectorizer accept any iterable. Pre-fix code returned a
+    list[str], which was O(n) extra memory (string-object overhead ~ 50 bytes/cell on top of the
+    underlying buffer).
     """
     try:
         import polars as pl
         if isinstance(df, pl.DataFrame):
             ser = df[column]
-            return [
-                "" if v is None else (v if isinstance(v, str) else str(v))
-                for v in ser.to_list()
-            ]
+            # Polars Series.to_list() unavoidably materialises one Python str per cell -- but iterating
+            # the resulting list in a generator instead of returning the list lets garbage collection
+            # release each str right after it's consumed by the vectoriser (saves the peak: list+vocab).
+            def _gen():
+                for v in ser.to_list():
+                    if v is None:
+                        yield ""
+                    elif isinstance(v, str):
+                        yield v
+                    else:
+                        yield str(v)
+            return _gen()
     except ImportError:  # pragma: no cover
         pass
 
@@ -83,17 +95,31 @@ def _column_to_string_list(
         import pandas as pd
         if isinstance(df, pd.DataFrame):
             ser = df[column]
-            return [
-                "" if (v is None or (isinstance(v, float) and np.isnan(v)))
-                else (v if isinstance(v, str) else str(v))
-                for v in ser.tolist()
-            ]
+            def _gen():
+                # itertuples / iterating .values yields cells without an upfront list allocation.
+                for v in ser.values:
+                    if v is None or (isinstance(v, float) and np.isnan(v)):
+                        yield ""
+                    elif isinstance(v, str):
+                        yield v
+                    else:
+                        yield str(v)
+            return _gen()
     except ImportError:  # pragma: no cover
         pass
 
     raise TypeError(
         f"unsupported DataFrame type {type(df).__name__}; expected polars or pandas"
     )
+
+
+def _column_to_string_list(
+    df: Any,
+    column: str,
+) -> List[str]:
+    """Materialised List[str] form for legacy callers / tests; prefer ``_column_to_string_iter`` in
+    hot paths."""
+    return list(_column_to_string_iter(df, column))
 
 
 class TextColumnEncoder:
@@ -155,7 +181,7 @@ class TextColumnEncoder:
     def fit(self, train_df: Any) -> TextColumnEncoder:
         """Fit the vectoriser on the column extracted from
         ``train_df``. Returns self."""
-        texts = _column_to_string_list(train_df, self.column)
+        texts = _column_to_string_iter(train_df, self.column)
         self._fit_vectorizer(texts)
         self._fitted = True
         return self
@@ -169,13 +195,13 @@ class TextColumnEncoder:
                 f"TextColumnEncoder({self.column!r}) not fitted. "
                 f"Call .fit(train_df) first."
             )
-        texts = _column_to_string_list(df, self.column)
+        texts = _column_to_string_iter(df, self.column)
         # sklearn's TfidfVectorizer.transform / HashingVectorizer.transform
         # both return scipy.sparse.csr_matrix.
         return self._vectorizer.transform(texts)
 
     def fit_transform(self, train_df: Any) -> sp.csr_matrix:
-        texts = _column_to_string_list(train_df, self.column)
+        texts = _column_to_string_iter(train_df, self.column)
         out = self._fit_vectorizer(texts, also_transform=True)
         self._fitted = True
         return out

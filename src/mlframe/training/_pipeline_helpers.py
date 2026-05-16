@@ -415,7 +415,14 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
         if isinstance(out, pl.DataFrame):
             out = out.with_columns([held[c] for c in present])
         else:
-            held_pd = held.to_pandas() if is_polars else held
+            # Bare ``held.to_pandas()`` consolidates Arrow buffers (~30x slower on wide frames + degrades pl.Enum
+            # to object dtype). Route through the project's Arrow split-blocks bridge so passthrough columns
+            # preserve their CategoricalDtype / DatetimeTZDtype etc.
+            if is_polars:
+                from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+                held_pd = _get_pandas_view(held)
+            else:
+                held_pd = held
             # 2026-05-12 Wave 26: single ``pd.concat`` instead of per-column
             # ``out.loc[:, c] = ...`` assignment loop. Each column write
             # triggers a full-DataFrame copy; concat does one allocation

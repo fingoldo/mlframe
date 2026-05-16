@@ -277,12 +277,11 @@ def test_ensemble_auroc_at_least_best_single(tmp_path, common_init_params, seed)
     ensemble_keys = [k for k in aurocs if "ensemble" in k.lower()]
     single_keys = [k for k in aurocs if k not in ensemble_keys]
 
-    if not ensemble_keys:
-        # TODO(bizvalue): suite did not produce any ensemble entry — verify
-        # use_mlframe_ensembles wiring or the ensemble naming convention.
-        pytest.xfail(
-            f"No ensemble key found in probabilities. keys={list(probs_dict.keys())} aurocs={aurocs}"
-        )
+    assert ensemble_keys, (
+        f"suite produced no ensemble entry despite use_mlframe_ensembles=True wiring. "
+        f"This is a wiring bug (the ensemble naming convention or composer flag drifted). "
+        f"keys={list(probs_dict.keys())} aurocs={aurocs}"
+    )
 
     assert single_keys, (
         f"No single-model keys found. keys={list(probs_dict.keys())} aurocs={aurocs}"

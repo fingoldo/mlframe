@@ -25,6 +25,7 @@ from sklearn.metrics import mean_squared_error, roc_auc_score
 
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
 from .shared import SimpleFeaturesAndTargetsExtractor
+from tests.conftest import fast_subset, is_fast_mode
 
 
 # --------------------------------------------------------------------------------------
@@ -175,7 +176,7 @@ def _train_and_score_classification(train_df, test_df, tmp_path, *, model_name, 
 # Test 1 — Outlier detection improves regression RMSE
 # --------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
 def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params, seed):
     pytest.importorskip("lightgbm")
     pytest.importorskip("sklearn")
@@ -226,7 +227,7 @@ def test_outlier_detection_improves_regression_rmse(tmp_path, common_init_params
 # the OD stage actually ran (independent of whether IF-on-features moved RMSE).
 # --------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
+@pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
 def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed):
     pytest.importorskip("lightgbm")
     pytest.importorskip("sklearn")
@@ -258,8 +259,8 @@ def test_outlier_detection_surfaces_metadata(tmp_path, common_init_params, seed)
 # Test 2 — Early stopping reduces wall-time without losing AUROC
 # --------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
-@pytest.mark.parametrize("mlframe_model", ["lgb", "cb", "xgb"])
+@pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
+@pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"], representative="lgb"))
 def test_early_stopping_saves_time_without_auroc_loss(tmp_path, common_init_params, seed, mlframe_model):
     pytest.importorskip({"lgb": "lightgbm", "cb": "catboost", "xgb": "xgboost"}[mlframe_model])
 

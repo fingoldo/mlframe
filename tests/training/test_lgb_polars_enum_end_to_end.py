@@ -24,6 +24,8 @@ import pandas as pd
 import polars as pl
 import pytest
 
+from tests.conftest import fast_subset
+
 pytest.importorskip("lightgbm")
 
 
@@ -104,7 +106,7 @@ def test_lgb_after_passthrough_wrapper_handles_numpy_inner_fn():
     model.fit(out, y, categorical_feature=cat_cols)
 
 
-@pytest.mark.parametrize("model_name", ["lgb", "xgb", "cb"])
+@pytest.mark.parametrize("model_name", fast_subset(["lgb", "xgb", "cb"], representative="lgb"))
 def test_suite_polars_with_enum_cats_end_to_end(model_name, tmp_path):
     """The test that should have caught the 2026-04-22 LGB 'HOURLY' crash.
 

@@ -287,6 +287,21 @@ def feature_handling_apply(
                         f"target encoder method={spec.method!r} on column "
                         f"{col!r} requires train_target argument; got None."
                     )
+                # Target encoders are single-output by construction. Multi-output (multilabel /
+                # multi-regression) inputs slip through downstream sklearn's ``np.asarray(list(y))`` with
+                # shape (n, k); the LeakageSafeEncoder then crashes with an opaque length-mismatch trace.
+                # Raise here with the actual shape so the wiring bug is visible at the call site.
+                _tt = train_target
+                _shape = None
+                if hasattr(_tt, "shape"):
+                    _shape = _tt.shape
+                elif hasattr(_tt, "ndim"):
+                    _shape = (len(_tt),) if _tt.ndim == 1 else None
+                if _shape is not None and len(_shape) > 1 and _shape[1] > 1:
+                    raise ValueError(
+                        f"target encoder method={spec.method!r} on column {col!r}: train_target is "
+                        f"multi-output (shape={_shape}); collapse via mean / pick-target before passing in."
+                    )
                 tr_block, val_block, te_block = _apply_target_encoder(
                     train_df=train_df, val_df=val_df, test_df=test_df,
                     column=col, params=spec.params,
@@ -361,7 +376,10 @@ def _apply_text_encoder(
         key = InMemoryKey(
             session_id=session_id,
             df_token=train_id,
-            train_idx_token=0,
+            # Use a column-content-derived token so cache keys discriminate different OD masks / row
+            # subsets even when ``train_id`` (id(df)) coincides. Literal ``0`` collided across OD-masked
+            # vs full-train fits (different rows, same df identity).
+            train_idx_token=_text_column_content_token(train_df, column),
             column=column,
             params_canonical_hash=canonical_params_hash(params),
             provider_signature=f"text_encoder:{method}",
@@ -485,6 +503,36 @@ def _extract_column_values(df: Any, column: str) -> List:
     except ImportError:  # pragma: no cover
         pass
     return list(df)
+
+
+def _text_column_content_token(train_df: Any, column: str) -> int:
+    """63-bit content fingerprint for a single text column used to disambiguate text-encoder cache
+    entries when ``id(train_df)`` recycles across OD-masked / pre-clone variants. Mirrors the
+    ``_target_content_token`` strategy below but operates on a single column to avoid full-frame
+    hashing cost. Returns 0 on any backend error; the caller still keys on (df_token, column, params)
+    so collision risk degrades to the literal-zero baseline (no worse than pre-fix)."""
+    try:
+        import polars as _pl
+        if isinstance(train_df, _pl.DataFrame):
+            ser = train_df[column]
+            n = ser.len()
+            sample_idx = [0, n // 4, n // 2, 3 * n // 4, max(0, n - 1)] if n else []
+            sampled = [str(ser[i]) for i in sample_idx]
+            buf = ("|".join(sampled) + f"|{n}|{column}").encode("utf-8", errors="replace")
+        else:
+            import pandas as _pd
+            if isinstance(train_df, _pd.DataFrame):
+                ser = train_df[column]
+                n = len(ser)
+                sample_idx = [0, n // 4, n // 2, 3 * n // 4, max(0, n - 1)] if n else []
+                sampled = [str(ser.iloc[i]) if i < n else "" for i in sample_idx]
+                buf = ("|".join(sampled) + f"|{n}|{column}").encode("utf-8", errors="replace")
+            else:
+                return 0
+        digest = hashlib.blake2b(buf, digest_size=8).digest()
+        return int.from_bytes(digest, "big") & ((1 << 63) - 1)
+    except Exception:
+        return 0
 
 
 def _target_content_token(train_target: Any) -> int:

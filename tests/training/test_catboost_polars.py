@@ -13,8 +13,10 @@ from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostin
 RANDOM_SEED = 42
 N_TRAIN = 200
 N_VAL = 50
-ITERATIONS = 20
-EARLY_STOPPING_ROUNDS = 5
+# 2 iterations is sufficient to exercise the fit/predict path; only sensor-style
+# "did fit complete" assertions follow. ES rounds reduced proportionally.
+ITERATIONS = 2
+EARLY_STOPPING_ROUNDS = 1
 
 FEATURE_COLS = ["num_feat", "cat_feat", "text_feat", "emb_feat"]
 CAT_FEATURES = ["cat_feat"]

@@ -323,7 +323,7 @@ def _phase_pandas_conversion_and_cat_prep(
     val_df_polars = val_df_polars_pre
     test_df_polars = test_df_polars_pre
 
-    # TODO: surface the per-model strategy list to feed Agent F's ``defer_pandas_conv``
+    # TODO 2026-05-17: surface the per-model strategy list to feed the ``defer_pandas_conv``
     # heuristic when it lands. Until then the list is built on-demand inside the verbose-only
     # log branches below (its only consumer), avoiding a get_strategy() pass on every call.
     _has_rfecv = bool(rfecv_models)
@@ -476,6 +476,7 @@ def _log_cardinality_and_drift_snapshot(
     cat_features: list[str],
     text_features: list[str],
     embedding_features: list[str],
+    ctx: Any | None = None,
 ) -> None:
     """Pre-train cardinality + val/test drift logging (pure side-effect).
 
@@ -518,9 +519,31 @@ def _log_cardinality_and_drift_snapshot(
                           and c in val_df.columns and c in test_df.columns]
             drift_rows: list = []
             if drift_cols:
-                _tr_uniq = train_df.lazy().select(
-                    [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
-                ).collect()
+                # CAT-DRIFT-FULL-IMPLODE: cache the train-side ``unique().implode()`` result on
+                # ctx keyed by (id(train_df), drift_cols_tuple). The drift snapshot is invoked up
+                # to three times per suite (pre-split / post-split / pre-fit) on the same train
+                # frame, each time paying a full lazy collect over hundreds of columns. Recompute
+                # only when ctx is absent OR the train frame identity changes; val/test sides are
+                # not cached because they're cheap relative to train and may rotate per pass.
+                _cache_key = (id(train_df), tuple(drift_cols))
+                _drift_cache = (
+                    getattr(ctx, "_cat_drift_implode_cache", None)
+                    if ctx is not None else None
+                )
+                _tr_sets_cached = (
+                    _drift_cache.get(_cache_key) if isinstance(_drift_cache, dict) else None
+                )
+                if _tr_sets_cached is None:
+                    _tr_uniq = train_df.lazy().select(
+                        [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
+                    ).collect()
+                    # Materialise to per-col sets ONCE; the previous code recomputed the
+                    # ``set(_tr_uniq[c][0].to_list())`` per column inside the row loop.
+                    _tr_sets_cached = {
+                        c: set(_tr_uniq[c][0].to_list()) for c in drift_cols
+                    }
+                    if isinstance(_drift_cache, dict):
+                        _drift_cache[_cache_key] = _tr_sets_cached
                 _v_uniq = val_df.lazy().select(
                     [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
                 ).collect()
@@ -529,7 +552,7 @@ def _log_cardinality_and_drift_snapshot(
                 ).collect()
                 _card_by_col = dict(pairs)
                 for c in drift_cols:
-                    tr_set = set(_tr_uniq[c][0].to_list())
+                    tr_set = _tr_sets_cached[c]
                     val_only = sum(1 for x in _v_uniq[c][0].to_list() if x not in tr_set)
                     test_only = sum(1 for x in _te_uniq[c][0].to_list() if x not in tr_set)
                     drift_rows.append((c, _card_by_col[c], val_only, test_only))
@@ -748,9 +771,14 @@ def _phase_fit_pipeline(
     # x dim_reducer=TruncatedSVD x 1M rows).
     if train_df is not None and hasattr(train_df, "columns"):
         if isinstance(train_df, pl.DataFrame):
-            metadata["input_columns"] = list(train_df.columns)
+            _raw_cols = list(train_df.columns)
         else:
-            metadata["input_columns"] = train_df.columns.tolist()
+            _raw_cols = train_df.columns.tolist()
+        # SKEW-COL-ORDER: write both the explicit "raw_input_columns" key (post-fix canonical) and
+        # the legacy "input_columns" alias. ``_validate_input_columns_against_metadata`` prefers the
+        # explicit name; older serialised metadata still reads via the alias.
+        metadata["raw_input_columns"] = list(_raw_cols)
+        metadata["input_columns"] = list(_raw_cols)
 
     _strategies_for_polars_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
     all_models_polars_native = bool(_strategies_for_polars_check) and all(
@@ -1145,7 +1173,11 @@ def _phase_fit_pipeline(
     metadata["pipeline"] = pipeline
     metadata["extensions_pipeline"] = extensions_pipeline
     metadata["cat_features"] = cat_features
-    metadata["columns"] = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else train_df.columns
+    _post_cols = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else list(train_df.columns)
+    # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias.
+    # Predict-side validators prefer the explicit name; old metadata files still resolve via "columns".
+    metadata["post_pipeline_columns"] = list(_post_cols)
+    metadata["columns"] = _post_cols
 
     if verbose:
         logger.info("  Pipeline done -- train: %s, cat_features: %s", _df_shape_str(train_df), cat_features or '(none)')

@@ -42,6 +42,13 @@ import polars as pl
 import warnings
 from pathlib import Path
 
+from .synthetic import (
+    make_categorical_classification_data,
+    make_outlier_regression_data,
+    make_simple_classification_data,
+    make_simple_regression_data,
+)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _force_cpu_training_defaults():
@@ -85,63 +92,36 @@ def _prewarm_numba_once():
     yield
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_regression_data():
-    """Generate synthetic regression dataset."""
-    np.random.seed(42)
-    n_samples = 1000
-    n_features = 10
-
-    X = np.random.randn(n_samples, n_features)
-    # True relationship: y = 2*x0 + 3*x1 - 1.5*x2 + noise
-    y = 2 * X[:, 0] + 3 * X[:, 1] - 1.5 * X[:, 2] + np.random.randn(n_samples) * 0.5
-
-    feature_names = [f"feature_{i}" for i in range(n_features)]
-    df = pd.DataFrame(X, columns=feature_names)
-    df['target'] = y
-
-    return df, feature_names, y
+    """Synthetic regression dataset; session-scoped (deterministic via default_rng)."""
+    return make_simple_regression_data(n_samples=1000, n_features=10, seed=42)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_classification_data():
-    """Generate synthetic binary classification dataset."""
-    np.random.seed(42)
-    n_samples = 1000
-    n_features = 10
-
-    X = np.random.randn(n_samples, n_features)
-    # True relationship: logistic decision boundary
-    logits = 2 * X[:, 0] + 3 * X[:, 1] - 1.5 * X[:, 2]
-    probs = 1 / (1 + np.exp(-logits))
-    y = (probs > 0.5).astype(int)
-
-    feature_names = [f"feature_{i}" for i in range(n_features)]
-    df = pd.DataFrame(X, columns=feature_names)
-    df['target'] = y
-    cat_features = []  # No categorical features in this synthetic dataset
-
-    return df, feature_names, cat_features, y
+    """Synthetic binary classification dataset; session-scoped."""
+    return make_simple_classification_data(n_samples=1000, n_features=10, seed=42)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_polars_data(sample_regression_data):
-    """Convert sample data to Polars DataFrame."""
+    """Convert sample regression data to a Polars DataFrame; session-scoped."""
     df, feature_names, y = sample_regression_data
     pl_df = pl.from_pandas(df)
     return pl_df, feature_names, y
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_timeseries_data():
-    """Generate synthetic time series dataset."""
-    np.random.seed(42)
+    """Synthetic time-series dataset; session-scoped (deterministic Generator)."""
+    rng = np.random.default_rng(42)
     n_samples = 1000
     n_features = 5
 
     dates = pd.date_range('2020-01-01', periods=n_samples, freq='1h')
-    X = np.random.randn(n_samples, n_features)
-    y = np.sin(np.arange(n_samples) / 50) + np.random.randn(n_samples) * 0.1
+    X = rng.standard_normal((n_samples, n_features))
+    y = np.sin(np.arange(n_samples) / 50) + rng.standard_normal(n_samples) * 0.1
 
     feature_names = [f"feature_{i}" for i in range(n_features)]
     df = pd.DataFrame(X, columns=feature_names)
@@ -171,116 +151,56 @@ def temp_models_dir(tmp_path):
 # Categorical Data Fixtures
 # ================================================================================================
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_categorical_data():
-    """Generate dataset with high-cardinality categorical features."""
-    np.random.seed(42)
-    n_samples = 500  # Small dataset as per user requirement
-    n_numeric = 5
+    """High-cardinality categorical-feature regression-style dataset; session-scoped.
 
-    # Numeric features
-    X_numeric = np.random.randn(n_samples, n_numeric)
-
-    # High-cardinality categorical features
-    cat_feature_1 = np.random.choice([f'cat_A_{i}' for i in range(100)], n_samples)  # 100 categories
-    cat_feature_2 = np.random.choice([f'cat_B_{i}' for i in range(50)], n_samples)   # 50 categories
-    cat_feature_3 = np.random.choice(['X', 'Y', 'Z'], n_samples)  # 3 categories
-
-    # Create target (influenced by both numeric and categorical)
-    y = (2 * X_numeric[:, 0] +
-         3 * X_numeric[:, 1] +
-         (cat_feature_1 == 'cat_A_10').astype(float) * 5 +
-         np.random.randn(n_samples) * 0.5)
-
-    # Create DataFrame
-    df = pd.DataFrame(X_numeric, columns=[f'num_{i}' for i in range(n_numeric)])
-    df['cat_1'] = cat_feature_1
-    df['cat_2'] = cat_feature_2
-    df['cat_3'] = cat_feature_3
-    df['target'] = y
-
-    feature_names = list(df.columns[:-1])
-    cat_features = ['cat_1', 'cat_2', 'cat_3']
-
-    return df, feature_names, cat_features, y
-
-
-@pytest.fixture
-def sample_categorical_classification_data():
-    """Generate classification dataset with high-cardinality categorical features."""
-    np.random.seed(42)
+    Returns (df, feature_names, cat_features, y_continuous). Built via deterministic
+    Generator; no mutation of global numpy RNG state.
+    """
+    rng = np.random.default_rng(42)
     n_samples = 500
     n_numeric = 5
-
-    # Numeric features
-    X_numeric = np.random.randn(n_samples, n_numeric)
-
-    # High-cardinality categorical features
-    cat_feature_1 = np.random.choice([f'cat_A_{i}' for i in range(100)], n_samples)
-    cat_feature_2 = np.random.choice([f'cat_B_{i}' for i in range(50)], n_samples)
-    cat_feature_3 = np.random.choice(['X', 'Y', 'Z'], n_samples)
-
-    # Create binary target
-    logits = (2 * X_numeric[:, 0] +
-              3 * X_numeric[:, 1] +
-              (cat_feature_1 == 'cat_A_10').astype(float) * 5)
-    probs = 1 / (1 + np.exp(-logits))
-    y = (probs > 0.5).astype(int)
-
-    # Create DataFrame
-    df = pd.DataFrame(X_numeric, columns=[f'num_{i}' for i in range(n_numeric)])
-    df['cat_1'] = cat_feature_1
-    df['cat_2'] = cat_feature_2
-    df['cat_3'] = cat_feature_3
-    df['target'] = y
-
+    X_numeric = rng.standard_normal((n_samples, n_numeric))
+    cat_1 = rng.choice([f"cat_A_{i}" for i in range(100)], n_samples)
+    cat_2 = rng.choice([f"cat_B_{i}" for i in range(50)], n_samples)
+    cat_3 = rng.choice(["X", "Y", "Z"], n_samples)
+    y = (
+        2 * X_numeric[:, 0]
+        + 3 * X_numeric[:, 1]
+        + (cat_1 == "cat_A_10").astype(float) * 5
+        + rng.standard_normal(n_samples) * 0.5
+    )
+    df = pd.DataFrame(X_numeric, columns=[f"num_{i}" for i in range(n_numeric)])
+    df["cat_1"] = cat_1
+    df["cat_2"] = cat_2
+    df["cat_3"] = cat_3
+    df["target"] = y
     feature_names = list(df.columns[:-1])
-    cat_features = ['cat_1', 'cat_2', 'cat_3']
-
+    cat_features = ["cat_1", "cat_2", "cat_3"]
     return df, feature_names, cat_features, y
+
+
+@pytest.fixture(scope="session")
+def sample_categorical_classification_data():
+    """Classification with high-cardinality categoricals; session-scoped via Generator."""
+    return make_categorical_classification_data(n_samples=500, n_numeric=5, seed=42)
 
 
 # ================================================================================================
 # Special Dataset Fixtures
 # ================================================================================================
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_large_regression_data():
-    """Generate larger dataset for SGD testing (better convergence)."""
-    np.random.seed(42)
-    n_samples = 2000  # Larger for SGD convergence
-    n_features = 10
-
-    X = np.random.randn(n_samples, n_features)
-    y = 2 * X[:, 0] + 3 * X[:, 1] - 1.5 * X[:, 2] + np.random.randn(n_samples) * 0.5
-
-    feature_names = [f"feature_{i}" for i in range(n_features)]
-    df = pd.DataFrame(X, columns=feature_names)
-    df['target'] = y
-
-    return df, feature_names, y
+    """Larger regression dataset for SGD convergence; session-scoped."""
+    return make_simple_regression_data(n_samples=2000, n_features=10, seed=42)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_outlier_data():
-    """Generate dataset with outliers for RANSAC and Huber testing."""
-    np.random.seed(42)
-    n_samples = 500
-    n_features = 10
-
-    X = np.random.randn(n_samples, n_features)
-    y = 2 * X[:, 0] + 3 * X[:, 1] - 1.5 * X[:, 2] + np.random.randn(n_samples) * 0.5
-
-    # Add outliers (10% of data)
-    n_outliers = int(0.1 * n_samples)
-    outlier_indices = np.random.choice(n_samples, n_outliers, replace=False)
-    y[outlier_indices] += np.random.choice([-1, 1], n_outliers) * np.random.uniform(10, 20, n_outliers)
-
-    feature_names = [f"feature_{i}" for i in range(n_features)]
-    df = pd.DataFrame(X, columns=feature_names)
-    df['target'] = y
-
-    return df, feature_names, y
+    """Regression with 10% outliers for RANSAC and Huber tests; session-scoped."""
+    return make_outlier_regression_data(n_samples=500, n_features=10, seed=42)
 
 
 # ================================================================================================

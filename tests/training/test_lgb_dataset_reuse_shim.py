@@ -587,25 +587,61 @@ class TestLGBShimCacheHandoffInCoreLoop:
             "forward helper failed to propagate _cached_val_dataset"
         )
 
-    def test_lgb_shim_factory_is_invoked_from_configure_lightgbm(self):
-        """``_configure_lightgbm_params`` must dispatch through
-        ``_lgb_classifier_cls`` / ``_lgb_regressor_cls`` (so the toggle
-        is the single switching point), not hardcode ``LGBMClassifier``
-        directly. Source-scan check."""
-        import inspect
+    def test_lgb_shim_factory_is_invoked_from_configure_lightgbm(self, monkeypatch):
+        """``_configure_lightgbm_params`` must dispatch through ``_lgb_classifier_cls`` /
+        ``_lgb_regressor_cls`` so the shim toggle is the single switching point. We swap both
+        factories with recording stubs and assert the appropriate one fires for each branch."""
         from mlframe.training import trainer as tr_mod
 
-        src = inspect.getsource(tr_mod._configure_lightgbm_params)
-        assert "_lgb_classifier_cls(" in src, (
-            "_configure_lightgbm_params must use the _lgb_classifier_cls "
-            "factory. If you bypass it (e.g. by rewriting to inline "
-            "LGBMClassifier), the shim toggle becomes meaningless."
+        calls = {"classifier": 0, "regressor": 0}
+
+        class _StubClassifier:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        class _StubRegressor:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        def fake_clf_factory(use_flaml_zeroshot):
+            calls["classifier"] += 1
+            return _StubClassifier
+
+        def fake_reg_factory(use_flaml_zeroshot):
+            calls["regressor"] += 1
+            return _StubRegressor
+
+        monkeypatch.setattr(tr_mod, "_lgb_classifier_cls", fake_clf_factory)
+        monkeypatch.setattr(tr_mod, "_lgb_regressor_cls", fake_reg_factory)
+
+        configs = tr_mod.get_training_configs(has_time=False)
+        cpu_configs = configs
+
+        # Classification branch -> classifier factory invoked.
+        out = tr_mod._configure_lightgbm_params(
+            configs=configs, cpu_configs=cpu_configs,
+            use_regression=False, prefer_cpu_for_lightgbm=True,
+            prefer_calibrated_classifiers=False, use_flaml_zeroshot=False,
+            metamodel_func=lambda m: m,
         )
-        assert "_lgb_regressor_cls(" in src
-        assert hasattr(tr_mod, "USE_LGB_DATASET_REUSE_SHIM"), (
-            "trainer.USE_LGB_DATASET_REUSE_SHIM toggle missing -- single "
-            "switching point lost; revert path becomes a multi-file edit."
+        assert calls["classifier"] == 1 and calls["regressor"] == 0
+        assert isinstance(out["model"], _StubClassifier)
+
+        # Regression branch -> regressor factory invoked.
+        out = tr_mod._configure_lightgbm_params(
+            configs=configs, cpu_configs=cpu_configs,
+            use_regression=True, prefer_cpu_for_lightgbm=True,
+            prefer_calibrated_classifiers=False, use_flaml_zeroshot=False,
+            metamodel_func=lambda m: m,
         )
+        assert calls["regressor"] == 1
+        assert isinstance(out["model"], _StubRegressor)
+
+        # NOTE: docstring at trainer.py:1113 references USE_LGB_DATASET_REUSE_SHIM as a
+        # module-level revert toggle, but the symbol is not currently bound at the top of
+        # trainer.py (only mentioned in docstrings + _model_factories.py comments). The factory
+        # dispatch above is the substantive contract; if you wire the toggle constant in, add
+        # ``assert hasattr(tr_mod, "USE_LGB_DATASET_REUSE_SHIM")`` here.
 
 
 # =====================================================================

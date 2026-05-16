@@ -157,20 +157,33 @@ class TestPolarsNullableCategoricalColsDetector:
         out = _polars_nullable_categorical_cols(df, cat_features=["c", "a", "b"])
         assert out == ["c", "a", "b"], "order must follow cat_features input"
 
-    def test_single_pass_null_count(self):
-        """Performance sensor: the detector must use ``df.select(...).null_count()``
-        (single query, one scan) rather than per-column queries. We
-        verify by reading the source for the string pattern — a
-        regression that changes back to per-column would trip this."""
-        import inspect, mlframe.training.trainer as trainer
-        src = inspect.getsource(trainer._polars_nullable_categorical_cols)
-        assert ".null_count()" in src
-        # The single-pass pattern uses .select(...).null_count(). A
-        # per-column regression would use ``df[c].null_count()`` in a
-        # loop — catch that specifically.
-        assert "df.select" in src or ".select(candidate)" in src, (
-            "single-pass optimization (df.select([...]).null_count()) "
-            "appears to have been reverted to a per-column loop"
+    def test_single_pass_null_count(self, monkeypatch):
+        """Performance sensor: detector must call ``null_count()`` ONCE per invocation, not
+        once per candidate column. We monkeypatch pl.DataFrame.null_count to a counter and
+        verify the call count is 1 even when the candidate set has multiple columns.
+        Pre-fix the per-column loop would trip this at len(candidates)."""
+        from mlframe.training.trainer import _polars_nullable_categorical_cols
+
+        df = pl.DataFrame({
+            "a": pl.Series("a", ["x", None]).cast(pl.Categorical),
+            "b": pl.Series("b", ["y", None]).cast(pl.Categorical),
+            "c": pl.Series("c", ["z", None]).cast(pl.Categorical),
+            "d": pl.Series("d", ["w", None]).cast(pl.Categorical),
+        })
+
+        calls = {"n": 0}
+        original_null_count = pl.DataFrame.null_count
+
+        def _counted(self_):
+            calls["n"] += 1
+            return original_null_count(self_)
+
+        monkeypatch.setattr(pl.DataFrame, "null_count", _counted)
+        out = _polars_nullable_categorical_cols(df, cat_features=["a", "b", "c", "d"])
+        assert out == ["a", "b", "c", "d"]
+        assert calls["n"] == 1, (
+            f"single-pass null_count regression: expected 1 call, got {calls['n']} "
+            f"(per-column loop pattern reintroduced)"
         )
 
     def test_empty_input_returns_empty_list(self):

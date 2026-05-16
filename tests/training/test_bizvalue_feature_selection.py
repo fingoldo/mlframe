@@ -125,17 +125,18 @@ def _collect_selected_features(models_dict, metadata):
             names_arr = np.asarray(names)
             if support_arr.dtype == bool and support_arr.shape == names_arr.shape:
                 return list(names_arr[support_arr])
-            # support_ may be integer indices
+            # support_ may be integer indices into names. We narrow the except set to the
+            # value/index errors numpy actually raises so genuine logic bugs are surfaced.
             try:
                 return list(names_arr[support_arr.astype(int)])
-            except Exception:
+            except (ValueError, IndexError, TypeError):
                 pass
         get_support = getattr(obj, "get_support", None)
         if callable(get_support) and names is not None:
             try:
                 mask = get_support()
                 return list(np.asarray(names)[np.asarray(mask)])
-            except Exception:
+            except (ValueError, IndexError, TypeError):
                 pass
         return None
 
@@ -216,14 +217,11 @@ def test_mrmr_drops_uninformative_features(tmp_path):
     models, metadata, _ = _run_suite(df, tmp_path, use_mrmr=True, iters=30)
 
     selected = _collect_selected_features(models, metadata)
-    if not selected:
-        pytest.xfail(
-            "TODO(bizvalue): selected features not surfaced on suite outputs "
-            "(neither metadata['selected_features'] nor entry.*.support_ / "
-            "selected_features_ were reachable). Wire MRMR/RFECV selected "
-            "features into metadata or a discoverable attribute on fitted "
-            "model entries to enable this assertion."
-        )
+    assert selected, (
+        "MRMR/RFECV selected features were not surfaced on suite outputs. The wire-up in "
+        "_phase_finalize.py populates ctx.metadata['selected_features'] and "
+        "entry.selected_features_; if you see this assertion fail, the wire-up regressed."
+    )
 
     selected_set = set(selected)
     n_info_kept = sum(1 for c in INFORMATIVE_NAMES if c in selected_set)
@@ -318,14 +316,11 @@ def test_selected_features_surface_for_inspection(tmp_path):
     models, metadata, _ = _run_suite(df, tmp_path, use_mrmr=True, iters=20)
 
     selected = _collect_selected_features(models, metadata)
-    if not selected:
-        pytest.xfail(
-            "TODO(bizvalue): MRMR-selected features are not discoverable from "
-            "the public surface of train_mlframe_models_suite's return values. "
-            "Library fix candidate: populate metadata['selected_features'] "
-            "(and/or attach .selected_features_ on the top-level model entry) "
-            "whenever use_mrmr_fs=True or rfecv_models is non-empty."
-        )
+    assert selected, (
+        "MRMR selected features are not discoverable from the public surface of "
+        "train_mlframe_models_suite. _phase_finalize populates metadata['selected_features']; "
+        "if this assertion fails, the wire-up regressed."
+    )
 
     assert isinstance(selected, list) and len(selected) > 0
     assert all(isinstance(c, str) for c in selected)
@@ -356,12 +351,10 @@ def test_mrmr_drops_uninformative_features_on_polars_input(tmp_path):
     models, metadata, _ = _run_suite(pl_df, tmp_path, use_mrmr=True, iters=20)
 
     selected = _collect_selected_features(models, metadata)
-    if not selected:
-        pytest.xfail(
-            "TODO(bizvalue): MRMR selected-features not surfaced through "
-            "train_mlframe_models_suite return values (shared with the "
-            "pandas-input test above)."
-        )
+    assert selected, (
+        "MRMR on polars input did not surface selected features via the same metadata path used "
+        "for pandas; the polars-native fix (Fix 10) regressed the wire-up."
+    )
     # At least one informative feature must be in the selected set.
     # _make_noisy_classification puts the signal in 'info_0'..'info_4'.
     signal_cols = {f"info_{i}" for i in range(5)}

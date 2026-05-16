@@ -131,19 +131,35 @@ def data_signature(
         h.update(str(c).encode("utf-8"))
 
     def _col_stats(arr: np.ndarray) -> bytes:
-        """CACHE-P0-2: per-column WHOLE-frame summary (min, max, null count).
-        Folded into the hash so a single appended row that lands in the
-        unsampled portion still changes the signature - which the sampled-
-        values-only hash misses. ``np.nan`` is reduced to a deterministic
-        token so NaN vs missing-in-mask hash identically across numpy
-        versions.
+        """Per-column WHOLE-frame summary (min, max, null count).
+
+        Folded into the hash so a single appended row that lands in the unsampled portion still
+        changes the signature - which the sampled-values-only hash misses.
+
+        Dtype-aware: pre-fix this routine fell through to ``np.unique(arr.astype(str))`` for
+        anything that did not coerce cleanly to float64, which collapsed integer columns with NaN
+        sentinels onto a stringified-distinct-values summary and dropped the min/max/null
+        distribution information (DISC-CACHE-NULL-DTYPE). Post-fix the integer branch is handled
+        explicitly: when the dtype kind is in {'i','u','b'} we read min/max/uniques without ever
+        trying the float-cast that NaN sentinels would corrupt.
         """
         if arr.size == 0:
             return b"empty"
-        # Null counts: NaN for floats, ``None`` -> NaN after numeric coerce;
-        # for object / string columns just count is-None.
-        try:
-            isnan = ~np.isfinite(arr.astype(np.float64, copy=False))
+        kind = getattr(arr.dtype, "kind", "")
+        if kind in ("i", "u", "b"):
+            # Integer / bool: no NaN possible at the numpy-dtype level (NaN sentinels are
+            # represented as out-of-range ints), so min/max + nunique distinguish dtype-equal
+            # columns without going through the lossy str-uniques path.
+            try:
+                return (
+                    f"intmin={int(np.min(arr))};"
+                    f"intmax={int(np.max(arr))};"
+                    f"nuniq={int(np.unique(arr).size)}"
+                ).encode("utf-8")
+            except Exception:
+                return b"int_opaque"
+        if kind == "f":
+            isnan = ~np.isfinite(arr)
             n_null = int(isnan.sum())
             finite = arr[~isnan]
             if finite.size == 0:
@@ -153,16 +169,30 @@ def data_signature(
                 f"max={float(np.max(finite)):.12g};"
                 f"null={n_null}"
             ).encode("utf-8")
+        # Generic numeric fallback (datetime / timedelta / complex via float coerce).
+        try:
+            arr_f = arr.astype(np.float64, copy=False)
+            isnan = ~np.isfinite(arr_f)
+            n_null = int(isnan.sum())
+            finite = arr_f[~isnan]
+            if finite.size == 0:
+                return f"all_null:{n_null}".encode("utf-8")
+            return (
+                f"fmin={float(np.min(finite)):.12g};"
+                f"fmax={float(np.max(finite)):.12g};"
+                f"null={n_null}"
+            ).encode("utf-8")
         except (TypeError, ValueError):
-            # Object / string dtype: hash a fingerprint of distinct values.
-            try:
-                u = np.unique(arr.astype(str, copy=False))
-                return (
-                    f"uniq={int(u.size)};first={u[0] if u.size else ''};"
-                    f"last={u[-1] if u.size else ''}"
-                ).encode("utf-8")
-            except Exception:
-                return b"opaque"
+            pass
+        # Object / string dtype: hash a fingerprint of distinct values.
+        try:
+            u = np.unique(arr.astype(str, copy=False))
+            return (
+                f"uniq={int(u.size)};first={u[0] if u.size else ''};"
+                f"last={u[-1] if u.size else ''}"
+            ).encode("utf-8")
+        except Exception:
+            return b"opaque"
 
     # Hash 2: per-column dtype + whole-column stats + per-column sampled values.
     if _is_polars_df(df):
@@ -262,12 +292,41 @@ class DiscoveryCache:
         self.max_entries = max_entries
         self.max_size_mb = max_size_mb
         self._lru_path = os.path.join(self.cache_dir, ".lru")
+        # DISC-MAX-UNBOUNDED: a None default for BOTH caps means the cache grows monotonically on
+        # repeated R&D runs. Surface a one-time WARN at construction so the operator notices before
+        # the disk fills; if they set either cap explicitly the warning stays silent.
+        if max_entries is None and max_size_mb is None:
+            import warnings
+            warnings.warn(
+                f"DiscoveryCache at {self.cache_dir!r} constructed with max_entries=None and max_size_mb=None: "
+                f"cache will grow without bound. Pass at least one cap to enable LRU eviction.",
+                stacklevel=2,
+            )
 
     # ------------------------------------------------------------------
     # LRU sidecar (key -> access timestamp). Plain JSON; tiny so we read
     # / write the whole file on every touch. Atime is too unreliable on
     # NTFS to depend on.
+    #
+    # DISC-LRU-RACE / DISC-RACE-UNPROT: file-lock the sidecar so two
+    # concurrent processes hitting the same data_dir can't interleave
+    # an evict + write and leave live entries marked stale. ``filelock``
+    # is optional -- absence falls back to the pre-fix racy behaviour
+    # with a one-time WARN.
     # ------------------------------------------------------------------
+
+    def _lock_path(self) -> str:
+        return self._lru_path + ".lock"
+
+    @staticmethod
+    def _maybe_filelock(lock_path: str):
+        """Return a ``filelock.FileLock`` instance if the dep is present, else a no-op context."""
+        try:
+            from filelock import FileLock as _FileLock  # type: ignore[import-untyped]
+            return _FileLock(lock_path, timeout=30)
+        except ImportError:  # pragma: no cover
+            import contextlib
+            return contextlib.nullcontext()
 
     def _load_lru(self) -> Dict[str, float]:
         import os, json
@@ -301,9 +360,12 @@ class DiscoveryCache:
 
     def _touch_lru(self, key: str) -> None:
         import time
-        lru = self._load_lru()
-        lru[key] = time.time()
-        self._save_lru(lru)
+        # Cross-process file lock around read-modify-write so a concurrent process can't replay a
+        # stale-snapshot save and overwrite a fresh access timestamp. filelock is optional.
+        with self._maybe_filelock(self._lock_path()):
+            lru = self._load_lru()
+            lru[key] = time.time()
+            self._save_lru(lru)
 
     def _path(self, key: str) -> str:
         import os
@@ -373,6 +435,17 @@ class DiscoveryCache:
         import os, glob
         if self.max_entries is None and self.max_size_mb is None:
             return 0
+        # Same lock as _touch_lru: eviction reads + writes the sidecar AND removes files; another
+        # process eviction sweep racing here could double-delete or leave the sidecar inconsistent.
+        _lock_ctx = self._maybe_filelock(self._lock_path())
+        _lock_ctx.__enter__()
+        try:
+            return self._evict_to_caps_locked()
+        finally:
+            _lock_ctx.__exit__(None, None, None)
+
+    def _evict_to_caps_locked(self) -> int:
+        import os, glob
         lru = self._load_lru()
         # Enumerate every on-disk entry, defaulting unseen ones to ts=0.
         files = glob.glob(os.path.join(self.cache_dir, "*.pkl"))

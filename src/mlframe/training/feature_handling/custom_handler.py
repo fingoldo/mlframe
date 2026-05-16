@@ -101,7 +101,14 @@ class CustomHandler:
         if y is not None:
             try:
                 self.params.transformer.fit(column_data, y)
-            except TypeError:
+            except TypeError as exc:
+                # Some sklearn transformers expose ``fit(self, X)`` only; passing y trips a TypeError on the
+                # missing positional. Log so the operator can spot misconfigured "supervised" transformers
+                # that get silently demoted to unsupervised here.
+                logger.warning(
+                    "CustomHandler(%r): transformer.fit(X, y) raised TypeError (%s); retrying with fit(X) only.",
+                    self.column, exc,
+                )
                 self.params.transformer.fit(column_data)
         else:
             self.params.transformer.fit(column_data)

@@ -75,7 +75,7 @@ def run_pysr_feature_engineering(
     string_categorical_threshold: int = 100,
     pysr_params: Optional[Dict] = None,
     pysr_params_override: Optional[Dict] = None,
-    leakage_free: bool = False,
+    leakage_free: bool = True,
     leakage_free_n_splits: int = 5,
     random_state: Optional[int] = None,
     verbose: int = 1,
@@ -107,8 +107,9 @@ def run_pysr_feature_engineering(
     pysr_params_override
         Dict applied last; wins over both defaults and ``pysr_params``.
     leakage_free
-        ``True`` runs CatBoostEncoder in OOF/KFold mode (no row sees its own target). Default
-        ``False`` preserves the legacy fast path but surfaces a target-encoding-leak warning.
+        ``True`` (default) runs CatBoostEncoder in OOF/KFold mode (no row sees its own target). Set ``False``
+        only for legacy / quick-look exploratory runs where holdout-honesty is not required; a warning fires
+        in that case because downstream metrics will be optimistically biased.
     leakage_free_n_splits
         Number of folds when ``leakage_free=True``.
     random_state

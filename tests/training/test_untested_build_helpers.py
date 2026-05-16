@@ -54,13 +54,14 @@ def test_init_defaults_preserves_user_values():
 
 # ----- _build_common_params_for_target -----
 
-def test_build_common_params_no_fairness_no_od():
+def test_build_common_params_no_fairness_no_od(tmp_path):
     bc = TrainingBehaviorConfig()
     init = {"foo": 1, "train_target": [1, 2], "val_target": [3]}
+    plot_path = str(tmp_path / "p")
     od_params, cur_bc = _build_common_params_for_target(
         common_params_dict=init,
         trainset_features_stats={"m": 1},
-        plot_file="/tmp/p",
+        plot_file=plot_path,
         train_od_idx=None,
         val_od_idx=None,
         current_train_target=None,
@@ -74,7 +75,7 @@ def test_build_common_params_no_fairness_no_od():
     assert "val_target" not in od_params
     assert od_params["foo"] == 1
     assert od_params["trainset_features_stats"] == {"m": 1}
-    assert od_params["plot_file"] == "/tmp/p"
+    assert od_params["plot_file"] == plot_path
     assert cur_bc is bc  # no copy when fairness is None
 
 

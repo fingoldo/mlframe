@@ -363,14 +363,25 @@ def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_p
 # ---------------------------------------------------------------------------
 
 
-def test_fix7_lazy_start_defers_elapsed_counter():
-    """Bar's start_t must be reset when the first item yields, not when
-    the iterable is constructed — prevents the stale-timer artefact."""
-    import time
+def test_fix7_lazy_start_defers_elapsed_counter(monkeypatch):
+    """Bar's start_t must be reset when the first item yields, not when the iterable is
+    constructed -- prevents the stale-timer artefact. Pre-fix this test used time.sleep(0.5)
+    to simulate idle; we now drive a controlled clock to assert the start_t resets exactly
+    at first yield, eliminating flakiness on slow CI."""
+    import time as real_time
     from pyutilz.system import tqdmu_lazy_start
 
+    # Controlled clock: time advances only when we explicitly tick.
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(real_time, "monotonic", lambda: clock["t"], raising=False)
+    monkeypatch.setattr(real_time, "time", lambda: clock["t"], raising=False)
+
+    yield_times: list[float] = []
+
     def gen():
-        time.sleep(0.5)  # Simulate idle before first yield.
+        # Simulate idle period before first yield by advancing the clock without sleeping.
+        clock["t"] += 0.5
+        yield_times.append(clock["t"])
         yield "a"
         yield "b"
 
@@ -378,6 +389,8 @@ def test_fix7_lazy_start_defers_elapsed_counter():
     for item in tqdmu_lazy_start(gen(), desc="test", total=2):
         items.append(item)
     assert items == ["a", "b"]
+    # The simulated idle delta (0.5) was visible to the generator before first yield.
+    assert yield_times and yield_times[0] == pytest.approx(1000.5, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------

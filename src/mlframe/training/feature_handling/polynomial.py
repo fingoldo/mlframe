@@ -55,6 +55,7 @@ class PolynomialFeatureExpander:
         interaction_only: bool = False,
         include_bias: bool = False,
         prefer_polarsds: bool = True,
+        max_features_out: Optional[int] = None,
     ):
         if degree < 1:
             raise ValueError(f"degree must be >= 1, got {degree}")
@@ -66,41 +67,94 @@ class PolynomialFeatureExpander:
         self._n_features_in: Optional[int] = None
         self._fitted: bool = False
         self._feature_names: Optional[List[str]] = None
+        # Cap on the projected column count. ``None`` / ``0`` disables the auto-tune (legacy behaviour);
+        # otherwise ``fit`` adjusts ``interaction_only``, then ``degree``, then skips the expansion entirely
+        # to stay under the cap. Wired from ``PreprocessingBackendConfig.polynomial_max_features``.
+        self.max_features_out = max_features_out
+        # Set to True by ``fit`` when the cap forces a complete skip (no impl built). ``transform`` then
+        # returns the input unchanged so the downstream pipeline can no-op safely.
+        self._skipped: bool = False
+        # Records the actually-fitted (degree, interaction_only) after auto-tune; differs from the
+        # constructor values when the cap kicked in. Useful for diagnostics / regression tests.
+        self.effective_degree: Optional[int] = None
+        self.effective_interaction_only: Optional[bool] = None
 
     # ------------------------------------------------------------------
 
     def fit(self, X: Any, feature_names: Optional[List[str]] = None) -> PolynomialFeatureExpander:
-        """Fit on a numeric ndarray-like (n_samples, n_features)."""
+        """Fit on a numeric ndarray-like (n_samples, n_features). When ``max_features_out`` is set, the
+        expansion config (interaction_only, degree) is auto-tuned downward until ``projected <= cap``;
+        if the unary case (degree=1) still exceeds the cap, the whole step is skipped and ``transform``
+        returns input untouched. Each tuning step is WARN-logged. Never raises on cap exceedance."""
         X_np = np.asarray(X, dtype=np.float32)
         if X_np.ndim != 2:
             raise ValueError(f"X must be 2-D, got shape {X_np.shape}")
         self._n_features_in = X_np.shape[1]
 
-        projected = _projected_output_cols(
-            self._n_features_in, self.degree, self.interaction_only,
-        )
-        if self.include_bias:
-            projected += 1
+        cap = self.max_features_out
+        eff_degree = int(self.degree)
+        eff_interaction = bool(self.interaction_only)
+
+        def _project(d: int, io: bool) -> int:
+            p = _projected_output_cols(self._n_features_in, d, io)
+            if self.include_bias:
+                p += 1
+            return p
+
+        projected = _project(eff_degree, eff_interaction)
+
+        # Auto-tune ONLY when the cap is positive. None / 0 leaves the historical warn-only behaviour.
+        if cap not in (None, 0):
+            if projected > cap and not eff_interaction:
+                logger.warning(
+                    "[fhc] polynomial auto-tune: projected=%d > cap=%d at degree=%d, interaction_only=False; "
+                    "flipping interaction_only=True (drops pure-power terms).",
+                    projected, cap, eff_degree,
+                )
+                eff_interaction = True
+                projected = _project(eff_degree, eff_interaction)
+            while projected > cap and eff_degree > 1:
+                logger.warning(
+                    "[fhc] polynomial auto-tune: projected=%d > cap=%d at degree=%d, interaction_only=%s; "
+                    "decrementing degree -> %d.",
+                    projected, cap, eff_degree, eff_interaction, eff_degree - 1,
+                )
+                eff_degree -= 1
+                projected = _project(eff_degree, eff_interaction)
+            if projected > cap:
+                logger.warning(
+                    "[fhc] polynomial auto-tune: even at degree=1 the projected=%d > cap=%d; skipping "
+                    "polynomial expansion entirely. transform() will return the input unchanged.",
+                    projected, cap,
+                )
+                self._skipped = True
+                self.effective_degree = eff_degree
+                self.effective_interaction_only = eff_interaction
+                if feature_names is None:
+                    feature_names = [f"x{i}" for i in range(self._n_features_in)]
+                self._feature_names = list(feature_names)
+                self._fitted = True
+                return self
+
+        self.effective_degree = eff_degree
+        self.effective_interaction_only = eff_interaction
+
         if projected > 5000:
             logger.warning(
-                "[fhc] polynomial expansion: %d in -> %d out cols (degree=%d, "
-                "interaction_only=%s). Memory cost ~%.1f MB at 1M rows. "
-                "Consider degree=1 / interaction_only=True / smaller numeric block.",
-                self._n_features_in, projected, self.degree,
-                self.interaction_only, projected * 4 / 1e6,
+                "[fhc] polynomial expansion: %d in -> %d out cols (degree=%d, interaction_only=%s). "
+                "Memory cost ~%.1f MB at 1M rows.",
+                self._n_features_in, projected, eff_degree, eff_interaction, projected * 4 / 1e6,
             )
         else:
             logger.info(
                 "[fhc] polynomial expansion: %d in -> %d out cols (degree=%d)",
-                self._n_features_in, projected, self.degree,
+                self._n_features_in, projected, eff_degree,
             )
 
-        # TODO(phase upstream): dispatcher.has("blueprint.polynomial_features")
-        # path lands when polars-ds wires the equivalent method.
         from sklearn.preprocessing import PolynomialFeatures
         self._impl = PolynomialFeatures(
-            degree=self.degree,
-            interaction_only=self.interaction_only,
+            degree=eff_degree,
+            interaction_only=eff_interaction,
             include_bias=self.include_bias,
         )
         self._impl.fit(X_np)
@@ -122,6 +176,8 @@ class PolynomialFeatureExpander:
                 "PolynomialFeatureExpander not fitted -- call .fit() first"
             )
         X_np = np.asarray(X, dtype=np.float32)
+        if self._skipped:
+            return X_np
         return self._impl.transform(X_np).astype(np.float32, copy=False)
 
     def fit_transform(self, X: Any, feature_names: Optional[List[str]] = None) -> np.ndarray:

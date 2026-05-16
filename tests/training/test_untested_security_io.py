@@ -42,9 +42,12 @@ def _load_metadata(metadata_dir: Path) -> dict:
 
 # ----- _validate_trusted_path -----
 
-def test_validate_requires_trusted_root():
+def test_validate_requires_trusted_root(tmp_path):
+    # Path content doesn't matter -- the function rejects on trusted_root=None
+    # before any filesystem touch.
+    candidate = str(tmp_path / "anything.joblib")
     with pytest.raises(ValueError, match="trusted_root is required"):
-        _validate_trusted_path("/tmp/anything.joblib", None)
+        _validate_trusted_path(candidate, None)
 
 
 def test_validate_inside_is_ok(tmp_path):

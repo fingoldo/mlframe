@@ -10,7 +10,7 @@ from copy import deepcopy
 from os.path import exists, join
 
 from scipy import stats
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import joblib
 import numpy as np
@@ -22,6 +22,7 @@ from ..configs import TargetTypes
 from ..extractors import FeaturesAndTargetsExtractor
 from ..io import load_mlframe_model
 from ..pipeline import prepare_df_for_catboost
+from .._cb_pool import _predict_with_fallback
 from ..utils import drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
@@ -84,11 +85,19 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
         df = get_pandas_view_of_polars_df(df)
     if isinstance(ext_pipeline, dict):
         # TF-IDF-only shape -- replicate the training-time per-column replacement using the saved vectorizers.
+        # Train hard-failed on missing tfidf-source cols (apply_preprocessing_extensions raises KeyError before
+        # fit). Symmetric behaviour at predict: collect every missing source up front and raise once with the
+        # full list. The previous WARN-and-skip silently produced models whose feature_names_in_ included tfidf
+        # cols that never appeared at predict, then crashed at model.predict_proba with an opaque "missing
+        # features" error. Loud-fail beats silent skip.
+        _missing_tfidf = [_col for _col in ext_pipeline if _col not in df.columns]
+        if _missing_tfidf:
+            raise KeyError(
+                f"[extensions_pipeline] tfidf source columns missing from predict frame: "
+                f"{_missing_tfidf}. Training pipeline saw these cols at fit time; predict must too. "
+                "Restore the upstream extraction or retrain on the current schema."
+            )
         for _col, _vec in ext_pipeline.items():
-            if _col not in df.columns:
-                if verbose:
-                    logger.warning("[extensions_pipeline] tfidf column '%s' missing from predict frame; skipping (training-time output columns will be absent).", _col)
-                continue
             _text = df[_col].fillna("").astype(str).values
             _spmat = _vec.transform(_text)
             try:
@@ -145,30 +154,92 @@ def _load_ct_ensemble_entries(models_path: str, slug_to_original_target_type: di
     return out
 
 
-def _combine_probs(all_probs: list, flavour: str | None) -> np.ndarray:
-    """Combine per-model prediction probabilities using the training-time-selected ``flavour``. Falls back to arithmetic mean when ``flavour`` is None or unrecognised (back-compat for saved models that pre-date the metadata key)."""
+def _combine_probs(
+    all_probs: list,
+    flavour: str | None,
+    *,
+    quantile_alphas: Sequence[float] | None = None,
+    quantile_mode: str = "sort",
+) -> np.ndarray:
+    """Combine per-model prediction probabilities using the training-time-selected ``flavour``. Falls back to
+    arithmetic mean when ``flavour`` is None or unrecognised (back-compat for saved models that pre-date the
+    metadata key).
+
+    When ``quantile_alphas`` is provided the aggregated output is treated as a quantile-regression matrix
+    ``(N, K=len(alphas))`` and ``fix_quantile_crossing`` is applied after the ensemble step -- arithmetic /
+    harmonic / quadratic aggregations can break per-row monotonicity even when each member's own quantiles
+    are monotone (mean of two monotone series can cross at the boundaries). Without this the SKEW-QUANTILE-ENS
+    bug surfaced: trained suite returns monotone quantiles per model, but the ensemble probabilities expose
+    crossings to consumers.
+    """
     stacked = np.stack(all_probs)
     _fl = (flavour or "").lower()
     if _fl in ("", "arithm", "arith", "mean"):
-        return np.mean(stacked, axis=0)
-    if _fl in ("median",):
-        return np.median(stacked, axis=0)
-    if _fl in ("harm", "harmonic"):
+        combined = np.mean(stacked, axis=0)
+    elif _fl in ("median",):
+        combined = np.median(stacked, axis=0)
+    elif _fl in ("harm", "harmonic"):
         # Harmonic mean = N / sum(1/p); clip away true zeros so 1/p stays finite.
-        return stacked.shape[0] / np.sum(1.0 / np.clip(stacked, 1e-12, None), axis=0)
-    if _fl in ("geo", "geomean", "geometric"):
-        return np.exp(np.mean(np.log(np.clip(stacked, 1e-300, None)), axis=0))
-    if _fl in ("quad", "quadratic"):
-        return np.sqrt(np.mean(stacked * stacked, axis=0))
-    if _fl in ("qube", "cubic"):
-        return np.cbrt(np.mean(stacked ** 3, axis=0))
-    if _fl in ("rrf",):
+        combined = stacked.shape[0] / np.sum(1.0 / np.clip(stacked, 1e-12, None), axis=0)
+    elif _fl in ("geo", "geomean", "geometric"):
+        combined = np.exp(np.mean(np.log(np.clip(stacked, 1e-300, None)), axis=0))
+    elif _fl in ("quad", "quadratic"):
+        combined = np.sqrt(np.mean(stacked * stacked, axis=0))
+    elif _fl in ("qube", "cubic"):
+        combined = np.cbrt(np.mean(stacked ** 3, axis=0))
+    elif _fl in ("rrf",):
         try:
             from mlframe.models.ensembling import _rrf_aggregate_probs
-            return _rrf_aggregate_probs(stacked, k=60)
+            combined = _rrf_aggregate_probs(stacked, k=60)
         except Exception:
-            return np.mean(stacked, axis=0)
-    return np.mean(stacked, axis=0)
+            combined = np.mean(stacked, axis=0)
+    else:
+        combined = np.mean(stacked, axis=0)
+
+    if quantile_alphas is not None and combined.ndim == 2 and combined.shape[1] == len(quantile_alphas):
+        try:
+            from ..quantile_postproc import fix_quantile_crossing
+            combined = fix_quantile_crossing(combined, quantile_alphas, mode=quantile_mode)
+        except Exception as _qe:
+            logger.warning("[_combine_probs] fix_quantile_crossing(post-aggregation) failed: %s", _qe)
+    return combined
+
+
+def _resolve_quantile_alphas(metadata: dict, target_type: Any, target_name: Any, model_obj: Any = None) -> Sequence[float] | None:
+    """Resolve quantile alphas for a (target_type, target_name) pair.
+
+    Tries metadata-stored keys first; then falls back to model-object introspection
+    (CatBoost MultiQuantile / XGB ``quantile_alpha`` / sklearn ``QuantileRegressor.alphas_``).
+    Returns ``None`` when the target type isn't quantile or alphas can't be recovered.
+    """
+    if target_type not in ("quantile_regression", "regression_quantile") and str(target_type) != "quantile_regression":
+        return None
+    # Metadata-stored alphas: support a few shapes that have been used historically.
+    if isinstance(metadata, dict):
+        _qa = metadata.get("quantile_alphas")
+        if isinstance(_qa, dict):
+            _by_tt = _qa.get(target_type) or _qa.get(str(target_type))
+            if isinstance(_by_tt, dict):
+                _alphas = _by_tt.get(target_name) or _by_tt.get(str(target_name))
+                if _alphas:
+                    return list(_alphas)
+            elif isinstance(_by_tt, (list, tuple)):
+                return list(_by_tt)
+        elif isinstance(_qa, (list, tuple)):
+            return list(_qa)
+    # Model-object introspection: a single member usually carries the alpha list (CB MultiQuantile, XGB quantile_alpha).
+    if model_obj is not None:
+        _m = getattr(model_obj, "model", model_obj)
+        for _attr in ("quantile_alpha", "alphas_", "alphas", "_quantile_alphas"):
+            _val = getattr(_m, _attr, None)
+            if _val is not None and hasattr(_val, "__iter__"):
+                try:
+                    _alphas = [float(a) for a in _val]
+                    if _alphas:
+                        return _alphas
+                except (TypeError, ValueError):
+                    continue
+    return None
 
 
 def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name: Any = None) -> str | None:
@@ -208,7 +279,9 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
             _all.append(_v)
     _all_set = {f for f in _all if f}
     if len(_all_set) == 1:
-        return next(iter(_all_set))
+        # Set with cardinality 1 is deterministic, but sort-then-pick documents the intent and survives the
+        # accidental len==N>1 case if a future caller widens the guard.
+        return sorted(_all_set)[0]
     return None
 
 
@@ -256,6 +329,82 @@ def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
     return df
 
 
+def _slice_frame(df: Any, start: int, length: int) -> Any:
+    """Polars/pandas-agnostic slice. Returns rows [start, start+length). Out-of-range tail truncates safely."""
+    if isinstance(df, pl.DataFrame):
+        return df.slice(start, length)
+    if isinstance(df, pd.DataFrame):
+        return df.iloc[start: start + length]
+    raise TypeError(f"_slice_frame: unsupported type {type(df).__name__}")
+
+
+def _concat_probs_dicts(parts: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+    """Concatenate per-batch probability dicts along axis 0 by model_name. Missing keys in any part are skipped
+    (a model that crashed on one batch shouldn't poison the others; the caller's warn-and-continue handler
+    already logged the failure)."""
+    if not parts:
+        return {}
+    out: dict[str, np.ndarray] = {}
+    keys: set[str] = set()
+    for part in parts:
+        keys.update(part.keys())
+    for key in keys:
+        chunks = [part[key] for part in parts if key in part and part[key] is not None]
+        if chunks:
+            out[key] = np.concatenate(chunks, axis=0)
+    return out
+
+
+def _run_batched(
+    entry_fn: Callable,
+    df: Any,
+    predict_batch_rows: int,
+    *args, **kwargs,
+) -> dict[str, Any]:
+    """Iterate ``entry_fn(_slice_frame(df, start, predict_batch_rows), *args, **kwargs)`` over batches and
+    concatenate per-key arrays. Used by predict_mlframe_models_suite + predict_from_models when the caller sets
+    ``predict_batch_rows`` to bound peak RSS on multi-million-row inference. Per-model probabilities /
+    predictions / ensemble outputs are all concatenated row-wise; metadata + models_used + per_target dicts come
+    from the FIRST batch (they're row-count-invariant)."""
+    n = len(df)
+    if n == 0:
+        return entry_fn(df, *args, **kwargs)
+    batch_outs: list[dict[str, Any]] = []
+    _start = 0
+    while _start < n:
+        _length = min(predict_batch_rows, n - _start)
+        _slice = _slice_frame(df, _start, _length)
+        _out = entry_fn(_slice, *args, **kwargs)
+        batch_outs.append(_out)
+        _start += _length
+
+    if len(batch_outs) == 1:
+        return batch_outs[0]
+
+    merged: dict[str, Any] = dict(batch_outs[0])  # carry metadata / models_used etc. from batch-0
+    for _key in ("predictions", "probabilities", "per_target_probabilities", "per_target_predictions"):
+        if _key in merged and isinstance(merged[_key], dict):
+            merged[_key] = _concat_probs_dicts([b.get(_key, {}) or {} for b in batch_outs])
+    for _key in ("ensemble_predictions", "ensemble_probabilities"):
+        _parts = [b.get(_key) for b in batch_outs if b.get(_key) is not None]
+        if _parts:
+            try:
+                merged[_key] = np.concatenate(_parts, axis=0)
+            except ValueError:
+                merged[_key] = _parts[0]
+    # input_df concatenated row-wise so consumers reading the post-extensions frame from the result still see all rows.
+    _input_parts = [b.get("input_df") for b in batch_outs if b.get("input_df") is not None]
+    if _input_parts:
+        try:
+            if isinstance(_input_parts[0], pl.DataFrame):
+                merged["input_df"] = pl.concat(_input_parts, how="vertical")
+            else:
+                merged["input_df"] = pd.concat(_input_parts, axis=0)
+        except (TypeError, ValueError):
+            merged["input_df"] = _input_parts[0]
+    return merged
+
+
 def predict_mlframe_models_suite(
     df: pl.DataFrame | pd.DataFrame,
     models_path: str,
@@ -264,6 +413,7 @@ def predict_mlframe_models_suite(
     return_probabilities: bool = True,
     verbose: int = 1,
     trusted_root: str | None = None,
+    predict_batch_rows: Optional[int] = None,
 ) -> dict[str, Any]:
     """
     Generate predictions using a trained mlframe models suite.
@@ -293,6 +443,22 @@ def predict_mlframe_models_suite(
         raise ValueError("df cannot be empty")
     if not isinstance(models_path, str) or not os.path.isdir(models_path):
         raise ValueError(f"models_path must be a valid directory, got: {models_path}")
+
+    if predict_batch_rows is not None and predict_batch_rows > 0 and len(df) > predict_batch_rows:
+        # Dispatch to the batched-runner; the batched-runner calls this same function recursively per slice
+        # with predict_batch_rows=None so the legacy single-pass code path runs unchanged for each batch.
+        return _run_batched(
+            lambda _d: predict_mlframe_models_suite(
+                _d, models_path,
+                features_and_targets_extractor=features_and_targets_extractor,
+                model_names=model_names,
+                return_probabilities=return_probabilities,
+                verbose=verbose,
+                trusted_root=trusted_root,
+                predict_batch_rows=None,
+            ),
+            df, predict_batch_rows,
+        )
 
     results = {
         "predictions": {},
@@ -354,8 +520,25 @@ def predict_mlframe_models_suite(
     # Polars fastpath: decide BEFORE the eager pandas materialisation. If every loaded model is CB / XGB sklearn-API
     # (polars-native) and the input is polars, keep the polars frame all the way through; non-native models pay a
     # lazy conversion via ``_pandas_view_cache`` so two non-native models on the same source polars df share one view.
+    # Respect ``model_names`` filter before loading: the probe only needs to inspect models the user actually
+    # requested. Loading every .dump in the directory wasted RSS for one-model-needed inference calls.
     _input_is_polars = isinstance(df, pl.DataFrame)
-    _model_files_for_native_probe = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
+    _all_model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
+    if model_names:
+        _name_set = set(model_names)
+        _model_files_for_native_probe = [
+            _f for _f in _all_model_files
+            if os.path.basename(_f).replace(".dump", "") in _name_set
+        ]
+        if not _model_files_for_native_probe:
+            logger.warning(
+                "predict_mlframe_models_suite: model_names=%r matched 0 of %d .dump files in %s; falling back "
+                "to loading all models. Check for typos / slug mismatch.",
+                model_names, len(_all_model_files), models_path,
+            )
+            _model_files_for_native_probe = _all_model_files
+    else:
+        _model_files_for_native_probe = _all_model_files
     _loaded_models_cache: dict[str, Any] = {}
     _all_polars_native = False
     if _input_is_polars and _model_files_for_native_probe:
@@ -389,6 +572,10 @@ def predict_mlframe_models_suite(
             logger.info("Applying extensions pipeline transformation...")
         df = _apply_extensions_pipeline(df, extensions_pipeline, verbose=verbose)
 
+    # Storing the post-extensions frame in the returned dict pins a multi-GB frame in caller's reference graph
+    # even when they don't read it. The legacy callers that DO read it relied on the key existing, so we keep
+    # the slot but consider making it opt-out via the predict_batch_rows-style param if RSS pressure is
+    # measured (deferred to a future PR; no measured speedup as long as caller drops the dict promptly).
     results["input_df"] = df
 
     if verbose:
@@ -415,13 +602,28 @@ def predict_mlframe_models_suite(
             continue
 
         # Recover (target_type, target_name) from the on-disk layout (mirrors load_mlframe_suite); used to key
-        # per-target flavour replay below.
+        # per-target flavour replay below. Resolution to RAW target_type/target_name is the contract: keys leaking
+        # back to slugs would diverge from predict_from_models (which iterates models[tt][tn] directly with the
+        # raw tuple); we surface a WARN when the slug map is incomplete so the leak is visible.
         _rel = os.path.relpath(model_file, models_path)
         _parts = _rel.split(os.sep)
         if len(_parts) >= 3:
             _tt_slug, _tn_slug = _parts[0], _parts[1]
-            _tt = _slug_to_tt.get(_tt_slug, _tt_slug)
-            _tn = _slug_to_tn.get(_tn_slug, _tn_slug)
+            _tt = _slug_to_tt.get(_tt_slug)
+            _tn = _slug_to_tn.get(_tn_slug)
+            if _tt is None:
+                logger.warning(
+                    "predict_mlframe_models_suite: slug_to_original_target_type missing entry for %r; "
+                    "result keys for this model will use the slug verbatim, diverging from predict_from_models. "
+                    "Re-save the suite with the current mlframe version to refresh the slug map.", _tt_slug,
+                )
+                _tt = _tt_slug
+            if _tn is None:
+                logger.warning(
+                    "predict_mlframe_models_suite: slug_to_original_target_name missing entry for %r; "
+                    "result keys for this model will use the slug verbatim, diverging from predict_from_models.", _tn_slug,
+                )
+                _tn = _tn_slug
         else:
             _tt, _tn = "unknown", "unknown"
 
@@ -445,17 +647,46 @@ def predict_mlframe_models_suite(
                 input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
             if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
                 if model_obj.pre_pipeline != pipeline:
-                    input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+                    # Unified fitted-pipeline check (matches predict_from_models).
+                    # Tree models with a polars-ds main pipeline often carry an
+                    # UNFITTED placeholder sklearn Pipeline in pre_pipeline; calling
+                    # transform on it raises NotFittedError.
+                    from sklearn.utils.validation import check_is_fitted
+                    from sklearn.exceptions import NotFittedError
+                    try:
+                        check_is_fitted(model_obj.pre_pipeline)
+                        _pp_fitted = True
+                    except (NotFittedError, Exception):
+                        _pp_fitted = False
+                    if _pp_fitted:
+                        try:
+                            input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+                        except Exception as _pp_exc:
+                            logger.warning(
+                                "predict_mlframe_models_suite: %s pre_pipeline.transform "
+                                "raised %s: %s. Skipping pre_pipeline.",
+                                model_name, type(_pp_exc).__name__,
+                                str(_pp_exc).splitlines()[0][:160],
+                            )
+                    elif verbose:
+                        logger.debug(
+                            "predict_mlframe_models_suite: %s has unfitted "
+                            "pre_pipeline; skipping .transform.",
+                            model_name,
+                        )
 
             if return_probabilities and hasattr(model, "predict_proba"):
+                # Route through _predict_with_fallback so the same predict-time guards used at training (CB val Pool
+                # cache reuse, LGBM polars auto-convert, NaN safety net, CB polars dispatch-miss fallback) apply
+                # uniformly at inference. Direct model.predict_proba bypassed the CB pool cache -- 50-70s/predict on
+                # 7M rows.
                 try:
-                    probs = model.predict_proba(input_for_model)
+                    probs = _predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose))
                 except (TypeError, ValueError, AttributeError) as _polars_exc:
-                    # Older CB versions reject polars input directly -- fall back to a pandas view.
                     if isinstance(input_for_model, pl.DataFrame):
                         logger.warning("predict_proba on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160])
                         input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-                        probs = model.predict_proba(input_for_model)
+                        probs = _predict_with_fallback(model, input_for_model, method="predict_proba", verbose=bool(verbose))
                     else:
                         raise
                 results["probabilities"][model_name] = probs
@@ -476,12 +707,12 @@ def predict_mlframe_models_suite(
                 per_target_preds.setdefault((_tt, _tn), []).append(preds)
             else:
                 try:
-                    preds = model.predict(input_for_model)
+                    preds = _predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose))
                 except (TypeError, ValueError, AttributeError) as _polars_exc:
                     if isinstance(input_for_model, pl.DataFrame):
                         logger.warning("predict on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160])
                         input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
-                        preds = model.predict(input_for_model)
+                        preds = _predict_with_fallback(model, input_for_model, method="predict", verbose=bool(verbose))
                     else:
                         raise
                 results["predictions"][model_name] = preds
@@ -491,7 +722,14 @@ def predict_mlframe_models_suite(
         except KeyboardInterrupt:
             raise
         except (OSError, ValueError, RuntimeError) as e:
-            logger.error(f"Error loading/predicting with model {model_file}: {e}")
+            # Surface the FULL traceback in addition to the one-line message; the prior log dropped the stack
+            # trace and operators couldn't tell whether the failure was load-time (corrupt .dump on disk) or
+            # predict-time (input schema mismatch / dispatch miss). exc_info=True keeps the warn-and-continue
+            # semantics but adds the diagnostic.
+            logger.error(
+                "Error loading/predicting with model %s: %s", model_file, e,
+                exc_info=True,
+            )
             continue
 
     if len(all_probs) > 1:
@@ -500,6 +738,8 @@ def predict_mlframe_models_suite(
 
         # Per-target chosen flavour replay (Fix 3). For each (tt, tname) that contributed >=1 model run we combine
         # using the flavour persisted at finalize time, exposing the result under ``per_target_probabilities``.
+        # For quantile_regression targets we ALSO apply fix_quantile_crossing post-aggregation so consumers never
+        # see crossings the ensemble step introduced.
         results.setdefault("per_target_probabilities", {})
         results.setdefault("per_target_predictions", {})
         for (_tt_k, _tn_k), _probs_list in per_target_probs.items():
@@ -507,7 +747,17 @@ def predict_mlframe_models_suite(
                 continue
             _flavour = _resolve_chosen_flavour(metadata, _tt_k, _tn_k)
             _key = f"{_tt_k}_{_tn_k}"
-            _combined = _combine_probs(_probs_list, _flavour) if len(_probs_list) > 1 else _probs_list[0]
+            _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k)
+            if len(_probs_list) > 1:
+                _combined = _combine_probs(_probs_list, _flavour, quantile_alphas=_q_alphas)
+            else:
+                _combined = _probs_list[0]
+                if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
+                    try:
+                        from ..quantile_postproc import fix_quantile_crossing
+                        _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
+                    except Exception as _qe:
+                        logger.warning("predict_mlframe_models_suite: fix_quantile_crossing failed: %s", _qe)
             results["per_target_probabilities"][_key] = _combined
             if _combined.ndim == 2:
                 if _combined.shape[1] == 2:
@@ -561,6 +811,7 @@ def predict_from_models(
     features_and_targets_extractor: FeaturesAndTargetsExtractor | None = None,
     return_probabilities: bool = True,
     verbose: int = 1,
+    predict_batch_rows: Optional[int] = None,
 ) -> dict[str, Any]:
     """
     Generate predictions using in-memory models from train_mlframe_models_suite.
@@ -604,6 +855,18 @@ def predict_from_models(
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
     if len(df) == 0:
         raise ValueError("df cannot be empty")
+
+    if predict_batch_rows is not None and predict_batch_rows > 0 and len(df) > predict_batch_rows:
+        return _run_batched(
+            lambda _d: predict_from_models(
+                _d, models, metadata,
+                features_and_targets_extractor=features_and_targets_extractor,
+                return_probabilities=return_probabilities,
+                verbose=verbose,
+                predict_batch_rows=None,
+            ),
+            df, predict_batch_rows,
+        )
 
     results = {
         "predictions": {},
@@ -739,6 +1002,12 @@ def predict_from_models(
     per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
     per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
 
+    # Caches keyed by (id(df), id(_expected)) and (id(df), id(_expected)) -> precomputed drop / order lists.
+    # Many models in a suite carry IDENTICAL feature_names_in_ (same family fit on same FE step); recomputing
+    # the set-difference per model wasted N x len(cols) hash work. id-keyed because expected lists are stable
+    # references on a model object across the lifetime of one predict call.
+    _col_diff_cache: dict[tuple[int, int], dict[str, Any]] = {}
+
     for target_type, targets in models.items():
         for target_name, model_list in targets.items():
             for model_obj in model_list:
@@ -793,14 +1062,33 @@ def predict_from_models(
                     if _expected is None:
                         _expected = getattr(model, "feature_names_", None)
                     if _expected is not None and hasattr(input_for_model, "columns"):
+                        # Cached per-(input_for_model, _expected) set-diff. Multiple models in one suite often
+                        # carry identical feature_names_in_; this reuses the computed missing / drop lists.
+                        _cache_key = (id(input_for_model), id(_expected))
+                        _cached_diff = _col_diff_cache.get(_cache_key)
                         # Normalise column name dtypes to plain ``str`` so numpy.str_
                         # (the dtype LGBMClassifier.feature_names_in_ carries when fit on a
                         # pandas DataFrame) compares equal to the Python str a polars/pandas
                         # DataFrame surfaces via ``.columns``. ``np.str_`` IS a ``str``
                         # subclass so this is mostly a defence-in-depth normalisation.
-                        _expected_list = [str(c) for c in _expected]
-                        _have = {str(c) for c in input_for_model.columns}
-                        _missing = [c for c in _expected_list if c not in _have]
+                        # Cache _expected_list per id(_expected) so the ``str(c) for c in _expected`` loop runs
+                        # once per unique feature_names_in_ object rather than once per model. Many strategies
+                        # share the same _expected list across multiple models in one suite (xgb shim + raw xgb
+                        # both carry the same fit-time names); this re-uses the prior normalisation.
+                        _cached_diff = _col_diff_cache.get(_cache_key)
+                        if _cached_diff is not None:
+                            _expected_list = _cached_diff["expected_list"]
+                            _have = _cached_diff["have"]
+                            _missing = list(_cached_diff["missing"])  # caller mutates so give a fresh list
+                        else:
+                            _expected_list = [str(c) for c in _expected]
+                            _have = {str(c) for c in input_for_model.columns}
+                            _missing = [c for c in _expected_list if c not in _have]
+                            _col_diff_cache[_cache_key] = {
+                                "expected_list": _expected_list,
+                                "have": _have,
+                                "missing": tuple(_missing),
+                            }
                         if _missing:
                             # Models trained on the polars-native fastpath (LGB / CB / XGB on
                             # polars input with prefer_polarsds=True) carry feature_names_in_
@@ -925,21 +1213,26 @@ def predict_from_models(
                         or "LGBM" in type(model).__name__
                     )
                     if _is_lgb and _cat_features and hasattr(input_for_model, "columns"):
-                        _did_copy = False
+                        # Collect only the cols that need a cat-cast, then build the cast Series objects via
+                        # a single ``DataFrame.assign(**{col: cast_series})``. ``assign`` returns a new frame
+                        # sharing memory for un-cast columns (BlockManager-level reuse on pandas >=2.0); the
+                        # prior implementation's ``input_for_model.copy()`` allocated a fresh copy of EVERY
+                        # column even when only 1-2 cat cols needed casting -- biggest single allocation on
+                        # wide frames (8GB savings on 7M x 200 in prod).
+                        _to_cast: dict[str, Any] = {}
                         for _cf in _cat_features:
                             if _cf in input_for_model.columns:
                                 try:
                                     if input_for_model[_cf].dtype.name != "category":
-                                        if not _did_copy:
-                                            input_for_model = input_for_model.copy()
-                                            _did_copy = True
-                                        input_for_model[_cf] = input_for_model[_cf].astype("category")
+                                        _to_cast[_cf] = input_for_model[_cf].astype("category")
                                 except Exception as _exc:
                                     logger.debug(
                                         "predict_from_models: LGB cat-cast for %r failed "
                                         "(%s); leaving as-is",
                                         _cf, type(_exc).__name__,
                                     )
+                        if _to_cast:
+                            input_for_model = input_for_model.assign(**_to_cast)
 
                     # Pre-main-pipeline fallback. Models with internal
                     # categorical handling fitted on string categories
@@ -954,8 +1247,26 @@ def predict_from_models(
                     _exp_list_for_fallback = list(_expected) if _expected is not None else None
 
                     def _try_predict(fn, primary, fallback):
+                        # Route the primary attempt through _predict_with_fallback so the CB val Pool cache /
+                        # NaN guard / LGBM polars auto-convert kick in at predict (the direct fn(primary)
+                        # bypass was the SKEW-CB-POOL-CACHE site that re-paid 50-70s on every predict).
+                        _method = getattr(fn, "__name__", None)
+                        if _method in ("predict", "predict_proba"):
+                            try:
+                                return _predict_with_fallback(model, primary, method=_method, verbose=bool(verbose))
+                            except TypeError as _te:
+                                # Fall through to the in-line handler below so the encoder-mismatch retry path is preserved.
+                                _initial_exc: BaseException = _te
+                            except (ValueError, AttributeError) as _ve:
+                                _initial_exc = _ve
+                            else:
+                                _initial_exc = None  # unreachable; here for type-narrowing
+                        else:
+                            _initial_exc = None
                         try:
-                            return fn(primary)
+                            if _initial_exc is None:
+                                return fn(primary)
+                            raise _initial_exc
                         except TypeError as _te:
                             _msg = str(_te)
                             # Two related symptoms of the same root cause
@@ -993,6 +1304,18 @@ def predict_from_models(
                                             _fb = _fb.drop(_drop_fb)
                                         else:
                                             _fb = _fb.drop(columns=_drop_fb)
+                                    # Normalise column ORDER to match the model's fit-time expectation. LGB and
+                                    # XGB silently accept a frame with all-required cols but wrong order, then
+                                    # produce nonsense predictions because feature_names_in_ is consulted only at
+                                    # fit time. Reordering to the fit-time list is cheap (view-only on pandas /
+                                    # polars 1.x select) and the only safe way to avoid the silent miscompute.
+                                    _fb_have = {str(c) for c in _fb.columns}
+                                    _order = [c for c in _exp_list_for_fallback if str(c) in _fb_have]
+                                    if _order and list(map(str, _fb.columns)) != list(map(str, _order)):
+                                        if isinstance(_fb, pl.DataFrame):
+                                            _fb = _fb.select(_order)
+                                        else:
+                                            _fb = _fb.loc[:, _order]
                                 return fn(_fb)
                             # Polars-input rejection (older CB / sklearn-wrapped XGB): retry via shared pandas view.
                             if isinstance(primary, pl.DataFrame):
@@ -1052,15 +1375,30 @@ def predict_from_models(
         # back-compat with consumers that read results["probabilities"]["ensemble"].
         results.setdefault("per_target_probabilities", {})
         results.setdefault("per_target_predictions", {})
+        # In-memory equivalent of the suite-path resolution; quantile alphas can be discovered via metadata or by
+        # introspecting the first member of models[tt][tname] (the alpha list lives on the inner estimator).
         for (_tt, _tname), _probs_list in per_target_probs.items():
             if not _probs_list:
                 continue
             _flavour = _resolve_chosen_flavour(metadata, _tt, _tname)
             _key = f"{_tt}_{_tname}"
+            _sample_model = None
+            try:
+                _members = (models or {}).get(_tt, {}).get(_tname, []) or []
+                _sample_model = _members[0] if _members else None
+            except (AttributeError, IndexError, TypeError):
+                _sample_model = None
+            _q_alphas = _resolve_quantile_alphas(metadata, _tt, _tname, _sample_model)
             if len(_probs_list) > 1:
-                _combined = _combine_probs(_probs_list, _flavour)
+                _combined = _combine_probs(_probs_list, _flavour, quantile_alphas=_q_alphas)
             else:
                 _combined = _probs_list[0]
+                if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
+                    try:
+                        from ..quantile_postproc import fix_quantile_crossing
+                        _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
+                    except Exception as _qe:
+                        logger.warning("predict_from_models: fix_quantile_crossing failed: %s", _qe)
             results["per_target_probabilities"][_key] = _combined
             if _combined.ndim == 2:
                 if _combined.shape[1] == 2:

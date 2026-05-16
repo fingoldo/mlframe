@@ -17,15 +17,16 @@ User-confirmed architecture (round-3 simplification):
   10 GB embedding caches don't double-allocate.
 
 Reuse semantics:
-  * ACROSS MODELS in same target iter: SAME ``InMemoryKey`` for all
-    models (key is independent of consumer model).
-  * ACROSS TARGETS in target loop: SAME ``InMemoryKey`` (df / train_idx
-    invariant; provider_signature drives key change only when user
-    changes provider).
-  * ACROSS WEIGHT SCHEMAS: SAME ``InMemoryKey`` (params / provider /
-    train_idx all unchanged).
-  * ACROSS sklearn.clone() boundaries: cache survives because the
-    cache lives at the FHC layer, not the model.
+  * ACROSS MODELS in same target iter: SAME ``InMemoryKey`` for all models (key is independent of
+    consumer model).
+  * ACROSS TARGETS in target loop: DIFFERENT ``InMemoryKey`` for target-encoder handlers -- the
+    ``train_idx_token`` slot carries a blake2b digest over the target content
+    (see ``apply._target_content_token``) so multi-target suites don't collide on the same encoder slot.
+    Text handlers fold a column-content token instead so OD-masked vs full-train fits are distinct
+    (the legacy literal-zero token collided across different row masks).
+  * ACROSS WEIGHT SCHEMAS: SAME ``InMemoryKey`` (params / provider / target content all unchanged).
+  * ACROSS sklearn.clone() boundaries: cache survives because the cache lives at the FHC layer, not
+    the model.
 
 Eviction:
   * In-memory: LRU within ``cache.ram_max_gb``. ``cache.ram_reserve_gb``
@@ -269,6 +270,11 @@ class FeatureCache:
             if evict_key is None:
                 return
             self._mem.pop(evict_key)
+            # FH-XREF-NO-EVICT: drop the matching ``_key_xref`` entry alongside the ``_mem`` entry
+            # so the xref table can't grow monotonically while ``_mem`` evicts. Pre-fix the xref
+            # outlived the evicted mem entry, and a future ``get_or_compute`` hitting the disk tier
+            # would replay the orphan entry's stale ``DiskKey`` mapping.
+            self._key_xref.pop(evict_key, None)
             self._evictions += 1
 
     def _select_eviction_victim(
@@ -343,6 +349,25 @@ class FeatureCache:
         with self._lock:
             self._mem.clear()
             self._key_xref.clear()
+
+    def purge_by_df_token(self, df_token: int) -> int:
+        """Drop every in-memory entry whose ``InMemoryKey.df_token`` matches ``df_token``.
+
+        Must be called from ``_release_ctx_polars_frames`` (or any other code path that releases
+        the strong reference to a frame): once Python is free to recycle ``id(frame)``, a future
+        ``InMemoryKey`` lookup using the recycled id would silently collide with a cached entry
+        that belonged to the dropped frame and replay stale state. The session_id rotation in
+        ``reset_session`` already protects across *suite* boundaries, but mid-suite releases (one
+        suite, multiple tier transitions) live inside the same session and need this scrub.
+
+        Returns the count of dropped entries (for diagnostic logging).
+        """
+        with self._lock:
+            stale_keys = [k for k in self._mem.keys() if k.df_token == df_token]
+            for k in stale_keys:
+                self._mem.pop(k, None)
+                self._key_xref.pop(k, None)
+            return len(stale_keys)
 
 
 # =====================================================================

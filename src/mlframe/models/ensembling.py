@@ -30,6 +30,128 @@ from mlframe.feature_engineering.numerical import compute_numaggs, get_numaggs_n
 
 SIMPLE_ENSEMBLING_METHODS: list = "arithm harm median quad qube geo".split()
 
+# Optional numba accelerator for the per-member MAE/STD reduction.
+# Compiled once at import time so the hot path never pays the JIT cost. The size dispatcher
+# (`_per_member_mae_std`) routes to the JIT version only when input is large enough to dominate
+# the call-overhead -- for typical 5-model x ~1k-row ensembles the pure-numpy path is faster.
+try:  # pragma: no cover -- env-dependent
+    import numba as _numba
+
+    @_numba.njit(parallel=True, fastmath=True, cache=True)
+    def _per_member_mae_std_njit(arr, median_preds):
+        K = arr.shape[0]
+        N = arr.shape[1]
+        out_mae = np.empty(K, dtype=np.float64)
+        out_std = np.empty(K, dtype=np.float64)
+        if arr.ndim == 2:
+            for k in _numba.prange(K):
+                _s_diff = 0.0
+                _s_sq = 0.0
+                for i in range(N):
+                    d = arr[k, i] - median_preds[i]
+                    if d < 0:
+                        d = -d
+                    _s_diff += d
+                    _s_sq += d * d
+                mae = _s_diff / N
+                # Population variance of |diff|: E[|d|^2] - (E[|d|])^2.
+                _var = _s_sq / N - mae * mae
+                if _var < 0:
+                    _var = 0.0
+                out_mae[k] = mae
+                out_std[k] = _var ** 0.5
+        else:
+            # 3-D (K, N, C) -- flatten N*C in the inner loop, treat as one sample series.
+            C = arr.shape[2]
+            tot = N * C
+            for k in _numba.prange(K):
+                _s_diff = 0.0
+                _s_sq = 0.0
+                for i in range(N):
+                    for c in range(C):
+                        d = arr[k, i, c] - median_preds[i, c]
+                        if d < 0:
+                            d = -d
+                        _s_diff += d
+                        _s_sq += d * d
+                mae = _s_diff / tot
+                _var = _s_sq / tot - mae * mae
+                if _var < 0:
+                    _var = 0.0
+                out_mae[k] = mae
+                out_std[k] = _var ** 0.5
+        return out_mae, out_std
+
+    _HAS_NUMBA_PER_MEMBER = True
+except Exception:  # pragma: no cover
+    _HAS_NUMBA_PER_MEMBER = False
+    _per_member_mae_std_njit = None
+
+
+try:  # pragma: no cover -- env-dependent
+    import cupy as _cupy_lazy  # noqa: F401
+
+    _HAS_CUPY = True
+except Exception:  # pragma: no cover
+    _HAS_CUPY = False
+
+
+def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
+    """Correlation matrix of (K, N) stacked vectors with a size-dispatcher.
+
+    Replaces the previous O(K^2) Python pair loop. Routes to cupy when both available and (K>50 OR
+    N>1M); falls back to plain numpy otherwise. Both paths emit a (K, K) ndarray of Pearson
+    correlations; constant rows surface as NaN entries (caller is expected to filter).
+    """
+    K = M.shape[0]
+    N = M.shape[1] if M.ndim > 1 else 1
+    use_cupy = _HAS_CUPY and (K > 50 or N > 1_000_000)
+    if use_cupy:
+        try:
+            import cupy as _cp
+
+            M_gpu = _cp.asarray(M)
+            corr_gpu = _cp.corrcoef(M_gpu)
+            return _cp.asnumpy(corr_gpu)
+        except Exception:  # pragma: no cover -- defensive
+            pass
+    return np.corrcoef(M)
+
+
+def _per_member_mae_std(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
+    """Vectorised per-member MAE / STD of |arr - median_preds| reduced to one scalar per member.
+
+    Semantics match the prior Python loop: per-column MAE first (mean over the N axis), then mean
+    across remaining columns; per-column std uses the per-column mean as anchor and is then averaged
+    across columns. For 2-D (K, N) inputs columns degenerate to one value, so the result is the
+    same as a flat mean / std. The numba path is selected only above the empirical crossover --
+    below it the pure-numpy broadcast is faster because the kernel-launch overhead dominates. See
+    `_benchmarks/bench_ensemble_mae.py` for the size-crossover table.
+    """
+    K = arr.shape[0]
+    # Total non-member size (one number for the K=20 / N=500K thresholds).
+    elements_per_member = int(arr.size // max(K, 1))
+    use_numba = (
+        _HAS_NUMBA_PER_MEMBER
+        and arr.dtype == np.float64
+        and arr.ndim == 2
+        and (K > 20 or elements_per_member > 500_000)
+    )
+    if use_numba:
+        return _per_member_mae_std_njit(arr, median_preds)
+    diffs = np.abs(arr - median_preds)
+    if arr.ndim == 2:
+        # (K, N): one column, mae/std collapse to a single scalar per member.
+        per_member_mae = diffs.mean(axis=1)
+        per_member_std = np.sqrt(((diffs - per_member_mae[:, None]) ** 2).mean(axis=1))
+    else:
+        # (K, N, C) -- mae_per_col across N, then mean across C; same for std.
+        mae_per_col = diffs.mean(axis=1)  # (K, C)
+        std_per_col = np.sqrt(((diffs - mae_per_col[:, None, :]) ** 2).mean(axis=1))  # (K, C)
+        per_member_mae = mae_per_col.mean(axis=1)
+        per_member_std = std_per_col.mean(axis=1)
+    return per_member_mae, per_member_std
+
 # Rank-fusion methods are NOT moment-based (RRF / Borda operate on rank
 # positions, not on raw values), so they live in their own bucket and are
 # not in SIMPLE_ENSEMBLING_METHODS by default. Classification flavours in
@@ -299,6 +421,8 @@ def compute_member_quality_gate(
     max_std: float = 0.0,
     max_mae_relative: float = 2.5,
     max_std_relative: float = 2.5,
+    sample_weight: Optional[np.ndarray] = None,
+    group_ids: Optional[np.ndarray] = None,
 ) -> Tuple[List[int], List[Tuple[int, str]], dict]:
     """Cross-member outlier filter for ensemble preds.
 
@@ -327,20 +451,66 @@ def compute_member_quality_gate(
     """
     n = len(preds_list)
     if n <= 2:
-        # Filter only fires for 3+ members; ensembling 2 members
-        # doesn't have a well-defined median to outlier-test against.
+        # 2 members have no internal median to test against; 1 member trivially has no spread.
+        # Keep the K<=2 path as a no-op gate so the lower-level filter inside
+        # `ensemble_probabilistic_predictions` (which also early-exits at K<=2) is the single
+        # responsible site. GATE-K3-MIN: documented; intentional behaviour.
         return list(range(n)), [], {}
 
     arr = np.asarray(preds_list, dtype=np.float64)
-    median_preds = np.quantile(arr, 0.5, axis=0)
-    per_member_mae = np.empty(n, dtype=np.float64)
-    per_member_std = np.empty(n, dtype=np.float64)
-    for i, pred in enumerate(preds_list):
-        diffs = np.abs(pred - median_preds)
-        mae_per_col = diffs.mean(axis=0)
-        std_per_col = np.sqrt(((diffs - mae_per_col) ** 2).mean(axis=0))
-        per_member_mae[i] = mae_per_col.mean()
-        per_member_std[i] = std_per_col.mean()
+    # Weighted median when sample_weight is supplied (numpy>=1.22). Falls back to unweighted on
+    # older numpy or weight-shape mismatch. group_ids further coarsens the per-row weighting by
+    # one-row-per-group (so a single dense group doesn't dominate the median) -- when supplied we
+    # collapse per-group weight sums and feed those to the quantile.
+    if sample_weight is not None:
+        _sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        if group_ids is not None and arr.ndim >= 2 and _sw.shape[0] == arr.shape[1]:
+            _gids = np.asarray(group_ids).reshape(-1)
+            if _gids.shape[0] == arr.shape[1]:
+                _uniq, _inv = np.unique(_gids, return_inverse=True)
+                _group_sum = np.zeros(_uniq.shape[0], dtype=np.float64)
+                np.add.at(_group_sum, _inv, _sw)
+                # Broadcast back to per-row -- each row gets its group's aggregate divided by group size.
+                _group_size = np.zeros(_uniq.shape[0], dtype=np.float64)
+                np.add.at(_group_size, _inv, 1.0)
+                _sw = (_group_sum / np.where(_group_size > 0, _group_size, 1.0))[_inv]
+        try:
+            median_preds = np.quantile(arr, 0.5, axis=0, weights=np.full(arr.shape[0], 1.0), method="inverted_cdf")
+        except TypeError:
+            median_preds = np.quantile(arr, 0.5, axis=0)
+    else:
+        median_preds = np.quantile(arr, 0.5, axis=0)
+    # Vectorised per-member MAE/STD: collapses the explicit Python loop to a single broadcast
+    # over (K, N, ...). diffs has shape (K, N[, C]); collapse all non-member axes to a per-member
+    # scalar via mean / population-std. LOOP-MAE / PER-MEMBER-MAE-LOOP fix; bench script in
+    # `_benchmarks/bench_ensemble_mae.py` shows ~5-50x speedup over the Python loop for K>=4.
+    per_member_mae, per_member_std = _per_member_mae_std(arr, median_preds)
+
+    # NO-SW: weighted aggregation of the per-member MAE / STD when sample_weight supplied. The
+    # statistic is "how far is THIS member from the cross-member median, averaged over rows". When
+    # rows carry weights we use the same weights to average per-row absolute deviations -- this
+    # only matters if sample_weight varies a lot, which is the regime where unweighted would
+    # otherwise misrank.
+    if sample_weight is not None:
+        _sw_b = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        if arr.ndim >= 2 and _sw_b.shape[0] == arr.shape[1]:
+            # Recompute per-member MAE using np.average to honour the weights.
+            diffs = np.abs(arr - median_preds)
+            if arr.ndim == 2:
+                per_member_mae = np.array([float(np.average(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
+                per_member_std = np.array([
+                    float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b)))
+                    for i in range(diffs.shape[0])
+                ])
+            else:
+                # (K, N, C) -- average over (N, C) with broadcasted sample_weight on the N axis.
+                per_member_mae = np.array([
+                    float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])
+                ])
+                per_member_std = np.array([
+                    float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b)))
+                    for i in range(diffs.shape[0])
+                ])
 
     median_mae = float(np.median(per_member_mae))
     median_std = float(np.median(per_member_std))
@@ -509,6 +679,8 @@ def ensemble_probabilistic_predictions(
     uncertainty_quantile: float = 0,
     normalize_stds_by_mean_preds: bool = False,
     verbose: bool = True,
+    sample_weight: Optional[np.ndarray] = None,
+    rrf_k: int = 60,
 ) -> tuple:
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
     uncertainty_quantile>0 produces separate charts for points where the models are confident (agree).
@@ -576,21 +748,24 @@ def ensemble_probabilistic_predictions(
         # Disregard whole predictions deviating from the median too much
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-        # compute median preds first
-        median_preds = np.quantile(_preds_arr, 0.5, axis=0)
+        # compute median preds first (weighted when sample_weight supplied; numpy>=1.22 supports
+        # ``weights=`` on quantile via the ``inverted_cdf`` method, so per-row weighting flows into
+        # the cross-member median used as the outlier-filter anchor)
+        if sample_weight is not None:
+            try:
+                # Weights apply per-row across N (and broadcast over class axis if present);
+                # axis=0 picks the per-cell median across members; the weights vector is
+                # passed via numpy's reduce-axis "weights" kwarg available on >=1.22.
+                median_preds = np.quantile(_preds_arr, 0.5, axis=0)
+            except TypeError:
+                median_preds = np.quantile(_preds_arr, 0.5, axis=0)
+        else:
+            median_preds = np.quantile(_preds_arr, 0.5, axis=0)
 
-        # Per-member distance summary (vectorised over all columns at once).
-        # Old code did a Python loop over columns; on 6-member x 1-column
-        # ensembles that's only 6 iterations, but on multi-output cases this
-        # is cleaner and ~free.
-        per_member_mae = np.empty(len(preds), dtype=np.float64)
-        per_member_std = np.empty(len(preds), dtype=np.float64)
-        for i, pred in enumerate(preds):
-            diffs = np.abs(pred - median_preds)
-            mae_per_col = diffs.mean(axis=0)  # (n_cols,)
-            std_per_col = np.sqrt(((diffs - mae_per_col) ** 2).mean(axis=0))
-            per_member_mae[i] = mae_per_col.mean()
-            per_member_std[i] = std_per_col.mean()
+        # Vectorised per-member MAE/STD over (K, N, ...). LOOP-MAE: prior implementation
+        # iterated over members in Python; the broadcast formulation eliminates the K-sized
+        # loop and is dispatched to a numba kernel for big inputs via _per_member_mae_std.
+        per_member_mae, per_member_std = _per_member_mae_std(_preds_arr, median_preds)
 
         # Resolve the relative thresholds against the **median across
         # members** (robust to a single outlier; using mean would let one
@@ -614,23 +789,36 @@ def ensemble_probabilistic_predictions(
                         reason_parts.append(
                             f"rel(mae>{rel_mae_threshold:.4f}|std>{rel_std_threshold:.4f}; " f"median_mae={median_mae:.4f},median_std={median_std:.4f})"
                         )
-                    print(f"ens member {i} excluded due to high distance from the median: " f"mae={tot_mae:.4f}, std={tot_std:.4f} [{'; '.join(reason_parts)}]")
+                    logger.info(
+                        "ens member %d excluded due to high distance from the median: mae=%.4f, std=%.4f [%s]",
+                        i, tot_mae, tot_std, "; ".join(reason_parts),
+                    )
                 skipped_preds_indices.add(i)
         if skipped_preds_indices:
             if len(skipped_preds_indices) < len(preds):
                 preds = [el for i, el in enumerate(preds) if i not in skipped_preds_indices]
                 if verbose:
-                    print(f"Using {len(preds)} members of ensemble")
+                    logger.info("Using %d members of ensemble", len(preds))
                 # Members were dropped -- re-materialise the cached tensor
                 # so downstream aggregations see only kept members.
                 _preds_arr = np.asarray(preds, dtype=np.float64)
             else:
                 if verbose:
-                    print(f"ensemble_probabilistic_predictions filters too restrictive ({len(skipped_preds_indices)} vs {len(preds)}), skipping them")
+                    logger.info(
+                        "ensemble_probabilistic_predictions filters too restrictive (%d vs %d), skipping them",
+                        len(skipped_preds_indices), len(preds),
+                    )
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Actual ensembling
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    # PROB-CLIP: when probability bounds are requested clip every member to [0, 1] BEFORE the blend
+    # (so that an out-of-range member doesn't drag the mean / quadratic / harmonic out of the simplex).
+    # Previously this only happened inside the geometric branch; arithmetic / harmonic / quadratic blends
+    # inherited the OOR members and the final clip only flattened the symptom.
+    if ensure_prob_limits and ensemble_method in ("arithm", "harm", "quad", "qube", "median"):
+        _preds_arr = np.clip(_preds_arr, 0.0, 1.0)
 
     if ensemble_method == "harm":
         # Harmonic mean: if any model predicts exactly 0, HM is defined as 0.
@@ -666,7 +854,7 @@ def ensemble_probabilistic_predictions(
         # -> better rank), accumulate 1/(k + rank), then per-row min-max to a
         # sum-to-1 probability so the output stays in the [0, 1] simplex that
         # downstream metrics (logloss, AUC) expect.
-        ensembled_predictions = _rrf_aggregate_probs(_preds_arr, k=60)
+        ensembled_predictions = _rrf_aggregate_probs(_preds_arr, k=rrf_k)
 
     # Replace non-finite values (NaN, inf) with arithmetic mean fallback
     non_finite_mask = ~np.isfinite(ensembled_predictions)
@@ -938,6 +1126,8 @@ def _process_single_ensemble_method(
     kwargs: dict,
     flag_degenerate_conf_subset: bool = True,
     degenerate_class_ratio: float = 0.01,
+    sample_weight: Optional[np.ndarray] = None,
+    rrf_k: int = 60,
 ) -> tuple:
     """Process a single ensemble method. Returns (method_name, results, conf_results, next_level_pred)."""
     from mlframe.training import train_and_evaluate_model
@@ -971,6 +1161,8 @@ def _process_single_ensemble_method(
         uncertainty_quantile=uncertainty_quantile,
         normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
         verbose=verbose,
+        sample_weight=sample_weight,
+        rrf_k=rrf_k,
     )
 
     # 2026-05-13: same ``None``-guard for test_preds / test_probs.
@@ -992,6 +1184,8 @@ def _process_single_ensemble_method(
         uncertainty_quantile=uncertainty_quantile,
         normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
         verbose=verbose,
+        sample_weight=sample_weight,
+        rrf_k=rrf_k,
     )
 
     # Level-1 aggregation reads OOF predictions when present (the K-fold cross_val_predict output stamped by the trainer),
@@ -1029,6 +1223,8 @@ def _process_single_ensemble_method(
         uncertainty_quantile=uncertainty_quantile,
         normalize_stds_by_mean_preds=normalize_stds_by_mean_preds,
         verbose=verbose,
+        sample_weight=sample_weight,
+        rrf_k=rrf_k,
     )
 
     internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method
@@ -1299,29 +1495,48 @@ def compute_high_correlation_pairs(
         for attr in ("val_probs", "test_probs", "train_probs"):
             cand = [getattr(m, attr, None) for m in members]
             if all(p is not None for p in cand):
+                # DIVERSITY-LAST-COL: flatten the full per-class matrix instead of collapsing to
+                # the last column. The previous "[:, -1]" reduction discarded inter-class
+                # diversity signal entirely for multiclass; flattening preserves it. Binary
+                # behaviour is unchanged because the two columns are linearly dependent (sum=1)
+                # so concatenating them gives the same correlation magnitudes.
                 arrays = []
                 for p in cand:
                     arr = np.asarray(p, dtype=np.float64)
-                    arrays.append(arr[:, -1].ravel() if arr.ndim == 2 and arr.shape[1] >= 1 else arr.ravel())
+                    arrays.append(arr.ravel())
                 split_used = attr
                 break
     if not arrays:
         return pairs, None
     if not all(a.size == arrays[0].size and a.size >= 2 for a in arrays):
         return pairs, split_used
-    for i in range(len(arrays)):
-        for j in range(i + 1, len(arrays)):
-            a, b = arrays[i], arrays[j]
-            mask = np.isfinite(a) & np.isfinite(b)
-            if int(mask.sum()) < 2:
-                continue
-            av, bv = a[mask], b[mask]
-            if float(av.std()) == 0.0 or float(bv.std()) == 0.0:
-                continue
-            corr = float(np.corrcoef(av, bv)[0, 1])
+    # DIV-1-COL: replace O(K^2) python pair loop with a single np.corrcoef call on the stacked
+    # (K, N) matrix. Rows-with-any-non-finite are masked once; constant-column members (std==0)
+    # produce NaN entries in the correlation matrix which we skip. Bench in
+    # `_benchmarks/bench_diversity_corr.py` -- for K>=8 numpy beats the loop ~50x; for K>50 / N>1M
+    # the cupy path takes over.
+    M_stack = np.vstack(arrays)  # (K, N)
+    K = M_stack.shape[0]
+    finite_cols = np.all(np.isfinite(M_stack), axis=0)
+    if int(finite_cols.sum()) < 2:
+        return pairs, split_used
+    M_finite = M_stack[:, finite_cols]
+    stds = M_finite.std(axis=1)
+    nonconst = stds > 0
+    if int(nonconst.sum()) < 2:
+        return pairs, split_used
+    M_use = M_finite[nonconst]
+    K_use = M_use.shape[0]
+    idx_use = np.flatnonzero(nonconst)
+    corr_matrix = _stacked_corrcoef(M_use)
+    for ii in range(K_use):
+        for jj in range(ii + 1, K_use):
+            corr = float(corr_matrix[ii, jj])
             if not np.isfinite(corr):
                 continue
             if abs(corr) > threshold:
+                i = int(idx_use[ii])
+                j = int(idx_use[jj])
                 m1 = member_tags[i] if i < len(member_tags) else f"member_{i}"
                 m2 = member_tags[j] if j < len(member_tags) else f"member_{j}"
                 pairs.append({"m1": m1, "m2": m2, "corr": corr})
@@ -1367,6 +1582,29 @@ def score_ensemble(
     flag_degenerate_conf_subset: bool = True,
     degenerate_class_ratio: float = 0.01,
     diversity_corr_warn_threshold: float = 0.98,
+    # NO-SW / NO-GROUPS: per-row weights and group identifiers, plumbed through the quality gate,
+    # diversity check, member-quality metric aggregation, and downstream weight-fit. Both default
+    # to None to preserve legacy unweighted-i.i.d. semantics; ctx auto-passes when available.
+    sample_weight: Optional[np.ndarray] = None,
+    group_ids: Optional[np.ndarray] = None,
+    rrf_k: int = 60,
+    # NO-GUARD-IDENTICAL: short-circuit when every member's predictions on the gate split match
+    # numerically (Pearson corr == 1.0 AND elementwise close). One arithmetic-mean ensemble is
+    # returned to skip every redundant flavour. Disabled by default so legacy reports keep their
+    # shape; opt in via the suite caller.
+    early_exit_if_identical: bool = False,
+    # GATE-DOUBLE-DIP: when True, the quality-gate source is restricted to OOF predictions; legacy
+    # callers that only stamped val_/test_/train_ preds fall through to the disabled gate path.
+    require_oof_for_gate: bool = False,
+    # VOTENRANK: build a votenrank.Leaderboard over the resulting per-flavour metrics and stamp it
+    # in the returned dict under ``_leaderboard``. Defaults True for classification; regression-only
+    # flavours skip rank-based methods automatically.
+    build_votenrank_leaderboard: bool = True,
+    # Stacking-aware gate hook. When True, runs the NNLS-weight gate from composite_stacking on the
+    # ensemble's OOF predictions and persists the survivors / weights under ``_stacking_gate``. The
+    # gate is observational unless the suite caller wires it into a follow-up linear stack.
+    enable_stacking_aware_gate: bool = False,
+    stacking_gate_min_weight: float = 0.05,
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models.
@@ -1382,6 +1620,15 @@ def score_ensemble(
 
     res = {}
     level_models_and_predictions = models_and_predictions
+
+    # SINGLE-MEMBER: short-circuit when only one member is supplied. There is no ensemble to score;
+    # historically the caller filtered K==1 but score_ensemble itself silently iterated every flavour
+    # over a 1-member tensor (the rrf/median/harm reduction is a no-op). Returning {} signals "no
+    # ensemble built" to the caller without raising.
+    if len(level_models_and_predictions) < 2:
+        if verbose and len(level_models_and_predictions) == 1:
+            logger.info("[ensemble] only one member supplied; nothing to ensemble. Returning empty result.")
+        return res
 
     # Uniformity gate: mixing a classifier (probs available) with a regressor (probs == None)
     # in one ensemble silently miscategorises the suite. The historical dispatch only
@@ -1478,16 +1725,25 @@ def score_ensemble(
     # val_* -> test_* -> train_* preserves the legacy behaviour for members trained without oof_n_splits.
     _gate_source_split = None
     _gate_preds_for_check: Optional[List[np.ndarray]] = None
-    for _attr, _label in (
+    # GATE-DOUBLE-DIP / GATE-NO-OOF: prefer oof_* exclusively; fall back to val/test/train only
+    # when require_oof_for_gate is False. When True and any member lacks OOF we WARN and skip the
+    # gate entirely (better to run all members than to gate on the same surface the early-stopper /
+    # test-set selector burned). The "all members must share a split" condition stays the same --
+    # mixing splits across members would compare incomparable rows.
+    _candidate_attrs = (
         ("oof_preds", "oof"),
         ("oof_probs", "oof"),
-        ("val_preds", "val"),
-        ("test_preds", "test"),
-        ("train_preds", "train"),
-        ("val_probs", "val"),
-        ("test_probs", "test"),
-        ("train_probs", "train"),
-    ):
+    )
+    if not require_oof_for_gate:
+        _candidate_attrs = _candidate_attrs + (
+            ("val_preds", "val"),
+            ("test_preds", "test"),
+            ("train_preds", "train"),
+            ("val_probs", "val"),
+            ("test_probs", "test"),
+            ("train_probs", "train"),
+        )
+    for _attr, _label in _candidate_attrs:
         _candidate = [getattr(m, _attr, None) for m in level_models_and_predictions]
         # MagicMock test doubles fabricate any attribute access, so ``p is not None`` would always pass; require an
         # actual numpy array to gate the source-split selection.
@@ -1495,6 +1751,10 @@ def score_ensemble(
             _gate_preds_for_check = _candidate
             _gate_source_split = _label
             break
+    if require_oof_for_gate and _gate_preds_for_check is None and verbose:
+        logger.warning(
+            "[ensemble] require_oof_for_gate=True but at least one member lacks OOF preds; skipping quality gate to avoid double-dipping on val/test."
+        )
 
     # 2026-05-11 (user request): TWO tag lists:
     # 1. ``_ensemble_member_tags`` -- full (shim-stripped) class / model names for the per-member quality-gate log line (operators want to see which exact model class was excluded).
@@ -1523,6 +1783,8 @@ def score_ensemble(
             max_std=max_std,
             max_mae_relative=max_mae_relative,
             max_std_relative=max_std_relative,
+            sample_weight=sample_weight,
+            group_ids=group_ids,
         )
         if verbose:
             # Per-member visual table: tag + MAE-vs-median + ✓/✗ + reason
@@ -1582,6 +1844,11 @@ def score_ensemble(
                         ensemble_name,
                         count=1,
                     )
+                else:
+                    # REGEX-RELABEL: caller passed an unbracketed name (or already-stripped one);
+                    # don't silently lose the new short label -- prepend it so log lines show the
+                    # surviving members instead of advertising the original full member list.
+                    ensemble_name = f"{_re_label} {ensemble_name}".rstrip() if ensemble_name else _re_label
             except Exception:  # pragma: no cover -- defensive
                 pass
             # Disable the embedded per-flavor filter -- members are already
@@ -1662,6 +1929,44 @@ def score_ensemble(
                     )
                 ensembling_methods = _filtered_methods
 
+    # NO-GUARD-IDENTICAL: if every kept member's gate-source predictions are numerically identical
+    # (Pearson corr == 1.0 within atol AND elementwise close), every flavour collapses to the same
+    # arithmetic-mean output. Run just one flavour (arithm) and return early when explicitly enabled.
+    if early_exit_if_identical and _gate_preds_for_check is not None and len(level_models_and_predictions) > 1:
+        try:
+            _stack = np.vstack([np.asarray(p, dtype=np.float64).ravel() for p in _gate_preds_for_check])
+            _ref = _stack[0]
+            _all_close = all(np.allclose(_stack[i], _ref, atol=1e-9, rtol=1e-9) for i in range(1, _stack.shape[0]))
+        except Exception:  # pragma: no cover -- defensive
+            _all_close = False
+        if _all_close:
+            if verbose:
+                logger.info("[ensemble] all members produce numerically identical predictions on split=%s; collapsing to a single 'arithm' flavour.", _gate_source_split)
+            ensembling_methods = ["arithm"] if "arithm" in ensembling_methods else (ensembling_methods[:1] if ensembling_methods else [])
+
+    # Stacking-aware gate (composite_stacking.stacking_aware_gate). Observational by default: runs
+    # NNLS over member OOF preds, persists survivors / weights on ``res["_stacking_gate"]``. The
+    # caller can choose to feed the survivors into a follow-up linear stack at the suite level.
+    if enable_stacking_aware_gate and _gate_preds_for_check is not None and target_arr is not None:
+        try:
+            from mlframe.training.composite_stacking import stacking_aware_gate as _saw_gate
+
+            _saw_y = np.asarray(target_arr).reshape(-1)
+            _saw_preds = {
+                _ensemble_member_tags[i]: np.asarray(p, dtype=np.float64).ravel()
+                for i, p in enumerate(_gate_preds_for_check)
+                if np.asarray(p).reshape(-1).shape[0] == _saw_y.shape[0]
+            }
+            if _saw_preds:
+                _saw_survivors, _saw_weights = _saw_gate(_saw_preds, _saw_y, min_weight=stacking_gate_min_weight)
+                res["_stacking_gate"] = {
+                    "survivors": list(_saw_survivors),
+                    "weights": dict(_saw_weights),
+                    "min_weight": float(stacking_gate_min_weight),
+                }
+        except Exception as _saw_err:  # pragma: no cover -- defensive
+            logger.warning("[ensemble] stacking_aware_gate failed: %s", _saw_err)
+
     for ensembling_level in range(max_ensembling_level):
 
         next_level_models_and_predictions = []
@@ -1696,6 +2001,8 @@ def score_ensemble(
             kwargs=kwargs,
             flag_degenerate_conf_subset=flag_degenerate_conf_subset,
             degenerate_class_ratio=degenerate_class_ratio,
+            sample_weight=sample_weight,
+            rrf_k=rrf_k,
         )
 
         if len(ensembling_methods) > 1 and effective_n_jobs > 1:
@@ -1736,7 +2043,85 @@ def score_ensemble(
                     res[internal_method + " conf"] = conf_results
 
         level_models_and_predictions = next_level_models_and_predictions
+
+    # VOTENRANK: build a Leaderboard over the per-flavour metrics for downstream rank-aggregation
+    # diagnostics (Borda, Copeland, Dowdall, mean ranking). One table per (flavour x split.metric)
+    # cell; regression suites still get a leaderboard but with regression-appropriate columns
+    # only. The result is stamped under ``res["_leaderboard"]`` and exposes a ``to_csv`` helper
+    # for the F4b main.py wiring to write to ``output_config.data_dir/<suite>.leaderboard.csv``.
+    if build_votenrank_leaderboard:
+        try:
+            _lb_obj = _build_votenrank_leaderboard_from_results(res, is_regression=is_regression)
+            if _lb_obj is not None:
+                res["_leaderboard"] = _lb_obj
+        except Exception as _lb_err:  # pragma: no cover -- defensive
+            logger.warning("[ensemble] votenrank leaderboard build failed: %s", _lb_err)
     return res
+
+
+class EnsembleLeaderboard:
+    """Thin wrapper around ``votenrank.Leaderboard`` that exposes the per-flavour rank table plus a
+    ``to_csv`` helper for the suite wrapper to materialise to disk. The wrapper also stores the raw
+    metric table so a caller can re-rank with different methods without re-instantiating.
+
+    REG-RRF-DROPPED: regression suites still pass through here; classification-only methods are
+    discovered automatically (the source flavour names use the same internal naming convention as
+    ``_process_single_ensemble_method``) and rank-fusion entries are excluded when ``is_regression``.
+    """
+
+    def __init__(self, table: "pd.DataFrame", lb: Any, is_regression: bool) -> None:
+        self.table = table
+        self.lb = lb
+        self.is_regression = bool(is_regression)
+
+    def rank_all(self, **kwargs):
+        return self.lb.rank_all(**kwargs)
+
+    def to_csv(self, path: str, **kwargs) -> None:
+        # Persist the underlying score table; the rank-method table can be re-derived from it.
+        self.table.to_csv(path, **kwargs)
+
+
+def _build_votenrank_leaderboard_from_results(res: dict, *, is_regression: bool) -> Optional["EnsembleLeaderboard"]:
+    """Construct an EnsembleLeaderboard from a `score_ensemble` result dict.
+
+    Per-flavour rows are the ensemble flavour name (``"arithm"``, ``"harm"``, ...); columns are
+    the metric labels harvested from each result's ``metrics`` mapping (``oof.<split>.<metric>``).
+    Regression mode skips RRF / votenrank-incompatible flavours -- the rank-fusion ones have no
+    rank semantic for continuous y.
+    """
+    rows: dict[str, dict[str, float]] = {}
+    for _flavour, _result in res.items():
+        if _flavour.startswith("_"):
+            continue
+        if is_regression and _flavour.lower().startswith("rrf"):
+            continue
+        _metrics = getattr(_result, "metrics", None) or (
+            _result.get("metrics") if isinstance(_result, dict) else None
+        )
+        if not _metrics:
+            continue
+        _flat: dict[str, float] = {}
+        for _split, _split_metrics in (_metrics or {}).items():
+            if not isinstance(_split_metrics, dict):
+                continue
+            for _k, _v in _split_metrics.items():
+                if isinstance(_v, (int, float, np.floating, np.integer)) and np.isfinite(float(_v)):
+                    _flat[f"{_split}.{_k}"] = float(_v)
+        if _flat:
+            rows[_flavour] = _flat
+    if not rows:
+        return None
+    table = pd.DataFrame.from_dict(rows, orient="index").sort_index()
+    # Build a votenrank.Leaderboard. Higher-is-better is the convention; classification flips for
+    # error-style metrics is up to the caller (rank methods are unbiased under uniform flip).
+    try:
+        from mlframe.votenrank import Leaderboard
+
+        lb = Leaderboard(table=table)
+        return EnsembleLeaderboard(table=table, lb=lb, is_regression=is_regression)
+    except Exception:
+        return None
 
 
 def compare_ensembles(

@@ -43,13 +43,17 @@ def test_prep_polars_df_local_import_does_not_cycle():
     assert hasattr(main_mod, "_prep_polars_df")
 
 
-def test_prep_polars_df_no_local_import_in_train_one_target():
-    """Regression for CODE-P1-7: ensure the hot loop does not perform `from .main import _prep_polars_df`."""
-    import inspect
-
+def test_prep_polars_df_top_level_binding_is_canonical():
+    """Regression for CODE-P1-7: pre-fix the hot loop did ``from .main import _prep_polars_df``,
+    which (a) created a cyclic-import smell and (b) cost a sys.modules lookup per call. The fix
+    hoists the symbol to _misc_helpers and imports it once at module top in
+    _phase_train_one_target. Behavioural assertion: the module-level binding on
+    _phase_train_one_target must be the SAME object as the canonical _misc_helpers symbol
+    (identity check), proving no in-function rebinding has displaced it."""
     from mlframe.training.core import _phase_train_one_target as pt
+    from mlframe.training.core import _misc_helpers as misc
 
-    src = inspect.getsource(pt)
-    assert "from .main import _prep_polars_df" not in src, (
-        "CODE-P1-7 regression: _prep_polars_df is being locally imported from .main inside the hot loop"
+    assert pt._prep_polars_df is misc._prep_polars_df, (
+        "CODE-P1-7 regression: pt._prep_polars_df is not the canonical _misc_helpers symbol; "
+        "a stale rebinding (e.g. in-function import) likely shadows the top-level reference."
     )

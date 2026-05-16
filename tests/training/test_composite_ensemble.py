@@ -151,16 +151,20 @@ class TestTrainMetricsWeights:
         assert isinstance(ens, CompositeCrossTargetEnsemble)
         assert len(ens.weights) == 1
 
-    def test_baseline_default_to_median(self) -> None:
-        # No baseline supplied -> use median of rmses.
+    def test_baseline_default_uses_max_rmse(self) -> None:
+        # MEDIAN-BASELINE fix: default baseline = max(rmses) (not median). Previously the median
+        # fallback silently zeroed half of the candidates -- a hidden contract surprise. With max
+        # as the baseline every component except the worst gets a positive weight; the best one
+        # still dominates because gain (baseline - rmse) is largest for it.
         ens = CompositeCrossTargetEnsemble.from_train_metrics(
             component_models=[_StubModel(0), _StubModel(1), _StubModel(2)],
             component_names=["a", "b", "c"],
             component_train_rmse=[0.3, 0.5, 0.7],
         )
-        # median = 0.5; gains = 0.2, 0, 0 -> only first component has weight.
+        # baseline = 0.7; gains = (0.4, 0.2, 0); both first two have positive weight, last is 0.
         assert isinstance(ens, CompositeCrossTargetEnsemble)
-        assert ens.weights[0] > 0.99
+        assert ens.weights[0] > ens.weights[1] > 0
+        assert ens.weights[2] == 0.0
 
     def test_nan_rmse_raises(self) -> None:
         with pytest.raises(ValueError, match="non-finite"):

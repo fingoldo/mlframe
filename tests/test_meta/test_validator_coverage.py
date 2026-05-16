@@ -1,7 +1,6 @@
 """Meta-test — fields whose docstring promises a normalisation
-("Case-insensitive, normalized to lowercase") must have a corresponding
-``@field_validator(mode='before')`` actually applying that
-normalisation.
+("Case-insensitive, normalized to lowercase") must actually normalise
+mixed-case input at runtime.
 
 Catches the failure mode where a docstring describes a behaviour that
 never made it into code: users follow the docstring (pass mixed-case
@@ -12,36 +11,33 @@ Heuristic — look for these phrases in per-field docstrings:
   * ``"Case-insensitive"`` or ``"case insensitive"``
   * ``"normalized to <something>"`` / ``"normalized to <something>case"``
 
-For each match, search the class for any ``@field_validator`` whose
-function source mentions the field name AND a normalising operation
-(``.lower()`` / ``.upper()`` / ``.strip()``).
-
-Limitation: heuristic matches a SHARED validator covering several
-fields too. Per-field precision would require parsing the validator's
-``@field_validator(*field_names)`` argument list — overkill for the
-present scope.
+For each match we construct the class with the field set to a mixed-case
+sentinel and assert the normalised value on the instance matches the
+declared case (lower / upper). Behavioural test — no source-grep.
 """
 
 from __future__ import annotations
 
 import inspect
 import re
+import typing
 
 import pytest
 from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
 from mlframe.training import configs as configs_module
 
-# Phrases that imply a normalising validator.
-_NORMALISATION_PROMISES = (
+# Phrases that imply a normalising validator + the target case form.
+_LOWER_PROMISES = (
     "case-insensitive", "case insensitive",
-    "normalized to lowercase", "normalized to uppercase",
-    "normalized to upper", "normalized to lower",
-    "normalised to lowercase", "normalised to uppercase",  # BE spelling
+    "normalized to lowercase", "normalized to lower",
+    "normalised to lowercase",
 )
-
-# Operations a normalising validator should perform.
-_NORMALISATION_OPS = (".lower()", ".upper()", ".strip()", ".casefold()")
+_UPPER_PROMISES = (
+    "normalized to uppercase", "normalized to upper",
+    "normalised to uppercase",
+)
 
 
 def _config_classes() -> list[type[BaseModel]]:
@@ -83,25 +79,35 @@ def _per_field_doc(cls: type[BaseModel]) -> dict[str, str]:
     return out
 
 
-def _validator_sources(cls: type[BaseModel]) -> list[str]:
-    """Source code of every method on the class — we'll grep validator
-    bodies. Keeping this loose (any method) avoids fighting Pydantic v2's
-    decorator storage."""
-    out: list[str] = []
-    for name in dir(cls):
-        attr = getattr(cls, name, None)
-        if not callable(attr) or not hasattr(attr, "__module__"):
+def _field_accepts_str(info) -> bool:
+    """True if the field's annotation accepts ``str`` (covers ``str``, ``Optional[str]``,
+    ``Literal["a","b"]`` etc.)."""
+    ann = info.annotation
+    if ann is str:
+        return True
+    args = typing.get_args(ann)
+    if not args:
+        return False
+    for a in args:
+        if a is str or isinstance(a, str):  # Literal members are bare strings
+            return True
+    return False
+
+
+def _required_kwargs(cls: type[BaseModel]) -> dict:
+    """Sentinel values for any field without a default so we can construct the class."""
+    out: dict = {}
+    for name, info in cls.model_fields.items():
+        if info.default is not PydanticUndefined or info.default_factory is not None:
             continue
-        if getattr(attr, "__module__", None) != cls.__module__:
-            continue
-        try:
-            out.append(inspect.getsource(attr))
-        except (OSError, TypeError):
-            continue
+        if _field_accepts_str(info):
+            out[name] = "x"
+        else:
+            out[name] = 0
     return out
 
 
-def test_normalisation_promises_have_a_validator():
+def test_normalisation_promises_actually_normalise():
     failures: list[str] = []
     audited = 0
     classes = _config_classes()
@@ -109,28 +115,44 @@ def test_normalisation_promises_have_a_validator():
         per_field = _per_field_doc(cls)
         if not per_field:
             continue
-        sources = _validator_sources(cls)
-        joined = "\n".join(sources).lower()
         for field_name, doc in per_field.items():
-            if not any(promise in doc for promise in _NORMALISATION_PROMISES):
+            if field_name not in cls.model_fields:
+                continue
+            info = cls.model_fields[field_name]
+            if not _field_accepts_str(info):
+                continue
+            wants_lower = any(p in doc for p in _LOWER_PROMISES)
+            wants_upper = any(p in doc for p in _UPPER_PROMISES)
+            if not (wants_lower or wants_upper):
                 continue
             audited += 1
-            # Must be at least one validator source mentioning the field
-            # AND at least one normalising op anywhere in validator code.
-            mentions_field = field_name.lower() in joined
-            applies_op = any(op in joined for op in _NORMALISATION_OPS)
-            if not (mentions_field and applies_op):
+
+            sentinel_in = "MiXeDcAsE"
+            base_kwargs = _required_kwargs(cls)
+            base_kwargs[field_name] = sentinel_in
+            try:
+                instance = cls(**base_kwargs)
+            except Exception:
+                # Synth values couldn't satisfy other validators; can't audit this field.
+                continue
+            actual = getattr(instance, field_name, None)
+            if not isinstance(actual, str):
+                continue
+            if wants_lower and actual != sentinel_in.lower():
                 failures.append(
-                    f"{cls.__name__}.{field_name}: docstring promises "
-                    f"normalisation but no validator on this class mentions "
-                    f"the field AND a normalising op (.lower / .upper / "
-                    f".strip)"
+                    f"{cls.__name__}.{field_name}: docstring promises lowercase normalisation; "
+                    f"input {sentinel_in!r} kept as {actual!r}"
+                )
+            elif wants_upper and actual != sentinel_in.upper():
+                failures.append(
+                    f"{cls.__name__}.{field_name}: docstring promises uppercase normalisation; "
+                    f"input {sentinel_in!r} kept as {actual!r}"
                 )
 
     if audited == 0:
-        pytest.skip("no normalisation promises found in config docstrings")
+        pytest.skip("no normalisation promises found in config docstrings with str-typed fields")
     if failures:
         pytest.fail(
-            f"{len(failures)} normalisation promise(s) without a backing "
-            f"validator:\n  " + "\n  ".join(failures)
+            f"{len(failures)} normalisation promise(s) not actually enforced:\n  "
+            + "\n  ".join(failures)
         )

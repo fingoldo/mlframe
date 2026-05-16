@@ -13,7 +13,10 @@ Run manually before shipping any change to:
 Usage::
 
     python -m mlframe.tests.reporting.visual_audit.render_all_charts
-    python -m mlframe.tests.reporting.visual_audit.render_all_charts --out /tmp/audit
+    python -m mlframe.tests.reporting.visual_audit.render_all_charts --out <output-dir>
+
+Default output dir is the OS temp dir + chart_audit (Windows: ``%TEMP%/chart_audit``,
+Linux/macOS: ``/tmp/chart_audit``).
 
 What gets rendered (one matplotlib + one plotly PNG each):
 
@@ -219,10 +222,13 @@ def audit_temporal(out_dir: str) -> None:
 
 
 def main(argv: Sequence[str] = ()) -> int:
+    import tempfile
+
+    default_out = os.path.join(tempfile.gettempdir(), "chart_audit")
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "--out", default="D:/Temp/chart_audit",
-        help="Output directory (default: D:/Temp/chart_audit)",
+        "--out", default=default_out,
+        help=f"Output directory (default: {default_out})",
     )
     args = ap.parse_args(list(argv) if argv else None)
 

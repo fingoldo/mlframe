@@ -47,6 +47,7 @@ import pytest
 from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
 
 from .shared import SimpleFeaturesAndTargetsExtractor
+from tests.conftest import fast_subset
 
 
 pytest.importorskip("catboost")  # used in most tests; lgb/xgb importorskipped per-test
@@ -188,7 +189,7 @@ def _run_suite(
 # ===========================================================================
 
 
-@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb", "hgb"])
+@pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb", "hgb"], representative="lgb"))
 def test_single_model_basic_polars_enum(model_name, tmp_path):
     """Each tree model trains on a Polars frame with pl.Enum cat columns
     without ValueError 'could not convert string to float'."""
@@ -200,7 +201,7 @@ def test_single_model_basic_polars_enum(model_name, tmp_path):
     assert models, f"empty models for {model_name}"
 
 
-@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+@pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb"], representative="lgb"))
 def test_single_model_polars_with_nulls_in_cats(model_name, tmp_path):
     """Nullable categoricals are common in real data. The fill_null('__MISSING__')
     pre-fit step in mlframe must keep cat columns trainable for each model."""
@@ -212,7 +213,7 @@ def test_single_model_polars_with_nulls_in_cats(model_name, tmp_path):
     assert models
 
 
-@pytest.mark.parametrize("model_name", ["xgb", "lgb"])
+@pytest.mark.parametrize("model_name", fast_subset(["xgb", "lgb"], representative="lgb"))
 def test_single_model_polars_with_high_card_text_default(model_name, tmp_path):
     """High-cardinality text-like column (n_unique > 300). XGB/LGB drop it
     via the auto-promotion path; CB would route it to text_features but on
@@ -233,12 +234,15 @@ def test_single_model_polars_with_high_card_text_default(model_name, tmp_path):
 
 @pytest.mark.parametrize(
     "model_combo",
-    [
-        ["cb", "xgb"],
-        ["cb", "lgb"],
-        ["xgb", "lgb"],
-        ["cb", "xgb", "lgb"],  # the prod combo
-    ],
+    fast_subset(
+        [
+            ["cb", "xgb"],
+            ["cb", "lgb"],
+            ["xgb", "lgb"],
+            ["cb", "xgb", "lgb"],  # the prod combo
+        ],
+        representative=["cb", "xgb", "lgb"],
+    ),
 )
 def test_multi_model_suite_polars_enum(model_combo, tmp_path):
     """Train multiple tree models in one suite call on the same Polars frame.
@@ -259,7 +263,7 @@ def test_multi_model_suite_polars_enum(model_combo, tmp_path):
 # ===========================================================================
 
 
-@pytest.mark.parametrize("model_name", ["cb", "lgb"])
+@pytest.mark.parametrize("model_name", fast_subset(["cb", "lgb"], representative="lgb"))
 def test_multi_target_classification_then_regression(model_name, tmp_path):
     """Run the suite for a binary target, then for a continuous target,
     on the same feature matrix. Tests target_name swap doesn't leak
@@ -304,12 +308,15 @@ def test_multi_target_classification_then_regression(model_name, tmp_path):
 
 @pytest.mark.parametrize(
     "dtype_setup",
-    [
-        "all_float32",
-        "mixed_int_float",
-        "with_bool",
-        "with_int8",
-    ],
+    fast_subset(
+        [
+            "all_float32",
+            "mixed_int_float",
+            "with_bool",
+            "with_int8",
+        ],
+        representative="mixed_int_float",
+    ),
 )
 def test_polars_to_pandas_dtype_preservation(dtype_setup):
     """get_pandas_view_of_polars_df must preserve dtype-narrow numeric columns
@@ -439,7 +446,7 @@ def test_polars_full_combo_with_linear(tmp_path):
     )
 
 
-@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+@pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb"], representative="lgb"))
 def test_polars_multi_weight_schemas(model_name, tmp_path):
     """Multiple weight schemas on the same Polars frame. Exercises the
     inner weight loop without rebuilding Pool/DMatrix/Dataset (Fix 9.3
@@ -525,7 +532,7 @@ class _MultiTargetExtractor:
         )
 
 
-@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+@pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb"], representative="lgb"))
 def test_polars_multi_target_same_type(model_name, tmp_path):
     """Two binary-classification targets on the same Polars+Enum frame in one
     suite call. Exercises the inner target loop without target-type switch."""
@@ -570,7 +577,7 @@ def test_polars_multi_target_same_type(model_name, tmp_path):
     )
 
 
-@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+@pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb"], representative="lgb"))
 def test_polars_multi_target_types_clf_and_reg(model_name, tmp_path):
     """One binary-classification + one regression target on the same
     Polars+Enum frame. Exercises the outer target_type loop — CB/XGB/LGB
@@ -614,7 +621,7 @@ def test_polars_multi_target_types_clf_and_reg(model_name, tmp_path):
 # ===========================================================================
 
 
-@pytest.mark.parametrize("model_name", ["cb", "xgb", "lgb"])
+@pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb"], representative="lgb"))
 def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
     """MRMR runs as pre_pipeline before model.fit. Polars+Enum cats must
     survive the MRMR.transform call (which selects a subset of columns) and

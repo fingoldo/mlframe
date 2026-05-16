@@ -32,6 +32,7 @@ def generate_interaction_bases(
     top_k: int = 3,
     eps_div_floor_factor: float = 1e-6,
     forbid_self_pairs: bool = True,
+    train_mask: Optional[np.ndarray] = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, dict[str, Any]]]:
     """Greedy pairwise synthesis of interaction-base columns from ``candidates``.
 
@@ -47,6 +48,12 @@ def generate_interaction_bases(
         Factor of train-scale used to floor near-zero divisors. ``eps = factor * median(|b|)``; values with ``|b| < eps`` get replaced by ``sign(b) * eps``.
     forbid_self_pairs
         Skip pairs where a == b. Default True.
+    train_mask
+        Optional boolean mask over rows of each candidate; when supplied, the divide-by-zero epsilon
+        floor (``median(|b|) * factor``) is computed from TRAIN rows only. ``None`` (default) keeps the
+        legacy whole-array median, which leaks test-set scale into the eps; the leak is small in practice
+        (median is robust) but the audited fix surfaces train-vs-test asymmetry explicitly when callers
+        opt in. Caller is responsible for aligning the mask length with each candidate array.
 
     Returns
     -------
@@ -76,7 +83,13 @@ def generate_interaction_bases(
                 # Length mismatch -- caller misuse; skip with provenance entry rather than raise so a single bad pair doesn't kill the whole batch.
                 continue
             finite_b = np.isfinite(b) & (b != 0)
-            scale_b = float(np.median(np.abs(b[finite_b]))) if finite_b.any() else 1.0
+            if train_mask is not None and train_mask.shape == b.shape:
+                # Train-only median for the eps floor; test rows still get divided but the safe_b floor is
+                # train-scale-derived (no test stats leak into the synthetic feature value).
+                _b_for_scale = b[finite_b & train_mask]
+            else:
+                _b_for_scale = b[finite_b]
+            scale_b = float(np.median(np.abs(_b_for_scale))) if _b_for_scale.size else 1.0
             eps_b = max(scale_b * eps_div_floor_factor, 1e-12)
             for op in ops:
                 synth_name = f"{name_a}__{op}__{name_b}"

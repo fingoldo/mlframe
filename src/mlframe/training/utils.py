@@ -58,6 +58,10 @@ def coerce_to_numpy(arr, *, allow_none: bool = False):
         if allow_none:
             return None
         raise TypeError("coerce_to_numpy: input is None; pass allow_none=True to opt in")
+    # Fast-path: already an ndarray. Skip the .to_numpy() round-trip (numpy doesn't have a .to_numpy method but
+    # pyutilz wrappers occasionally do). Saves a no-op copy on hot loops that pass ndarrays in.
+    if isinstance(arr, np.ndarray):
+        return arr
     if hasattr(arr, "to_numpy"):
         return arr.to_numpy()
     if hasattr(arr, "values"):

@@ -86,13 +86,17 @@ class _MultiLabel:
 
 
 def test_single_target_classification_stratifies():
-    """Baseline contract from before the FE-L-6 fix; still must hold."""
+    """Baseline contract from before the FE-L-6 fix; still must hold. Behavioural: key shape
+    matches input, dtype is integer-like, and the produced key reflects the binary classes."""
     rng = np.random.default_rng(0)
     y = rng.integers(0, 2, 200)
     tbt = {_BinaryClass(): {"y": y}}
     out = _build_stratify_key(tbt)
     assert out is not None
     assert out.shape == (200,)
+    # Binary classes -> stratify key has at most 2 unique values.
+    uniq = np.unique(out)
+    assert 1 <= len(uniq) <= 2, f"unexpected stratify-key cardinality {len(uniq)}"
 
 
 def test_two_binary_targets_compose_into_stratify_key():

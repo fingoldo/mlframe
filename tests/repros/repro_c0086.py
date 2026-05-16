@@ -1,3 +1,12 @@
+# expected: passes after the corresponding fix shipped on 2026-05-16
+# (audit-fixes-2026-05-16). Kept as a manual repro script; not collected by
+# pytest because the regression coverage now lives in tests/training/.
+__test__ = False
+
+import tempfile
+import os
+_REPRO_OUTDIR = os.environ.get("REPRO_OUTDIR") or tempfile.mkdtemp(prefix="mlframe_repro_")
+
 from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
 
 """c0086 — CB + MRMR + polars_enum + nulls (ncats=8, n=1200)."""
@@ -46,7 +55,7 @@ try:
         verbose=0,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=r"D:/Temp/repro_c0086_v2", models_dir="models"),
+        output_config=OutputConfig(data_dir=_REPRO_OUTDIR, models_dir="models"),
         feature_selection_config=FeatureSelectionConfig(
             use_mrmr_fs=combo.use_mrmr_fs,
             mrmr_kwargs={

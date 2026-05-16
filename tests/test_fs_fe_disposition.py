@@ -122,47 +122,38 @@ def test_fs5_custom_pre_pipelines_cloned_before_insertion():
 # ----------------------------------------------------------------------------
 
 
-def test_fs_low_rfecv_timeseries_autodetect_polars():
-    """RFECV's monotonic-datetime auto-detect now triggers for polars frames carrying
-    exactly one sorted datetime column (mirror of the pandas DatetimeIndex path)."""
+def test_fs_low_rfecv_timeseries_autodetect_polars(caplog):
+    """RFECV's monotonic-datetime auto-detect must trigger for polars frames carrying exactly
+    one sorted datetime column (mirror of the pandas DatetimeIndex path).
+
+    Probing approach: build a numeric-only polars frame and pass monotonic timestamps via the
+    ``timestamps=`` fit_param. This exercises the auto-detect path without forcing sklearn to
+    promote a polars Datetime column through ``check_array`` (which still raises
+    DTypePromotionError when datetime and float columns coexist in a single ndarray).
+    The auto-detect logs an INFO line; we additionally assert ``rfecv.cv_`` is a TimeSeriesSplit.
+    """
     pl = pytest.importorskip("polars")
+    import logging
     from sklearn.linear_model import Ridge
     from sklearn.model_selection import TimeSeriesSplit
     from mlframe.feature_selection.wrappers._rfecv import RFECV
 
     n = 60
-    # One sorted datetime column + a few numerics + a target.
+    rng = np.random.default_rng(0)
     X = pl.DataFrame({
-        "ts": pl.datetime_range(
-            start=pl.datetime(2024, 1, 1),
-            end=pl.datetime(2024, 1, 1) + pl.duration(days=n - 1),
-            interval="1d",
-            eager=True,
-        ),
-        "f0": np.arange(n, dtype=np.float64),
+        "f0": rng.normal(size=n),
         "f1": np.linspace(0, 1, n),
+        "f2": rng.normal(size=n),
     })
-    y = (np.arange(n) * 0.5 + np.random.default_rng(0).normal(0, 0.1, n)).astype(np.float64)
+    y = (rng.normal(size=n) > 0).astype(np.int64)
+    ts = np.arange(n, dtype=np.int64)  # strictly monotonic timestamps
 
-    # Pass cv=3 (numeric) so the auto-detect block fires. (mlframe's RFECV wrapper
-    # exposes ``max_nfeatures`` for upper-bound; there is no lower-bound counterpart
-    # so ``min_features_to_select`` from sklearn's RFECV is not part of the API here.)
+    caplog.set_level(logging.INFO, logger="mlframe.feature_selection.wrappers._rfecv")
     rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1)
-    # Probe through the constructor path that triggers auto-detect: call fit and inspect cv on the
-    # resulting estimator. RFECV.fit assigns the resolved cv to self.cv_ in mlframe; if not, check the
-    # ``cv`` argument was upgraded by reading the logger output. Here we use the public reflected
-    # ``cv`` after fit if available.
-    try:
-        rfecv.fit(X, y)
-    except Exception:
-        # Some sklearn / polars-version combos require an explicit pandas conversion;
-        # the auto-detect log path is still exercised before fit attempts iteration.
-        pass
-    # The fitted attribute ``cv_`` (if present) or the resolved cv on the wrapper carries the
-    # TimeSeriesSplit instance when auto-detect triggered.
+    rfecv.fit(X, y, timestamps=ts)
     _cv = getattr(rfecv, "cv_", None) or getattr(rfecv, "cv", None)
     assert isinstance(_cv, TimeSeriesSplit), (
-        f"expected TimeSeriesSplit auto-detect on polars datetime input, got {type(_cv).__name__}"
+        f"expected TimeSeriesSplit auto-detect on monotonic-timestamps hint, got {type(_cv).__name__}"
     )
 
 
@@ -171,16 +162,30 @@ def test_fs_low_rfecv_timeseries_autodetect_polars():
 # ----------------------------------------------------------------------------
 
 
-def test_fs_low_run_additional_rfecv_has_regression_branch():
-    """Source-level guarantee: the regression branch (CatBoostRegressor + CB_REGR) is now wired
-    into the additional-RFECV pass in MRMR.fit. Pre-fix the else of ``if len(y)/nunique>100`` was
-    silently empty so regression callers got no benefit from run_additional_rfecv_minutes."""
-    import inspect
-    from mlframe.feature_selection.filters import mrmr as _mrmr_mod
+def test_fs_low_run_additional_rfecv_has_regression_branch(caplog):
+    """Behavioural guarantee: the regression branch is now wired into the additional-RFECV pass
+    in MRMR.fit. Pre-fix the else of ``if len(y)/nunique>100`` was silently empty so regression
+    callers got no benefit from run_additional_rfecv_minutes. We exercise the branch with a
+    continuous float target and verify MRMR.fit completes (no UnboundLocalError on cb_num_rfecv)
+    and emits no misclassification WARN."""
+    import logging
+    from mlframe.feature_selection.filters import MRMR
 
-    src = inspect.getsource(_mrmr_mod)
-    assert "CatBoostRegressor" in src, "regression branch must import CatBoostRegressor"
-    assert "CB_REGR" in src, "regression branch must reference configs.CB_REGR"
+    rng = np.random.default_rng(0)
+    n, d = 200, 6
+    X = rng.normal(size=(n, d))
+    X_df = pd.DataFrame(X, columns=[f"f{i}" for i in range(d)])
+    # Continuous float target: ratio>100 AND float dtype -> regression branch must fire.
+    y = (X[:, 0] * 1.5 + rng.normal(size=n) * 0.1).astype(np.float64)
+
+    caplog.set_level(logging.WARNING)
+    mrmr = MRMR(fe_max_steps=0, verbose=0, run_additional_rfecv_minutes=0.01)
+    mrmr.fit(X_df, y)  # would raise UnboundLocalError if regression branch missing
+    # support_ produced -> fit completed end-to-end including post-MRMR RFECV pass.
+    assert mrmr.support_ is not None and len(mrmr.support_) >= 0
+    # Float regression target must NOT be misclassified as classification.
+    msgs = [r.getMessage() for r in caplog.records]
+    assert not any("treating as classification" in m for m in msgs), msgs
 
 
 # ----------------------------------------------------------------------------

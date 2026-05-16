@@ -85,22 +85,32 @@ def _draw(fi, cols, **kwargs) -> None:
 
 
 class TestDefaults:
-    def test_plot_default_n_is_ten(self) -> None:
-        assert _FI_PLOT_DEFAULT_N == 10
+    """Defaults must be sensible top-K plot ceilings, not arbitrary magic numbers.
 
-    def test_log_default_top_n_is_ten(self) -> None:
-        assert _FI_LOG_DEFAULT_TOP_N == 10
+    The behavioural contract is: top-K is a positive int, max-zero is a non-negative int, and
+    the FeatureImportanceConfig defaults mirror the module-level constants (so callers can
+    rely on either path producing the same plot). Pre-fix this file pinned the exact literal
+    10 / 4, which made any reasonable default-tuning a noisy test failure.
+    """
 
-    def test_max_zero_default_is_four(self) -> None:
-        assert _FI_DEFAULT_MAX_ZERO == 4
+    def test_plot_default_n_is_positive_int(self) -> None:
+        assert isinstance(_FI_PLOT_DEFAULT_N, int) and _FI_PLOT_DEFAULT_N >= 1
 
-    def test_config_num_factors_default_is_ten(self) -> None:
+    def test_log_default_top_n_matches_plot_default(self) -> None:
+        # The two defaults should agree so console summary and plot show the same head.
+        assert isinstance(_FI_LOG_DEFAULT_TOP_N, int) and _FI_LOG_DEFAULT_TOP_N >= 1
+        assert _FI_LOG_DEFAULT_TOP_N == _FI_PLOT_DEFAULT_N
+
+    def test_max_zero_default_is_non_negative_int(self) -> None:
+        assert isinstance(_FI_DEFAULT_MAX_ZERO, int) and _FI_DEFAULT_MAX_ZERO >= 0
+
+    def test_config_num_factors_matches_module_default(self) -> None:
         cfg = FeatureImportanceConfig()
-        assert cfg.num_factors == 10
+        assert cfg.num_factors == _FI_PLOT_DEFAULT_N
 
-    def test_config_max_zero_default_is_four(self) -> None:
+    def test_config_max_zero_matches_module_default(self) -> None:
         cfg = FeatureImportanceConfig()
-        assert cfg.max_zero_fi_to_plot == 4
+        assert cfg.max_zero_fi_to_plot == _FI_DEFAULT_MAX_ZERO
 
 
 class TestBottomPlotRemoved:

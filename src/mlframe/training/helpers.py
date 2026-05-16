@@ -1077,30 +1077,26 @@ def precompute_composite_target_specs(
     target_by_type: Optional[dict] = None,
     config: Optional[Any] = None,
 ) -> dict:
-    """Pre-compute the ``metadata["composite_target_specs"]`` payload the suite would compute in ``run_composite_target_discovery``.
+    """NOT IMPLEMENTED -- always raises.
 
-    STUB / TODO: the discovery surface is large (composite_cache wiring, library version
-    signatures, DiscoveryCache fingerprints) and lives behind locked files. Implement after
-    composite_cache wiring lands so this helper can reuse the same cache key path as the suite
-    and stay byte-equal across runs.
+    A faithful precompute would have to mirror ``run_composite_target_discovery``: composite_cache
+    wiring, library version signatures, DiscoveryCache fingerprints. That surface is large and lives
+    behind locked files; until the helper can reuse the same cache key path as the suite and stay
+    byte-equal across runs, returning an empty dict here would silently disable discovery on the
+    suite side -- worse than recomputing.
 
-    The bundle slot still works: callers who have a prior run's ``metadata["composite_target_specs"]``
-    saved to disk can pass it via ``TrainMlframeSuitePrecomputed(composite_target_specs=...)`` and
-    the suite will skip the discovery step.
+    Callers who already have a prior run's ``metadata["composite_target_specs"]`` saved to disk can
+    still feed the suite directly via ``TrainMlframeSuitePrecomputed(composite_target_specs=...)``;
+    the bundle's skip-when-supplied gate is content-truthy, not just non-None, so an empty dict will
+    NOT disable the in-suite compute (see ``train_mlframe_models_suite`` for the gate).
 
-    Args:
-        train_df: train frame (unused in stub).
-        target_by_type: per-target mapping (unused in stub).
-        config: CompositeTargetDiscoveryConfig (unused in stub).
-
-    Returns:
-        Empty dict -- a no-op precompute. See ``precompute_dummy_baselines`` for the same caveat:
-        the bundle skip is gated only on non-None, not on dict content.
+    Raises:
+        NotImplementedError: always. Use ``TrainMlframeSuitePrecomputed(composite_target_specs=<dict from prior run>)`` instead.
     """
-    # TODO: implement after composite_cache wiring lands. See ``core/_phase_composite_discovery.py``
-    # for the full discovery surface; mirror its cache-key derivation here so the helper stays
-    # byte-equal with the in-suite path.
-    return {}
+    raise NotImplementedError(
+        "precompute_composite_target_specs is not implemented. Load metadata['composite_target_specs'] from a prior run "
+        "and pass it directly via TrainMlframeSuitePrecomputed(composite_target_specs=...).",
+    )
 
 
 def precompute_dummy_baselines(
@@ -1108,33 +1104,26 @@ def precompute_dummy_baselines(
     target_by_type: dict,
     config: Optional[Any] = None,
 ) -> dict:
-    """Pre-compute the ``metadata["dummy_baselines"]`` payload the suite would compute per-target.
+    """NOT IMPLEMENTED -- always raises.
 
-    STUB / TODO: the in-suite dummy-baseline compute lives in ``core/_phase_dummy_baselines.py``
-    and needs the post-split train/val/test frames plus per-target slices, which the caller does
-    NOT have access to before the suite has run the split phase. A faithful precompute helper would
-    have to either (a) replicate the suite's split logic here (duplication risk) or (b) accept the
-    already-split frames + per-target targets as arguments (large signature). Both are deferred.
+    The in-suite dummy-baseline compute lives in ``core/_phase_dummy_baselines.py`` and needs the
+    post-split train/val/test frames plus per-target slices, which the caller does NOT have access to
+    before the suite has run the split phase. A faithful precompute helper would have to either
+    (a) replicate the suite's split logic here (duplication risk) or (b) accept the already-split
+    frames + per-target targets as arguments (large signature). Both are deferred.
 
-    The bundle slot still works: callers who have a prior run's ``metadata["dummy_baselines"]``
-    saved to disk can pass it via ``TrainMlframeSuitePrecomputed(dummy_baselines=...)`` and the
-    suite will skip the per-target recompute. This helper is the convenience builder that's still
-    missing; until it lands, build the dict from a prior run's metadata.
+    Callers who already have a prior run's ``metadata["dummy_baselines"]`` saved to disk can feed
+    the suite directly via ``TrainMlframeSuitePrecomputed(dummy_baselines=...)``; the bundle's
+    skip-when-supplied gate is content-truthy, so an empty dict will NOT silently disable the
+    per-target in-suite compute.
 
-    Args:
-        train_df: train frame (unused in stub).
-        target_by_type: per-target mapping (unused in stub).
-        config: DummyBaselinesConfig (unused in stub).
-
-    Returns:
-        Empty dict -- a no-op precompute. The bundle's skip-when-supplied behaviour is gated on
-        the dict being non-None, so passing this empty dict to ``TrainMlframeSuitePrecomputed`` will
-        disable the per-target in-suite compute without supplying real baseline values; only use
-        once a future implementation populates the result.
+    Raises:
+        NotImplementedError: always. Use ``TrainMlframeSuitePrecomputed(dummy_baselines=<dict from prior run>)`` instead.
     """
-    # TODO: implement after the per-target split surface is reachable from precompute caller. Until then,
-    # callers should obtain ``metadata["dummy_baselines"]`` from a prior run and pass it directly.
-    return {}
+    raise NotImplementedError(
+        "precompute_dummy_baselines is not implemented. Load metadata['dummy_baselines'] from a prior run and pass it "
+        "directly via TrainMlframeSuitePrecomputed(dummy_baselines=...).",
+    )
 
 
 def precompute_trainset_features_stats(train_df, max_ncats_to_track: int = 1000) -> dict:
@@ -1167,12 +1156,19 @@ def precompute_all(
     dummy_baselines_config: Optional[Any] = None,
     composite_config: Optional[Any] = None,
 ) -> TrainMlframeSuitePrecomputed:
-    """One-shot helper: fill every precompute slot the suite supports today.
+    """Fill the ``trainset_features_stats`` precompute slot; leave the rest at ``None``.
 
-    Currently only ``trainset_features_stats`` is a real precompute; the other two slots remain
-    None because their helpers are stubs (see ``precompute_dummy_baselines`` /
-    ``precompute_composite_target_specs`` for the rationale). Callers wanting the dummy / composite
-    skip-paths today should construct the bundle directly with dicts loaded from a prior run's metadata.
+    Despite the name, this is NOT a one-shot helper for every slot: only ``trainset_features_stats``
+    has a real precompute path. ``precompute_dummy_baselines`` and ``precompute_composite_target_specs``
+    raise ``NotImplementedError`` -- the dummy helper needs post-split frames that aren't reachable
+    pre-suite, and the composite helper would have to mirror the full discovery cache surface
+    (deferred). The bundle slots themselves still work: callers who have a prior run's metadata
+    saved to disk can build the bundle by hand:
+
+        from mlframe.training.helpers import precompute_all, TrainMlframeSuitePrecomputed
+        bundle = precompute_all(train_df, target_by_type)
+        bundle.dummy_baselines = prior_run_metadata["dummy_baselines"]
+        bundle.composite_target_specs = prior_run_metadata["composite_target_specs"]
 
     Args:
         train_df: Pandas or Polars train frame.

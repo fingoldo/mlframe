@@ -1,4 +1,9 @@
 """c0121 diag — NaN in cat_feature."""
+# expected: passes after the corresponding fix shipped on 2026-05-16
+# (audit-fixes-2026-05-16). Kept as a manual repro script; not collected by
+# pytest because the regression coverage now lives in tests/training/.
+__test__ = False
+
 import sys
 sys.path.insert(0, r'D:/Upd/Programming/PythonCodeRepository/mlframe')
 sys.path.insert(0, r'D:/Upd/Programming/PythonCodeRepository/mlframe/tests/training')

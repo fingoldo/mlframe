@@ -13,7 +13,6 @@ This is purely a test-side workaround; the underlying ``io.py`` is in the LOCKED
 from __future__ import annotations
 
 import os
-import tempfile
 from unittest.mock import patch
 
 import numpy as np
@@ -103,7 +102,7 @@ def test_in_memory_predict_matches_chosen_flavour_when_metadata_stamped():
     )
 
 
-def test_in_memory_and_disk_predict_agree_on_simple_suite():
+def test_in_memory_and_disk_predict_agree_on_simple_suite(tmp_path):
     """Train an LGB-only suite (polars-native fastpath off, but ``preprocessing_extensions`` exercised) and verify
     the in-memory predict matches the disk-load predict. This is the round-trip parity gate: the disk path must
     rehydrate the same pipeline + extensions_pipeline + metadata that the in-memory path uses."""
@@ -118,61 +117,61 @@ def test_in_memory_and_disk_predict_agree_on_simple_suite():
             writer_fn(f)
         return True
 
-    with tempfile.TemporaryDirectory() as tmp:
-        with patch("mlframe.training.train_eval.save_mlframe_model", side_effect=_save_threads_zero):
-            with patch("mlframe.training.io.atomic_write_bytes", side_effect=_atomic_write_bytes_threads_zero):
-                # The atomic_write_bytes shim above also bypasses the Windows flush-of-closed-file path on the
-                # metadata save (zstd stream_writer + outer f.flush race).
-                models, metadata = train_mlframe_models_suite(
-                    df=df,
-                    target_name="y",
-                    model_name="round_trip_disk",
-                    features_and_targets_extractor=fte,
-                    mlframe_models=["lgb"],
-                    verbose=0,
-                    output_config=OutputConfig(data_dir=tmp, models_dir="models", save_charts=False),
-                    composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
-                    baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
-                    dummy_baselines_config=DummyBaselinesConfig(enabled=False),
-                    reporting_config=ReportingConfig(plot_outputs="matplotlib[png]", plot_inline_display=False),
-                    preprocessing_extensions=ext_cfg,
-                )
+    tmp = str(tmp_path)
+    with patch("mlframe.training.train_eval.save_mlframe_model", side_effect=_save_threads_zero):
+        with patch("mlframe.training.io.atomic_write_bytes", side_effect=_atomic_write_bytes_threads_zero):
+            # The atomic_write_bytes shim above also bypasses the Windows flush-of-closed-file path on the
+            # metadata save (zstd stream_writer + outer f.flush race).
+            models, metadata = train_mlframe_models_suite(
+                df=df,
+                target_name="y",
+                model_name="round_trip_disk",
+                features_and_targets_extractor=fte,
+                mlframe_models=["lgb"],
+                verbose=0,
+                output_config=OutputConfig(data_dir=tmp, models_dir="models", save_charts=False),
+                composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False),
+                baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
+                dummy_baselines_config=DummyBaselinesConfig(enabled=False),
+                reporting_config=ReportingConfig(plot_outputs="matplotlib[png]", plot_inline_display=False),
+                preprocessing_extensions=ext_cfg,
+            )
 
-        # In-memory predict.
-        results_in_memory = predict_from_models(
-            df=df, models=models, metadata=metadata,
-            features_and_targets_extractor=fte,
-            return_probabilities=False, verbose=0,
-        )
+    # In-memory predict.
+    results_in_memory = predict_from_models(
+        df=df, models=models, metadata=metadata,
+        features_and_targets_extractor=fte,
+        return_probabilities=False, verbose=0,
+    )
 
-        # Disk predict via the load_mlframe_suite + predict_from_models pairing (predict_mlframe_models_suite also
-        # reads from disk but takes the same code path; the in-memory variant after load is the most apples-to-
-        # apples comparison).
-        models_path = os.path.join(tmp, "models", "y", "round_trip_disk")
-        if not os.path.exists(os.path.join(models_path, "metadata.pkl.zst")) and \
-           not os.path.exists(os.path.join(models_path, "metadata.pkl")):
-            pytest.skip("disk save did not produce a metadata file -- Windows zstd quirk; in-memory parity covered by the other test")
-        from mlframe.training.core.predict import load_mlframe_suite
-        loaded_models, loaded_metadata = load_mlframe_suite(models_path)
-        if not loaded_models:
-            pytest.skip("disk save did not produce any .dump files -- Windows zstd quirk; in-memory parity covered by the other test")
+    # Disk predict via the load_mlframe_suite + predict_from_models pairing (predict_mlframe_models_suite also
+    # reads from disk but takes the same code path; the in-memory variant after load is the most apples-to-
+    # apples comparison).
+    models_path = os.path.join(tmp, "models", "y", "round_trip_disk")
+    if not os.path.exists(os.path.join(models_path, "metadata.pkl.zst")) and \
+       not os.path.exists(os.path.join(models_path, "metadata.pkl")):
+        pytest.skip("disk save did not produce a metadata file -- Windows zstd quirk; in-memory parity covered by the other test")
+    from mlframe.training.core.predict import load_mlframe_suite
+    loaded_models, loaded_metadata = load_mlframe_suite(models_path)
+    if not loaded_models:
+        pytest.skip("disk save did not produce any .dump files -- Windows zstd quirk; in-memory parity covered by the other test")
 
-        results_disk = predict_from_models(
-            df=df, models=loaded_models, metadata=loaded_metadata,
-            features_and_targets_extractor=fte,
-            return_probabilities=False, verbose=0,
-        )
+    results_disk = predict_from_models(
+        df=df, models=loaded_models, metadata=loaded_metadata,
+        features_and_targets_extractor=fte,
+        return_probabilities=False, verbose=0,
+    )
 
-        assert results_disk["models_used"], "disk predict produced no models"
+    assert results_disk["models_used"], "disk predict produced no models"
 
-        # Parity check: ensemble predictions must agree to float precision. Per-model predict numerics can drift
-        # marginally across save / load (CB / XGB / LGB serialisation may lose some bits) so an absolute tolerance
-        # of 1e-4 absorbs the round-trip jitter while still catching the silent-drop bugs the fix addresses.
-        np.testing.assert_allclose(
-            results_in_memory["ensemble_predictions"],
-            results_disk["ensemble_predictions"],
-            rtol=1e-4,
-            atol=1e-4,
-            err_msg="disk-load predict drifted from in-memory predict beyond float-precision; check whether the "
-            "extensions_pipeline or chosen ensemble flavour was lost across save / load.",
-        )
+    # Parity check: ensemble predictions must agree to float precision. Per-model predict numerics can drift
+    # marginally across save / load (CB / XGB / LGB serialisation may lose some bits) so an absolute tolerance
+    # of 1e-4 absorbs the round-trip jitter while still catching the silent-drop bugs the fix addresses.
+    np.testing.assert_allclose(
+        results_in_memory["ensemble_predictions"],
+        results_disk["ensemble_predictions"],
+        rtol=1e-4,
+        atol=1e-4,
+        err_msg="disk-load predict drifted from in-memory predict beyond float-precision; check whether the "
+        "extensions_pipeline or chosen ensemble flavour was lost across save / load.",
+    )

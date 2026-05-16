@@ -72,14 +72,19 @@ def test_biz_val_callbacks_lgb_continue_when_file_missing(tmp_path):
 
 
 def test_biz_val_callbacks_xgb_construction_stores_fpath(tmp_path):
-    """Callback __init__ stores fpath attribute -- catches regressions
-    where __init__ no-ops."""
+    """Callback __init__ stores fpath under one of fpath / _fpath / stop_file (different XGB
+    callback wrappers used different attr names historically). Pre-fix the test asserted only
+    ``cb is not None``, which would pass even for an __init__ that no-oped."""
     from mlframe.training.callbacks import XGBoostStopFileCallback
     stop_path = str(tmp_path / "stop")
     cb = XGBoostStopFileCallback(fpath=stop_path)
-    # XGB callbacks may store fpath under different attr name; check
-    # __init__ at least doesn't drop the argument.
-    assert cb is not None
+    # Find a stored attribute whose value is the path we passed in.
+    matches = [a for a in ("fpath", "_fpath", "stop_file", "path", "_path")
+               if getattr(cb, a, None) == stop_path]
+    assert matches, (
+        f"XGBoostStopFileCallback __init__ did not store fpath under any known attribute "
+        f"name (fpath/_fpath/stop_file/path/_path); attrs={list(vars(cb).keys())}"
+    )
 
 
 def test_biz_val_callbacks_xgb_after_iteration_stops_on_file(tmp_path):
@@ -107,10 +112,17 @@ def test_biz_val_callbacks_xgb_after_iteration_stops_on_file(tmp_path):
 
 
 def test_biz_val_callbacks_catboost_construction(tmp_path):
-    """CatBoost stop-file callback must construct cleanly."""
+    """CatBoost stop-file callback must construct AND store the fpath under one of the known
+    attribute names (CatBoost callback wrappers historically used different conventions)."""
     from mlframe.training.callbacks import CatBoostStopFileCallback
-    cb = CatBoostStopFileCallback(fpath=str(tmp_path / "stop"))
-    assert cb is not None
+    stop_path = str(tmp_path / "stop")
+    cb = CatBoostStopFileCallback(fpath=stop_path)
+    matches = [a for a in ("fpath", "_fpath", "stop_file", "path", "_path")
+               if getattr(cb, a, None) == stop_path]
+    assert matches, (
+        f"CatBoostStopFileCallback __init__ did not store fpath under any known attribute "
+        f"name; attrs={list(vars(cb).keys())}"
+    )
 
 
 def test_biz_val_callbacks_catboost_after_iteration_continues_when_no_file(tmp_path):
@@ -136,10 +148,17 @@ def test_biz_val_callbacks_catboost_after_iteration_continues_when_no_file(tmp_p
 
 
 def test_biz_val_callbacks_lightning_construction(tmp_path):
-    """Lightning stop-file callback must construct cleanly."""
+    """Lightning stop-file callback must construct AND store the fpath under one of the known
+    attribute names."""
     from mlframe.training.callbacks import LightningStopFileCallback
-    cb = LightningStopFileCallback(fpath=str(tmp_path / "stop"))
-    assert cb is not None
+    stop_path = str(tmp_path / "stop")
+    cb = LightningStopFileCallback(fpath=stop_path)
+    matches = [a for a in ("fpath", "_fpath", "stop_file", "path", "_path")
+               if getattr(cb, a, None) == stop_path]
+    assert matches, (
+        f"LightningStopFileCallback __init__ did not store fpath under any known attribute "
+        f"name; attrs={list(vars(cb).keys())}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -154,11 +173,15 @@ def test_biz_val_callbacks_lightning_construction(tmp_path):
     "LightningStopFileCallback",
 ])
 def test_biz_val_callbacks_all_construct_with_path(tmp_path, cb_name):
-    """Every stop-file callback must accept a single ``fpath``
-    string positional argument. Catches regressions in any of the
-    4 wrapper classes."""
+    """Every stop-file callback must accept a single ``fpath`` keyword and store it on the
+    instance. Catches __init__ no-op regressions in any of the 4 wrapper classes."""
     import mlframe.training.callbacks as cb_mod
     cls = getattr(cb_mod, cb_name)
     stop_path = str(tmp_path / "stop")
     instance = cls(fpath=stop_path)
-    assert instance is not None
+    matches = [a for a in ("fpath", "_fpath", "stop_file", "path", "_path")
+               if getattr(instance, a, None) == stop_path]
+    assert matches, (
+        f"{cb_name} __init__ did not store fpath under any known attribute name; "
+        f"attrs={list(vars(instance).keys())}"
+    )

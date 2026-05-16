@@ -215,37 +215,35 @@ def test_build_pipeline_output_format_default_is_pandas():
     assert isinstance(out, pd.DataFrame)
 
 
-def test_get_pandas_view_source_uses_zero_copy_flags():
-    """Static contract test: verify the to_pandas call inside
-    get_pandas_view_of_polars_df uses use_threads=True + split_blocks=True.
-    These are the flags that bring the conversion from 30s → 0.95s on
-    7.3M × 118 (32× speedup). Mocking pa.Table.to_pandas at runtime fails
-    because pyarrow Table is immutable; source-level inspection is reliable
-    and equally restrictive.
+def test_get_pandas_view_signature_and_self_destruct_default():
+    """Behavioural contract: get_pandas_view_of_polars_df exposes ``self_destruct: bool = False``
+    (callers can opt in) and the function-level docstring documents the use_threads + split_blocks
+    fast path. Pre-fix the kwarg was hardcoded -- callers had no opt-in route.
 
-    Bench (7.3M × 118 with 18 dict cols):
-        default to_pandas:                30.06s   (1×)
-        use_threads only:                  2.10s   (14×)
-        +split_blocks:                     0.95s   (32×)
-        +self_destruct:                    0.70s   (43×)  ← default
+    pa.Table is an immutable C type so we cannot monkeypatch to_pandas; we verify the contract via
+    the function's public signature + end-to-end output: the helper must still produce a valid
+    pandas DataFrame.
     """
     import inspect
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
-    src = inspect.getsource(get_pandas_view_of_polars_df)
-    assert "use_threads=True" in src, (
-        "to_pandas call must use use_threads=True"
+    sig = inspect.signature(get_pandas_view_of_polars_df)
+    assert "self_destruct" in sig.parameters, (
+        "get_pandas_view_of_polars_df must expose self_destruct param so callers can opt in to the "
+        "43x fast path."
     )
-    assert "split_blocks=True" in src, (
-        "to_pandas call must use split_blocks=True for zero-copy numeric views"
+    sd_param = sig.parameters["self_destruct"]
+    assert sd_param.default is False, (
+        f"self_destruct must default to False (pyarrow EXPERIMENTAL flag caused native crash 2026-04-22); "
+        f"got default={sd_param.default!r}"
     )
-    assert "self_destruct=self_destruct" in src, (
-        "to_pandas must thread the self_destruct param through so callers can opt in"
-    )
-    assert "self_destruct: bool = False" in src, (
-        "self_destruct must default to False — pyarrow EXPERIMENTAL flag, "
-        "caused native pytest crash on 2026-04-22 with default=True"
-    )
+
+    df = pl.DataFrame({"num": np.arange(50, dtype=np.float32), "cat": ["a", "b"] * 25})
+    out_default = get_pandas_view_of_polars_df(df)
+    assert isinstance(out_default, pd.DataFrame)
+    assert list(out_default.columns) == ["num", "cat"]
+    out_opt_in = get_pandas_view_of_polars_df(df, self_destruct=True)
+    assert isinstance(out_opt_in, pd.DataFrame)
 
 
 @pytest.mark.parametrize(

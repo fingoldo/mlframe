@@ -183,28 +183,12 @@ def cleanup_memory():
 
     yield
 
-    # 2026-04-28 (batch 4): purge polars StringCache between fuzz
-    # combos. Polars' GLOBAL cat StringCache interns categorical level
-    # strings across all DataFrames in the process. When combo N
-    # creates pl.Categorical with unusual values (e.g. unicode +
-    # emoji from weird_cat_content=unicode), the StringCache retains
-    # those entries; combo N+1 building a fresh pandas frame with
-    # different cat values can still see leaked level-id assignments
-    # via polars→pandas roundtrip (pandas Categorical's underlying
-    # codes index into a categories list pulled from the cache).
-    # Surfaced by fuzz seed=2024 c0009 (polars_nullable + unicode) →
-    # c0060 (pandas, weird=empty) — XGB on c0060 saw values from
-    # c0009's cat pool. ``pl.disable_string_cache`` is a no-op when
-    # cache is already disabled but resets when global state was
-    # touched indirectly via `with pl.StringCache(): ...`.
-    try:
-        import polars as _pl_cleanup
-        if hasattr(_pl_cleanup, "disable_string_cache"):
-            _pl_cleanup.disable_string_cache()
-    except Exception:
-        pass
+    # pl.disable_string_cache() removed: per polars 1.x semantics it is a no-op
+    # (the global cat StringCache is reset implicitly when no StringCache context
+    # is active). Use pl.Enum built from train+val union for deterministic
+    # category mapping across fixtures; see memory reference_polars_global_string_cache.
 
-    # PyArrow memory pool: polars→pandas conversions allocate Categorical
+    # PyArrow memory pool: polars to pandas conversions allocate Categorical
     # arrays into pyarrow's default memory pool, which keeps used pages
     # cached across calls. Across fuzz combos with different cat-pool
     # values (e.g. seed=2024 c0009 unicode → c0060 empty), released

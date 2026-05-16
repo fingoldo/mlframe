@@ -45,6 +45,7 @@ from mlframe.training.pu_learning import (
     PULearningWrapper,
     estimate_c_from_unbiased_positives,
 )
+from tests.conftest import is_fast_mode
 
 
 # ----- Synthetic data generator -------------------------------------------------
@@ -111,8 +112,11 @@ def _gen_temporal_pu_dataset(
 def synthetic_pu():
     """Module-scoped fixture: train (everything except last unbiased month)
     + TEST (last unbiased month, fully labeled)."""
+    # Fast mode: 12k rows is the smallest size that still produces a stable PU
+    # estimator signal (drops fixture wallclock from ~20s to ~3s).
+    n_total = 12_000 if is_fast_mode() else 80_000
     data = _gen_temporal_pu_dataset(
-        n_total=80_000,
+        n_total=n_total,
         n_features=8,
         true_prior=0.40,
         n_months=96,

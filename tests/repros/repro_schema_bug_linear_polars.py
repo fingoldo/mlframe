@@ -1,3 +1,12 @@
+# expected: passes after the corresponding fix shipped on 2026-05-16
+# (audit-fixes-2026-05-16). Kept as a manual repro script; not collected by
+# pytest because the regression coverage now lives in tests/training/.
+__test__ = False
+
+import tempfile
+import os
+_REPRO_OUTDIR = os.environ.get("REPRO_OUTDIR") or tempfile.mkdtemp(prefix="mlframe_repro_")
+
 from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
 
 """Reproduce _rule_linear_polars_gating_bug (c0011) with full traceback."""
@@ -47,7 +56,7 @@ try:
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         verbose=0,
-        output_config=OutputConfig(data_dir="D:/Temp/repro_models", models_dir="models"),
+        output_config=OutputConfig(data_dir=_REPRO_OUTDIR, models_dir="models"),
     )
     print("PASS")
 except Exception as e:

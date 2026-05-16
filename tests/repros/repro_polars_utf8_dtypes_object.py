@@ -1,13 +1,21 @@
+"""Repro ValueError: DataFrame.dtypes for data must be int, float, bool or category.
+
+This is a manual-run repro script, NOT a pytest test. The previous version mutated os.environ
+and sys.path at module-import time, leaking FUZZ_SEED into any pytest run that happened to
+import this file. We now scope all side effects inside ``main()`` so a future pytest collection
+sweep does not regress the environment.
+"""
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+# Repo-root path resolution -- avoid hardcoded D:/ paths so the script is portable.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(_REPO_ROOT / "tests" / "training"))
+
 from mlframe.training import FeatureSelectionConfig
-
-"""Repro ValueError: DataFrame.dtypes for data must be int, float, bool or category."""
-import sys, os
-
-sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository/mlframe")
-sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository/mlframe/tests/training")
-
-os.environ["FUZZ_SEED"] = "20260430"
-
 from _fuzz_combo import enumerate_combos, build_frame_for_combo
 from shared import SimpleFeaturesAndTargetsExtractor
 from mlframe.training.core import train_mlframe_models_suite
@@ -15,84 +23,100 @@ from mlframe.training.configs import PreprocessingBackendConfig, FeatureTypesCon
 
 from _fuzz_combo import FuzzCombo
 
-# Construct combo matching the failing pattern directly
-c = FuzzCombo(
-    models=("hgb", "lgb", "xgb"),
-    input_type="polars_utf8",
-    n_rows=600,
-    cat_feature_count=1,
-    null_fraction_cats=0.1,
-    use_mrmr_fs=False,
-    weight_schemas=("uniform",),
-    target_type="binary_classification",
-    auto_detect_cats=False,
-    align_polars_categorical_dicts=True,
-    seed=21,
-    prefer_polarsds=True,
-    use_text_features=True,
-    honor_user_dtype=False,
-    text_col_count=0,
-    embedding_col_count=0,
-)
+def main() -> int:
+    # Scope FUZZ_SEED mutation to this run only -- save/restore so a wrapper script (pytest /
+    # CI) that imports this module does not leak the env var into later collections.
+    prior_fuzz_seed = os.environ.get("FUZZ_SEED")
+    os.environ["FUZZ_SEED"] = "20260430"
+    try:
+        # Construct combo matching the failing pattern directly
+        c = FuzzCombo(
+            models=("hgb", "lgb", "xgb"),
+            input_type="polars_utf8",
+            n_rows=600,
+            cat_feature_count=1,
+            null_fraction_cats=0.1,
+            use_mrmr_fs=False,
+            weight_schemas=("uniform",),
+            target_type="binary_classification",
+            auto_detect_cats=False,
+            align_polars_categorical_dicts=True,
+            seed=21,
+            prefer_polarsds=True,
+            use_text_features=True,
+            honor_user_dtype=False,
+            text_col_count=0,
+            embedding_col_count=0,
+        )
 
-print(
-    f"FOUND: models={c.models} input={c.input_type} polarsds={c.prefer_polarsds} autocat={c.auto_detect_cats} align={c.align_polars_categorical_dicts} null={c.null_fraction_cats} ncats={c.cat_feature_count}",
-    flush=True,
-)
-df, target_col, _ = build_frame_for_combo(c)
+        print(
+            f"FOUND: models={c.models} input={c.input_type} polarsds={c.prefer_polarsds} autocat={c.auto_detect_cats} align={c.align_polars_categorical_dicts} null={c.null_fraction_cats} ncats={c.cat_feature_count}",
+            flush=True,
+        )
+        df, target_col, _ = build_frame_for_combo(c)
 
-fte = SimpleFeaturesAndTargetsExtractor(target_column=target_col, regression=c.target_type == "regression")
-from mlframe.training import PreprocessingConfig, OutputConfig
+        fte = SimpleFeaturesAndTargetsExtractor(target_column=target_col, regression=c.target_type == "regression")
+        from mlframe.training import PreprocessingConfig, OutputConfig
 
-preprocessing_overrides = PreprocessingConfig(drop_columns=[])
-if "linear" in c.models and c.cat_feature_count > 0:
-    import category_encoders as ce
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.impute import SimpleImputer
+        preprocessing_overrides = PreprocessingConfig(drop_columns=[])
+        if "linear" in c.models and c.cat_feature_count > 0:
+            import category_encoders as ce
+            from sklearn.preprocessing import StandardScaler
+            from sklearn.impute import SimpleImputer
 
-    preprocessing_overrides = PreprocessingConfig(
-        drop_columns=[],
-        category_encoder=ce.CatBoostEncoder(),
-        scaler=StandardScaler(),
-        imputer=SimpleImputer(strategy="mean"),
-    )
+            preprocessing_overrides = PreprocessingConfig(
+                drop_columns=[],
+                category_encoder=ce.CatBoostEncoder(),
+                scaler=StandardScaler(),
+                imputer=SimpleImputer(strategy="mean"),
+            )
 
-import tempfile
+        # tempfile.mkdtemp() returns an OS-managed temp dir -- portable across Win/Linux/CI.
+        tmp = tempfile.mkdtemp()
 
-tmp = tempfile.mkdtemp()
+        try:
+            trained, _ = train_mlframe_models_suite(
+                df=df,
+                target_name=c.short_id(),
+                model_name=c.short_id(),
+                features_and_targets_extractor=fte,
+                mlframe_models=list(c.models),
+                hyperparams_config={
+                    "iterations": 3,
+                    "cb_kwargs": {"task_type": "CPU", "verbose": 0},
+                    "xgb_kwargs": {"device": "cpu", "verbosity": 0},
+                    "lgb_kwargs": {"device_type": "cpu", "verbose": -1},
+                },
+                preprocessing_config=preprocessing_overrides,
+                feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=c.use_mrmr_fs),
+                use_ordinary_models=True,
+                use_mlframe_ensembles=False,
+                output_config=OutputConfig(data_dir=tmp, models_dir="models"),
+                verbose=1,
+                pipeline_config=PreprocessingBackendConfig(prefer_polarsds=c.prefer_polarsds),
+                feature_types_config=FeatureTypesConfig(
+                    auto_detect_feature_types=c.auto_detect_cats,
+                    use_text_features=c.use_text_features,
+                    honor_user_dtype=c.honor_user_dtype,
+                ),
+                behavior_config=TrainingBehaviorConfig(
+                    align_polars_categorical_dicts=c.align_polars_categorical_dicts
+                ),
+            )
+            print(f"PASS: {list(trained.keys())}")
+            return 0
+        except Exception as e:
+            import traceback
 
-try:
-    trained, _ = train_mlframe_models_suite(
-        df=df,
-        target_name=c.short_id(),
-        model_name=c.short_id(),
-        features_and_targets_extractor=fte,
-        mlframe_models=list(c.models),
-        hyperparams_config={
-            "iterations": 3,
-            "cb_kwargs": {"task_type": "CPU", "verbose": 0},
-            "xgb_kwargs": {"device": "cpu", "verbosity": 0},
-            "lgb_kwargs": {"device_type": "cpu", "verbose": -1},
-        },
-        preprocessing_config=preprocessing_overrides,
-        feature_selection_config=FeatureSelectionConfig(use_mrmr_fs=c.use_mrmr_fs),
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=tmp, models_dir="models"),
-        verbose=1,
-        pipeline_config=PreprocessingBackendConfig(prefer_polarsds=c.prefer_polarsds),
-        feature_types_config=FeatureTypesConfig(
-            auto_detect_feature_types=c.auto_detect_cats,
-            use_text_features=c.use_text_features,
-            honor_user_dtype=c.honor_user_dtype,
-        ),
-        behavior_config=TrainingBehaviorConfig(
-            align_polars_categorical_dicts=c.align_polars_categorical_dicts
-        ),
-    )
-    print(f"PASS: {list(trained.keys())}")
-except Exception as e:
-    import traceback
+            traceback.print_exc()
+            print(f"FAIL: {type(e).__name__}: {str(e)[:400]}")
+            return 1
+    finally:
+        if prior_fuzz_seed is None:
+            os.environ.pop("FUZZ_SEED", None)
+        else:
+            os.environ["FUZZ_SEED"] = prior_fuzz_seed
 
-    traceback.print_exc()
-    print(f"FAIL: {type(e).__name__}: {str(e)[:400]}")
+
+if __name__ == "__main__":
+    sys.exit(main())

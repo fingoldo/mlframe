@@ -537,7 +537,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                         _polars_time_series_hint = True
             except Exception:
                 pass
-            X = X.to_pandas()
+            try:
+                X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
+            except TypeError:
+                X = X.to_pandas()
         if isinstance(y, pl.Series):
             y = y.to_pandas()
 
@@ -855,7 +858,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         # ``estimator`` retained for legacy code paths inside fit() that need a single object for type-dispatch (CV stratification,
         # scoring, importance_getter resolution). First estimator is the representative.
         estimator = estimators_list[0]
+        # Extract suite-level ``timestamps`` hint BEFORE we shadow ``fit_params`` with ``self.fit_params``;
+        # the time-series auto-detect block below picks it up to upgrade plain int cv -> TimeSeriesSplit
+        # for callers whose X has no DatetimeIndex / polars datetime column but who know the row order
+        # is temporal (e.g. epoch-seconds in a separate array).
+        _ts_hint_from_caller = fit_params.pop("timestamps", None) if isinstance(fit_params, dict) else None
         fit_params = copy.copy(self.fit_params) if self.fit_params else {}
+        if _ts_hint_from_caller is not None:
+            fit_params["timestamps"] = _ts_hint_from_caller
         max_runtime_mins = self.max_runtime_mins
         max_refits = self.max_refits
         cv = self.cv
@@ -996,9 +1006,23 @@ class RFECV(BaseEstimator, TransformerMixin):
             # Pandas path: DatetimeIndex.is_monotonic_increasing. Polars path: scan for a single datetime / date column that is
             # monotonically increasing (polars has no row index; the time axis is necessarily a column).
             _is_time_series = False
+            # Suite-level timestamps hint: callers pass ``timestamps=`` via fit_params (1-D monotonic
+            # array-like). This catches the case where X has no DatetimeIndex / no polars datetime col
+            # but the suite knows the row order is temporal (e.g. integer epoch seconds in a separate
+            # array). Honour the hint regardless of X's schema.
+            _ts_hint = fit_params.pop("timestamps", None) if isinstance(fit_params, dict) else None
+            if groups is None and _ts_hint is not None:
+                try:
+                    _ts_arr = np.asarray(_ts_hint)
+                    if _ts_arr.ndim == 1 and _ts_arr.size == (X.shape[0] if hasattr(X, "shape") else len(X)):
+                        # Monotonic-non-decreasing -> time axis.
+                        if bool(np.all(_ts_arr[1:] >= _ts_arr[:-1])):
+                            _is_time_series = True
+                except (TypeError, ValueError):
+                    pass
             # Polars-input path: the schema-level monotonic-datetime check happens BEFORE the to_pandas() at fit entry; the hint is set
             # there so the conversion doesn't erase the per-column polars dtype information needed for unambiguous detection.
-            if groups is None and _polars_time_series_hint:
+            if not _is_time_series and groups is None and _polars_time_series_hint:
                 _is_time_series = True
             elif groups is None and isinstance(X, pd.DataFrame):
                 _idx = X.index

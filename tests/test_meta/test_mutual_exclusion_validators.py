@@ -93,26 +93,17 @@ def _doc_lines_normalised(doc: str | None) -> str:
 
 
 def _find_mutex_pairs(cls: type[BaseModel]) -> list[tuple[str, str]]:
-    """Scan the class docstring AND every validator method's source for
-    mutex-claim phrasing.  The validator's own raise-message is often
-    the cleanest statement (uses canonical field names) so we treat it
-    as documentation too.
+    """Scan the class docstring AND every field's docstring/description for mutex-claim phrasing.
+
+    Limiting the scan to documentation strings (class.__doc__ + Field(..., description=...)) keeps
+    this test discovery-only on prose surfaces users actually see, avoiding source-text dependence
+    on internal validator-body wording.
     """
     text_chunks = [_doc_lines_normalised(cls.__doc__)]
-    # Pull source of every validator so its raise-text counts as a claim.
-    for attr_name in dir(cls):
-        attr = getattr(cls, attr_name, None)
-        if not callable(attr):
-            continue
-        # Class-decorated validators are stored in ``__pydantic_decorators__``
-        # in v2 — but the easiest cross-version handling is to ``getsource``
-        # any callable defined on the class itself.
-        try:
-            src = inspect.getsource(attr)
-        except (OSError, TypeError):
-            continue
-        if "@model_validator" in src or "@field_validator" in src or "ValueError" in src:
-            text_chunks.append(_doc_lines_normalised(src))
+    for name, info in cls.model_fields.items():
+        desc = getattr(info, "description", None)
+        if desc:
+            text_chunks.append(_doc_lines_normalised(desc))
 
     pairs: list[tuple[str, str]] = []
     for text in text_chunks:

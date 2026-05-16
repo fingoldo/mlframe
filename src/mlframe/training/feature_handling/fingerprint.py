@@ -28,12 +28,51 @@ Universal across polars and pandas.
 from __future__ import annotations
 
 import hashlib
+import io
 import uuid
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import orjson
+
+try:
+    import xxhash  # type: ignore[import-untyped]
+    _HAVE_XX = True
+except ImportError:  # pragma: no cover -- optional accel
+    xxhash = None  # type: ignore[assignment]
+    _HAVE_XX = False
+
+
+# Per-process memo cache for repeated ``fingerprint_df`` calls on the same frame. Key is
+# ``(id(df), n_cols)`` so we don't have to walk the schema again when a hot path (per-target loop)
+# fingerprints the same frame N times. Bounded to ``_FP_CACHE_MAX`` entries (LRU); the strong-ref
+# guarantee that makes ``id()`` safe inside a suite holds here too.
+_FP_CACHE_MAX = 32
+_fingerprint_cache: "OrderedDict[Tuple[int, int], ContentFingerprint]" = OrderedDict()
+
+
+def _fp_cache_get(df: Any) -> "Optional[ContentFingerprint]":
+    try:
+        key = (id(df), len(df.columns))
+    except Exception:
+        return None
+    val = _fingerprint_cache.get(key)
+    if val is not None:
+        _fingerprint_cache.move_to_end(key)
+    return val
+
+
+def _fp_cache_put(df: Any, fp: "ContentFingerprint") -> None:
+    try:
+        key = (id(df), len(df.columns))
+    except Exception:
+        return
+    _fingerprint_cache[key] = fp
+    _fingerprint_cache.move_to_end(key)
+    while len(_fingerprint_cache) > _FP_CACHE_MAX:
+        _fingerprint_cache.popitem(last=False)
 
 
 # =====================================================================
@@ -73,6 +112,10 @@ def reset_session() -> SessionToken:
     don't collide."""
     global _CURRENT_SESSION
     _CURRENT_SESSION = SessionToken()
+    # Drop the per-process fingerprint memo: frame ids from the prior suite are no longer reachable
+    # and Python may have already recycled some of them; keeping the memo across sessions risks a
+    # silent stale hit on a recycled id within the new suite.
+    _fingerprint_cache.clear()
     return _CURRENT_SESSION
 
 
@@ -198,7 +241,19 @@ def fingerprint_df(
 
     Round-3 R2-3 fix: ``np.linspace(...).round().astype(int64)`` then
     ``np.unique`` to dedupe so tiny frames don't degenerate.
+
+    Caching: a per-process LRU memo (cleared at ``reset_session`` boundaries) hits when the same
+    frame is fingerprinted twice, avoiding the costly Arrow/IPC pass entirely. Only fires when
+    ``columns`` is ``None`` because a caller-supplied column subset would change the result.
+
+    Hash strategy: when ``xxhash`` is available we use ``DataFrame.hash_rows`` -> uint64 Series ->
+    ``xxh3_64`` on its bytes -- the bench in ``_benchmarks/bench_fingerprint.py`` records this as
+    100-700x faster than the legacy ``to_arrow().to_pandas().to_csv()`` triple-convert. Falls back to
+    the legacy path when xxhash isn't installed so caller's deps stay minimal.
     """
+    cached = _fp_cache_get(df) if columns is None else None
+    if cached is not None:
+        return cached
     n_rows = len(df)
 
     # Determine columns (sorted for deterministic dtype hash).
@@ -250,10 +305,14 @@ def fingerprint_df(
             if isinstance(df, pl.DataFrame):
                 # polars accepts numpy int64 indices via gather()
                 sub = df.select(cols_sorted)[sample_idx.tolist()]
-                # Use Arrow IPC stream of the sample -- stable across
-                # polars 1.x. NOT zero-copy but the sample is tiny.
-                arrow_table = sub.to_arrow()
-                payload_parts.append(arrow_table.to_pandas().to_csv(index=False).encode("utf-8"))
+                if _HAVE_XX:
+                    # Fast path (bench_fingerprint.py 2026-05: ~100-700x faster than to_csv).
+                    # ``hash_rows`` is the polars-native rowwise xxhash; we re-hash its bytes to
+                    # collapse N×u64 into a fingerprint identical-length to the legacy blake path.
+                    payload_parts.append(sub.hash_rows().to_numpy().tobytes())
+                else:
+                    arrow_table = sub.to_arrow()
+                    payload_parts.append(arrow_table.to_pandas().to_csv(index=False).encode("utf-8"))
             else:
                 raise TypeError("not polars")
         except (ImportError, TypeError):
@@ -261,7 +320,19 @@ def fingerprint_df(
                 import pandas as pd
                 if isinstance(df, pd.DataFrame):
                     sub = df.iloc[sample_idx][cols_sorted]
-                    payload_parts.append(sub.to_csv(index=False).encode("utf-8"))
+                    if _HAVE_XX:
+                        # pandas fast path: hash each column's underlying numpy buffer via xxhash
+                        # then xxhash the concatenated digests. Avoids a CSV materialisation.
+                        h_outer = xxhash.xxh3_64()
+                        for c in cols_sorted:
+                            try:
+                                buf = sub[c].to_numpy().tobytes()
+                            except Exception:
+                                buf = str(sub[c].to_list()).encode("utf-8")
+                            h_outer.update(xxhash.xxh3_64(buf).digest())
+                        payload_parts.append(h_outer.digest())
+                    else:
+                        payload_parts.append(sub.to_csv(index=False).encode("utf-8"))
             except ImportError:  # pragma: no cover
                 pass
 
@@ -270,12 +341,15 @@ def fingerprint_df(
         h.update(p)
     sampled_rows_hash = h.hexdigest()
 
-    return ContentFingerprint(
+    fp = ContentFingerprint(
         n_rows=n_rows,
         n_cols=n_cols,
         column_dtypes_hash=column_dtypes_hash,
         sampled_rows_hash=sampled_rows_hash,
     )
+    if columns is None:
+        _fp_cache_put(df, fp)
+    return fp
 
 
 __all__ = [

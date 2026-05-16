@@ -86,6 +86,8 @@ def composite_oof_predictions(
     n_splits: int = 5,
     random_state: int = 42,
     fit_kwargs: dict[str, Any] | None = None,
+    time_aware: bool = False,
+    cv_splitter: Any = None,
 ) -> np.ndarray:
     """Out-of-fold composite predictions via K-fold CV.
 
@@ -110,12 +112,17 @@ def composite_oof_predictions(
     -------
     ``(n,)`` ndarray of OOF predictions on the y-scale. NaN entries indicate a fold that failed to train (caller decides whether to drop / impute).
     """
-    from sklearn.model_selection import KFold  # lazy
+    from sklearn.model_selection import KFold, TimeSeriesSplit  # lazy
     fit_kwargs = fit_kwargs or {}
     y_arr = np.asarray(y, dtype=np.float64).reshape(-1)
     n = y_arr.size
     out = np.full(n, np.nan, dtype=np.float64)
-    kf = KFold(n_splits=int(n_splits), shuffle=True, random_state=int(random_state))
+    if cv_splitter is not None:
+        kf = cv_splitter
+    elif time_aware:
+        kf = TimeSeriesSplit(n_splits=int(n_splits))
+    else:
+        kf = KFold(n_splits=int(n_splits), shuffle=True, random_state=int(random_state))
     indices = np.arange(n)
     try:
         import polars as pl  # type: ignore

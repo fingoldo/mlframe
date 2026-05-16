@@ -22,13 +22,21 @@ from mlframe.training.models import (
 )
 from mlframe.training.configs import LinearModelConfig
 
+from tests.conftest import fast_subset
+
+# Full sklearn-backed linear family: every member traverses the same
+# ``create_linear_model`` dispatch + fit-shape contract, so fast mode picks
+# one representative while full mode covers every member.
+_ALL_LINEAR_TYPES = ["linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd"]
+# Classification factory: ransac is regression-only (meta-estimator), so the
+# classification-side equivalence class is the remaining six.
+_ALL_LINEAR_CLF_TYPES = ["linear", "ridge", "lasso", "elasticnet", "huber", "sgd"]
+
 
 class TestLinearModelCreation:
     """Test creation of linear models."""
 
-    @pytest.mark.parametrize("model_type", [
-        "linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd"
-    ])
+    @pytest.mark.parametrize("model_type", fast_subset(_ALL_LINEAR_TYPES, representative="ridge"))
     def test_create_regression_model(self, model_type):
         """Test creation of regression models."""
         config = LinearModelConfig(model_type=model_type)
@@ -39,9 +47,7 @@ class TestLinearModelCreation:
         if model_type not in ['ransac']:
             assert is_regressor(model) or hasattr(model, 'fit')
 
-    @pytest.mark.parametrize("model_type", [
-        "linear", "ridge", "lasso", "elasticnet", "huber", "sgd"
-    ])
+    @pytest.mark.parametrize("model_type", fast_subset(_ALL_LINEAR_CLF_TYPES, representative="ridge"))
     def test_create_classification_model(self, model_type):
         """Test creation of classification models."""
         config = LinearModelConfig(model_type=model_type)
@@ -83,7 +89,7 @@ class TestLinearModelTypes:
 class TestLinearModelTraining:
     """Test training of linear models."""
 
-    @pytest.mark.parametrize("model_type", ["linear", "ridge", "lasso"])
+    @pytest.mark.parametrize("model_type", fast_subset(_ALL_LINEAR_TYPES, representative="ridge"))
     def test_train_regression_model(self, sample_regression_data, model_type):
         """Test training regression models."""
         df, feature_names, y = sample_regression_data
@@ -108,7 +114,7 @@ class TestLinearModelTraining:
         assert not np.all(train_preds == 0)
         assert not np.any(np.isnan(train_preds))
 
-    @pytest.mark.parametrize("model_type", ["linear", "ridge", "sgd"])
+    @pytest.mark.parametrize("model_type", fast_subset(_ALL_LINEAR_CLF_TYPES, representative="ridge"))
     def test_train_classification_model(self, sample_classification_data, model_type):
         """Test training classification models."""
         df, feature_names, _, y = sample_classification_data

@@ -23,7 +23,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import is_fast_mode
+from tests.training.synthetic import (
+    make_simple_classification_data,
+    make_simple_regression_data,
+)
+
 warnings.filterwarnings("ignore")
+
+# Smoke tests assert "is not None" / "isinstance(dict)" only. Iterations=2 is
+# enough to exercise the trainer loop; the higher original iterations=30 was
+# pure runtime overhead. Halved under fast mode.
+_DEFAULT_SMOKE_ITERATIONS = 2 if is_fast_mode() else 5
 
 # These tests share state between runs (matplotlib backend, numba JIT
 # cache, on-disk model directories). pytest-randomly's default
@@ -33,25 +44,14 @@ pytestmark = pytest.mark.order(index=0)
 
 
 def _make_regression_df(n=400, seed=42):
-    """Small regression dataset: y = sum(X) + small noise."""
-    rng = np.random.default_rng(seed)
-    X = rng.normal(size=(n, 5))
-    y = X.sum(axis=1) + 0.3 * rng.normal(size=n)
-    cols = [f"f_{i}" for i in range(5)]
-    df = pd.DataFrame(X, columns=cols)
-    df["target"] = y
+    """Small regression dataset; delegates to shared synthetic helper."""
+    df, _, _ = make_simple_regression_data(n_samples=n, n_features=5, seed=seed)
     return df
 
 
 def _make_classification_df(n=400, seed=42):
-    """Small binary classification: y = sign(sum(X) + noise)."""
-    rng = np.random.default_rng(seed)
-    X = rng.normal(size=(n, 5))
-    score = X.sum(axis=1) + 0.3 * rng.normal(size=n)
-    y = (score > 0).astype(np.int64)
-    cols = [f"f_{i}" for i in range(5)]
-    df = pd.DataFrame(X, columns=cols)
-    df["target"] = y
+    """Small binary classification dataset; delegates to shared synthetic helper."""
+    df, _, _, _ = make_simple_classification_data(n_samples=n, n_features=5, seed=seed)
     return df
 
 
@@ -91,7 +91,7 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
             verbose=0,
-            hyperparams_config={"iterations": 30},
+            hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
         )
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")
@@ -117,7 +117,7 @@ def test_biz_val_training_suite_classification_completes(tmp_path):
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
             verbose=0,
-            hyperparams_config={"iterations": 30},
+            hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
         )
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")
@@ -156,7 +156,7 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
             verbose=0,
-            hyperparams_config={"iterations": 25},
+            hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
         )
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")
@@ -190,7 +190,7 @@ def test_biz_val_training_suite_metadata_dict_schema(tmp_path):
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
             verbose=0,
-            hyperparams_config={"iterations": 25},
+            hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
         )
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")

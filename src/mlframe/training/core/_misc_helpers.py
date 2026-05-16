@@ -277,12 +277,18 @@ def _validate_input_columns_against_metadata(
     Missing cat/text/embedding features raise ValueError (cannot be safely dropped); other missing columns WARN + proceed;
     extra columns are dropped (logged when verbose). Returns the possibly-filtered df.
 
-    Prefers ``metadata["input_columns"]`` (the raw pre-pipeline input schema) when present, else falls back to
-    ``metadata["columns"]`` (the post-pipeline schema; back-compat for models trained before the fix). The raw-input
-    schema is the right anchor for predict-time validation: pipelines may rename/add columns (one-hot expansion,
-    dim_reducer output, TF-IDF), so validating against post-pipeline names drops every raw user column as "extra".
+    Key resolution order (post-fix SKEW-COL-ORDER): prefers the explicit ``metadata["raw_input_columns"]``
+    (set by ``_phase_fit_pipeline`` before transform), falls back to legacy ``metadata["input_columns"]``
+    (the same content under the old alias), and finally to ``metadata["columns"]`` (post-pipeline; back-
+    compat for models trained before the explicit-key fix landed). The raw-input schema is the right
+    anchor for predict-time validation: pipelines may rename/add columns (one-hot expansion, dim_reducer
+    output, TF-IDF), so validating against post-pipeline names drops every raw user column as "extra".
     """
-    columns = metadata.get("input_columns") or metadata.get("columns", [])
+    columns = (
+        metadata.get("raw_input_columns")
+        or metadata.get("input_columns")
+        or metadata.get("columns", [])
+    )
     if not columns:
         return df
 
@@ -660,9 +666,13 @@ def _auto_detect_feature_types(
                 # where row 0 is nunique and row 1 is count. pandas dispatches both reductions via its
                 # block manager which is materially cheaper than the legacy N x (nunique + notna().sum())
                 # per-column Python -> C round-trip.
+                # PANDAS-AT-IN-AUDIT: one .loc(...).to_dict() per row beats N ``_agg.at`` lookups; .at is
+                # a single-cell scalar accessor and pays a row-level reindex on each call.
                 _agg = df[nunique_cols].agg(["nunique", "count"])
+                _nunique_map = _agg.loc["nunique"].to_dict()
+                _count_map = _agg.loc["count"].to_dict()
                 _stats = [
-                    (col, int(_agg.at["nunique", col]), int(_agg.at["count", col]))
+                    (col, int(_nunique_map[col]), int(_count_map[col]))
                     for col in nunique_cols
                 ]
             for col, n_unique, non_null in _stats:

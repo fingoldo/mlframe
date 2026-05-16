@@ -279,10 +279,14 @@ class TestTorchDataModuleDataLoaders:
         dm.setup(stage='fit')
         train_loader = dm.train_dataloader()
 
-        assert train_loader is not None
-        # Check iteration works
+        # Batch must be a (features, labels) 2-tuple of tensors with matching first dim
+        # (the batch axis); features dim 1 must match the training schema.
         batch = next(iter(train_loader))
-        assert len(batch) == 2  # (features, labels)
+        assert len(batch) == 2
+        feats, labels = batch
+        assert feats.shape[0] == labels.shape[0]
+        assert feats.shape[0] <= 16  # batch_size
+        assert feats.shape[1] == sample_data['X_train'].shape[1]
 
     def test_val_dataloader(self, sample_data):
         """Test val_dataloader creation."""
@@ -297,9 +301,11 @@ class TestTorchDataModuleDataLoaders:
         dm.setup(stage='fit')
         val_loader = dm.val_dataloader()
 
-        assert val_loader is not None
         batch = next(iter(val_loader))
         assert len(batch) == 2
+        feats, labels = batch
+        assert feats.shape[0] == labels.shape[0]
+        assert feats.shape[1] == sample_data['X_val'].shape[1]
 
     def test_test_dataloader(self, sample_data):
         """Test test_dataloader creation."""
@@ -314,9 +320,11 @@ class TestTorchDataModuleDataLoaders:
         dm.setup(stage='test')
         test_loader = dm.test_dataloader()
 
-        assert test_loader is not None
         batch = next(iter(test_loader))
         assert len(batch) == 2
+        feats, labels = batch
+        assert feats.shape[0] == labels.shape[0]
+        assert feats.shape[1] == sample_data['X_test'].shape[1]
 
     def test_test_dataloader_without_test_data_raises_error(self, sample_data):
         """Test that test_dataloader raises error when test_features is None."""
@@ -341,10 +349,10 @@ class TestTorchDataModuleDataLoaders:
         dm.setup_predict(sample_data['X_test'])
         pred_loader = dm.predict_dataloader()
 
-        assert pred_loader is not None
         batch = next(iter(pred_loader))
         # Prediction should return only features
         assert isinstance(batch, torch.Tensor)
+        assert batch.shape[1] == sample_data['X_test'].shape[1]
 
     def test_predict_dataloader_without_predict_features_raises_error(self, sample_data):
         """Test that predict_dataloader raises error when predict_features is None."""
@@ -383,9 +391,10 @@ class TestTorchDataModuleCreateDataLoader:
             drop_last=False
         )
 
-        assert loader is not None
         batch = next(iter(loader))
         assert len(batch) == 2
+        feats, labels = batch
+        assert feats.shape[0] == labels.shape[0]
 
     def test_create_dataloader_without_labels(self, sample_data):
         """Test creating dataloader without labels."""
@@ -402,9 +411,9 @@ class TestTorchDataModuleCreateDataLoader:
             drop_last=False
         )
 
-        assert loader is not None
         batch = next(iter(loader))
         assert isinstance(batch, torch.Tensor)
+        assert batch.shape[1] == sample_data['X_test'].shape[1]
 
     def test_create_dataloader_shuffle_parameter(self, sample_data):
         """Test shuffle parameter in dataloader creation."""
@@ -421,8 +430,9 @@ class TestTorchDataModuleCreateDataLoader:
             drop_last=False
         )
 
-        # Can't directly test shuffle, but ensure creation succeeds
-        assert loader is not None
+        # Confirm a usable batch comes out (proves creation succeeded + shuffle didn't break iteration).
+        batch = next(iter(loader))
+        assert len(batch) == 2 and batch[0].shape[0] > 0
 
     def test_create_dataloader_drop_last_parameter(self, sample_data):
         """Test drop_last parameter in dataloader creation."""
@@ -441,7 +451,8 @@ class TestTorchDataModuleCreateDataLoader:
             drop_last=False
         )
 
-        assert loader is not None
+        batch = next(iter(loader))
+        assert len(batch) == 2 and batch[0].shape[0] > 0
 
 
 # ================================================================================================

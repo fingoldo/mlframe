@@ -436,6 +436,12 @@ class PreprocessingBackendConfig(BaseConfig):
     skip_categorical_encoding: bool = False
     robust_q_low: float = 0.01
     robust_q_high: float = 0.99
+    # Maximum output column count for the polynomial-feature expansion in ``PolynomialFeatureExpander``.
+    # The expander auto-tunes its config (flips ``interaction_only`` -> True, then decrements ``degree``,
+    # finally skips the step) until ``projected <= polynomial_max_features``. Default 10_000 keeps the
+    # fp32 working set under ~40MB at 1M rows. Set to 0 or None to disable the auto-tune (legacy
+    # unbounded behaviour); the warn-only soft floor at polynomial.py:84 still fires.
+    polynomial_max_features: Optional[int] = 10_000
 
     @field_validator("scaler_name", mode="before")
     @classmethod

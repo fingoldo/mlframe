@@ -276,25 +276,26 @@ class TestModelStrategies:
 class TestGetStrategy:
     """Tests for get_strategy function."""
 
-    def test_returns_tree_strategy_for_cb(self):
-        """Test get_strategy returns tree for catboost."""
-        strategy = get_strategy('cb')
-        assert isinstance(strategy, TreeModelStrategy)
-
-    def test_returns_hgb_strategy_for_hgb(self):
-        """Test get_strategy returns HGB for histgradientboosting."""
-        strategy = get_strategy('hgb')
-        assert isinstance(strategy, HGBStrategy)
-
-    def test_returns_neural_strategy_for_mlp(self):
-        """Test get_strategy returns neural for MLP."""
-        strategy = get_strategy('mlp')
-        assert isinstance(strategy, NeuralNetStrategy)
-
-    def test_returns_linear_strategy_for_ridge(self):
-        """Test get_strategy returns linear for ridge."""
-        strategy = get_strategy('ridge')
-        assert isinstance(strategy, LinearModelStrategy)
+    @pytest.mark.parametrize(
+        "model_name,expected_strategy",
+        [
+            ("cb", "TreeModelStrategy"),
+            ("hgb", "HGBStrategy"),
+            ("mlp", "NeuralNetStrategy"),
+            ("ridge", "LinearModelStrategy"),
+        ],
+        ids=["cb_tree", "hgb_hgb", "mlp_neural", "ridge_linear"],
+    )
+    def test_returns_correct_strategy_for_model(self, model_name, expected_strategy):
+        """get_strategy returns the strategy class registered for the model family."""
+        strategy_classes = {
+            "TreeModelStrategy": TreeModelStrategy,
+            "HGBStrategy": HGBStrategy,
+            "NeuralNetStrategy": NeuralNetStrategy,
+            "LinearModelStrategy": LinearModelStrategy,
+        }
+        strategy = get_strategy(model_name)
+        assert isinstance(strategy, strategy_classes[expected_strategy])
 
     def test_case_insensitive(self):
         """Test get_strategy is case insensitive."""

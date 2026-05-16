@@ -18,6 +18,32 @@ from mlframe.training.configs import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
 
+def _assert_trained_target_entries(entries, *, target_type_label: str):
+    """Behavioural upgrade of bare ``len(models[ttype]['target']) > 0`` asserts.
+
+    Pre-fix the assert only checked that *some* entry existed; a regression that returned a
+    single placeholder SimpleNamespace with no fitted model would pass. We now probe each entry
+    for the actual contract: it must carry a fitted ``.model`` attribute with predict-shaped
+    output."""
+    assert isinstance(entries, list), (
+        f"{target_type_label}: expected models[ttype]['target'] to be a list, got {type(entries).__name__}"
+    )
+    assert len(entries) >= 1, (
+        f"{target_type_label}: no trained entries returned (empty list)"
+    )
+    for i, entry in enumerate(entries):
+        m = getattr(entry, "model", None)
+        assert m is not None, (
+            f"{target_type_label}: entries[{i}] missing .model handle: {entry!r}"
+        )
+        has_predict = callable(getattr(m, "predict", None))
+        has_predict_proba = callable(getattr(m, "predict_proba", None))
+        assert has_predict or has_predict_proba, (
+            f"{target_type_label}: entries[{i}].model is not a fitted estimator: "
+            f"no predict / predict_proba on {type(m).__name__}"
+        )
+
+
 class TestTrainMLFrameModelsSuiteBasic:
     """Basic smoke tests for train_mlframe_models_suite."""
 
@@ -48,7 +74,7 @@ class TestTrainMLFrameModelsSuiteBasic:
         assert isinstance(models, dict)
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
         # Verify metadata
         assert metadata["model_name"] == "test_model"
@@ -1114,7 +1140,7 @@ class TestCustomTransformers:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_custom_imputer(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test passing a custom imputer via PreprocessingConfig."""
@@ -1148,7 +1174,7 @@ class TestCustomTransformers:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_custom_category_encoder(self, sample_categorical_data, temp_data_dir, common_init_params):
         """Test passing a custom category_encoder via PreprocessingConfig."""
@@ -1177,7 +1203,7 @@ class TestCustomTransformers:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_all_custom_transformers(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test passing all custom transformers together."""
@@ -1214,7 +1240,7 @@ class TestCustomTransformers:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_default_transformers_initialized(
         self, sample_regression_data, temp_data_dir, common_init_params
@@ -1240,7 +1266,7 @@ class TestCustomTransformers:
         # Verify training succeeded (defaults were used)
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_custom_scaler_with_mlp_model(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test custom scaler is actually used by MLP model (which uses the scaler)."""
@@ -1349,7 +1375,7 @@ class TestCalibration:
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
-        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.BINARY_CLASSIFICATION]["target"], target_type_label="BINARY_CLASSIFICATION")
 
     def test_calibrated_classifier_with_cb(
         self, sample_classification_data, temp_data_dir, common_init_params
@@ -2001,7 +2027,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
         # Verify MRMR was used (model name should contain MRMR)
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
@@ -2043,7 +2069,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         # Verify training succeeded
         assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
-        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.BINARY_CLASSIFICATION]["target"], target_type_label="BINARY_CLASSIFICATION")
 
     def test_rfecv_with_polars_pipeline_regression(
         self, sample_regression_data, temp_data_dir, common_init_params
@@ -2091,7 +2117,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_mrmr_without_polars_pipeline(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test MRMR feature selection without polars pipeline (baseline test)."""
@@ -2127,7 +2153,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_mrmr_and_ordinary_models_with_polars_pipeline(
         self, sample_regression_data, temp_data_dir, common_init_params
@@ -2202,7 +2228,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_mrmr_with_linear_model_and_polars_pipeline(
         self, sample_regression_data, temp_data_dir, common_init_params
@@ -2243,7 +2269,7 @@ class TestFeatureSelectorsWithPolarsPipeline:
         # Verify training succeeded
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
 
 class TestMRMRBinaryClassificationEdgeCases:
@@ -2308,7 +2334,7 @@ class TestMRMRBinaryClassificationEdgeCases:
 
         # Should train successfully and find the perfect feature
         assert TargetTypes.BINARY_CLASSIFICATION in models
-        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.BINARY_CLASSIFICATION]["target"], target_type_label="BINARY_CLASSIFICATION")
 
     @pytest.mark.parametrize("use_simple_mode", [True, False])
     def test_mrmr_no_impact_classification(
@@ -2378,7 +2404,7 @@ class TestCustomPrePipelines:
 
         assert TargetTypes.REGRESSION in models
         assert "target" in models[TargetTypes.REGRESSION]
-        assert len(models[TargetTypes.REGRESSION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.REGRESSION]["target"], target_type_label="REGRESSION")
 
     def test_incremental_pca_with_ordinary_models(
         self, sample_regression_data, temp_data_dir, common_init_params
@@ -2472,7 +2498,7 @@ class TestCustomPrePipelines:
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
         assert "target" in models[TargetTypes.BINARY_CLASSIFICATION]
-        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) > 0
+        _assert_trained_target_entries(models[TargetTypes.BINARY_CLASSIFICATION]["target"], target_type_label="BINARY_CLASSIFICATION")
 
 
 class TestPolarsNativeFastpath:

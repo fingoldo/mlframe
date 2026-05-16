@@ -1,3 +1,8 @@
+# expected: passes after the corresponding fix shipped on 2026-05-16
+# (audit-fixes-2026-05-16). Kept as a manual repro script; not collected by
+# pytest because the regression coverage now lives in tests/training/.
+__test__ = False
+
 from mlframe.training import FeatureSelectionConfig, OutputConfig, PreprocessingConfig
 """c0085 diag — text_feature=float error."""
 import sys

@@ -60,10 +60,11 @@ class TestKeepHandles:
     def test_keep_handles_returns_dict(self, trivial_spec, tmp_path):
         out = parse_plot_output_dsl("plotly[html] + matplotlib[png]")
         result = render_and_save(trivial_spec, out, str(tmp_path / "p"), keep_handles=True)
-        assert isinstance(result, dict)
-        assert "plotly" in result
-        assert "matplotlib" in result
-        # Native handles
+        assert isinstance(result, dict) and set(result.keys()) == {"plotly", "matplotlib"}, (
+            f"expected exactly {{plotly, matplotlib}} keys; got {set(result.keys()) if isinstance(result, dict) else type(result).__name__}"
+        )
+        # Native handles -- each must be the real backend object so callers can chain
+        # .to_html() / .savefig().
         assert hasattr(result["plotly"], "to_html")
         assert hasattr(result["matplotlib"], "savefig")
 

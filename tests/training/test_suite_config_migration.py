@@ -24,8 +24,10 @@ from mlframe.training import (
 )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def suite_params():
+    # Session-scoped: inspecting a function signature is pure introspection,
+    # idempotent across the whole session.
     return set(inspect.signature(train_mlframe_models_suite).parameters)
 
 

@@ -81,16 +81,18 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture
 def simple_classification_data():
-    """Generate simple classification data with known informative features."""
-    np.random.seed(42)
+    """Generate simple classification data with known informative features. Uses a local
+    Generator instead of np.random.seed(42) so the global RNG state is not mutated across
+    fixtures / sibling tests (would otherwise hide flakiness)."""
+    rng = np.random.default_rng(42)
     n_samples = 200
     n_informative = 5
     n_noise = 15
 
-    X_informative = np.random.randn(n_samples, n_informative)
+    X_informative = rng.standard_normal(size=(n_samples, n_informative))
     y = (X_informative[:, 0] + X_informative[:, 1] - X_informative[:, 2] > 0).astype(int)
 
-    X_noise = np.random.randn(n_samples, n_noise)
+    X_noise = rng.standard_normal(size=(n_samples, n_noise))
     X = np.hstack([X_informative, X_noise])
 
     feature_names = [f'informative_{i}' for i in range(n_informative)] + \
@@ -103,17 +105,17 @@ def simple_classification_data():
 
 @pytest.fixture
 def simple_regression_data():
-    """Generate simple regression data with known informative features."""
-    np.random.seed(42)
+    """Generate simple regression data with known informative features. Local RNG (no global mutation)."""
+    rng = np.random.default_rng(42)
     n_samples = 200
     n_informative = 5
     n_noise = 15
 
-    X_informative = np.random.randn(n_samples, n_informative)
+    X_informative = rng.standard_normal(size=(n_samples, n_informative))
     y = 3 * X_informative[:, 0] + 2 * X_informative[:, 1] - X_informative[:, 2] + \
-        0.5 * X_informative[:, 3] + np.random.randn(n_samples) * 0.1
+        0.5 * X_informative[:, 3] + rng.standard_normal(n_samples) * 0.1
 
-    X_noise = np.random.randn(n_samples, n_noise)
+    X_noise = rng.standard_normal(size=(n_samples, n_noise))
     X = np.hstack([X_informative, X_noise])
 
     feature_names = [f'informative_{i}' for i in range(n_informative)] + \
@@ -126,19 +128,19 @@ def simple_regression_data():
 
 @pytest.fixture
 def imbalanced_classification_data():
-    """Generate imbalanced classification data (95/5 split)."""
-    np.random.seed(42)
+    """Generate imbalanced classification data (95/5 split). Local RNG (no global mutation)."""
+    rng = np.random.default_rng(42)
     n_samples = 400
     n_informative = 5
     n_noise = 15
 
-    X_informative = np.random.randn(n_samples, n_informative)
+    X_informative = rng.standard_normal(size=(n_samples, n_informative))
 
     scores = X_informative[:, 0] + X_informative[:, 1] - X_informative[:, 2]
     threshold = np.percentile(scores, 95)
     y = (scores > threshold).astype(int)
 
-    X_noise = np.random.randn(n_samples, n_noise)
+    X_noise = rng.standard_normal(size=(n_samples, n_noise))
     X = np.hstack([X_informative, X_noise])
 
     feature_names = [f'informative_{i}' for i in range(n_informative)] + \
@@ -169,16 +171,16 @@ def multiclass_data():
 
 @pytest.fixture
 def high_dimensional_data():
-    """Generate high-dimensional data (p > n)."""
-    np.random.seed(42)
+    """Generate high-dimensional data (p > n). Local RNG (no global mutation)."""
+    rng = np.random.default_rng(42)
     n_samples = 50
     n_informative = 3
     n_noise = 100
 
-    X_informative = np.random.randn(n_samples, n_informative)
+    X_informative = rng.standard_normal(size=(n_samples, n_informative))
     y = (X_informative[:, 0] + X_informative[:, 1] > 0).astype(int)
 
-    X_noise = np.random.randn(n_samples, n_noise)
+    X_noise = rng.standard_normal(size=(n_samples, n_noise))
     X = np.hstack([X_informative, X_noise])
 
     feature_names = [f'informative_{i}' for i in range(n_informative)] + \
@@ -191,24 +193,24 @@ def high_dimensional_data():
 
 @pytest.fixture
 def correlated_features_data():
-    """Generate data with correlated informative features."""
-    np.random.seed(42)
+    """Generate data with correlated informative features. Local RNG (no global mutation)."""
+    rng = np.random.default_rng(42)
     n_samples = 200
 
-    base1 = np.random.randn(n_samples)
-    base2 = np.random.randn(n_samples)
+    base1 = rng.standard_normal(n_samples)
+    base2 = rng.standard_normal(n_samples)
 
     X_informative = np.column_stack([
         base1,
-        base1 + np.random.randn(n_samples) * 0.1,
+        base1 + rng.standard_normal(n_samples) * 0.1,
         base2,
-        base2 + np.random.randn(n_samples) * 0.1,
+        base2 + rng.standard_normal(n_samples) * 0.1,
         base1 + base2
     ])
 
     y = (base1 + base2 > 0).astype(int)
 
-    X_noise = np.random.randn(n_samples, 15)
+    X_noise = rng.standard_normal(size=(n_samples, 15))
     X = np.hstack([X_informative, X_noise])
 
     feature_names = [f'informative_{i}' for i in range(5)] + \
@@ -230,14 +232,14 @@ def synergistic_features_data():
     y = a^2/b + log(c)*sin(d)
     MRMR should detect all 4 features and recommend engineered features.
     """
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 10_000  # Smaller for faster tests
 
-    a = np.random.rand(n) + 0.1  # Avoid zero
-    b = np.random.rand(n) + 0.1
-    c = np.random.rand(n) + 0.1
-    d = np.random.rand(n) * 2 * np.pi
-    e = np.random.rand(n)  # Noise feature
+    a = rng.random(n) + 0.1  # Avoid zero
+    b = rng.random(n) + 0.1
+    c = rng.random(n) + 0.1
+    d = rng.random(n) * 2 * np.pi
+    e = rng.random(n)  # Noise feature
 
     y = a**2/b + np.log(c)*np.sin(d)
 
@@ -255,14 +257,14 @@ def synergistic_features_data():
 @pytest.fixture
 def multiplicative_synergy_data():
     """Data where y = a * b + noise, testing multiplicative synergy detection."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 5_000
 
-    a = np.random.randn(n)
-    b = np.random.randn(n)
-    c = np.random.randn(n)  # Noise
+    a = rng.standard_normal(n)
+    b = rng.standard_normal(n)
+    c = rng.standard_normal(n)  # Noise
 
-    y = a * b + np.random.randn(n) * 0.1
+    y = a * b + rng.standard_normal(n) * 0.1
 
     df = pd.DataFrame({
         'a': a,
@@ -276,14 +278,14 @@ def multiplicative_synergy_data():
 @pytest.fixture
 def additive_synergy_data():
     """Data where y = a + b + noise, testing additive relationship."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 5_000
 
-    a = np.random.randn(n)
-    b = np.random.randn(n)
-    c = np.random.randn(n)  # Noise
+    a = rng.standard_normal(n)
+    b = rng.standard_normal(n)
+    c = rng.standard_normal(n)  # Noise
 
-    y = a + b + np.random.randn(n) * 0.1
+    y = a + b + rng.standard_normal(n) * 0.1
 
     df = pd.DataFrame({
         'a': a,
@@ -297,15 +299,15 @@ def additive_synergy_data():
 @pytest.fixture
 def nonlinear_transform_data():
     """Data with nonlinear transforms: y = sin(a) + log(b+1) + c^2"""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 5_000
 
-    a = np.random.rand(n) * 2 * np.pi
-    b = np.random.rand(n)
-    c = np.random.randn(n)
-    d = np.random.randn(n)  # Noise
+    a = rng.random(n) * 2 * np.pi
+    b = rng.random(n)
+    c = rng.standard_normal(n)
+    d = rng.standard_normal(n)  # Noise
 
-    y = np.sin(a) + np.log(b + 1) + c**2 + np.random.randn(n) * 0.1
+    y = np.sin(a) + np.log(b + 1) + c**2 + rng.standard_normal(n) * 0.1
 
     df = pd.DataFrame({
         'a': a,
@@ -328,14 +330,14 @@ def feature_engineering_example_data():
     - mul(log(c), sin(d))
     - mul(squared(a), reciproc(b))
     """
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 10_000
 
-    a = np.random.rand(n) + 0.1
-    b = np.random.rand(n) + 0.1
-    c = np.random.rand(n) + 0.1
-    d = np.random.rand(n) * 2 * np.pi
-    e = np.random.rand(n)  # Noise
+    a = rng.random(n) + 0.1
+    b = rng.random(n) + 0.1
+    c = rng.random(n) + 0.1
+    d = rng.random(n) * 2 * np.pi
+    e = rng.random(n)  # Noise
 
     y = a**2/b + np.log(c)*np.sin(d)
 
@@ -353,11 +355,11 @@ def feature_engineering_example_data():
 @pytest.fixture
 def known_mi_data():
     """Data with known mutual information for testing MI computation."""
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     n = 1000
 
     # Create perfectly predictable relationship
-    x = np.random.randint(0, 5, n)
+    x = rng.integers(0, 5, n)
     y = x.copy()  # MI(X,Y) = H(X) for identical variables
 
     return x, y

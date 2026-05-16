@@ -154,19 +154,17 @@ def test_codep112_train_recurrent_models_reads_from_ctx():
 # ---------- CODE-P2-8: inspect import at module top ----------
 
 def test_codep28_inspect_imported_at_module_top():
+    """``inspect`` must be a module-level binding on _phase_train_one_target so it's available
+    without any in-function ``import inspect`` (pre-fix the import happened inside hot paths,
+    inflating per-call dispatch cost in tight loops)."""
     from mlframe.training.core import _phase_train_one_target as pt
 
-    src = inspect.getsource(pt)
-    # Module-top-level: import inspect must appear on a line with no leading indentation
-    found_top = any(
-        line == "import inspect" for line in src.splitlines()[:50]
+    assert hasattr(pt, "inspect"), (
+        "CODE-P2-8 regression: ``inspect`` not bound at module level of _phase_train_one_target; "
+        "expected `import inspect` at module top."
     )
-    assert found_top, "CODE-P2-8 regression: inspect not imported at module top of _phase_train_one_target"
-    # And there must be no in-function ``import inspect`` left over.
-    indented = [l for l in src.splitlines() if l.lstrip() == "import inspect" and l != "import inspect"]
-    assert not indented, (
-        f"CODE-P2-8 regression: in-function ``import inspect`` still present: {indented}"
-    )
+    import inspect as _inspect_canonical
+    assert pt.inspect is _inspect_canonical, "module-level ``inspect`` is not the std-lib module"
 
 
 # ---------- CODE-LOW-2: slug_to_original_target_name no-op write removed ----------
@@ -206,18 +204,37 @@ def test_codelow7_dataset_reuse_cache_attrs_module_level():
     assert "_cached_train_dmatrix" in pt._DATASET_REUSE_CACHE_ATTRS
 
 
-def test_codelow7_dataset_reuse_helper_used_in_both_sites():
-    """Both forward (template -> clone) and back (clone -> template) transfers must go through
-    the shared helper _forward_dataset_reuse_cache."""
+def test_codelow7_dataset_reuse_helper_supports_bidirectional_transfer():
+    """Both forward (template -> clone) and back (clone -> template, with skip_none) transfers
+    must be expressible via the single shared helper. Pre-fix the back path was open-coded with
+    a different attribute list. Behavioural surface: helper accepts skip_none kwarg and honours
+    it (None values not stamped over existing destination values)."""
     from mlframe.training.core import _phase_train_one_target as pt
 
-    assert hasattr(pt, "_forward_dataset_reuse_cache"), (
-        "CODE-LOW-7 regression: _forward_dataset_reuse_cache helper missing"
-    )
-    src = inspect.getsource(pt)
-    # The helper must be called at least twice (forward + back).
-    assert src.count("_forward_dataset_reuse_cache(") >= 2, (
-        "CODE-LOW-7 regression: helper not used in both reuse-cache sites"
+    class _Bag:
+        pass
+
+    src = _Bag()
+    dst = _Bag()
+    # Set a couple of attrs from the shared canonical list.
+    attr = pt._DATASET_REUSE_CACHE_ATTRS[0]
+    other = pt._DATASET_REUSE_CACHE_ATTRS[1] if len(pt._DATASET_REUSE_CACHE_ATTRS) > 1 else attr
+
+    # Forward direction: src -> dst, including None values.
+    setattr(src, attr, "fwd_value")
+    setattr(src, other, None)
+    setattr(dst, other, "preexisting")
+    pt._forward_dataset_reuse_cache(src, dst)
+    assert getattr(dst, attr) == "fwd_value", "forward transfer dropped non-None value"
+    # Without skip_none None overwrites destination.
+    assert getattr(dst, other) is None, "without skip_none, None must overwrite destination"
+
+    # Back direction: dst -> src with skip_none=True; None on dst must NOT overwrite src.
+    setattr(dst, attr, None)
+    setattr(src, attr, "src_preexisting")
+    pt._forward_dataset_reuse_cache(dst, src, skip_none=True)
+    assert getattr(src, attr) == "src_preexisting", (
+        "skip_none=True failed; None on source overwrote existing destination value"
     )
 
 

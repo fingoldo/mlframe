@@ -37,6 +37,7 @@ from ..configs import (
     TrainingBehaviorConfig,
     TrainingSplitConfig,
 )
+from pathlib import Path as _P  # PATHLIB-IMPORT-PER-CALL: hoist to module scope (was paid per suite call)
 from ..extractors import FeaturesAndTargetsExtractor
 from ..feature_handling.fingerprint import reset_session as reset_fh_session
 from ..helpers import (
@@ -408,6 +409,7 @@ def train_mlframe_models_suite(
             cat_features=cat_features,
             text_features=text_features,
             embedding_features=embedding_features,
+            ctx=ctx,
         )
 
     metadata["text_features"] = text_features
@@ -455,7 +457,32 @@ def train_mlframe_models_suite(
     # rather than always falling through to the pandas-typed get_trainset_features_stats below.
     # Opt-in fast path: when caller supplies a pre-computed stats dict via ``precomputed``, skip the
     # inline pass entirely. Useful for repeated suite runs on the same train frame (benchmarking).
-    if precomputed is not None and precomputed.trainset_features_stats is not None:
+    # PRECOMP-NO-FP-CHECK: when the caller stamped ``train_df_fingerprint`` on the bundle, verify it
+    # matches the live train frame. A mismatch (caller passed a bundle from a different run) is a
+    # silent label-leak vector -- we WARN-and-recompute rather than trust the precomputed stats.
+    _precomp_fp_ok = True
+    if (
+        precomputed is not None
+        and precomputed.train_df_fingerprint
+        and train_df is not None
+    ):
+        try:
+            from ..feature_handling.fingerprint import fingerprint_df as _fp
+            _live_fp = _fp(train_df).short()
+            _bundle_fp = str(precomputed.train_df_fingerprint)
+            if _bundle_fp not in (_live_fp, _live_fp[:len(_bundle_fp)]):
+                logger.warning(
+                    "precomputed.train_df_fingerprint (%s) does not match live train_df fingerprint (%s); "
+                    "ignoring the precomputed bundle and recomputing inline.",
+                    _bundle_fp, _live_fp,
+                )
+                _precomp_fp_ok = False
+        except Exception as _fp_err:
+            logger.debug("precompute fingerprint cross-check skipped (%s)", _fp_err)
+    # Truthy gate (not "is not None"): empty dicts/Series must NOT silently disable the inline compute -- the
+    # ``precompute_*`` stubs historically returned ``{}`` and at-call callers occasionally pass through partial
+    # bundles from disk.
+    if _precomp_fp_ok and precomputed is not None and precomputed.trainset_features_stats:
         if verbose:
             logger.info("Using caller-supplied trainset_features_stats (precomputed bundle); skipping inline compute.")
         trainset_features_stats = precomputed.trainset_features_stats
@@ -542,7 +569,6 @@ def train_mlframe_models_suite(
     _discovery_cache_dir = None
     try:
         if data_dir:
-            from pathlib import Path as _P
             _discovery_cache_dir = str(_P(data_dir) / ".discovery_cache")
     except Exception:
         _discovery_cache_dir = None
@@ -550,7 +576,10 @@ def train_mlframe_models_suite(
     # Pre-seed metadata so downstream readers (per-target dummy-baseline inversion, predict-time
     # composite inverse transforms) find the specs in their usual location. target_by_type is left
     # unchanged because the caller-supplied specs imply the augmented targets already live in it.
-    if precomputed is not None and precomputed.composite_target_specs is not None:
+    # Truthy gate (not "is not None"): an empty composite spec dict carries zero discovered targets, which is
+    # indistinguishable from "discovery skipped"; if we let it through, the suite would silently lose every
+    # composite target. The stub helpers used to return {} -- truthy gate is the defensive fix.
+    if _precomp_fp_ok and precomputed is not None and precomputed.composite_target_specs:
         if verbose:
             logger.info("Using caller-supplied composite_target_specs (precomputed bundle); skipping discovery.")
         metadata["composite_target_specs"] = precomputed.composite_target_specs
@@ -611,7 +640,9 @@ def train_mlframe_models_suite(
     # Pre-seed metadata so downstream summary / verdict consumers find the payload in its usual
     # location, then shallow-copy dummy_baselines_config with enabled=False so the per-target
     # ``run_dummy_baselines`` short-circuits (its first guard checks ``config.enabled``).
-    if precomputed is not None and precomputed.dummy_baselines is not None:
+    # Truthy gate (not "is not None"): empty dummy_baselines would silently disable every per-target compute --
+    # callers must supply real values; "I passed it but it's empty" must fall through to inline compute.
+    if _precomp_fp_ok and precomputed is not None and precomputed.dummy_baselines:
         if verbose:
             logger.info("Using caller-supplied dummy_baselines (precomputed bundle); skipping per-target compute.")
         metadata["dummy_baselines"] = precomputed.dummy_baselines
@@ -646,6 +677,58 @@ def train_mlframe_models_suite(
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
         for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):
             pr._train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
+
+    # VOTENRANK-DISCONNECT (post-loop): collect any per-target ``_leaderboard`` payloads that
+    # ``score_ensemble`` parked on the ensemble result dicts and surface them under a single
+    # ``metadata["votenrank_leaderboard"]`` key. CSV export lands under
+    # ``output_config.data_dir/.leaderboard.csv`` when data_dir is set. The wire is read-only on
+    # ``ctx.ensembles`` so it can't reach back into the per-target loop and is safe to skip when
+    # F2 has not emitted any leaderboard yet (forward-compat with older score_ensemble builds).
+    try:
+        _leaderboards = {}
+        for _tt, _by_name in (ctx.ensembles or {}).items():
+            for _tname, _ens_dict in (_by_name or {}).items():
+                if not isinstance(_ens_dict, dict):
+                    continue
+                _lb = _ens_dict.get("_leaderboard")
+                if _lb is None:
+                    continue
+                _leaderboards.setdefault(str(_tt), {})[_tname] = _lb
+        if _leaderboards:
+            ctx.metadata["votenrank_leaderboard"] = _leaderboards
+            if data_dir:
+                _csv_path = _P(data_dir) / ".leaderboard.csv"
+                try:
+                    # Concatenate per-(type, target) frames with two index columns so a reader can
+                    # filter back to one slice. Honour pl.DataFrame vs pd.DataFrame via .write_csv /
+                    # .to_csv duck typing; mixed cases concat after a unified to_pandas hop.
+                    import pandas as _pd
+                    _frames = []
+                    for _tt_s, _by_name in _leaderboards.items():
+                        for _tname, _lb in _by_name.items():
+                            if hasattr(_lb, "write_csv") and not hasattr(_lb, "to_csv"):
+                                # polars DF: dump to CSV bytes then re-read for the concat below.
+                                import io as _io
+                                _buf = _io.BytesIO()
+                                _lb.write_csv(_buf)
+                                _buf.seek(0)
+                                _frame = _pd.read_csv(_buf)
+                            elif hasattr(_lb, "to_csv"):
+                                _frame = _pd.DataFrame(_lb) if not isinstance(_lb, _pd.DataFrame) else _lb
+                            else:
+                                _frame = _pd.DataFrame(_lb)
+                            _frame.insert(0, "target_type", _tt_s)
+                            _frame.insert(1, "target_name", _tname)
+                            _frames.append(_frame)
+                    if _frames:
+                        _all_lb = _pd.concat(_frames, ignore_index=True)
+                        _all_lb.to_csv(_csv_path, index=False)
+                        if verbose:
+                            logger.info("votenrank leaderboard exported: %s (%d rows)", _csv_path, len(_all_lb))
+                except Exception as _csv_err:
+                    logger.warning("votenrank leaderboard CSV export failed: %s", _csv_err)
+    except Exception as _vn_err:
+        logger.warning("votenrank leaderboard wiring failed: %s", _vn_err)
 
     models = ctx.models
     metadata = ctx.metadata

@@ -59,7 +59,10 @@ class TfidfParams(BaseModel):
     kind: Literal["tfidf"] = "tfidf"
     max_features: int = 5000
     ngram_range: Tuple[int, int] = (1, 2)
-    min_df: Union[int, float] = 1
+    # ``min_df=2`` drops hapax legomena -- one-shot tokens that contribute pure noise to the vocab; on
+    # 5M-row text columns this trims vocab by 30-60% before ``max_features`` kicks in. ``min_df=1``
+    # (legacy default) materialised every misspelling / proper noun / random-suffixed ID.
+    min_df: Union[int, float] = 2
     max_df: Union[int, float] = 1.0
     sublinear_tf: bool = True
     norm: Literal["l1", "l2"] = "l2"

@@ -122,7 +122,11 @@ def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, reques
     _skip_if_deps_missing(combo.models)
     reason = xfail_reason(combo)
     if reason is not None:
-        request.node.add_marker(pytest.mark.xfail(reason=reason, strict=False))
+        # strict=True so an XPASS (combo now passes because the underlying fix landed) is a
+        # visible regression -- the developer must remove the rule from KNOWN_XFAIL_RULES.
+        # Pre-fix this was strict=False, which silently greened combos whether they passed or
+        # failed and lost track of fix landings.
+        request.node.add_marker(pytest.mark.xfail(reason=reason, strict=True))
 
     df, target_col, _ = build_frame_for_combo(combo)
     frame_cols_before = tuple(df.columns) if hasattr(df, "columns") else None

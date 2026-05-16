@@ -167,6 +167,31 @@ class TrainingContext:
     # the dataclass uses slots=True - without it, ``ctx._cache_stats = {}`` raises
     # AttributeError on every suite call. Surfaced by fuzz iter#126.
     _cache_stats: dict = field(default_factory=dict)
+    # Suite-scoped PipelineCache: pre-fix one instance per target call (rebuilt at the top of every
+    # _train_one_target invocation), so cross-target reuse of a fitted selector / encoder never
+    # fired. Hoisted to ctx so multi-target suites share one cache for the full run; reset_session
+    # clears it between distinct suite invocations.
+    _pipeline_cache: Any = None
+    # Cat-cardinality unique() implode (drift detection) is target/weight-invariant: cache the
+    # computed (train_df_id, cols_tuple) -> implode-result on ctx so repeat suite calls (and the
+    # three log-only invocations per call) re-use one materialisation.
+    _cat_drift_implode_cache: dict = field(default_factory=dict)
+    # FS-REPORT-WLOOP: weight-invariant per-(target, pp_name, model) FS report cache. Per-fit
+    # ``_build_feature_selection_report`` is purely a function of the fitted selector + kept
+    # columns; sample_weight does not change either. Cache hit short-circuits the introspection
+    # walk for every weight schema after the first.
+    _fs_report_cache: dict = field(default_factory=dict)
+    # SW-LOG-PER-PP-PER-TGT: emit the "Using N weighting schema(s)..." banner once per suite,
+    # not once per (target x pre_pipeline). Boolean latch reset by reset_session implicitly via
+    # the fresh ctx construction.
+    _sw_log_emitted: bool = False
+    # VAL-PLACE-WARN-PP: emit the val_placement+recency warning once per suite, not per PP.
+    _val_placement_warn_emitted: bool = False
+    # POLARS-PANDAS-CHURN: cache for recurrent-model feature-frame coercion (split, id(frame)) ->
+    # contiguous float32 ndarray. Invalidated by ``_release_ctx_polars_frames`` (id-recycle safe
+    # via the strong-ref window). Three full coercions per recurrent member per target collapse to
+    # one when the same train/val/test frames are reused.
+    _recurrent_numpy_cache: dict = field(default_factory=dict)
 
     models: dict = field(default_factory=lambda: {})
     # Per-target ensemble outputs from ``score_ensemble`` (use_mlframe_ensembles=True). Keyed

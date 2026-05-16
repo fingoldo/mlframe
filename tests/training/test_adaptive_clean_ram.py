@@ -157,40 +157,46 @@ class TestAdaptiveCleanRam:
         assert len(calls) == 0
 
     def test_growth_over_loop_fires_exactly_when_crossed(self, monkeypatch):
-        """RSS grows by 100 MB per iter; threshold=500 → fires starting iter 6."""
-        # TODO(clean-ram-fake-rss): observed 2026-04-15 — with the refactored
-        # `maybe_clean_ram_and_gpu` refreshing baseline via an extra
-        # `get_process_rss_mb()` call after each fire, the MagicMock-based
-        # rss sequence is consumed faster than the test anticipates and the
-        # fired-iter indices no longer map cleanly to [6,7,8,9]. Rebuild the
-        # fake with a plain counter-backed callable so fires are predictable.
-        # For now, mark xfail rather than assert stale indices.
-        pytest.xfail("refactor baseline-refresh consumes rss_seq unpredictably; see TODO")
-        rss_seq = iter([1000.0 + 100.0 * i for i in range(30)])
+        """RSS at loop iter i = 1000 + 100*i MB; baseline=1000, threshold=500 MB.
 
-        def fake_rss():
-            return next(rss_seq) * 1024**2
+        ``maybe_clean_ram_and_gpu`` reads RSS once via ``should_clean_ram`` and (on fire) reads
+        again to refresh baseline. We back the fake with an iter-index counter (not an iterator
+        consumed by reads) so refresh reads return the SAME rss as the should_clean_ram read
+        inside one logical loop iteration. Pre-fix this test used a sequence iterator that
+        misaligned with the post-refactor refresh call, producing brittle fire-index mismatch.
+        """
+        loop_state = {"iter": 0}
+
+        def fake_rss_bytes():
+            return (1000.0 + 100.0 * loop_state["iter"]) * 1024**2
 
         fake = MagicMock()
-        fake.Process.return_value.memory_info.return_value.rss = 0  # overridden
         fake.virtual_memory.return_value.available = 32_000 * 1024**2
-
-        # Dynamic rss via property
         type(fake.Process.return_value.memory_info.return_value).rss = property(
-            lambda self: fake_rss()
+            lambda self: fake_rss_bytes()
         )
         _install_fake_psutil(monkeypatch, fake)
+
+        # Patch get_process_rss_mb to reflect the same loop_state-keyed RSS so a fire's
+        # baseline-refresh doesn't return a stale or jumped value.
+        monkeypatch.setattr(u, "get_process_rss_mb", lambda: 1000.0 + 100.0 * loop_state["iter"])
 
         calls = []
         monkeypatch.setattr(u, "clean_ram_and_gpu", lambda verbose=False: calls.append(1))
 
         fired_iters = []
         for i in range(10):
-            if u.maybe_clean_ram_and_gpu(baseline_rss_mb=1000.0, df_size_mb=10.0):
+            loop_state["iter"] = i
+            calls_before = len(calls)
+            u.maybe_clean_ram_and_gpu(baseline_rss_mb=1000.0, df_size_mb=10.0)
+            if len(calls) > calls_before:
                 fired_iters.append(i)
 
-        # iter i: rss = 1000 + 100*i; growth = 100*i; fires when 100*i > 500 → i >= 6
-        assert fired_iters == [6, 7, 8, 9]
+        # iter i: rss = 1000 + 100*i; growth = 100*i; fires when 100*i > 500 -> i >= 6
+        # (i=5 gives growth=500; threshold is strict ">" so first fire is i=6).
+        assert fired_iters == [6, 7, 8, 9], (
+            f"expected fires at iters [6,7,8,9] (growth crosses 500 MB), got {fired_iters}"
+        )
         assert len(calls) == 4
 
     def test_verbose_logs_reason_when_fires(self, monkeypatch, caplog):

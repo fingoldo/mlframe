@@ -1063,26 +1063,17 @@ class TestValPlacementBackwardIntegration:
             and "backward" in r.getMessage().lower()
             and ("recency" in r.getMessage().lower() or "non-uniform" in r.getMessage().lower())
         ]
-        if not conflict_warns:
-            # The shared test extractor may not emit recency schemas at
-            # all (it's a stripped-down class). In that case the conflict
-            # WARN can't fire — skip rather than false-fail, since the
-            # structural presence of the warning block is covered
-            # independently by reading the source below.
-            import inspect
-            from mlframe.training import core as core_mod
-
-            src = inspect.getsource(core_mod.train_mlframe_models_suite)
-            assert "val_placement='backward'" in src and "non-uniform" in src, (
-                "core.py must contain the backward/recency conflict "
-                "WARN. Keyword scan failed — the block may have been "
-                "removed in a refactor."
-            )
-            pytest.skip(
-                "test extractor doesn't produce a recency schema on this "
-                "codepath; structural WARN source check passed instead."
-            )
-        assert conflict_warns, "expected backward/recency conflict WARN"
+        # Behavioural assertion: the conflict WARN must fire when val_placement='backward'
+        # AND a non-uniform sample-weight schema is active. If the shared test extractor in
+        # this CI build does not emit a recency schema, we cannot exercise the conflict --
+        # but we still demand the WARN be observed end-to-end. NOTE: when this test fails on
+        # an extractor that emits no recency schema, fix is to widen the extractor under test
+        # (add a recency schema) rather than re-mask via source-grep skip.
+        assert conflict_warns, (
+            "expected backward/recency conflict WARN; if the test extractor in this build "
+            "does not emit a recency schema, extend the extractor fixture rather than masking "
+            "the assertion."
+        )
 
 
 # ============================================================================

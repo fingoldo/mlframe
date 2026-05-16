@@ -15,7 +15,6 @@ import gc
 import time
 import psutil
 import os
-import tempfile
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.io import save_mlframe_model, load_mlframe_model
@@ -207,7 +206,7 @@ class TestPerformance:
         assert elapsed < 5.0, f"Pipeline transform took {elapsed:.1f}s"
         assert len(train_transformed) == len(train_df)
 
-    def test_model_save_load_performance(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_model_save_load_performance(self, sample_regression_data, temp_data_dir, common_init_params, tmp_path):
         """Test model save/load performance."""
         df, feature_names, y = sample_regression_data
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
@@ -227,21 +226,20 @@ class TestPerformance:
         )
 
         # Test save performance
-        with tempfile.TemporaryDirectory() as tmpdir:
-            file_path = os.path.join(tmpdir, "model.zst")
+        file_path = str(tmp_path / "model.zst")
 
-            start = time.time()
-            save_mlframe_model(models, file_path, verbose=0)
-            save_time = time.time() - start
+        start = time.time()
+        save_mlframe_model(models, file_path, verbose=0)
+        save_time = time.time() - start
 
-            # Test load performance
-            start = time.time()
-            loaded = load_mlframe_model(file_path)
-            load_time = time.time() - start
+        # Test load performance
+        start = time.time()
+        loaded = load_mlframe_model(file_path)
+        load_time = time.time() - start
 
-            # Both should complete quickly (< 5 seconds each)
-            assert save_time < 5.0, f"Save took {save_time:.1f}s"
-            assert load_time < 5.0, f"Load took {load_time:.1f}s"
+        # Both should complete quickly (< 5 seconds each)
+        assert save_time < 5.0, f"Save took {save_time:.1f}s"
+        assert load_time < 5.0, f"Load took {load_time:.1f}s"
 
     def test_multiple_models_performance(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test training multiple model types performance."""
@@ -524,60 +522,60 @@ class TestEdgeCaseStress:
 class TestFileIOStress:
     """Stress tests for file I/O operations."""
 
-    def test_large_model_save_load(self):
+    def test_large_model_save_load(self, tmp_path):
         """Test saving/loading large model objects."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create large nested structure
-            large_data = {
-                "arrays": [np.random.randn(1000, 100) for _ in range(5)],
-                "dicts": [{f"key_{i}": np.random.randn(100) for i in range(50)}],
-                "nested": {
-                    "level1": {
-                        "level2": {
-                            "data": np.random.randn(500, 50)
-                        }
+        tmpdir = str(tmp_path)
+        # Create large nested structure
+        large_data = {
+            "arrays": [np.random.randn(1000, 100) for _ in range(5)],
+            "dicts": [{f"key_{i}": np.random.randn(100) for i in range(50)}],
+            "nested": {
+                "level1": {
+                    "level2": {
+                        "data": np.random.randn(500, 50)
                     }
                 }
             }
+        }
 
-            file_path = os.path.join(tmpdir, "large_model.zst")
+        file_path = os.path.join(tmpdir, "large_model.zst")
 
-            # Save
-            result = save_mlframe_model(large_data, file_path, verbose=0)
+        # Save
+        result = save_mlframe_model(large_data, file_path, verbose=0)
+        assert result is True
+
+        # Verify file exists and has reasonable size
+        assert os.path.exists(file_path)
+        file_size = os.path.getsize(file_path) / (1024 * 1024)  # MB
+        assert file_size > 0.1, "File should have substantial size"
+
+        # Load
+        loaded = load_mlframe_model(file_path)
+        assert loaded is not None
+
+    def test_repeated_save_operations(self, tmp_path):
+        """Test repeated save operations don't cause issues."""
+        tmpdir = str(tmp_path)
+        data = {"key": np.random.randn(100)}
+
+        for i in range(10):
+            file_path = os.path.join(tmpdir, f"model_{i}.zst")
+            result = save_mlframe_model(data, file_path, verbose=0)
             assert result is True
 
-            # Verify file exists and has reasonable size
-            assert os.path.exists(file_path)
-            file_size = os.path.getsize(file_path) / (1024 * 1024)  # MB
-            assert file_size > 0.1, "File should have substantial size"
+        # Verify all files exist
+        files = os.listdir(tmpdir)
+        assert len(files) == 10
 
-            # Load
+    def test_save_load_different_compressions(self, tmp_path):
+        """Test save/load with different compression levels."""
+        tmpdir = str(tmp_path)
+        data = {"data": np.random.randn(500, 100)}
+
+        for compression in [1, 5, 10]:
+            file_path = os.path.join(tmpdir, f"model_comp{compression}.zst")
+            result = save_mlframe_model(data, file_path, zstd_kwargs={'level': compression}, verbose=0)
+            assert result is True
+
             loaded = load_mlframe_model(file_path)
             assert loaded is not None
-
-    def test_repeated_save_operations(self):
-        """Test repeated save operations don't cause issues."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            data = {"key": np.random.randn(100)}
-
-            for i in range(10):
-                file_path = os.path.join(tmpdir, f"model_{i}.zst")
-                result = save_mlframe_model(data, file_path, verbose=0)
-                assert result is True
-
-            # Verify all files exist
-            files = os.listdir(tmpdir)
-            assert len(files) == 10
-
-    def test_save_load_different_compressions(self):
-        """Test save/load with different compression levels."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            data = {"data": np.random.randn(500, 100)}
-
-            for compression in [1, 5, 10]:
-                file_path = os.path.join(tmpdir, f"model_comp{compression}.zst")
-                result = save_mlframe_model(data, file_path, zstd_kwargs={'level': compression}, verbose=0)
-                assert result is True
-
-                loaded = load_mlframe_model(file_path)
-                assert loaded is not None

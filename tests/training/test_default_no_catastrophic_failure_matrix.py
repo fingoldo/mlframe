@@ -62,7 +62,14 @@ from typing import Callable, Tuple
 import numpy as np
 import pytest
 
+from tests.conftest import is_fast_mode
+
 pytestmark = pytest.mark.slow
+
+# Halve MLP max_epochs under fast mode (early-stopping cuts most rows well
+# before the ceiling anyway; halving the ceiling protects against
+# pathological no-early-stop regressions slowing the suite).
+_MLP_MAX_EPOCHS = 100 if is_fast_mode() else 200
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +249,7 @@ def _factory_mlp():
     }
     trainer_params = {
         "min_epochs": 1,
-        "max_epochs": 200,
+        "max_epochs": _MLP_MAX_EPOCHS,
         "check_val_every_n_epoch": 1,
         "gradient_clip_val": 1.0,
         "gradient_clip_algorithm": "norm",

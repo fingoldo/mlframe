@@ -44,7 +44,12 @@ from .test_fuzz_suite import (
 )
 
 
-_MAX_EXAMPLES = int(os.environ.get("MLFRAME_HYPOTHESIS_EXAMPLES", "20"))
+# Drop example count to 3 under MLFRAME_FAST so the hypothesis sweep can be
+# included in --fast runs as a smoke probe; full sweep uses the env override or
+# the default 20.
+_MLFRAME_FAST = os.environ.get("MLFRAME_FAST", "").strip() not in ("", "0", "false", "False")
+_DEFAULT_EXAMPLES = "3" if _MLFRAME_FAST else "20"
+_MAX_EXAMPLES = int(os.environ.get("MLFRAME_HYPOTHESIS_EXAMPLES", _DEFAULT_EXAMPLES))
 
 
 # Continuous strategies for the leaf axes Hypothesis drives. Discrete

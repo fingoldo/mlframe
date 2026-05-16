@@ -38,9 +38,12 @@ def _capture_target_prefix(mrmr: MRMR, X: pd.DataFrame, y) -> str:
     # _resolve_target_prefix is the seam introduced by the fix. The pre-fix
     # implementation has no such helper, so we fall back to running fit() once
     # and inspecting the columns mutation via a monkey-patched categorize_dataset.
-    if hasattr(mrmr, "_resolve_target_prefix"):
-        return mrmr._resolve_target_prefix()
-    pytest.skip("pre-fix MRMR exposes no seam to capture the target prefix deterministically")
+    # Post-fix MRMR exposes _resolve_target_prefix as a stable seam; pre-fix this skip-mask hid
+    # the absence of the seam. The fix has landed (mrmr.py:632), so the attribute is required.
+    assert hasattr(mrmr, "_resolve_target_prefix"), (
+        "MRMR must expose _resolve_target_prefix; the fix at mrmr.py:632 regressed."
+    )
+    return mrmr._resolve_target_prefix()
 
 
 def test_fix1_target_prefix_reproducible_across_instances():
@@ -146,9 +149,10 @@ def test_fix3_screen_does_not_mutate_global_numpy_rng():
 def test_fix4_cv_param_wired_into_rfecv_kwargs():
     """MRMR.cv and MRMR.cv_shuffle must be threaded into RFECV constructor kwargs."""
     m = MRMR(cv=7, cv_shuffle=True, verbose=0)
-    # The fix exposes a small helper that returns the kwargs passed to RFECV.
-    if not hasattr(m, "_rfecv_cv_kwargs"):
-        pytest.skip("pre-fix MRMR has no _rfecv_cv_kwargs seam")
+    # Post-fix MRMR exposes _rfecv_cv_kwargs as a stable seam; the fix at mrmr.py:674 has landed.
+    assert hasattr(m, "_rfecv_cv_kwargs"), (
+        "MRMR must expose _rfecv_cv_kwargs; the fix at mrmr.py:674 regressed."
+    )
     kwargs = m._rfecv_cv_kwargs()
     assert kwargs.get("cv") == 7
     assert kwargs.get("cv_shuffle") is True
@@ -209,9 +213,9 @@ def test_fix6_int64_downcast_skipped_when_out_of_int16_range():
              skip_retraining_on_same_shape=False, fe_max_steps=0)
     # The downcast happens early in fit, BEFORE any categorisation. Reach in via the
     # newly-introduced helper.
-    if not hasattr(m, "_coerce_target_dtype"):
-        pytest.skip("pre-fix MRMR has no _coerce_target_dtype seam")
-
+    assert hasattr(m, "_coerce_target_dtype"), (
+        "MRMR must expose _coerce_target_dtype; the fix at mrmr.py:650 regressed."
+    )
     coerced = m._coerce_target_dtype(y)
     assert coerced.dtype != np.int16, (
         f"out-of-range int64 silently downcast to int16; original max={max(y)}"

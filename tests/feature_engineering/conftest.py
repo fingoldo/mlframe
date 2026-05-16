@@ -30,18 +30,20 @@ def sample_dates_df_polars():
     return pl.DataFrame({'date': dates, 'value': list(range(len(dates)))})
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_ohlcv_polars():
-    """Polars OHLCV DataFrame for financial feature tests."""
-    np.random.seed(42)
+    """Polars OHLCV DataFrame for financial feature tests; session-scoped."""
+    # Local Generator instead of mutating np.random global state; data is
+    # deterministic + read-only so session scope is safe.
+    rng = np.random.default_rng(42)
     n = 100
-    close = 100 + np.cumsum(np.random.randn(n) * 0.5)
+    close = 100 + np.cumsum(rng.standard_normal(n) * 0.5)
     return pl.DataFrame({
         'ticker': ['A'] * n,
-        'open': close + np.random.randn(n) * 0.1,
-        'high': close + np.abs(np.random.randn(n) * 0.5),
-        'low': close - np.abs(np.random.randn(n) * 0.5),
+        'open': close + rng.standard_normal(n) * 0.1,
+        'high': close + np.abs(rng.standard_normal(n) * 0.5),
+        'low': close - np.abs(rng.standard_normal(n) * 0.5),
         'close': close,
-        'volume': np.abs(np.random.randn(n) * 1000 + 5000),
-        'qty': np.abs(np.random.randn(n) * 100 + 500),
+        'volume': np.abs(rng.standard_normal(n) * 1000 + 5000),
+        'qty': np.abs(rng.standard_normal(n) * 100 + 500),
     })

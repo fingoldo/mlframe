@@ -10,16 +10,51 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 try:
+    import psutil as _ps_module  # type: ignore[import-untyped]
+except ImportError:  # pragma: no cover
+    _ps_module = None  # type: ignore[assignment]
+
+try:
     import polars as pl
 except ImportError:
     pl = None  # type: ignore[assignment]
 
+# Cache for ``inspect.signature(cls.__init__)`` results -- the NGBoost / sklearn TypeError fallback
+# branch calls ``inspect.signature`` on every TypeError, paying ~0.5-1ms per hit. The signature is
+# purely a property of the class, so we memoize by ``id(cls)`` and reuse across iterations.
+_INIT_SIG_CACHE: dict[int, set[str]] = {}
+
+
+def _cached_init_params(cls) -> set[str]:
+    """Return the set of accepted ``__init__`` kwargs for ``cls`` (excl. ``self``), cached by id."""
+    key = id(cls)
+    cached = _INIT_SIG_CACHE.get(key)
+    if cached is None:
+        cached = set(inspect.signature(cls.__init__).parameters) - {"self"}
+        _INIT_SIG_CACHE[key] = cached
+    return cached
+
 from sklearn.base import clone
 
-from pyutilz.strings import slugify
+from functools import lru_cache
+
+from pyutilz.strings import slugify as _slugify_raw
 from pyutilz.system import tqdmu_lazy_start
 
+
+@lru_cache(maxsize=512)
+def _cached_slugify(name: str) -> str:
+    """SLUGIFY-PER-TGT: memoize the pure slugify() helper so the per-target call is O(1) after the
+    first hit. Bounded LRU prevents accidental unbounded growth in long-lived processes that
+    re-train the suite on rotating target names."""
+    return _slugify_raw(name)
+
+
+# Back-compat alias so existing call sites that read ``slugify`` continue to work.
+slugify = _cached_slugify
+
 from mlframe.models.ensembling import score_ensemble
+from ..configs import TargetTypes as _TargetTypes  # TARGETTYPES-IMPORT-LOOP: hoist out of inner write loop
 from .._ram_helpers import estimate_df_size_mb, get_process_rss_mb, maybe_clean_ram_and_gpu
 from ..phases import phase
 from ..models import is_neural_model
@@ -341,6 +376,7 @@ def _compute_pipeline_cache_key(
     cat_features,
     text_features,
     embedding_features,
+    train_df=None,
 ) -> str:
     """Build the PipelineCache lookup key for a (strategy, pre_pipeline, tier, kind, features) combo.
 
@@ -350,6 +386,13 @@ def _compute_pipeline_cache_key(
     session that toggled a column's role. Sorting before serialization gives a deterministic byte
     stream: frozenset.__repr__ iterates in hash-seeded order (PYTHONHASHSEED) and would change the
     digest across processes for the same membership.
+
+    CACHE-KEY-CONTENT-OMITTED-POLARS-SCHEMA: when ``train_df`` is supplied AND it's a polars frame,
+    fold a tuple of (col_name, dtype_str) into the hash. Pre-fix Int64 vs Int32 frames with
+    otherwise-equal cat/text/embedding splits collided on the same cache key, so a re-typed second
+    target would be served target 1's preprocessed frame and downstream consumers would fail on
+    dtype-aware checks. Pandas frames are unaffected because pandas dtype changes already perturb
+    the upstream split_features pipeline.
     """
     _tier_suffix = f"_tier{feature_tier}"
     _kind_suffix = f"_kind{'pl' if supports_polars else 'pd'}"
@@ -359,9 +402,16 @@ def _compute_pipeline_cache_key(
         tuple(sorted(embedding_features or ())),
     ))
     _feats_suffix = f"_feats{hashlib.blake2b(_feats_repr.encode(), digest_size=8).hexdigest()}"
+    _dtype_suffix = ""
+    if train_df is not None and pl is not None and isinstance(train_df, pl.DataFrame):
+        try:
+            _dtype_pairs = tuple((c, str(train_df.schema[c])) for c in train_df.columns)
+            _dtype_suffix = f"_dt{hashlib.blake2b(repr(_dtype_pairs).encode(), digest_size=6).hexdigest()}"
+        except Exception:
+            _dtype_suffix = ""
     if pre_pipeline_name:
-        return f"{strategy_cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}{_feats_suffix}"
-    return f"{strategy_cache_key}{_tier_suffix}{_kind_suffix}{_feats_suffix}"
+        return f"{strategy_cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
+    return f"{strategy_cache_key}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
 
 
 # XGB DMatrix / LGB Dataset reuse cache attribute names: forwarded across sklearn.clone() in both
@@ -444,13 +494,23 @@ def _get_feature_side_cache(ctx) -> dict:
 def _get_dataset_reuse_cache(ctx) -> dict:
     """Return the (creating-if-needed) suite-scoped dataset-reuse cache off ctx.artifacts.
 
-    Keyed by ``mlframe_model_name``; each entry is a dict of ``_DATASET_REUSE_CACHE_ATTRS`` ->
-    value captured from the prior target's fitted model template before _maybe_clear_shim_cache
-    nuked it. The per-target restore happens on the FRESH ``models_params[name]["model"]``
-    template right before clone(), so set_label / set_weight on the same train_df pointer reuses
-    the heavy binned dataset across targets without rebuild.
+    Keyed by ``(mlframe_model_name, pp_name)`` post-fix (DSET-REUSE-NO-PP-KEY): pre-fix the key was
+    a bare ``mlframe_model_name``, so two pre-pipelines (e.g. MRMR vs ordinary) on the same target
+    + model produced different column sets and collided on the same cache slot, replaying the
+    prior PP's binned dataset onto the next PP's fresh template. ``capture`` / ``restore`` build
+    the same tuple key so the round-trip stays consistent. Entries are dicts of
+    ``_DATASET_REUSE_CACHE_ATTRS`` -> value captured from the prior target's fitted model template
+    before _maybe_clear_shim_cache nuked it.
     """
     return _ensure_ctx_artifacts(ctx).setdefault(_DATASET_REUSE_CACHE_KEY, {})
+
+
+def _dataset_reuse_cache_key(mlframe_model_name: str, pp_name: str | None) -> tuple:
+    """Build the (model_name, pp_name) cache key for the dataset-reuse cache.
+
+    Centralised so capture-side and restore-side never disagree on key shape.
+    """
+    return (mlframe_model_name, pp_name or "")
 
 
 def _invalidate_polars_feature_side_cache(ctx) -> None:
@@ -494,10 +554,52 @@ def _invalidate_polars_feature_side_cache(ctx) -> None:
             _enum_map.clear()
 
 
+def _purge_fh_cache_by_df_tokens(ctx, df_tokens) -> None:
+    """Scrub FH ``FeatureCache._mem`` entries whose ``df_token`` matches a just-released frame id.
+
+    The FH cache is keyed by ``InMemoryKey(session_id, df_token=id(train_df), ...)``. While the
+    strong ref is alive, ``id()`` is stable; once we drop it in ``_release_ctx_polars_frames``,
+    Python may recycle the same integer for a freshly allocated frame. The session_id is rotated
+    per-suite by ``reset_session`` so cross-suite reuse is already safe; this scrub handles the
+    mid-suite tier-transition case where one suite call releases polars frames and a subsequent
+    target-loop iteration re-builds them.
+
+    FeatureCache instances live wherever the suite stashed them. v1 stores under
+    ``ctx.artifacts["feature_handling_fitted"]`` (the FeatureHandlingResult holds no cache ref);
+    later phases may park the cache itself under ``ctx.artifacts["feature_handling_cache"]`` (single
+    instance for the whole suite). Honour either shape; tolerate absence.
+    """
+    if not df_tokens:
+        return
+    artifacts = getattr(ctx, "artifacts", None)
+    if not isinstance(artifacts, dict):
+        return
+    candidates = []
+    _cache = artifacts.get("feature_handling_cache")
+    if _cache is not None:
+        candidates.append(_cache)
+    _fitted = artifacts.get("feature_handling_fitted")
+    if isinstance(_fitted, dict):
+        for _v in _fitted.values():
+            _c = getattr(_v, "cache", None)
+            if _c is not None and _c not in candidates:
+                candidates.append(_c)
+    for _cache in candidates:
+        _purge_fn = getattr(_cache, "purge_by_df_token", None)
+        if not callable(_purge_fn):
+            continue
+        for _tok in df_tokens:
+            try:
+                _purge_fn(_tok)
+            except Exception as _purge_err:  # pragma: no cover -- defensive
+                logger.debug("FH cache purge_by_df_token(%s) raised %r; continuing", _tok, _purge_err)
+
+
 def _capture_dataset_reuse_cache(
     ctx,
     mlframe_model_name: str,
     model_template,
+    pp_name: str | None = None,
 ) -> None:
     """Snapshot ``_DATASET_REUSE_CACHE_ATTRS`` off ``model_template`` into ctx.artifacts.
 
@@ -516,13 +618,14 @@ def _capture_dataset_reuse_cache(
             continue
         captured[_attr] = _val
     if captured:
-        _get_dataset_reuse_cache(ctx)[mlframe_model_name] = captured
+        _get_dataset_reuse_cache(ctx)[_dataset_reuse_cache_key(mlframe_model_name, pp_name)] = captured
 
 
 def _restore_dataset_reuse_cache(
     ctx,
     mlframe_model_name: str,
     model_template,
+    pp_name: str | None = None,
 ) -> None:
     """Re-attach ``_DATASET_REUSE_CACHE_ATTRS`` from ctx.artifacts onto ``model_template``.
 
@@ -535,7 +638,8 @@ def _restore_dataset_reuse_cache(
     """
     if model_template is None:
         return
-    captured = (ctx.artifacts or {}).get(_DATASET_REUSE_CACHE_KEY, {}).get(mlframe_model_name)
+    _key = _dataset_reuse_cache_key(mlframe_model_name, pp_name)
+    captured = (ctx.artifacts or {}).get(_DATASET_REUSE_CACHE_KEY, {}).get(_key)
     if not captured:
         return
     for _attr, _val in captured.items():
@@ -566,6 +670,7 @@ def _release_ctx_polars_frames(
     ref to the same frames is introduced upstream without being scrubbed here.
     """
     expected_mb = 0.0
+    released_df_tokens: list = []
     for _attr in ("train_df_polars", "val_df_polars", "test_df_polars"):
         _frame = getattr(ctx, _attr, None)
         if _frame is None:
@@ -576,6 +681,10 @@ def _release_ctx_polars_frames(
             _sz = 0.0
         if _sz and _sz != float("inf"):
             expected_mb += float(_sz)
+        # Capture id() BEFORE clearing the ctx slot -- once we drop the strong ref, Python is free
+        # to recycle the integer for a freshly-allocated object and we'd no longer be able to scrub
+        # the matching FH cache entries.
+        released_df_tokens.append(id(_frame))
     rss_before_mb = get_process_rss_mb()
     ctx.train_df_polars = None
     ctx.val_df_polars = None
@@ -584,6 +693,26 @@ def _release_ctx_polars_frames(
     # frames we just released. Pandas-tier entries are preserved - they point at separate
     # frames not touched by this release.
     _invalidate_polars_feature_side_cache(ctx)
+    # VIEW-CACHE-NOT-WIPED: ``ctx._pandas_view_cache`` keys by ``id(polars_df)``. The frames we just
+    # released may have their ids recycled by a freshly allocated polars frame the next time the
+    # suite enters tier_pandas conversion -- the cache would silently serve the prior pandas view.
+    # Pop every entry keyed by a just-released id so the next conversion always misses cleanly.
+    _view_cache = getattr(ctx, "_pandas_view_cache", None)
+    if isinstance(_view_cache, dict):
+        for _tok in released_df_tokens:
+            _view_cache.pop(_tok, None)
+    # Same hygiene for the recurrent numpy-coercion cache (POLARS-PANDAS-CHURN). Keys are
+    # ``(split, id(frame))`` so we pop every (_, tok) pair where the second element matches a
+    # just-released id.
+    _rec_cache = getattr(ctx, "_recurrent_numpy_cache", None)
+    if isinstance(_rec_cache, dict) and released_df_tokens:
+        _released_set = set(released_df_tokens)
+        for _k in [k for k in _rec_cache.keys() if isinstance(k, tuple) and len(k) == 2 and k[1] in _released_set]:
+            _rec_cache.pop(_k, None)
+    # Scrub any FH FeatureCache in-memory entries keyed by the released df ids. Without this, a
+    # future tier transition that re-allocates a polars frame at the same memory address would
+    # silently hit a cached entry whose state belonged to the dropped frame.
+    _purge_fh_cache_by_df_tokens(ctx, released_df_tokens)
     new_baseline = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason=reason)
     if expected_mb > 0.0:
         rss_after_mb = get_process_rss_mb()
@@ -924,11 +1053,18 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         custom_pre_pipelines=custom_pre_pipelines,
         rfecv_leakage_corr_threshold=feature_selection_config.rfecv_leakage_corr_threshold,
         rfecv_mbh_adaptive_threshold=feature_selection_config.rfecv_mbh_adaptive_threshold,
+        use_boruta_shap=feature_selection_config.use_boruta_shap,
+        boruta_shap_kwargs=feature_selection_config.boruta_shap_kwargs,
     )
 
     # Custom transformers run AFTER preprocessing, so the preprocessing output is shared across
-    # pre_pipelines of the same model-type bucket; one cache instance covers the whole sweep.
-    pipeline_cache = PipelineCache()
+    # pre_pipelines of the same model-type bucket; one cache instance covers the whole sweep. Hoist
+    # to ctx (PIPECACHE-PER-TGT) so multi-target suites share one cache across targets -- selector /
+    # encoder fits done for target 1 are reusable for target 2 when the cache_key matches (only
+    # changes when the feature set / strategy / kind / pp_name changes).
+    if ctx._pipeline_cache is None:
+        ctx._pipeline_cache = PipelineCache()
+    pipeline_cache = ctx._pipeline_cache
 
     # Suite-scoped cache observability. ``finalize_suite`` aggregates these into
     # ``metadata["cache_stats"]``. Initialise once per call rather than per pre_pipeline so the inner
@@ -965,20 +1101,29 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
 
         if sample_weights:
             weight_schemas = sample_weights
-            if "uniform" in sample_weights:
-                logger.info("Using %d weighting schema(s) from extractor: %s", len(weight_schemas), list(weight_schemas.keys()))
-            else:
-                logger.info("Using %d weighting schema(s) from extractor: %s. Note: uniform weighting not included.", len(weight_schemas), list(weight_schemas.keys()))
+            # SW-LOG-PER-PP-PER-TGT: emit this banner once per suite, not once per (target x
+            # pre_pipeline x weight). The weighting schema is suite-constant; identical lines
+            # repeated K_targets x K_pp times bloat the log without adding info.
+            if not ctx._sw_log_emitted:
+                if "uniform" in sample_weights:
+                    logger.info("Using %d weighting schema(s) from extractor: %s", len(weight_schemas), list(weight_schemas.keys()))
+                else:
+                    logger.info("Using %d weighting schema(s) from extractor: %s. Note: uniform weighting not included.", len(weight_schemas), list(weight_schemas.keys()))
+                ctx._sw_log_emitted = True
         else:
             weight_schemas = {"uniform": None}
-            logger.info("No weighting schemas from extractor, defaulting to uniform weighting.")
+            if not ctx._sw_log_emitted:
+                logger.info("No weighting schemas from extractor, defaulting to uniform weighting.")
+                ctx._sw_log_emitted = True
 
         # Backward val placement + recency weighting cancel each other's drift-proxy intent
         # (val older than train, training biased to newest rows). Warn so the user picks one.
+        # VAL-PLACE-WARN-PP: gate behind a per-suite latch so the warning fires once, not per PP.
         _val_placement = getattr(split_config, "val_placement", "forward")
-        if _val_placement == "backward":
+        if _val_placement == "backward" and not ctx._val_placement_warn_emitted:
             _non_uniform = [k for k in weight_schemas.keys() if k != "uniform"]
             if _non_uniform:
+                ctx._val_placement_warn_emitted = True
                 logger.warning(
                     "  val_placement='backward' is combined with %d non-"
                     "uniform weighting schema(s) %s. Backward val is "
@@ -1039,9 +1184,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # Per-model RSS sample is intentional: localising OOM-blame to a specific
                 # model+target+pre_pipeline tuple in the verbose-suite log saves hours of post-mortem
                 # log-correlation. The ~3ms/call Windows cost is dwarfed by per-model fit times.
+                # PSUTIL-IMPORT-HOT: ``psutil`` is now imported at module level (``_ps_module``);
+                # the prior in-loop import paid ImportError lookup costs on every iter.
                 try:
-                    import psutil as _ps
-                    _ram_gb_now = _ps.Process().memory_info().rss / (1024 ** 3)
+                    _ram_gb_now = (
+                        _ps_module.Process().memory_info().rss / (1024 ** 3)
+                        if _ps_module is not None else 0.0
+                    )
                 except Exception:
                     _ram_gb_now = 0.0
                 logger.info(
@@ -1064,6 +1213,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # and triggers set_label / set_weight in place rather than a fresh build.
             _restore_dataset_reuse_cache(
                 ctx, mlframe_model_name, models_params[mlframe_model_name]["model"],
+                pp_name=pre_pipeline_name,
             )
 
             strategy = strategy_by_model[id(mlframe_model_name)]
@@ -1127,6 +1277,10 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # Kind suffix prevents Polars-native (XGB) and pandas-only (LGB) consumers from sharing entries
             # within a tier, which would otherwise undo the lazy pandas conversion downstream.
             # See _compute_pipeline_cache_key for the features-digest contract (frozenset, order-invariant).
+            # Pass the polars train frame (if present) so dtype changes between targets / runs
+            # invalidate the cache; pandas frames don't reach this branch typed-distinct enough to
+            # need the suffix (handled upstream in split_features), so it's safe to skip there.
+            _cache_key_train_df = train_df_polars if strategy.supports_polars else None
             cache_key = _compute_pipeline_cache_key(
                 strategy.cache_key,
                 pre_pipeline_name,
@@ -1135,6 +1289,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 cat_features,
                 text_features,
                 embedding_features,
+                train_df=_cache_key_train_df,
             )
 
             # Polars fastpath substitutes original Polars DataFrames for natively-Polars consumers
@@ -1295,6 +1450,15 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             _cs_pv["misses"] += 1
                             _pd_view = get_pandas_view_of_polars_df(df_)
                             _view_cache[_src_id] = _pd_view
+                            # VIEW-CACHE-NO-EVICT: bound to 4 entries (the suite has at most 3 frames
+                            # active -- train/val/test -- plus one slack for in-flight tier swaps).
+                            # Without this the cache grows monotonically across targets and pins
+                            # pandas blockmgrs that the upstream polars frames thought they freed.
+                            # OrderedDict not used: ctx slot is plain dict for back-compat, so a
+                            # popitem() FIFO is good enough at this small bound.
+                            while len(_view_cache) > 4:
+                                _evict_k = next(iter(_view_cache))
+                                _view_cache.pop(_evict_k, None)
                         else:
                             _cs_pv["hits"] += 1
                         common_params[df_key] = _pd_view
@@ -1332,11 +1496,25 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # fingerprint without recomputation. Audit-checked vs compute_model_input_fingerprint:
             # signature takes train_df + cat/text/embedding_features only, no target.
             _fp_train_df_pre = prepared_train if polars_fastpath_active else tier_pandas["train_df"]
+            # FP-KEY-OMITS-CONTENT: original key excluded the train_df identity, so when the same
+            # strategy / tier / kind / pp_name combination was hit by two different per-target
+            # frames (filtered_train_df rebuilt across targets), the cache would return target 1's
+            # schema hash for target 2. Fold ``id(train_df)`` (strong-ref-pinned at this point) and
+            # the schema column-count to disambiguate; full schema hash isn't needed here because a
+            # mismatch in id alone forces recompute.
+            _fp_train_df_id = id(_fp_train_df_pre) if _fp_train_df_pre is not None else 0
+            _fp_train_df_ncols = (
+                len(_fp_train_df_pre.columns)
+                if _fp_train_df_pre is not None and hasattr(_fp_train_df_pre, "columns")
+                else 0
+            )
             _fp_cache_key = (
                 id(strategy),
                 strategy.feature_tier(),
                 strategy.supports_polars,
                 pre_pipeline_name,
+                _fp_train_df_id,
+                _fp_train_df_ncols,
             )
             # Fingerprint cache stats: HIT when the per-(strategy, tier, kind, pp_name) key is already
             # cached, MISS when we have to compute. Same proxy-counter pattern as the pandas-view
@@ -1404,8 +1582,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     cloned_model = type(original_model)(**original_model.get_params())
                 except TypeError:
                     # NGBoost: get_params() exposes attributes the constructor doesn't accept.
+                    # SIG-IN-EXCEPT: memoize the inspect.signature lookup so the TypeError branch
+                    # isn't paying ~0.5-1ms per hit -- the cache lives at module scope keyed by
+                    # ``id(cls)`` because ``cls.__init__`` is class-invariant.
                     _cls = type(original_model)
-                    _sig_params = set(inspect.signature(_cls.__init__).parameters) - {"self"}
+                    _sig_params = _cached_init_params(_cls)
                     _raw = original_model.get_params(deep=False)
                     cloned_model = _cls(**{k: v for k, v in _raw.items() if k in _sig_params})
                 # sklearn.clone() strips non-param attributes; re-assert mlframe sticky flags so the
@@ -1588,8 +1769,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     else cur_target_values.iloc[_train_idx]
                 )
                 try:
-                    from ..configs import TargetTypes
-                    if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
+                    if target_type == _TargetTypes.MULTILABEL_CLASSIFICATION:
                         _record["n_classes"] = (
                             int(train_y.shape[1])
                             if hasattr(train_y, "shape") and train_y.ndim == 2
@@ -1598,7 +1778,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         _record["multilabel_strategy"] = "native" if (
                             hasattr(strategy, "supports_native_multilabel") and strategy.supports_native_multilabel
                         ) else "wrapper"
-                    elif target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
+                    elif target_type == _TargetTypes.MULTICLASS_CLASSIFICATION:
                         _record["n_classes"] = (
                             int(len(np.unique(np.asarray(train_y))))
                             if hasattr(train_y, "shape") else None
@@ -1617,16 +1797,32 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # transformed.columns`` gives the post-FS surviving features for both pandas and
                 # polars frames. The report is always stamped (selector_name=None for ordinary) so
                 # downstream consumers can rely on the key existing.
+                #
+                # FS-REPORT-WLOOP: cache the report at ``(cur_target_name, pp_name, model_name,
+                # id(pre_pipeline))`` because the fitted selector + kept columns are weight-invariant.
+                # Building the report walks ``inspect`` / ``getattr`` over the selector each time;
+                # cache HIT skips the introspection walk for every weight schema after the first.
                 try:
                     _kept_cols = None
                     if train_df_transformed is not None and hasattr(train_df_transformed, "columns"):
                         _kept_cols = list(train_df_transformed.columns)
-                    _record["feature_selection_report"] = _build_feature_selection_report(
-                        pre_pipeline=pre_pipeline,
-                        pre_pipeline_name=pre_pipeline_name,
-                        fitted_columns_in=None,
-                        kept_columns=_kept_cols,
+                    _fsr_key = (
+                        cur_target_name,
+                        pre_pipeline_name,
+                        mlframe_model_name,
+                        id(pre_pipeline),
+                        tuple(_kept_cols) if _kept_cols is not None else None,
                     )
+                    _fsr_cached = ctx._fs_report_cache.get(_fsr_key)
+                    if _fsr_cached is None:
+                        _fsr_cached = _build_feature_selection_report(
+                            pre_pipeline=pre_pipeline,
+                            pre_pipeline_name=pre_pipeline_name,
+                            fitted_columns_in=None,
+                            kept_columns=_kept_cols,
+                        )
+                        ctx._fs_report_cache[_fsr_key] = _fsr_cached
+                    _record["feature_selection_report"] = _fsr_cached
                 except Exception as _fsr_err:
                     logger.warning("feature_selection_report build failed for %s: %s", mlframe_model_name, _fsr_err)
                     _record["feature_selection_report"] = {
@@ -1661,7 +1857,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # clear below frees the dataset and the cross-target hoist degrades to a no-op (same
             # behaviour as before the hoist). Storing references only - the binned dataset is
             # shared with whatever held it before; the clear merely drops the template's pointer.
-            _capture_dataset_reuse_cache(ctx, mlframe_model_name, original_model)
+            _capture_dataset_reuse_cache(ctx, mlframe_model_name, original_model, pp_name=pre_pipeline_name)
             _maybe_clear_shim_cache(original_model)
             # ens_models snapshots may also hold the cache by reference (forward-transfer at clone() copied
             # the reference rather than moving it); release on each so the binned dataset can be freed.

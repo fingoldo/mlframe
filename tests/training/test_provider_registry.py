@@ -151,29 +151,41 @@ class TestAcquireReleaseLifecycle:
 class TestConcurrentAcquire:
     def test_two_threads_one_load(self, cache_cfg):
         p = _DummyProvider("sig-concurrent")
-        # Slow down acquire to exaggerate race window
         original_acquire = p.acquire
+        n_workers = 4
 
-        def _slow_acquire():
-            time.sleep(0.05)
+        # Deterministic race-widening: a threading.Barrier inside the acquire forces all workers
+        # to reach the load critical section simultaneously, so the TOCTOU window is opened
+        # explicitly rather than depending on time.sleep(0.05) and CPU scheduling. The lock
+        # serialising acquire_provider MUST still produce a single load -- that's the contract
+        # under test.
+        barrier = threading.Barrier(n_workers, timeout=5.0)
+
+        def _race_acquire():
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                pass
             original_acquire()
 
-        p.acquire = _slow_acquire  # type: ignore
+        p.acquire = _race_acquire  # type: ignore
 
         results: List[bool] = []
+        results_lock = threading.Lock()
 
         def worker():
             with acquire_provider(p, cache_cfg) as got:
-                results.append(got is p)
+                with results_lock:
+                    results.append(got is p)
 
-        threads = [threading.Thread(target=worker) for _ in range(4)]
+        threads = [threading.Thread(target=worker) for _ in range(n_workers)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
 
-        assert results == [True] * 4
-        # Despite 4 concurrent acquires, the provider was loaded ONCE.
+        assert results == [True] * n_workers
+        # Despite n_workers concurrent acquires, the provider was loaded ONCE.
         assert p.acquire_calls == 1
 
 

@@ -9,7 +9,6 @@ Validates:
 
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -66,7 +65,7 @@ def test_discovery_config_signature_changes_when_mlframe_version_bumps():
     assert s_a != s_b
 
 
-def test_discovery_cache_round_trip_skips_recompute():
+def test_discovery_cache_round_trip_skips_recompute(tmp_path):
     """Two consecutive get() calls on the same key return identical payloads."""
     cfg = _FakeConfig(enabled=True, top_k=3, random_state=42)
     df = _fake_df()
@@ -76,35 +75,33 @@ def test_discovery_cache_round_trip_skips_recompute():
     cfg_sig = _discovery_config_signature(cfg)
     cache_key = make_discovery_cache_key(df_sig, "target", cfg_sig, random_state=42)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        cache = DiscoveryCache(tmpdir)
-        assert cache.get(cache_key) is None
-        payload = {"specs_export": [{"name": "fake_spec"}], "failures": [], "filter_drops": {}}
-        cache.set(cache_key, payload)
-        # Second discovery call would look this up and skip recompute.
-        roundtrip = cache.get(cache_key)
-        assert roundtrip == payload
+    cache = DiscoveryCache(str(tmp_path))
+    assert cache.get(cache_key) is None
+    payload = {"specs_export": [{"name": "fake_spec"}], "failures": [], "filter_drops": {}}
+    cache.set(cache_key, payload)
+    # Second discovery call would look this up and skip recompute.
+    roundtrip = cache.get(cache_key)
+    assert roundtrip == payload
 
 
-def test_discovery_cache_miss_after_version_bump():
+def test_discovery_cache_miss_after_version_bump(tmp_path):
     """Same df + same logical config but bumped mlframe version -> miss."""
     cfg = _FakeConfig(enabled=True, top_k=3)
     df = _fake_df()
     feature_cols = ["base", "f1", "f2"]
     df_sig = data_signature(df, "target", feature_cols, random_state=42)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        cache = DiscoveryCache(tmpdir)
-        with mock.patch("mlframe.__version__", "1.0.0-A"):
-            key_a = make_discovery_cache_key(
-                df_sig, "target", _discovery_config_signature(cfg), random_state=42,
-            )
-            cache.set(key_a, {"specs_export": [{"name": "a"}]})
+    cache = DiscoveryCache(str(tmp_path))
+    with mock.patch("mlframe.__version__", "1.0.0-A"):
+        key_a = make_discovery_cache_key(
+            df_sig, "target", _discovery_config_signature(cfg), random_state=42,
+        )
+        cache.set(key_a, {"specs_export": [{"name": "a"}]})
 
-        with mock.patch("mlframe.__version__", "1.0.0-B"):
-            key_b = make_discovery_cache_key(
-                df_sig, "target", _discovery_config_signature(cfg), random_state=42,
-            )
-            # Bumped version must yield a different key (cache MISS).
-            assert key_a != key_b
-            assert cache.get(key_b) is None
+    with mock.patch("mlframe.__version__", "1.0.0-B"):
+        key_b = make_discovery_cache_key(
+            df_sig, "target", _discovery_config_signature(cfg), random_state=42,
+        )
+        # Bumped version must yield a different key (cache MISS).
+        assert key_a != key_b
+        assert cache.get(key_b) is None

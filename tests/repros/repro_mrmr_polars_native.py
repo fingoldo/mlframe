@@ -9,6 +9,11 @@ production frames (see CLAUDE.md). This script asserts:
   3. No pl.DataFrame.to_pandas() is called during fit on the full frame
      (only the cat-col subset for OrdinalEncoder is allowed).
 """
+# expected: passes after the corresponding fix shipped on 2026-05-16
+# (audit-fixes-2026-05-16). Kept as a manual repro script; not collected by
+# pytest because the regression coverage now lives in tests/training/.
+__test__ = False
+
 import sys
 sys.path.insert(0, r"D:/Upd/Programming/PythonCodeRepository/mlframe")
 

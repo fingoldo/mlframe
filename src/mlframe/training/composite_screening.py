@@ -535,6 +535,8 @@ def _tiny_cv_rmse_raw_y(
     return_per_bin: bool = False,
     n_bins: int = 5,
     bin_var: np.ndarray | None = None,
+    time_aware: bool = False,
+    cv_splitter: Any = None,
 ):
     """CV-RMSE of a tiny model trained DIRECTLY on raw y (no transform).
 
@@ -549,7 +551,7 @@ def _tiny_cv_rmse_raw_y(
     Same fit / fold / parallelism contract as :func:`_tiny_cv_rmse_y_scale`
     so the comparison is apples-to-apples.
     """
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import KFold, TimeSeriesSplit
     n = len(y_train)
     if n < cv_folds * 10:
         return float("nan")
@@ -563,7 +565,12 @@ def _tiny_cv_rmse_raw_y(
     if len(y_clean) < cv_folds * 10:
         return float("nan")
 
-    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+    if cv_splitter is not None:
+        kf = cv_splitter
+    elif time_aware:
+        kf = TimeSeriesSplit(n_splits=cv_folds)
+    else:
+        kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
 
     # bin_var aligns to the masked y_clean / x_clean. If caller
     # passed it, mask it the same way.

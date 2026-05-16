@@ -980,15 +980,18 @@ class TestBasicPysrPath:
     """Exercise run_pysr_fe via a tiny synthetic polars frame. Skipped when Julia is missing."""
 
     @pytest.fixture(autouse=True)
-    def _gate_julia(self):
+    def _gate_julia(self, monkeypatch):
         import os, shutil
         # Same gate as test_biz_val_bruteforce: prefer PATH julia, fall back to D:/Julia/bin.
+        # We use monkeypatch.setenv so JULIA_EXE / PATH mutations auto-teardown at test end --
+        # pre-fix this fixture wrote os.environ directly with no teardown, bleeding into every
+        # later test in the session.
         julia = shutil.which("julia") or "D:/Julia/bin/julia.exe"
         if not os.path.isfile(julia):
             pytest.skip("Julia runtime not available")
         bindir = os.path.dirname(julia)
-        os.environ["JULIA_EXE"] = julia
-        os.environ["PATH"] = bindir + os.pathsep + os.environ.get("PATH", "")
+        monkeypatch.setenv("JULIA_EXE", julia)
+        monkeypatch.setenv("PATH", bindir + os.pathsep + os.environ.get("PATH", ""))
         try:
             import pysr  # noqa: F401
         except Exception:

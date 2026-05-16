@@ -172,6 +172,29 @@ def _maybe_pass_sample_weight(fit_callable, X, y, sw: np.ndarray | None):
     return fit_callable.fit(X, y)
 
 
+# Module-level memo cache for compute_oof_holdout_predictions. OOF-K-NOT-CACHED: keyed by
+# (cache_key, kfold, random_state). The cache_key argument is opaque -- callers pass a hashable
+# tuple summarising the (component, X, y, sw) identity (e.g. (id(train_X), y_hash, spec_hash)).
+# 16-entry LRU; once full the oldest entry is evicted on insertion. Stays in-process; cleared at
+# interpreter shutdown.
+_OOF_HOLDOUT_CACHE: dict[tuple, tuple[np.ndarray, np.ndarray, list[str]]] = {}
+_OOF_HOLDOUT_CACHE_CAP = 16
+
+
+def _oof_cache_get(key: tuple):
+    return _OOF_HOLDOUT_CACHE.get(key)
+
+
+def _oof_cache_put(key: tuple, value: tuple) -> None:
+    if len(_OOF_HOLDOUT_CACHE) >= _OOF_HOLDOUT_CACHE_CAP:
+        try:
+            _oldest = next(iter(_OOF_HOLDOUT_CACHE))
+            del _OOF_HOLDOUT_CACHE[_oldest]
+        except StopIteration:  # pragma: no cover
+            pass
+    _OOF_HOLDOUT_CACHE[key] = value
+
+
 def compute_oof_holdout_predictions(
     component_models: list[Any],
     component_names: list[str],
@@ -184,6 +207,7 @@ def compute_oof_holdout_predictions(
     time_ordering: np.ndarray | None = None,
     kfold: int = 1,
     sample_weight: np.ndarray | None = None,
+    cache_key: tuple | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute honest holdout predictions for each component.
 
@@ -228,6 +252,17 @@ def compute_oof_holdout_predictions(
     n_train = len(y_train_full)
     if n_train < 50 or holdout_frac <= 0 or holdout_frac >= 1:
         return np.zeros((0, len(component_models))), np.zeros(0), []
+
+    # OOF-K-NOT-CACHED: when the caller supplied a cache_key we look up the (key, kfold, rs)
+    # tuple. Cache hit is bit-identical with a previous call -- same components, same X, same y,
+    # same fold strategy; semantics for caller stay unchanged.
+    _full_key = None
+    if cache_key is not None:
+        _full_key = (cache_key, int(kfold), int(random_state))
+        _hit = _oof_cache_get(_full_key)
+        if _hit is not None:
+            logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
+            return _hit
 
     # ENS-Low-1: K-fold path. We recurse on the single-split implementation
     # by inducing the desired splits manually. Each fold's holdout slice is
@@ -319,17 +354,23 @@ def compute_oof_holdout_predictions(
                 buf = oof_preds_by_name.setdefault(nm, np.full(n_train, np.nan, dtype=np.float64))
                 buf[fold_holdout_idx] = preds
         if not oof_preds_by_name or not survived_set:
-            return np.zeros((n_train, 0)), y_train_full.astype(np.float64), []
+            _empty = (np.zeros((n_train, 0)), y_train_full.astype(np.float64), [])
+            if _full_key is not None:
+                _oof_cache_put(_full_key, _empty)
+            return _empty
         surviving_names = [n for n in component_names if n in survived_set]
         cols = [oof_preds_by_name[n] for n in surviving_names]
         oof_matrix = np.column_stack(cols)
         # Drop rows with any NaN (folds that lost every component) - rare.
         finite_rows = np.all(np.isfinite(oof_matrix), axis=1)
-        return (
+        _result = (
             oof_matrix[finite_rows],
             y_train_full.astype(np.float64)[finite_rows],
             surviving_names,
         )
+        if _full_key is not None:
+            _oof_cache_put(_full_key, _result)
+        return _result
 
     # Decide whether to do a time-aware split. We use the explicit
     # ``time_ordering`` signal when supplied; absent that we attempt
@@ -444,8 +485,14 @@ def compute_oof_holdout_predictions(
             continue
 
     if not holdout_cols:
-        return np.zeros((n_holdout, 0)), y_holdout, []
-    return np.column_stack(holdout_cols), y_holdout, surviving_names
+        _empty = (np.zeros((n_holdout, 0)), y_holdout, [])
+        if _full_key is not None:
+            _oof_cache_put(_full_key, _empty)
+        return _empty
+    _final = (np.column_stack(holdout_cols), y_holdout, surviving_names)
+    if _full_key is not None:
+        _oof_cache_put(_full_key, _final)
+    return _final
 
 
 class CompositeCrossTargetEnsemble:
@@ -515,6 +562,23 @@ class CompositeCrossTargetEnsemble:
         self.strategy = strategy
         self.is_convex = bool(is_convex)
         self.notes = dict(notes or {})
+        # REFIT-NNLS / REFIT-RIDGE: small LRU cache for surviving-subset refits. 32 entries is plenty
+        # for the handful of distinct member-dropout patterns a production session sees.
+        self._refit_cache: dict[tuple[str, tuple[int, ...]], tuple[np.ndarray, float]] = {}
+        self._refit_cache_capacity: int = 32
+
+    def _refit_cache_get(self, kind: str, surviving_key: tuple[int, ...]):
+        return self._refit_cache.get((kind, surviving_key))
+
+    def _refit_cache_put(self, kind: str, surviving_key: tuple[int, ...], value):
+        # Tiny LRU: pop the oldest if at capacity. dict preserves insertion order on Python 3.7+.
+        if len(self._refit_cache) >= self._refit_cache_capacity:
+            try:
+                _oldest = next(iter(self._refit_cache))
+                del self._refit_cache[_oldest]
+            except StopIteration:  # pragma: no cover -- empty
+                pass
+        self._refit_cache[(kind, surviving_key)] = value
 
     # ------------------------------------------------------------------
     # Constructors / factory methods
@@ -619,6 +683,20 @@ class CompositeCrossTargetEnsemble:
                 "falling back to mean."
             )
             return cls.from_uniform_weights(component_models, component_names)
+        # WEIGHT-NEGATIVE-WARN: Ridge can produce negative coefficients when a component is
+        # anti-correlated with the target. That's mathematically fine for a linear stack but
+        # operators routinely interpret negative-weight ensembles as a bug; surface them at WARN
+        # so the suite log makes the situation explicit. The ensemble is still built (the predict
+        # path supports negative weights via is_convex=False).
+        _neg_mask = raw_weights < 0
+        if _neg_mask.any():
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] linear_stack: %d/%d components have negative Ridge "
+                "coefficients (anti-correlated with target on train). Ensemble is still built; the "
+                "predict path subtracts the weighted contribution of those members. Affected: %s.",
+                int(_neg_mask.sum()), len(raw_weights),
+                ", ".join(f"{component_names[i]} (w={raw_weights[i]:.4g})" for i in np.flatnonzero(_neg_mask).tolist()),
+            )
         # Ridge stack: weights may be negative and do not sum to 1; signal this with
         # is_convex=False so the constructor skips the convex-sum normalisation that
         # would otherwise destroy the Ridge fit. Eliminates the historical
@@ -639,13 +717,11 @@ class CompositeCrossTargetEnsemble:
             is_convex=False,
         )
         instance._linear_stack_intercept = float(ridge.intercept_)
-        # Stash the training matrix + alpha so predict() can refit Ridge on the SURVIVING
-        # subset when a component returns None at predict time. Without this, dropping a
-        # component's weight while keeping the original intercept biases predictions by
-        # exactly that component's mean contribution (Ridge intercept compensates for the
-        # FULL component set; with fewer components the bias is wrong by O(intercept)).
-        instance._linear_stack_train_preds = component_predictions[finite].copy()
-        instance._linear_stack_train_y = y[finite].copy()
+        # SOLVER-COPY: ``component_predictions[finite]`` already returns a copy (boolean indexing on
+        # ndarray always allocates), so the prior explicit ``.copy()`` was a 256-MB-per-pickle
+        # duplicate. Same for ``y[finite]``. Keep a reference instead of a copy of a copy.
+        instance._linear_stack_train_preds = component_predictions[finite]
+        instance._linear_stack_train_y = y[finite]
         instance._linear_stack_ridge_alpha = chosen_alpha
         return instance
 
@@ -734,11 +810,10 @@ class CompositeCrossTargetEnsemble:
             # for so the gate's measured RMSE corresponds to the deployed model.
             is_convex=False,
         )
-        # Stash training matrix so predict() can refit NNLS on the surviving subset when
-        # a component drops out (same correctness story as linear_stack -- preserves the
-        # property that the deployed predictor matches a real fit on observed columns).
-        instance._nnls_stack_train_preds = component_predictions[finite].copy()
-        instance._nnls_stack_train_y = y[finite].copy()
+        # SOLVER-COPY: boolean-indexing already produces a copy; the prior explicit ``.copy()`` was
+        # a redundant 256-MB-per-pickle duplicate. Keep the bool-indexed view directly.
+        instance._nnls_stack_train_preds = component_predictions[finite]
+        instance._nnls_stack_train_y = y[finite]
         return instance
 
     @classmethod
@@ -748,6 +823,8 @@ class CompositeCrossTargetEnsemble:
         component_names: list[str],
         component_train_rmse: Sequence[float],
         baseline_train_rmse: float | None = None,
+        component_oof_rmse: Sequence[float] | None = None,
+        baseline_oof_rmse: float | None = None,
     ) -> Union[CompositeCrossTargetEnsemble, Any]:
         """Build an ensemble weighted by *gain over a naive baseline*.
 
@@ -772,20 +849,53 @@ class CompositeCrossTargetEnsemble:
         n = len(component_models)
         if n == 0:
             raise ValueError("from_train_metrics: empty component list.")
-        rmses = np.asarray(component_train_rmse, dtype=np.float64)
-        if len(rmses) != n:
-            raise ValueError(
-                f"from_train_metrics: rmse list len {len(rmses)} != n_components {n}."
+        # VAL-LEAK (from_train_metrics): prefer OOF RMSE when supplied. Train-set RMSE is biased
+        # because train rows were seen at fit -- using it for weight derivation is the
+        # same selection problem as using val (already burned for ES). When ``component_oof_rmse``
+        # is given we rank on OOF; otherwise we fall back to train_rmse with a WARN so the operator
+        # knows the gate is biased optimistic.
+        if component_oof_rmse is not None:
+            rmses = np.asarray(component_oof_rmse, dtype=np.float64)
+            if len(rmses) != n:
+                raise ValueError(
+                    f"from_train_metrics: component_oof_rmse list len {len(rmses)} != n_components {n}."
+                )
+            if baseline_oof_rmse is not None:
+                baseline_train_rmse = baseline_oof_rmse
+        else:
+            rmses = np.asarray(component_train_rmse, dtype=np.float64)
+            if len(rmses) != n:
+                raise ValueError(
+                    f"from_train_metrics: rmse list len {len(rmses)} != n_components {n}."
+                )
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] from_train_metrics: ranking on TRAIN RMSE which is "
+                "biased optimistic (rows seen at fit). Pass component_oof_rmse=... for an honest "
+                "cross-validated weighting."
             )
         if not np.all(np.isfinite(rmses)):
             raise ValueError("from_train_metrics: rmses contain non-finite values.")
 
         if baseline_train_rmse is None:
-            baseline = float(np.median(rmses))
+            # MEDIAN-BASELINE: previously fell back to ``np.median(rmses)`` which by construction
+            # discards the worse-than-median half of the candidate pool entirely. That's a hidden
+            # contract surprise: the caller passed K components expecting a K-component ensemble
+            # and got a (K/2)-component one with no log line. We now use the WORST component RMSE
+            # (numerically the largest) as the baseline so every component that beats the worst
+            # contributes a non-zero weight, AND we WARN the caller that no explicit baseline was
+            # passed -- the operator should plug in a real benchmark (naive predictor / median
+            # baseline_train_rmse / dataset variance) for production runs.
+            baseline = float(np.max(rmses))
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] from_train_metrics: no baseline_train_rmse passed; "
+                "defaulting to max(component_train_rmse)=%.4g so every component beats baseline. "
+                "Pass an explicit baseline (e.g. naive predictor RMSE) to get a real gain-over-naive weighting.",
+                baseline,
+            )
         else:
             baseline = float(baseline_train_rmse)
             if not math.isfinite(baseline):
-                baseline = float(np.median(rmses))
+                baseline = float(np.max(rmses))
 
         gains = np.maximum(0.0, baseline - rmses)
         if gains.sum() <= 0:
@@ -884,6 +994,11 @@ class CompositeCrossTargetEnsemble:
             if len(surviving_idx) == len(self.component_models):
                 return (preds_matrix * full_weights[None, :]).sum(axis=1) + full_intercept
 
+            # REFIT-NNLS / REFIT-RIDGE: cache the solver output keyed by the sorted surviving_idx
+            # tuple. Member-dropout patterns are few in practice (a handful at most across a
+            # production session); a 32-entry LRU is plenty and keeps memory predictable.
+            surviving_key = tuple(sorted(surviving_idx))
+
             if self.strategy == "linear_stack":
                 train_preds = getattr(self, "_linear_stack_train_preds", None)
                 train_y = getattr(self, "_linear_stack_train_y", None)
@@ -894,19 +1009,23 @@ class CompositeCrossTargetEnsemble:
                         f"{len(self.component_models)}) but no training matrix is available "
                         "to refit Ridge. Refusing to predict to avoid intercept-induced bias."
                     )
-                # ENS-Low-7: Ridge hoisted to module-top imports.
                 alpha = float(getattr(self, "_linear_stack_ridge_alpha", 1.0))
-                refit = Ridge(alpha=alpha, fit_intercept=True)
-                refit.fit(np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y))
-                new_w = np.asarray(refit.coef_, dtype=np.float64)
-                new_intercept = float(refit.intercept_)
-                logger.warning(
-                    "[CompositeCrossTargetEnsemble] linear_stack: %d of %d components dropped "
-                    "out at predict time; refit Ridge on surviving subset (alpha=%g).",
-                    len(self.component_models) - len(surviving_idx),
-                    len(self.component_models),
-                    alpha,
-                )
+                _cached = self._refit_cache_get("ridge", surviving_key)
+                if _cached is None:
+                    refit = Ridge(alpha=alpha, fit_intercept=True)
+                    refit.fit(np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y))
+                    new_w = np.asarray(refit.coef_, dtype=np.float64)
+                    new_intercept = float(refit.intercept_)
+                    self._refit_cache_put("ridge", surviving_key, (new_w, new_intercept))
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] linear_stack: %d of %d components dropped "
+                        "out at predict time; refit Ridge on surviving subset (alpha=%g).",
+                        len(self.component_models) - len(surviving_idx),
+                        len(self.component_models),
+                        alpha,
+                    )
+                else:
+                    new_w, new_intercept = _cached
                 return (preds_matrix * new_w[None, :]).sum(axis=1) + new_intercept
 
             if self.strategy == "nnls_stack":
@@ -921,16 +1040,22 @@ class CompositeCrossTargetEnsemble:
                     )
                 from scipy.optimize import nnls as _nnls
 
-                new_w, _ = _nnls(
-                    np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y)
-                )
-                logger.warning(
-                    "[CompositeCrossTargetEnsemble] nnls_stack: %d of %d components dropped "
-                    "out at predict time; refit NNLS on surviving subset.",
-                    len(self.component_models) - len(surviving_idx),
-                    len(self.component_models),
-                )
-                return (preds_matrix * np.asarray(new_w, dtype=np.float64)[None, :]).sum(axis=1)
+                _cached = self._refit_cache_get("nnls", surviving_key)
+                if _cached is None:
+                    new_w, _ = _nnls(
+                        np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y)
+                    )
+                    new_w = np.asarray(new_w, dtype=np.float64)
+                    self._refit_cache_put("nnls", surviving_key, (new_w, 0.0))
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] nnls_stack: %d of %d components dropped "
+                        "out at predict time; refit NNLS on surviving subset.",
+                        len(self.component_models) - len(surviving_idx),
+                        len(self.component_models),
+                    )
+                else:
+                    new_w, _ = _cached
+                return (preds_matrix * new_w[None, :]).sum(axis=1)
 
             # Other non-convex strategy without a training-matrix stash -- pass through as
             # a raw linear combination (rare; only hit if a future caller adds a strategy

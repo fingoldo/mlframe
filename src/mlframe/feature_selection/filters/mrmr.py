@@ -340,6 +340,16 @@ class MRMR(BaseEstimator, TransformerMixin):
     # already includes the params signature, so a hit guarantees matching state).
     _FIT_CACHE: "OrderedDict[tuple, MRMR]" = OrderedDict()
 
+    @classmethod
+    def clear_fit_cache(cls) -> int:
+        """Drain the process-wide MRMR fit cache. Returns the entry count that was dropped. Call between
+        suites (model retraining boundary, JupyterHub kernel reuse, web-service request boundary) when
+        long-lived workers must release fitted-MRMR memory. Without this, the cache holds up to
+        ``fit_cache_max`` (default 4) full MRMR instances per process for as long as the process lives."""
+        n = len(cls._FIT_CACHE)
+        cls._FIT_CACHE.clear()
+        return n
+
     def __init__(
         self,
         # quantization
@@ -367,6 +377,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         # performance
         extra_x_shuffling: bool = True,
         dtype=np.int32,
+        # ``None`` (legacy default) triggers process-stable but seedable random_state derivation
+        # downstream (see ``_resolve_target_prefix``: uses pid ^ id(self) instead of touching the
+        # numpy global RNG). For bit-exact reproducibility across runs / mlflow hash stability, pass
+        # an explicit integer seed.
         random_seed: int = None,
         use_gpu: bool = False,
         n_workers: int = 1,
@@ -429,11 +443,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # When screening returns zero selected_vars, legacy code fell back to FE on ALL features; new default is
         # to skip FE (running FE on an empty screen typically just amplifies noise). Set True for legacy.
         fe_fallback_to_all: bool = False,
-        # Pipeline-fatal fallback: when screening yields zero features (all MI ~= 0), the default leaves
-        # ``support_`` empty and ``transform`` returns 0 columns, crashing any downstream estimator expecting >=1
-        # feature. Set >= 1 to keep at least that many features by raw MI rank; chosen features are flagged via
+        # Pipeline-fatal fallback: when screening yields zero features (all MI ~= 0), the default
+        # ``min_features_fallback=1`` keeps the single highest-MI column so ``support_`` is never empty -- empty
+        # support causes downstream estimators to crash with a 0-column transform output. Set to 0 explicitly to
+        # restore the legacy "let the pipeline fail loudly" semantics. Chosen features are flagged via
         # ``self.fallback_used_``.
-        min_features_fallback: int = 0,
+        min_features_fallback: int = 1,
         # Cat-FE (categorical feature interactions): single dataclass consolidating ~22 cat_fe_* knobs.
         # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
         # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
@@ -774,7 +789,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Compute inputs/outputs signature
         # ----------------------------------------------------------------------------------------------------------------------------
 
-        signature = (X.shape, y.shape)
+        # Shape-only signature was too loose: un-cloned MRMR fit on target A, then re-fit on target B with
+        # identical (n_rows, n_cols) shape, replayed A's support_ verbatim. Fold the y content hash in.
+        _y_hash_for_sig = _full_y_content_hash(y)
+        # Fold column-name tuple so two same-shape frames with different column orders / names don't
+        # share a fast-path slot.
+        _x_cols_sig = None
+        if hasattr(X, "columns"):
+            try:
+                _x_cols_sig = tuple(str(c) for c in X.columns)
+            except Exception:
+                _x_cols_sig = None
+        signature = (X.shape, y.shape, _y_hash_for_sig, _x_cols_sig)
         if self.skip_retraining_on_same_shape:
             if signature == self.signature:
                 if self.verbose:
@@ -1803,7 +1829,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                     n_recommended_features += len(this_pair_features)
 
-                # TODO: handle factors_to_use / factors_names_to_use threading here.
+                # TODO 2026-05-17: handle factors_to_use / factors_names_to_use threading here.
                 checked_pairs.add(raw_vars_pair)
 
         return data, cols, nbins, X, selected_vars, n_recommended_features

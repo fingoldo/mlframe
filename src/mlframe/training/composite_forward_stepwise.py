@@ -35,6 +35,8 @@ def forward_stepwise_multi_base(
     min_marginal_rmse_gain: float = _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
     cv_folds: int = 3,
     random_state: int = 42,
+    time_aware: bool = False,
+    cv_splitter: Any = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Greedy forward-stepwise base selection for ``linear_residual_multi``.
 
@@ -61,7 +63,7 @@ def forward_stepwise_multi_base(
     - ``kept_bases``: ordered list of base column names (seeds first, then greedily-added).
     - ``diagnostics``: list of per-step dicts ``{step, candidate_added, rmse_before, rmse_after, marginal_gain, accepted}`` for caller-facing audit.
     """
-    from sklearn.model_selection import KFold  # lazy
+    from sklearn.model_selection import KFold, TimeSeriesSplit  # lazy
     # Lazy-import composite-internal transforms to break the import cycle (composite.py re-exports this module at the bottom; importing at module top would deadlock).
     from .composite import (
         _linear_residual_multi_fit,
@@ -94,7 +96,12 @@ def forward_stepwise_multi_base(
             return float(np.std(y))
         # All names are guaranteed to be in ``candidates`` by the validation above.
         base_matrix = np.column_stack([candidates[n] for n in base_names])
-        kf = KFold(n_splits=int(cv_folds), shuffle=True, random_state=int(random_state))
+        if cv_splitter is not None:
+            kf = cv_splitter
+        elif time_aware:
+            kf = TimeSeriesSplit(n_splits=int(cv_folds))
+        else:
+            kf = KFold(n_splits=int(cv_folds), shuffle=True, random_state=int(random_state))
         fold_rmses = []
         for train_idx, val_idx in kf.split(np.arange(y.size)):
             # Fit OLS y ~ base_matrix on TRAIN.

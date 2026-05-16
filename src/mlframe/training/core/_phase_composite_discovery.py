@@ -64,7 +64,14 @@ def _discovery_config_signature(config: Any) -> str:
         elif hasattr(config, "dict"):
             payload["config"] = config.dict()
         else:
-            payload["config"] = repr(config)
+            # DISC-CONFIG-REPR: ``repr(config)`` on a plain object includes the mem-address suffix
+            # (``<Config object at 0x...>``), so the signature shifts at every process restart even
+            # when the actual config is identical. Stringify the object's __dict__ when present so
+            # we hash the field contents instead; fall back to repr only for opaque objects.
+            payload["config"] = (
+                {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())}
+                or repr(config)
+            )
     except Exception as _e:
         payload["config_repr"] = repr(config)
         payload["config_dump_error"] = str(_e)
@@ -87,7 +94,15 @@ def _discovery_config_signature(config: Any) -> str:
     ):
         try:
             mod = __import__(_name)
-            versions[_name] = str(getattr(mod, "__version__", "?"))
+            _ver_str = str(getattr(mod, "__version__", "?"))
+            # Major.minor only -- patch bumps (e.g. ``pip install --user`` upgrading polars 1.18.1 ->
+            # 1.18.2) invalidate every cached spec even though MI / Wilcoxon / boosting math is
+            # unchanged. We care about semantic changes (RNG defaults, dtype dispatch); those land
+            # at minor bumps for the libraries above. Strip patch + any dev / rc tags.
+            _parts = _ver_str.split(".")
+            if len(_parts) >= 2 and _parts[0].isdigit():
+                _ver_str = f"{_parts[0]}.{_parts[1].split('+')[0].split('rc')[0].split('dev')[0]}"
+            versions[_name] = _ver_str
         except Exception:
             versions[_name] = "absent"
     # Python major.minor only - patch-level changes don't move semantics
@@ -298,9 +313,15 @@ def run_composite_target_discovery(
                         random_state=int(getattr(_disc_cfg, "random_state", 42) or 42),
                     )
                     _cfg_sig = _discovery_config_signature(_disc_cfg)
+                    # random_state is already folded into _df_sig (seeds the row-sample) and into
+                    # _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key
+                    # was a double-fold (DISC-RANDOM-STATE-DBL): two semantically identical inputs
+                    # both contribute to the key, so the same data + same config but with
+                    # random_state mutated would produce three independent hash mixes. Drop the
+                    # outer fold; pass 0 as the back-compat sentinel.
                     _disc_cache_key = make_discovery_cache_key(
                         _df_sig, _tname_disc, _cfg_sig,
-                        random_state=int(getattr(_disc_cfg, "random_state", 42) or 42),
+                        random_state=0,
                     )
                     _cached_payload = _disc_cache.get(_disc_cache_key)
                 except Exception as _cache_err:

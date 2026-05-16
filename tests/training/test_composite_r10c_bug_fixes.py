@@ -488,16 +488,9 @@ class TestBug6DeferredGPUWarning:
     the start of discovery, causing false alarms when discovery later
     returned 0 specs."""
 
-    def test_unit_warning_string_unchanged_post_fix(self) -> None:
-        """Lock the warning message wording so consumers / log
-        scrapers don't break."""
-        # The exact warning string lives in core.py; rather than
-        # grep-asserting from a test (per project memory
-        # ``feedback_behavioral_tests``, "never inspect.getsource() to
-        # assert strings; test behavior"), we trust the wording is
-        # documented in the CHANGELOG entry for R10c. The behavioural
-        # test below verifies the conditional firing.
-        pass
+    # NOTE: the prior `test_unit_warning_string_unchanged_post_fix` was a no-op (pass body);
+    # the conditional-firing contract is covered by test_biz_value_no_warning_when_zero_specs
+    # immediately below. Removed 2026-05-16.
 
     def test_biz_value_no_warning_when_zero_specs(self, caplog) -> None:
         """Deferred-warning behaviour: when discovery yields 0 specs,

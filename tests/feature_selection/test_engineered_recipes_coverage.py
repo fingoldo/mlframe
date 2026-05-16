@@ -68,84 +68,60 @@ def test_engineered_recipe_hash_consistent():
 # build_unary_binary_recipe + apply_recipe(kind="unary_binary")
 # ----------------------------------------------------------------------------
 
-def _build_recipe_via_actual_api(binary: str, unary_a: str, unary_b: str):
-    """Build a unary_binary recipe via build_unary_binary_recipe or by direct EngineeredRecipe construction. Returns recipe or None on schema mismatch."""
-    if build_unary_binary_recipe is not None:
-        try:
-            return build_unary_binary_recipe(
-                name=f"{binary}({unary_a}(a),{unary_b}(b))",
-                src_names=("a", "b"),
-                unary_names=(unary_a, unary_b),
-                binary_name=binary,
-                unary_preset="minimal",
-                binary_preset="minimal",
-            )
-        except (TypeError, ValueError):
-            pass
-    # Fallback: build directly via dataclass
-    try:
-        return EngineeredRecipe(
-            name=f"{binary}({unary_a}(a),{unary_b}(b))",
-            kind="unary_binary",
-            src_names=("a", "b"),
-            unary_names=(unary_a, unary_b),
-            binary_name=binary,
-            unary_preset="minimal",
-            binary_preset="minimal",
-        )
-    except (TypeError, ValueError):
-        return None
+def _build_recipe_via_actual_api(binary: str, unary_a: str, unary_b: str, *, unary_preset: str = "minimal"):
+    """Build a unary_binary recipe via the canonical production builder. Pre-fix this helper
+    fell through to silent dataclass construction on TypeError, masking signature drift; that
+    drift then triggered downstream apply_recipe skip-masks. Now we use the production builder
+    directly with its actual keyword names (src_a_name / src_b_name etc) and accept a preset
+    override so callers can test transforms that only live in maximal."""
+    assert build_unary_binary_recipe is not None, (
+        "build_unary_binary_recipe missing from engineered_recipes module; refactor regression."
+    )
+    return build_unary_binary_recipe(
+        name=f"{binary}({unary_a}(a),{unary_b}(b))",
+        src_a_name="a",
+        src_b_name="b",
+        unary_a_name=unary_a,
+        unary_b_name=unary_b,
+        binary_name=binary,
+        unary_preset=unary_preset,
+        binary_preset="minimal",
+        quantization_nbins=None,
+        quantization_method=None,
+        quantization_dtype=np.int32,
+    )
 
 
 def test_build_unary_binary_recipe_mul():
     r = _build_recipe_via_actual_api("mul", "identity", "identity")
-    if r is None:
-        pytest.skip("recipe construction schema differs")
     df = _basic_df()
-    try:
-        out = apply_recipe(r, df)
-    except (KeyError, NotImplementedError, ValueError, TypeError):
-        pytest.skip("apply_recipe replay needs additional recipe metadata")
-        return
+    out = apply_recipe(r, df)
     np.testing.assert_array_equal(np.asarray(out), df["a"].to_numpy() * df["b"].to_numpy())
 
 
 def test_build_unary_binary_recipe_add():
     r = _build_recipe_via_actual_api("add", "identity", "identity")
-    if r is None:
-        pytest.skip("recipe construction schema differs")
     df = _basic_df()
-    try:
-        out = apply_recipe(r, df)
-    except (KeyError, NotImplementedError, ValueError, TypeError):
-        pytest.skip("apply_recipe replay needs additional recipe metadata")
-        return
+    out = apply_recipe(r, df)
     np.testing.assert_array_equal(np.asarray(out), df["a"].to_numpy() + df["b"].to_numpy())
 
 
-def test_build_unary_binary_recipe_sub():
-    r = _build_recipe_via_actual_api("sub", "identity", "identity")
-    if r is None:
-        pytest.skip("recipe construction schema differs")
+def test_build_unary_binary_recipe_max():
+    # 'sub' is not a 'minimal' preset binary; 'max' is. We exercise the same code path with a
+    # binary that actually lives in the preset so the replay succeeds end-to-end. Pre-fix this
+    # test used 'sub' and pytest.skip'd on KeyError, masking that the call never replayed.
+    r = _build_recipe_via_actual_api("max", "identity", "identity")
     df = _basic_df()
-    try:
-        out = apply_recipe(r, df)
-    except (KeyError, NotImplementedError, ValueError, TypeError):
-        pytest.skip("apply_recipe replay needs additional recipe metadata")
-        return
-    np.testing.assert_array_equal(np.asarray(out), df["a"].to_numpy() - df["b"].to_numpy())
+    out = apply_recipe(r, df)
+    np.testing.assert_array_equal(np.asarray(out), np.maximum(df["a"].to_numpy(), df["b"].to_numpy()))
 
 
 def test_build_unary_binary_recipe_with_log_unary():
-    r = _build_recipe_via_actual_api("mul", "log", "identity")
-    if r is None:
-        pytest.skip("recipe construction schema differs")
+    # 'log' only lives in 'standard'/'maximal' presets; build with the matching preset so the
+    # apply_recipe replay finds the unary function.
+    r = _build_recipe_via_actual_api("mul", "log", "identity", unary_preset="standard")
     df = _basic_df()
-    try:
-        out = apply_recipe(r, df)
-    except (KeyError, NotImplementedError, ValueError, TypeError):
-        pytest.skip("apply_recipe replay needs additional recipe metadata")
-        return
+    out = apply_recipe(r, df)
     assert out is not None and len(out) == len(df)
 
 
@@ -153,37 +129,47 @@ def test_build_unary_binary_recipe_with_log_unary():
 # apply_recipe(kind="factorize")
 # ----------------------------------------------------------------------------
 
-def test_apply_factorize_seen_categories():
-    """Single-col factorize: train values -> integer codes; replay on same values reproduces codes."""
-    # Train-time values that produced the lookup (encoded for documentation; the recipe carries the lookup explicitly).
-    lookup = {"X": 0, "Y": 1, "Z": 2}
-    r = EngineeredRecipe(name="cat_factorized", kind="factorize", src_names=("cat",), extra={"lookup": lookup})
-    df = pd.DataFrame({"cat": ["X", "Y", "Z", "X"]})
-    try:
-        out = apply_recipe(r, df)
-    except Exception:
-        pytest.skip("factorize lookup format differs in this version")
-        return
-    expected = np.array([0, 1, 2, 0], dtype=np.int64)
-    np.testing.assert_array_equal(np.asarray(out, dtype=np.int64), expected)
+def test_apply_factorize_seen_pair_codes():
+    """Pair factorize: lookup_table maps (a, b)-pre-prune code -> post-prune class.
 
-
-def test_apply_factorize_unseen_category_handled():
-    """Unseen category at apply time: depending on unknown_strategy either sentinel or raise."""
-    lookup = {"X": 0, "Y": 1}
+    Pre-fix this test used a single-column factorize with ``lookup={value: code}`` and pytest.skip
+    if the format differed. Production factorize is strictly pairwise with an integer lookup_table
+    keyed by ``a + b * nbins_a``. We construct that shape directly and assert the replay.
+    """
+    nbins_a, nbins_b = 3, 2
+    # Pre-prune code map: (a=0,b=0) -> class 0, (a=1,b=0) -> 1, (a=2,b=0) -> 2,
+    #                     (a=0,b=1) -> 3, (a=1,b=1) -> 4, (a=2,b=1) -> 5.
+    lookup_table = np.arange(nbins_a * nbins_b, dtype=np.int64)
     r = EngineeredRecipe(
-        name="cat_factorized",
+        name="ab_factorized",
         kind="factorize",
-        src_names=("cat",),
-        extra={"lookup": lookup, "unknown_strategy": "sentinel"},
+        src_names=("a", "b"),
+        factorize_nbins=(nbins_a, nbins_b),
+        unknown_strategy="clip",
+        extra={"lookup_table": lookup_table},
     )
-    df = pd.DataFrame({"cat": ["X", "UNSEEN"]})
-    try:
-        out = apply_recipe(r, df)
-    except Exception:
-        pytest.skip("factorize unknown_strategy=sentinel not supported in this version")
-        return
-    assert out is not None
+    df = pd.DataFrame({"a": [0, 1, 2, 0], "b": [0, 0, 1, 1]})
+    out = apply_recipe(r, df)
+    # Codes = a + b * nbins_a = [0+0*3, 1+0*3, 2+1*3, 0+1*3] = [0, 1, 5, 3]
+    np.testing.assert_array_equal(np.asarray(out, dtype=np.int64), [0, 1, 5, 3])
+
+
+def test_apply_factorize_clip_out_of_range():
+    """Out-of-range pair value is clipped to nbins-1 per unknown_strategy='clip'."""
+    nbins_a, nbins_b = 2, 2
+    lookup_table = np.array([10, 20, 30, 40], dtype=np.int64)
+    r = EngineeredRecipe(
+        name="ab_factorized",
+        kind="factorize",
+        src_names=("a", "b"),
+        factorize_nbins=(nbins_a, nbins_b),
+        unknown_strategy="clip",
+        extra={"lookup_table": lookup_table},
+    )
+    df = pd.DataFrame({"a": [0, 5], "b": [0, 1]})  # a=5 must be clipped to 1
+    out = apply_recipe(r, df)
+    # Row0: code = 0+0*2=0 -> 10; Row1: a clipped to 1, code = 1+1*2=3 -> 40.
+    assert list(np.asarray(out, dtype=np.int64)) == [10, 40]
 
 
 # ----------------------------------------------------------------------------

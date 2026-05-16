@@ -90,12 +90,17 @@ class TestHgbCap:
         assert not [r for r in caplog.records if "Capping" in r.getMessage()]
 
     def test_hgb_above_cap_warns_and_caps(self, caplog):
+        # Cap derived from the production constant so default-tuning of the cap doesn't break
+        # this test (the contract is "input above cap -> output equals cap, WARN names both
+        # numbers", not "output equals literal 500").
+        from mlframe.training.feature_handling.routing import HGB_TFIDF_MAX_FEATURES_CAP
         caplog.set_level(logging.WARNING)
-        out = hgb_max_features_cap("hgb", 5000)
-        assert out == 500
+        requested = HGB_TFIDF_MAX_FEATURES_CAP * 10  # well above the cap
+        out = hgb_max_features_cap("hgb", requested)
+        assert out == HGB_TFIDF_MAX_FEATURES_CAP
         msgs = [r.getMessage() for r in caplog.records]
-        assert any("Capping to 500" in m for m in msgs)
-        assert any("5000" in m for m in msgs)
+        assert any(f"Capping to {HGB_TFIDF_MAX_FEATURES_CAP}" in m for m in msgs)
+        assert any(str(requested) in m for m in msgs)
 
     def test_hgb_allow_high_bypasses(self, caplog):
         caplog.set_level(logging.INFO)

@@ -25,11 +25,26 @@ warnings.filterwarnings("ignore")
 
 
 def _check_julia():
-    for bindir in ("D:/Julia/bin",):
-        julia_exe = os.path.join(bindir, "julia.exe")
+    # Look for julia in well-known install roots plus the user's PATH. On
+    # Windows D:/Julia/bin/julia.exe is the typical install; on Linux/macOS
+    # users usually have julia on PATH already.
+    candidates = [
+        ("D:/Julia/bin", "julia.exe"),
+        ("/usr/local/bin", "julia"),
+        ("/usr/bin", "julia"),
+        (os.path.expanduser("~/.juliaup/bin"), "julia"),
+    ]
+    for bindir, exe_name in candidates:
+        julia_exe = os.path.join(bindir, exe_name)
         if os.path.isfile(julia_exe):
             os.environ.setdefault("JULIA_EXE", julia_exe)
             break
+    else:
+        # Fall through to PATH lookup.
+        from shutil import which
+        julia_on_path = which("julia") or which("julia.exe")
+        if julia_on_path:
+            os.environ.setdefault("JULIA_EXE", julia_on_path)
     try:
         import pysr  # noqa: F401
         return True

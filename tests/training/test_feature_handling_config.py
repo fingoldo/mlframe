@@ -157,19 +157,20 @@ class TestCompatMatrixValidation:
         with pytest.raises(ValueError, match="register_model_axis_support"):
             validate_handler_for_model("not_a_model", Axis.TEXT, "tfidf")
 
-    def test_native_text_only_for_cb(self):
-        validate_handler_for_model("cb", Axis.TEXT, "native")  # ok
-        with pytest.raises(ValueError, match="valid methods"):
-            validate_handler_for_model("xgb", Axis.TEXT, "native")
-
-    def test_as_embedding_feature_only_for_cb(self):
-        # cb supports it
-        validate_handler_for_model("cb", Axis.TEXT, "frozen_text_embedding", output="as_embedding_feature")
-        # xgb doesn't
-        with pytest.raises(ValueError, match="as_embedding_feature"):
-            validate_handler_for_model(
-                "xgb", Axis.TEXT, "frozen_text_embedding", output="as_embedding_feature",
-            )
+    @pytest.mark.parametrize(
+        "method,kwargs,raise_pattern",
+        [
+            ("native", {}, "valid methods"),
+            ("frozen_text_embedding", {"output": "as_embedding_feature"}, "as_embedding_feature"),
+        ],
+        ids=["native_text", "as_embedding_feature"],
+    )
+    def test_text_method_only_for_cb(self, method, kwargs, raise_pattern):
+        # cb supports the method, xgb does not. Collapsed pair of
+        # ``test_native_text_only_for_cb`` + ``test_as_embedding_feature_only_for_cb``.
+        validate_handler_for_model("cb", Axis.TEXT, method, **kwargs)
+        with pytest.raises(ValueError, match=raise_pattern):
+            validate_handler_for_model("xgb", Axis.TEXT, method, **kwargs)
 
     def test_learnable_text_embedding_neural_only(self):
         # neural model -> ok

@@ -33,6 +33,7 @@ from mlframe.training.core import (
 )
 
 from .shared import SimpleFeaturesAndTargetsExtractor, TimestampedFeaturesExtractor
+from tests.conftest import fast_subset
 
 
 # --------------------------------------------------------------------------------------
@@ -134,8 +135,8 @@ def _predict_labels(results):
 # Test 1 — Fairness metric emission path is conditional on `fairness_features`
 # --------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
-@pytest.mark.parametrize("mlframe_model", ["lgb", "cb", "xgb"])
+@pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
+@pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"], representative="lgb"))
 def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, seed, mlframe_model):
     """Run the suite with and without fairness_features=["group"]; verify the fairness
     code path is reachable end-to-end and per-group prediction quality is computable.
@@ -258,8 +259,8 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
 # Test 2 — Inverse-frequency sample weights lift minority-class recall / F1
 # --------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
-@pytest.mark.parametrize("mlframe_model", ["lgb", "cb", "xgb"])
+@pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
+@pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"], representative="lgb"))
 def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed, mlframe_model):
     """Inverse-frequency weighting (minority *9, majority *1) on a 90:10 imbalanced
     binary classification problem should lift minority-class recall (or F1) measurably

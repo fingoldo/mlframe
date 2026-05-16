@@ -81,8 +81,10 @@ def _gen_temporal_target_dataset(
     return pd.DataFrame(rows)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def synthetic_temporal_df():
+    # Session-scoped: data is deterministic + read-only; built once per session
+    # via local Generator (no global numpy RNG mutation).
     return _gen_temporal_target_dataset()
 
 

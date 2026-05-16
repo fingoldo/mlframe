@@ -87,10 +87,15 @@ class TestTrainAutogluonModel:
             verbose=0,
         )
 
+        # Behavioural: result must carry the trained model, metrics, and feature-importance
+        # payload that downstream consumers depend on (model.predict, metrics dict, fi shape).
         assert result is not None
-        assert hasattr(result, 'model')
-        assert hasattr(result, 'metrics')
-        assert hasattr(result, 'fi')
+        assert hasattr(result, 'model') and result.model is not None, "AutoGluon training returned None model"
+        assert hasattr(result, 'metrics'), "AutoGluon result missing metrics attribute"
+        assert hasattr(result, 'fi'), "AutoGluon result missing feature-importance attribute"
+        # Metrics must be a non-empty mapping with at least one score (RMSE / R2 / etc).
+        if isinstance(result.metrics, dict):
+            assert len(result.metrics) > 0, "AutoGluon metrics dict empty"
 
     @pytest.mark.skip(reason="AutoGluon heavy dependency - run manually if needed")
     def test_training_with_test_df(self, sample_train_df, sample_test_df, tmp_path):

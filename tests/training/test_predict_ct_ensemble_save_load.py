@@ -9,7 +9,6 @@ models, and ``load_mlframe_suite`` picks them up via its recursive glob.
 from __future__ import annotations
 
 import os
-import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -53,7 +52,7 @@ def _make_ct_entry():
     )
 
 
-def test_persist_ct_ensemble_entries_roundtrips():
+def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
     """Build a minimal ctx with one ``_CT_ENSEMBLE__y`` entry, run ``_persist_ct_ensemble_entries`` against a
     tmpdir, then ``load_mlframe_suite`` must rehydrate the entry under the same key with predict equivalence."""
     from mlframe.training.core._phase_finalize import _persist_ct_ensemble_entries
@@ -61,63 +60,63 @@ def test_persist_ct_ensemble_entries_roundtrips():
 
     ct_entry = _make_ct_entry()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        # Minimal ctx duck-type -- only the fields _persist_ct_ensemble_entries touches.
-        class _CtxStub:
-            data_dir = tmp
-            models_dir = "models"
-            target_name = "yt"
-            model_name = "ct_test"
-            verbose = 0
-            models = {"regression": {"_CT_ENSEMBLE__y": [ct_entry]}}
-            slug_to_original_target_name = {}
-            metadata = {}
+    tmp = str(tmp_path)
+    # Minimal ctx duck-type -- only the fields _persist_ct_ensemble_entries touches.
+    class _CtxStub:
+        data_dir = tmp
+        models_dir = "models"
+        target_name = "yt"
+        model_name = "ct_test"
+        verbose = 0
+        models = {"regression": {"_CT_ENSEMBLE__y": [ct_entry]}}
+        slug_to_original_target_name = {}
+        metadata = {}
 
-        ctx = _CtxStub()
-        # Pre-write the metadata.pkl.zst so load_mlframe_suite has something to read.
-        models_path = os.path.join(tmp, "models", "yt", "ct_test")
-        os.makedirs(models_path, exist_ok=True)
-        # Save metadata via threads=0 workaround.
-        import pickle, zstandard
-        meta_payload = {"slug_to_original_target_type": {"regression": "regression"}, "slug_to_original_target_name": {}}
-        with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
-            f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
+    ctx = _CtxStub()
+    # Pre-write the metadata.pkl.zst so load_mlframe_suite has something to read.
+    models_path = os.path.join(tmp, "models", "yt", "ct_test")
+    os.makedirs(models_path, exist_ok=True)
+    # Save metadata via threads=0 workaround.
+    import pickle, zstandard
+    meta_payload = {"slug_to_original_target_type": {"regression": "regression"}, "slug_to_original_target_name": {}}
+    with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
+        f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
 
-        with patch("mlframe.training.core._phase_finalize.save_mlframe_model", side_effect=_save_threads_zero):
-            _persist_ct_ensemble_entries(ctx)
+    with patch("mlframe.training.core._phase_finalize.save_mlframe_model", side_effect=_save_threads_zero):
+        _persist_ct_ensemble_entries(ctx)
 
-        # The slug map should have been stamped so load-time round-trip preserves the literal _CT_ENSEMBLE__ key.
-        assert ctx.slug_to_original_target_name.get("_CT_ENSEMBLE__y") == "_CT_ENSEMBLE__y" or \
-            "_CT_ENSEMBLE__y" in ctx.slug_to_original_target_name.values()
+    # The slug map should have been stamped so load-time round-trip preserves the literal _CT_ENSEMBLE__ key.
+    assert ctx.slug_to_original_target_name.get("_CT_ENSEMBLE__y") == "_CT_ENSEMBLE__y" or \
+        "_CT_ENSEMBLE__y" in ctx.slug_to_original_target_name.values()
 
-        # Now reload via the predict loader.
-        # Patch the metadata slug map to include what _persist stamped.
-        meta_payload["slug_to_original_target_name"] = dict(ctx.slug_to_original_target_name)
-        with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
-            f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
+    # Now reload via the predict loader.
+    # Patch the metadata slug map to include what _persist stamped.
+    meta_payload["slug_to_original_target_name"] = dict(ctx.slug_to_original_target_name)
+    with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
+        f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
 
-        # Use the dedicated CT-loader helper directly (it's the one predict reads) since load_mlframe_suite
-        # combines _CT_ENSEMBLE entries with regular models -- here we have no regular models, just the CT.
-        ct_entries = _load_ct_ensemble_entries(
-            models_path,
-            slug_to_original_target_type={"regression": "regression"},
-            slug_to_original_target_name=meta_payload["slug_to_original_target_name"],
-        )
-        assert ct_entries, f"_load_ct_ensemble_entries returned empty; layout under {models_path}: {os.listdir(models_path)}"
-        assert "regression" in ct_entries, f"missing target_type key; got {list(ct_entries.keys())}"
-        _by = ct_entries["regression"]
-        assert "_CT_ENSEMBLE__y" in _by, f"missing CT key; got {list(_by.keys())}"
-        roundtripped = _by["_CT_ENSEMBLE__y"][0]
-        # Predict equivalence (DummyRegressor returns its fitted constant on any input shape).
-        import pandas as pd
-        X_test = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [10.0, 20.0, 30.0]})
-        np.testing.assert_allclose(
-            roundtripped.model.predict(X_test),
-            ct_entry.model.predict(X_test),
-            rtol=1e-7,
-        )
-        # Sanity: the surrogate was non-trivial enough to differentiate a regression from a random round-trip.
-        assert np.allclose(roundtripped.model.predict(X_test), 7.5)
+    # Use the dedicated CT-loader helper directly (it's the one predict reads) since load_mlframe_suite
+    # combines _CT_ENSEMBLE entries with regular models -- here we have no regular models, just the CT.
+    ct_entries = _load_ct_ensemble_entries(
+        models_path,
+        slug_to_original_target_type={"regression": "regression"},
+        slug_to_original_target_name=meta_payload["slug_to_original_target_name"],
+    )
+    assert ct_entries, f"_load_ct_ensemble_entries returned empty; layout under {models_path}: {os.listdir(models_path)}"
+    assert "regression" in ct_entries, f"missing target_type key; got {list(ct_entries.keys())}"
+    _by = ct_entries["regression"]
+    assert "_CT_ENSEMBLE__y" in _by, f"missing CT key; got {list(_by.keys())}"
+    roundtripped = _by["_CT_ENSEMBLE__y"][0]
+    # Predict equivalence (DummyRegressor returns its fitted constant on any input shape).
+    import pandas as pd
+    X_test = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [10.0, 20.0, 30.0]})
+    np.testing.assert_allclose(
+        roundtripped.model.predict(X_test),
+        ct_entry.model.predict(X_test),
+        rtol=1e-7,
+    )
+    # Sanity: the surrogate was non-trivial enough to differentiate a regression from a random round-trip.
+    assert np.allclose(roundtripped.model.predict(X_test), 7.5)
 
 
 def test_persist_ct_ensemble_entries_no_models_dir_is_noop():

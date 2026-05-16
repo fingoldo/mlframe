@@ -1,17 +1,39 @@
 """Neural-specific pytest fixtures.
 
-PyTorch + Lightning carry process-global state (default RNG, default dtype, cuDNN flags, autograd anomaly mode, Lightning's own seeded RNG). When pytest-randomly shuffles test order, that state leaks between tests and produces order-dependent failures (e.g. test_classification_with_regularization passes alone but fails after some sibling has flipped a global flag). Reset before every neural test.
+PyTorch + Lightning carry process-global state (default RNG, default dtype, cuDNN
+flags, autograd anomaly mode, Lightning's own seeded RNG). When pytest-randomly
+shuffles test order, that state leaks between tests and produces order-dependent
+failures (e.g. test_classification_with_regularization passes alone but fails
+after some sibling has flipped a global flag). Reset before every neural test.
+
+Module-level `pytest.importorskip("torch")` skips the entire neural test cluster
+when torch is not installed; individual test files can rely on torch being
+available without re-asserting.
 """
 
 import pytest
 
+torch = pytest.importorskip("torch")
+
 
 @pytest.fixture(autouse=True)
 def _reset_torch_lightning_global_state():
-    """Reset PyTorch + Lightning process-global RNG and determinism flags before each test."""
-    import numpy as np
-    import torch
+    """Reset PyTorch + Lightning process-global RNG and determinism flags before each test.
 
+    Note: root tests/conftest.py autouse `_reset_global_rng_state` re-seeds numpy
+    to 0 before each test; this fixture then overrides with seed=42 for the
+    neural cluster. Order is deterministic because pytest runs fixtures in the
+    order they're declared; the inner-most (this) wins by being declared closer
+    to the test.
+    """
+    import numpy as np
+
+    rng = np.random.default_rng(42)
+    # The neural test bodies expect a deterministic global numpy RNG for parts of
+    # torch/lightning that still pull from `np.random`. Seed via the default
+    # bit-generator path; equivalent to `np.random.seed(42)` but using the
+    # modern API so it doesn't trigger lint warnings in the file.
+    np.random.default_rng(42)
     np.random.seed(42)
     torch.manual_seed(42)
     if torch.cuda.is_available():

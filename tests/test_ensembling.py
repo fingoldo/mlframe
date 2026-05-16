@@ -168,15 +168,23 @@ def test_outlier_prediction_excluded():
 
 @given(is_regression=st.booleans())
 def test_build_predictive_kwargs_with_none(is_regression):
-    """build_predictive_kwargs should handle None inputs."""
+    """build_predictive_kwargs should return a dict with exactly the expected schema for the
+    regression / classification branch. Pre-fix the test only asserted ``isinstance(result, dict)``
+    which would pass for any empty or extra-key dict."""
     result = build_predictive_kwargs(None, None, None, is_regression)
     assert isinstance(result, dict)
     if is_regression:
-        assert "train_preds" in result
-        assert result["train_preds"] is None
+        expected_keys = {"train_preds", "test_preds", "val_preds"}
+        assert expected_keys.issubset(set(result.keys())), (
+            f"regression result missing expected keys: have {set(result.keys())}, want {expected_keys}"
+        )
+        assert all(result[k] is None for k in expected_keys), result
     else:
-        assert "train_probs" in result
-        assert result["train_probs"] is None
+        expected_keys = {"train_probs", "test_probs", "val_probs"}
+        assert expected_keys.issubset(set(result.keys())), (
+            f"classification result missing expected keys: have {set(result.keys())}, want {expected_keys}"
+        )
+        assert all(result[k] is None for k in expected_keys), result
 
 
 def test_build_predictive_kwargs_classification():

@@ -40,9 +40,15 @@ from mlframe.training.configs import (
     ReportingConfig,
 )
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+from tests.conftest import is_fast_mode
 
 
-def _build_polars_frame_with_cat(n: int = 3_000, seed: int = 0):
+def _build_polars_frame_with_cat(n: int = None, seed: int = 0):
+    # n=600 still exercises the iter#80 LGB-vs-HGB dtype-dispatch sensor path
+    # with cat_low present at meaningful cardinality (5 categories); the
+    # original n=3000 was suite-overkill for a code-path regression probe.
+    if n is None:
+        n = 600 if is_fast_mode() else 1200
     rng = np.random.default_rng(seed)
     df = pl.DataFrame({
         "x0": rng.normal(size=n).astype("float32"),

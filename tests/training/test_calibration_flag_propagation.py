@@ -31,6 +31,7 @@ from mlframe.training.trainer import (
 )
 from mlframe.training.helpers import get_training_configs
 from mlframe.metrics.core import ICE
+from tests.conftest import fast_subset
 
 
 def _identity(x):
@@ -149,7 +150,7 @@ def test_cb_classifier_eval_metric_differs_with_flag():
 # classification model that claims to support calibration
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("model_key", ["cb", "xgb", "lgb"])
+@pytest.mark.parametrize("model_key", fast_subset(["cb", "xgb", "lgb"], representative="cb"))
 def test_calibration_flag_differentiates_classifier(model_key):
     """For each supported classifier, prefer_calibrated_classifiers=True vs
     False must produce a different eval_metric (either on the model or in

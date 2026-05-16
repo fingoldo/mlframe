@@ -41,12 +41,54 @@ def _coerce_to_numpy(arr):
     return np.asarray(arr)
 
 
+def _coerce_features_to_float32(
+    features,
+    *,
+    cache: Optional[Dict[Any, np.ndarray]] = None,
+    cache_key: Any = None,
+) -> Optional[np.ndarray]:
+    """Convert a DataFrame / Series / ndarray to a contiguous float32 ndarray.
+
+    POLARS-PANDAS-CHURN fix: the recurrent path predicts on the same train/val/test frames three
+    times per member (train_preds / val_preds / test_preds), each time paying a polars->numpy +
+    np.asarray(float32) round-trip. When ``cache`` is supplied, the result is memoised by
+    ``cache_key`` (typically a (split_label, id(frame)) tuple) so the second and third hits return
+    the cached buffer. Already-float32 ndarrays are returned unchanged without the asarray copy.
+    """
+    if features is None:
+        return None
+    if cache is not None and cache_key is not None:
+        _hit = cache.get(cache_key)
+        if _hit is not None:
+            return _hit
+    if isinstance(features, np.ndarray):
+        if features.dtype == np.float32 and features.flags["C_CONTIGUOUS"]:
+            arr = features
+        else:
+            arr = np.ascontiguousarray(features, dtype=np.float32)
+    else:
+        try:
+            raw = features.to_numpy() if hasattr(features, "to_numpy") else features
+            if isinstance(raw, np.ndarray) and raw.dtype == np.float32 and raw.flags["C_CONTIGUOUS"]:
+                arr = raw
+            else:
+                arr = np.ascontiguousarray(raw, dtype=np.float32)
+        except Exception as exc:
+            logger.warning("Recurrent predict: failed to coerce features to ndarray (%s); dropping member.", exc)
+            return None
+    if cache is not None and cache_key is not None:
+        cache[cache_key] = arr
+    return arr
+
+
 def _safe_predict_recurrent(
     *,
     model,
     sequences,
     features,
     is_classification: bool,
+    ctx=None,
+    split: str = "?",
 ) -> np.ndarray | None:
     """Predict on val/test for a fitted recurrent model. Returns None on any failure so the caller can degrade.
 
@@ -54,15 +96,18 @@ def _safe_predict_recurrent(
     ``_compute_cache_key(features, ...)`` which reads ``features.dtype`` BEFORE ``_create_dataset`` would
     normalise to ndarray, so a DataFrame at the predict boundary blows up with ``'DataFrame' has no attribute
     'dtype'``. Cast to a float32 ndarray here (the same shape contract the wrapper documents).
+
+    POLARS-PANDAS-CHURN: when ``ctx`` is supplied, cache the coerced float32 array on
+    ``ctx._recurrent_numpy_cache`` keyed by ``(split, id(features))``. The cache is invalidated by
+    ``_release_ctx_polars_frames`` (id-recycle safe via the strong-ref window).
     """
     if sequences is None and features is None:
         return None
-    if features is not None and not isinstance(features, np.ndarray):
-        try:
-            features = np.asarray(features.to_numpy() if hasattr(features, "to_numpy") else features, dtype=np.float32)
-        except Exception as exc:
-            logger.warning("Recurrent predict: failed to coerce features to ndarray (%s); dropping member.", exc)
-            return None
+    cache = getattr(ctx, "_recurrent_numpy_cache", None) if ctx is not None else None
+    cache_key = (split, id(features)) if features is not None else None
+    features = _coerce_features_to_float32(features, cache=cache, cache_key=cache_key)
+    if features is None and sequences is None:
+        return None
     try:
         if is_classification and hasattr(model, "predict_proba"):
             preds = model.predict_proba(features=features, sequences=sequences)
@@ -132,33 +177,41 @@ def _validate_member_shape_uniformity(members: list, *, target_name: str) -> boo
     return True
 
 
-def _rerun_ensemble_with_recurrent(
+def _apply_recurrent_to_ensemble(
     *,
     ctx,
+    ensemble_dict: dict,
     target_type,
     target_name: str,
     target_values,
-) -> bool:
-    """Re-run ``score_ensemble`` on the augmented member list for one (target_type, target_name), so the recurrent
-    entries that ``train_recurrent_models`` just appended to ``ctx.models[type][target]`` actually participate.
+) -> dict:
+    """Idempotent helper that re-runs the score_ensemble step with recurrent members included.
 
-    Returns True when the ensemble was successfully rebuilt; False when there was nothing to rebuild (no prior
-    ensemble, or the per-method rerun failed and the original was kept).
+    SKEW-RECURRENT: both train (``_rerun_ensemble_with_recurrent``) and predict (``core/predict.py``)
+    need to replay the same recurrent-augmented blend. Extracted here so the predict side can call
+    it without duplicating the slicing / kwarg-filtering logic. The function is idempotent: calling
+    it twice on the same ``ensemble_dict`` returns the same result modulo numerical noise from the
+    second score_ensemble run (which sees the same member list and the same targets).
+
+    Args:
+        ctx: TrainingContext (used for train_idx / val_idx / test_idx and verbose).
+        ensemble_dict: prior ensemble payload (``{method_name: ens_result}``). Returned unchanged
+            if rebuild fails or recurrent members are absent.
+        target_type: per-target target_type enum.
+        target_name: per-target name string.
+        target_values: aligned target array for index slicing.
+
+    Returns:
+        Either the rebuilt ``{method_name: ens_result}`` dict or ``ensemble_dict`` unchanged on
+        failure / no-op.
     """
     members = ctx.models.get(target_type, {}).get(target_name) or []
     if len(members) < 2:
-        # Single-member "ensemble" is degenerate; the booster path would not have built one either.
-        return False
-
-    # Note: we proceed even when ``existing_ensembles`` is empty. A common case is exactly one booster + one
-    # recurrent member - there was no prior ensemble (score_ensemble needs >=2 members) but post-recurrent we
-    # now do, and the rebuild here is the FIRST time the target gets a real blend.
-    existing_ensembles = ctx.ensembles.get(target_type, {}).get(target_name) if ctx.ensembles else None
+        return ensemble_dict
 
     if not _validate_member_shape_uniformity(members, target_name=target_name):
-        return False
+        return ensemble_dict
 
-    # Lazy import keeps the module-import cost low for runs that disable recurrent entirely.
     from mlframe.models.ensembling import score_ensemble
 
     try:
@@ -166,11 +219,9 @@ def _rerun_ensemble_with_recurrent(
         val_target = _coerce_to_numpy(target_values[ctx.val_idx] if ctx.val_idx is not None and hasattr(target_values, "__getitem__") else None)
         test_target = _coerce_to_numpy(target_values[ctx.test_idx] if ctx.test_idx is not None and hasattr(target_values, "__getitem__") else None)
     except Exception as exc:
-        logger.warning("Recurrent ensemble rerun: failed to slice targets for %s (%s); skipping.", target_name, exc)
-        return False
+        logger.warning("apply_recurrent_to_ensemble: failed to slice targets for %s (%s); returning prior ensemble.", target_name, exc)
+        return ensemble_dict
 
-    # Pass-through only kwargs ``score_ensemble`` declares - keeps us forward-compatible if the suite-level path
-    # adds new optional args without breaking this rerun.
     sig = inspect.signature(score_ensemble)
     accepted = set(sig.parameters.keys())
     kwargs = {
@@ -184,20 +235,52 @@ def _rerun_ensemble_with_recurrent(
         "test_idx": ctx.test_idx,
         "verbose": bool(ctx.verbose),
     }
-    # The booster path also feeds ``ensembling_methods`` from suite config; we let the default kick in for the
-    # rerun to keep this helper config-free. Drop any kwargs ``score_ensemble`` doesn't accept (defensive).
     kwargs = {k: v for k, v in kwargs.items() if k in accepted or k == "models_and_predictions"}
 
     try:
         rebuilt = score_ensemble(**kwargs)
     except Exception as exc:
         logger.warning(
-            "Recurrent ensemble rerun failed for target %s (%s); keeping pre-recurrent ensemble.",
+            "apply_recurrent_to_ensemble: rerun failed for target %s (%s); returning prior ensemble.",
             target_name, exc,
         )
+        return ensemble_dict
+    return rebuilt or ensemble_dict
+
+
+def _rerun_ensemble_with_recurrent(
+    *,
+    ctx,
+    target_type,
+    target_name: str,
+    target_values,
+) -> bool:
+    """Re-run ``score_ensemble`` on the augmented member list for one (target_type, target_name), so the recurrent
+    entries that ``train_recurrent_models`` just appended to ``ctx.models[type][target]`` actually participate.
+
+    Returns True when the ensemble was successfully rebuilt; False when there was nothing to rebuild (no prior
+    ensemble, or the per-method rerun failed and the original was kept).
+    """
+    # Single-member "ensemble" is degenerate; the booster path would not have built one either.
+    members = ctx.models.get(target_type, {}).get(target_name) or []
+    if len(members) < 2:
         return False
 
-    if not rebuilt:
+    # Note: we proceed even when ``existing_ensembles`` is empty. A common case is exactly one booster + one
+    # recurrent member - there was no prior ensemble (score_ensemble needs >=2 members) but post-recurrent we
+    # now do, and the rebuild here is the FIRST time the target gets a real blend.
+    existing_ensembles = ctx.ensembles.get(target_type, {}).get(target_name) if ctx.ensembles else None
+
+    # Delegate to the shared helper so train-side and (future) predict-side replays agree byte-for-byte.
+    rebuilt = _apply_recurrent_to_ensemble(
+        ctx=ctx,
+        ensemble_dict=existing_ensembles or {},
+        target_type=target_type,
+        target_name=target_name,
+        target_values=target_values,
+    )
+
+    if not rebuilt or rebuilt is existing_ensembles:
         return False
 
     if existing_ensembles:
@@ -346,20 +429,25 @@ def train_recurrent_models(
 
                 # ctx-aware path: compute preds on each split, build a member entry, append.
                 # test_df_pd is threaded through the kwarg (main.py passes it); fallback to None if missing.
+                # POLARS-PANDAS-CHURN: ``ctx`` + ``split`` enable the per-frame numpy-coercion cache
+                # so the (train/val/test) features arrays aren't re-coerced for each recurrent member.
                 train_preds = _safe_predict_recurrent(
                     model=model_clone, sequences=train_sequences,
                     features=train_df_pd if train_df_pd is not None else None,
                     is_classification=is_classification,
+                    ctx=ctx, split="train",
                 )
                 val_preds_arr = _safe_predict_recurrent(
                     model=model_clone, sequences=val_sequences,
                     features=val_df_pd if val_df_pd is not None else None,
                     is_classification=is_classification,
+                    ctx=ctx, split="val",
                 ) if (val_sequences is not None or val_df_pd is not None) else None
                 test_preds_arr = _safe_predict_recurrent(
                     model=model_clone, sequences=test_sequences,
                     features=test_df_pd if test_df_pd is not None else None,
                     is_classification=is_classification,
+                    ctx=ctx, split="test",
                 ) if (test_sequences is not None or test_df_pd is not None) else None
 
                 if val_preds_arr is None and test_preds_arr is None and train_preds is None:

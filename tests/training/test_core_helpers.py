@@ -71,7 +71,7 @@ class TestComputeNeuralMaxTime:
         # All inputs <300s; P95 still <300s; floor at 300s kicks in.
         times = [10.0, 20.0, 30.0]
         result = _compute_neural_max_time(times)
-        assert result is not None
+        assert isinstance(result, tuple) and len(result) == 3, f"expected 3-tuple, got {result!r}"
         max_time_dict, p95, n = result
         assert n == 3
         # 300s = 5min
@@ -80,7 +80,7 @@ class TestComputeNeuralMaxTime:
     def test_above_floor_p95_used(self):
         # P95 of [600] = 600s = 10 minutes, above the 300s floor.
         result = _compute_neural_max_time([600.0])
-        assert result is not None
+        assert isinstance(result, tuple) and len(result) == 3, f"expected 3-tuple, got {result!r}"
         max_time_dict, p95, n = result
         assert n == 1
         assert max_time_dict == {"days": 0, "hours": 0, "minutes": 10, "seconds": 0}
@@ -88,7 +88,7 @@ class TestComputeNeuralMaxTime:
     def test_hour_decomposition(self):
         # 3725s = 1h 2m 5s.
         result = _compute_neural_max_time([3725.0])
-        assert result is not None
+        assert isinstance(result, tuple) and len(result) == 3, f"expected 3-tuple, got {result!r}"
         max_time_dict, _, _ = result
         assert max_time_dict == {"days": 0, "hours": 1, "minutes": 2, "seconds": 5}
 

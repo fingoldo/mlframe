@@ -26,8 +26,11 @@ from mlframe.training.trainer import (
 from mlframe.training.helpers import get_training_configs
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def real_configs():
+    # Session-scoped: get_training_configs is deterministic and idempotent;
+    # building once per session avoids regenerating across every test in this
+    # module.
     cpu = get_training_configs(iterations=10, has_gpu=False)
     # has_gpu=None lets the helper decide; for tests we want deterministic CPU
     gpu = get_training_configs(iterations=10, has_gpu=False)

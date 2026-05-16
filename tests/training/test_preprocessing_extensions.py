@@ -13,6 +13,8 @@ import pytest
 from mlframe.training.configs import PreprocessingExtensionsConfig
 from mlframe.training.pipeline import apply_preprocessing_extensions
 
+from tests.conftest import fast_subset
+
 
 @pytest.fixture
 def small_df():
@@ -36,10 +38,15 @@ def test_empty_config_is_noop(small_df):
     assert a is small_df
 
 
-@pytest.mark.parametrize("scaler", [
-    "StandardScaler", "RobustScaler", "MinMaxScaler", "MaxAbsScaler",
-    "QuantileTransformer_uniform",
-])
+# Full PreprocessingExtensionsConfig.scaler Literal: every value routes through
+# the same apply_preprocessing_extensions code path. Fast mode trims to one
+# representative; full mode covers every variant the validator accepts.
+@pytest.mark.parametrize("scaler", fast_subset([
+    "StandardScaler", "StandardScaler_nomean",
+    "RobustScaler", "MinMaxScaler", "MaxAbsScaler",
+    "PowerTransformer_yj", "PowerTransformer_yj_nostd",
+    "QuantileTransformer_uniform", "QuantileTransformer_normal",
+], representative="StandardScaler"))
 def test_scaler_variants_produce_expected_shape(small_df, scaler):
     cfg = PreprocessingExtensionsConfig(scaler=scaler)
     out, _, _, pipe = apply_preprocessing_extensions(small_df, None, None, cfg, verbose=0)
