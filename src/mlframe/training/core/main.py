@@ -38,6 +38,7 @@ from ..configs import (
     TrainingSplitConfig,
 )
 from ..extractors import FeaturesAndTargetsExtractor
+from ..feature_handling.fingerprint import reset_session as reset_fh_session
 from ..helpers import (
     get_trainset_features_stats,
     get_trainset_features_stats_polars,
@@ -173,6 +174,12 @@ def train_mlframe_models_suite(
 
     # Module-global registry; not safe to invoke concurrent training suites from the same process.
     reset_phase_registry()
+    # Rotate the FH InMemoryKey session token alongside the phase registry. Without this, two
+    # consecutive suite calls within the same process keep the prior SessionToken and any
+    # ``id(train_df)`` reuse (Python may recycle ids after the first frame is GC'd) collides on a
+    # cached entry whose underlying state belongs to the prior suite. The session reset guarantees
+    # each suite starts from a fresh FH cache namespace.
+    reset_fh_session()
 
     if not isinstance(df, (pd.DataFrame, pl.DataFrame, str)):
         raise TypeError(f"df must be pandas DataFrame, polars DataFrame, or path string, " f"got {type(df).__name__}")
