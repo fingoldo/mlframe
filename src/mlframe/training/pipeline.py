@@ -611,9 +611,13 @@ def prepare_dfs_for_catboost_joint(
         else:
             val_s = None
 
-        # Sorted for stable code assignment across reruns; CategoricalDtype
-        # uses the supplied order for code positions.
-        categories = sorted(union_values)
+        # Sorted for stable code assignment across reruns; CategoricalDtype uses the supplied order for code positions.
+        # Sentinel "__MISSING__" must land at the LAST code (max+1), not code 0: tree libs that pre-pass CTR/one-hot
+        # under "low integer codes ~ frequent" heuristics get distorted when the synthetic null bucket sits at 0, and
+        # plain alphabetical sort places "__" before letters/digits in ASCII. Split it out and append at the tail so
+        # code position is shuffle-stable against the real-category set.
+        real_categories = sorted(v for v in union_values if v != nullable_sentinel)
+        categories = real_categories + ([nullable_sentinel] if nullable_sentinel in union_values else [])
         joint_dtype = pd.api.types.CategoricalDtype(categories=categories, ordered=False)
 
         train_df[col] = train_s.astype(joint_dtype)
