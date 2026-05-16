@@ -1,6 +1,7 @@
 """_train_one_target - per-target training entry point."""
 from __future__ import annotations
 
+import hashlib
 import inspect
 import logging
 from timeit import default_timer as timer
@@ -33,6 +34,37 @@ from ._setup_helpers import _build_common_params_for_target, _build_pre_pipeline
 from ..strategies import PipelineCache
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_pipeline_cache_key(
+    strategy_cache_key: str,
+    pre_pipeline_name: str | None,
+    feature_tier,
+    supports_polars: bool,
+    cat_features,
+    text_features,
+    embedding_features,
+) -> str:
+    """Build the PipelineCache lookup key for a (strategy, pre_pipeline, tier, kind, features) combo.
+
+    The features digest folds (cat, text, embedding) lists through blake2b so cache HIT invalidates
+    when the user reshapes those lists between sessions yet stays stable across list ordering;
+    without it, a tier frame prepared for one (cat/text/embedding) split could be served to a later
+    session that toggled a column's role. Sorting before serialization gives a deterministic byte
+    stream: frozenset.__repr__ iterates in hash-seeded order (PYTHONHASHSEED) and would change the
+    digest across processes for the same membership.
+    """
+    _tier_suffix = f"_tier{feature_tier}"
+    _kind_suffix = f"_kind{'pl' if supports_polars else 'pd'}"
+    _feats_repr = repr((
+        tuple(sorted(cat_features or ())),
+        tuple(sorted(text_features or ())),
+        tuple(sorted(embedding_features or ())),
+    ))
+    _feats_suffix = f"_feats{hashlib.blake2b(_feats_repr.encode(), digest_size=8).hexdigest()}"
+    if pre_pipeline_name:
+        return f"{strategy_cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}{_feats_suffix}"
+    return f"{strategy_cache_key}{_tier_suffix}{_kind_suffix}{_feats_suffix}"
 
 
 # XGB DMatrix / LGB Dataset reuse cache attribute names: forwarded across sklearn.clone() in both
@@ -507,17 +539,20 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 imputer=imputer,
                 scaler=scaler,
             )
-            # Cache key = strategy.cache_key + pre_pipeline_name + feature_tier + container kind.
+            # Cache key = strategy.cache_key + pre_pipeline_name + feature_tier + container kind + feature-list digest.
             # feature_tier is required because CB/LGB/XGB all share cache_key="tree" but have different
             # tiers; without it, CB's text/embedding-bearing frame would be served to LGB/XGB.
             # Kind suffix prevents Polars-native (XGB) and pandas-only (LGB) consumers from sharing entries
             # within a tier, which would otherwise undo the lazy pandas conversion downstream.
-            _tier_suffix = f"_tier{strategy.feature_tier()}"
-            _kind_suffix = f"_kind{'pl' if strategy.supports_polars else 'pd'}"
-            cache_key = (
-                f"{strategy.cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}"
-                if pre_pipeline_name else
-                f"{strategy.cache_key}{_tier_suffix}{_kind_suffix}"
+            # See _compute_pipeline_cache_key for the features-digest contract (frozenset, order-invariant).
+            cache_key = _compute_pipeline_cache_key(
+                strategy.cache_key,
+                pre_pipeline_name,
+                strategy.feature_tier(),
+                strategy.supports_polars,
+                cat_features,
+                text_features,
+                embedding_features,
             )
 
             # Polars fastpath substitutes original Polars DataFrames for natively-Polars consumers
