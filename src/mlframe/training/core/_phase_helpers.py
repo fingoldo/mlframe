@@ -734,6 +734,24 @@ def _phase_fit_pipeline(
 
     was_polars_input = isinstance(train_df, pl.DataFrame)
 
+    # Capture the RAW input column list BEFORE the main pipeline transform or
+    # extensions stage runs. ``metadata["columns"]`` (set later, post-pipeline +
+    # post-extensions) is the *output* schema the trained model was fit on; the
+    # predict-time input-validation step needs the *input* schema instead. Without
+    # this snapshot, ``_validate_input_columns_against_metadata`` filters predict
+    # inputs against post-pipeline column names (truncatedsvd0..9 from a
+    # PreprocessingExtensionsConfig dim_reducer, or sklearn one-hot expansions
+    # cat_low_A / cat_low_B / ...) and drops every raw user column as "extra" -
+    # leaving a (N, 0) frame that crashes the extensions transform with
+    # ``Found array with 0 sample(s)`` before any model can run. Surfaced by
+    # fuzz iter#189 (binary classification x lgb,linear,ridge x cat_enc=onehot
+    # x dim_reducer=TruncatedSVD x 1M rows).
+    if train_df is not None and hasattr(train_df, "columns"):
+        if isinstance(train_df, pl.DataFrame):
+            metadata["input_columns"] = list(train_df.columns)
+        else:
+            metadata["input_columns"] = train_df.columns.tolist()
+
     _strategies_for_polars_check = [get_strategy(m) for m in mlframe_models] if mlframe_models else []
     all_models_polars_native = bool(_strategies_for_polars_check) and all(
         s.supports_polars for s in _strategies_for_polars_check

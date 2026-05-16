@@ -252,11 +252,36 @@ def _run_suite_profiled(
     from mlframe.training.configs import (
         TargetTypes, BaselineDiagnosticsConfig, DummyBaselinesConfig,
         OutputConfig, ReportingConfig, CompositeTargetDiscoveryConfig,
+        FeatureSelectionConfig, OutlierDetectionConfig,
+        PreprocessingBackendConfig, PreprocessingExtensionsConfig,
     )
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
     df = _make_synthetic_frame(target_type, n_rows, seed=seed)
     print(f"  built frame: {len(df):_} rows x {len(df.columns)} cols")
+
+    # Seed-derived axis variations drawn from ``_3WAY_AXES`` in
+    # ``tests/training/_fuzz_combo.py``. Previously the harness only varied
+    # frame_type/cat/text/emb/NaN/const/correlated; outlier detection,
+    # MRMR, categorical_encoding, scaler, dim_reducer, ensembles paths
+    # were never exercised at 1M scale. OCSVM intentionally omitted from
+    # the outlier menu - O(n^2) fit dominates at n>=1200 (mirrors
+    # test_fuzz_suite._outlier_detector_for_combo canonicalization).
+    _axis_rng = np.random.default_rng(seed ^ 0xA11CE)
+    _use_mrmr_fs = bool(_axis_rng.random() < 0.25)
+    _outlier_method = str(_axis_rng.choice(
+        ["none", "isolation_forest", "lof"],
+        p=[0.60, 0.25, 0.15],
+    ))
+    _use_ensembles = bool(_axis_rng.random() < 0.40)
+    _categorical_encoding = str(_axis_rng.choice(["ordinal", "onehot"], p=[0.80, 0.20]))
+    _scaler_name = str(_axis_rng.choice(["standard", "robust", "none"], p=[0.50, 0.30, 0.20]))
+    _dim_reducer = str(_axis_rng.choice(["none", "PCA", "TruncatedSVD"], p=[0.80, 0.13, 0.07]))
+    print(
+        f"  axes: mrmr_fs={_use_mrmr_fs} outlier={_outlier_method} "
+        f"ensembles={_use_ensembles} cat_enc={_categorical_encoding} "
+        f"scaler={_scaler_name} dim_reducer={_dim_reducer}"
+    )
 
     if target_type == "regression":
         target_col = "y"
@@ -295,12 +320,60 @@ def _run_suite_profiled(
     trained_models: dict | None = None
     trained_metadata: dict | None = None
     try:
+        # MRMR at 1M is expensive; the kwargs below mirror the fast
+        # settings used by test_fuzz_3way_suite (verbose=0, hard 1-min
+        # cap, simple_mode, low quantization).
+        _fs_cfg = (
+            FeatureSelectionConfig(
+                use_mrmr_fs=True,
+                mrmr_kwargs={
+                    "verbose": 0,
+                    "max_runtime_mins": 1,
+                    "n_workers": 1,
+                    "quantization_nbins": 5,
+                    "use_simple_mode": True,
+                    "min_nonzero_confidence": 0.9,
+                    "max_consec_unconfirmed": 3,
+                    "full_npermutations": 3,
+                },
+            )
+            if _use_mrmr_fs
+            else FeatureSelectionConfig()
+        )
+        _od_detector = None
+        if _outlier_method == "isolation_forest":
+            from sklearn.ensemble import IsolationForest
+            _od_detector = IsolationForest(
+                contamination=0.05, random_state=int(seed) & 0xFFFFFFFF, n_estimators=20,
+            )
+        elif _outlier_method == "lof":
+            from sklearn.neighbors import LocalOutlierFactor
+            _od_detector = LocalOutlierFactor(novelty=True, n_neighbors=20)
+        _od_cfg = OutlierDetectionConfig(detector=_od_detector)
+        _pp_cfg = PreprocessingBackendConfig(
+            categorical_encoding=_categorical_encoding,
+            scaler_name=(None if _scaler_name == "none" else _scaler_name),
+        )
+        # PreprocessingExtensionsConfig.scaler uses verbose sklearn names
+        # ("StandardScaler", "RobustScaler", ...), not the polars-ds
+        # short names that PreprocessingBackendConfig.scaler_name accepts.
+        # Skip wiring scaler twice; vary dim_reducer instead.
+        _ext_cfg = (
+            PreprocessingExtensionsConfig(dim_reducer=_dim_reducer, dim_n_components=10)
+            if _dim_reducer != "none"
+            else None
+        )
         trained_models, trained_metadata = train_mlframe_models_suite(
             df=df,
             target_name=target_col,
             model_name="prof",
             features_and_targets_extractor=fte,
             mlframe_models=list(models),
+            use_mlframe_ensembles=_use_ensembles,
+            feature_selection_config=_fs_cfg,
+            outlier_detection_config=_od_cfg,
+            pipeline_config=_pp_cfg,
+            preprocessing_extensions=_ext_cfg,
             verbose=0,
             output_config=OutputConfig(
                 data_dir=("data" if save_charts else ""),

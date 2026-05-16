@@ -276,8 +276,13 @@ def _validate_input_columns_against_metadata(
 
     Missing cat/text/embedding features raise ValueError (cannot be safely dropped); other missing columns WARN + proceed;
     extra columns are dropped (logged when verbose). Returns the possibly-filtered df.
+
+    Prefers ``metadata["input_columns"]`` (the raw pre-pipeline input schema) when present, else falls back to
+    ``metadata["columns"]`` (the post-pipeline schema; back-compat for models trained before the fix). The raw-input
+    schema is the right anchor for predict-time validation: pipelines may rename/add columns (one-hot expansion,
+    dim_reducer output, TF-IDF), so validating against post-pipeline names drops every raw user column as "extra".
     """
-    columns = metadata.get("columns", [])
+    columns = metadata.get("input_columns") or metadata.get("columns", [])
     if not columns:
         return df
 

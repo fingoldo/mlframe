@@ -687,6 +687,30 @@ def predict_from_models(
     if isinstance(df_pre_pipeline, pl.DataFrame) and not _all_polars_native_inmem:
         df_pre_pipeline = _ensure_pandas_view(df_pre_pipeline, _pandas_view_cache)
 
+    # Back-merge extensions output onto df_pre_pipeline so the raw pre-pipeline frame
+    # carries the same union (raw cols + extensions cols) that ``_phase_helpers._phase_fit_pipeline``
+    # creates at training. Polars-fastpath / pandas-bypass models (LGB strategy converts polars->pandas
+    # internally without applying the main pipeline) are fit on this hybrid frame: model.feature_names_in_
+    # therefore lists raw + extension cols, neither of which the post-main-pipeline ``df`` alone carries
+    # (the main pipeline encoded/expanded the raw cols out; extensions then dropped the encoded form).
+    # Without this merge the per-model column subset below cannot find the expected raw cols and raises
+    # ``expects features missing from input``. Surfaced by fuzz iter#189 (binary x lgb x onehot x
+    # dim_reducer=TruncatedSVD).
+    if (
+        extensions_pipeline is not None
+        and isinstance(df, pd.DataFrame)
+        and isinstance(df_pre_pipeline, pd.DataFrame)
+    ):
+        _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
+        if _ext_new_cols:
+            _ext_only = df[_ext_new_cols]
+            # Align index defensively: extensions pipelines preserve the input index, but a
+            # post-main-pipeline reset_index (sklearn ColumnTransformer occasionally drops it)
+            # could surface non-matching indexes.
+            if not df_pre_pipeline.index.equals(_ext_only.index):
+                _ext_only = _ext_only.set_axis(df_pre_pipeline.index)
+            df_pre_pipeline = pd.concat([df_pre_pipeline, _ext_only], axis=1)
+
     # Cat dtype coercion is PER-MODEL (in the loop below), not global.
     # Different model types need different dtypes for the same cat_low
     # column after the main pipeline ran:
@@ -769,8 +793,47 @@ def predict_from_models(
                     if _expected is None:
                         _expected = getattr(model, "feature_names_", None)
                     if _expected is not None and hasattr(input_for_model, "columns"):
-                        _expected_list = list(_expected)
-                        _have = set(input_for_model.columns)
+                        # Normalise column name dtypes to plain ``str`` so numpy.str_
+                        # (the dtype LGBMClassifier.feature_names_in_ carries when fit on a
+                        # pandas DataFrame) compares equal to the Python str a polars/pandas
+                        # DataFrame surfaces via ``.columns``. ``np.str_`` IS a ``str``
+                        # subclass so this is mostly a defence-in-depth normalisation.
+                        _expected_list = [str(c) for c in _expected]
+                        _have = {str(c) for c in input_for_model.columns}
+                        _missing = [c for c in _expected_list if c not in _have]
+                        if _missing:
+                            # Models trained on the polars-native fastpath (LGB / CB / XGB on
+                            # polars input with prefer_polarsds=True) carry feature_names_in_
+                            # from the RAW pre-pipeline frame, not the post-pipeline /
+                            # post-extensions frame. When the main pipeline or extensions stage
+                            # changes column names (sklearn one-hot expansion, dim_reducer
+                            # output like truncatedsvd0..N, TF-IDF), every expected raw column
+                            # is "missing" from the post-everything ``df``. Fall back to
+                            # df_pre_pipeline (the raw user frame) before raising. Surfaced by
+                            # fuzz iter#189 (binary x lgb x cat_enc=onehot x
+                            # dim_reducer=TruncatedSVD).
+                            _fb = df_pre_pipeline
+                            if _fb is not None and hasattr(_fb, "columns"):
+                                _fb_have = {str(c) for c in _fb.columns}
+                                _fb_still_missing = [c for c in _expected_list if c not in _fb_have]
+                                if not _fb_still_missing:
+                                    if isinstance(_fb, pl.DataFrame) and not _is_polars_native_model(model_obj):
+                                        _fb = _ensure_pandas_view(_fb, _pandas_view_cache)
+                                    if verbose:
+                                        logger.info(
+                                            "predict_from_models: %s post-pipeline df missing %d expected col(s); "
+                                            "falling back to raw pre-pipeline frame which has all expected cols.",
+                                            model_name, len(_missing),
+                                        )
+                                    input_for_model = _fb
+                                    _have = {str(c) for c in input_for_model.columns}
+                                    _missing = []
+                        if _missing:
+                            raise ValueError(
+                                f"Model {model_name} expects features missing "
+                                f"from input: {_missing}. Restore the upstream "
+                                f"extraction or retrain on the current schema."
+                            )
                         _drop_extra = [c for c in input_for_model.columns if c not in _expected_list]
                         if _drop_extra:
                             # Pandas accepts ``drop(columns=...)``; polars 1.x
@@ -782,17 +845,6 @@ def predict_from_models(
                                 input_for_model = input_for_model.drop(_drop_extra)
                             else:
                                 input_for_model = input_for_model.drop(columns=_drop_extra)
-                        _missing = [c for c in _expected_list if c not in _have]
-                        if _missing:
-                            # Surface missing-feature error before the framework's
-                            # opaque "shape mismatch" / "feature_names mismatch"
-                            # crash; predict_from_models already catches and logs
-                            # at the outer try/except.
-                            raise ValueError(
-                                f"Model {model_name} expects features missing "
-                                f"from input: {_missing}. Restore the upstream "
-                                f"extraction or retrain on the current schema."
-                            )
 
                     # Per-model pre_pipeline (sklearn Pipeline of imputer +
                     # scaler for linear / ridge / sgd; identity for tree
