@@ -120,18 +120,14 @@ def _per_group_predict_polars(
     # Pull JUST the cat column per side. polars select is O(1) metadata, no row copy. The y-vector is materialised once as a polars Series alongside the train cat
     # column so the aggregation runs in a single eager pipeline; intermediate frames here are 2-column views, never the caller's full 100+ GB frame.
     train_pair = pl.DataFrame({cat_col: train_X.get_column(cat_col), "__y__": pl.Series("__y__", y_arr)})
-    group_means_df = train_pair.group_by(cat_col).agg(pl.col("__y__").mean().alias("__mean__"))
-    n_groups = group_means_df.height
+    # Single group_by pass yields both per-group mean AND per-group size; coverage / entity-overlap diagnostics reuse the size column without a second sweep.
+    stats_df = train_pair.group_by(cat_col).agg(pl.col("__y__").mean().alias("__mean__"), pl.len().alias("__size__"))
+    n_groups = stats_df.height
+    train_groups_series = stats_df.get_column(cat_col)
 
-    # Train-side group sizes (for entity-overlap diagnostic) and train-group-set (for coverage). Both come from the SAME group_by pass via an extra .agg() to avoid
-    # a second sweep over n_train rows.
-    sizes_df = train_pair.group_by(cat_col).agg(pl.len().alias("__size__"))
-    train_groups_series = sizes_df.get_column(cat_col)
-
-    # Left-join each split's cat column against the per-group means; nulls (unseen group) -> global_mean.
+    # Left-join each split's cat column against the per-group stats; nulls (unseen group) -> global_mean.
     def _predict(side_X: Any) -> np.ndarray:
-        side_key = side_X.select(cat_col)
-        joined = side_key.join(group_means_df, on=cat_col, how="left")
+        joined = side_X.select(cat_col).join(stats_df, on=cat_col, how="left")
         return joined.get_column("__mean__").fill_null(global_mean).to_numpy()
 
     train_pred = _predict(train_X)
@@ -145,8 +141,8 @@ def _per_group_predict_polars(
     val_coverage = float(val_key.is_in(train_groups_series).mean() or 0.0) * 100.0
     test_coverage = float(test_key.is_in(train_groups_series).mean() or 0.0) * 100.0
 
-    # Entity-overlap rate: fraction of val rows whose train-group size >= 5.
-    val_sizes_joined = val_X.select(cat_col).join(sizes_df, on=cat_col, how="left")
+    # Entity-overlap rate: fraction of val rows whose train-group size >= 5. Reuses stats_df from the single group_by above; no extra sweep.
+    val_sizes_joined = val_X.select(cat_col).join(stats_df.select(cat_col, "__size__"), on=cat_col, how="left")
     val_high_overlap = float(val_sizes_joined.get_column("__size__").fill_null(0).ge(5).mean() or 0.0)
 
     return train_pred, val_pred, test_pred, {
