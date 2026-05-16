@@ -107,26 +107,27 @@ def test_validate_cross_drive_rejected():
 # ----- _finalize_and_save_metadata -----
 
 def test_finalize_saves_and_roundtrips(tmp_path):
+    from types import SimpleNamespace
+
     data_dir = str(tmp_path)
     models_dir = "models"
-    metadata = {"model_name": "m1", "target_name": "t1", "mlframe_models": ["cb"]}
-    outlier_detector = None
-    outlier_detection_result = {"train_od_idx": None, "val_od_idx": None}
-    # _finalize_and_save_metadata does not mkdir; callers are expected to have ensured the dir.
     (Path(data_dir) / "models" / "t1" / "m1").mkdir(parents=True)
 
-    _finalize_and_save_metadata(
-        metadata=metadata,
-        outlier_detector=outlier_detector,
-        outlier_detection_result=outlier_detection_result,
+    ctx = SimpleNamespace(
+        metadata={"model_name": "m1", "target_name": "t1", "mlframe_models": ["cb"]},
+        outlier_detector=None,
+        outlier_detection_result={"train_od_idx": None, "val_od_idx": None},
         trainset_features_stats={"mean": 0.1},
+        slug_to_original_target_type={},
+        slug_to_original_target_name={},
         data_dir=data_dir,
-
         models_dir=models_dir,
         target_name="t1",
         model_name="m1",
         verbose=0,
     )
+
+    _finalize_and_save_metadata(ctx)
     # 2026-04-29: format switched joblib -> pickle proto=5 + zstd L3 (8c301f2).
     metadata_dir = Path(data_dir) / "models" / "t1" / "m1"
     loaded = _load_metadata(metadata_dir)
