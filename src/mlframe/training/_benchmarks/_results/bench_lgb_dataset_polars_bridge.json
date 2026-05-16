@@ -1,0 +1,144 @@
+{
+  "scenarios": [
+    {
+      "n_rows": 200000,
+      "n_num": 10,
+      "n_cat": 5,
+      "n_runs": 5,
+      "conversion_only": {
+        "bridge_wall_seconds": [
+          0.006918099999893457,
+          0.00731889999951818,
+          0.010639700001775054,
+          0.011860599999636179,
+          0.00682559999768273
+        ],
+        "bare_wall_seconds": [
+          0.02072029999908409,
+          0.014204099999915343,
+          0.01812459999928251,
+          0.011902899997949135,
+          0.014068399999814574
+        ],
+        "bridge_median_s": 0.00731889999951818,
+        "bare_median_s": 0.014204099999915343,
+        "speedup_bridge_vs_bare_x": 1.9407424614150255
+      },
+      "end_to_end_dataset_construct": {
+        "bridge_wall_seconds": [
+          0.25208280000151717,
+          0.27630649999991874,
+          0.2606244999988121,
+          0.2791892999994161,
+          0.27434209999773884
+        ],
+        "bare_wall_seconds": [
+          0.2710755000007339,
+          0.2579120000009425,
+          0.26170819999970263,
+          0.25200799999947776,
+          0.2947091999994882
+        ],
+        "bridge_median_s": 0.27434209999773884,
+        "bare_median_s": 0.26170819999970263,
+        "speedup_bridge_vs_bare_x": 0.9539483732240136
+      },
+      "categorical_preserved": {
+        "n_cat_input": 5,
+        "n_cat_bridged_path": 5,
+        "n_cat_bare_path": 5
+      },
+      "rss_mb_before": 484.234375,
+      "rss_mb_after": 492.234375,
+      "rss_delta_mb": 8.0
+    },
+    {
+      "n_rows": 200000,
+      "n_num": 10,
+      "n_cat": 20,
+      "n_runs": 3,
+      "conversion_only": {
+        "bridge_wall_seconds": [
+          0.04100549999930081,
+          0.03193899999678251,
+          0.025889999997161794
+        ],
+        "bare_wall_seconds": [
+          0.028776000002835644,
+          0.035618899997643894,
+          0.03549449999991339
+        ],
+        "bridge_median_s": 0.03193899999678251,
+        "bare_median_s": 0.03549449999991339,
+        "speedup_bridge_vs_bare_x": 1.111321581874481
+      },
+      "end_to_end_dataset_construct": {
+        "bridge_wall_seconds": [
+          0.5257750999990094,
+          0.5146801999981108,
+          0.5119575000026089
+        ],
+        "bare_wall_seconds": [
+          0.5562272000024677,
+          0.5674577999998291,
+          0.531374499998492
+        ],
+        "bridge_median_s": 0.5146801999981108,
+        "bare_median_s": 0.5562272000024677,
+        "speedup_bridge_vs_bare_x": 1.0807239136156965
+      },
+      "categorical_preserved": {
+        "n_cat_input": 20,
+        "n_cat_bridged_path": 20,
+        "n_cat_bare_path": 20
+      },
+      "rss_mb_before": 552.0625,
+      "rss_mb_after": 558.24609375,
+      "rss_delta_mb": 6.18359375
+    },
+    {
+      "n_rows": 200000,
+      "n_num": 10,
+      "n_cat": 50,
+      "n_runs": 3,
+      "conversion_only": {
+        "bridge_wall_seconds": [
+          0.07979599999816855,
+          0.0810910000000149,
+          0.05954839999685646
+        ],
+        "bare_wall_seconds": [
+          0.0626300000003539,
+          0.07105249999949592,
+          0.07154760000048555
+        ],
+        "bridge_median_s": 0.07979599999816855,
+        "bare_median_s": 0.07105249999949592,
+        "speedup_bridge_vs_bare_x": 0.8904268384521365
+      },
+      "end_to_end_dataset_construct": {
+        "bridge_wall_seconds": [
+          0.9017480000002251,
+          0.8671508999977959,
+          0.8340544999991835
+        ],
+        "bare_wall_seconds": [
+          0.8547266000023228,
+          0.8353668999989168,
+          0.7696928000004846
+        ],
+        "bridge_median_s": 0.8671508999977959,
+        "bare_median_s": 0.8353668999989168,
+        "speedup_bridge_vs_bare_x": 0.9633466332111748
+      },
+      "categorical_preserved": {
+        "n_cat_input": 50,
+        "n_cat_bridged_path": 50,
+        "n_cat_bare_path": 50
+      },
+      "rss_mb_before": 655.32421875,
+      "rss_mb_after": 662.140625,
+      "rss_delta_mb": 6.81640625
+    }
+  ]
+}
