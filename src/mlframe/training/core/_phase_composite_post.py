@@ -138,10 +138,24 @@ def _run_composite_target_wrapping(
                         continue
                     try:
                         _y_split = _y_arr_metric[_split_idx]
-                        _y_pred = np.asarray(
+                        # Wrapped (post-clip) prediction = today's headline value. Train RMSE here is optimistic by construction:
+                        # the clip is [y_train_min, y_train_max], train rows are in-envelope, clip is a no-op. Val / test rows
+                        # may drift outside; the clip then narrows the headline RMSE. To make that contribution explicit we ALSO
+                        # capture the raw (pre-clip) prediction via ``predict_pre_clip`` and emit a parallel metric block.
+                        _y_pred_wrapped = np.asarray(
                             _wrapper_for_score.predict(_split_df),
                             dtype=np.float64,
                         ).reshape(-1)
+                        if hasattr(_wrapper_for_score, "predict_pre_clip"):
+                            _y_pred_raw = np.asarray(
+                                _wrapper_for_score.predict_pre_clip(_split_df),
+                                dtype=np.float64,
+                            ).reshape(-1)
+                        else:
+                            # Inner is not a CompositeTargetEstimator (raw / passthrough); raw == wrapped is the honest answer.
+                            _y_pred_raw = _y_pred_wrapped
+                        # Use wrapped predictions for sample-log, cache, and the headline metric block (back-compat).
+                        _y_pred = _y_pred_wrapped
                         # Sample-log the first 3 (y_pred, y_true) pairs per split as a leakage / contract sanity check.
                         if _split_idx is not None and len(_y_split) > 0:
                             _n_dbg = min(3, len(_y_split))
@@ -170,13 +184,27 @@ def _run_composite_target_wrapping(
                             _diff[_finite] * _diff[_finite]
                         ))
                         _r2 = (1.0 - _ss_res / _ss_tot) if _ss_tot > 0 else float("nan")
+                        _rmse_wrapped = float(np.sqrt(np.mean(_diff[_finite] * _diff[_finite])))
+                        _mae_wrapped = float(np.mean(np.abs(_diff[_finite])))
+                        # Raw (pre-clip) RMSE / MAE: align finite mask to raw predictions so any wrapped-only NaN doesn't
+                        # bias the comparison. On in-envelope splits (train) raw and wrapped agree exactly.
+                        _diff_raw = _y_pred_raw - _y_split.astype(np.float64)
+                        _finite_raw = np.isfinite(_diff_raw)
+                        if int(_finite_raw.sum()) > 0:
+                            _rmse_raw = float(np.sqrt(np.mean(_diff_raw[_finite_raw] * _diff_raw[_finite_raw])))
+                            _mae_raw = float(np.mean(np.abs(_diff_raw[_finite_raw])))
+                        else:
+                            _rmse_raw = float("nan")
+                            _mae_raw = float("nan")
                         _entry_y_scores[_split_name] = {
-                            "RMSE": float(
-                                np.sqrt(np.mean(_diff[_finite] * _diff[_finite]))
-                            ),
-                            "MAE": float(np.mean(np.abs(_diff[_finite]))),
+                            "RMSE": _rmse_wrapped,
+                            "MAE": _mae_wrapped,
                             "R2": _r2,
                             "n_rows_finite": int(_finite.sum()),
+                            "RMSE_raw": _rmse_raw,
+                            "RMSE_wrapped": _rmse_wrapped,
+                            "MAE_raw": _mae_raw,
+                            "MAE_wrapped": _mae_wrapped,
                         }
                     except Exception:
                         continue

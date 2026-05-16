@@ -595,7 +595,13 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         }
         return self
 
-    def predict(self, X: Any) -> np.ndarray:
+    def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
+        """Internal: compute the pre-clip y-scale prediction plus the row count and the params dict.
+
+        Pulled out of ``predict`` so callers that need the raw (un-clipped) y-hat for diagnostics (e.g. honest pre-clip train
+        RMSE - which the clip cannot improve on rows that are in-envelope by construction) can get it without re-running
+        the inverse twice. ``predict`` is implemented as a thin clip-applying wrapper around this.
+        """
         if not hasattr(self, "estimator_"):
             raise RuntimeError(
                 "CompositeTargetEstimator.predict called before fit."
@@ -668,6 +674,28 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                     f"'{self.fallback_predict}'; choose 'y_train_median' or 'nan'."
                 )
 
+        n_violation = int((~domain_ok).sum())
+        n_rows = int(t_hat.size)
+        meta = {"params": params, "n_violation": n_violation, "n_rows": n_rows}
+        return y_hat, n_rows, meta
+
+    def predict_pre_clip(self, X: Any) -> np.ndarray:
+        """Return the inverse-of-transform y-prediction WITHOUT the train-envelope clip applied.
+
+        The post-hoc clip ``[y_clip_low, y_clip_high]`` is a no-op on train rows by construction (they ARE the envelope) so any
+        train metric computed on the clipped prediction is identical to the un-clipped one. The clip only does work on val /
+        test rows that drift outside the train range. Computing pre- AND post-clip RMSE separately exposes the clip's actual
+        contribution per split instead of folding the no-op train case into a falsely "improved" headline number.
+        """
+        y_hat_unclipped, _, _ = self._predict_unclipped(X)
+        return y_hat_unclipped
+
+    def predict(self, X: Any) -> np.ndarray:
+        y_hat, n, meta = self._predict_unclipped(X)
+        params = meta["params"]
+        n_violation = meta["n_violation"]
+        t_hat_size = meta["n_rows"]
+
         # Post-inverse y-clip. Prediction outside the train envelope is
         # almost always exp() / division blow-up; clip and count for
         # observability.
@@ -679,8 +707,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             y_hat = np.clip(y_hat, low, high)
 
         # Update runtime_stats_ cumulatively.
-        n = int(t_hat.size)
-        n_violation = int((~domain_ok).sum())
+        n = t_hat_size
         rs = self.runtime_stats_
         rs["predict_calls"] += 1
         rs["predict_rows_total"] += n
