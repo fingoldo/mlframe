@@ -1410,6 +1410,19 @@ def score_ensemble(
         is_regression = True
         ensure_prob_limits = False
 
+    # RRF is a rank-fusion flavour that only makes sense on classifier
+    # probabilities (where per-row ranks across the n_samples axis encode
+    # "confidence ordering"). For regression there is no analogous per-sample
+    # rank operation, so drop "rrf" silently from the candidate list rather
+    # than fail late inside _process_single_ensemble_method.
+    if is_regression and ensembling_methods:
+        _pre = list(ensembling_methods)
+        ensembling_methods = [m for m in ensembling_methods if m != "rrf"]
+        if verbose and len(ensembling_methods) != len(_pre):
+            logger.info(
+                "[ensemble] target_type=REGRESSION: skipping rrf candidate (rank-fusion only meaningful on classifier probabilities)."
+            )
+
     # Multi-level stacking requires OOF predictions on EVERY member: the level-2 (and deeper) meta-learner consumes
     # level-1 ensemble outputs as features, and if any member contributes an in-sample ``train_preds`` row instead of
     # a ``cross_val_predict`` OOF row the meta-learner sees leaked targets. Fail fast rather than silently fold the
