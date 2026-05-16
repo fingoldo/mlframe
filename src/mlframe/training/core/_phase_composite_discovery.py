@@ -34,13 +34,28 @@ logger = logging.getLogger(__name__)
 def _discovery_config_signature(config: Any) -> str:
     """Stable JSON-derived signature of a CompositeTargetDiscoveryConfig.
 
-    Combined with library versions (``mlframe``/``sklearn``/``lightgbm``/
-    ``catboost``) so a dependency bump invalidates cached specs - this
-    is the cache-poisoning protection: a CatBoost upgrade can change MI
-    bin boundaries, so we MUST refit.
+    Combined with library versions so a dependency bump invalidates
+    cached specs - this is the cache-poisoning protection: a CatBoost
+    upgrade changes MI bin boundaries, a polars 1->2 bump changes
+    categorical codes, a numpy 2.x bump changes RNG semantics, so we
+    MUST refit. The version tuple covers every library whose semantics
+    can shift the discovered specs:
+
+      * ``mlframe`` - our own version (any change is a refit signal)
+      * ``sklearn`` - shared transformers; MI estimator lives here
+      * ``lightgbm`` / ``catboost`` / ``xgboost`` - inner models for
+        the tiny-model rerank phase
+      * ``polars`` - categorical/string dtype codes that feed into
+        domain checks + signatures
+      * ``numpy`` - dtype promotions + RNG defaults changed in 2.x
+      * ``scipy`` - Wilcoxon implementation
+      * ``pandas`` - dtype dispatch on the fallback path
+      * ``python`` - major.minor (3.11 -> 3.12 changes pickle proto +
+        dict ordering side-effects in some serialisers)
     """
     import hashlib
     import json as _json
+    import sys
 
     payload: dict[str, Any] = {}
     try:
@@ -60,12 +75,24 @@ def _discovery_config_signature(config: Any) -> str:
         versions["mlframe"] = _mlv
     except Exception:
         versions["mlframe"] = "?"
-    for _name in ("sklearn", "lightgbm", "catboost"):
+    for _name in (
+        "sklearn",
+        "lightgbm",
+        "catboost",
+        "xgboost",
+        "polars",
+        "numpy",
+        "scipy",
+        "pandas",
+    ):
         try:
             mod = __import__(_name)
             versions[_name] = str(getattr(mod, "__version__", "?"))
         except Exception:
             versions[_name] = "absent"
+    # Python major.minor only - patch-level changes don't move semantics
+    # we care about, but a 3.x bump can.
+    versions["python"] = f"{sys.version_info.major}.{sys.version_info.minor}"
     payload["versions"] = versions
 
     blob = _json.dumps(payload, sort_keys=True, default=str)
