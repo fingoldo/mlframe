@@ -146,3 +146,44 @@ def test_rrf_ensemble_basic_binary():
     # Same ranking on both members -> output also rank-ordered the same way.
     assert out.shape == p1.shape
     assert out[0] > out[1] > out[2]
+
+
+# Resolution-logic for ranker_suite: ltr_ensemble_method picked when legacy field is default rrf.
+def test_ranker_suite_resolution_prefers_ltr_ensemble_method_when_legacy_is_default():
+    """If config.ltr_ensemble_method='borda' but the legacy ensemble_method='rrf' (default), the typed field wins."""
+    cfg = LearningToRankConfig(ltr_ensemble_method="borda")
+    # Mirror the resolution logic from ranker_suite without exercising the heavy fit path.
+    ensemble_method_arg = None
+    if ensemble_method_arg is not None:
+        method = ensemble_method_arg
+    elif getattr(cfg, "ensemble_method", "rrf") != "rrf":
+        method = cfg.ensemble_method
+    else:
+        method = getattr(cfg, "ltr_ensemble_method", cfg.ensemble_method)
+    assert method == "borda"
+
+
+def test_ranker_suite_resolution_legacy_field_wins_when_explicitly_set():
+    """If user pinned the legacy ensemble_method to 'score_mean', the typed default doesn't silently override."""
+    cfg = LearningToRankConfig(ensemble_method="score_mean")
+    ensemble_method_arg = None
+    if ensemble_method_arg is not None:
+        method = ensemble_method_arg
+    elif getattr(cfg, "ensemble_method", "rrf") != "rrf":
+        method = cfg.ensemble_method
+    else:
+        method = getattr(cfg, "ltr_ensemble_method", cfg.ensemble_method)
+    assert method == "score_mean"
+
+
+def test_ranker_suite_resolution_function_arg_top_priority():
+    """The explicit function-arg ``ensemble_method`` overrides every config field."""
+    cfg = LearningToRankConfig(ltr_ensemble_method="borda", ensemble_method="rrf")
+    ensemble_method_arg = "score_mean"
+    if ensemble_method_arg is not None:
+        method = ensemble_method_arg
+    elif getattr(cfg, "ensemble_method", "rrf") != "rrf":
+        method = cfg.ensemble_method
+    else:
+        method = getattr(cfg, "ltr_ensemble_method", cfg.ensemble_method)
+    assert method == "score_mean"

@@ -134,8 +134,12 @@ def train_mlframe_ranker_suite(
     eval_at : tuple
         NDCG@k / MAP@k cutoffs to report.
     ensemble_method : str, optional
-        Override ranking_config.ensemble_method. ``rrf`` (default) /
-        ``borda`` / ``score_mean`` (latter requires
+        Override the config-resolved method (highest priority). When None,
+        the suite picks ``ranking_config.ensemble_method`` only if that
+        legacy field was customised away from "rrf"; otherwise it reads
+        the typed ``ranking_config.ltr_ensemble_method`` (Literal of
+        "rrf" / "borda"). Valid values across the union: ``rrf`` (default)
+        / ``borda`` / ``score_mean`` (last one requires
         ``assume_comparable_scales=True``).
     save_dir : str, optional
         If provided, save each fitted ranker as
@@ -535,7 +539,19 @@ def train_mlframe_ranker_suite(
     # 4. Ensemble
     # -------------------------------------------------------------
     if use_mlframe_ensembles and len(val_scores_per_model) >= 2:
-        method = ensemble_method or ranking_config.ensemble_method
+        # Resolution order for the ensembling method:
+        # 1. Explicit function-arg ``ensemble_method`` (back-compat, highest priority).
+        # 2. ``ranking_config.ensemble_method`` when the legacy field was customised
+        #    (i.e. set to something other than the default "rrf") -- this preserves
+        #    callers who already pinned the loose field to "score_mean" or "borda".
+        # 3. ``ranking_config.ltr_ensemble_method`` (typed Literal["rrf","borda"];
+        #    new preferred source for fresh configurations).
+        if ensemble_method is not None:
+            method = ensemble_method
+        elif getattr(ranking_config, "ensemble_method", "rrf") != "rrf":
+            method = ranking_config.ensemble_method
+        else:
+            method = getattr(ranking_config, "ltr_ensemble_method", ranking_config.ensemble_method)
         ens_val = ensemble_ranker_scores(
             val_scores_per_model, g_va,
             method=method, rrf_k=ranking_config.rrf_k,
