@@ -504,7 +504,21 @@ class RFECV(BaseEstimator, TransformerMixin):
             return None
         return state
 
-    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, **fit_params):
+    def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
+        # sample_weight, when provided, is sliced per CV fold and threaded into both the cloned estimator's
+        # ``fit(..., sample_weight=fold_train_w)`` call (if the estimator advertises support) and into the
+        # sklearn scorer's ``__call__(..., sample_weight=fold_test_w)`` (if the scorer accepts the kwarg).
+        # Default None preserves the legacy code path byte-for-byte (regression sentry); the gating flag
+        # ``FeatureSelectionConfig.use_sample_weights_in_fs`` decides whether the caller forwards weights here.
+        self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
+        if self._fit_sample_weight_ is not None:
+            _n_rows_for_sw = X.shape[0] if hasattr(X, "shape") else len(X)
+            if self._fit_sample_weight_.ndim != 1:
+                raise ValueError(f"RFECV.fit sample_weight must be 1-D, got shape {self._fit_sample_weight_.shape}")
+            if self._fit_sample_weight_.shape[0] != _n_rows_for_sw:
+                raise ValueError(f"RFECV.fit sample_weight length {self._fit_sample_weight_.shape[0]} != n_rows {_n_rows_for_sw}")
+            if not np.all(np.isfinite(self._fit_sample_weight_)) or (self._fit_sample_weight_ < 0).any():
+                raise ValueError("RFECV.fit sample_weight must be finite and non-negative")
 
         # Polars -> pandas at entry. RFECV uses pandas / numpy idioms throughout (KFold.split, current_features.index(...), passthrough_cols).
         # Inner estimators (notably CatBoost) crash on polars Enum columns, so convert once here and let every downstream caller see pandas.
@@ -1388,6 +1402,15 @@ class RFECV(BaseEstimator, TransformerMixin):
                     temp_fit_params = {}
                     X_val = None
 
+                # Per-fold sample_weight slicing. Estimator-side: pass via temp_fit_params only when the estimator's
+                # fit signature accepts sample_weight (sklearn convention). Scorer-side: detected at score-call time
+                # below (sklearn's _BaseScorer.__call__ accepts sample_weight=).
+                _fold_train_sw = None
+                _fold_test_sw = None
+                if self._fit_sample_weight_ is not None:
+                    _fold_train_sw = self._fit_sample_weight_[train_index]
+                    _fold_test_sw = self._fit_sample_weight_[test_index]
+
                 # Fit on current train fold, score on test, get FI.
 
                 # Always clone per fold via sklearn.base.clone. copy.copy is a SHALLOW copy that shares mutable state (cat_features list,
@@ -1460,9 +1483,28 @@ class RFECV(BaseEstimator, TransformerMixin):
 
                     _model_type_name = type(_fitted).__name__
                     _ctx = suppress_stdout_stderr() if _model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
+                    # Build per-call fit kwargs: only attach sample_weight when the estimator's fit signature accepts it.
+                    # CatBoost / LGBM / sklearn estimators all accept it; some custom shims may not, so introspect.
+                    _per_est_fit_params = dict(temp_fit_params)
+                    if _fold_train_sw is not None and "sample_weight" not in _per_est_fit_params:
+                        try:
+                            import inspect as _inspect
+                            _sig = _inspect.signature(_fitted.fit)
+                            if "sample_weight" in _sig.parameters or any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()):
+                                _per_est_fit_params["sample_weight"] = _fold_train_sw
+                        except (TypeError, ValueError):
+                            pass
                     with _ctx:
-                        _fitted.fit(X=X_train, y=y_train, **temp_fit_params)
-                    _score = scoring(_fitted, X_test, y_test)
+                        _fitted.fit(X=X_train, y=y_train, **_per_est_fit_params)
+                    # Scorer-side: forward fold-test sample_weight when sklearn scorer accepts it. make_scorer-wrapped
+                    # callables expose sample_weight via _BaseScorer.__call__; bare callables may not.
+                    if _fold_test_sw is not None:
+                        try:
+                            _score = scoring(_fitted, X_test, y_test, sample_weight=_fold_test_sw)
+                        except TypeError:
+                            _score = scoring(_fitted, X_test, y_test)
+                    else:
+                        _score = scoring(_fitted, X_test, y_test)
                     _est_scores.append(_score)
 
                     # FI is computed on the actual fit_features.
