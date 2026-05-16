@@ -93,7 +93,7 @@ _Combined from three parallel disposition agents (X: FS+FE; Y: Ensembling+Cachin
 | FE-L-3 | pipeline.py:731 | L | int_to_float(f32=True) over-widens int8 date parts | RESOLVED | Agent FX: bp.int_to_float gated; Int8/Int16/UInt8/UInt16 untouched |
 | FE-L-4 | pipeline.py:154-264 | L | PySR bare except | RESOLVED | _apply_pysr_fe uses except Exception at L239 + (ImportError, OSError, ...) at L186 |
 | FE-L-5 | pipeline.py:373-374,382 | L | TF-IDF densify | RESOLVED | _spmatrix_to_df with tfidf_keep_sparse default True (lines 379-388) |
-| FE-L-6 | core/_phase_helpers.py:880-906 | L | auto-stratification only single-classification target | DOC | comment at L934 acknowledges single-target restriction; multilabel intentionally skipped L949-952 |
+| FE-L-6 | core/_phase_helpers.py:880-906 | L | auto-stratification only single-classification target | RESOLVED | multi-class composite-key + multilabel fallback added; test_auto_stratification_multi.py 6/6 |
 | FE-L-7 | pipeline.py:863-991 | L | fit_and_transform_pipeline cat_features=[] semantics | DOC | docstring at L959-973 documents cat_features=[] return path; line 978 explicit init |
 | FE-L-8 | core/_misc_helpers.py:402-435 | L | _filter_polars_cat_features_by_dtype dead defence | DOC | docstring at L418-421 documents defensive intent for CB 1.2.x Cython dispatcher |
 | FE-L-9 | core/_misc_helpers.py:61-126 | L | _augment_with_dropped_high_card_cols audited clean | DOC | per-target OD-idx slicing logic at L97-119 audited clean |
