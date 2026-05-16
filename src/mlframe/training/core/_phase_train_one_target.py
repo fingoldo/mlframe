@@ -926,6 +926,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     # pre_pipelines of the same model-type bucket; one cache instance covers the whole sweep.
     pipeline_cache = PipelineCache()
 
+    # Suite-scoped cache observability. ``finalize_suite`` aggregates these into
+    # ``metadata["cache_stats"]``. Initialise once per call rather than per pre_pipeline so the inner
+    # loop's HIT / MISS bumps accumulate across the whole target's training, and use ``setdefault``
+    # at ctx level so cross-target calls (multi-target suites) keep counters monotonic across calls.
+    if not hasattr(ctx, "_cache_stats") or ctx._cache_stats is None:
+        ctx._cache_stats = {}
+
     for pre_pipeline, pre_pipeline_name in tqdmu_lazy_start(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
         # CatBoost + RFECV metamodel_func combination breaks sklearn.clone().
         if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, behavior_config):
@@ -1276,9 +1283,16 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                             _logged_lazy_conv = True
                         _src_id = id(df_)
                         _pd_view = _view_cache.get(_src_id)
+                        # Pandas-view cache stats: count one HIT per reuse (id() match) and one MISS
+                        # per fresh conversion. Stamped on ctx so finalize_suite can read without
+                        # touching the cache backend (a plain dict on ctx that exposes no counters).
+                        _cs_pv = ctx._cache_stats.setdefault("pandas_view_cache", {"hits": 0, "misses": 0})
                         if _pd_view is None:
+                            _cs_pv["misses"] += 1
                             _pd_view = get_pandas_view_of_polars_df(df_)
                             _view_cache[_src_id] = _pd_view
+                        else:
+                            _cs_pv["hits"] += 1
                         common_params[df_key] = _pd_view
 
                 # Defense-in-depth: after lazy conversion, every common_params DF must be non-polars.
@@ -1320,9 +1334,15 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 strategy.supports_polars,
                 pre_pipeline_name,
             )
+            # Fingerprint cache stats: HIT when the per-(strategy, tier, kind, pp_name) key is already
+            # cached, MISS when we have to compute. Same proxy-counter pattern as the pandas-view
+            # cache above (the underlying cache is a plain dict on ctx with no counters of its own).
+            _cs_fp = ctx._cache_stats.setdefault("fingerprint_cache", {"hits": 0, "misses": 0})
             if _fp_cache_key in ctx._model_input_fingerprint_cache:
+                _cs_fp["hits"] += 1
                 _schema_hash, _input_schema = ctx._model_input_fingerprint_cache[_fp_cache_key]
             else:
+                _cs_fp["misses"] += 1
                 _schema_hash, _input_schema = compute_model_input_fingerprint(
                     _fp_train_df_pre,
                     cat_features=cat_features,
@@ -1711,6 +1731,16 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     ctx.models = models
     ctx.metadata = metadata
     ctx.trainset_features_stats = trainset_features_stats
+    # Merge ``pipeline_cache`` HIT / MISS counters into the per-suite cache_stats accumulator.
+    # PipelineCache itself is local to this function (one instance per pre_pipeline sweep) so the
+    # only handoff to finalize is this stash; later targets create fresh PipelineCaches whose hits
+    # accumulate via ``+=`` into the suite-wide running totals.
+    try:
+        _cs_pc = ctx._cache_stats.setdefault("pipeline_cache", {"hits": 0, "misses": 0})
+        _cs_pc["hits"] += int(getattr(pipeline_cache, "n_hits", 0))
+        _cs_pc["misses"] += int(getattr(pipeline_cache, "n_misses", 0))
+    except Exception as _pc_stats_err:
+        logger.debug("pipeline_cache stats merge failed: %s", _pc_stats_err)
     # CODE-LOW-2 + CODE-LOW-4: slug_to_original_target_{type,name} and _non_neural_train_times
     # are mutable containers we already rebound on ctx (the slugs are bound by reference at the top
     # of this function and mutated in place; _non_neural_train_times is rebound to a fresh list each

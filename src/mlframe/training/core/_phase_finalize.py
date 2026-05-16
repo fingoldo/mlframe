@@ -13,6 +13,72 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _aggregate_discovery_cache_stats(metadata: dict) -> dict:
+    """Collapse the per-target ``composite_target_cache`` map into hit / miss totals.
+
+    ``_phase_composite_discovery.py`` writes ``metadata["composite_target_cache"][target_type]
+    [target_name] = {"hit": bool, "key": str}`` for every target it tried to read from the disk-
+    backed DiscoveryCache. Aggregating here keeps finalize as the single source of truth and avoids
+    instrumenting DiscoveryCache itself (locked module, no counters of its own).
+    """
+    _by_target = metadata.get("composite_target_cache")
+    if not isinstance(_by_target, dict):
+        return {"hits": 0, "misses": 0}
+    _hits = 0
+    _misses = 0
+    for _by_name in _by_target.values():
+        if not isinstance(_by_name, dict):
+            continue
+        for _entry in _by_name.values():
+            if not isinstance(_entry, dict):
+                continue
+            if _entry.get("hit") is True:
+                _hits += 1
+            elif _entry.get("hit") is False:
+                _misses += 1
+    return {"hits": _hits, "misses": _misses}
+
+
+def _build_cache_stats(ctx) -> dict:
+    """Assemble the ``metadata["cache_stats"]`` payload from ctx-side counters + discovery aggregate.
+
+    Layout (per Wave-8 observability spec):
+        pipeline_cache    : PipelineCache.n_hits / n_misses merged from each _train_one_target call.
+        discovery_cache   : aggregated from metadata["composite_target_cache"]; the locked
+                            DiscoveryCache exposes no native counter, but every read site already
+                            stamps {hit: bool} into metadata so we tally there.
+        fingerprint_cache : ctx._cache_stats["fingerprint_cache"], proxied at the if/else in
+                            _train_one_target since the underlying dict has no counters.
+        pandas_view_cache : ctx._cache_stats["pandas_view_cache"], proxied at the
+                            ``_view_cache.get`` site in _train_one_target.
+
+    Each block also carries ``hit_rate`` = hits / (hits + misses), or ``None`` when the denominator
+    is zero (no accesses observed) so consumers can tell "0% hit" from "never used".
+    """
+    _ctx_stats = getattr(ctx, "_cache_stats", None) or {}
+    _pipeline = dict(_ctx_stats.get("pipeline_cache", {"hits": 0, "misses": 0}))
+    _fingerprint = dict(_ctx_stats.get("fingerprint_cache", {"hits": 0, "misses": 0}))
+    _pandas_view = dict(_ctx_stats.get("pandas_view_cache", {"hits": 0, "misses": 0}))
+    _discovery = _aggregate_discovery_cache_stats(ctx.metadata or {})
+
+    def _with_rate(block: dict) -> dict:
+        _h = int(block.get("hits", 0))
+        _m = int(block.get("misses", 0))
+        _total = _h + _m
+        return {
+            "hits": _h,
+            "misses": _m,
+            "hit_rate": (_h / _total) if _total > 0 else None,
+        }
+
+    return {
+        "pipeline_cache": _with_rate(_pipeline),
+        "discovery_cache": _with_rate(_discovery),
+        "fingerprint_cache": _with_rate(_fingerprint),
+        "pandas_view_cache": _with_rate(_pandas_view),
+    }
+
+
 def finalize_suite(ctx: TrainingContext) -> dict:
     """Aggregate fairness reports, save metadata, emit phase/rendering summaries, surface selected features.
 
@@ -54,6 +120,14 @@ def finalize_suite(ctx: TrainingContext) -> dict:
                     pass
     if fairness_reports:
         ctx.metadata["fairness_report"] = fairness_reports
+
+    # Cache observability: aggregate hit / miss / hit_rate per cache backend before the metadata
+    # write so the persisted blob has the stats. Failures here must not block the suite from saving
+    # its main metadata payload -- log + fall through.
+    try:
+        ctx.metadata["cache_stats"] = _build_cache_stats(ctx)
+    except Exception as _cs_err:
+        logger.warning("cache_stats aggregation failed: %s", _cs_err)
 
     # ``verbose=0`` silences the duplicate "Saved metadata to ..." log line; main.py already saved partway.
     _finalize_and_save_metadata(ctx, verbose=0)
