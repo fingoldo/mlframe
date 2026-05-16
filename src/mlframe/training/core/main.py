@@ -632,7 +632,7 @@ def train_mlframe_models_suite(
     slug_to_original_target_type = {}
     slug_to_original_target_name = {}
 
-    _all_target_audits = pr.run_temporal_audit_batch(
+    ctx._all_target_audits = pr.run_temporal_audit_batch(
         behavior_config=behavior_config,
         features_and_targets_extractor=features_and_targets_extractor,
         timestamps=timestamps,
