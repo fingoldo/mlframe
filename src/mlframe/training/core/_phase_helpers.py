@@ -1202,12 +1202,17 @@ def _phase_train_val_test_split(
     # ``split_config.use_groups`` is set, route through GroupShuffleSplit.
     _groups = group_ids if (split_config.use_groups and group_ids is not None and len(group_ids) > 0) else None
     with phase("split_data"):
+        # ``calib_size`` is a TrainingSplitConfig field for opt-in
+        # post-calibration; ``make_train_test_split`` does not accept it
+        # (the calibration slice is carved by downstream code, not the
+        # splitter). Exclude alongside ``use_groups`` (which is
+        # consumed above to derive ``_groups``).
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
             df=df,
             timestamps=timestamps,
             stratify_y=_stratify_y,
             groups=_groups,
-            **split_config.model_dump(exclude={"use_groups"}),
+            **split_config.model_dump(exclude={"use_groups", "calib_size"}),
         )
     if verbose:
         log_ram_usage()
