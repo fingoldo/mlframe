@@ -1159,6 +1159,50 @@ def precompute_trainset_features_stats(train_df, max_ncats_to_track: int = 1000)
     return get_trainset_features_stats(train_df, max_ncats_to_track=max_ncats_to_track)
 
 
+def precompute_all(
+    train_df,
+    target_by_type: Optional[dict] = None,
+    *,
+    fs_config: Optional[Any] = None,
+    dummy_baselines_config: Optional[Any] = None,
+    composite_config: Optional[Any] = None,
+) -> TrainMlframeSuitePrecomputed:
+    """One-shot helper: fill every precompute slot the suite supports today.
+
+    Currently only ``trainset_features_stats`` is a real precompute; the other two slots remain
+    None because their helpers are stubs (see ``precompute_dummy_baselines`` /
+    ``precompute_composite_target_specs`` for the rationale). Callers wanting the dummy / composite
+    skip-paths today should construct the bundle directly with dicts loaded from a prior run's metadata.
+
+    Args:
+        train_df: Pandas or Polars train frame.
+        target_by_type: per-target mapping (forwarded to dummy stub).
+        fs_config: feature-stats kwargs container (currently only ``max_ncats_to_track`` is honored
+            if present as an attribute; pass None for defaults).
+        dummy_baselines_config: forwarded to the dummy stub.
+        composite_config: forwarded to the composite stub.
+
+    Returns:
+        A populated ``TrainMlframeSuitePrecomputed`` bundle.
+    """
+    _max_ncats = 1000
+    if fs_config is not None:
+        _maybe = getattr(fs_config, "max_ncats_to_track", None)
+        if isinstance(_maybe, int) and _maybe > 0:
+            _max_ncats = _maybe
+    stats = precompute_trainset_features_stats(train_df, max_ncats_to_track=_max_ncats)
+
+    # The two helpers below currently return empty dicts; preserve the None sentinel on the bundle
+    # so the suite's "if precomputed.X is not None" gate keeps recomputing inline rather than
+    # silently skipping with no data.
+    return TrainMlframeSuitePrecomputed(
+        trainset_features_stats=stats,
+        dummy_baselines=None,
+        composite_target_specs=None,
+        train_df_fingerprint=None,
+    )
+
+
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Callback Classes for Training Monitoring
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
