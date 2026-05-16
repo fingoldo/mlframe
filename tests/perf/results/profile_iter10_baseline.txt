@@ -1,0 +1,53 @@
+# 1M-row e2e profile (n_rows=300_000, models=('cb', 'lgb'), save_charts=False)
+
+=== multiclass_classification x cb,lgb ===
+  built frame: 300_000 rows x 9 cols
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2702: UserWarning:
+
+Can't optimze method "evaluate" because self argument is used
+
+MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+mlframe model:  50%|#####     | 1/2 [00:43<00:43, 43.54s/it]mlframe model: 100%|##########| 2/2 [00:53<00:00, 24.05s/it]mlframe model: 100%|##########| 2/2 [00:53<00:00, 26.97s/it]
+  wall: 55.1s  status: OK
+         17473871 function calls (16655691 primitive calls) in 55.064 seconds
+
+   Ordered by: cumulative time
+   List reduced from 5626 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.002    0.002   55.074   55.074 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.002    0.002   54.740   54.740 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+       14    0.001    0.000   54.496    3.893 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        2    0.000    0.000   53.948   26.974 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        2    0.000    0.000   53.948   26.974 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        2    0.001    0.000   38.351   19.175 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        2    0.000    0.000   31.879   15.939 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        1    0.000    0.000   31.875   31.875 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:5529(fit)
+        2   13.120    6.560   31.827   15.914 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+      430    0.012    0.000   18.631    0.043 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3144(evaluate)
+      268    0.005    0.000   17.149    0.064 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+  445/268    0.008    0.000   17.093    0.064 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+    82/45    0.000    0.000   16.561    0.368 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:79(compile)
+    82/45    0.000    0.000   16.561    0.368 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:86(_compile_cached)
+    56/19    0.003    0.000   16.560    0.872 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:101(_compile_core)
+    56/19    0.000    0.000   16.554    0.871 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:713(compile_extra)
+    79/19    0.001    0.000   16.529    0.870 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:433(compile_extra)
+    79/19    0.001    0.000   16.481    0.867 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:500(_compile_bytecode)
+    80/19    0.002    0.000   16.481    0.867 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:456(_compile_core)
+    81/19    0.010    0.000   16.466    0.867 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:342(run)
+ 2671/563    0.011    0.000   16.463    0.029 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_lock.py:32(_acquire_compile_lock)
+ 2113/499    0.081    0.000   16.448    0.033 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:267(_runPass)
+6335/1495    0.010    0.000   16.352    0.011 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:271(check)
+      784    0.169    0.000   16.208    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2858(compute_probabilistic_multiclass_error)
+      644    0.312    0.000   16.201    0.025 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:391(integral_calibration_error)
+       28    0.001    0.000   16.102    0.575 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+       28    0.001    0.000   16.100    0.575 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+       28    0.011    0.000   16.090    0.575 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+       14    0.000    0.000   15.539    1.110 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+      784   13.860    0.018   13.864    0.018 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2606(_batch_per_class_ice_kernel)
+
+
+
+
+# Wall-time summary:
+  multiclass_classification x cb,lgb                         55.1s  OK
