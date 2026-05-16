@@ -306,6 +306,7 @@ def _phase_pandas_conversion_and_cat_prep(
     baseline_rss_mb: float,
     df_size_mb: float,
     verbose: bool,
+    polars_pipeline_applied: bool = True,
 ) -> tuple:
     """Pandas conversion + CatBoost cat prep + Polars release.
 
@@ -329,8 +330,12 @@ def _phase_pandas_conversion_and_cat_prep(
     # The earlier disjunction ``all_models_polars_native OR _has_non_native_mlframe_strategy`` was always True
     # given ``was_polars_input`` (the second disjunct collapses to ``was_polars_input AND NOT first``), so
     # the whole conjunction reduces to the three real gates: had a polars input, no recurrent model, no RFECV.
+    # ``polars_pipeline_applied`` captures whether a polars-aware pipeline actually fitted on the polars frame;
+    # when False the downstream pipeline state lives only in pandas representation, so the lazy-pandas fastpath
+    # cannot keep frames as polars without losing that state.
     defer_pandas_conv = (
         was_polars_input
+        and polars_pipeline_applied
         and not recurrent_models
         and not _has_rfecv
     )
