@@ -476,7 +476,7 @@ def _auto_detect_feature_types(
     if cat_features is None:
         cat_features = []
 
-    threshold = feature_types_config.cat_text_cardinality_threshold
+    abs_threshold = feature_types_config.cat_text_cardinality_threshold
     # Minimum non-null FRACTION to promote; below it CB's TF-IDF estimator yields an empty dictionary and raises
     # "Dictionary size is 0" (text_feature_estimators.cpp). Fraction (not count) scales with dataset size.
     min_non_null_frac = getattr(
@@ -484,6 +484,14 @@ def _auto_detect_feature_types(
     )
     total_rows = df.height if hasattr(df, "height") else len(df)
     min_non_null_abs = max(1, int(round(total_rows * min_non_null_frac)))
+    # Size-aware effective promotion threshold: a flat 300-uniq floor is wrong at both ends of the data-size axis
+    # (on 100-row data every string column stays "cat"; on 10M-row data 300 is still a sliver). pct=0 keeps legacy
+    # behaviour (effective == absolute). The 50-uniq floor prevents pathologically tiny effective thresholds.
+    pct_threshold = getattr(feature_types_config, "cat_text_cardinality_threshold_pct", 0.0) or 0.0
+    if pct_threshold > 0.0:
+        threshold = min(abs_threshold, max(50, int(total_rows * pct_threshold)))
+    else:
+        threshold = abs_threshold
     user_assigned = set(text_features) | set(embedding_features)
     promoted: list = []
     cardinalities: dict = {}
@@ -790,3 +798,18 @@ def _prep_polars_df(_df, strategy, cat_features, category_map):
     if category_map is not None:
         return strategy.prepare_polars_dataframe(_df, cat_features, category_map=category_map)
     return strategy.prepare_polars_dataframe(_df, cat_features)
+
+
+def _bulk_setattr_to_ctx(ctx, names: tuple[str, ...], values: dict) -> None:
+    """Bulk-assign each name from ``values`` onto ``ctx``. Raises KeyError on missing name.
+
+    Used by core/main.py to mirror local variables onto the suite TrainingContext during
+    the phase->ctx migration. Fails loudly when a slot name is missing from ``values`` so
+    partial-migration bugs (like the prior ``train_df_pandas_pre`` slot miss) surface at
+    call time instead of as ``AttributeError: 'NoneType' has no attribute 'foo'`` later.
+    """
+    missing = [n for n in names if n not in values]
+    if missing:
+        raise KeyError(f"_bulk_setattr_to_ctx: names missing from values dict: {missing}")
+    for n in names:
+        setattr(ctx, n, values[n])

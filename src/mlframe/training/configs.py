@@ -591,6 +591,9 @@ class FeatureTypesConfig(BaseConfig):
         The 300 floor keeps "enum-like" columns (country codes, source categories) as cat_features where CB handles them efficiently via its native categorical split logic, and reserves text_features for columns where the text estimator's TF-IDF / n-gram extractors actually add signal. CatBoost's text pipeline only pays off on actual free-text blobs (hundreds to thousands of tokens like ``skills_text``), not on 50-300-cardinality enumerations; a lower floor crashes CatBoost's TF-IDF estimator with ``Dictionary size is 0``.
 
         If you have a genuinely mid-cardinality column you want treated as text (100-300 unique tokens with repetitive content), override per-call via ``FeatureTypesConfig(cat_text_cardinality_threshold=100)``.
+    cat_text_cardinality_threshold_pct : float
+        Data-size-aware companion to the absolute ``cat_text_cardinality_threshold``. Expressed as a fraction of ``n_rows``; default 0.001 (0.1%). The effective promotion threshold used during auto-detection is
+        ``min(cat_text_cardinality_threshold, max(50, int(n_rows * cat_text_cardinality_threshold_pct)))``. Rationale: a flat 300-uniq floor is wrong at both ends of the data-size spectrum - on a 100-row toy dataset every string column stays "cat", on a 10M-row dataset 300 is still tiny relative to the population. The pct knob makes the floor scale with sample size while the absolute ``cat_text_cardinality_threshold`` keeps a hard cap so very large datasets don't accidentally route 100k-uniq columns into the text path. The hard floor of 50 prevents pathologically tiny effective thresholds on micro-datasets. Set to 0 to disable the size-aware floor and recover legacy behaviour (effective = absolute threshold).
 
     Notes
     -----
@@ -611,6 +614,8 @@ class FeatureTypesConfig(BaseConfig):
     auto_detect_feature_types: bool = True
     use_text_features: bool = True
     cat_text_cardinality_threshold: int = Field(default=300, ge=1)
+    # Data-size-aware companion to the absolute cap above. Effective threshold = min(abs_threshold, max(50, int(n_rows * pct))); see docstring for full rationale. 0.0 disables the floor (legacy behaviour: effective == abs_threshold). Default 0.001 = 0.1% of rows.
+    cat_text_cardinality_threshold_pct: float = Field(default=0.001, ge=0.0, le=1.0)
     # Per-column "honor the user's explicit dtype" signal. When False (default), any text-like column (pl.String / pl.Utf8 / pl.Categorical / pl.Enum / pandas object|string|category) with n_unique > threshold gets auto-promoted to text_features even if the user explicitly cast it. When True, a column whose incoming dtype already encodes a categorical intent (pl.Categorical, pl.Enum, pandas ``category``) stays in cat_features regardless of cardinality; only raw pl.String / pl.Utf8 / pandas object/string columns remain candidates for auto-promotion. Use case: a high-cardinality column (eg 10k-unique ``skills_text`` already cast to ``pl.Categorical`` upstream) that the operator wants handled by CatBoost's categorical path, not its TF-IDF text path.
     honor_user_dtype: bool = False
     # Minimum non-null FRACTION required to promote a high-cardinality string column to text_features. Below this, CatBoost's TF-IDF estimator yields an empty dictionary and raises "Dictionary size is 0" (text_feature_estimators.cpp). Fraction (not absolute count) so the floor scales with dataset size. Default 0.01 = 1% of rows.
