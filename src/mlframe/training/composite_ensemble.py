@@ -318,11 +318,20 @@ def compute_oof_holdout_predictions(
     use_time_split = False
     if time_ordering is not None:
         use_time_split = _is_monotone_nondecreasing(time_ordering)
+        if use_time_split:
+            logger.info(
+                "composite OOF: time_ordering signal is monotone non-decreasing; using trailing-slice holdout instead of random K-fold."
+            )
     else:
-        # Probe the first base column; if it looks monotone, treat as time.
-        for _base in base_train_full_per_spec.values():
+        # Probe each base column; first monotone one switches the strategy. The col name is logged so an operator can
+        # trace which base induced the switch (random-shuffle vs trailing-slice changes OOF leakage characteristics).
+        for _base_col, _base in base_train_full_per_spec.items():
             if _is_monotone_nondecreasing(_base):
                 use_time_split = True
+                logger.info(
+                    "composite OOF auto-detected time-ordered base column %s; switching from random K-fold to trailing-slice",
+                    _base_col,
+                )
                 break
 
     n_holdout = max(int(round(n_train * holdout_frac)), 1)
