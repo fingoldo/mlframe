@@ -456,8 +456,18 @@ def fast_numba_auc_nonw(y_true: np.ndarray, y_score: np.ndarray, desc_score_indi
 # GPU batch metrics vectorize RMSE / ROC-AUC / PR-AUC across multiple prediction columns. cupy is optional - the helpers raise a clear ImportError when missing and callers fall back to CPU (see `compute_batch_aucs` / `compute_batch_rmse` dispatchers). Below N=100k the CPU/numba path wins (kernel-launch and host->device transfer dominate sub-ms workloads).
 
 # Default crossover thresholds. Tunable via `set_gpu_thresholds(...)`.
+#
+# ``_GPU_BATCH_THRESHOLD_M = 5`` (was 1) so binary-classification single-target callers
+# (M=1) stay on the numba CPU path. The GPU AUC kernels carry ~1-3 s of cupy compile +
+# host<->device transfer overhead per call and contain a Python loop over M columns
+# inside ``gpu_multiple_roc_auc_scores`` (lines 641-658); below M=5 the per-column
+# fast_aucs numba path wins decisively (~10x at N=1M, M=1 in fuzz iter#194). The
+# ``gpu_multiple_*_auc_scores`` docstrings already document "Use when N >= 100k AND
+# M >= 5" -- the threshold previously contradicted that guidance, dispatching GPU
+# for every binary classifier and inflating ``compute_batch_aucs`` to ~32 s of the
+# ~55 s suite wall on a 1M-row binary classification run.
 _GPU_BATCH_THRESHOLD_N: int = 100_000
-_GPU_BATCH_THRESHOLD_M: int = 1
+_GPU_BATCH_THRESHOLD_M: int = 5
 
 # Sentinels: None = unchecked, True/False = cached result.
 _GPU_AVAILABLE: Optional[bool] = None
