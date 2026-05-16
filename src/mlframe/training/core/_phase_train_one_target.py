@@ -627,6 +627,10 @@ def _maybe_run_feature_handling_apply(
     """
     fhc = getattr(ctx, "feature_handling_config", None)
     if fhc is None:
+        # `_phase_config_setup.setup_configuration` stores the validated config under `ctx.artifacts`
+        # because TrainingContext uses slots=True and exposes no dedicated slot. Honour that storage path.
+        fhc = ctx.artifacts.get("feature_handling_config") if isinstance(getattr(ctx, "artifacts", None), dict) else None
+    if fhc is None:
         return None
     try:
         from mlframe.training.feature_handling import feature_handling_apply  # local: avoid suite-import cost when FHC is off
