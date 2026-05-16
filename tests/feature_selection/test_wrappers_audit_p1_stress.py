@@ -127,6 +127,46 @@ class TestB6_DuplicateColumns:
 # ----------------------------------------------------------------------------
 # G33: random_state=None deterministic on re-fit on the same input
 # ----------------------------------------------------------------------------
+class TestRfecvRamAwareCleanup:
+    def test_no_gc_collect_when_rss_does_not_grow(self, monkeypatch):
+        """The previous ``if nsteps % 5 == 0: clean_ram()`` fired gc.collect every 5th iter regardless of whether anything accumulated; on small problems this was pure ~290ms overhead per call. Route through ``maybe_clean_ram_and_gpu`` instead so a fixed RSS profile skips gc.collect entirely. Mock ``should_clean_ram`` -> False so the helper short-circuits, and assert the inner RFECV loop did NOT trigger the pyutilz ``clean_ram`` (the old call site)."""
+        from mlframe.feature_selection.wrappers import _rfecv as _rfecv_mod
+        from mlframe.training import _ram_helpers as _rh
+
+        rng = np.random.default_rng(0)
+        n = 200
+        X = pd.DataFrame(rng.standard_normal((n, 5)), columns=list("abcde"))
+        y = (X["a"] > 0).astype(int).values
+
+        # Pre-fix path: ``_rfecv_mod.clean_ram`` is the pyutilz clean_ram bound at module import; the iter-mod-5 trigger invoked it unconditionally.
+        # Post-fix path: that symbol may or may not still be imported, but it is never CALLED inside fit(); the loop now routes through ``maybe_clean_ram_and_gpu``.
+        pre_fix_calls = {"n": 0}
+        if hasattr(_rfecv_mod, "clean_ram"):
+            def _spy_pre_fix(*a, **k):
+                pre_fix_calls["n"] += 1
+            monkeypatch.setattr(_rfecv_mod, "clean_ram", _spy_pre_fix)
+
+        # Post-fix path: when RSS hasn't grown, ``should_clean_ram`` returns False so ``maybe_clean_ram_and_gpu`` does nothing.
+        monkeypatch.setattr(_rh, "should_clean_ram", lambda *a, **k: False)
+        post_fix_calls = {"n": 0}
+        def _spy_post_fix(*a, **k):
+            post_fix_calls["n"] += 1
+        monkeypatch.setattr(_rh, "clean_ram_and_gpu", _spy_post_fix)
+
+        rfecv = RFECV(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=3, max_refits=8, verbose=0, leakage_corr_threshold=None,
+        )
+        rfecv.fit(X, y)
+        # Under the post-fix routing both spies should see zero calls; under the pre-fix routing ``pre_fix_calls["n"]`` would have been >0.
+        assert pre_fix_calls["n"] == 0, (
+            f"pyutilz clean_ram invoked {pre_fix_calls['n']} times from RFECV inner loop -- the iter-mod-5 unconditional trigger has regressed."
+        )
+        assert post_fix_calls["n"] == 0, (
+            f"maybe_clean_ram_and_gpu invoked clean_ram_and_gpu {post_fix_calls['n']} times despite should_clean_ram=False -- routing regressed."
+        )
+
+
 class TestSkipRetrainingYContent:
     def test_skip_retraining_refits_when_y_changes_at_same_shape(self):
         """``skip_retraining_on_same_shape`` previously fingerprinted only ``(X.shape, y.shape, columns)``; two semantically different targets of the same length silently replayed whichever support_ was set first. Folding a y-content hash into the signature forces a refit when y changes."""

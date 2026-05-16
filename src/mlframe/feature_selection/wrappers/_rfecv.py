@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from pyutilz.system import clean_ram, tqdmu
+from pyutilz.system import tqdmu
 from pyutilz.numbalib import set_numba_random_seed  # noqa: F401
 from pyutilz.pythonlib import (
     get_parent_func_args,
@@ -1221,14 +1221,26 @@ class RFECV(BaseEstimator, TransformerMixin):
                         self.checkpoint_path,
                     )
 
+        # Establish a baseline RSS + best-effort frame footprint so the RAM-aware ``maybe_clean_ram_and_gpu`` short-circuit can decide whether a ``gc.collect()`` is justified each iter. The old "every 5th iter" trigger ran a ~290ms gc.collect even when nothing had accumulated, dominating wall on small problems; the helper only fires when RSS actually grew past a threshold or free RAM gets tight relative to frame size.
+        from mlframe.training._ram_helpers import (
+            estimate_df_size_mb as _estimate_df_size_mb,
+            get_process_rss_mb as _get_process_rss_mb,
+            maybe_clean_ram_and_gpu as _maybe_clean_ram_and_gpu,
+        )
+        _ram_baseline_mb = _get_process_rss_mb()
+        try:
+            _ram_df_size_mb = _estimate_df_size_mb(X)
+        except Exception:
+            _ram_df_size_mb = 0.0
+
         while nsteps < len(original_features):
 
             # Select current set of features to work on, based on ranking received so far and the optimum search method.
 
-            # clean_ram() (== gc.collect()) cost ~290ms per call in profiling (~11% of wall-clock on a 15-iter run). Run only every 5th
-            # iter; sklearn estimators don't leak meaningfully between iters.
-            if nsteps % 5 == 0:
-                clean_ram()
+            # RAM-aware GC: ``maybe_clean_ram_and_gpu`` checks RSS-vs-baseline and free-vs-frame BEFORE invoking gc.collect, so the ~290ms cost is paid only when something actually accumulated. The old unconditional ``clean_ram()`` every-5-iters trigger fired even on small problems where no garbage existed, dominating wall.
+            _ram_baseline_mb = _maybe_clean_ram_and_gpu(
+                _ram_baseline_mb, _ram_df_size_mb, verbose=False, reason=f"RFECV iter {nsteps}"
+            )
 
             if self.special_feature_indices is not None and len(self.special_feature_indices) > 0:
                 current_features = self.special_feature_indices
