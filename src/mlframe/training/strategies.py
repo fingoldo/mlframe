@@ -1359,7 +1359,18 @@ class PipelineCache:
         future, this class should be extended with proper locking mechanisms.
     """
 
-    def __init__(self, verbose: bool = False):
+    def __init__(self, verbose: bool = True):
+        """Construct a pre-pipeline cache.
+
+        ``verbose=True`` is the new default: HIT/MISS lines are emitted
+        at ``logger.info`` and routinely needed when triaging
+        "why-did-this-suite-re-fit" tickets. The lines are throttled by
+        the per-call HIT vs MISS branch (one log per get) and add no
+        measurable overhead vs the dict lookup itself, so the cost of
+        leaving them on by default is negligible against the diagnostic
+        value of having them already on when the operator wants them.
+        Pass ``verbose=False`` to silence in tight unit-test loops.
+        """
         self._cache: Dict[str, Tuple[Any, Any, Any]] = {}
         # Observability counters. Cheap (two integer bumps per call); the
         # bench in tests asserts microsecond-scale overhead so they stay on
