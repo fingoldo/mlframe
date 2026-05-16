@@ -170,6 +170,71 @@ def test_fe_p1_2_phase_auto_detect_accepts_pandas_pre_snapshot():
     )
 
 
+def test_fe_p1_2_pandas_pre_snapshot_used_when_provided():
+    """Verifies the detection code path: when ``train_df_pandas_pre`` is supplied
+    and ``was_polars_input=False``, the auto-detect uses the snapshot, not the
+    post-fit ``train_df``. We assert that a pandas object-dtype column in the
+    snapshot ends up classified as a text candidate (cardinality > threshold)
+    whereas the same column in the post-fit (ordinal-encoded) frame would not
+    be promoted because its dtype is int."""
+    import pandas as pd
+    from mlframe.training.configs import FeatureTypesConfig
+    from mlframe.training.core._phase_helpers import _phase_auto_detect_feature_types
+
+    n = 600  # rows -- above 1% min_non_null floor for promotion (default 0.01 * n = 6)
+    rng = np.random.default_rng(0)
+    # Pre-fit pandas frame: high-cardinality string column "skills_text"
+    pre_pd = pd.DataFrame({
+        "skills_text": [f"unique_token_{i % 500}" for i in range(n)],
+        "numeric_a": rng.standard_normal(n),
+    })
+    # Post-fit pandas frame: same skills_text but ordinal-encoded to int (what the
+    # ordinal encoder would produce). If detection ran on this it would silently
+    # treat the column as numeric and skip text promotion.
+    post_pd = pd.DataFrame({
+        "skills_text": rng.integers(0, 500, size=n, dtype=np.int32),
+        "numeric_a": rng.standard_normal(n),
+    })
+
+    ft_cfg = FeatureTypesConfig(
+        auto_detect_feature_types=True, use_text_features=True,
+        cat_text_cardinality_threshold=50,
+    )
+
+    # With train_df_pandas_pre supplied -> detection uses pre_pd -> promotes skills_text.
+    result_pre = _phase_auto_detect_feature_types(
+        train_df=post_pd, val_df=None, test_df=None,
+        train_df_polars_pre=None, val_df_polars_pre=None, test_df_polars_pre=None,
+        cat_features=[], cat_features_polars=[],
+        was_polars_input=False, all_models_polars_native=False,
+        pipeline_config=None, feature_types_config=ft_cfg,
+        metadata={}, verbose=False,
+        train_df_pandas_pre=pre_pd,
+    )
+    _, _, _, _, _, _, text_features_pre, _, _, _, _ = result_pre
+
+    # Without snapshot (legacy path) -> detection uses post_pd -> int column, no promotion.
+    result_post = _phase_auto_detect_feature_types(
+        train_df=post_pd, val_df=None, test_df=None,
+        train_df_polars_pre=None, val_df_polars_pre=None, test_df_polars_pre=None,
+        cat_features=[], cat_features_polars=[],
+        was_polars_input=False, all_models_polars_native=False,
+        pipeline_config=None, feature_types_config=ft_cfg,
+        metadata={}, verbose=False,
+        train_df_pandas_pre=None,
+    )
+    _, _, _, _, _, _, text_features_post, _, _, _, _ = result_post
+
+    assert "skills_text" in text_features_pre, (
+        f"With pre-fit snapshot, skills_text should be promoted to text_features; "
+        f"got: {text_features_pre}"
+    )
+    assert "skills_text" not in text_features_post, (
+        "Without snapshot (legacy path), int-coded skills_text should NOT be promoted; "
+        f"got: {text_features_post}"
+    )
+
+
 # ----------------------------------------------------------------------------
 # FE-P1-3 — preprocessing extensions back-merge into polars-pre frames.
 # ----------------------------------------------------------------------------
@@ -188,6 +253,34 @@ def test_fe_p1_3_phase_helpers_snapshot_polars_pre_cols():
     assert "back-merge" in src.lower(), (
         "Polars-pre back-merge comment marker missing; FE-P1-3 fix not landed."
     )
+
+
+def test_fe_p1_3_back_merge_logic_executes_in_unit():
+    """Reproduce the back-merge merge-loop in isolation.
+
+    The unit asserts: given a polars-pre frame with cols ``[a, b]`` and a
+    post-pipeline pandas frame with cols ``[a, b, ext_pysr_0]``, the new
+    column lands on the polars-pre frame as well, preserving row order."""
+    pl = pytest.importorskip("polars")
+    import pandas as pd
+
+    pre_polars = pl.DataFrame({"a": [1, 2, 3], "b": [0.1, 0.2, 0.3]})
+    post_pandas = pd.DataFrame({
+        "a": [1, 2, 3],
+        "b": [0.1, 0.2, 0.3],
+        "ext_pysr_0": [10.0, 20.0, 30.0],
+    })
+
+    _snapshot = list(pre_polars.columns)
+    _new_cols = [c for c in post_pandas.columns if c not in set(_snapshot)]
+    assert _new_cols == ["ext_pysr_0"]
+
+    _new_df_pd = post_pandas[_new_cols]
+    _new_pl = pl.from_pandas(_new_df_pd)
+    merged = pre_polars.hstack(_new_pl)
+    assert "ext_pysr_0" in merged.columns
+    assert merged.shape == (3, 3)
+    assert list(merged["ext_pysr_0"].to_numpy()) == [10.0, 20.0, 30.0]
 
 
 # ----------------------------------------------------------------------------

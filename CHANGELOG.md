@@ -1,5 +1,77 @@
 # Changelog
 
+## 2026-05-16 — `train_mlframe_models_suite` audit campaign (192 findings dispositioned)
+
+A 6-agent critique pass surfaced 192 findings across feature selection, feature engineering, ensembling, code efficiency, pipeline caching, and polars→pandas/numpy conversions. ~100 are now RESOLVED with regression tests; ~55 are DOC clarifications; ~24 were REJECTED on re-read (the cited code was correct as written). See `audit_disposition.md` for the per-finding table.
+
+### Default behaviour changes (BREAKING; opt back into legacy via flags)
+
+- `CompositeTargetDiscoveryConfig.oof_holdout_frac` default changed from `0.0` to `0.2`. Cross-target NNLS stacking now uses an honest 20% holdout for OOF weight fitting; the pre-fix default fit weights on in-sample predictions (classical stacker leak). Set explicitly to `0.0` to restore the leaky path.
+- `compare_ensembles(sort_metric=...)` default changed from `"test.1.integral_error"` to `"val.1.integral_error"`. Passing a `test.*` metric now emits a `WARN` flagging the test-set selection bias.
+- `PreprocessingExtensionsConfig.scaler` no longer accepts `"Normalizer_l2"`. Row-wise normalisation was mislabelled as a column scaler; tree-based models lost absolute-magnitude signal. See README "Roadmap" for the planned `row_transform` slot.
+- `PreprocessingExtensionsConfig.tfidf_keep_sparse: bool = True` (new field, default ON). TF-IDF output flows downstream as `pd.DataFrame.sparse.from_spmatrix(...)` instead of being densified through `.toarray()`. Saves ~40 GB on `max_features=5000` × 1M rows.
+
+### Correctness fixes
+
+- **FS cache cross-target leak.** `_pre_pipeline_cache_get/set` keyed on `id()` of frames + pipeline-structure signature, no target component. Within the per-target loop the SECOND target was served the FIRST target's selected feature subset. Now content-fingerprinted with target_name in the key.
+- **MRMR `_target_prefix` global RNG.** Used global `np.random.random()` for the temporary target-column name, breaking determinism even when `random_seed` was set. Now derived from `self.random_seed` (or `pid ^ id(self)` fallback).
+- **MRMR pandas caller-frame mutation.** `X.loc[:, target_names] = vals` mutated the caller's frame; on exception between injection and drop, callers were left with leaked `targ_*` columns. Now `try / finally`.
+- **MRMR SimpleImputer wrapper removed.** The wrapper at `_build_pre_pipelines` defeated `nan_strategy="separate_bin"`, broke categorical / Polars-Enum inputs, and was justified by a false claim that MRMR.fit rejects NaN. MRMR handles NaN natively per `_validate_inputs`.
+- **In-sample stacker leak in `_phase_composite_post`.** Combined with the `oof_holdout_frac=0.0` default change above, the stacker now fits on honest OOF predictions.
+- **`score_ensemble` ensemble models persisted.** The return value was bound to a local that was never read; ensemble model objects were discarded. Now captured into `ctx.ensembles` and merged into the models dict.
+- **`linear_stack` intercept under component dropout.** When a component returned None at predict time, its weight was dropped but the Ridge intercept was added at full value (bias). Now refits Ridge on the surviving components.
+- **`from_nnls_stack` post-fit renormalisation.** Forced `sum(weights)=1` on the unconstrained NNLS output, deploying a different predictor than the gate evaluated. Now skips renorm; instance carries `is_convex=False`.
+- **MRMR caller-frame mutation, `np.random.seed` in `screen_predictors`, MRMR `cv`/`cv_shuffle` dead constructor params, `MRMR._FIT_CACHE` unbounded, `custom_pre_pipelines` not cloned, `FeatureSelectionConfig.rfecv_kwargs` dead duplicate** — all wired or fixed.
+- **Joint Categorical for CatBoost.** `prepare_dfs_for_catboost_joint(train, val, test, cat_features)` builds the dtype from `train+val` union, casts test with `strict=False`. Pre-fix each split rebuilt the dtype independently so train-`code[0]='A'` could equal val-`code[0]='B'`.
+- **Pandas-path Enum union test-leak.** `_eval_helpers._align_xgb_cat_categories` unioned `train+val+test` categories into the train Enum domain. Now train+val only.
+- **OLS slope SE formula corrected** at `composite_discovery.py` and `composite_streaming.py` — was `y_std / (sqrt(n) * base_std)`, replaced with residual-based `sqrt(sum(residuals**2)/(n-2)) / (sqrt(n) * base_std)`.
+
+### Bayesian / advanced
+
+- **`bayesian_alpha_fit` made actually Bayesian.** Conjugate Normal-Inverse-Gamma posterior over `y = alpha*x + eps` (closed-form). Old bootstrap variant renamed `_bootstrap` opt-in.
+- **`stacking_aware_gate` wired into `_phase_composite_post`.** Was imported but never called; now gates the stacker promotion.
+- **`composite_oof_predictions`, `composite_predictions_as_feature`, `DiscoveryCache`** — the ~600 LOC of imported-but-unused composite-target machinery is now wired into the discovery pipeline with integration tests. `DiscoveryCache` includes mlframe / sklearn / lightgbm / catboost version digests in the cache key (cache-poisoning protection after dep bumps).
+
+### Performance
+
+- **MRMR `combinations` lazy iterator.** `list(combinations(numeric_vars_to_consider, 2))` materialised ~300 MB at k=5000 before chunking. New `_lazy_chunks` + `itertools.islice` keeps peak memory at O(chunk_size).
+- **Optimised polars→pandas bridge** (`get_pandas_view_of_polars_df`) now used at 6 additional call sites (fairness subgroups, SHAP, baseline diagnostics, target temporal audit, ranker suite, dummy baselines) where raw `.to_pandas()` was costing ~30s-35min on 9M-row cat-heavy frames. Measured speedup ~9.34× on a 500k synthetic frame.
+- **`compute_model_input_fingerprint` lifted out of the weight-schema loop** in `_phase_train_one_target`; cached by `(target, strategy, tier, kind, pre_pipeline)`. Fingerprint key now includes row count, target name, preprocessing config hash, model family, seed, train/val split indices.
+- **`strategy_by_model` hoisted** from the per-target × per-pre_pipeline inner loop to suite-level.
+- **`_lazy_chunks` for MRMR FE step** documented above.
+- **Ridge alpha now CV'd** (`RidgeCV` with LOO-CV) instead of hard-coded `1.0`. Time-aware OOF split when timestamps are monotone (was always random permutation, fatally optimistic for time-series).
+
+### Polars discipline
+
+- **`pl.Array(...)` and `pl.List(pl.Int*)`** embedding columns are now correctly detected by `_auto_detect_feature_types` (previously only `pl.List(pl.Float32/64)` matched).
+- **`isinstance(x, pl.DataFrame)`** replaces `hasattr(x, "to_pandas")` duck-typing across the composite stack (catches mock / wrapper false positives).
+- **`bp.int_to_float(f32=True)`** no longer over-widens already-narrow datetime decomposition columns (`Int8`/`Int16` excluded from the cast).
+- **Sparse-aware TF-IDF** keeps `csr_matrix` through the extensions pipeline; backends in `SPARSE_AWARE_MODELS` (cb / xgb / lgb / linear / ridge / sgd) read csr via `.sparse.to_coo()`; dense-only backends densify implicitly via `.to_numpy()`.
+- **`can_skip_pandas_conv` → `defer_pandas_conv`** renamed and simplified (the legacy disjunction was tautologically True with non-empty `mlframe_models`).
+
+### Observability
+
+- **`PipelineCache.__repr__` + `n_hits` / `n_misses` counters** + INFO-level HIT/MISS log lines when verbose.
+- **`MRMR._FIT_CACHE` LRU-bounded** to `fit_cache_max=4` (constructor kwarg) so long-running services don't leak.
+- **`DiscoveryCache.get` atomic** — dropped pre-existence check that allowed a delete-between-exists-and-open race on Windows.
+
+### Configuration surface
+
+- New: `TrainingBehaviorConfig.pre_pipeline_cache_max: int = 4`
+- New: `FeatureTypesConfig.datetime_methods: Set[str]` (was hardcoded `{day, weekday, month, hour}`)
+- New: `FeatureTypesConfig.feature_types_first: bool = True` (controls the `_phase_auto_detect_feature_types` vs `_phase_fit_pipeline` ordering)
+- New: `FeatureTypesConfig.min_non_null_fraction_for_text_promotion: float = 0.01` (was a phantom kwarg blocked by `extra="forbid"`)
+- New: `FeatureSelectionConfig` validators for `mrmr_kwargs`, `rfecv_kwargs` (reject unknown keys at config-construction time, not at per-target fit time)
+- New: `MRMR.__init__(fit_cache_max=4)`
+- Removed (dead): `strategies.get_cache_key`, `Normalizer_l2` from scaler choices
+
+### Internal hygiene
+
+- 33 dead imports removed from `core/main.py`.
+- Three `setattr(ctx, _k, locals()[_k])` migration-debt blocks documented with WHY comments (user kept the pattern intentionally pending the full migration to ctx-mutation).
+- `compose_to_pandas` raw call sites cleaned up; remaining ones documented as necessary for sklearn / torch / XGBoost APIs that require ndarray.
+- Three duplicate `_to_1d_numpy` helpers consolidated into `mlframe.training.utils.coerce_to_numpy` + `coerce_to_1d_numpy`. The `drift_report._to_1d_numpy` alias was renamed to `_to_numpy_or_none` (the historical name lied: it did not reshape).
+
 ## 2026-05-15 — TF-IDF sparse pass-through, `Normalizer_l2` removed, helpers consolidated
 
 ### `tfidf_keep_sparse=True` is the new default

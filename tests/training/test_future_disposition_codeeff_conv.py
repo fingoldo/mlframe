@@ -294,4 +294,27 @@ def test_codep113_tqdmu_lazy_start_handles_single_item_internally():
     with plain iteration" is moot because the wrapper IS plain iteration on a 1-item input."""
     from pyutilz.system import tqdmu_lazy_start
 
-    # Behavioural test
+    # Behavioural test: passing a 1-element iterable still yields the single element.
+    out = list(tqdmu_lazy_start([42], desc="single-item-audit"))
+    assert out == [42], "tqdmu_lazy_start must remain iter-equivalent on single-item input"
+    # Two-element case still yields both items.
+    out2 = list(tqdmu_lazy_start([1, 2], desc="two-item-audit"))
+    assert out2 == [1, 2]
+
+
+# ---------- CONV-HIGH-1: clone() gate documentation ----------
+
+def test_convhigh1_clone_gate_documented():
+    """The needs_polars_pre_clone clone()s must either be removed or carry an inline TODO/comment
+    citing the destructive op that requires them. The audit verdict: keep if destructive, drop if not.
+
+    Our post-fix state: the clone is gated behind ``needs_polars_pre_clone`` which is already a
+    narrow predicate; we add a TODO comment pointing at the destructive site to document the gate.
+    """
+    src = _read("training/core/_phase_helpers.py")
+    if "needs_polars_pre_clone" in src and ".clone()" in src:
+        # If the gated clone still exists, a CONV-HIGH-1 marker must be present documenting why.
+        assert "CONV-HIGH-1" in src, (
+            "CONV-HIGH-1 regression: gated clone()s still present but no CONV-HIGH-1 TODO/marker "
+            "explains the destructive operation that requires them"
+        )
