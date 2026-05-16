@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import psutil
+from dataclasses import dataclass
 from timeit import default_timer as timer
 from types import SimpleNamespace
 from typing import Optional, Dict, List, Callable, Sequence, Any, Union
@@ -1047,6 +1048,50 @@ def get_trainset_features_stats_polars(train_df: pl.DataFrame, max_ncats_to_trac
         res["cat_vals"] = cat_vals
 
     return res
+
+
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+# Precomputed suite bundle (opt-in fast path for repeated-suite-on-same-train benchmarking)
+# -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+@dataclass
+class TrainMlframeSuitePrecomputed:
+    """Bundle of pre-computed train-set artifacts that ``train_mlframe_models_suite`` would otherwise compute inline.
+
+    Populated via the ``precompute_*`` helpers in this module. Pass to the suite as
+    ``precomputed=TrainMlframeSuitePrecomputed(...)`` to skip the matching in-suite compute steps;
+    each field is independently opt-in (None = compute inline as today).
+
+    ``train_df_fingerprint`` is reserved for a future cross-process disk-cache layer so a bundle
+    persisted from one run can be safely re-attached only when the train frame hasn't changed.
+    """
+    trainset_features_stats: Optional[dict] = None
+    dummy_baselines: Optional[dict] = None
+    composite_target_specs: Optional[dict] = None
+    train_df_fingerprint: Optional[str] = None  # for cross-process disk-cache reuse later
+
+
+def precompute_trainset_features_stats(train_df, max_ncats_to_track: int = 1000) -> dict:
+    """Compute the trainset_features_stats dict the suite would compute inline.
+
+    Dispatches to the polars or pandas backend based on the input type so the output dict is
+    byte-equal (same key order, same value shapes) to what ``train_mlframe_models_suite`` produces
+    on the same frame. Use the returned dict as ``TrainMlframeSuitePrecomputed.trainset_features_stats``
+    to skip the in-suite recompute on repeat runs.
+
+    Args:
+        train_df: Pandas or Polars DataFrame -- the same frame that will later be passed to the suite
+            (post-split, post-pipeline-fit form). For pre-split callers, slice the train rows yourself
+            first; the suite's stats step runs AFTER train/val/test split.
+        max_ncats_to_track: forwarded to the underlying stats function.
+
+    Returns:
+        dict with at least ``min``, ``max`` (pd.Series) and ``cat_vals`` (dict[str, np.ndarray]) keys.
+    """
+    if isinstance(train_df, pl.DataFrame):
+        return get_trainset_features_stats_polars(train_df, max_ncats_to_track=max_ncats_to_track)
+    return get_trainset_features_stats(train_df, max_ncats_to_track=max_ncats_to_track)
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
