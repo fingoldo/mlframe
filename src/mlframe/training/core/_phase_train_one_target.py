@@ -107,6 +107,150 @@ def _forward_dataset_reuse_cache(src, dst, attrs=_DATASET_REUSE_CACHE_ATTRS, *, 
 _POLARS_RELEASE_MIN_RECLAIM_FRACTION = 0.05
 
 
+# ============================================================================================
+# Suite-scoped feature-side cache helpers. The per-target inner loop in _train_one_target
+# stages tier-DFs / pl.Enum maps / prepared polars frames / fingerprints into ctx.artifacts
+# so the NEXT target's call reads them off ctx instead of rebuilding (CB Pool / XGB DMatrix /
+# LGB Dataset all rebuild via id(train_df) keys and the train_df pointer is pinned by ctx).
+# Entries store REFERENCES, never clones - a 100GB frame is shared between the cache slot and
+# ctx.train_df_polars. Polars-tier entries are dropped when polars frames are released
+# (``_release_ctx_polars_frames``) since their pinned references would otherwise defeat the
+# release. Dataset-reuse cache (XGB DMatrix / LGB Dataset) is keyed by mlframe_model_name and
+# bridges the per-target rebuild of models_params: the binned dataset built on target 1 gets
+# re-attached onto target 2's freshly-built model template via _DATASET_REUSE_CACHE_ATTRS.
+# ============================================================================================
+
+_FEATURE_SIDE_CACHE_KEY = "feature_side_cache"
+_DATASET_REUSE_CACHE_KEY = "dataset_reuse_cache"
+
+
+def _ensure_ctx_artifacts(ctx) -> dict:
+    """Return ctx.artifacts as a dict, materialising it if the dataclass default left it as None.
+
+    ``ctx.artifacts`` is declared ``dict = field(default_factory=dict)`` in _training_context.py
+    so normal construction produces an empty dict, BUT older test fixtures and direct field
+    assignments can land ``None`` on the slot. Calling .setdefault() then AttributeErrors before
+    the helper has a chance to install its key.
+    """
+    artifacts = ctx.artifacts
+    if artifacts is None:
+        artifacts = {}
+        ctx.artifacts = artifacts
+    return artifacts
+
+
+def _get_feature_side_cache(ctx) -> dict:
+    """Return the (creating-if-needed) suite-scoped feature-side cache off ctx.artifacts."""
+    return _ensure_ctx_artifacts(ctx).setdefault(_FEATURE_SIDE_CACHE_KEY, {})
+
+
+def _get_dataset_reuse_cache(ctx) -> dict:
+    """Return the (creating-if-needed) suite-scoped dataset-reuse cache off ctx.artifacts.
+
+    Keyed by ``mlframe_model_name``; each entry is a dict of ``_DATASET_REUSE_CACHE_ATTRS`` ->
+    value captured from the prior target's fitted model template before _maybe_clear_shim_cache
+    nuked it. The per-target restore happens on the FRESH ``models_params[name]["model"]``
+    template right before clone(), so set_label / set_weight on the same train_df pointer reuses
+    the heavy binned dataset across targets without rebuild.
+    """
+    return _ensure_ctx_artifacts(ctx).setdefault(_DATASET_REUSE_CACHE_KEY, {})
+
+
+def _invalidate_polars_feature_side_cache(ctx) -> None:
+    """Drop every polars-tier entry from ctx.artifacts['feature_side_cache'].
+
+    Called from ``_release_ctx_polars_frames`` (the only place where ctx polars frames go to
+    None) so the next target's loop doesn't read back stale pointers into freed frames. Pandas-
+    tier entries (``supports_polars=False``) are preserved - they live in their own keys and
+    point at frames that are NOT being released here.
+    """
+    cache = (ctx.artifacts or {}).get(_FEATURE_SIDE_CACHE_KEY)
+    if not cache:
+        return
+    # Cache shape: cache[pp_name] -> {"tier_dfs": {sub_key -> dict}, "prepared_frames":
+    # {sub_key -> dict}, "tier_enum_map": {sub_key -> map}}. Sub-keys are tuples and we
+    # drop only the polars-tier ones; the "tier_enum_map" group is polars-only by
+    # construction so it can be cleared whole.
+    for _pp_name, _pp_payload in list(cache.items()):
+        if not isinstance(_pp_payload, dict):
+            continue
+        for _group in ("tier_dfs", "prepared_frames"):
+            _group_map = _pp_payload.get(_group)
+            if not isinstance(_group_map, dict):
+                continue
+            # tier_dfs sub-key is (tier_tuple, kind) where kind is "pl" / "pd"; prepared_frames
+            # sub-key is (tier_tuple, supports_polars, strategy_class, cb_text_pass). Polars
+            # marker: kind=="pl" OR supports_polars==True (positional element 1).
+            _polars_sub_keys = []
+            for _sub_key in list(_group_map.keys()):
+                if not isinstance(_sub_key, tuple) or len(_sub_key) < 2:
+                    continue
+                _kind = _sub_key[1]
+                if _kind == "pl" or _kind is True:
+                    _polars_sub_keys.append(_sub_key)
+            for _k in _polars_sub_keys:
+                _group_map.pop(_k, None)
+        # tier_enum_map is polars-only by construction (the per-target loop only writes to
+        # it on polars_fastpath_active); a polars frame release means all entries are stale.
+        _enum_map = _pp_payload.get("tier_enum_map")
+        if isinstance(_enum_map, dict):
+            _enum_map.clear()
+
+
+def _capture_dataset_reuse_cache(
+    ctx,
+    mlframe_model_name: str,
+    model_template,
+) -> None:
+    """Snapshot ``_DATASET_REUSE_CACHE_ATTRS`` off ``model_template`` into ctx.artifacts.
+
+    Runs BEFORE ``_maybe_clear_shim_cache`` so the next target gets the live binned dataset
+    (XGB DMatrix / LGB Dataset) rather than the post-clear None. Skips entries whose value is
+    None - those entries would defeat the next target's cache-hit check (``is not None``).
+    """
+    if model_template is None:
+        return
+    captured = {}
+    for _attr in _DATASET_REUSE_CACHE_ATTRS:
+        if not hasattr(model_template, _attr):
+            continue
+        _val = getattr(model_template, _attr)
+        if _val is None:
+            continue
+        captured[_attr] = _val
+    if captured:
+        _get_dataset_reuse_cache(ctx)[mlframe_model_name] = captured
+
+
+def _restore_dataset_reuse_cache(
+    ctx,
+    mlframe_model_name: str,
+    model_template,
+) -> None:
+    """Re-attach ``_DATASET_REUSE_CACHE_ATTRS`` from ctx.artifacts onto ``model_template``.
+
+    The per-target rebuild of ``models_params`` produces a fresh estimator without the cache
+    attributes; this restore wires the previous target's binned dataset back on so the next
+    forward-transfer-into-clone() carries it forward, and the shim's signature_of(X) check
+    detects the same X (ctx-pinned across targets) and triggers the set_label / set_weight
+    swap instead of a fresh build. No-op when there is no prior capture, or when target 1
+    has not run yet for this model.
+    """
+    if model_template is None:
+        return
+    captured = (ctx.artifacts or {}).get(_DATASET_REUSE_CACHE_KEY, {}).get(mlframe_model_name)
+    if not captured:
+        return
+    for _attr, _val in captured.items():
+        try:
+            setattr(model_template, _attr, _val)
+        except Exception as _attr_err:
+            logger.debug(
+                "Could not restore %s on %s template: %s",
+                _attr, mlframe_model_name, _attr_err,
+            )
+
+
 def _release_ctx_polars_frames(
     ctx,
     baseline_rss_mb: float,
@@ -139,6 +283,10 @@ def _release_ctx_polars_frames(
     ctx.train_df_polars = None
     ctx.val_df_polars = None
     ctx.test_df_polars = None
+    # Drop polars-tier entries from the suite-scoped feature-side cache so they don't pin the
+    # frames we just released. Pandas-tier entries are preserved - they point at separate
+    # frames not touched by this release.
+    _invalidate_polars_feature_side_cache(ctx)
     new_baseline = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason=reason)
     if expected_mb > 0.0:
         rss_after_mb = get_process_rss_mb()
@@ -545,10 +693,21 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         # rebuild this map per inner-loop iteration.
         strategy_by_model = ctx.strategy_by_model
         sorted_models = ctx.sorted_mlframe_models
-        tier_dfs_cache = {}  # feature_tier -> {train_df, val_df, test_df}
+        # Suite-scoped feature-side cache: tier_dfs / pl.Enum map / prepared polars frames carry
+        # ACROSS targets (target-independent transforms) so only y / sample_weight differ inside
+        # the inner loop. Both inner caches are scoped to the current ``pre_pipeline_name`` since
+        # different pre_pipelines may keep different columns (MRMR / RFECV vs ordinary), and the
+        # tier-DFs / Enum maps depend on the column set after pre-pipeline column trimming.
+        _suite_feature_cache = _get_feature_side_cache(ctx)
+        _per_pp_cache = _suite_feature_cache.setdefault(pre_pipeline_name, {})
+        tier_dfs_cache: dict[tuple, dict[str, Any]] = _per_pp_cache.setdefault("tier_dfs", {})
         # Leak-free pl.Enum map built from train+val UNION only (test EXCLUDED to avoid label-time leakage).
-        # Depends only on (feature_tier, strategy class) so we cache once per (target, tier, strategy).
-        tier_enum_map_cache: dict[tuple, dict[str, Any] | None] = {}
+        # Depends only on (feature_tier, strategy class) - target-independent so it carries cross-target.
+        tier_enum_map_cache: dict[tuple, dict[str, Any] | None] = _per_pp_cache.setdefault("tier_enum_map", {})
+        # Prepared polars frames + xgb_category_map per (tier, supports_polars, strategy_class).
+        # Target-independent because _prep_polars_df / build_polars_enum_map do not touch y; the
+        # text-features fill_null pass below is also target-independent. Carry cross-target.
+        prepared_frames_cache: dict[tuple, dict[str, Any]] = _per_pp_cache.setdefault("prepared_frames", {})
         prev_tier = None
 
         # Neural max_time defaults to P95 of non-neural train times so MLP can't run 2h while boosters take 5min.
@@ -588,6 +747,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 logger.warning(f"mlframe model {mlframe_model_name} not known, skipping...")
                 continue
 
+            # Cross-target dataset reuse: restore the prior target's _DATASET_REUSE_CACHE_ATTRS
+            # snapshot onto the freshly-built model template BEFORE the weight loop's clone()
+            # forward-transfer reads them. select_target() rebuilds models_params per target so
+            # the cache attributes are absent on a virgin template - without this restore the
+            # XGB/LGB shims would rebuild the binned dataset on target 2. The shim's
+            # signature_of(X) check then matches against the same ctx-pinned train_df pointer
+            # and triggers set_label / set_weight in place rather than a fresh build.
+            _restore_dataset_reuse_cache(
+                ctx, mlframe_model_name, models_params[mlframe_model_name]["model"],
+            )
+
             strategy = strategy_by_model[id(mlframe_model_name)]
 
             # Drop pre-pipeline Polars originals as soon as we hit the first non-Polars strategy. The
@@ -603,8 +773,15 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # leave maybe_clean_ram_and_gpu with nothing to reclaim and turn the log line into a lie.
                 del train_df_polars, val_df_polars, test_df_polars
                 train_df_polars = val_df_polars = test_df_polars = None
-                tier_dfs_cache.clear()
-                tier_enum_map_cache.clear()
+                # Drop polars-tier entries only - pandas-tier entries hang on the SAME cache dicts
+                # (these locals now reference suite-scoped dicts in _per_pp_cache) and must survive
+                # the release. ``_invalidate_polars_feature_side_cache(ctx)`` runs further down the
+                # _release_ctx_polars_frames path and does the same for the prepared_frames sub-
+                # cache; the tier_dfs / tier_enum_map dicts that pre-date this hoist are scrubbed
+                # here so a same-target pandas-tier sibling reads a clean enum-map slot.
+                for _pl_only_key in [_k for _k in tier_dfs_cache if isinstance(_k, tuple) and len(_k) >= 2 and _k[1] == "pl"]:
+                    tier_dfs_cache.pop(_pl_only_key, None)
+                tier_enum_map_cache.clear()  # All entries are polars-only (populated only on the polars fastpath).
                 baseline_rss_mb = _release_ctx_polars_frames(
                     ctx,
                     baseline_rss_mb,
@@ -665,74 +842,107 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # text-promoted columns and trip CB's polars-categorical fastpath on String dtypes.
                 _cat_features = list(cat_features or [])
 
-                tier_base = {
-                    "train_df": train_df_polars,
-                    "val_df": val_df_polars,
-                    "test_df": test_df_polars,
-                }
-                tier_polars = _build_tier_dfs(
-                    tier_base, strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
+                # Cross-target reuse: cache key is (feature_tier, supports_polars=True, strategy_class,
+                # cb_text_pass) where cb_text_pass tracks whether the CB-only Categorical->String text-
+                # column cast must be applied (CB requires it; other CB-tier polars-native models don't).
+                # All target-independent so the prepared frames carry from target 1 to target N.
+                _prep_key = (
+                    strategy.feature_tier(),
+                    True,
+                    type(strategy).__name__,
+                    bool(text_features and mlframe_model_name == "cb"),
                 )
-
-                # Enum map: leak-free, train+val union only; cached by (tier, strategy class).
-                _enum_cache_key = (strategy.feature_tier(), type(strategy).__name__)
-                if _enum_cache_key in tier_enum_map_cache:
-                    _xgb_category_map = tier_enum_map_cache[_enum_cache_key]
-                elif hasattr(strategy, "build_polars_enum_map"):
-                    try:
-                        _xgb_category_map = strategy.build_polars_enum_map(
-                            tier_polars["train_df"],
-                            tier_polars.get("val_df"),
-                            _cat_features,
+                _cached_prep = prepared_frames_cache.get(_prep_key)
+                if _cached_prep is not None:
+                    prepared_train = _cached_prep["prepared_train"]
+                    prepared_val = _cached_prep["prepared_val"]
+                    prepared_test = _cached_prep["prepared_test"]
+                    _xgb_category_map = _cached_prep["xgb_category_map"]
+                    if verbose:
+                        logger.info(
+                            "  feature-side cache hit for %s (strategy=%s, pp=%s): reusing prepared polars frames across targets",
+                            mlframe_model_name, type(strategy).__name__, pre_pipeline_name or "<ordinary>",
                         )
-                    except Exception as _emb_exc:
-                        logger.warning(
-                            "build_polars_enum_map failed for %s; "
-                            "falling back to per-DF Enum cast: %s",
-                            type(strategy).__name__, _emb_exc,
-                        )
-                        _xgb_category_map = None
-                    tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
                 else:
-                    _xgb_category_map = None
-                    tier_enum_map_cache[_enum_cache_key] = None
+                    tier_base = {
+                        "train_df": train_df_polars,
+                        "val_df": val_df_polars,
+                        "test_df": test_df_polars,
+                    }
+                    tier_polars = _build_tier_dfs(
+                        tier_base, strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
+                    )
 
-                prepared_train = _prep_polars_df(tier_polars["train_df"], strategy, _cat_features, _xgb_category_map)
-                prepared_val = _prep_polars_df(tier_polars.get("val_df"), strategy, _cat_features, _xgb_category_map)
-                prepared_test = _prep_polars_df(tier_polars.get("test_df"), strategy, _cat_features, _xgb_category_map)
-
-                # CatBoost's polars text-features path requires plain String with no nulls; cast Categorical/Enum
-                # text columns and fill_null. The dtype mismatch happens whenever auto-detect promotes a
-                # column from cat_features to text_features without changing its backing dtype.
-                if text_features and mlframe_model_name == "cb":
-                    text_cols_present = filter_existing(prepared_train, text_features)
-                    if text_cols_present:
-                        # Determine which of the text columns need a dtype cast.
-                        needs_cast = [
-                            c for c in text_cols_present
-                            if prepared_train.schema[c] == pl.Categorical
-                            or isinstance(prepared_train.schema[c], pl.Enum)
-                        ]
-                        prep_exprs = []
-                        for c in text_cols_present:
-                            expr = pl.col(c)
-                            if c in needs_cast:
-                                expr = expr.cast(pl.String)
-                            prep_exprs.append(expr.fill_null(""))
-                        prepared_train = prepared_train.with_columns(prep_exprs)
-                        if prepared_val is not None:
-                            prepared_val = prepared_val.with_columns(prep_exprs)
-                        if prepared_test is not None:
-                            prepared_test = prepared_test.with_columns(prep_exprs)
-                        if needs_cast and verbose:
-                            logger.info(
-                                "  Cast %d text feature(s) from Polars Categorical to String "
-                                "for CatBoost: %s",
-                                len(needs_cast), needs_cast,
+                    # Enum map: leak-free, train+val union only; cached by (tier, strategy class).
+                    _enum_cache_key = (strategy.feature_tier(), type(strategy).__name__)
+                    if _enum_cache_key in tier_enum_map_cache:
+                        _xgb_category_map = tier_enum_map_cache[_enum_cache_key]
+                    elif hasattr(strategy, "build_polars_enum_map"):
+                        try:
+                            _xgb_category_map = strategy.build_polars_enum_map(
+                                tier_polars["train_df"],
+                                tier_polars.get("val_df"),
+                                _cat_features,
                             )
+                        except Exception as _emb_exc:
+                            logger.warning(
+                                "build_polars_enum_map failed for %s; "
+                                "falling back to per-DF Enum cast: %s",
+                                type(strategy).__name__, _emb_exc,
+                            )
+                            _xgb_category_map = None
+                        tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
+                    else:
+                        _xgb_category_map = None
+                        tier_enum_map_cache[_enum_cache_key] = None
 
-                # Null-in-Categorical fill is applied upstream once on train_df_polars/val/test (search:
-                # `_polars_fill_null_in_categorical`, marker "__MISSING__"); no per-model fill needed.
+                    prepared_train = _prep_polars_df(tier_polars["train_df"], strategy, _cat_features, _xgb_category_map)
+                    prepared_val = _prep_polars_df(tier_polars.get("val_df"), strategy, _cat_features, _xgb_category_map)
+                    prepared_test = _prep_polars_df(tier_polars.get("test_df"), strategy, _cat_features, _xgb_category_map)
+
+                    # CatBoost's polars text-features path requires plain String with no nulls; cast Categorical/Enum
+                    # text columns and fill_null. The dtype mismatch happens whenever auto-detect promotes a
+                    # column from cat_features to text_features without changing its backing dtype.
+                    if text_features and mlframe_model_name == "cb":
+                        text_cols_present = filter_existing(prepared_train, text_features)
+                        if text_cols_present:
+                            # Determine which of the text columns need a dtype cast.
+                            needs_cast = [
+                                c for c in text_cols_present
+                                if prepared_train.schema[c] == pl.Categorical
+                                or isinstance(prepared_train.schema[c], pl.Enum)
+                            ]
+                            prep_exprs = []
+                            for c in text_cols_present:
+                                expr = pl.col(c)
+                                if c in needs_cast:
+                                    expr = expr.cast(pl.String)
+                                prep_exprs.append(expr.fill_null(""))
+                            prepared_train = prepared_train.with_columns(prep_exprs)
+                            if prepared_val is not None:
+                                prepared_val = prepared_val.with_columns(prep_exprs)
+                            if prepared_test is not None:
+                                prepared_test = prepared_test.with_columns(prep_exprs)
+                            if needs_cast and verbose:
+                                logger.info(
+                                    "  Cast %d text feature(s) from Polars Categorical to String "
+                                    "for CatBoost: %s",
+                                    len(needs_cast), needs_cast,
+                                )
+
+                    # Null-in-Categorical fill is applied upstream once on train_df_polars/val/test (search:
+                    # `_polars_fill_null_in_categorical`, marker "__MISSING__"); no per-model fill needed.
+
+                    # Store REFERENCES only (no clones / no copies): a 100GB train_df_polars is shared
+                    # with ctx.train_df_polars; the prepared variant is a polars LazyFrame-evaluation
+                    # result that's already eager but immutable in our path. Carrying across targets
+                    # costs ~one pointer per slot - never duplicates feature data.
+                    prepared_frames_cache[_prep_key] = {
+                        "prepared_train": prepared_train,
+                        "prepared_val": prepared_val,
+                        "prepared_test": prepared_test,
+                        "xgb_category_map": _xgb_category_map,
+                    }
 
             else:
 
@@ -801,12 +1011,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # CODE-P1-10: compute input-schema fingerprint ONCE per (model, pre_pipeline) outside the
             # weight loop. The fingerprinted train_df is the same across all weight schemas (only
             # sample_weight changes inside the weight loop), so the previous per-iteration call was
-            # pure waste. Cache key folds in target+strategy+tier+kind+pp_name so it survives reuse
-            # across sibling sub-loops within the same target.
+            # pure waste. Cache key is purely feature-side (strategy+tier+kind+pp_name) - dropping
+            # ``target_type`` / ``cur_target_name`` from the key was the per-target hoist: the
+            # schema hash depends on column names/dtypes, NOT on y, so target N reuses target 1's
+            # fingerprint without recomputation. Audit-checked vs compute_model_input_fingerprint:
+            # signature takes train_df + cat/text/embedding_features only, no target.
             _fp_train_df_pre = prepared_train if polars_fastpath_active else tier_pandas["train_df"]
             _fp_cache_key = (
-                target_type,
-                cur_target_name,
                 id(strategy),
                 strategy.feature_tier(),
                 strategy.supports_polars,
@@ -1097,6 +1308,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # on ``_cached_train_*`` / ``_cached_val_*`` as a weight-schema-loop scratchpad; nothing
             # downstream reads them (.predict goes through _Booster, ensemble uses pre-computed probs,
             # save strips via __getstate__). Releasing here frees ~30% of peak RAM between strategies.
+            # Capture the binned-dataset references off the template BEFORE clearing so the next
+            # target's _restore_dataset_reuse_cache can re-attach them. Without this snapshot the
+            # clear below frees the dataset and the cross-target hoist degrades to a no-op (same
+            # behaviour as before the hoist). Storing references only - the binned dataset is
+            # shared with whatever held it before; the clear merely drops the template's pointer.
+            _capture_dataset_reuse_cache(ctx, mlframe_model_name, original_model)
             _maybe_clear_shim_cache(original_model)
             # ens_models snapshots may also hold the cache by reference (forward-transfer at clone() copied
             # the reference rather than moving it); release on each so the binned dataset can be freed.
@@ -1111,7 +1328,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     # Same rationale as the entry-site release: locals AND ctx attributes must both drop their refs.
                     del train_df_polars, val_df_polars, test_df_polars
                     train_df_polars = val_df_polars = test_df_polars = None
-                    tier_dfs_cache.clear()
+                    # Selective drop: see same-shape comment at the non-polars-native entry site
+                    # above for rationale. These cache references are suite-scoped now, so a blanket
+                    # .clear() would also wipe pandas-tier entries that survived the polars release.
+                    for _pl_only_key in [_k for _k in tier_dfs_cache if isinstance(_k, tuple) and len(_k) >= 2 and _k[1] == "pl"]:
+                        tier_dfs_cache.pop(_pl_only_key, None)
                     tier_enum_map_cache.clear()
                     baseline_rss_mb = _release_ctx_polars_frames(ctx, baseline_rss_mb, df_size_mb, verbose=verbose, reason="tier transition")
                     if verbose:
