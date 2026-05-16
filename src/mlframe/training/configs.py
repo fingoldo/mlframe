@@ -664,6 +664,14 @@ class FeatureSelectionConfig(BaseConfig):
     rfecv_leakage_corr_threshold: Optional[float] = 0.95
     # rfecv_mbh_adaptive_threshold: when the per-fit MBH evaluation budget is <= this value, the surrogate switches from a CatBoost model (~500ms fixed overhead per fit) to a sklearn ExtraTreesRegressor (~20ms). 30 was the historical hardcoded crossover; tune up on tiny outer estimators (LR / Ridge) where CB overhead still dominates at larger budgets, tune down when the surrogate noise from a 20-tree ETR hurts selection quality.
     rfecv_mbh_adaptive_threshold: int = 30
+    # When True, FS becomes weight-aware (correctness over speed) and re-runs per weight schema: MRMR.fit and
+    # RFECV.fit receive the suite's sample_weight via fit_params, so the selected features reflect the active
+    # weighting (e.g. recency emphasis). When False (default), FS is computed ONCE per target and reused across
+    # weight schemas (faster, FS cache stays valid across weight iterations, but selected features reflect the
+    # uniform-weight assumption). Flip ON only when you are confident weight-aware FS adds business signal that
+    # outweighs the cache-miss cost; the default-OFF contract is the FS-cache reuse invariant relied on by the
+    # suite's per-weight-schema training loop.
+    use_sample_weights_in_fs: bool = False
 
     @field_validator("mrmr_kwargs")
     @classmethod

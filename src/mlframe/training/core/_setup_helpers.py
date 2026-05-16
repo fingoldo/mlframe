@@ -329,12 +329,19 @@ def _build_pre_pipelines(
     rfecv_mbh_adaptive_threshold: int = 30,
     use_boruta_shap: bool = False,
     boruta_shap_kwargs: dict[str, Any] | None = None,
+    use_sample_weights_in_fs: bool = False,
 ) -> tuple[list[Any], list[str]]:
     """Build lists of pre-pipelines and their names for feature selection.
 
     Both ``rfecv_leakage_corr_threshold`` and ``rfecv_mbh_adaptive_threshold`` are applied to every RFECV instance fetched from ``rfecv_models_params`` via ``setattr``; ``configure_training_params`` constructs those instances before the suite-level config is in scope, so this is the canonical place to override the suite-controllable knobs without rebuilding the RFECV objects.
 
     ``use_boruta_shap`` appends a BorutaShap selector AFTER MRMR / RFECV: SHAP-driven Boruta is a comparatively-expensive wrapper (per-trial TreeExplainer on a doubled feature matrix) so it makes sense to evaluate it as an alternative branch rather than chained behind the cheaper selectors. Default OFF preserves the legacy pre_pipelines ordering byte-for-byte.
+
+    ``use_sample_weights_in_fs`` (``FeatureSelectionConfig.use_sample_weights_in_fs``): when True, stamps the
+    marker attribute ``_mlframe_use_sample_weights_in_fs_`` on every MRMR / RFECV instance so the suite-level
+    fit driver knows to forward the active ``sample_weight`` via fit_params (weight-aware FS, FS cache misses
+    per weight schema). When False (default), the marker is False and the suite skips weight forwarding so the
+    FS cache stays valid across weight iterations and selected features reflect the uniform-weight assumption.
     """
     pre_pipelines = []
     pre_pipeline_names = []
@@ -356,6 +363,7 @@ def _build_pre_pipelines(
         if _rfecv_instance is not None:
             setattr(_rfecv_instance, "leakage_corr_threshold", rfecv_leakage_corr_threshold)
             setattr(_rfecv_instance, "mbh_adaptive_threshold", rfecv_mbh_adaptive_threshold)
+            setattr(_rfecv_instance, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
         pre_pipelines.append(_rfecv_instance)
         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
@@ -365,7 +373,9 @@ def _build_pre_pipelines(
         # instead of imputing them; see MRMR._validate_inputs). Wrapping
         # in SimpleImputer would discard that signal and silently degrade
         # downstream NaN-aware backends (catboost / lgb / xgb).
-        pre_pipelines.append(MRMR(**mrmr_kwargs))
+        _mrmr = MRMR(**mrmr_kwargs)
+        setattr(_mrmr, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
+        pre_pipelines.append(_mrmr)
         pre_pipeline_names.append("MRMR ")
 
     if use_boruta_shap:
