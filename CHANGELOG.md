@@ -66,11 +66,14 @@ A coordinated 83-commit overhaul of `train_mlframe_models_suite` driven by a mul
 
 ### Known follow-ups
 
-- Predict-path parity for polars-fastpath suites: pre-pipeline extensions / flavour / `_CT_ENSEMBLE` save+load + polars fastpath at predict entry. Tracked separately because save+load is shared with the upcoming `mlframe.inference.predict` rewrite.
-- Wave 8 observability: per-model FS report + cache stats in run metadata.
-- `train_df_pandas_pre` full consumer rewiring (currently dual-stored alongside the mutation-immune snapshot landed in `6b2c4bc`).
-- `feature_handling_config` consumer / storage alignment now that `setup_configuration` plumbs it onto ctx (`6f2c05f`).
-- Two pre-existing test failures triaged but not fixed in this branch (will be addressed in their own changesets): `test_core_loop_forward_transfers_dataset_cache_to_clone`, `test_temporal_audit_autodetect`.
+- Predict-path parity follow-ups: minor edge cases beyond what `e3e256a` + `78c2380` + `5fea910` landed (multilabel per-class thresholds; closure-local `_PrePipelinePredictShim` pickled via `dill` rather than `_SafeUnpickler`).
+- LightGBM column-name space → underscore renaming friction with PolynomialFeatures (predict-replay flagged it on the LGB + poly path).
+- Pre-existing failure not addressed here: `tests/test_fs_fe_disposition.py::test_fe4_cb_ordinal_cat_features_warns` asserts the log substring `"CatBoost is in mlframe_models"`; the actual warning reads `"CatBoost in mlframe_models"` (without `is`). Wording mismatch in the test, not a regression. To fix in a separate changeset (one-token diff).
+
+### Audit notes (commit-history hygiene)
+
+- Commit `7ee4344` ("fix+test(feature_selection): expose RFECV MBH adaptive-surrogate threshold") landed with a bundled +50-line diff containing the Wave-7 `_release_ctx_polars_frames` helper. Concurrent staging race during the parallel-agent fan-out; verified safe (the helper is correct as-is and was eventually exercised by the `_release_ctx_polars_frames` tests in `fdbe0d3`), but the commit subject understates its scope. Will be cleared on squash-merge.
+- Three sub-agents in this PR violated the `feedback_no_destructive_git_to_inspect_baseline` policy (used `git stash` to inspect baseline rather than `git show <ref>:<path>`). Each acknowledged the violation in their report. No work was lost in any of the three cases — `--only` commit scoping isolated the agents' actual edits — but the violation rate (3/20 spawned agents) suggests the rule needs a sharper prompt-level reminder. Followed up in user memory `feedback_no_destructive_git_to_inspect_baseline` for future PR work.
 
 ## 2026-05-16 — `train_mlframe_models_suite` audit campaign (192 findings dispositioned)
 
