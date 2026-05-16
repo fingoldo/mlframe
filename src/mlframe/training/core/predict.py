@@ -325,6 +325,31 @@ def predict_from_models(
     if isinstance(df, pl.DataFrame):
         df = get_pandas_view_of_polars_df(df)
 
+    # Coerce metadata-declared cat_features to pandas ``category`` dtype.
+    # Polars String columns survive the polars-to-pandas conversion (via
+    # to_arrow) as pandas object/string, not Categorical. LightGBM sklearn
+    # rejects predict input whose categorical_feature inference doesn't
+    # match the fit-time spec ("train and valid dataset categorical_feature
+    # do not match"); XGB rejects object-dtype outright. Casting to
+    # ``category`` upfront uses each column's predict-time unique values
+    # as categories - close enough for the column-name match LGB does,
+    # and consistent with the dtype CatBoost / XGB / sklearn expect.
+    # Surfaced by fuzz iter#55 (multiclass lgb + Polars frame with
+    # cat_low + cat_mid).
+    _cat_features = metadata.get("cat_features") or []
+    if _cat_features and hasattr(df, "columns"):
+        for _cf in _cat_features:
+            if _cf in df.columns:
+                try:
+                    if df[_cf].dtype.name != "category":
+                        df[_cf] = df[_cf].astype("category")
+                except Exception as _exc:
+                    logger.debug(
+                        "predict_from_models: could not cast cat_feature %r to category "
+                        "(%s: %s); leaving as-is",
+                        _cf, type(_exc).__name__, _exc,
+                    )
+
     if verbose:
         logger.info("Running predictions on in-memory models...")
 
