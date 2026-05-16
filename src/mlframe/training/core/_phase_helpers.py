@@ -918,11 +918,32 @@ def _phase_fit_pipeline(
         if feature_types_config is not None else True
     )
     train_df_pandas_pre = None
+    # Metadata-dict snapshot (mutation-immune). The full-frame ``train_df_pandas_pre`` below shares the underlying block-manager with
+    # ``train_df`` via ``.copy(deep=False)``; any in-place numpy-level mutation on the source frame (rare, but possible through
+    # ``df[col].values[i] = x`` or block-manager surgery) propagates into the snapshot, silently corrupting downstream auto-detect.
+    # The metadata-dict captures column-name / dtype / cardinality up front so the values are baked at snapshot time and immune to
+    # any later mutation. ``_auto_detect_feature_types`` still consumes the full-frame snapshot today, so we keep both. TODO: rewire
+    # the auto-detect consumer to read this metadata dict so the shallow-copy can be dropped (next wave; touches _misc_helpers.py).
+    train_df_pandas_pre_meta: dict | None = None
     if _feature_types_first and (not was_polars_input) and isinstance(train_df, pd.DataFrame):
-        # Shallow column-wise view; we only ever read dtypes / nunique downstream,
-        # and the auto-detect code path doesn't mutate. .copy(deep=False) shares
-        # block-manager but gives us a stable column index even if the pipeline
-        # later mutates train_df in-place.
+        try:
+            train_df_pandas_pre_meta = {
+                "columns": list(train_df.columns),
+                "dtypes": {c: str(train_df[c].dtype) for c in train_df.columns},
+                # Cardinality is only needed for object / categorical columns (cat-vs-text threshold). Numeric columns skip the
+                # full-column scan so 100 GB float blocks aren't touched.
+                "n_unique": {
+                    c: int(train_df[c].nunique(dropna=True))
+                    for c in train_df.columns
+                    if train_df[c].dtype.kind in "OUSb" or isinstance(train_df[c].dtype, pd.CategoricalDtype)
+                },
+                "shape": tuple(train_df.shape),
+            }
+        except Exception:
+            train_df_pandas_pre_meta = None
+        # Shallow column-wise view kept for the current ``_auto_detect_feature_types`` consumer which still expects a DataFrame.
+        # .copy(deep=False) shares the block-manager so the source frame's columns/dtypes are still observable, and adding columns
+        # to ``train_df`` after this point doesn't appear in the snapshot. The known leak (numpy-array mutation) is documented above.
         try:
             train_df_pandas_pre = train_df.copy(deep=False)
         except Exception:
