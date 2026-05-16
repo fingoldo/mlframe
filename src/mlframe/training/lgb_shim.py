@@ -89,6 +89,32 @@ except ImportError:
     _EvalFunctionWrapper = None  # type: ignore
 
 
+try:
+    import polars as pl
+    _PL_AVAILABLE = True
+except ImportError:
+    _PL_AVAILABLE = False
+    pl = None  # type: ignore
+
+
+def _maybe_bridge_polars_to_pandas(X):
+    """Route a polars frame through the Arrow split-blocks bridge so LightGBM sees a proper pandas frame with ``pd.Categorical`` preserved.
+
+    The default ``lgb.Dataset(data=polars_df)`` path falls through ``__array__`` and materialises X to a numpy object/float matrix, losing the Categorical
+    codes that LightGBM needs to dispatch the native categorical split path. ``get_pandas_view_of_polars_df`` is the project's Arrow split-blocks bridge --
+    zero-copy for numeric / boolean / string columns and ~32x faster than bare ``.to_pandas()`` on Categorical-heavy frames (benchmarked in
+    ``profiling/bench_polars_to_pandas.py``). Non-polars inputs pass through untouched.
+    """
+    if not _PL_AVAILABLE or not isinstance(X, pl.DataFrame):
+        return X
+    try:
+        from .utils import get_pandas_view_of_polars_df
+        return get_pandas_view_of_polars_df(X)
+    except ImportError:
+        # Fallback: pyarrow extension arrays preserve Categorical dtype but are slower than the split-blocks bridge.
+        return X.to_pandas(use_pyarrow_extension_array=True)
+
+
 # ---------------------------------------------------------------------
 # Capability gate
 # ---------------------------------------------------------------------
@@ -149,8 +175,11 @@ def _build_dataset(
 ):
     """Build a fresh ``lightgbm.Dataset``.
 
-    LightGBM's ``Dataset`` accepts pandas, numpy, scipy.sparse, polars
-    DataFrames (via __array__), pyarrow Tables, and lists of sequences.
+    LightGBM's ``Dataset`` accepts pandas, numpy, scipy.sparse, pyarrow
+    Tables, and lists of sequences. Polars DataFrames are NOT accepted
+    natively: they fall through ``__array__`` and lose Categorical codes,
+    so the shim converts them up front via ``_maybe_bridge_polars_to_pandas``
+    (Arrow split-blocks bridge) before calling this helper.
 
     ``reference`` (when given) is passed so val Datasets share the train
     Dataset's bin mapping -- required by LightGBM for any non-train
@@ -333,6 +362,11 @@ class _DatasetReuseMixin:
         # objective. Regressor is a no-op.
         y_for_fit = self._pre_fit_bookkeeping(y)
 
+        # ---- Polars -> pandas (Arrow split-blocks bridge) ------------
+        # ``lgb.Dataset(data=polars_df)`` would fall through ``__array__`` and lose Categorical codes. Route through the project's Arrow bridge so
+        # numeric columns stay zero-copy and Categorical columns reach LightGBM with their dictionary intact (native cat-split path).
+        X = _maybe_bridge_polars_to_pandas(X)
+
         # ---- Train Dataset: cache-or-build ---------------------------
         train_key = _signature_of(X, categorical_feature)
         if self._cached_train_key == train_key and self._cached_train_dataset is not None:
@@ -391,6 +425,8 @@ class _DatasetReuseMixin:
                 # the first 2-3 elements robustly.
                 pair_seq = tuple(pair)
                 X_val, y_val_raw = pair_seq[0], pair_seq[1]
+                # Same Arrow split-blocks bridge as train X: keeps Categorical dtype intact, avoids the ``__array__`` numpy fallthrough.
+                X_val = _maybe_bridge_polars_to_pandas(X_val)
                 w_val_inline = pair_seq[2] if len(pair_seq) >= 3 else None
                 # Transform val labels through the encoder for classifier;
                 # regressor returns y unchanged.
