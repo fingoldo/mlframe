@@ -34,6 +34,184 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
+def _polars_native_class_names() -> tuple[str, ...]:
+    """Bare class-name allowlist for the polars fastpath: CatBoost and XGBoost sklearn-API estimators (and the
+    DMatrix-reuse shim subclasses).
+
+    Returns bare names (not class objects) so we don't pay the import cost when the user has neither library installed and so a class-name match still works across the entire MRO -- the XGB shims (``XGBRegressorWithDMatrixReuse``, ``XGBClassifierWithDMatrixReuse``) inherit from XGBRegressor / XGBClassifier so the MRO check below catches them, but listing the shim names too keeps the heuristic explicit."""
+    return (
+        "CatBoostClassifier", "CatBoostRegressor", "CatBoostRanker",
+        "XGBClassifier", "XGBRegressor", "XGBRanker",
+        "XGBClassifierWithDMatrixReuse", "XGBRegressorWithDMatrixReuse",
+    )
+
+
+def _is_polars_native_model(model_obj: Any) -> bool:
+    """Return True if ``model_obj.model`` is a CB or XGB sklearn-API class that accepts a polars DataFrame directly in ``predict`` / ``predict_proba``. MRO-aware so DMatrix-reuse shims inheriting from XGBRegressor / XGBClassifier are recognised even though their bare class names differ."""
+    if model_obj is None:
+        return False
+    _m = getattr(model_obj, "model", model_obj)
+    if _m is None:
+        return False
+    _allowed = _polars_native_class_names()
+    return any(cls.__name__ in _allowed for cls in type(_m).__mro__)
+
+
+def _ensure_pandas_view(df: Any, view_cache: dict) -> Any:
+    """Return a pandas view of ``df``. If ``df`` is already pandas, returned as-is. If polars, the converted view is cached in ``view_cache`` keyed by ``id(df)`` so repeated calls on the same source frame within one predict call pay one conversion."""
+    if not isinstance(df, pl.DataFrame):
+        return df
+    _src_id = id(df)
+    _view = view_cache.get(_src_id)
+    if _view is None:
+        _view = get_pandas_view_of_polars_df(df)
+        view_cache[_src_id] = _view
+    return _view
+
+
+def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
+    """Apply the persisted ``extensions_pipeline`` to a predict frame.
+
+    Two persistence shapes are supported (see ``apply_preprocessing_extensions``):
+      * ``dict`` of ``{column_name: TfidfVectorizer}`` -- TF-IDF-only stage; replace each declared column with its tfidf expansion using the train-time vocabulary.
+      * sklearn ``Pipeline`` -- numeric stack (scaler / KBins / polynomial / RBF / PCA / etc); replace the input columns with the transformed frame and preserve fit-time column names via ``get_feature_names_out``.
+
+    The frame is converted to pandas first (extensions pipelines are always sklearn-typed and fit on pandas). Returns the augmented pandas frame; non-finite input pipelines (``None``) are a no-op."""
+    if ext_pipeline is None:
+        return df
+    if isinstance(df, pl.DataFrame):
+        # Extensions pipelines are sklearn-typed and were fit on pandas -- materialise once for the transform.
+        df = get_pandas_view_of_polars_df(df)
+    if isinstance(ext_pipeline, dict):
+        # TF-IDF-only shape -- replicate the training-time per-column replacement using the saved vectorizers.
+        for _col, _vec in ext_pipeline.items():
+            if _col not in df.columns:
+                if verbose:
+                    logger.warning("[extensions_pipeline] tfidf column '%s' missing from predict frame; skipping (training-time output columns will be absent).", _col)
+                continue
+            _text = df[_col].fillna("").astype(str).values
+            _spmat = _vec.transform(_text)
+            try:
+                _n_feats = len(_vec.get_feature_names_out())
+            except Exception:
+                _n_feats = _spmat.shape[1]
+            _new_cols = [f"{_col}__tfidf_{i}" for i in range(_n_feats)]
+            _new_df = pd.DataFrame.sparse.from_spmatrix(_spmat, columns=_new_cols, index=df.index)
+            df = df.drop(columns=[_col]).join(_new_df)
+        return df
+    # Pipeline shape -- run .transform on the full frame; reuse fit-time output column names when available.
+    try:
+        _arr = ext_pipeline.transform(df)
+    except Exception as _exc:
+        logger.error("[extensions_pipeline] transform failed: %s. Predict frame returned unchanged; downstream model will see RAW columns and almost certainly produce nonsense -- retrain or restore the saved pipeline.", _exc)
+        return df
+    try:
+        _names = list(ext_pipeline.get_feature_names_out())
+    except (AttributeError, ValueError, NotImplementedError):
+        _names = [f"ext_{i}" for i in range(_arr.shape[1])]
+    try:
+        import scipy.sparse as _sp
+        _is_sparse = _sp.issparse(_arr)
+    except ImportError:
+        _is_sparse = False
+    if _is_sparse:
+        try:
+            return pd.DataFrame.sparse.from_spmatrix(_arr, columns=_names, index=df.index)
+        except Exception:
+            _arr = _arr.toarray()
+    return pd.DataFrame(_arr, columns=_names, index=df.index)
+
+
+def _load_ct_ensemble_entries(models_path: str, slug_to_original_target_type: dict, slug_to_original_target_name: dict, trusted_root: str | None = None) -> dict:
+    """Scan ``models_path`` for cross-target ensemble dumps stored under ``<target_type_slug>/_CT_ENSEMBLE__<original_target>/CT_ENSEMBLE.dump`` and return a nested dict keyed ``{target_type: {_CT_ENSEMBLE__<orig>: [entry]}}`` so callers can merge it into the loaded ``models`` structure."""
+    out: dict = defaultdict(lambda: defaultdict(list))
+    _ct_files = glob.glob(join(models_path, "**", "_CT_ENSEMBLE__*", "*.dump"), recursive=True)
+    for _f in _ct_files:
+        _validate_trusted_path(_f, trusted_root or os.path.abspath(models_path))
+        _rel = os.path.relpath(_f, models_path)
+        _parts = _rel.split(os.sep)
+        if len(_parts) < 3:
+            continue
+        _tt_slug = _parts[0]
+        _tname_slug = _parts[1]
+        if not _tname_slug.startswith("_CT_ENSEMBLE__"):
+            continue
+        _tt = slug_to_original_target_type.get(_tt_slug, _tt_slug)
+        # The _CT_ENSEMBLE__<orig> directory name is the in-memory dict key, so reuse it verbatim (no slugify round-trip).
+        _ct_key = _tname_slug
+        _entry = load_mlframe_model(_f)
+        if _entry is not None:
+            out[_tt][_ct_key].append(_entry)
+    return out
+
+
+def _combine_probs(all_probs: list, flavour: str | None) -> np.ndarray:
+    """Combine per-model prediction probabilities using the training-time-selected ``flavour``. Falls back to arithmetic mean when ``flavour`` is None or unrecognised (back-compat for saved models that pre-date the metadata key)."""
+    stacked = np.stack(all_probs)
+    _fl = (flavour or "").lower()
+    if _fl in ("", "arithm", "arith", "mean"):
+        return np.mean(stacked, axis=0)
+    if _fl in ("median",):
+        return np.median(stacked, axis=0)
+    if _fl in ("harm", "harmonic"):
+        # Harmonic mean = N / sum(1/p); clip away true zeros so 1/p stays finite.
+        return stacked.shape[0] / np.sum(1.0 / np.clip(stacked, 1e-12, None), axis=0)
+    if _fl in ("geo", "geomean", "geometric"):
+        return np.exp(np.mean(np.log(np.clip(stacked, 1e-300, None)), axis=0))
+    if _fl in ("quad", "quadratic"):
+        return np.sqrt(np.mean(stacked * stacked, axis=0))
+    if _fl in ("qube", "cubic"):
+        return np.cbrt(np.mean(stacked ** 3, axis=0))
+    if _fl in ("rrf",):
+        try:
+            from mlframe.models.ensembling import _rrf_aggregate_probs
+            return _rrf_aggregate_probs(stacked, k=60)
+        except Exception:
+            return np.mean(stacked, axis=0)
+    return np.mean(stacked, axis=0)
+
+
+def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name: Any = None) -> str | None:
+    """Look up the persisted chosen ensemble flavour for ``(target_type, target_name)``.
+
+    Reads ``metadata['ensembles_chosen']``. Two shapes are tolerated for back-compat:
+      * ``{target_type: {target_name: flavour}}`` -- nested (preferred).
+      * ``{flavour}`` as a bare string -- whole-suite fallback for the case where only one target was trained.
+    """
+    _ec = metadata.get("ensembles_chosen") if isinstance(metadata, dict) else None
+    if _ec is None:
+        return None
+    if isinstance(_ec, str):
+        return _ec
+    if not isinstance(_ec, dict):
+        return None
+    if target_type is not None:
+        _by_tt = _ec.get(target_type)
+        if _by_tt is None:
+            _by_tt = _ec.get(str(target_type))
+        if isinstance(_by_tt, dict):
+            if target_name is not None:
+                _fl = _by_tt.get(target_name) or _by_tt.get(str(target_name))
+                if _fl:
+                    return _fl
+            # Single-target fallback -- if there's only one entry, use it.
+            if len(_by_tt) == 1:
+                return next(iter(_by_tt.values()))
+        elif isinstance(_by_tt, str):
+            return _by_tt
+    # No (tt, tname) match -- if the whole map has a single flavour everywhere, use it.
+    _all = []
+    for _v in _ec.values():
+        if isinstance(_v, dict):
+            _all.extend(_v.values())
+        elif isinstance(_v, str):
+            _all.append(_v)
+    _all_set = {f for f in _all if f}
+    if len(_all_set) == 1:
+        return next(iter(_all_set))
+    return None
+
+
 def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
     """Replay the training-side ``create_date_features`` calls that the SUITE owns and drop any FTE-owned datetime source columns (FTE-handled cols are re-derived by the FTE's own ``transform`` on predict input, but FTE leaves the raw source via ``delete_original_cols=False`` -- the suite-side decomposition phase dropped those at training time, so predict must too or the raw datetime64 col will reach LGB / XGB / sklearn and fail dtype promotion).
 
@@ -163,6 +341,7 @@ def predict_mlframe_models_suite(
     results["metadata"] = metadata
 
     pipeline = metadata.get("pipeline")
+    extensions_pipeline = metadata.get("extensions_pipeline")
     metadata.get("columns", [])
 
     if verbose:
@@ -172,7 +351,23 @@ def predict_mlframe_models_suite(
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
         df = _drop_cols_df(df, columns_to_drop)
 
-    if isinstance(df, pl.DataFrame):
+    # Polars fastpath: decide BEFORE the eager pandas materialisation. If every loaded model is CB / XGB sklearn-API
+    # (polars-native) and the input is polars, keep the polars frame all the way through; non-native models pay a
+    # lazy conversion via ``_pandas_view_cache`` so two non-native models on the same source polars df share one view.
+    _input_is_polars = isinstance(df, pl.DataFrame)
+    _model_files_for_native_probe = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
+    _loaded_models_cache: dict[str, Any] = {}
+    _all_polars_native = False
+    if _input_is_polars and _model_files_for_native_probe:
+        _probe_results = []
+        for _f in _model_files_for_native_probe:
+            _mo = load_mlframe_model(_f)
+            _loaded_models_cache[_f] = _mo
+            _probe_results.append(_is_polars_native_model(_mo))
+        _all_polars_native = bool(_probe_results) and all(_probe_results)
+    _pandas_view_cache: dict[int, pd.DataFrame] = {}
+
+    if not _all_polars_native and isinstance(df, pl.DataFrame):
         df = get_pandas_view_of_polars_df(df)
 
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
@@ -185,12 +380,21 @@ def predict_mlframe_models_suite(
             logger.info("Applying pipeline transformation...")
         df = pipeline.transform(df)
 
+    # Extensions pipeline replay (PySR / TF-IDF / polynomial / scaler / KBins / RBF / PCA). MUST run AFTER the
+    # main pipeline (same order as training in ``_phase_fit_pipeline`` -> ``apply_preprocessing_extensions``)
+    # and BEFORE the per-model column subset, otherwise models trained with ``preprocessing_extensions`` see
+    # raw columns at predict and produce garbage.
+    if extensions_pipeline is not None:
+        if verbose:
+            logger.info("Applying extensions pipeline transformation...")
+        df = _apply_extensions_pipeline(df, extensions_pipeline, verbose=verbose)
+
     results["input_df"] = df
 
     if verbose:
         logger.info("Loading and running models...")
 
-    model_files = glob.glob(join(models_path, "**", "*.dump"), recursive=True)
+    model_files = _model_files_for_native_probe
 
     if not model_files:
         logger.warning(f"No model files found in {models_path}")
@@ -198,6 +402,11 @@ def predict_mlframe_models_suite(
 
     all_probs = []
     all_preds = []
+    # Per-target accumulator so Fix 3 can replay the chosen flavour separately for each (target_type, target_name).
+    per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    _slug_to_tt = metadata.get("slug_to_original_target_type", {}) or {}
+    _slug_to_tn = metadata.get("slug_to_original_target_name", {}) or {}
 
     for model_file in model_files:
         model_name = os.path.basename(model_file).replace(".dump", "")
@@ -205,11 +414,24 @@ def predict_mlframe_models_suite(
         if model_names and model_name not in model_names:
             continue
 
+        # Recover (target_type, target_name) from the on-disk layout (mirrors load_mlframe_suite); used to key
+        # per-target flavour replay below.
+        _rel = os.path.relpath(model_file, models_path)
+        _parts = _rel.split(os.sep)
+        if len(_parts) >= 3:
+            _tt_slug, _tn_slug = _parts[0], _parts[1]
+            _tt = _slug_to_tt.get(_tt_slug, _tt_slug)
+            _tn = _slug_to_tn.get(_tn_slug, _tn_slug)
+        else:
+            _tt, _tn = "unknown", "unknown"
+
         if verbose:
             logger.info("Loading model: %s", model_name)
 
         try:
-            model_obj = load_mlframe_model(model_file)
+            model_obj = _loaded_models_cache.get(model_file)
+            if model_obj is None:
+                model_obj = load_mlframe_model(model_file)
             if model_obj is None:
                 logger.warning(f"Failed to load model: {model_file}")
                 continue
@@ -217,14 +439,28 @@ def predict_mlframe_models_suite(
             model = model_obj.model if hasattr(model_obj, "model") else model_obj
 
             input_for_model = df
+            # Lazy polars->pandas only when this specific model is NOT polars-native (mirrors the training pattern
+            # in ``_phase_train_one_target`` so two non-native models hit the cache after the first conversion).
+            if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
+                input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
             if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
                 if model_obj.pre_pipeline != pipeline:
-                    input_for_model = model_obj.pre_pipeline.transform(df)
+                    input_for_model = model_obj.pre_pipeline.transform(input_for_model)
 
             if return_probabilities and hasattr(model, "predict_proba"):
-                probs = model.predict_proba(input_for_model)
+                try:
+                    probs = model.predict_proba(input_for_model)
+                except (TypeError, ValueError, AttributeError) as _polars_exc:
+                    # Older CB versions reject polars input directly -- fall back to a pandas view.
+                    if isinstance(input_for_model, pl.DataFrame):
+                        logger.warning("predict_proba on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160])
+                        input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
+                        probs = model.predict_proba(input_for_model)
+                    else:
+                        raise
                 results["probabilities"][model_name] = probs
                 all_probs.append(probs)
+                per_target_probs.setdefault((_tt, _tn), []).append(probs)
 
                 # Shape-aware decision rule: 1-D = sigmoid threshold; (N,2) = threshold class-1;
                 # (N,K>2) = argmax. Multilabel cannot be inferred from shape; caller must hold that contract.
@@ -237,10 +473,20 @@ def predict_mlframe_models_suite(
                     preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                 results["predictions"][model_name] = preds
                 all_preds.append(preds)
+                per_target_preds.setdefault((_tt, _tn), []).append(preds)
             else:
-                preds = model.predict(input_for_model)
+                try:
+                    preds = model.predict(input_for_model)
+                except (TypeError, ValueError, AttributeError) as _polars_exc:
+                    if isinstance(input_for_model, pl.DataFrame):
+                        logger.warning("predict on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160])
+                        input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
+                        preds = model.predict(input_for_model)
+                    else:
+                        raise
                 results["predictions"][model_name] = preds
                 all_preds.append(preds)
+                per_target_preds.setdefault((_tt, _tn), []).append(preds)
 
         except KeyboardInterrupt:
             raise
@@ -252,7 +498,29 @@ def predict_mlframe_models_suite(
         if verbose:
             logger.info("Computing ensemble predictions...")
 
-        avg_probs = np.mean(np.stack(all_probs), axis=0)
+        # Per-target chosen flavour replay (Fix 3). For each (tt, tname) that contributed >=1 model run we combine
+        # using the flavour persisted at finalize time, exposing the result under ``per_target_probabilities``.
+        results.setdefault("per_target_probabilities", {})
+        results.setdefault("per_target_predictions", {})
+        for (_tt_k, _tn_k), _probs_list in per_target_probs.items():
+            if not _probs_list:
+                continue
+            _flavour = _resolve_chosen_flavour(metadata, _tt_k, _tn_k)
+            _key = f"{_tt_k}_{_tn_k}"
+            _combined = _combine_probs(_probs_list, _flavour) if len(_probs_list) > 1 else _probs_list[0]
+            results["per_target_probabilities"][_key] = _combined
+            if _combined.ndim == 2:
+                if _combined.shape[1] == 2:
+                    _t_preds = (_combined[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                else:
+                    _t_preds = np.argmax(_combined, axis=1)
+            else:
+                _t_preds = (_combined > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+            results["per_target_predictions"][_key] = _t_preds
+
+        # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
+        _suite_flavour = _resolve_chosen_flavour(metadata)
+        avg_probs = _combine_probs(all_probs, _suite_flavour)
         results["ensemble_probabilities"] = avg_probs
         # Expose the ensemble inside the per-model probabilities dict under the
         # canonical "ensemble" key so consumers can iterate one dict.
@@ -352,6 +620,26 @@ def predict_from_models(
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
         df = _drop_cols_df(df, columns_to_drop)
 
+    # Polars fastpath probe (Fix 1). If every in-memory model is CB / XGB sklearn-API AND the input is polars,
+    # keep polars all the way; non-native models on the same source frame share one cached pandas view.
+    _input_is_polars = isinstance(df, pl.DataFrame)
+    _all_polars_native_inmem = False
+    _pandas_view_cache: dict[int, pd.DataFrame] = {}
+    if _input_is_polars:
+        _all_in_mem = []
+        for _by_name in (models or {}).values():
+            if not isinstance(_by_name, dict):
+                continue
+            for _entries in _by_name.values():
+                if not isinstance(_entries, list):
+                    continue
+                for _e in _entries:
+                    _all_in_mem.append(_e)
+        # Cross-target ensemble entries (``_CT_ENSEMBLE__*``) are not polars-native; their inclusion forces
+        # the lazy conversion path. Same for any non-CB / non-XGB model in the suite.
+        if _all_in_mem:
+            _all_polars_native_inmem = all(_is_polars_native_model(_e) for _e in _all_in_mem)
+
     # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
     df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
 
@@ -368,6 +656,7 @@ def predict_from_models(
     df_pre_pipeline = df
 
     pipeline = metadata.get("pipeline")
+    extensions_pipeline = metadata.get("extensions_pipeline")
     if pipeline is not None:
         if verbose:
             logger.info("Applying pipeline transformation...")
@@ -382,10 +671,21 @@ def predict_from_models(
         # type sees the format it was fitted on.
         df = pipeline.transform(df)
 
-    if isinstance(df, pl.DataFrame):
-        df = get_pandas_view_of_polars_df(df)
-    if isinstance(df_pre_pipeline, pl.DataFrame):
-        df_pre_pipeline = get_pandas_view_of_polars_df(df_pre_pipeline)
+    # Extensions pipeline replay (Fix 2). PySR / TF-IDF / polynomial / scaler / KBins / RBF / PCA stack, applied AFTER
+    # the main pipeline (same order as training); without this models trained with ``preprocessing_extensions`` see
+    # raw columns at predict and produce garbage.
+    if extensions_pipeline is not None:
+        if verbose:
+            logger.info("Applying extensions pipeline transformation...")
+        df = _apply_extensions_pipeline(df, extensions_pipeline, verbose=verbose)
+
+    # Polars fastpath: keep polars when every model is CB / XGB; otherwise pay one shared pandas conversion now
+    # so downstream models don't each pay their own. Extensions pipeline always returns pandas so by here the
+    # "all-native" path is only live when extensions_pipeline was None.
+    if isinstance(df, pl.DataFrame) and not _all_polars_native_inmem:
+        df = _ensure_pandas_view(df, _pandas_view_cache)
+    if isinstance(df_pre_pipeline, pl.DataFrame) and not _all_polars_native_inmem:
+        df_pre_pipeline = _ensure_pandas_view(df_pre_pipeline, _pandas_view_cache)
 
     # Cat dtype coercion is PER-MODEL (in the loop below), not global.
     # Different model types need different dtypes for the same cat_low
@@ -409,6 +709,11 @@ def predict_from_models(
 
     all_probs = []
     all_preds = []
+    # Per-target accumulator so Fix 3 can replay the chosen ensemble flavour separately for each
+    # (target_type, target_name) -- the suite-wide np.mean previously blended every model's prediction across
+    # targets, which silently ignored the per-target flavour choice.
+    per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
 
     for target_type, targets in models.items():
         for target_name, model_list in targets.items():
@@ -435,6 +740,10 @@ def predict_from_models(
                     model = model_obj.model
 
                     input_for_model = df
+                    # Lazy polars->pandas when this specific model is NOT polars-native; mirrors the training
+                    # _phase_train_one_target pattern (cached view shared across models on the same source frame).
+                    if isinstance(input_for_model, pl.DataFrame) and not _is_polars_native_model(model_obj):
+                        input_for_model = _ensure_pandas_view(input_for_model, _pandas_view_cache)
 
                     # Subset to the per-model expected feature list BEFORE
                     # routing through pre_pipeline (sklearn pipelines for
@@ -603,12 +912,31 @@ def predict_from_models(
                                     if _drop_fb:
                                         _fb = _fb.drop(columns=_drop_fb)
                                 return fn(_fb)
+                            # Polars-input rejection (older CB / sklearn-wrapped XGB): retry via shared pandas view.
+                            if isinstance(primary, pl.DataFrame):
+                                logger.warning(
+                                    "predict_from_models: %s.%s rejected polars frame (%s); retrying on cached pandas view.",
+                                    model_name, fn.__name__, _msg.splitlines()[0][:160],
+                                )
+                                return fn(_ensure_pandas_view(primary, _pandas_view_cache))
+                            raise
+                        except (ValueError, AttributeError) as _exc:
+                            # Polars-input rejection paths in older library versions raise ValueError / AttributeError;
+                            # fall back to the pandas view rather than dropping the model.
+                            if isinstance(primary, pl.DataFrame):
+                                logger.warning(
+                                    "predict_from_models: %s.%s rejected polars frame (%s: %s); retrying on cached pandas view.",
+                                    model_name, fn.__name__, type(_exc).__name__,
+                                    str(_exc).splitlines()[0][:160],
+                                )
+                                return fn(_ensure_pandas_view(primary, _pandas_view_cache))
                             raise
 
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = _try_predict(model.predict_proba, input_for_model, df_pre_pipeline)
                         results["probabilities"][model_name] = probs
                         all_probs.append(probs)
+                        per_target_probs.setdefault((target_type, target_name), []).append(probs)
 
                         if probs.ndim == 2:
                             if probs.shape[1] == 2:
@@ -619,10 +947,12 @@ def predict_from_models(
                             preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
+                        per_target_preds.setdefault((target_type, target_name), []).append(preds)
                     else:
                         preds = _try_predict(model.predict, input_for_model, df_pre_pipeline)
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
+                        per_target_preds.setdefault((target_type, target_name), []).append(preds)
 
                     results["models_used"].append(model_name)
 
@@ -634,7 +964,34 @@ def predict_from_models(
         if verbose:
             logger.info("Computing ensemble predictions...")
 
-        avg_probs = np.mean(np.stack(all_probs), axis=0)
+        # Per-target chosen flavour replay (Fix 3). When the metadata records a flavour for any (tt, tname) that
+        # contributed >=2 probability arrays we combine THAT target with the chosen flavour and merge results
+        # into the per-target probabilities dict; the suite-wide "ensemble" stays as the arithmetic mean for
+        # back-compat with consumers that read results["probabilities"]["ensemble"].
+        results.setdefault("per_target_probabilities", {})
+        results.setdefault("per_target_predictions", {})
+        for (_tt, _tname), _probs_list in per_target_probs.items():
+            if not _probs_list:
+                continue
+            _flavour = _resolve_chosen_flavour(metadata, _tt, _tname)
+            _key = f"{_tt}_{_tname}"
+            if len(_probs_list) > 1:
+                _combined = _combine_probs(_probs_list, _flavour)
+            else:
+                _combined = _probs_list[0]
+            results["per_target_probabilities"][_key] = _combined
+            if _combined.ndim == 2:
+                if _combined.shape[1] == 2:
+                    _t_preds = (_combined[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                else:
+                    _t_preds = np.argmax(_combined, axis=1)
+            else:
+                _t_preds = (_combined > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+            results["per_target_predictions"][_key] = _t_preds
+
+        # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
+        _suite_flavour = _resolve_chosen_flavour(metadata)
+        avg_probs = _combine_probs(all_probs, _suite_flavour)
         results["ensemble_probabilities"] = avg_probs
         if isinstance(results.get("probabilities"), dict):
             results["probabilities"]["ensemble"] = avg_probs
