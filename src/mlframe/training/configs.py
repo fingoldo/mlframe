@@ -651,6 +651,11 @@ class FeatureSelectionConfig(BaseConfig):
     rfecv_kwargs: Optional[Dict[str, Any]] = None
     custom_pre_pipelines: Dict[str, Any] = Field(default_factory=dict)
 
+    # BorutaShap (SHAP-driven Boruta wrapper) is OFF by default: it adds 10-20x runtime over MRMR / RFECV because each trial fits a shap.TreeExplainer on a doubled feature matrix (real + shadow). Enable when the orthogonal SHAP-based signal is worth the extra compute -- typically on small frames where the shap-based feature attribution disagrees with permutation / gini.
+    use_boruta_shap: bool = False
+    # Forwarded verbatim to ``BorutaShap.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit.
+    boruta_shap_kwargs: Optional[Dict[str, Any]] = None
+
     # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
     skip_identity_equivalent_pre_pipelines: bool = True
 
@@ -689,6 +694,22 @@ class FeatureSelectionConfig(BaseConfig):
         if unknown:
             raise ValueError(
                 f"FeatureSelectionConfig.rfecv_kwargs: unknown key(s) {unknown}. "
+                f"Valid keys: {sorted(valid_keys)}"
+            )
+        return v
+
+    @field_validator("boruta_shap_kwargs")
+    @classmethod
+    def _validate_boruta_shap_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not v:
+            return v
+        import inspect
+        from mlframe.feature_selection.boruta_shap import BorutaShap
+        valid_keys = set(inspect.signature(BorutaShap.__init__).parameters) - {"self"}
+        unknown = sorted(set(v) - valid_keys)
+        if unknown:
+            raise ValueError(
+                f"FeatureSelectionConfig.boruta_shap_kwargs: unknown key(s) {unknown}. "
                 f"Valid keys: {sorted(valid_keys)}"
             )
         return v
