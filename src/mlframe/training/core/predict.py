@@ -336,6 +336,14 @@ def predict_from_models(
     # and consistent with the dtype CatBoost / XGB / sklearn expect.
     # Surfaced by fuzz iter#55 (multiclass lgb + Polars frame with
     # cat_low + cat_mid).
+    #
+    # NOTE: this cast fights with sklearn HGB / linear-family pre_pipelines
+    # that expect already-encoded numeric cat columns (iter#80 surfaced
+    # this with lgb+hgb mixed-model suite on Polars input). For now we
+    # accept the iter#55 path (LGB happy) and let sklearn HGB / linear
+    # fail with isnan when mixed with a categorical-aware model on raw-
+    # string cat input. Cleaner fix requires per-model cat-dtype routing
+    # threaded through metadata.model_schemas; tracked separately.
     _cat_features = metadata.get("cat_features") or []
     if _cat_features and hasattr(df, "columns"):
         for _cf in _cat_features:
