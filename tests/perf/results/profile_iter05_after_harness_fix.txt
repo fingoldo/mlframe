@@ -1,0 +1,53 @@
+# 1M-row e2e profile (n_rows=400_000, models=('cb', 'lgb'), save_charts=False)
+
+=== binary_classification x cb,lgb ===
+  built frame: 400_000 rows x 9 cols
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2702: UserWarning:
+
+Can't optimze method "evaluate" because self argument is used
+
+MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+mlframe model:  50%|#####     | 1/2 [01:21<01:21, 81.84s/it]mlframe model: 100%|##########| 2/2 [01:27<00:00, 36.77s/it]mlframe model: 100%|##########| 2/2 [01:27<00:00, 43.53s/it]
+  wall: 89.9s  status: OK
+         783341 function calls (754618 primitive calls) in 89.882 seconds
+
+   Ordered by: cumulative time
+   List reduced from 4126 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.002    0.002   89.878   89.878 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.002    0.002   88.462   88.462 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+       14    0.002    0.000   87.657    6.261 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        2    0.000    0.000   87.063   43.532 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        2    0.000    0.000   87.063   43.531 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        2    0.001    0.000   86.151   43.075 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        2    0.000    0.000   81.098   40.549 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        1    0.000    0.000   81.093   81.093 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:5529(fit)
+        2   32.370   16.185   81.026   40.513 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+      666    0.014    0.000   48.567    0.073 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3097(evaluate)
+      917    0.166    0.000   45.943    0.050 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2821(compute_probabilistic_multiclass_error)
+      861    0.190    0.000   45.914    0.053 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:384(integral_calibration_error)
+      917   35.211    0.038   35.216    0.038 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2569(_batch_per_class_ice_kernel)
+     1834    5.237    0.003    5.242    0.003 D:\ProgramData\anaconda3\Lib\site-packages\numpy\lib\_shape_base_impl.py:621(column_stack)
+     1834    5.186    0.003    5.186    0.003 {built-in method numpy.ascontiguousarray}
+        1    0.000    0.000    5.014    5.014 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
+        1    0.006    0.006    4.942    4.942 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
+      666    0.009    0.000    3.850    0.006 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:304(cb_logits_to_probs_binary)
+      333    3.512    0.011    3.514    0.011 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:292(_cb_logits_to_probs_binary_par)
+      195    2.071    0.011    2.072    0.011 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4092(update)
+      195    0.001    0.000    1.935    0.010 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4410(eval_valid)
+      195    0.002    0.000    1.934    0.010 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4442(<listcomp>)
+      195    0.100    0.001    1.932    0.010 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:5170(__inner_eval)
+       28    0.001    0.000    1.437    0.051 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+       28    0.001    0.000    1.433    0.051 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+       28    0.011    0.000    1.420    0.051 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+      195    0.002    0.000    1.243    0.006 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:280(__call__)
+      195    0.001    0.000    1.213    0.006 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:561(lgbm_integral_calibration_error)
+        1    0.000    0.000    1.197    1.197 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:1128(score_ensemble)
+        6    0.005    0.001    1.197    0.199 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:782(_process_single_ensemble_method)
+
+
+
+
+# Wall-time summary:
+  binary_classification x cb,lgb                             89.9s  OK

@@ -275,8 +275,15 @@ def get_training_configs(
     # ``_cb_gpu_usable`` (one-shot tiny-fit probe, cached) so machines with
     # a working GPU but a CPU-only CB binary fall back to ``task_type="CPU"``
     # instead of crashing every fit with "Environment for task type [GPU]
-    # not found".
-    if has_gpu:
+    # not found". Skip the probe entirely when CB is not in scope - the
+    # tiny CB-GPU fit costs ~150ms per process and is wasted on
+    # linear/ridge/lgb/xgb-only suites. ``models_in_scope`` is a hint;
+    # when None we keep the conservative behaviour and probe.
+    _cb_in_scope = (
+        enabled_models is None
+        or any(str(m).lower() in ("cb", "catboost") for m in enabled_models)
+    )
+    if has_gpu and _cb_in_scope:
         from ._cb_pool import _cb_gpu_usable as _cb_gpu_probe
         _cb_task = "GPU" if _cb_gpu_probe() else "CPU"
     else:

@@ -159,7 +159,15 @@ def _run_suite_profiled(
         _tt = TargetTypes.REGRESSION
     elif target_type == "binary_classification":
         target_col = "y"
-        fte_kwargs = dict(classification_exact_values={"y": 1})
+        # ``classification_exact_values`` alone is silently ignored by
+        # SimpleFeaturesAndTargetsExtractor.build_targets — that branch is
+        # gated on ``classification_targets`` being truthy. Pass both so the
+        # binary suite actually trains end-to-end instead of suite-returning
+        # empty target_by_type and looking like a 0.1s "OK" run.
+        fte_kwargs = dict(
+            classification_targets=["y"],
+            classification_exact_values={"y": 1},
+        )
         _tt = TargetTypes.BINARY_CLASSIFICATION
     elif target_type == "multiclass_classification":
         target_col = "y"

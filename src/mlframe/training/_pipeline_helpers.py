@@ -686,16 +686,26 @@ def _apply_pre_pipeline_transforms(
                         _cache_err,
                     )
 
-        # 2026-05-13 (duplicate-pipeline skip): detect whether this
-        # pre_pipeline left the column set unchanged (identity-equivalent).
-        # Marker is set on the pre_pipeline instance so the suite loop in
-        # core/main.py can skip this branch when an equivalent one
-        # (ordinary or another identity-selector) already ran.
+        # Identity-equivalent = column set unchanged AND no value-transforming
+        # steps (ce/imp/scaler/transform). Column-list-equality alone gave a
+        # false positive for LinearModelStrategy's encoder+imputer+scaler chain:
+        # those steps preserve column names while remapping string cats to
+        # numeric, so the suite skipped pre_pipeline.transform on test_df and
+        # LogisticRegression got raw string cats at predict time (TypeError in
+        # safe_sparse_dot, surfaced 2026-05-16 fuzz_regression_sensors x6).
         if _input_cols is not None and hasattr(train_df, "columns"):
             _output_cols = list(train_df.columns)
+            _cols_same = _input_cols == _output_cols
+            _has_value_transforms = False
+            _named = getattr(pre_pipeline, "named_steps", None)
+            if _named:
+                for _step_name in ("ce", "imp", "scaler", "transform"):
+                    if _named.get(_step_name) is not None:
+                        _has_value_transforms = True
+                        break
             try:
                 pre_pipeline._mlframe_identity_equivalent = (
-                    _input_cols == _output_cols
+                    _cols_same and not _has_value_transforms
                 )
             except Exception:
                 pass  # non-writable pre_pipeline (e.g. tuple), safe to ignore

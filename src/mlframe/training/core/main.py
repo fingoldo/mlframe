@@ -258,6 +258,22 @@ def train_mlframe_models_suite(
     _phase_load_and_preprocess(ctx, features_and_targets_extractor=features_and_targets_extractor)
     df = ctx.df
     target_by_type = ctx.target_by_type
+    # Empty target_by_type means the extractor returned no targets - usually a
+    # caller-side mis-configuration (e.g. SimpleFeaturesAndTargetsExtractor with
+    # classification_exact_values set but classification_targets omitted, since
+    # build_targets gates the exact-values branch on classification_targets
+    # being truthy). Pre-fix this short-circuited silently to (empty_models, metadata)
+    # making such misconfigurations look like a fast successful run; loud WARN
+    # surfaces them at suite entry instead.
+    if not target_by_type:
+        logger.warning(
+            "train_mlframe_models_suite: features_and_targets_extractor produced an "
+            "empty target_by_type. No models will be trained. Check the extractor's "
+            "configuration - common cause is passing classification_exact_values / "
+            "classification_thresholds without classification_targets=[...] (the "
+            "default SimpleFeaturesAndTargetsExtractor.build_targets gates those "
+            "branches on classification_targets being truthy)."
+        )
     group_ids_raw = ctx.group_ids_raw
     group_ids = ctx.group_ids
     timestamps = ctx.timestamps

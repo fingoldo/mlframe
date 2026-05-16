@@ -1,0 +1,48 @@
+# 1M-row e2e profile (n_rows=500_000, models=('linear', 'ridge'), save_charts=False)
+
+=== regression x linear,ridge ===
+  built frame: 500_000 rows x 9 cols
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:  50%|#####     | 1/2 [00:01<00:01,  1.18s/it]mlframe model: 100%|##########| 2/2 [00:01<00:00,  1.59it/s]
+  wall: 1.7s  status: OK
+         951913 function calls (907844 primitive calls) in 1.744 seconds
+
+   Ordered by: cumulative time
+   List reduced from 4068 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.003    0.003    1.739    1.739 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.001    0.001    1.597    1.597 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        8    0.001    0.000    1.380    0.173 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        2    0.000    0.000    1.254    0.627 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        2    0.000    0.000    1.253    0.627 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+       16    0.000    0.000    1.090    0.068 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+       16    0.001    0.000    1.088    0.068 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+       16    0.001    0.000    1.080    0.068 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
+        8    0.000    0.000    0.998    0.125 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+        4    0.000    0.000    0.906    0.226 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+        4    0.000    0.000    0.905    0.226 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+        4    0.000    0.000    0.855    0.214 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:79(compile)
+        4    0.000    0.000    0.855    0.214 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:86(_compile_cached)
+        4    0.000    0.000    0.855    0.214 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:101(_compile_core)
+        4    0.000    0.000    0.854    0.213 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:713(compile_extra)
+        4    0.000    0.000    0.850    0.212 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:433(compile_extra)
+        4    0.000    0.000    0.846    0.212 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:500(_compile_bytecode)
+        4    0.000    0.000    0.846    0.212 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:456(_compile_core)
+        4    0.001    0.000    0.844    0.211 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:342(run)
+  138/116    0.001    0.000    0.843    0.007 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_lock.py:32(_acquire_compile_lock)
+      108    0.004    0.000    0.840    0.008 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:267(_runPass)
+      324    0.001    0.000    0.822    0.003 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:271(check)
+        4    0.001    0.000    0.608    0.152 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\typed_passes.py:439(run_pass)
+     3487    0.242    0.000    0.311    0.000 D:\ProgramData\anaconda3\Lib\site-packages\llvmlite\binding\ffi.py:210(__call__)
+       16    0.000    0.000    0.280    0.018 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3704(fast_r2_score)
+       16    0.000    0.000    0.245    0.015 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3567(fast_mean_absolute_error)
+        4    0.000    0.000    0.222    0.055 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\lowering.py:188(lower)
+       16    0.000    0.000    0.202    0.013 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3648(fast_root_mean_squared_error)
+       16    0.000    0.000    0.202    0.013 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3610(fast_mean_squared_error)
+        4    0.000    0.000    0.201    0.050 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\cpu.py:262(get_executable)
+
+
+
+
+# Wall-time summary:
+  regression x linear,ridge                                   1.7s  OK
