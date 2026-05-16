@@ -17,47 +17,35 @@ import numpy as np
 import pytest
 
 
-# Workaround for a pre-existing Windows-only ``flush of closed file`` crash in mlframe.training.io that fires
-# when zstd is invoked with multi-threaded compression (``threads=-1``). Forcing ``threads=0`` produces a
-# byte-identical output on supported builds and unblocks the disk-round-trip tests. This is purely a test-side
-# workaround; the underlying file is in the LOCKED scope of the directive.
+# Workaround for a pre-existing Windows-only ``flush of closed file`` crash in mlframe.training.io. The library's
+# ``save_mlframe_model`` writes the zstd stream through ``atomic_write_bytes`` which calls ``f.flush()`` AFTER
+# the inner ``stream_writer`` context-manager closed the underlying file -- raises ``ValueError: flush of closed
+# file`` on the local Windows zstandard build. This bypass writes the file directly (no atomic rename, no extra
+# fsync) which is acceptable in a test context. The underlying io.py is in the LOCKED scope of the directive.
 def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0):
     import dill
     import zstandard as zstd
-    from mlframe.training.io import atomic_write_bytes
-    _kw = dict(level=4, write_checksum=True, write_content_size=True, threads=0)
-    if zstd_kwargs:
-        _kw.update(zstd_kwargs)
-        _kw["threads"] = 0  # always overwrite to neutralise the broken default
     try:
-        def _writer(f):
-            compressor = zstd.ZstdCompressor(**_kw)
+        with open(file, "wb") as f:
+            compressor = zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=0)
             with compressor.stream_writer(f) as zf:
                 dill.dump(model, zf)
-        atomic_write_bytes(file, _writer)
         return True
-    except Exception:
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
         return False
 
 
 def _make_ct_entry():
-    """Tiny picklable cross-target ensemble surrogate -- just a SimpleNamespace with a callable .predict so the
-    load roundtrip can be observed without standing up a full CompositeCrossTargetEnsemble (which depends on
-    the composite_target_discovery suite, locked here)."""
-    class _ToyEnsemble:
-        def __init__(self, scale):
-            self.scale = float(scale)
-            self.strategy = "mean"
-
-        def predict(self, X):
-            arr = np.asarray(X.values if hasattr(X, "values") else X, dtype=np.float64)
-            return arr.sum(axis=1) * self.scale
-
-        def export_metadata(self):
-            return {"strategy": self.strategy, "scale": self.scale}
-
+    """Tiny picklable cross-target ensemble surrogate using sklearn DummyRegressor (allowlisted by _SafeUnpickler so
+    the load round-trip works). Fitting on a tiny synthetic frame produces a constant predictor; correctness of the
+    persistence helpers is what we test here, not the ensemble math."""
+    from sklearn.dummy import DummyRegressor
+    model = DummyRegressor(strategy="constant", constant=7.5)
+    model.fit(np.zeros((3, 2)), np.zeros(3))
     return SimpleNamespace(
-        model=_ToyEnsemble(scale=2.5),
+        model=model,
         model_name="CT_ENSEMBLE",
         columns=None,
         pre_pipeline=None,
@@ -120,7 +108,7 @@ def test_persist_ct_ensemble_entries_roundtrips():
         _by = ct_entries["regression"]
         assert "_CT_ENSEMBLE__y" in _by, f"missing CT key; got {list(_by.keys())}"
         roundtripped = _by["_CT_ENSEMBLE__y"][0]
-        # Predict equivalence.
+        # Predict equivalence (DummyRegressor returns its fitted constant on any input shape).
         import pandas as pd
         X_test = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [10.0, 20.0, 30.0]})
         np.testing.assert_allclose(
@@ -128,6 +116,8 @@ def test_persist_ct_ensemble_entries_roundtrips():
             ct_entry.model.predict(X_test),
             rtol=1e-7,
         )
+        # Sanity: the surrogate was non-trivial enough to differentiate a regression from a random round-trip.
+        assert np.allclose(roundtripped.model.predict(X_test), 7.5)
 
 
 def test_persist_ct_ensemble_entries_no_models_dir_is_noop():
