@@ -793,6 +793,25 @@ def _phase_fit_pipeline(
         return []
 
     _dt_cols = _detect_datetime_cols(train_df)
+    # Skip datetime sources already decomposed by the FTE (it keeps the original via ``delete_original_cols=False``, so the suite would otherwise re-decompose and emit duplicate / overwriting cols on top of FTE's). The raw source is still removed below so downstream consumers (LGB / XGB / sklearn) don't see a leftover datetime64 column they can't dtype-promote.
+    _fte_emitted_map = metadata.get("ftextractor_emitted_columns") or {}
+    _fte_owned_dt_sources = [c for c in _dt_cols if c in _fte_emitted_map] if _fte_emitted_map else []
+    if _fte_emitted_map:
+        _dt_cols = [c for c in _dt_cols if c not in _fte_emitted_map]
+    if _fte_owned_dt_sources:
+        # FTE already produced derived cols for these; the raw datetime source must still be dropped so downstream model libs don't choke on a Datetime64 column. Match the ``delete_original_cols=True`` behaviour of the suite's own create_date_features call below.
+        def _drop_source_cols(_frame, _cols):
+            if _frame is None:
+                return _frame
+            _present = [c for c in _cols if c in _frame.columns]
+            if not _present:
+                return _frame
+            if isinstance(_frame, pl.DataFrame):
+                return _frame.drop(_present)
+            return _frame.drop(columns=_present)
+        train_df = _drop_source_cols(train_df, _fte_owned_dt_sources)
+        val_df = _drop_source_cols(val_df, _fte_owned_dt_sources)
+        test_df = _drop_source_cols(test_df, _fte_owned_dt_sources)
     if _dt_cols:
         from mlframe.feature_engineering.basic import create_date_features
         # Configurable set of dt accessors (year / ordinal_day / minute / ...).
@@ -836,6 +855,11 @@ def _phase_fit_pipeline(
                     test_df, cols=t_cols, delete_original_cols=True,
                     methods=_dt_methods,
                 )
+        # Persist the resolved methods keyed by source column so predict can replay the same expansion deterministically. Stored as the accessor-name -> numpy-dtype-name map (json-friendly); the predict side resolves the name back to the numpy dtype.
+        _persisted_methods = {m: _dt_methods[m].__name__ for m in _dt_methods}
+        _store = metadata.setdefault("datetime_methods", {})
+        for _src in _dt_cols:
+            _store[_src] = dict(_persisted_methods)
 
     # Pre-pipeline polars-pre frames are unconditionally ALIASED to the input frames -- never cloned.
     # Audit-time concern (CONV-HIGH-1) was that polars-ds Blueprint.ordinal_encode / one_hot_encode
@@ -1285,6 +1309,11 @@ def _phase_load_and_preprocess(
     )
     if verbose:
         logger.info("  features_and_targets_extractor done -- %s, %s", _df_shape_str(df), _elapsed_str(t0_fte))
+
+    # Capture FTE-emitted columns (source -> [derived]) so the downstream pipeline phase can skip re-decomposing already-handled datetime sources. Persist to metadata for predict-path informational use; FTE itself re-derives on predict input via its own ``transform`` call.
+    _fte_emitted = getattr(features_and_targets_extractor, "ftextractor_emitted_columns", None)
+    if isinstance(_fte_emitted, dict) and _fte_emitted:
+        ctx.metadata["ftextractor_emitted_columns"] = {k: list(v) for k, v in _fte_emitted.items()}
 
     # Capture baseline RSS + DF size BEFORE downstream transient allocations
     # (get_sequences, drop_columns, preprocess) so maybe_clean_ram_and_gpu has a stable ref.

@@ -295,6 +295,9 @@ class FeaturesAndTargetsExtractor:
         if self.columns_to_drop is None:
             self.columns_to_drop = set()
 
+        # Record source-column -> [derived column names] for any datetime decomposition the FTE does in ``add_features``. The suite reads this in ``_phase_fit_pipeline`` to skip re-decomposing columns FTE already handled (otherwise the suite's second ``create_date_features`` call would emit duplicate ``{ts}_year`` / ``{ts}_month`` cols on top of FTE's). Default-empty so base FTEs (no add_features override) don't trigger the skip.
+        self.ftextractor_emitted_columns: Dict[str, List[str]] = {}
+
     def add_features(
         self, df: Union[pd.DataFrame, pl.DataFrame]
     ) -> Union[pd.DataFrame, pl.DataFrame]:
@@ -598,7 +601,11 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
         if self.ts_field and self.datetime_features:
             if self.verbose:
                 logger.info("create_date_features %s over column %s...", self.datetime_features, self.ts_field)
+            _pre_cols = set(df.columns)
             df = create_date_features(df, cols=[self.ts_field], delete_original_cols=False, methods=self.datetime_features)
+            _derived = [c for c in df.columns if c not in _pre_cols]
+            # Record so the suite (``_phase_fit_pipeline``) can SKIP re-decomposing ``ts_field`` -- the second pass would emit duplicate / overwriting cols.
+            self.ftextractor_emitted_columns[self.ts_field] = _derived
         return df
 
     def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Dict[str, Dict[str, Any]]:
