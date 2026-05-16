@@ -68,6 +68,61 @@ class TestB6_DuplicateColumns:
             f"got {dup_set_kept}: {names_in}"
         )
 
+    def test_real_minus_1_234e308_value_does_not_collide_with_nan(self):
+        """The prior dedup path replaced NaN with the literal ``-1.234e308`` sentinel and hashed via ``tobytes()``; any column that happened to contain that exact float value collided with a NaN-only column and got mis-deduplicated. ``pandas.util.hash_array`` treats NaN as its own sentinel and is dtype-aware, so this collision class is gone.
+
+        Setup: ``a`` and ``b`` are different columns. ``a`` has real values throughout including ONE entry at index 0 equal to the old sentinel constant. ``b`` has a DIFFERENT set of real values throughout including NaN at index 0. Under the old ``np.nan_to_num(..., nan=-1.234e308).tobytes()`` hash these two columns hashed identically at index 0 (both became -1.234e308) so the rest of the column had to drive the dedup decision -- and on this fixture the rest WAS designed to be byte-identical, causing a false-positive dedup of ``b``. The new ``pandas.util.hash_array`` path distinguishes NaN from any real float, so ``b`` is kept.
+        """
+        rng = np.random.default_rng(0)
+        n = 200
+        shared_tail = rng.standard_normal(n - 1).astype(np.float64)
+        a = np.empty(n, dtype=np.float64)
+        a[0] = -1.234e308
+        a[1:] = shared_tail
+        b = np.empty(n, dtype=np.float64)
+        b[0] = np.nan
+        b[1:] = shared_tail
+        # Independent informative signal so RFECV has something to actually fit and the dedup decision is the only thing varying.
+        c = rng.standard_normal(n)
+        X = pd.DataFrame({"a": a, "b": b, "c": c})
+        # Target only correlates with ``c`` so neither ``a`` nor ``b`` is forced by the leakage check.
+        y = (c > 0).astype(int)
+        lgb = pytest.importorskip("lightgbm")
+        rfecv = RFECV(
+            estimator=lgb.LGBMClassifier(n_estimators=20, max_depth=3, verbose=-1, random_state=0),
+            cv=3, max_refits=2, verbose=0, leakage_corr_threshold=None,
+        )
+        rfecv.fit(X, y)
+        names_in = list(rfecv.feature_names_in_)
+        # Both ``a`` and ``b`` must survive dedup; the old sentinel-collision path would have collapsed them.
+        assert "a" in names_in
+        assert "b" in names_in
+
+    def test_categorical_duplicates_get_deduplicated(self):
+        """The original dedup loop iterated only over ``X.select_dtypes(include='number')`` so identical categorical columns (one-hot synonyms, name aliases) leaked through and split FI votes; switching to a dtype-agnostic hash via ``pandas.util.hash_array`` covers categoricals too. Use CatBoost as the inner estimator because it accepts categorical dtype natively without forcing a string->float coercion the way LogisticRegression does."""
+        catboost = pytest.importorskip("catboost")
+        rng = np.random.default_rng(0)
+        n = 200
+        labels = rng.choice(["alpha", "beta", "gamma"], size=n)
+        X = pd.DataFrame({
+            "cat_a": pd.Categorical(labels),
+            "cat_b": pd.Categorical(labels.copy()),  # byte-identical content to cat_a
+            "x": rng.standard_normal(n),
+        })
+        y = (X["x"] > 0).astype(int)
+        rfecv = RFECV(
+            estimator=catboost.CatBoostClassifier(iterations=20, depth=3, verbose=0, allow_writing_files=False),
+            cat_features=["cat_a", "cat_b"],
+            cv=3, max_refits=2, verbose=0, leakage_corr_threshold=None,
+        )
+        rfecv.fit(X, y)
+        names_in = list(rfecv.feature_names_in_)
+        # cat_a / cat_b are byte-identical content -> dedup must collapse them to a single representative.
+        cat_kept = sum(1 for f in ("cat_a", "cat_b") if f in names_in)
+        assert cat_kept == 1, (
+            f"Expected exactly one of {{cat_a, cat_b}} after categorical dedup; got {cat_kept}: {names_in}"
+        )
+
 
 # ----------------------------------------------------------------------------
 # G33: random_state=None deterministic on re-fit on the same input

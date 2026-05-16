@@ -691,16 +691,28 @@ class RFECV(BaseEstimator, TransformerMixin):
                     )
                 X = X.drop(columns=degenerate)
 
-        # Drop exact-duplicate numeric columns. Without this, RFECV's voting splits the importance of a duplicated feature across all copies,
-        # biasing selection toward isolated noise features whose FI isn't diluted.
+        # Drop exact-duplicate columns (numeric AND categorical). Without this, RFECV's voting splits the importance of a duplicated feature across all copies,
+        # biasing selection toward isolated noise features whose FI isn't diluted. ``pandas.util.hash_array`` is dtype-agnostic and treats NaN as a single sentinel,
+        # so a real ``-1.234e308`` value no longer collides with NaN the way the prior ``np.nan_to_num(...).tobytes()`` path did; categorical columns are factorised
+        # to integer codes before hashing so two semantically-identical category sequences with different ordered category dictionaries still dedup.
         if isinstance(X, pd.DataFrame) and X.shape[1] > 1:
             try:
-                _hashes = {}
+                from pandas.util import hash_array as _hash_array
+
+                _hashes: dict[bytes, str] = {}
                 _to_drop = []
-                for _col in X.select_dtypes(include="number").columns:
-                    _arr = X[_col].values
-                    # Bytes hash; NaN-tolerant via nan_to_num replacement.
-                    _key = np.nan_to_num(_arr, nan=-1.234e308).tobytes()
+                for _col in X.columns:
+                    _ser = X[_col]
+                    _dtype = _ser.dtype
+                    if pd.api.types.is_numeric_dtype(_dtype) or pd.api.types.is_bool_dtype(_dtype):
+                        _arr = _ser.to_numpy()
+                    elif isinstance(_dtype, pd.CategoricalDtype) or _dtype == object or pd.api.types.is_string_dtype(_dtype):
+                        # ``factorize`` is the canonical pandas pathway for collapsing label semantics into a code sequence dedup can compare; ``use_na_sentinel=True`` keeps NaN distinct from any real label without forcing a fillna copy.
+                        _codes, _ = pd.factorize(_ser, use_na_sentinel=True)
+                        _arr = _codes
+                    else:
+                        continue
+                    _key = bytes(_hash_array(_arr))
                     if _key in _hashes:
                         _to_drop.append(_col)
                     else:
