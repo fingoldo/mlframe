@@ -155,6 +155,79 @@ _CB_POOL_CACHE: dict[tuple, Any] = {}
 logger = logging.getLogger(__name__)
 
 
+def _compute_oof_preds(
+    *,
+    model,
+    train_df,
+    train_target,
+    is_classifier_model: bool,
+    n_splits: int,
+    random_seed: int,
+    group_ids=None,
+):
+    """Compute K-fold OOF predictions for level-1 stacking. Returns (oof_preds, oof_probs) or (None, None) on skip.
+
+    OOF preds replace the in-sample ``train_preds`` for stacking aggregation: the canonical fix for level-1 leakage
+    is to ensure the predictions a meta-learner sees on each training row were produced by a sub-model that did NOT
+    see that row during fit. ``cross_val_predict`` returns exactly that vector (one held-out prediction per row).
+
+    We use ``KFold`` (or ``GroupKFold`` if group_ids supplied), shuffled with the provided seed for reproducibility.
+    Multi-output / multilabel paths are deliberately skipped here - upstream classifier-chain / multi-output wrappers
+    are non-trivial to retrofit through ``cross_val_predict`` and the level-1 stacker only reads ``oof_preds`` when
+    ``max_ensembling_level > 1``; for the multi-output case we fail fast at the stacker rather than risk silently
+    miscomputing OOFs. Empty/None inputs return (None, None) so callers proceed with normal training.
+    """
+    if train_df is None or train_target is None:
+        return None, None
+    try:
+        n_rows = len(train_df)
+    except TypeError:
+        return None, None
+    if n_rows < max(2 * n_splits, 10):
+        # Too few rows for meaningful K-fold; level-1 stacking on tiny data isn't a realistic use case anyway.
+        return None, None
+    try:
+        from sklearn.model_selection import KFold, GroupKFold, cross_val_predict
+        from sklearn.base import clone
+    except ImportError:
+        return None, None
+
+    if group_ids is not None and len(group_ids) == n_rows:
+        # Drop shuffle: GroupKFold does not accept shuffle/seed, and group-aware OOF respects the user's grouping signal.
+        splitter = GroupKFold(n_splits=min(n_splits, len(set(np.asarray(group_ids)))))
+        _groups_arg = np.asarray(group_ids)
+    else:
+        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
+        _groups_arg = None
+
+    # Use clone() so the original (already-fit) model is not retrained in place.
+    try:
+        estimator = clone(model)
+    except (TypeError, RuntimeError):
+        # Some custom wrappers (Catboost shim, TTR, ClassifierChain) don't survive sklearn.clone; skip OOF gracefully.
+        return None, None
+
+    method = "predict_proba" if is_classifier_model and hasattr(estimator, "predict_proba") else "predict"
+
+    try:
+        oof = cross_val_predict(
+            estimator,
+            train_df,
+            train_target,
+            cv=splitter,
+            groups=_groups_arg,
+            method=method,
+            n_jobs=1,
+        )
+    except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:  # noqa: BLE001
+        logger.info("OOF prediction skipped: %s", exc)
+        return None, None
+
+    if method == "predict_proba":
+        return None, np.asarray(oof)
+    return np.asarray(oof), None
+
+
 def _build_configs_from_params(
     # Data params
     df=None,
@@ -363,6 +436,7 @@ def train_and_evaluate_model(
     val_od_idx: np.ndarray | None = None,
     trainset_features_stats: dict | None = None,
     trusted_root: str | None = None,
+    oof_n_splits: int = 5,
 ):
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
 
@@ -607,6 +681,8 @@ def train_and_evaluate_model(
                 train_preds=None,
                 train_probs=None,
                 train_target=None,
+                oof_preds=None,
+                oof_probs=None,
                 metrics={"train": {}, "val": {}, "test": {}, "best_iter": None},
                 columns=[],
                 pre_pipeline=pre_pipeline,
@@ -714,6 +790,8 @@ def train_and_evaluate_model(
                             train_preds=None,
                             train_probs=None,
                             train_target=None,
+                            oof_preds=None,
+                            oof_probs=None,
                             metrics={"train": {}, "val": {}, "test": {}, "best_iter": None},
                             columns=[],
                             pre_pipeline=pre_pipeline,
@@ -727,6 +805,35 @@ def train_and_evaluate_model(
                     )
 
             model_name = _update_model_name_after_training(model_name, len(train_df), train_details, best_iter)
+
+            # K-fold OOF predictions for level-1 stacking. The in-sample ``train_preds`` (computed by ``_compute_split_metrics``
+            # below for the "train" split) leak: every row was seen by the model during fit, so a meta-learner trained on those
+            # predictions learns the residual structure of the in-sample fit, not the generalisation behaviour. OOF preds
+            # produced by holding each row out via K-fold CV are the canonical replacement. Attached to the model object so
+            # ``score_ensemble`` can pick them up at level-1 aggregation time without changing the public return signature.
+            if oof_n_splits and oof_n_splits >= 2 and not just_evaluate:
+                _is_clf_for_oof = "Classifier" in model_type_name or model_type_name in ("ClassifierChain", "_ChainEnsemble")
+                # Multi-output / multi-label paths skip OOF here; their stackers will raise if level-2 is requested.
+                _y_arr = np.asarray(train_target) if train_target is not None else None
+                _is_multi_output_target = _y_arr is not None and _y_arr.ndim == 2
+                if not _is_multi_output_target:
+                    _oof_preds, _oof_probs = _compute_oof_preds(
+                        model=model,
+                        train_df=train_df,
+                        train_target=train_target,
+                        is_classifier_model=_is_clf_for_oof,
+                        n_splits=int(oof_n_splits),
+                        random_seed=42,
+                        group_ids=group_ids[train_idx] if (group_ids is not None and train_idx is not None) else None,
+                    )
+                    try:
+                        if _oof_preds is not None:
+                            model.oof_preds = _oof_preds
+                        if _oof_probs is not None:
+                            model.oof_probs = _oof_probs
+                    except AttributeError:
+                        # Some frozen-attribute estimators (sklearn 1.4+ slots) refuse new attrs; stamp on the wrapper carrier instead.
+                        pass
 
     metrics = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
 
@@ -913,6 +1020,12 @@ def train_and_evaluate_model(
 
     _maybe_clean_ram()
 
+    # OOF preds/probs were stamped on ``model`` right after training (see ``_compute_oof_preds`` call above). Mirror them onto
+    # the returned namespace so ensemble member shapes carry the OOF signal alongside the per-split predictions without
+    # callers having to fish them off the model object.
+    _oof_preds_out = getattr(model, "oof_preds", None) if model is not None else None
+    _oof_probs_out = getattr(model, "oof_probs", None) if model is not None else None
+
     return (
         SimpleNamespace(
             model=model,
@@ -925,6 +1038,8 @@ def train_and_evaluate_model(
             train_preds=train_preds,
             train_probs=train_probs,
             train_target=train_target,
+            oof_preds=_oof_preds_out,
+            oof_probs=_oof_probs_out,
             metrics=metrics,
             columns=columns,
             pre_pipeline=pre_pipeline,

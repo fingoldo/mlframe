@@ -865,10 +865,19 @@ def _process_single_ensemble_method(
         verbose=verbose,
     )
 
+    # Level-1 aggregation reads OOF predictions when present (the K-fold cross_val_predict output stamped by the trainer),
+    # not in-sample ``train_preds``/``train_probs`` -- the latter are produced by predicting on rows the model already saw
+    # during fit and leak that fit's residual structure into a meta-learner. Falling back to ``train_*`` keeps the path
+    # alive when OOF was unavailable (e.g. tiny datasets, multi-output paths where ``cross_val_predict`` skipped); a
+    # higher-level guard in ``score_ensemble`` raises when ``max_ensembling_level > 1`` AND any member is missing OOF.
+    def _oof_or_train(el, oof_attr, train_attr):
+        _oof = getattr(el, oof_attr, None)
+        return _oof if _oof is not None else getattr(el, train_attr, None)
+
     if not is_regression:
-        predictions = (el.train_probs for el in level_models_and_predictions)
-    elif level_models_and_predictions[0].train_preds is not None:
-        predictions = (el.train_preds for el in level_models_and_predictions)
+        predictions = (_oof_or_train(el, "oof_probs", "train_probs") for el in level_models_and_predictions)
+    elif (_oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds") is not None):
+        predictions = (_oof_or_train(el, "oof_preds", "train_preds") for el in level_models_and_predictions)
         predictions = (el.reshape(-1, 1) if (el is not None) else el for el in predictions)
     else:
         predictions = ()
@@ -1264,6 +1273,21 @@ def score_ensemble(
     else:
         is_regression = True
         ensure_prob_limits = False
+
+    # Multi-level stacking requires OOF predictions on EVERY member: the level-2 (and deeper) meta-learner consumes
+    # level-1 ensemble outputs as features, and if any member contributes an in-sample ``train_preds`` row instead of
+    # a ``cross_val_predict`` OOF row the meta-learner sees leaked targets. Fail fast rather than silently fold the
+    # leakage forward. Single-level (``max_ensembling_level == 1``) aggregation tolerates missing OOF by falling back
+    # to ``train_*`` because no downstream meta-learner consumes the train slice in that case.
+    if max_ensembling_level > 1:
+        _oof_attr = "oof_probs" if not is_regression else "oof_preds"
+        _missing_oof = [i for i, m in enumerate(level_models_and_predictions) if getattr(m, _oof_attr, None) is None]
+        if _missing_oof:
+            raise ValueError(
+                f"score_ensemble(max_ensembling_level={max_ensembling_level}) requires {_oof_attr} on every member; "
+                f"members at indices {_missing_oof} are missing OOF. Re-train with oof_n_splits>=2 so cross_val_predict "
+                f"OOFs are stamped on each model, or call with max_ensembling_level=1."
+            )
 
     # Determine sample count for parallelization decision
     first_pred = level_models_and_predictions[0]
