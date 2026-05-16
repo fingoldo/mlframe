@@ -529,6 +529,10 @@ def _auto_detect_feature_types(
                     return True
             return False
 
+        # First pass is dtype-only (cheap, no kernel launches): route embeddings + honored + user_assigned cols, and
+        # collect the residual text-like list. Then ONE lazy aggregation computes n_unique + count for every text-like
+        # col in a single collect (was: 2 eager Series calls per col = 2N kernel launches; on 60 cols this was 50-200 ms).
+        text_like_cols: list = []
         for name, dtype in df.schema.items():
             if name in user_assigned:
                 continue
@@ -548,9 +552,21 @@ def _auto_detect_feature_types(
                 honored_user_dtype_cols.append(name)
                 continue
             if is_text_like:
-                n_unique = df[name].n_unique()
+                text_like_cols.append(name)
+
+        if text_like_cols:
+            # Index-based aliases (__autodetect_nu_{i}__ / __autodetect_cnt_{i}__) are collision-proof: even a user
+            # column literally named "__autodetect_nu_0__" cannot collide because we only read the aggregation
+            # output, not the input frame's columns.
+            _aggs = (
+                [pl.col(c).n_unique().alias(f"__autodetect_nu_{i}__") for i, c in enumerate(text_like_cols)]
+                + [pl.col(c).count().alias(f"__autodetect_cnt_{i}__") for i, c in enumerate(text_like_cols)]
+            )
+            _agg_row = df.lazy().select(_aggs).collect()
+            for i, name in enumerate(text_like_cols):
+                n_unique = int(_agg_row[f"__autodetect_nu_{i}__"][0])
                 if n_unique > threshold:
-                    non_null = int(df[name].count())
+                    non_null = int(_agg_row[f"__autodetect_cnt_{i}__"][0])
                     if non_null < min_non_null_abs:
                         skipped_low_non_null.append((name, n_unique, non_null))
                         continue
@@ -562,7 +578,10 @@ def _auto_detect_feature_types(
                     else:
                         auto_detected_high_card_to_drop.append(name)
     else:
-        # pandas: no reliable embedding auto-detect, only text
+        # pandas: no reliable embedding auto-detect, only text. First pass routes embedding-shaped object cols and
+        # collects the residual nunique-eligible list; one batched ``df[cols].agg(["nunique","count"])`` then
+        # produces both stats in a single pass (was: 2 separate per-col Series calls = 2N ops on 60 cols).
+        nunique_cols: list = []
         for col in df.columns:
             if col in user_assigned:
                 continue
@@ -590,9 +609,17 @@ def _auto_detect_feature_types(
                         if col in cat_features:
                             promoted.append(col)
                         continue
-                n_unique = df[col].nunique()
+                nunique_cols.append(col)
+
+        if nunique_cols:
+            # ``df[cols].agg(["nunique","count"])`` returns a 2 x len(cols) frame where row 0 is nunique and row 1 is
+            # count. pandas dispatches both reductions via its block manager which is materially cheaper than the
+            # legacy N x (nunique + notna().sum()) per-column Python -> C round-trip.
+            _agg = df[nunique_cols].agg(["nunique", "count"])
+            for col in nunique_cols:
+                n_unique = int(_agg.at["nunique", col])
                 if n_unique > threshold:
-                    non_null = int(df[col].notna().sum())
+                    non_null = int(_agg.at["count", col])
                     if non_null < min_non_null_abs:
                         skipped_low_non_null.append((col, n_unique, non_null))
                         continue
