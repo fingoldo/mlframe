@@ -490,33 +490,49 @@ def _log_cardinality_and_drift_snapshot(
         return
     try:
         is_polars = isinstance(train_df, pl.DataFrame)
-        pairs = []
-        for c in all_cat_cols:
-            if c not in train_df.columns:
-                continue
-            if is_polars:
-                n_unique = train_df[c].n_unique()
+        # Single lazy collect for ALL train cardinalities (was: N eager n_unique() calls -> N kernel launches).
+        # Reference: helpers.py:1040-1047 -- the same implode-batch pattern that collapsed 14 collects to 1
+        # in trainset_features_stats. Here on 100 cat cols this drops ~100 eager kernels to 1 collect.
+        cols_present = [c for c in all_cat_cols if c in train_df.columns]
+        if is_polars:
+            if cols_present:
+                _card_row = train_df.lazy().select(
+                    [pl.col(c).n_unique().alias(c) for c in cols_present]
+                ).collect()
+                pairs = [(c, int(_card_row[c][0])) for c in cols_present]
             else:
-                n_unique = int(train_df[c].nunique(dropna=False))
-            pairs.append((c, n_unique))
+                pairs = []
+        else:
+            pairs = [(c, int(train_df[c].nunique(dropna=False))) for c in cols_present]
         pairs.sort(key=lambda x: -x[1])
         summary = ", ".join(f"{c}:{n:_}" for c, n in pairs)
         logger.info("  Categorical cardinalities (train, n_unique, desc): %s", summary)
 
         # Drift log: val/test categories not seen in train.
         if is_polars and val_df is not None and test_df is not None and val_df.height > 0:
-            drift_rows = []
-            for c, card_train in pairs:
-                if card_train > _DRIFT_SKIP_CARD:
-                    continue
-                if c not in val_df.columns or c not in test_df.columns:
-                    continue
-                tr_uniq = train_df.select(pl.col(c).drop_nulls().unique().alias(c))
-                v_uniq  = val_df.select(pl.col(c).drop_nulls().unique().alias(c))
-                te_uniq = test_df.select(pl.col(c).drop_nulls().unique().alias(c))
-                val_only  = v_uniq.join(tr_uniq, on=c, how="anti").height
-                test_only = te_uniq.join(tr_uniq, on=c, how="anti").height
-                drift_rows.append((c, card_train, val_only, test_only))
+            # Per-col anti-join was 3 selects + 2 joins = ~5 eager passes; on 100 cols that's ~500 passes ~10-30 s.
+            # Batched implode pattern: one lazy collect per frame yielding a 1-row frame whose cells are the
+            # imploded unique-value lists. Anti-set is then a pure-Python set-difference on the materialised lists.
+            drift_cols = [c for c, card in pairs
+                          if card <= _DRIFT_SKIP_CARD
+                          and c in val_df.columns and c in test_df.columns]
+            drift_rows: list = []
+            if drift_cols:
+                _tr_uniq = train_df.lazy().select(
+                    [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
+                ).collect()
+                _v_uniq = val_df.lazy().select(
+                    [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
+                ).collect()
+                _te_uniq = test_df.lazy().select(
+                    [pl.col(c).drop_nulls().unique().implode().alias(c) for c in drift_cols]
+                ).collect()
+                _card_by_col = dict(pairs)
+                for c in drift_cols:
+                    tr_set = set(_tr_uniq[c][0].to_list())
+                    val_only = sum(1 for x in _v_uniq[c][0].to_list() if x not in tr_set)
+                    test_only = sum(1 for x in _te_uniq[c][0].to_list() if x not in tr_set)
+                    drift_rows.append((c, _card_by_col[c], val_only, test_only))
 
             if drift_rows:
                 drift_rows.sort(key=lambda x: -x[2])
