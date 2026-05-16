@@ -773,7 +773,15 @@ def predict_from_models(
                         _have = set(input_for_model.columns)
                         _drop_extra = [c for c in input_for_model.columns if c not in _expected_list]
                         if _drop_extra:
-                            input_for_model = input_for_model.drop(columns=_drop_extra)
+                            # Pandas accepts ``drop(columns=...)``; polars 1.x
+                            # accepts ``drop(list)`` positionally and raises
+                            # TypeError on ``columns=`` kwarg. Surfaced by
+                            # fuzz iter#145 (xgb-only polars path keeps df
+                            # as polars via the ``_all_polars_native`` gate).
+                            if isinstance(input_for_model, pl.DataFrame):
+                                input_for_model = input_for_model.drop(_drop_extra)
+                            else:
+                                input_for_model = input_for_model.drop(columns=_drop_extra)
                         _missing = [c for c in _expected_list if c not in _have]
                         if _missing:
                             # Surface missing-feature error before the framework's
