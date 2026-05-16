@@ -61,29 +61,78 @@ def _content_fingerprint_for_cache(arr) -> tuple:
     id()-keying is unsafe: GC recycles ids and the suite's per-target loop
     persists ``filtered_train_df`` across targets with the same id() so
     target-2 would otherwise reuse target-1's fit-transform output. The
-    fingerprint samples shape + dtype + 10 evenly-spaced cells; column
-    names are folded in for DataFrame inputs so a rename invalidates the
-    key. Falls back to ``("uncached", id)`` so a failure forces a miss
-    rather than a wrong-cache hit.
+    fingerprint folds in (n_rows, n_cols, per-column dtypes, column names)
+    as cheap drift-detection signature, then point-samples 4 whole rows
+    (first, near-head, midpoint, last) without materialising the frame --
+    a polars row is a tuple pulled by direct column indexing, so cost is
+    O(n_cols) regardless of n_rows. The previous ``arr.to_numpy()`` path
+    materialised the entire frame just to slice 10 cells, defeating the
+    very cache the per-target loop relies on (fingerprint cost > cache
+    benefit on 100+ GB frames). Falls back to ``("uncached", id)`` so a
+    failure forces a miss rather than a wrong-cache hit.
     """
     if arr is None:
         return ("none",)
     try:
-        col_names = None
-        if hasattr(arr, "columns"):
+        # Polars DataFrame: row(i) is a tuple of n_cols scalars -- O(n_cols), no full materialisation.
+        if pl is not None and isinstance(arr, pl.DataFrame):
+            n_rows, n_cols = int(arr.height), int(arr.width)
+            col_names = tuple(str(c) for c in arr.columns)
+            dtypes = tuple(str(dt) for dt in arr.dtypes)
+            if n_rows == 0:
+                return ("pl", (n_rows, n_cols), col_names, dtypes, ())
+            sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
             try:
-                col_names = tuple(str(c) for c in arr.columns)
-            except Exception:
-                col_names = None
-        if hasattr(arr, "to_numpy"):
-            try:
-                np_arr = arr.to_numpy()
+                rows = tuple(arr.row(i) for i in sample_idx)
             except Exception:
                 return ("uncached", id(arr))
-        elif hasattr(arr, "values"):
-            np_arr = arr.values
-        elif isinstance(arr, np.ndarray):
+            return ("pl", (n_rows, n_cols), col_names, dtypes, rows)
+
+        # Polars Series: iloc-equivalent is ``arr[i]`` -- O(1), no full materialisation.
+        if pl is not None and isinstance(arr, pl.Series):
+            n = int(arr.len())
+            dtype_str = str(arr.dtype)
+            if n == 0:
+                return ("pls", (n,), dtype_str, ())
+            sample_idx = (0, min(8, n - 1), n // 2, n - 1)
+            try:
+                cells = tuple(arr[i] for i in sample_idx)
+            except Exception:
+                return ("uncached", id(arr))
+            return ("pls", (n,), dtype_str, cells)
+
+        # Pandas DataFrame: .iat / .iloc[i].values -- O(n_cols), no full materialisation.
+        if isinstance(arr, pd.DataFrame):
+            n_rows, n_cols = int(arr.shape[0]), int(arr.shape[1])
+            col_names = tuple(str(c) for c in arr.columns)
+            dtypes = tuple(str(dt) for dt in arr.dtypes)
+            if n_rows == 0:
+                return ("pd", (n_rows, n_cols), col_names, dtypes, ())
+            sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
+            try:
+                rows = tuple(tuple(arr.iloc[i].values.tolist()) for i in sample_idx)
+            except Exception:
+                return ("uncached", id(arr))
+            return ("pd", (n_rows, n_cols), col_names, dtypes, rows)
+
+        # Pandas Series: .iat[i] -- O(1).
+        if isinstance(arr, pd.Series):
+            n = int(arr.shape[0])
+            dtype_str = str(arr.dtype)
+            if n == 0:
+                return ("pds", (n,), dtype_str, ())
+            sample_idx = (0, min(8, n - 1), n // 2, n - 1)
+            try:
+                cells = tuple(arr.iat[i] for i in sample_idx)
+            except Exception:
+                return ("uncached", id(arr))
+            return ("pds", (n,), dtype_str, cells)
+
+        # NumPy / array-like: a 1-D / 2-D array is already in RAM; the previous flat-index sample is fine.
+        if isinstance(arr, np.ndarray):
             np_arr = arr
+        elif hasattr(arr, "values") and not hasattr(arr, "to_numpy"):
+            np_arr = arr.values
         else:
             np_arr = np.asarray(arr)
         if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
@@ -93,13 +142,13 @@ def _content_fingerprint_for_cache(arr) -> tuple:
         flat = np_arr.ravel()
         n = int(flat.size)
         if n == 0:
-            return (shape, dtype_str, b"", col_names)
+            return ("np", shape, dtype_str, b"")
         idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
         try:
             sampled = bytes(np.ascontiguousarray(flat[idx]).tobytes())
         except Exception:
             return ("uncached", id(arr))
-        return (shape, dtype_str, sampled, col_names)
+        return ("np", shape, dtype_str, sampled)
     except Exception:
         return ("uncached", id(arr))
 
