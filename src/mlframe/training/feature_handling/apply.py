@@ -32,6 +32,7 @@ helper rather than replacing it.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from typing import (
@@ -438,7 +439,8 @@ def _apply_target_encoder(
         key = InMemoryKey(
             session_id=session_id,
             df_token=train_id,
-            train_idx_token=0,
+            # Hash y content so multi-target suites don't collide on the same df_token/column slot.
+            train_idx_token=_target_content_token(train_target),
             column=column,
             params_canonical_hash=canonical_params_hash(params),
             provider_signature=f"target_encoder:{method}",
@@ -483,6 +485,37 @@ def _extract_column_values(df: Any, column: str) -> List:
     except ImportError:  # pragma: no cover
         pass
     return list(df)
+
+
+def _target_content_token(train_target: Any) -> int:
+    """Return a 63-bit integer fingerprint of ``train_target`` for the InMemoryKey.
+
+    The literal ``0`` placeholder collides across targets: a multi-target suite using a target-mean /
+    WoE encoder for two different y's would hit the same cache slot and reuse target-1's OOF
+    encodings for target-2. We hash the actual y content so distinct targets always produce
+    distinct keys, even within one session.
+
+    Returns ``0`` on conversion failure (the caller will then still collide -- documented fallback
+    rather than a silent wrong result, because the encoder will at least be re-fit at the next
+    call when this helper recovers).
+    """
+    try:
+        if hasattr(train_target, "to_numpy"):
+            arr = train_target.to_numpy()
+        elif hasattr(train_target, "values"):
+            arr = train_target.values
+        else:
+            arr = np.asarray(list(train_target))
+        if not isinstance(arr, np.ndarray):
+            arr = np.asarray(arr)
+        buf = np.ascontiguousarray(arr).tobytes()
+        digest = hashlib.blake2b(buf, digest_size=8).digest()
+        digest += str(arr.shape).encode() + str(arr.dtype).encode()
+        # Re-hash to 8 bytes (folded with shape/dtype) and clip to 63 bits to stay in signed int range.
+        final = hashlib.blake2b(digest, digest_size=8).digest()
+        return int.from_bytes(final, "big") & ((1 << 63) - 1)
+    except Exception:
+        return 0
 
 
 __all__ = [
