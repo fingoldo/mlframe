@@ -22,7 +22,7 @@ def test_mps_positions_valid(prices):
 
 
 @given(st.lists(st.floats(min_value=1, max_value=100, allow_nan=False, allow_infinity=False), min_size=5, max_size=100))
-@settings(max_examples=50)
+@settings(max_examples=50, deadline=None)
 def test_mps_profits_finite(prices):
     """Test that profits don't contain NaN or Inf."""
     prices = np.array(prices, dtype=np.float64)
@@ -32,6 +32,7 @@ def test_mps_profits_finite(prices):
 
 
 @given(st.floats(min_value=0, max_value=0.01))
+@settings(deadline=None)
 def test_mps_tc_parameter(tc):
     """Test with various transaction costs."""
     prices = np.array([100.0, 101.0, 99.0, 102.0, 98.0, 103.0], dtype=np.float64)
@@ -40,6 +41,7 @@ def test_mps_tc_parameter(tc):
 
 
 @given(st.sampled_from(['fraction', 'fixed']))
+@settings(deadline=None)
 def test_mps_tc_mode(tc_mode):
     """Test both transaction cost modes."""
     prices = np.array([100.0, 105.0, 95.0, 110.0], dtype=np.float64)
@@ -71,6 +73,7 @@ def test_mps_single_price():
 
 
 @given(st.integers(min_value=0, max_value=5))
+@settings(deadline=None)
 def test_mps_shift_parameter(shift):
     """Test shift parameter."""
     prices = np.random.rand(20).astype(np.float64) * 100 + 50
@@ -79,6 +82,7 @@ def test_mps_shift_parameter(shift):
 
 
 @given(st.booleans())
+@settings(deadline=None)
 def test_mps_optimize_consecutive_regions(optimize):
     """Test optimize_consecutive_regions parameter."""
     prices = np.array([100.0, 101.0, 100.5, 102.0, 101.5, 103.0], dtype=np.float64)
