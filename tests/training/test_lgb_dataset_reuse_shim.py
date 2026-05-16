@@ -530,22 +530,62 @@ class TestLGBShimCacheHandoffInCoreLoop:
     sklearn.clone() that happens between weight-schema iterations.
     """
 
-    def test_core_loop_forward_transfers_dataset_cache_to_clone(self):
-        import inspect
-        from mlframe.training import core as core_mod
+    def test_core_loop_forward_transfers_dataset_cache_to_clone(self, small_classification_data):
+        """Behaviourally verify the forward-transfer helper used by core.py's
+        weight-schema loop: ``_forward_dataset_reuse_cache(src=template,
+        dst=clone)`` copies the LGB Dataset cache (``_cached_train_dataset``
+        / ``_cached_val_dataset``) from a fitted template onto a fresh
+        sklearn.clone() so the next weight-schema iteration's shim hits
+        set_label / set_weight in place instead of rebuilding the binned
+        Dataset. Drop the helper (or omit the LGB attrs from
+        ``_DATASET_REUSE_CACHE_ATTRS``) and this test fails -- shim runs
+        but produces no reuse, a silent perf regression.
+        """
+        from sklearn.base import clone
+        from mlframe.training.core._phase_train_one_target import (
+            _DATASET_REUSE_CACHE_ATTRS,
+            _forward_dataset_reuse_cache,
+        )
 
-        src = inspect.getsource(core_mod.train_mlframe_models_suite)
-        for _attr in (
-            "_cached_train_dataset",
-            "_cached_val_dataset",
-        ):
-            assert _attr in src, (
-                f"core.py loop must transfer {_attr!r} forward across "
-                f"sklearn.clone() so the next weight-schema iteration's "
-                f"shim sees the cached Dataset. If you removed this, "
-                f"the shim runs but produces no reuse -- silent perf "
-                f"regression."
+        # LGB-specific cache attrs MUST be inside the shared tuple so the
+        # generic forward helper carries them across clone(). If somebody
+        # drops them, dataset reuse silently dies for the LGB shim.
+        for _attr in ("_cached_train_dataset", "_cached_val_dataset"):
+            assert _attr in _DATASET_REUSE_CACHE_ATTRS, (
+                f"{_attr!r} missing from _DATASET_REUSE_CACHE_ATTRS -- the "
+                f"forward helper will not propagate the LGB cache."
             )
+
+        X, y = small_classification_data
+        X_val = X.iloc[:100].copy()
+        y_val = y[:100]
+
+        template = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
+        template.fit(X, y, eval_set=[(X_val, y_val)])
+        # Precondition: template carries populated caches.
+        assert template._cached_train_dataset is not None
+        assert template._cached_val_dataset is not None
+
+        cloned = clone(template)
+        # sklearn.clone() yields a virgin instance -- precondition for the test
+        # to be meaningful.
+        assert cloned._cached_train_dataset is None
+        assert cloned._cached_val_dataset is None
+
+        # The forward-transfer helper invoked by core.py.
+        _forward_dataset_reuse_cache(template, cloned)
+
+        # Same Dataset instance forwarded by reference -- the in-place
+        # set_label / set_weight path on the next .fit() would then hit
+        # the cached, prebinned dataset.
+        assert cloned._cached_train_dataset is template._cached_train_dataset, (
+            "forward helper failed to propagate _cached_train_dataset -- "
+            "clone got None / different obj; next iteration's shim will "
+            "rebuild the binned Dataset (silent perf regression)."
+        )
+        assert cloned._cached_val_dataset is template._cached_val_dataset, (
+            "forward helper failed to propagate _cached_val_dataset"
+        )
 
     def test_lgb_shim_factory_is_invoked_from_configure_lightgbm(self):
         """``_configure_lightgbm_params`` must dispatch through
