@@ -291,29 +291,18 @@ class ModelPipelineStrategy(ABC):
         category_encoder: Optional[Any] = None,
         imputer: Optional[Any] = None,
         scaler: Optional[Any] = None,
+        output_format: str = "pandas",
     ) -> Optional[Pipeline]:
         """
         Build the preprocessing pipeline for this model type.
 
-        Args:
-            base_pipeline: Base feature selection pipeline (e.g., RFECV, MRMR) or
-                custom transformer (e.g., IncrementalPCA)
-            cat_features: List of categorical feature names
-            category_encoder: Encoder for categorical features
-            imputer: Imputer for missing values
-            scaler: Scaler for feature normalization
+        ``output_format`` routes the final ``set_output(transform=...)`` call: ``"pandas"`` (default,
+        backward-compatible) or ``"polars"`` (requires sklearn>=1.4; on older sklearn the call
+        silently falls back to whatever set_output accepts). Polars-native downstream consumers
+        (CB/XGB Polars fastpath, HGB) can skip the Arrow->pandas bridge when fed pl.DataFrame here.
 
-        Returns:
-            Configured sklearn Pipeline or None if no preprocessing needed
-
-        Note:
-            Feature selectors (MRMR, RFECV, SelectorMixin) run FIRST (before preprocessing).
-            Custom transformers (PCA, etc.) run LAST (after preprocessing).
-
-            Set-output is hard-wired to ``"pandas"`` (the only format any caller
-            ever used). Polars-native consumers take the polars fastpath upstream
-            of this builder; the sklearn pipeline always emits pandas. fix audit
-            row FE-L-1.
+        Feature selectors (MRMR, RFECV, SelectorMixin) run FIRST (before preprocessing); custom
+        transformers (PCA, etc.) run LAST (after preprocessing).
         """
         from sklearn.feature_selection import SelectorMixin
         from mlframe.feature_selection.filters import MRMR
@@ -406,7 +395,7 @@ class ModelPipelineStrategy(ABC):
         # (custom, third-party) don't declare get_feature_names_out and sklearn
         # refuses to configure; swallow and continue.
         try:
-            pipeline = pipeline.set_output(transform="pandas")
+            pipeline = pipeline.set_output(transform=output_format)
         except Exception:
             pass
         return pipeline
