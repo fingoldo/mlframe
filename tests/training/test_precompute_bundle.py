@@ -76,9 +76,11 @@ def test_suite_signature_exposes_precomputed_kwarg():
     assert param.default is None
 
 
-def test_precompute_all_returns_dataclass_with_three_fields():
+def test_precompute_all_returns_dataclass_with_expected_fields():
     """``precompute_all`` returns a ``TrainMlframeSuitePrecomputed`` with the four declared
-    fields present (stats populated; the two stubbed slots stay None today)."""
+    fields present (stats populated; the two stubbed slots stay None today; the reserved
+    train_df_fingerprint also None). Task wording said "three fields" but the dataclass also
+    carries the reserved fingerprint slot -- four fields total."""
     from mlframe.training.helpers import (
         TrainMlframeSuitePrecomputed,
         precompute_all,
