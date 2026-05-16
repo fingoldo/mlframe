@@ -906,19 +906,41 @@ def predict_from_models(
                             return fn(primary)
                         except TypeError as _te:
                             _msg = str(_te)
-                            if "isnan" in _msg and "supported" in _msg and fallback is not None:
+                            # Two related symptoms of the same root cause
+                            # (HGB's internal OrdinalEncoder fit on raw
+                            # strings, called at predict with numeric input):
+                            #   1. ``ufunc 'isnan' not supported`` - the
+                            #      encoder probes its string vocabulary
+                            #      with isnan, which rejects strings.
+                            #   2. ``'<' not supported between instances
+                            #      of 'float' and 'str'`` - the encoder
+                            #      tries to sort/compare the numeric input
+                            #      against its string categories.
+                            # Both indicate the same dtype mismatch and
+                            # should retry on the pre-main-pipeline frame
+                            # where cat columns are still strings.
+                            _is_encoder_mismatch = (
+                                ("isnan" in _msg and "supported" in _msg)
+                                or ("'<' not supported" in _msg and "'float'" in _msg and "'str'" in _msg)
+                            )
+                            if _is_encoder_mismatch and fallback is not None:
                                 logger.warning(
                                     "predict_from_models: %s.%s on post-pipeline "
-                                    "frame tripped isnan-on-strings; retrying on "
-                                    "pre-pipeline frame (the model's internal "
-                                    "OrdinalEncoder was fit on raw strings).",
+                                    "frame tripped encoder dtype mismatch (%s); "
+                                    "retrying on pre-pipeline frame (the model's "
+                                    "internal OrdinalEncoder was fit on raw strings).",
                                     model_name, fn.__name__,
+                                    _msg.splitlines()[0][:120],
                                 )
                                 _fb = fallback
                                 if _exp_list_for_fallback is not None and hasattr(_fb, "columns"):
                                     _drop_fb = [c for c in _fb.columns if c not in _exp_list_for_fallback]
                                     if _drop_fb:
-                                        _fb = _fb.drop(columns=_drop_fb)
+                                        # Polars-aware drop (iter#145 fix pattern)
+                                        if isinstance(_fb, pl.DataFrame):
+                                            _fb = _fb.drop(_drop_fb)
+                                        else:
+                                            _fb = _fb.drop(columns=_drop_fb)
                                 return fn(_fb)
                             # Polars-input rejection (older CB / sklearn-wrapped XGB): retry via shared pandas view.
                             if isinstance(primary, pl.DataFrame):
