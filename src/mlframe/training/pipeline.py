@@ -548,6 +548,31 @@ def prepare_dfs_for_catboost_joint(
     for col in cat_features:
         if col not in train_df.columns:
             continue
+        # Skip embedding-like columns: object-dtype Series whose first
+        # non-null cell is an ndarray / list. Calling .astype("string") on
+        # such columns calls repr() on every ndarray (~30s on 1M rows) and
+        # then crashes with ``TypeError: unhashable type: 'numpy.ndarray'``
+        # inside the downstream set()/sorted(). The auto-detect path should
+        # already route List(Float32) / pl.Array via embedding_features and
+        # exclude them from cat_features, but pandas object-dtype list-of-
+        # arrays slipped through (iter#42 fuzz finding: 191s wall + crash).
+        _col_series = train_df[col]
+        if _col_series.dtype == object:
+            try:
+                _first = next((v for v in _col_series.head(8) if v is not None), None)
+            except Exception:
+                _first = None
+            if _first is not None and (hasattr(_first, "shape") or (
+                hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
+            )):
+                logger.warning(
+                    "prepare_dfs_for_catboost_joint: column '%s' looks like an "
+                    "embedding/list column (first cell type=%s); skipping joint-"
+                    "Categorical cast. If this is intentional, route it via "
+                    "FeatureTypesConfig.embedding_features instead of cat_features.",
+                    col, type(_first).__name__,
+                )
+                continue
         # Collect every value seen in train + val. Apply the same NaN->sentinel
         # rewrite the per-frame variant did, otherwise the union would
         # silently drop null-bearing rows from the category set.

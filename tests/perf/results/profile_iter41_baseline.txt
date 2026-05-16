@@ -1,0 +1,52 @@
+# 1M-row e2e profile (n_rows=1_000_000, models=('cb', 'lgb'), save_charts=False)
+
+=== regression x cb,lgb ===
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'text_col', 'y']
+  built frame: 1_000_000 rows x 10 cols
+  CatBoost in mlframe_models + categorical_encoding='ordinal' + 1 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
+mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+mlframe model:  50%|#####     | 1/2 [00:42<00:42, 42.39s/it]mlframe model: 100%|##########| 2/2 [00:52<00:00, 23.53s/it]mlframe model: 100%|##########| 2/2 [00:52<00:00, 26.36s/it]
+  wall: 53.8s  status: OK
+         191936 function calls (186991 primitive calls) in 53.526 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2719 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.004    0.004   53.522   53.522 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.003    0.003   53.173   53.173 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        8    0.001    0.000   52.713    6.589 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        2    0.000    0.000   52.542   26.271 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        2    0.000    0.000   52.541   26.271 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        2    0.000    0.000   51.133   25.567 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        2    0.000    0.000   41.885   20.943 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
+        2    0.000    0.000   41.885   20.942 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        2   41.870   20.935   41.871   20.935 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+        1    0.000    0.000    9.122    9.122 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
+        1    0.021    0.021    9.119    9.119 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
+      700    8.610    0.012    8.614    0.012 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4092(update)
+       16    0.000    0.000    1.516    0.095 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+       16    0.001    0.000    1.513    0.095 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+       16    0.002    0.000    1.501    0.094 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
+        4    0.000    0.000    1.128    0.282 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:316(_predict_with_fallback)
+        2    0.000    0.000    0.940    0.470 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:1093(predict)
+        2    0.001    0.000    0.936    0.468 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4701(predict)
+        2    0.000    0.000    0.934    0.467 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1100(predict)
+        2    0.000    0.000    0.928    0.464 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1327(__pred_for_np2d)
+        2    0.928    0.464    0.928    0.464 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1286(__inner_predict_np2d)
+        8    0.000    0.000    0.822    0.103 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:863(_run_test_metrics)
+        8    0.000    0.000    0.694    0.087 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+        1    0.004    0.004    0.250    0.250 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:1128(score_ensemble)
+        3    0.002    0.001    0.245    0.082 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:782(_process_single_ensemble_method)
+       16    0.075    0.005    0.212    0.013 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\regression_residual_audit.py:270(audit_residuals)
+        1    0.040    0.040    0.212    0.212 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:3589(__init__)
+       46    0.000    0.000    0.187    0.004 D:\ProgramData\anaconda3\Lib\site-packages\polars\_utils\deprecation.py:84(wrapper)
+       46    0.000    0.000    0.187    0.004 D:\ProgramData\anaconda3\Lib\site-packages\polars\lazyframe\opt_flags.py:314(wrapper)
+       46    0.000    0.000    0.186    0.004 D:\ProgramData\anaconda3\Lib\site-packages\polars\lazyframe\frame.py:2176(collect)
+
+
+
+
+# Wall-time summary:
+  regression x cb,lgb                                        53.8s  OK

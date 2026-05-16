@@ -1,0 +1,49 @@
+# 1M-row e2e profile (n_rows=1_000_000, models=('cb',), save_charts=False)
+
+=== binary_classification x cb ===
+  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_mid', 'emb', 'y']
+  built frame: 1_000_000 rows x 11 cols
+  CatBoost in mlframe_models + categorical_encoding='ordinal' + 2 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
+  wall: 195.8s  status: TypeError: unhashable type: 'numpy.ndarray'
+         226420194 function calls (218418675 primitive calls) in 195.718 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1310 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.012    0.012  195.713  195.713 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.008    0.008  194.214  194.214 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:691(_phase_fit_pipeline)
+        1    0.055    0.055  194.191  194.191 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\pipeline.py:974(fit_and_transform_pipeline)
+        1    0.176    0.176  194.135  194.135 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\pipeline.py:525(prepare_dfs_for_catboost_joint)
+       26    0.000    0.000  192.232    7.394 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:317(apply)
+       15    0.000    0.000  192.177   12.812 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\generic.py:6485(astype)
+       15    0.000    0.000  192.176   12.812 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:440(astype)
+       15    0.000    0.000  192.175   12.812 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\blocks.py:749(astype)
+       15    0.000    0.000  192.175   12.812 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\dtypes\astype.py:191(astype_array_safe)
+    21/15    0.000    0.000  192.174   12.812 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\dtypes\astype.py:157(astype_array)
+        6    0.000    0.000  191.220   31.870 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\pipeline.py:554(_stringify)
+        8    0.000    0.000  191.147   23.893 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\dtypes\astype.py:56(_astype_nansafe)
+        6    3.193    0.532  191.143   31.857 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\arrays\string_.py:697(_from_sequence)
+  1000000    1.835    0.000  187.950    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:1685(_array_str_implementation)
+  1000000    3.914    0.000  185.898    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:605(array2string)
+  1000000    3.020    0.000  173.959    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:550(wrapper)
+  1000000    5.492    0.000  169.914    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:567(_array2string)
+  1000000    4.950    0.000   86.777    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:496(_get_format_function)
+  1000000    1.475    0.000   79.018    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:455(<lambda>)
+  1000000    3.172    0.000   77.544    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:961(__init__)
+  1000000    1.338    0.000   77.288    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:828(_formatArray)
+9000000/1000000   25.494    0.000   75.950    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:837(recurser)
+  1000000   22.694    0.000   73.783    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:987(fillFormat)
+  8000000   17.620    0.000   24.585    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:1073(__call__)
+  8000000    8.565    0.000   23.925    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:801(_extendLine_pretty)
+  8901171    5.270    0.000   20.013    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:1042(<genexpr>)
+  8901171    7.041    0.000   12.924    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:1037(<genexpr>)
+  8000000   10.044    0.000   12.918    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\arrayprint.py:787(_extendLine)
+ 15824304   12.768    0.000   12.768    0.000 {built-in method numpy._core._multiarray_umath.dragon4_positional}
+  2000009    4.076    0.000   12.540    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\fromnumeric.py:69(_wrapreduction)
+
+
+
+
+# Wall-time summary:
+  binary_classification x cb                                195.8s  TypeError: unhashable type: 'numpy.ndarray'
