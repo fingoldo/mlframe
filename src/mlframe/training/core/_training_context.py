@@ -163,6 +163,12 @@ class TrainingContext:
     # non-Polars-native strategies that share the same source polars frame only pay one
     # ``get_pandas_view_of_polars_df`` conversion total within a single _train_one_target call.
     _pandas_view_cache: dict = field(default_factory=dict)
+    # Suite-scoped cache observability counters. ``_train_one_target`` writes hit/miss
+    # bumps here (``setdefault("<cache>", {"hits": 0, "misses": 0})``); ``finalize_suite``
+    # aggregates the result into ``metadata["cache_stats"]``. Slot is REQUIRED because
+    # the dataclass uses slots=True - without it, ``ctx._cache_stats = {}`` raises
+    # AttributeError on every suite call. Surfaced by fuzz iter#126.
+    _cache_stats: dict = field(default_factory=dict)
 
     models: dict = field(default_factory=lambda: {})
     # Per-target ensemble outputs from ``score_ensemble`` (use_mlframe_ensembles=True). Keyed
