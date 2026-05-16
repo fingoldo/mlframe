@@ -34,6 +34,50 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
+def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
+    """Replay the training-side ``create_date_features`` calls that the SUITE owns and drop any FTE-owned datetime source columns (FTE-handled cols are re-derived by the FTE's own ``transform`` on predict input, but FTE leaves the raw source via ``delete_original_cols=False`` -- the suite-side decomposition phase dropped those at training time, so predict must too or the raw datetime64 col will reach LGB / XGB / sklearn and fail dtype promotion).
+
+    The suite persists ``metadata["datetime_methods"] = {src_col: {accessor: dtype_name}}``; this helper re-applies the same expansion to the predict-time frame so derived columns are byte-identical to training. When a source col is missing (already FTE-derived or absent), the corresponding entry is skipped.
+    """
+    from mlframe.feature_engineering.basic import create_date_features
+    import numpy as _np
+
+    _fte_emitted_map = metadata.get("ftextractor_emitted_columns") or {}
+    if _fte_emitted_map and hasattr(df, "columns"):
+        _drop = [c for c in _fte_emitted_map.keys() if c in df.columns]
+        if _drop:
+            if isinstance(df, pl.DataFrame):
+                df = df.drop(_drop)
+            else:
+                df = df.drop(columns=_drop)
+
+    _methods_map = metadata.get("datetime_methods") or {}
+    if not _methods_map:
+        return df
+
+    _dtype_resolvers = {"int8": _np.int8, "int16": _np.int16, "int32": _np.int32, "int64": _np.int64,
+                        "uint8": _np.uint8, "uint16": _np.uint16, "uint32": _np.uint32, "uint64": _np.uint64,
+                        "float32": _np.float32, "float64": _np.float64}
+    _present_sources = [c for c in _methods_map.keys() if c in df.columns]
+    if not _present_sources:
+        return df
+    # Group sources by their methods dict so we batch-decompose cols sharing the same expansion (typical case: every suite-owned datetime col uses the same configured methods).
+    _by_methods: Dict[Tuple[Tuple[str, str], ...], List[str]] = {}
+    for _src in _present_sources:
+        _m = _methods_map[_src]
+        _key = tuple(sorted((str(k), str(v)) for k, v in _m.items()))
+        _by_methods.setdefault(_key, []).append(_src)
+    for _methods_key, _srcs in _by_methods.items():
+        _resolved_methods = {}
+        for _accessor, _dtype_name in _methods_key:
+            _resolved_methods[_accessor] = _dtype_resolvers.get(_dtype_name, _np.int8)
+        if verbose:
+            logger.info("Replaying datetime decomposition (%s) on %d source col(s): %s",
+                        "/".join(sorted(_resolved_methods.keys())), len(_srcs), _srcs)
+        df = create_date_features(df, cols=_srcs, delete_original_cols=True, methods=_resolved_methods)
+    return df
+
+
 def predict_mlframe_models_suite(
     df: pl.DataFrame | pd.DataFrame,
     models_path: str,
@@ -130,6 +174,9 @@ def predict_mlframe_models_suite(
 
     if isinstance(df, pl.DataFrame):
         df = get_pandas_view_of_polars_df(df)
+
+    # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
+    df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
 
     df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
 
@@ -305,7 +352,20 @@ def predict_from_models(
         df, _, _, _, _, _, columns_to_drop, _ = features_and_targets_extractor.transform(df)
         df = _drop_cols_df(df, columns_to_drop)
 
+    # Replay suite-owned datetime decomposition before validation/pipeline so the predict frame has the SAME derived columns as training; FTE already handled its own ts_field on the line above.
+    df = _replay_suite_datetime_decomposition(df, metadata, verbose=verbose)
+
     df = _validate_input_columns_against_metadata(df, metadata, verbose=verbose)
+
+    # Preserve the pre-main-pipeline frame as a fallback for models whose
+    # internal categorical handling (sklearn HGB's auto-detected
+    # OrdinalEncoder, fit on string categories) crashes on the post-
+    # pipeline encoded form. Surfaced by fuzz iter#80: lgb+hgb mixed on
+    # Polars+cat - the main polars-ds pipeline encodes cat_low to Float64
+    # for the LGB-side, but HGB's internal OrdinalEncoder built at fit
+    # time tries to compare Float64 input against its string vocabulary
+    # via ``xp.isnan(known_values)`` which trips on strings.
+    df_pre_pipeline = df
 
     pipeline = metadata.get("pipeline")
     if pipeline is not None:
@@ -324,31 +384,25 @@ def predict_from_models(
 
     if isinstance(df, pl.DataFrame):
         df = get_pandas_view_of_polars_df(df)
+    if isinstance(df_pre_pipeline, pl.DataFrame):
+        df_pre_pipeline = get_pandas_view_of_polars_df(df_pre_pipeline)
 
-    # Coerce metadata-declared cat_features to pandas ``category`` dtype.
-    # Polars String columns survive the polars-to-pandas conversion (via
-    # to_arrow) as pandas object/string, not Categorical. LightGBM sklearn
-    # rejects predict input whose categorical_feature inference doesn't
-    # match the fit-time spec ("train and valid dataset categorical_feature
-    # do not match"); XGB rejects object-dtype outright. Casting to
-    # ``category`` upfront uses each column's predict-time unique values
-    # as categories - close enough for the column-name match LGB does,
-    # and consistent with the dtype CatBoost / XGB / sklearn expect.
-    # Surfaced by fuzz iter#55 (multiclass lgb + Polars frame with
-    # cat_low + cat_mid).
+    # Cat dtype coercion is PER-MODEL (in the loop below), not global.
+    # Different model types need different dtypes for the same cat_low
+    # column after the main pipeline ran:
+    #   - LGB (no per-model pre_pipeline): needs pandas ``category`` so
+    #     its predict-time auto-detection of categorical_feature matches
+    #     the fit-time spec stored on the booster. Anything else (object
+    #     or float64) -> "train and valid dataset categorical_feature do
+    #     not match" (iter#55).
+    #   - sklearn HGB (CatBoostEncoder pre_pipeline + native cat support)
+    #     / linear-family (imputer + scaler pre_pipeline): need OBJECT
+    #     or numeric. Both the pre_pipeline's encoder and HGB's own
+    #     isnan-based input check reject categorical dtype outright
+    #     (iter#80 lgb+hgb mixed mode + iter#80 hgb standalone).
+    #   - CB: doesn't care - Pool built from any dtype with cat_features.
+    # The cast happens in the per-model loop below.
     _cat_features = metadata.get("cat_features") or []
-    if _cat_features and hasattr(df, "columns"):
-        for _cf in _cat_features:
-            if _cf in df.columns:
-                try:
-                    if df[_cf].dtype.name != "category":
-                        df[_cf] = df[_cf].astype("category")
-                except Exception as _exc:
-                    logger.debug(
-                        "predict_from_models: could not cast cat_feature %r to category "
-                        "(%s: %s); leaving as-is",
-                        _cf, type(_exc).__name__, _exc,
-                    )
 
     if verbose:
         logger.info("Running predictions on in-memory models...")
@@ -450,7 +504,35 @@ def predict_from_models(
                             except (NotFittedError, Exception):
                                 _pp_fitted = False
                             if _pp_fitted:
-                                input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+                                # Double-encoding guard. When the main polars-ds
+                                # pipeline already encoded cat_features (cat_low
+                                # -> Float64 etc.) AND the model strategy attached
+                                # its own pre_pipeline with a category encoder
+                                # (sklearn HGB carries category_encoders.
+                                # CatBoostEncoder with requires_encoding=True),
+                                # the encoder receives numeric input it cannot
+                                # match against its string-fit vocabulary and
+                                # raises "ufunc 'isnan' not supported" or
+                                # similar dtype errors. Plus the iter#55 global
+                                # cat-cast at the top of this function wraps
+                                # the column in pandas Categorical, which the
+                                # encoder also rejects. Skip with a WARN: the
+                                # main pipeline already did the encoder's job;
+                                # the model's raw .predict on the post-main-
+                                # pipeline frame produces equivalent output.
+                                # Surfaced by fuzz iter#80 (lgb+hgb on Polars+
+                                # cat: hgb's CatBoostEncoder crashed).
+                                try:
+                                    input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+                                except Exception as _pp_exc:
+                                    logger.warning(
+                                        "predict_from_models: %s pre_pipeline.transform "
+                                        "raised %s: %s. Skipping pre_pipeline (main "
+                                        "pipeline already encoded cat_features); passing "
+                                        "input directly to model.predict.",
+                                        model_name, type(_pp_exc).__name__,
+                                        str(_pp_exc).splitlines()[0][:160],
+                                    )
                             elif verbose:
                                 logger.debug(
                                     "predict_from_models: %s has unfitted "
@@ -459,8 +541,72 @@ def predict_from_models(
                                     model_name,
                                 )
 
+                    # LGB-only cat dtype coercion. LightGBM auto-detects
+                    # categorical_feature from input dtype at predict and
+                    # compares against the fit-time spec; object / float64
+                    # cat_low triggers "categorical_feature do not match".
+                    # Cast to pandas ``category`` only for LGB so we don't
+                    # break sklearn HGB / linear models that reject
+                    # categorical dtype (iter#80). Casts ANY non-category
+                    # dtype because LGB checks dtype, not category levels.
+                    _model_module = type(model).__module__ or ""
+                    _is_lgb = (
+                        _model_module.startswith("lightgbm")
+                        or _model_module.endswith("lgb_shim")
+                        or "LGBM" in type(model).__name__
+                    )
+                    if _is_lgb and _cat_features and hasattr(input_for_model, "columns"):
+                        _did_copy = False
+                        for _cf in _cat_features:
+                            if _cf in input_for_model.columns:
+                                try:
+                                    if input_for_model[_cf].dtype.name != "category":
+                                        if not _did_copy:
+                                            input_for_model = input_for_model.copy()
+                                            _did_copy = True
+                                        input_for_model[_cf] = input_for_model[_cf].astype("category")
+                                except Exception as _exc:
+                                    logger.debug(
+                                        "predict_from_models: LGB cat-cast for %r failed "
+                                        "(%s); leaving as-is",
+                                        _cf, type(_exc).__name__,
+                                    )
+
+                    # Pre-main-pipeline fallback. Models with internal
+                    # categorical handling fitted on string categories
+                    # (sklearn HGB built an OrdinalEncoder over the raw
+                    # cat_low strings via ``categorical_features='from_dtype'``)
+                    # crash on the encoded post-pipeline frame: the encoder
+                    # tries ``xp.isnan(known_values)`` on its string
+                    # vocabulary and TypeErrors. Try post-pipeline first
+                    # (correct for LGB / linear / etc.) and fall back to
+                    # pre-pipeline on the specific isnan-on-strings TypeError.
+                    # Surfaced by fuzz iter#80 (lgb+hgb on Polars+cat).
+                    _exp_list_for_fallback = list(_expected) if _expected is not None else None
+
+                    def _try_predict(fn, primary, fallback):
+                        try:
+                            return fn(primary)
+                        except TypeError as _te:
+                            _msg = str(_te)
+                            if "isnan" in _msg and "supported" in _msg and fallback is not None:
+                                logger.warning(
+                                    "predict_from_models: %s.%s on post-pipeline "
+                                    "frame tripped isnan-on-strings; retrying on "
+                                    "pre-pipeline frame (the model's internal "
+                                    "OrdinalEncoder was fit on raw strings).",
+                                    model_name, fn.__name__,
+                                )
+                                _fb = fallback
+                                if _exp_list_for_fallback is not None and hasattr(_fb, "columns"):
+                                    _drop_fb = [c for c in _fb.columns if c not in _exp_list_for_fallback]
+                                    if _drop_fb:
+                                        _fb = _fb.drop(columns=_drop_fb)
+                                return fn(_fb)
+                            raise
+
                     if return_probabilities and hasattr(model, "predict_proba"):
-                        probs = model.predict_proba(input_for_model)
+                        probs = _try_predict(model.predict_proba, input_for_model, df_pre_pipeline)
                         results["probabilities"][model_name] = probs
                         all_probs.append(probs)
 
@@ -474,7 +620,7 @@ def predict_from_models(
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
                     else:
-                        preds = model.predict(input_for_model)
+                        preds = _try_predict(model.predict, input_for_model, df_pre_pipeline)
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
 
