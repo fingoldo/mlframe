@@ -1,0 +1,47 @@
+{
+  "cases": [
+    {
+      "n_features": 8,
+      "n_rows": 2000,
+      "n_targets": 5,
+      "post_fix_wall_s": 12.936024999995425,
+      "pre_fix_wall_s": 13.129646200002753,
+      "speedup_pct": 1.4746871092938374
+    },
+    {
+      "n_features": 30,
+      "n_rows": 20000,
+      "n_targets": 5,
+      "post_fix_wall_s": 112.08400680000341,
+      "pre_fix_wall_s": 107.76593059999868,
+      "speedup_pct": -4.006902901467435
+    }
+  ],
+  "cprofile_top_15": {
+    "top_15_cumulative": [
+      "         12510167 function calls (12507030 primitive calls) in 118.295 seconds",
+      "",
+      "   Ordered by: cumulative time",
+      "   List reduced from 1496 to 15 due to restriction <15>",
+      "",
+      "   ncalls  tottime  percall  cumtime  percall filename:lineno(function)",
+      "        1    0.001    0.001  118.296  118.296 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\_benchmarks\\bench_per_target_hoist.py:88(_time_suite)",
+      "        1    0.001    0.001  118.039  118.039 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\core\\main.py:76(train_mlframe_models_suite)",
+      "        5    0.000    0.000  117.988   23.598 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\_benchmarks\\bench_per_target_hoist.py:108(_wrapped)",
+      "        5    0.002    0.000  117.987   23.597 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\core\\_phase_train_one_target.py:378(_train_one_target)",
+      "        5    0.000    0.000  117.943   23.589 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\train_eval.py:674(process_model)",
+      "        5    0.000    0.000  117.941   23.588 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\train_eval.py:587(_call_train_evaluate_with_configs)",
+      "        5    0.001    0.000  117.938   23.588 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\trainer.py:425(train_and_evaluate_model)",
+      "  436/142    0.006    0.000  117.507    0.828 D:\\ProgramData\\anaconda3\\Lib\\site-packages\\xgboost\\core.py:534(inner_f)",
+      "       30    0.002    0.000  116.912    3.897 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\xgb_shim.py:269(fit)",
+      "       30    0.165    0.006  115.703    3.857 D:\\ProgramData\\anaconda3\\Lib\\site-packages\\xgboost\\training.py:52(train)",
+      "        5    0.000    0.000  112.466   22.493 D:\\Upd\\Programming\\PythonCodeRepository\\mlframe\\src\\mlframe\\training\\trainer.py:158(_compute_oof_preds)",
+      "    17/12    0.001    0.000  112.464    9.372 D:\\ProgramData\\anaconda3\\Lib\\site-packages\\sklearn\\utils\\_param_validation.py:187(wrapper)",
+      "        5    0.001    0.000  112.456   22.491 D:\\ProgramData\\anaconda3\\Lib\\site-packages\\sklearn\\model_selection\\_validation.py:974(cross_val_predict)",
+      "        5    0.000    0.000  112.439   22.488 D:\\ProgramData\\anaconda3\\Lib\\site-packages\\sklearn\\utils\\parallel.py:54(__call__)",
+      "        5    0.000    0.000  112.439   22.488 D:\\ProgramData\\anaconda3\\Lib\\site-packages\\joblib\\parallel.py:1969(__call__)",
+      "",
+      ""
+    ]
+  }
+}
