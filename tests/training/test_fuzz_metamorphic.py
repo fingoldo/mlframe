@@ -259,7 +259,9 @@ def _curated_metamorphic_combos() -> list[FuzzCombo]:
     return chosen
 
 
-_METAMORPHIC_COMBOS = _curated_metamorphic_combos()
+from tests.conftest import fast_subset
+# Fast mode keeps one representative combo so a full metamorphic dual-suite run completes within pytest-timeout.
+_METAMORPHIC_COMBOS = fast_subset(_curated_metamorphic_combos())
 
 
 # ---------------------------------------------------------------------------
