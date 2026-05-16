@@ -318,6 +318,11 @@ class TrainingSplitConfig(BaseConfig):
 
     test_size: float = Field(default=0.1, ge=0.0, le=1.0)
     val_size: float = Field(default=0.1, ge=0.0, le=1.0)
+    # Opt-in reserved calibration slice carved out of train. When set (e.g. 0.1), the splitter reserves the fraction
+    # for ``post_calibrate_model`` to fit its meta-calibrator on rows that are neither test (would leak holdout) nor
+    # val (would burn the early-stop budget twice). Default ``None`` means: caller passes OOF-train probs directly to
+    # ``post_calibrate_model.calib_probs`` instead, OR the trainer's stamped ``model.oof_probs`` is used.
+    calib_size: Optional[float] = Field(default=None, ge=0.0, lt=1.0)
     shuffle_val: bool = False
     shuffle_test: bool = False
     val_sequential_fraction: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -369,9 +374,14 @@ class TrainingSplitConfig(BaseConfig):
 
     @model_validator(mode="after")
     def validate_split_sizes(self) -> "TrainingSplitConfig":
-        """Ensure test_size + val_size <= 1.0 to leave room for training data."""
-        if self.test_size + self.val_size > 1.0:
-            raise ValueError(f"test_size ({self.test_size}) + val_size ({self.val_size}) = " f"{self.test_size + self.val_size} must be <= 1.0")
+        """Ensure test_size + val_size + calib_size <= 1.0 to leave room for training data."""
+        _calib = self.calib_size if self.calib_size is not None else 0.0
+        _total = self.test_size + self.val_size + _calib
+        if _total > 1.0:
+            raise ValueError(
+                f"test_size ({self.test_size}) + val_size ({self.val_size}) + calib_size ({_calib}) = "
+                f"{_total} must be <= 1.0"
+            )
         return self
 
 
