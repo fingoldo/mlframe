@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 import copy
+import hashlib
 import logging
 import textwrap
 from contextlib import nullcontext
@@ -795,12 +796,26 @@ class RFECV(BaseEstimator, TransformerMixin):
                     logger.warning(_msg)
 
         # Inputs/outputs signature. Shape alone isn't enough - two datasets with identical (n, p) but different column identities must
-        # trigger a retrain, otherwise self.support_ silently applies stale column selections.
+        # trigger a retrain, otherwise self.support_ silently applies stale column selections. y-content is folded in via a blake2b
+        # 16-byte digest because two semantically-different targets of the same length and shape (e.g. column-A binary vs column-B
+        # binary picked off the same frame) used to replay the prior fit's support_; without the y-hash a per-target FS loop reusing
+        # one RFECV instance silently selected features for whichever target arrived first.
         if isinstance(X, pd.DataFrame):
             columns_key = tuple(map(str, X.columns.tolist()))
         else:
             columns_key = ("__ndarray__", int(X.shape[1]))
-        signature = (X.shape, y.shape, columns_key)
+        try:
+            _y_arr = np.ascontiguousarray(
+                y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+            )
+            _y_hash = hashlib.blake2b(_y_arr.tobytes(), digest_size=16).hexdigest()
+        except (TypeError, ValueError):
+            # Object-dtype y or otherwise non-bytes-castable; fall back to a stringified per-element hash that still discriminates content.
+            _y_hash = hashlib.blake2b(
+                ",".join(map(str, np.asarray(y).ravel().tolist())).encode("utf-8"),
+                digest_size=16,
+            ).hexdigest()
+        signature = (X.shape, y.shape, columns_key, _y_hash)
         # Invalidate stale support_/cache at fit entry so a partial-fit failure cannot leave a previous-fit's selection silently in place.
         # The cache is rebuilt below only on a successful path.
         self._selected_cols_cache = None

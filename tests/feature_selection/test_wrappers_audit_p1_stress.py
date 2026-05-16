@@ -127,6 +127,35 @@ class TestB6_DuplicateColumns:
 # ----------------------------------------------------------------------------
 # G33: random_state=None deterministic on re-fit on the same input
 # ----------------------------------------------------------------------------
+class TestSkipRetrainingYContent:
+    def test_skip_retraining_refits_when_y_changes_at_same_shape(self):
+        """``skip_retraining_on_same_shape`` previously fingerprinted only ``(X.shape, y.shape, columns)``; two semantically different targets of the same length silently replayed whichever support_ was set first. Folding a y-content hash into the signature forces a refit when y changes."""
+        rng = np.random.default_rng(0)
+        n = 200
+        # Two distinct informative signals at the same shape; if dedup-on-shape is the only mechanism, the second .fit replays the first support_.
+        X = pd.DataFrame({
+            "feat0": rng.standard_normal(n),
+            "feat1": rng.standard_normal(n),
+            "feat2": rng.standard_normal(n),
+        })
+        y_a = (X["feat0"] > 0).astype(int).values
+        y_b = (X["feat2"] > 0).astype(int).values
+        common = dict(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=3, max_refits=4, verbose=0, leakage_corr_threshold=None,
+            skip_retraining_on_same_shape=True,
+        )
+        rfecv = RFECV(**common)
+        rfecv.fit(X, y_a)
+        support_a = rfecv.support_.copy()
+        rfecv.fit(X, y_b)
+        support_b = rfecv.support_.copy()
+        # Without the y-content fingerprint these two arrays would be identical (same signature -> early return).
+        assert not np.array_equal(support_a, support_b), (
+            "RFECV.skip_retraining_on_same_shape must distinguish two semantically different targets at the same shape; got identical support_ across fits"
+        )
+
+
 class TestG33_RandomStateDeterminism:
     def test_same_input_same_support_random_state_none(self):
         rng = np.random.default_rng(0)
