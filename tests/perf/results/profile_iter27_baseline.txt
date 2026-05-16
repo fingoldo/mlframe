@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=1_200_000, models=('xgb',), save_charts=False)
+
+=== binary_classification x xgb ===
+  built frame: 1_200_000 rows x 9 cols
+  wall: 12.4s  status: OK
+         3570488 function calls (3317384 primitive calls) in 12.403 seconds
+
+   Ordered by: cumulative time
+   List reduced from 4772 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.002    0.002   12.399   12.399 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.005    0.005   11.271   11.271 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000   11.093   11.093 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000   11.093   11.093 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000   11.092   11.092 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        1    0.000    0.000    6.670    6.670 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+     28/9    0.000    0.000    6.656    0.740 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:534(inner_f)
+        1    0.000    0.000    6.655    6.655 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\xgb_shim.py:269(fit)
+        1    0.001    0.001    6.028    6.028 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\training.py:52(train)
+      127    5.310    0.042    5.338    0.042 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:2174(update)
+        2    0.000    0.000    4.398    2.199 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    4.397    2.199 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.003    0.001    4.391    2.196 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+        1    0.000    0.000    4.294    4.294 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+       12    0.000    0.000    3.704    0.309 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+    18/12    0.001    0.000    3.701    0.308 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+        2    0.001    0.000    3.608    1.804 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2421(fast_calibration_report)
+      4/2    0.000    0.000    3.390    1.695 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:79(compile)
+      4/2    0.000    0.000    3.390    1.695 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:86(_compile_cached)
+      4/2    0.000    0.000    3.390    1.695 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:101(_compile_core)
+      4/2    0.000    0.000    3.389    1.695 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:713(compile_extra)
+      6/2    0.000    0.000    3.386    1.693 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:433(compile_extra)
+      6/2    0.000    0.000    3.384    1.692 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:500(_compile_bytecode)
+      9/2    0.000    0.000    3.384    1.692 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:456(_compile_core)
+      9/2    0.001    0.000    3.383    1.691 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:342(run)
+   319/74    0.002    0.000    3.382    0.046 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_lock.py:32(_acquire_compile_lock)
+   194/62    0.008    0.000    3.380    0.055 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:267(_runPass)
+  582/186    0.002    0.000    3.367    0.018 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:271(check)
+        2    0.000    0.000    2.578    1.289 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3889(fast_log_loss)
+        2    0.000    0.000    2.578    1.289 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3874(fast_log_loss_binary)
+
+
+
+
+# Wall-time summary:
+  binary_classification x xgb                                12.4s  OK

@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=1_000_000, models=('hgb',), save_charts=False)
+
+=== binary_classification x hgb ===
+  built frame: 1_000_000 rows x 9 cols
+  wall: 9.3s  status: OK
+         664077 function calls (638378 primitive calls) in 9.345 seconds
+
+   Ordered by: cumulative time
+   List reduced from 3457 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.003    0.003    9.341    9.341 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.003    0.003    8.406    8.406 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000    8.247    8.247 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000    8.247    8.247 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000    8.247    8.247 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        1    0.000    0.000    6.782    6.782 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.016    0.016    6.781    6.781 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
+        1    0.546    0.546    6.765    6.765 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\gradient_boosting.py:512(fit)
+      132    0.008    0.000    1.878    0.014 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:385(grow)
+     3960    1.562    0.000    1.867    0.000 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:488(split_next)
+        2    0.000    0.000    1.445    0.722 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    1.444    0.722 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.002    0.001    1.443    0.722 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+      132    0.626    0.005    1.316    0.010 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:246(__init__)
+      132    1.308    0.010    1.308    0.010 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\_loss\loss.py:317(gradient_hessian)
+      133    0.004    0.000    1.194    0.009 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\gradient_boosting.py:1167(_check_early_stopping_loss)
+      266    0.141    0.001    1.188    0.004 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\_loss\loss.py:383(__call__)
+      266    0.774    0.003    0.775    0.003 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\_loss\loss.py:160(loss)
+        1    0.002    0.002    0.759    0.759 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1056(_phase_train_val_test_split)
+        1    0.000    0.000    0.735    0.735 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
+        1    0.004    0.004    0.713    0.713 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\splitting.py:79(make_train_test_split)
+        1    0.000    0.000    0.709    0.709 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:863(_run_test_metrics)
+2720/2646    0.001    0.000    0.704    0.000 {built-in method builtins.next}
+        2    0.018    0.009    0.689    0.345 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\splitting.py:23(_stratified_split)
+        4    0.004    0.001    0.671    0.168 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\model_selection\_split.py:1897(split)
+      132    0.617    0.005    0.671    0.005 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:404(_initialize_root)
+        4    0.444    0.111    0.667    0.167 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\model_selection\_split.py:2318(_iter_indices)
+       16    0.000    0.000    0.605    0.038 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+       16    0.001    0.000    0.601    0.038 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+        2    0.000    0.000    0.547    0.274 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:774(compute_batch_aucs)
+
+
+
+
+# Wall-time summary:
+  binary_classification x hgb                                 9.3s  OK

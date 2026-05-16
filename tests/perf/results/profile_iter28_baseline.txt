@@ -1,0 +1,47 @@
+# 1M-row e2e profile (n_rows=3_000_000, models=('linear',), save_charts=False)
+
+=== regression x linear ===
+  built frame: 3_000_000 rows x 9 cols
+  wall: 2.9s  status: OK
+         129555 function calls (126469 primitive calls) in 2.886 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2288 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.015    0.015    2.879    2.879 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.001    0.001    1.996    1.996 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000    1.548    1.548 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000    1.547    1.547 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000    1.547    1.547 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+      4/2    0.026    0.006    1.019    0.510 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
+        1    0.000    0.000    0.863    0.863 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:485(_apply_pre_pipeline_transforms)
+        3    0.000    0.000    0.728    0.243 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:275(_passthrough_cols_fit_transform)
+        3    0.000    0.000    0.728    0.243 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:336(_run_and_empty_check)
+      8/6    0.005    0.001    0.717    0.120 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\_set_output.py:314(wrapped)
+        1    0.000    0.000    0.656    0.656 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:307(_call_fit)
+        1    0.000    0.000    0.649    0.649 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\pipeline.py:632(fit_transform)
+        2    0.000    0.000    0.648    0.324 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:851(fit_transform)
+      298    0.409    0.001    0.409    0.001 {method 'reduce' of 'numpy.ufunc' objects}
+        1    0.000    0.000    0.365    0.365 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        1    0.000    0.000    0.356    0.356 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1223(_phase_load_and_preprocess)
+        1    0.000    0.000    0.352    0.352 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_base.py:602(fit)
+       14    0.020    0.001    0.323    0.023 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\validation.py:725(check_array)
+        1    0.000    0.000    0.312    0.312 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\pipeline.py:512(_fit)
+        1    0.000    0.000    0.312    0.312 D:\ProgramData\anaconda3\Lib\site-packages\joblib\memory.py:325(__call__)
+        1    0.000    0.000    0.312    0.312 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\pipeline.py:1471(_fit_transform_one)
+        1    0.000    0.000    0.303    0.303 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\preprocessing.py:231(preprocess_dataframe)
+        1    0.006    0.006    0.292    0.292 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1039(_phase_train_val_test_split)
+       37    0.000    0.000    0.284    0.008 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\fromnumeric.py:2338(sum)
+       42    0.000    0.000    0.284    0.007 D:\ProgramData\anaconda3\Lib\site-packages\numpy\_core\fromnumeric.py:69(_wrapreduction)
+       11    0.000    0.000    0.277    0.025 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\validation.py:2793(validate_data)
+        1    0.000    0.000    0.267    0.267 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\preprocessing\_data.py:899(fit)
+        1    0.020    0.020    0.267    0.267 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\preprocessing\_data.py:926(partial_fit)
+        1    0.000    0.000    0.246    0.246 D:\ProgramData\anaconda3\Lib\site-packages\scipy\_lib\_util.py:1203(wrapper)
+        1    0.226    0.226    0.246    0.246 D:\ProgramData\anaconda3\Lib\site-packages\scipy\linalg\_basic.py:1325(lstsq)
+
+
+
+
+# Wall-time summary:
+  regression x linear                                         2.9s  OK

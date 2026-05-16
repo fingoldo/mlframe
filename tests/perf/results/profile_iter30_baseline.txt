@@ -1,0 +1,49 @@
+# 1M-row e2e profile (n_rows=1_000_000, models=('cb',), save_charts=False)
+
+=== regression x cb ===
+  built frame: 1_000_000 rows x 9 cols
+MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+  wall: 75.5s  status: OK
+         125584 function calls (121925 primitive calls) in 75.473 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2238 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.004    0.004   75.467   75.467 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
+        1    0.001    0.001   74.782   74.782 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
+        1    0.000    0.000   74.338   74.338 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000   74.337   74.337 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000   74.336   74.336 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
+        1    0.000    0.000   73.831   73.831 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
+        2    0.000    0.000   73.788   36.894 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
+        2    0.000    0.000   73.788   36.894 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        2   72.539   36.269   72.539   36.270 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+  630/602    0.000    0.000    1.238    0.002 {built-in method builtins.next}
+    70/56    0.000    0.000    1.235    0.022 D:\ProgramData\anaconda3\Lib\contextlib.py:132(__enter__)
+        4    0.000    0.000    1.233    0.308 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1642(plot_wrapper)
+        1    0.000    0.000    1.229    1.229 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1631(_get_catboost_widget)
+        1    0.000    0.000    1.226    1.226 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1620(_clear_training_files)
+        1    1.226    1.226    1.226    1.226 {built-in method nt.remove}
+        2    0.000    0.000    0.425    0.212 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
+        2    0.000    0.000    0.424    0.212 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+        2    0.000    0.000    0.420    0.210 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
+        1    0.000    0.000    0.301    0.301 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1240(_phase_load_and_preprocess)
+        9    0.000    0.000    0.287    0.032 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\generic.py:4164(_take_with_is_copy)
+        9    0.000    0.000    0.287    0.032 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\generic.py:4049(take)
+       10    0.000    0.000    0.287    0.029 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:888(take)
+       12    0.000    0.000    0.273    0.023 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\indexing.py:1177(__getitem__)
+       12    0.000    0.000    0.273    0.023 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\indexing.py:1720(_getitem_axis)
+        8    0.000    0.000    0.272    0.034 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\indexing.py:1697(_get_list_axis)
+        1    0.000    0.000    0.269    0.269 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:863(_run_test_metrics)
+        7    0.000    0.000    0.266    0.038 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+        7    0.000    0.000    0.264    0.038 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+        7    0.000    0.000    0.262    0.037 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:713(load_overload)
+        1    0.000    0.000    0.261    0.261 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\preprocessing.py:231(preprocess_dataframe)
+
+
+
+
+# Wall-time summary:
+  regression x cb                                            75.5s  OK

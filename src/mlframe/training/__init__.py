@@ -63,6 +63,31 @@ automl_models = train_automl_models_suite(
 
 from __future__ import annotations
 
+# joblib / loky shell out to wmic on Windows to count physical cores. The
+# wmic subprocess costs ~1s per fresh process and fires inside sklearn
+# StratifiedShuffleSplit, LightGBM training params, and any other joblib
+# consumer that lets ``n_jobs`` default to None.
+#
+# Two-pronged mitigation:
+#   1. LOKY_MAX_CPU_COUNT env var short-circuits the logical-cores probe
+#      path. Honour user-provided overrides (e.g. CI pin to 2).
+#   2. Monkey-patch ``loky.backend.context._count_physical_cores`` to return
+#      ``os.cpu_count()`` directly. The env var alone DOES NOT cover the
+#      ``only_physical_cores=True`` branch, which sklearn's
+#      StratifiedShuffleSplit (and other joblib consumers) actually hits.
+#      The physical-vs-logical distinction is rarely load-bearing in our
+#      paths; treating logical-count as physical-count is a benign
+#      approximation that avoids the wmic round trip entirely.
+import os as _os
+if not _os.environ.get("LOKY_MAX_CPU_COUNT"):
+    _os.environ["LOKY_MAX_CPU_COUNT"] = str(_os.cpu_count() or 1)
+try:
+    from joblib.externals.loky.backend import context as _loky_ctx
+    _MLFRAME_CPU_COUNT_CACHED = (_os.cpu_count() or 1, _os.cpu_count() or 1)
+    _loky_ctx._count_physical_cores = lambda: _MLFRAME_CPU_COUNT_CACHED
+except Exception:
+    pass
+
 
 # Lazy imports via __getattr__ — deferred until actually accessed (kept for
 # fast-import / optional-dep isolation; no longer guarding a training_old cycle).
