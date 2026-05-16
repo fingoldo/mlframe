@@ -325,8 +325,12 @@ def _build_pre_pipelines(
     use_mrmr_fs: bool,
     mrmr_kwargs: dict[str, Any],
     custom_pre_pipelines: dict[str, Any] | None = None,
+    rfecv_leakage_corr_threshold: float | None = 0.95,
 ) -> tuple[list[Any], list[str]]:
-    """Build lists of pre-pipelines and their names for feature selection."""
+    """Build lists of pre-pipelines and their names for feature selection.
+
+    ``rfecv_leakage_corr_threshold`` is applied to every RFECV instance fetched from ``rfecv_models_params`` via ``setattr``; ``configure_training_params`` constructs those instances before the suite-level config is in scope, so this is the canonical place to override the suite-controllable knob without rebuilding the RFECV objects.
+    """
     pre_pipelines = []
     pre_pipeline_names = []
 
@@ -342,7 +346,11 @@ def _build_pre_pipelines(
     if unknown_rfecv_models:
         raise ValueError(f"Unknown RFECV model(s): {unknown_rfecv_models}. " f"Available: {list(rfecv_models_params.keys())}")
     for rfecv_model_name in rfecv_models:
-        pre_pipelines.append(rfecv_models_params[rfecv_model_name])
+        _rfecv_instance = rfecv_models_params[rfecv_model_name]
+        # Suite-level override wins over the RFECV default; the threshold is a scalar stored on the instance and consumed at fit time, so a post-construction setattr is safe.
+        if _rfecv_instance is not None:
+            setattr(_rfecv_instance, "leakage_corr_threshold", rfecv_leakage_corr_threshold)
+        pre_pipelines.append(_rfecv_instance)
         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
     if use_mrmr_fs:

@@ -187,6 +187,23 @@ def test_build_pre_pipelines_custom():
     assert "my_pca " in names
 
 
+def test_build_pre_pipelines_rfecv_leakage_corr_threshold_applied():
+    """``FeatureSelectionConfig.rfecv_leakage_corr_threshold`` must reach the RFECV instance; without the wiring the suite has no operator-facing knob for the leak-detection threshold (only the constructor default at 0.95). Use a plain object that accepts setattr to keep the test sklearn-free."""
+    class FakeRFECV:
+        leakage_corr_threshold = 0.95
+    fake = FakeRFECV()
+    pipes, _ = _build_pre_pipelines(
+        use_ordinary_models=False,
+        rfecv_models=["cb_rfecv"],
+        rfecv_models_params={"cb_rfecv": fake},
+        use_mrmr_fs=False,
+        mrmr_kwargs={},
+        rfecv_leakage_corr_threshold=0.80,
+    )
+    assert pipes[0] is fake
+    assert fake.leakage_corr_threshold == 0.80
+
+
 # ----- _build_process_model_kwargs -----
 
 def test_build_process_model_kwargs_minimal():

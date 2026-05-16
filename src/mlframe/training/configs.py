@@ -654,6 +654,10 @@ class FeatureSelectionConfig(BaseConfig):
     # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
     skip_identity_equivalent_pre_pipelines: bool = True
 
+    # Suite-level override for the RFECV leakage check that was previously hardcoded as a constructor default. Exposed here so operators can retune the threshold without instantiating RFECV objects manually.
+    # rfecv_leakage_corr_threshold: at fit entry RFECV checks |Pearson(X_i, y)| against this; columns above the threshold are routed through ``leakage_action`` ('warn'/'exclude'/'raise'). Set ``None`` to disable the check.
+    rfecv_leakage_corr_threshold: Optional[float] = 0.95
+
     @field_validator("mrmr_kwargs")
     @classmethod
     def _validate_mrmr_kwargs(cls, v: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

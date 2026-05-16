@@ -295,6 +295,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         use_mrmr_fs=use_mrmr_fs,
         mrmr_kwargs=mrmr_kwargs,
         custom_pre_pipelines=custom_pre_pipelines,
+        rfecv_leakage_corr_threshold=feature_selection_config.rfecv_leakage_corr_threshold,
     )
 
     # Custom transformers run AFTER preprocessing, so the preprocessing output is shared across
