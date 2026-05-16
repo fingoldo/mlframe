@@ -69,6 +69,36 @@ def test_validate_inputs_single_row_raises():
         _fast_mrmr().fit(df, y)
 
 
+def test_validate_inputs_memory_cap_uses_available_ram_not_absolute(monkeypatch):
+    """The absolute 1e9-cell cap rejected datasets that comfortably fit on a 128 GB host. The RAM-relative cap accepts a frame whose ~int32 footprint sits well below half of available RAM, even when ``n_rows * n_cols`` exceeds 1e9. Mock ``psutil.virtual_memory`` so the test is deterministic regardless of the actual host."""
+    import psutil
+    class _FakeVM:
+        # 256 GB available -- half is 128 GB, comfortably larger than any realistic test footprint.
+        available = 256 * 1024 ** 3
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: _FakeVM())
+    # Build a SHAPE that exceeds the old 1e9 cell ceiling but stays under the new RAM-relative cap. ~5_000_000 rows * 250 cols = 1.25e9 cells -> ~5 GB int32 working set; clearly under 128 GB half-RAM headroom.
+    class _FakeFrame:
+        shape = (5_000_000, 250)
+    sel = _fast_mrmr()
+    # _validate_inputs is the only thing under test -- y is provided to satisfy the duplicate-column check path. The full fit would OOM the test runner; intercepting after _validate_inputs is sufficient.
+    sel._validate_inputs(_FakeFrame(), np.array([0, 1, 0, 1]))  # must NOT raise
+
+
+def test_validate_inputs_memory_cap_rejects_when_footprint_exceeds_half_ram(monkeypatch):
+    """Under the RAM-relative cap, a frame whose int32 footprint exceeds half of available RAM must still be rejected with a message that mentions both the footprint and the RAM headroom (so the operator knows whether to subsample or free RAM)."""
+    import psutil
+    class _FakeVM:
+        # 2 GB available -> 1 GB headroom; any frame above ~250M cells (1 GB int32) gets rejected.
+        available = 2 * 1024 ** 3
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: _FakeVM())
+    class _FakeFrame:
+        # 1_000_000 rows * 500 cols = 5e8 cells -> ~2 GB int32, exceeds half-of-2GB headroom of 1 GB.
+        shape = (1_000_000, 500)
+    sel = _fast_mrmr()
+    with pytest.raises(ValueError, match=r"available RAM"):
+        sel._validate_inputs(_FakeFrame(), np.array([0, 1, 0, 1]))
+
+
 def test_validate_inputs_duplicate_column_names_raises():
     rng = np.random.default_rng(0)
     df = pd.DataFrame(rng.normal(size=(50, 3)).astype(np.float64), columns=["a", "a", "b"])

@@ -520,11 +520,23 @@ class MRMR(BaseEstimator, TransformerMixin):
                 raise ValueError("MRMR.fit: empty input (n_rows=0)")
             if n_rows == 1:
                 raise ValueError("MRMR.fit: cannot fit on a single row")
-            if isinstance(n_cols, int) and n_rows * n_cols > 1e9:
-                raise ValueError(
-                    f"MRMR.fit: refusing to allocate for n*p={n_rows * n_cols:_} (>1e9). "
-                    "Subsample or split the dataset before fitting."
-                )
+            if isinstance(n_cols, int):
+                # MRMR's binned-frame working set is roughly ``n_rows * n_cols * 4`` bytes (int32 per cell). The previous absolute 1e9 cell ceiling rejected datasets that comfortably fit in RAM on a modern 128 GB+ host while letting through wide-but-not-as-wide frames on a tiny 16 GB box. Compare to ``psutil.virtual_memory().available * 0.5`` -- half of free RAM is the standard "safe working set" headroom for one stage of the pipeline.
+                _footprint_bytes = n_rows * n_cols * 4
+                try:
+                    import psutil as _psutil
+                    _available_bytes = int(_psutil.virtual_memory().available)
+                except Exception:
+                    _available_bytes = 0
+                _headroom_bytes = _available_bytes // 2
+                if _headroom_bytes > 0 and _footprint_bytes > _headroom_bytes:
+                    raise ValueError(
+                        f"MRMR.fit: refusing to allocate for n*p={n_rows * n_cols:_} "
+                        f"(~{_footprint_bytes / 1e9:.2f} GB int32 working set) on a host with "
+                        f"{_available_bytes / 1e9:.2f} GB available RAM; threshold is half of available "
+                        f"(~{_headroom_bytes / 1e9:.2f} GB). Subsample, split the dataset, or free RAM "
+                        "headroom before fitting."
+                    )
         if self.quantization_nbins > 1000:
             raise ValueError(f"quantization_nbins={self.quantization_nbins} > 1000 likely OOMs")
         if self.interactions_max_order > 5:
