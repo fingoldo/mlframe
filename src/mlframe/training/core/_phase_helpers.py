@@ -701,6 +701,7 @@ def _phase_fit_pipeline(
     metadata: dict,
     verbose: bool,
     target_by_type: Any = None,
+    train_idx: np.ndarray | None = None,
 ) -> tuple:
     """Pipeline fitting and transformation.
 
@@ -925,6 +926,22 @@ def _phase_fit_pipeline(
                 if _y_train_for_ext is not None and _y_train_for_ext.ndim > 1:
                     # Multi-output regression target -> first column for PySR.
                     _y_train_for_ext = _y_train_for_ext[:, 0]
+                # target_by_type carries the PRE-split full target; slice to train_idx
+                # so PySR's symbolic FE only sees train-set y. Without this we hit a
+                # length mismatch (full=5077502, train=4091828 in prod log 2026-05-16)
+                # and PySR was silently skipped.
+                if (
+                    _y_train_for_ext is not None
+                    and train_idx is not None
+                    and hasattr(train_df, "shape")
+                    and len(_y_train_for_ext) != train_df.shape[0]
+                ):
+                    try:
+                        _idx_arr = np.asarray(train_idx)
+                        if len(_idx_arr) == train_df.shape[0] and int(_idx_arr.max()) < len(_y_train_for_ext):
+                            _y_train_for_ext = _y_train_for_ext[_idx_arr]
+                    except (TypeError, ValueError, IndexError):
+                        pass
                 if hasattr(train_df, "shape") and _y_train_for_ext is not None and len(_y_train_for_ext) != train_df.shape[0]:
                     if verbose:
                         logger.warning(

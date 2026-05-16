@@ -666,7 +666,28 @@ def _apply_pre_pipeline_transforms(
                 )
                 if verbose:
                     log_ram_usage()
-                if val_df is not None:
+                # 0-feature short-circuit: when MRMR/RFECV selects no features,
+                # _passthrough_cols_fit_transform catches Pipeline's "need at least one
+                # array" ValueError and returns an empty (N, 0) frame -- BUT the Pipeline
+                # is left half-fitted (selector fitted, imputer/scaler not). Running
+                # pre_pipeline.transform on val_df then raises NotFittedError. Mirror the
+                # empty-frame return on val_df so trainer.py's 0-feature guard can fire
+                # cleanly. (Surfaced 2026-05-16 by test_mrmr_no_impact_classification
+                # which uses min_relevance_gain=10.0 to force 0 features.)
+                _train_is_empty = (
+                    hasattr(train_df, "shape") and len(train_df.shape) == 2 and train_df.shape[1] == 0
+                )
+                if val_df is not None and _train_is_empty:
+                    if verbose:
+                        logger.info(
+                            "Skipping val_df transform: train_df has 0 features after fit (selector "
+                            "rejected all). Returning empty (N, 0) val_df to match.",
+                        )
+                    if pl is not None and isinstance(val_df, pl.DataFrame):
+                        val_df = val_df.select([])
+                    elif hasattr(val_df, "iloc"):
+                        val_df = val_df.iloc[:, :0]
+                elif val_df is not None:
                     if verbose:
                         logger.info("Transforming val_df via pre_pipeline %s...", pre_pipeline)
                     # Historical 0-row val skip removed 2026-04-27 (batch 3) --

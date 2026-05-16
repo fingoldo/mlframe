@@ -62,7 +62,10 @@ def test_pre_pipeline_cache_isolates_targets_by_content():
     hit_a = _pre_pipeline_cache_get(
         X, None, pipe, train_target=y_a.to_numpy(), target_name="target_a",
     )
-    assert hit_a == sentinel_a
+    # Cache entry is 3-tuple (train_out, val_out, fitted_pipeline) since 2026-05-16.
+    assert hit_a is not None
+    assert hit_a[0] == sentinel_a[0]
+    assert hit_a[1] == sentinel_a[1]
 
 
 def test_pre_pipeline_cache_hits_when_inputs_match():
