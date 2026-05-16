@@ -990,3 +990,109 @@ def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
         f"min_nonzero_confidence=0.999 ({len(sel_strict.support_)}) must "
         f"<= 0.90 ({len(sel_loose.support_)})"
     )
+
+
+# ---------------------------------------------------------------------------
+# min_relevance_gain_mode + min_relevance_gain_frac (entropy-relative floor)
+# ---------------------------------------------------------------------------
+
+
+def test_biz_val_mrmr_min_relevance_gain_relative_mode_scales_with_target_entropy(caplog):
+    """``min_relevance_gain_mode='relative_to_entropy'`` (default) must derive the absolute MI floor from ``min_relevance_gain_frac * H(y)``, NOT from the legacy ``min_relevance_gain`` literal. Verification via the verbose log line that prints the resolved floor: a high-entropy uniform 10-class target must yield a strictly larger absolute floor than a low-entropy 99/1 binary target at the same ``min_relevance_gain_frac``."""
+    import logging
+    import re
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(42)
+    n = 1500
+    X_low = rng.normal(size=(n, 4))
+    # Low-entropy target: 99/1 binary; H(y) ~= 0.056 nats. Pick the rare positives from rows where x0 is highest.
+    thresh_low = float(np.quantile(X_low[:, 0], 0.99))
+    y_low = (X_low[:, 0] > thresh_low).astype(np.int64)
+    df_low, ys_low = _to_df(X_low, y_low)
+
+    X_high = rng.normal(size=(n, 4))
+    # High-entropy target: uniform 10-class. H(y) ~= log(10) = 2.30 nats.
+    y_high = rng.integers(0, 10, size=n).astype(np.int64)
+    df_high, ys_high = _to_df(X_high, y_high)
+
+    pattern = re.compile(
+        r"effective floor=([0-9eE.+\-]+)"
+    )
+
+    def _resolved_floor(df, ys):
+        sel = MRMR(verbose=2, random_seed=42, min_relevance_gain_frac=0.01)
+        with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
+            caplog.clear()
+            sel.fit(df, ys)
+        for record in caplog.records:
+            m = pattern.search(record.getMessage())
+            if m:
+                return float(m.group(1))
+        raise AssertionError("Resolved floor log line not found")
+
+    floor_low = _resolved_floor(df_low, ys_low)
+    floor_high = _resolved_floor(df_high, ys_high)
+    # High-entropy floor must be strictly larger -- frac * H(y) scales with H(y).
+    assert floor_high > floor_low, (
+        f"High-entropy target should give a larger absolute floor than low-entropy at the same frac; got floor_low={floor_low:.4g}, floor_high={floor_high:.4g}"
+    )
+    # Sanity: the ratio of resolved floors should roughly track the ratio of entropies (log(10) / 0.056 ~= 41). Allow a wide band -- the binner's bin-occupancy can drift the empirical H(y) -- but the ratio must be >= 5x to confirm scaling.
+    assert floor_high / max(floor_low, 1e-12) >= 5.0, (
+        f"Resolved-floor ratio must reflect entropy ratio; got {floor_high / max(floor_low, 1e-12):.2f}x"
+    )
+
+
+def test_biz_val_mrmr_min_relevance_gain_relative_mode_wins_on_low_entropy_target():
+    """biz_value test: on a low-entropy binary target (~80/20) plus a noisy feature pool, the legacy ``mode='absolute'`` with ``min_relevance_gain=0.0001`` admits noise features whose MI clears the dataset-blind floor while ``mode='relative_to_entropy'`` with ``min_relevance_gain_frac=0.01`` scales the floor to H(y) and stops earlier. Pin the support-size relationship (relative <= absolute) and require relative-mode val AUC to be no more than 0.01 below absolute-mode (typical measurement: relative is >= absolute when the absolute mode admits noise that LR penalises)."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import train_test_split
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(7)
+    n = 2000
+    p_signal = 2
+    p_noise = 20
+    X_sig = rng.normal(size=(n, p_signal))
+    X_noise = rng.normal(size=(n, p_noise))
+    X = np.column_stack([X_sig, X_noise])
+    # Low-entropy ~80/20 binary on the dominant signal column; H(y) ~= 0.50 nats. Less extreme than 99/1 so MRMR can confirm at least one feature under default confidence.
+    score = X_sig[:, 0] + 0.5 * X_sig[:, 1]
+    y = (score > np.quantile(score, 0.80)).astype(np.int64)
+    df, ys = _to_df(X, y)
+
+    X_train, X_test, y_train, y_test = train_test_split(df, ys, test_size=0.3, random_state=0, stratify=ys)
+
+    def _fit_and_score(mode):
+        kwargs = dict(verbose=0, random_seed=42, min_relevance_gain_mode=mode)
+        if mode == "absolute":
+            kwargs["min_relevance_gain"] = 0.0001
+        else:
+            # 0.01 of H(y) ~= 0.005 nats -- much stricter than absolute 0.0001 but still permissive enough for the dominant signal to be confirmed.
+            kwargs["min_relevance_gain_frac"] = 0.01
+        sel = MRMR(**kwargs)
+        sel.fit(X_train, y_train)
+        feats = list(sel.get_feature_names_out())
+        if not feats:
+            return float("nan"), 0
+        clf = LogisticRegression(max_iter=400, random_state=0).fit(X_train[feats], y_train)
+        auc = roc_auc_score(y_test, clf.predict_proba(X_test[feats])[:, 1])
+        return auc, len(feats)
+
+    auc_abs, k_abs = _fit_and_score("absolute")
+    auc_rel, k_rel = _fit_and_score("relative_to_entropy")
+    # Both modes must produce at least one feature on this target so the AUC comparison is meaningful.
+    assert k_abs >= 1 and k_rel >= 1, (
+        f"Both modes should confirm at least one feature on a 80/20 target; got k_abs={k_abs}, k_rel={k_rel}"
+    )
+    # Relative mode picks <= features than absolute mode on this low-entropy target (the absolute floor over-permits noise into support_).
+    assert k_rel <= k_abs, (
+        f"relative mode should select <= features than absolute; got k_rel={k_rel}, k_abs={k_abs}"
+    )
+    # Relative-mode AUC must not regress materially; typically it is at-or-above absolute-mode because LR is hurt by noise features the absolute floor admitted.
+    assert auc_rel >= auc_abs - 0.01, (
+        f"relative-mode AUC must not be more than 0.01 below absolute-mode AUC; got auc_rel={auc_rel:.4f}, auc_abs={auc_abs:.4f} (k_rel={k_rel}, k_abs={k_abs})"
+    )

@@ -376,7 +376,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         full_npermutations: int = 3,
         baseline_npermutations: int = 2,
         # stopping conditions
+        # min_relevance_gain: absolute MI floor. In ``min_relevance_gain_mode='absolute'`` the screening stops when marginal gain < this value verbatim; in the default ``'relative_to_entropy'`` mode this value is IGNORED and the effective absolute floor is ``min_relevance_gain_frac * H(y)``. The absolute mode is dataset-blind -- 0.0001 is enormous on a low-entropy target (99/1 binary, H(y) ~= 0.056) and tiny on a high-entropy one (uniform 10-class, H(y) ~= 2.30), so the default switched to the relative formulation.
         min_relevance_gain: float = 0.0001,
+        # Fraction of H(y) used as the effective absolute floor when ``min_relevance_gain_mode='relative_to_entropy'``. 0.001 = 0.1% of the target entropy.
+        min_relevance_gain_frac: float = 0.001,
+        # Resolution mode for ``min_relevance_gain``. ``'relative_to_entropy'`` scales the floor with H(y) so noisy features cannot pile up on low-entropy targets; ``'absolute'`` honours ``min_relevance_gain`` verbatim (legacy behaviour).
+        min_relevance_gain_mode: str = "relative_to_entropy",
         max_consec_unconfirmed: int = 10,
         max_runtime_mins: float = None,
         interactions_min_order: int = 1,
@@ -973,6 +978,31 @@ class MRMR(BaseEstimator, TransformerMixin):
                     data.shape[1],
                 )
 
+        # Resolve effective ``min_relevance_gain`` against the target entropy. ``'relative_to_entropy'`` mode uses ``min_relevance_gain_frac * H(y)`` so the stop floor scales with how much information the target actually carries; ``'absolute'`` mode retains the legacy verbatim value. The target is already discretized into bins (``data[:, target_indices[0]]`` with bin count ``nbins[target_indices[0]]``); ``np.bincount`` + Shannon entropy in nats matches the screen_predictors estimator family.
+        if self.min_relevance_gain_mode not in ("absolute", "relative_to_entropy"):
+            raise ValueError(
+                f"MRMR.min_relevance_gain_mode={self.min_relevance_gain_mode!r} must be 'absolute' or 'relative_to_entropy'."
+            )
+        if self.min_relevance_gain_mode == "relative_to_entropy":
+            _target_col_idx = int(target_indices[0])
+            _y_bins = data[:, _target_col_idx]
+            _y_nbins = int(nbins[_target_col_idx])
+            _y_counts = np.bincount(_y_bins, minlength=_y_nbins).astype(np.float64)
+            _y_total = float(_y_counts.sum())
+            if _y_total > 0:
+                _p = _y_counts[_y_counts > 0] / _y_total
+                _h_y_nats = float(-(_p * np.log(_p)).sum())
+            else:
+                _h_y_nats = 0.0
+            _effective_min_relevance_gain = float(self.min_relevance_gain_frac) * _h_y_nats
+            if verbose:
+                logger.info(
+                    "MRMR min_relevance_gain resolution: mode=relative_to_entropy, H(y)=%.4f nats, frac=%.4g, effective floor=%.6g (legacy absolute would have been %.6g).",
+                    _h_y_nats, self.min_relevance_gain_frac, _effective_min_relevance_gain, self.min_relevance_gain,
+                )
+        else:
+            _effective_min_relevance_gain = float(self.min_relevance_gain)
+
         num_fs_steps = 0
         while True:
             n_recommended_features = 0
@@ -1002,7 +1032,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     full_npermutations=self.full_npermutations,
                     baseline_npermutations=self.baseline_npermutations,
                     # stopping conditions
-                    min_relevance_gain=self.min_relevance_gain,
+                    min_relevance_gain=_effective_min_relevance_gain,
                     max_consec_unconfirmed=self.max_consec_unconfirmed,
                     max_runtime_mins=self.max_runtime_mins,
                     interactions_min_order=self.interactions_min_order,
