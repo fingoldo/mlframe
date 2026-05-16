@@ -1115,11 +1115,39 @@ def fit_and_transform_pipeline(
                 hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))
             )
 
+        # High-cardinality object/string columns are free-text, not categoricals.
+        # The downstream auto-detect (_phase_auto_detect_feature_types) will
+        # promote them to text_features, but it runs AFTER this pipeline-fit
+        # phase. Without this guard, the elif branch below converts text_col
+        # to pandas Categorical in-place; CB Pool then rejects it ("dtype
+        # 'category' but not in cat_features list") because by the time the
+        # CB Pool is built, text_col is correctly listed in text_features.
+        # Threshold mirrors FeatureTypesConfig.cat_text_cardinality_threshold
+        # default (300) and uses a SAMPLE-based unique count for cheap detection
+        # on million-row frames. Surfaced by fuzz iter#49 (object+text_col+cb).
+        _CAT_CARDINALITY_LIMIT = 300
+        _SAMPLE_SIZE = 5000
+
+        def _looks_text(_series):
+            dtype_name = _series.dtype.name
+            if dtype_name not in ("object", "string", "string[pyarrow]", "large_string[pyarrow]"):
+                return False
+            n_rows = len(_series)
+            if n_rows == 0:
+                return False
+            sample = _series.iloc[: min(_SAMPLE_SIZE, n_rows)]
+            try:
+                n_unique_sample = sample.nunique(dropna=True)
+            except TypeError:
+                return False
+            return n_unique_sample > _CAT_CARDINALITY_LIMIT
+
         cat_features = [
             col for col in train_df.columns
             if train_df[col].dtype.name in PANDAS_CATEGORICAL_DTYPES
             and col not in _exclude_from_encoding
             and not _looks_embedding(train_df[col])
+            and not _looks_text(train_df[col])
         ]
 
         # Apply categorical encoding if specified (for models that don't support categorical natively)
