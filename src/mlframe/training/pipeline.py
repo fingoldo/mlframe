@@ -190,19 +190,21 @@ def _apply_pysr_fe(
     Gracefully skips on ImportError (Julia/PySR not installed). Raises a ``logger.warning`` when ``y_train`` is None (target not threaded through from the calling phase) - silent skip used to mask wiring bugs where ``pysr_enabled=True`` was set but the suite never invoked PySR.
     """
     if y_train is None:
-        import logging
-        logging.getLogger(__name__).warning(
+        logger.warning(
             "_apply_pysr_fe: pysr_enabled=True but y_train was not passed in "
             "(caller did not thread the target through). PySR feature "
             "engineering SKIPPED. Pass a 1-D y_train array to enable it."
         )
         return []
     try:
-        from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
+        from mlframe.feature_engineering.bruteforce import (
+            run_pysr_feature_engineering,
+            DEFAULT_BINARY_OPERATORS,
+            DEFAULT_UNARY_OPERATORS,
+        )
     except (ImportError, OSError, subprocess.CalledProcessError):
         if verbose:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "PySR feature engineering is enabled but the pysr / Julia "
                 "runtime is not importable. Skipping."
             )
@@ -215,14 +217,16 @@ def _apply_pysr_fe(
     # stabilises); equations sampled at iter=5 are noise-level. Default raised to 200 -- enough to find
     # reproducible signal on small tabular data, still ~10x faster than the bruteforce default for the
     # in-suite path; users wanting bruteforce-grade search pass ``niterations=2000`` in pysr_params.
+    # Operator set is bruteforce.py's blessed default (log + inv); previously hard-coded "log_abs" failed
+    # at Julia eval time because no operator with that name was defined in Main scope.
     defaults = dict(
         niterations=200,
         populations=15,
         population_size=33,
         tournament_selection_n=8,
         maxdepth=5,
-        binary_operators=["+", "-", "*", "/"],
-        unary_operators=["square", "exp", "log_abs"],
+        binary_operators=list(DEFAULT_BINARY_OPERATORS),
+        unary_operators=list(DEFAULT_UNARY_OPERATORS),
         procs=1,
         verbosity=0,
     )
@@ -259,7 +263,7 @@ def _apply_pysr_fe(
         )
     except Exception:
         if verbose:
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "PySR fit failed; skipping symbolic feature engineering.",
                 exc_info=True,
             )
