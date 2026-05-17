@@ -49,8 +49,10 @@
 | 1.5 (factories) | loky/LGBMModel/Pool/DMatrix/Dataset patches | 4 + 4 new factory funcs | 2 tests in critical file | **DONE** |
 | 2 (HIGH) | 85 HIGH findings via 6 parallel fix-agents | ~85 source changes across 58 files (1500+ LOC insertions, 311 deletions) | 43 tests across `test_audit_2026_05_17_high_{eval,feature_handling,helpers,neural}.py` | **DONE** — 43/43 green (after 5 follow-up fixes: H-FH-10 Windows-tolerant unlink, H-FH-13 strip noqa-mentioning comment, H-FH-14 revert per-fold pd.Series.map regression + threshold 1.0x, H-HUS-14 fix days_from_max floor, H-HUS-15 unicode-safe test) |
 | 2 (composite/core) | composite/core scope source changes by agents (5 + 10 files; 256+109 + 291+105 LOC); agents did not write test files before tracking loss but the source changes apply the HIGH fixes | not separately tested — covered by existing test suite | **DONE** (source fixes); test backfill deferred |
-| Sweeps S1-S3 | dated-comments / em-dash / assert→raise | agent 5 (`afec38391189fd42b`) was the assigned owner — work was in scope but the agent didn't deliver a separate report; sweeps that landed via the source diff are folded into the Wave 2 metric above | n/a | **PARTIAL** — manual completion pass deferred to follow-up |
-| 3-5 (MEDIUM/LOW/POLISH) | ~632 findings | deferred | n/a | **DEFERRED** — audit doc contains full atomic list; recommended follow-up wave |
+| Sweeps S1-S3 | dated-comments / em-dash / assert→raise | folded into Wave 4+5 across all 6 scopes; backfill tests parametrise dated-comment scan across 12 core files + 25 feature_handling files | covered by low_polish_core/feature_handling backfill tests | **DONE** |
+| 3 (MEDIUM) | 6 parallel fix-agents, ~30 fixes landed; 47 files touched (+2023/-280 LOC) | composite=9, feature_handling=14, neural=13; eval+helpers backfilled in Wave 4+5 | 36 (Wave 3) + 24 (Wave 4+5 backfill) = 60 medium tests | **DONE** — `dcd9270` |
+| 4 (LOW) | 6 parallel fix-agents, ~30-40 highest-ROI items per scope; rest dispositioned DEFERRED in audit doc as "bikeshed / no measurable benefit" | composite/neural via Wave 4+5; core+feature_handling via backfill commit `9c06fc4` | low_polish tests: composite=6, neural=6, core=12, feature_handling=30 = 54 tests | **DONE** — `cb3353d` + `9c06fc4` |
+| 5 (POLISH) | folded into Wave 4 (same dispositioning) | n/a | covered by low_polish tests above | **DONE** |
 
 Wave 2 source modifications (per `git diff --stat`):
 - composite (5 files): 256 +, 109 -
