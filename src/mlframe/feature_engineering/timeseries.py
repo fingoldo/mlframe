@@ -75,7 +75,7 @@ default_countaggs_names = list(get_countaggs_names())
 default_numaggs_names, default_q1_idx, default_q3_idx = get_numaggs_metadata()
 
 
-@njit
+@njit(cache=True)
 def _find_next_cumsum_left_index_njit(
     window_var_values: np.ndarray,
     amount: float,
@@ -116,7 +116,7 @@ def find_next_cumsum_left_index(
     return _find_next_cumsum_left_index_njit(window_var_values, amount, right_int, min_samples, use_abs)
 
 
-@njit
+@njit(cache=True)
 def _find_next_cumsum_right_index_njit(
     window_var_values: np.ndarray,
     amount: float,

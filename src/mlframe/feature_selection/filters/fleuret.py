@@ -151,7 +151,7 @@ def parallel_fleuret(
     return nfailed, i, dict(entropy_cache_dict)
 
 
-@njit()
+@njit(cache=True)
 def get_fleuret_criteria_confidence(
     data_copy: np.ndarray,
     factors_nbins: np.ndarray,

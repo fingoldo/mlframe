@@ -221,7 +221,7 @@ def handle_best_candidate(
     return best_gain, best_candidate, run_out_of_time
 
 
-@njit()
+@njit(cache=True)
 def evaluate_gain(
     current_gain: float,
     last_checked_k: int,

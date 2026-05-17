@@ -163,7 +163,7 @@ def categorize_1d_array(
 # =============================================================================
 
 
-@njit
+@njit(cache=True)
 def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
     res = np.empty(len(arr), dtype=dtype)
     for i, val in enumerate(arr):
@@ -179,17 +179,17 @@ def edges(arr, quantiles):
     return bin_edges
 
 
-@njit()
+@njit(cache=True)
 def quantize_dig(arr, bins):
     return np.digitize(arr, bins[1:-1], right=True)
 
 
-@njit()
+@njit(cache=True)
 def quantize_search(arr, bins):
     return np.searchsorted(bins[1:-1], arr, side="right")
 
 
-@njit()
+@njit(cache=True)
 def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, max_value: float = None, dtype: object = np.int8) -> np.ndarray:
     if min_value is None or max_value is None:
         min_value, max_value = arrayMinMax(arr)
@@ -218,7 +218,7 @@ def discretize_array(
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
 
 
-@njit()
+@njit(cache=True)
 def _discretize_array_impl(
     arr: np.ndarray, n_bins: int = 10, method: str = "quantile",
     min_value: float = None, max_value: float = None, dtype: object = np.int8,

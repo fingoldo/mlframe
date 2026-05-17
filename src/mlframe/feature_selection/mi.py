@@ -48,7 +48,7 @@ def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, 
     return mi
 
 
-@njit
+@njit(cache=True)
 def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, log_n_samples: float, n_bins: int = 15, hist_dtype: object = np.int64):
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
     a_hist = np.sum(joint_hist, axis=1)

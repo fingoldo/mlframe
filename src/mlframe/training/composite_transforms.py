@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # is the recursion in-line below when numba is not installed.
 if _HAS_NUMBA:
 
-    @_numba.njit(cache=False)
+    @_numba.njit(cache=True)
     def _ewma_kernel(base_f: np.ndarray, alpha: float, anchor: float) -> np.ndarray:
         n = base_f.size
         out = np.empty(n, dtype=np.float64)
@@ -39,7 +39,7 @@ if _HAS_NUMBA:
             out[i] = state
         return out
 
-    @_numba.njit(cache=False)
+    @_numba.njit(cache=True)
     def _frac_diff_inverse_kernel(
         t_f: np.ndarray, lags: int, weights: np.ndarray, anchor: float,
     ) -> np.ndarray:

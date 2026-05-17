@@ -21,7 +21,7 @@ from ._internals import NMAX_NONPARALLEL_ITERS
 from .info_theory import compute_mi_from_classes, merge_vars
 
 
-@njit()
+@njit(cache=True)
 def distribute_permutations(npermutations: int, n_workers: int) -> list:
     """Split ``npermutations`` across ``n_workers``; the remainder lands on the last worker."""
     avg_perms_per_worker = npermutations // n_workers
@@ -32,7 +32,7 @@ def distribute_permutations(npermutations: int, n_workers: int) -> list:
     return workload
 
 
-@njit()
+@njit(cache=True)
 def shuffle_arr(arr: np.ndarray) -> None:
     np.random.shuffle(arr)
 
@@ -159,7 +159,7 @@ def parallel_mi_prange(
     return int(nfailed_arr.sum()), npermutations
 
 
-@njit()
+@njit(cache=True)
 def parallel_mi(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,

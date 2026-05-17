@@ -23,7 +23,7 @@ from numba import njit
 from ._numba_utils import arr2str, unpack_and_sort
 
 
-@njit()
+@njit(cache=True)
 def merge_vars(
     factors_data: np.ndarray,
     vars_indices,
@@ -75,7 +75,7 @@ def merge_vars(
     return final_classes, freqs / len(factors_data), current_nclasses
 
 
-@njit()
+@njit(cache=True)
 def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     """Shannon entropy in nats. Bins below ``min_occupancy`` (or zero by default) are filtered out before the log to avoid ``0 * log(0)``."""
     if min_occupancy:
@@ -85,7 +85,7 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     return -(np.log(freqs) * freqs).sum()
 
 
-@njit()
+@njit(cache=True)
 def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float = 0) -> float:
     """Miller-Madow bias-corrected Shannon entropy.
 
@@ -106,7 +106,7 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
     return h_plugin + (k - 1) / (2.0 * n_samples)
 
 
-@njit()
+@njit(cache=True)
 def mi(
     factors_data,
     x: np.ndarray,
@@ -149,7 +149,7 @@ def mi(
     return entropy_x + entropy_y - entropy_xy
 
 
-@njit()
+@njit(cache=True)
 def conditional_mi(
     factors_data: np.ndarray,
     x: np.ndarray,

@@ -7,7 +7,7 @@ from scipy.stats import rankdata
 from sklearn.metrics import roc_auc_score, brier_score_loss
 
 
-@njit()
+@njit(cache=True)
 def generate_probs_from_outcomes(
     outcomes: np.ndarray, chunk_size: int = 20, scale: float = 0.1, nbins: int = 10, bins_std: float = 0.1, flip_percent: float = 0.6
 ) -> np.ndarray:

@@ -13,7 +13,7 @@ import numpy as np
 from numba import njit
 
 
-@njit()
+@njit(cache=True)
 def arr2str(arr) -> str:
     """Collision-safe ``@njit`` stringification of an integer array. Elements separated by ``_`` so distinct multisets always produce distinct strings; the
     naive concatenation collapsed ``sorted([1, 11])`` and ``sorted([1, 1, 1])`` to the same ``"111"`` and aliased entropy-cache slots in ``conditional_mi``.
@@ -28,7 +28,7 @@ def arr2str(arr) -> str:
     return out
 
 
-@njit()
+@njit(cache=True)
 def count_cand_nbins(X, factors_nbins) -> int:
     """Sum the bin count across the factors named in candidate ``X``. Used by ``screen_predictors`` to gate the confirmation step (permutation testing is
     skipped when the conditioning set has more bins than ``MAX_CONFIRMATION_CAND_NBINS``)."""
@@ -38,7 +38,7 @@ def count_cand_nbins(X, factors_nbins) -> int:
     return sum_cand_nbins
 
 
-@njit()
+@njit(cache=True)
 def unpack_and_sort(x, z):
     """Concatenate two integer iterables into a sorted numpy array. Used by ``conditional_mi`` cache-key construction: the canonical representation of the
     union ``X u Z`` must be ordering-independent so different call paths hit the same cache slot.
