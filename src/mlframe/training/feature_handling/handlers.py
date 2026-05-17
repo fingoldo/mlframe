@@ -1,22 +1,21 @@
 """
 Per-method TypedDict params + concrete ``HandlerSpec`` subclasses.
 
-Replaces the round-2-flagged ``params: Dict[str, Any]`` typo amnesty
-with discriminated unions: each params class carries a ``kind: Literal[...]``
-discriminator so pydantic can route on it. Misspelled fields raise at
-construction; misspelled methods route to the wrong params class only
-if the ``kind`` collides, which is impossible with disjoint string
-discriminators.
+Discriminated-union params: each params class carries a
+``kind: Literal[...]`` discriminator so pydantic can route on it.
+Misspelled fields raise at construction; misspelled methods route to
+the wrong params class only if the ``kind`` collides, which is
+impossible with disjoint string discriminators.
 
 The handler classes (``TextHandlerSpec``, ``CatHandlerSpec``) register
 themselves with the axis registry from
 :mod:`mlframe.training.feature_handling.axis` so they can be looked up
 by axis without import-cycles.
 
-Naming finalised in round 3 per user confirmation:
-  * ``frozen_text_embedding`` (was ``transformer_featurizer``)
-  * ``learnable_text_embedding`` (was ``transformer_trainable``)
-  * ``output="as_embedding_feature"`` (was ``"native_embedding"``)
+Naming:
+  * ``frozen_text_embedding``
+  * ``learnable_text_embedding``
+  * ``output="as_embedding_feature"``
 """
 
 from __future__ import annotations
@@ -51,7 +50,7 @@ from mlframe.training.feature_handling.providers import EmbeddingProvider  # noq
 #
 # The ``kind`` value MATCHES the corresponding ``HandlerSpec.method``
 # value, so a sanity validator on the spec can compare the two and
-# reject mismatches (round-3 R2-5: silent Union mismatch).
+# reject mismatches (defending against silent Union mismatch).
 
 
 class TfidfParams(BaseModel):
@@ -145,7 +144,7 @@ class NoParams(BaseModel):
 
 # Discriminated unions for params. pydantic picks the right class
 # based on the ``kind`` literal. Misspelled methods or method/params
-# mismatches raise ``ValidationError`` immediately (round-3 R2-5).
+# mismatches raise ``ValidationError`` immediately.
 
 TextHandlerParams = Union[
     TfidfParams,
@@ -192,7 +191,7 @@ class TextHandlerSpec(BaseModel, HandlerSpec):
         return Axis.TEXT
 
     def model_post_init(self, __context: Any) -> None:
-        """Round-3 R2-5: validate method and params.kind agree.
+        """Validate that method and params.kind agree.
 
         The discriminated Union prevents wrong params class for a given
         ``kind``, but a typo'd method like ``method="tdfif"`` would
@@ -224,8 +223,7 @@ class TextHandlerSpec(BaseModel, HandlerSpec):
             raise ValueError(
                 f"TextHandlerSpec method={self.method!r} does not match "
                 f"params.kind={params_kind!r}; the discriminated union routed "
-                f"to the wrong params class. This is the round-3 R2-5 silent-"
-                f"mismatch failure -- fix by aligning method and params.kind."
+                f"to the wrong params class. Fix by aligning method and params.kind."
             )
 
 
@@ -254,7 +252,7 @@ class CatHandlerSpec(BaseModel, HandlerSpec):
     params: CatHandlerParams = Field(default_factory=lambda: NoParams(kind="drop"), discriminator="kind")
 
     apply_to_columns: Optional[List[str]] = None
-    group_columns: Optional[List[str]] = None  # group-aware encoding (round-3 F11)
+    group_columns: Optional[List[str]] = None  # group-aware encoding
 
     @classmethod
     def axis(cls) -> Axis:

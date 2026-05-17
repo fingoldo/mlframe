@@ -124,8 +124,8 @@ class Transform:
     domain_check: Callable[[np.ndarray, np.ndarray], np.ndarray]
     description: str
     tags: frozenset[str] = field(default_factory=frozenset)
-    # R10c #3 (2026-05-11): grouped-transform support. When True, the
-    # wrapper extracts a ``groups`` array from a configured column and
+    # Grouped-transform support. When True, the wrapper extracts a
+    # ``groups`` array from a configured column and
     # passes it as a keyword argument to ``fit`` / ``forward`` /
     # ``inverse``. Used by ``linear_residual_grouped`` (per-segment alpha
     # with James-Stein shrinkage). Default False: legacy transforms
@@ -350,7 +350,7 @@ def _linear_residual_multi_fit(
         Either 1-D ``(n,)`` (K=1, equivalent to single-base linear_residual)
         or 2-D ``(n, K)`` for K-base joint fit.
     sample_weight
-        Optional row weights — same weighted-LS reformulation as
+        Optional row weights - same weighted-LS reformulation as
         single-base ``_linear_residual_fit``.
 
     Returns
@@ -358,9 +358,9 @@ def _linear_residual_multi_fit(
     dict with keys:
     - ``alphas``: list of K floats (one per base column).
     - ``beta``: float intercept.
-    - ``condition_number``: float — design-matrix condition number;
+    - ``condition_number``: float - design-matrix condition number;
       diagnostic only.
-    - ``collinear_fallback``: bool — True if condition number > the
+    - ``collinear_fallback``: bool - True if condition number > the
       gate, in which case ``alphas`` is all-zero and ``beta`` is the
       train mean of ``y`` (transform degenerates to ``T = y - mean(y)``).
     """
@@ -889,7 +889,7 @@ def _quantile_residual_domain(
 
 
 # ----------------------------------------------------------------------
-# monotonic_residual (R10c brainstorm round-2 extension A; non-parametric monotonic-spline residual).
+# monotonic_residual (non-parametric monotonic-spline residual).
 #
 # T = y - g(base), where g is a monotonic PCHIP interpolant fitted to per-knot median(y) on quantile-based knots of base. Generalises linear_residual to capture saturating / sigmoidal / convex-concave relationships that the linear OLS leaves in the residual.
 #
@@ -924,7 +924,7 @@ def _monotonic_residual_fit(
         }
     y_clean = y_f[finite]
     base_clean = base_f[finite]
-    # Knot x positions on quantile cuts of base (NOT linearly-spaced — uneven base distributions benefit from quantile placement).
+    # Knot x positions on quantile cuts of base (NOT linearly-spaced; uneven base distributions benefit from quantile placement).
     qs = np.linspace(0.0, 1.0, n_knots)
     knots_x = np.quantile(base_clean, qs)
     # Deduplicate ties (many identical base values collapse to fewer knots).
@@ -1491,7 +1491,7 @@ def is_composite_target_name(name: str) -> bool:
         return False
     if any(frag in name for frag in _COMPOSITE_NAME_FRAGMENTS):
         return True
-    # Legacy double-underscore format (pre-2026-05-13 pickles).
+    # Legacy double-underscore format (older pickles).
     for full in TRANSFORM_NAME_SHORT.keys():
         if f"__{full}__" in name:
             return True

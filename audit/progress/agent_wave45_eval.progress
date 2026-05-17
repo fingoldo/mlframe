@@ -1,0 +1,5 @@
+2026-05-17T21:21:57+03:00 START wave45_eval
+2026-05-17T21:24:47+03:00 PLAN: 1) strip unused imports evaluation.py 2) strip dated audit tags 3) backfill medium tests 4) wave45 tests
+2026-05-17T21:25:09+03:00 FIX1: evaluation.py unused imports stripped (is_classifier, classification_report, mean_absolute_error, max_error, r2_score, fast_* metrics, display, fast_calibration_report, fast_roc_auc, compute_fairness_metrics, phase, get_human_readable_set_size)
+2026-05-17T21:27:27+03:00 FIX2: stripped audit-history c0000/c0014/c0016/c0017/c0056/c0074/c0081/Session 2026-04-28/round-3 A#22 tags from _eval_helpers.py + _reporting.py
+2026-05-17T21:29:37+03:00 FIX3: created medium_eval backfill test file (10 tests)

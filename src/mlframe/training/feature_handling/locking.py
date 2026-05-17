@@ -17,9 +17,9 @@ This module wraps ``filelock.FileLock`` with two extras:
    ONCE. Surface the reclaim via ``StaleLockReclaimed`` log event
    so users know an orphan was cleaned up.
 
-Pin requirement: ``filelock>=3.15.0`` (round-3 chaos C16: 3.13.x had
-a Windows bug that left .lock files behind on crash; 3.15+ cleans up
-on context-manager exit, our PID layer covers the kill-9 case).
+Pin requirement: ``filelock>=3.15.0`` (3.13.x had a Windows bug that
+left .lock files behind on crash; 3.15+ cleans up on context-manager
+exit, our PID layer covers the kill-9 case).
 """
 
 from __future__ import annotations

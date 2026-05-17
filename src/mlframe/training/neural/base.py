@@ -109,7 +109,16 @@ class MetricSpec(BaseModel):
 
 
 def custom_collate_fn(batch):
-    # Return the batch as-is (mimicking lambda x: x)
+    """Identity collate: hands the raw batch list through unchanged.
+
+    DataLoader's default collate stacks each sample's tensors into a
+    batched tensor. Some datasets in this package yield non-tensor
+    objects (e.g. variable-length sequences pre-collated by their own
+    helpers) where that default raises. Passing this collate selects
+    "don't touch the batch" and lets the consumer handle structure.
+    Equivalent to ``lambda x: x`` but defined as a top-level callable
+    so it can be pickled for multi-worker DataLoaders.
+    """
     return batch
 
 
@@ -213,9 +222,14 @@ class PytorchLightningEstimator(BaseEstimator):
         if fit_params is None:
             fit_params = {}
 
-        # Enable TF32 for float32 matmul if on GPU
+        # Enable TF32 for float32 matmul if on GPU.
         if self.float32_matmul_precision and torch.cuda.is_available():
-            assert self.float32_matmul_precision in "highest high medium".split()
+            _allowed_matmul = ("highest", "high", "medium")
+            if self.float32_matmul_precision not in _allowed_matmul:
+                raise ValueError(
+                    f"float32_matmul_precision must be one of {_allowed_matmul}, "
+                    f"got {self.float32_matmul_precision!r}"
+                )
             if hasattr(torch, "set_float32_matmul_precision"):
                 torch.set_float32_matmul_precision(self.float32_matmul_precision)
                 logger.info("Enabled float32_matmul_precision=%s", self.float32_matmul_precision)
@@ -757,7 +771,8 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
 
 class PeriodicLearningRateFinder(LearningRateFinder):
     def __init__(self, period: int, *args, **kwargs):
-        assert period > 0 and isinstance(period, int)
+        if not (isinstance(period, int) and period > 0):
+            raise ValueError(f"period must be a positive int, got {period!r}")
         super().__init__(*args, **kwargs)
         self.period = period
 

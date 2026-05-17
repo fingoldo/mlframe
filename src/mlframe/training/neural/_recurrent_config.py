@@ -96,24 +96,21 @@ class RecurrentConfig:
     # Preprocessing
     scale_features: bool = True
 
-    # Sequence preprocessing strategy (audit 2026-05-17, finding C9).
+    # Sequence preprocessing strategy.
     #
-    # ``"none"`` (default, post-audit): pass sequences through unchanged.
-    #     Magnitude is preserved -- correct when the absolute scale of
-    #     channels carries discriminative information (the common case
-    #     for generic ML usage).
+    # ``"none"`` (default): pass sequences through unchanged. Magnitude
+    #     is preserved, correct when the absolute scale of channels
+    #     carries discriminative information (the common case for
+    #     generic ML usage).
     # ``"per_sequence_zscore"``: z-score each channel within each
     #     sequence independently. Correct when each sequence is a
     #     standalone time-series whose absolute scale is meaningless
-    #     (e.g. one stock's price series) -- BUT destroys magnitude
-    #     information across sequences. Pre-audit this was the implicit
-    #     hardcoded behaviour, which was wrong for the typical
-    #     classification / regression case.
+    #     (e.g. one stock's price series) but destroys magnitude
+    #     information across sequences.
     # ``"astronomy_mjd_delta"``: legacy compat for astronomy datasets
     #     where column 0 is an MJD timestamp delta-encoded and scaled
-    #     by 10 (an in-house dataset's convention). Provided so the
-    #     existing astronomy pipeline doesn't break after the default
-    #     flip; new users should not pick this.
+    #     by an in-house dataset's convention. Provided for backwards
+    #     compatibility; new users should not pick this.
     sequence_preprocessing: str = "none"
 
     # Output

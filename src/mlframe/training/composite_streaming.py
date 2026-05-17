@@ -1,4 +1,4 @@
-"""OPEN-8 helper: streaming_alpha_check_and_refit Chow-style drift detector + refit for linear_residual coefficients. Lazy-imports ``_linear_residual_fit`` from composite.py."""
+"""Streaming alpha check/refit: Chow-style drift detector + refit for linear_residual coefficients. Lazy-imports ``_linear_residual_fit`` from composite.py."""
 
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------
-# Streaming alpha re-fit (R10c brainstorm extension #8; concept-drift guard).
+# Streaming alpha re-fit (concept-drift guard).
 #
 # Online maintenance of the ``linear_residual`` alpha when production data drifts away from the training distribution. Two helpers:
 #
@@ -78,9 +78,9 @@ def streaming_alpha_check_and_refit(
     fit_params = _linear_residual_fit(y_clean, base_clean)
     alpha_buf = float(fit_params["alpha"])
     beta_buf = float(fit_params["beta"])
-    # ENS-Low-3: residual-based OLS slope SE (was y_std / sqrt(n)/base_std,
-    # which inflates SE when the regressor explains most variance). Correct
-    # form: SE(alpha) = sqrt(SSE / (n-2)) / (sqrt(n) * base_std).
+    # Residual-based OLS slope SE. Form: SE(alpha) = sqrt(SSE / (n-2)) /
+    # (sqrt(n) * base_std). The naive y_std / (sqrt(n) * base_std)
+    # over-inflates SE when the regressor explains most variance.
     base_std = float(np.std(base_clean))
     n_buf = int(finite.sum())
     if base_std < 1e-12:

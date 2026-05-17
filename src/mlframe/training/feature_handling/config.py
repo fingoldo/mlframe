@@ -1,17 +1,14 @@
 """
 Sub-configs + top-level :class:`FeatureHandlingConfig`.
 
-Final structure after the round-2 UX audit nested the previously-flat
-25-field surface into 5 sub-configs (round-2 U-R2-1: cognitive load
-drops drastically; user readily-confirmed). Top-level FHC now exposes
-~8 fields; the rest live under ``cache``, ``memory``, ``pricing``,
-``logging``, ``repro``, ``text_detection``.
+The previously-flat 25-field surface is nested into 5 sub-configs to
+reduce cognitive load. Top-level FHC exposes ~8 fields; the rest live
+under ``cache``, ``memory``, ``pricing``, ``logging``, ``repro``,
+``text_detection``.
 
-Phase A scope. The fields are wired structurally (validated, default-
-factories, auto-derive logic for memory budgets, describe stub) but
-the deep consumers in phases B-G read them by attribute -- no
-behaviour change in the suite call until phase D wires the cache
-layer.
+The fields are wired structurally (validated, default-factories,
+auto-derive logic for memory budgets, describe stub); deep consumers
+read them by attribute.
 """
 
 from __future__ import annotations
@@ -96,9 +93,9 @@ class CacheConfig(BaseConfig):
     """
     model_config = ConfigDict(extra="forbid")
     persistence: Literal["off", "auto", "read_only", "read_write"] = "off"
-    namespace: str = "default"  # round-3 F4: A/B testing seam
+    namespace: str = "default"  # A/B testing seam
     dir: Optional[str] = None
-    dataset_id: Optional[str] = None  # bypass content fingerprinting (round-3 user feedback)
+    dataset_id: Optional[str] = None  # bypass content fingerprinting
 
     # In-memory tier (auto-derived if None)
     ram_max_gb: Optional[float] = None
@@ -172,8 +169,8 @@ class ReproConfig(BaseConfig):
 
 class TextDetectionConfig(BaseConfig):
     """Multi-criteria text-vs-categorical heuristic with anti-UUID
-    guards. Replaces the pre-2026 single-trigger
-    ``cat_text_cardinality_threshold > 300`` (round-2 A10).
+    guards. Replaces the legacy single-trigger
+    ``cat_text_cardinality_threshold > 300``.
     """
     model_config = ConfigDict(extra="forbid")
 
@@ -184,8 +181,8 @@ class TextDetectionConfig(BaseConfig):
     text_min_unique_ratio: float = Field(default=0.95, ge=0.0, le=1.0)
     text_min_cardinality: int = Field(default=300, ge=1)
 
-    # Anti-UUID guards (round-3 R2-21: tightened to 4.5 to keep UUID-v4
-    # at 4.04 below the threshold).
+    # Anti-UUID guards: threshold tightened to 4.5 to keep UUID-v4
+    # at 4.04 below the threshold.
     min_alphabet_entropy: float = Field(default=4.5, ge=0.0)
     min_mean_tokens_for_text: float = Field(default=2.0, ge=0.0)
 
@@ -196,9 +193,8 @@ class TextDetectionConfig(BaseConfig):
 
     sample_size_for_stats: int = Field(default=50_000, gt=0)
 
-    # Round-3 user-confirmation: respect_explicit_categorical_dtype
-    # default flipped to True for greenfield -- categorical/Enum dtype
-    # signals user intent and beats the cardinality heuristic.
+    # respect_explicit_categorical_dtype: categorical/Enum dtype signals
+    # user intent and beats the cardinality heuristic.
     respect_explicit_categorical_dtype: bool = True
 
 
@@ -212,10 +208,9 @@ class ModelHandlingOverride(BaseConfig):
     chains. Phase A: scalar shorthand acceptance lives at the FHC
     level; this dataclass is the canonical-form structure.
 
-    `text_append` / `cat_append` semantics (round-3 U-R2-4): when set,
-    APPEND to the FHC-level default rather than replacing. Common
-    pattern: "all models get tfidf, plus mlp gets a learnable_text
-    block on top".
+    `text_append` / `cat_append` semantics: when set, APPEND to the
+    FHC-level default rather than replacing. Common pattern: "all
+    models get tfidf, plus mlp gets a learnable_text block on top".
     """
     model_config = ConfigDict(extra="forbid")
     cat: Optional[List[CatHandlerSpec]] = None
@@ -242,8 +237,7 @@ class FeatureHandlingConfig(BaseConfig):
       * :attr:`logging` -- verbosity + PII redaction.
       * :attr:`repro` -- reproducibility safeguards (opt-in).
 
-    Greenfield -- no aliases, no deprecation. Phase A wires the
-    structure; phases B-G consume it.
+    Greenfield -- no aliases, no deprecation.
 
     Examples
     --------
@@ -266,20 +260,19 @@ class FeatureHandlingConfig(BaseConfig):
 
     # === Per-model / per-target overrides
     per_model: Dict[str, ModelHandlingOverride] = Field(default_factory=dict)
-    per_target: Dict[str, FeatureHandlingConfig] = Field(default_factory=dict)  # round-3 F10 reserved
+    per_target: Dict[str, FeatureHandlingConfig] = Field(default_factory=dict)  # reserved
 
-    # === Mode (round-3 F13)
+    # === Mode
     mode: Literal["fit", "predict"] = "fit"
 
-    # === Provider config (round-3 user-confirmed: structured object,
-    # not colon-string; multilingual default since corpus may be any
-    # language).
+    # === Provider config (structured object, not colon-string;
+    # multilingual default since corpus may be any language).
     default_text_provider: Optional[EmbeddingProvider] = None
 
     # auto-locale: when "off" the default_text_provider falls back to
-    # ``intfloat/multilingual-e5-small`` (more general, per user
-    # confirmation 2026-05-09). "always" probes via langdetect on
-    # every FHC; "fallback_only" probes only when default unset.
+    # ``intfloat/multilingual-e5-small`` (more general).
+    # "always" probes via langdetect on every FHC; "fallback_only"
+    # probes only when default unset.
     auto_locale_detection: Literal["off", "always", "fallback_only"] = "fallback_only"
     auto_locale_sample_size: int = Field(default=1000, gt=0)
     auto_locale_english_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
@@ -307,7 +300,7 @@ class FeatureHandlingConfig(BaseConfig):
         ``cache.ram_reserve_gb`` from system probe when None.
 
         cgroup-aware via ``detect_memory_limit_bytes`` -- containers
-        get container limits, not host RAM (round-3 R2-1).
+        get container limits, not host RAM.
         """
         total_bytes = detect_memory_limit_bytes()
         total_gb = total_bytes / 1e9
@@ -443,12 +436,7 @@ class FeatureHandlingConfig(BaseConfig):
         *,
         short: bool = True,
     ) -> Dict[str, Any]:
-        """Return a printable resolution plan.
-
-        Phase A returns a structural summary only -- the per-column
-        auto-text-detection decisions land in phase K when
-        ``_detect_text_columns_polars`` is wired through.
-        """
+        """Return a printable resolution plan (structural summary)."""
         base = {
             "mode": self.mode,
             "default_text_provider": self.default_text_provider,
@@ -468,7 +456,7 @@ class FeatureHandlingConfig(BaseConfig):
 
     def __repr__(self) -> str:
         # Surface auto-derived values in repr so they're visible at the
-        # debugger / log line, not buried (round-3 U-R2-5).
+        # debugger / log line, not buried.
         return (
             f"FeatureHandlingConfig(mode={self.mode!r}, "
             f"per_model={list(self.per_model)}, "
@@ -483,8 +471,7 @@ class FeatureHandlingConfig(BaseConfig):
     def validate_against_models(self, mlframe_models: List[str]) -> None:
         """Walk per_model + defaults, validate each (model, axis,
         method) tuple against the compat matrix. Raises a single
-        combined ``ValueError`` listing every mismatch (round-3
-        U-R2-29).
+        combined ``ValueError`` listing every mismatch.
 
         Called by ``train_mlframe_models_suite`` immediately after
         FHC construction with the active ``mlframe_models`` list.

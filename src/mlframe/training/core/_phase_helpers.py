@@ -16,8 +16,6 @@ import polars as pl
 if TYPE_CHECKING:
     from ._training_context import TrainingContext
 
-from sklearn.pipeline import Pipeline
-
 from ._misc_helpers import (
     _auto_detect_feature_types, _cfg_get, _df_shape_str, _drop_cols_df,
     _elapsed_str, _validate_feature_type_exclusivity,
@@ -34,7 +32,7 @@ from ..utils import (
 )
 from ..strategies import get_strategy, get_polars_cat_columns
 from ..splitting import make_train_test_split
-from ..pipeline import apply_preprocessing_extensions, fit_and_transform_pipeline, prepare_df_for_catboost, prepare_dfs_for_catboost_joint
+from ..pipeline import apply_preprocessing_extensions, fit_and_transform_pipeline, prepare_dfs_for_catboost_joint
 from ._setup_helpers import _apply_outlier_detection_global, _compute_fairness_subgroups, _convert_dfs_to_pandas
 
 logger = logging.getLogger(__name__)
@@ -378,7 +376,7 @@ def _phase_pandas_conversion_and_cat_prep(
     val_df_polars = val_df_polars_pre
     test_df_polars = test_df_polars_pre
 
-    # TODO 2026-05-17: surface the per-model strategy list to feed the ``defer_pandas_conv``
+    # TODO: surface the per-model strategy list to feed the ``defer_pandas_conv``
     # heuristic when it lands. Until then the list is built on-demand inside the verbose-only
     # log branches below (its only consumer), avoiding a get_strategy() pass on every call.
     _has_rfecv = bool(rfecv_models)
@@ -1117,8 +1115,8 @@ def _phase_fit_pipeline(
                     _y_train_for_ext = _y_train_for_ext[:, 0]
                 # target_by_type carries the PRE-split full target; slice to train_idx
                 # so PySR's symbolic FE only sees train-set y. Without this we hit a
-                # length mismatch (full=5077502, train=4091828 in prod log 2026-05-16)
-                # and PySR was silently skipped.
+                # length mismatch (e.g. full ~5M rows vs train ~4M) and PySR is silently
+                # skipped.
                 if (
                     _y_train_for_ext is not None
                     and train_idx is not None

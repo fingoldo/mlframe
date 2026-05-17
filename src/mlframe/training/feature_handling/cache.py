@@ -1,13 +1,12 @@
 """
 Multi-tier feature-handling cache.
 
-User-confirmed architecture (round-3 simplification):
+Architecture:
 
 * **In-memory tier**: cheap session-keyed lookup. Within one
   ``train_mlframe_models_suite()`` call, ``id(train_df)`` is safe
   (we hold a strong ref) so no content hashing is done in hot path.
-  This avoids the 30s/fit overhead from arrow-buffer materialisation
-  the round-2 perf agent flagged.
+  This avoids the 30s/fit overhead from arrow-buffer materialisation.
 
 * **Disk tier (opt-in)**: ``cache.persistence != "off"`` activates
   disk-backed storage with content-fingerprint-based keys (computed
@@ -36,12 +35,9 @@ Eviction:
 
 Eviction strategies:
   * "lru" -- straight LRU (default for in-memory).
-  * "size_weighted" -- score = ``size_gb / (recompute_time_s × (1 +
-    access_count))``; prefers evicting big-cheap entries (round-3 A6).
+  * "size_weighted" -- score = ``size_gb / (recompute_time_s * (1 +
+    access_count))``; prefers evicting big-cheap entries.
   * "lfu" -- least-frequently-used; ties broken by LRU.
-
-Phase D ships the foundation. Vocab caches (TF-IDF / cat codebook)
-in phase D.4 sit on top of this primitive.
 """
 
 from __future__ import annotations
@@ -110,8 +106,7 @@ class FeatureCache:
     (constructed lazily when the first handler runs).
 
     The cache is process-local. Cross-process locking on the disk
-    tier comes later (round-3 plan) but isn't needed for the v1
-    solo-greenfield workload.
+    tier is not implemented (single-process workload).
 
     Public surface:
       * :meth:`get_or_compute(key, compute_fn)` -- the only consumer
@@ -302,7 +297,7 @@ class FeatureCache:
             return next(iter(self._mem))  # OrderedDict head = oldest
         if strategy == "lfu":
             return min(self._mem.items(), key=lambda kv: (kv[1].access_count, kv[1].inserted_at))[0]
-        # size_weighted (round-3 A6): score = size_gb / (rt * (1 + access_count))
+        # size_weighted: score = size_gb / (rt * (1 + access_count))
         # higher score = first to evict (big + cheap to recompute + rarely used)
         best_key = None
         best_score = -1.0
@@ -468,7 +463,7 @@ def _serialize(value: Any, fileobj: Any, *, allow_pickle: bool = False) -> None:
 
 def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
     """Inverse of :func:`_serialize`. Memmap on read for ndarray
-    payloads (round-3 P8: fp16 memmap saves 5-10 GB peak RAM).
+    payloads (fp16 memmap saves 5-10 GB peak RAM).
 
     ``np.load`` is opened with ``allow_pickle=allow_pickle``; the
     pickle-file fallback (legacy from the old write path) is only

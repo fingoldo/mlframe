@@ -1,4 +1,4 @@
-"""OPEN-10 helpers: composite_predictions_as_feature attaches a fitted wrapper's predictions to a dataframe as a new column; composite_oof_predictions runs K-fold OOF stacking to avoid in-sample leakage. Both use ``CompositeTargetEstimator``-style wrappers passed in by the caller; no compile-time dep on the wrapper class itself."""
+"""Composite x FE-pipeline stacking helpers: ``composite_predictions_as_feature`` attaches a fitted wrapper's predictions to a dataframe as a new column; ``composite_oof_predictions`` runs K-fold OOF stacking to avoid in-sample leakage. Both use ``CompositeTargetEstimator``-style wrappers passed in by the caller; no compile-time dep on the wrapper class itself."""
 
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------
-# composite_predictions_as_feature (R10c brainstorm #10; composite x FE-pipeline stacking).
+# composite_predictions_as_feature (composite x FE-pipeline stacking).
 #
 # Exposes a fitted composite-target model's predictions as an engineered feature column on the input dataframe. The downstream FE pipeline / final model treats it like any other feature, enabling a single-final-model alternative to the cross-target NNLS ensemble: the final model corrects the composite's bias regions on the SAME row using all other features.
 #
@@ -64,7 +64,7 @@ def composite_predictions_as_feature(
     try:
         import polars as pl  # type: ignore
         _is_polars = isinstance(df, pl.DataFrame)
-    except Exception:
+    except ImportError:
         pl = None  # type: ignore
         _is_polars = False
     if _is_polars:
@@ -127,14 +127,14 @@ def composite_oof_predictions(
     try:
         import polars as pl  # type: ignore
         _HAS_POLARS = True
-    except Exception:
+    except ImportError:
         pl = None  # type: ignore
         _HAS_POLARS = False
     for train_idx, val_idx in kf.split(indices):
         # Subset X for the fold. Polars / pandas handled separately to avoid silent materialisation.
         if _HAS_POLARS and isinstance(X, pl.DataFrame):
-            # Build boolean masks once per fold (ENS-P1-7): np.isin avoids
-            # the O(n^2) python list-comp + set(train_idx.tolist()) rebuild.
+            # Build boolean masks once per fold: np.isin avoids the O(n^2)
+            # python list-comp + set(train_idx.tolist()) rebuild.
             train_mask = np.isin(indices, train_idx, assume_unique=True)
             val_mask = np.isin(indices, val_idx, assume_unique=True)
             X_train = X.filter(pl.Series(train_mask))

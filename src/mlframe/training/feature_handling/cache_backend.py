@@ -1,18 +1,16 @@
 """
 ``CacheBackend`` Protocol + ``LocalDiskBackend`` implementation.
 
-Why an abstraction layer for one local backend: round-3 future-proofing
-F5 flagged that ``cache_dir: str`` and direct ``np.load``/``.npz``
-hard-codes "local disk forever". Cloud-native (S3, GCS, Azure Blob),
-shared-FS, distributed (Ray, Dask), federated -- all need a different
-backend. Retrofitting after rollout is a many-hundred-line change.
-The Protocol here is the seam; ``LocalDiskBackend`` is the only impl
-in v1, which is enough for solo greenfield.
+Why an abstraction layer for one local backend: ``cache_dir: str`` and
+direct ``np.load``/``.npz`` would hard-code "local disk forever".
+Cloud-native (S3, GCS, Azure Blob), shared-FS, distributed (Ray, Dask),
+federated -- all need a different backend. Retrofitting after rollout
+is a many-hundred-line change. The Protocol here is the seam;
+``LocalDiskBackend`` is the only impl in v1.
 
-Atomic writes route through :func:`mlframe.training.io.atomic_write_bytes`
-(existing helper, lines 21-66) -- no new ``_atomic_write`` was needed.
-That helper already does the tempfile → ``os.replace`` dance and
-cleans up on exception (round-3 chaos C1 verified satisfied).
+Atomic writes route through :func:`mlframe.training.io.atomic_write_bytes`,
+which does the tempfile then ``os.replace`` dance and cleans up on
+exception.
 
 Per-key locking goes through :class:`mlframe.training.feature_handling.locking.PIDAwareFileLock`.
 """
@@ -298,7 +296,3 @@ class LocalDiskBackend:
 # to pin the contract.
 
 
-@contextlib.contextmanager
-def _noop_lock():  # pragma: no cover -- helper for backends that don't lock
-    """For backends without locking (in-memory, shared-Ray queues)."""
-    yield

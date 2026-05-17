@@ -64,7 +64,7 @@ def _column_to_string_iter(
 ):
     """Polars / pandas -agnostic extraction of a column as an iterable of str.
 
-    Coerces None / NaN to "" so the underlying vectoriser doesn't crash (round-3 T8). Non-string types
+    Coerces None / NaN to "" so the underlying vectoriser doesn't crash. Non-string types
     are stringified -- caller should not pass numeric columns here (auto-detector excludes them).
 
     Returns a LAZY generator (not a materialised list) so 1M-row text columns don't double-allocate:
@@ -215,10 +215,9 @@ class TextColumnEncoder:
         texts: Sequence[str],
         also_transform: bool = False,
     ):
-        # TODO(phase upstream): when polars-ds ships native TF-IDF /
-        # hashing in Blueprint, branch here via self._dispatcher.has()
-        # and feed the polars-native path. For now, sklearn is the
-        # only impl (round-3 audit confirmed polars-ds 0.11.x absence).
+        # TODO: when polars-ds ships native TF-IDF / hashing, branch
+        # here via self._dispatcher.has() and feed the polars-native
+        # path. For now sklearn is the only impl.
         from sklearn.feature_extraction.text import (
             HashingVectorizer,
             TfidfVectorizer,

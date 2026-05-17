@@ -1,0 +1,6 @@
+START 2026-05-17T21:22 wave45 neural+ranker scope
+PLAN ~30 fixes: S1 dated comments, S3 assert->raise (10), seq_input_size const, setup() docstrings, _DELTA_MJD_SCALE docs
+FIX S1.1-4 dated comments stripped
+FIX S3.1 flat.py:106-112 7x assert -> ValueError (generate_mlp public API)
+FIX S3.2 base.py:218 assert float32_matmul_precision -> ValueError
+FIX S3.3 base.py:760 assert period -> ValueError

@@ -607,10 +607,22 @@ def make_train_test_split(
                 _new_test_mask[test_idx] = True
                 _new_test_mask |= _to_test_mask
 
-                # Verify partition invariants before commit.
-                assert not (_new_train_mask & _new_val_mask).any()
-                assert not (_new_train_mask & _new_test_mask).any()
-                assert not (_new_val_mask & _new_test_mask).any()
+                # Verify partition invariants before commit. Using raise (not
+                # assert) so the check survives `python -O` / `PYTHONOPTIMIZE=1`
+                # which strips bare asserts - a partition bug would then
+                # silently corrupt the split rather than fail loud.
+                if (_new_train_mask & _new_val_mask).any():
+                    raise RuntimeError(
+                        "Group-spanning cutoff resolution: train and val masks overlap after promote"
+                    )
+                if (_new_train_mask & _new_test_mask).any():
+                    raise RuntimeError(
+                        "Group-spanning cutoff resolution: train and test masks overlap after promote"
+                    )
+                if (_new_val_mask & _new_test_mask).any():
+                    raise RuntimeError(
+                        "Group-spanning cutoff resolution: val and test masks overlap after promote"
+                    )
 
                 n_reassigned = int(_to_val_mask.sum() + _to_test_mask.sum())
                 train_idx = np.flatnonzero(_new_train_mask).astype(np.intp)

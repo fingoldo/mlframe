@@ -77,7 +77,7 @@ _SCALER_FACTORIES = {
 # Row-wise normalizers (Normalizer with norm=l2/l1/max) were previously listed
 # here under "scaler". They are NOT column scalers: they project each *sample*
 # onto a unit hypersphere, which silently breaks tree-based models that rely
-# on absolute feature magnitudes. Removed 2026-05-15; row-wise transforms will
+# on absolute feature magnitudes. They are excluded here; row-wise transforms will
 # get a dedicated `row_transform` slot (see README.md "Roadmap").
 
 
@@ -89,15 +89,14 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
     """
     from sklearn.preprocessing import Binarizer, KBinsDiscretizer, PolynomialFeatures
     steps = []
-    # NaN-imputation guard 2026-04-27 (batch 3): KBinsDiscretizer,
+    # NaN-imputation guard: KBinsDiscretizer,
     # PolynomialFeatures, RBFSampler, Nystroem, and most sklearn
     # decompositions (PCA, TruncatedSVD, FastICA, ...) reject NaN at
     # fit time with ``ValueError: Input X contains NaN``. The
     # mlframe upstream preprocessing handles NaN for the GBDT
     # backends (CB / HGB / XGB) which tolerate NaN natively, so
     # numeric NaN can survive into ``apply_preprocessing_extensions``
-    # untouched (fuzz seed=2024 c0040 -- n=1000 polars_utf8 with
-    # inject_inf_nan + prep_ext_kbins=5). Prepend a SimpleImputer so
+    # untouched. Prepend a SimpleImputer so
     # any active extension step sees finite values; on clean data
     # the imputer is a near-zero-cost no-op (one statistic per
     # column).
@@ -436,20 +435,20 @@ def apply_preprocessing_extensions(
     # pipeline so that discovered equation features benefit from downstream
     # scaling, polynomial expansion, etc.
     if getattr(config, "pysr_enabled", False):
-        _pysr_cols = _apply_pysr_fe(
+        # _apply_pysr_fe mutates train/val/test in place; its return value
+        # (the new column names) is intentionally discarded here.
+        _apply_pysr_fe(
             train_df=train, val_df=val, test_df=test,
             y_train=y_train,
             config=config,
             verbose=verbose,
             out_equations=out_pysr_equations,
         )
-        # _pysr_cols are the names of the new columns; already added to
-        # train/val/test in-place inside _apply_pysr_fe.
 
     # TF-IDF preflight: vectorize declared text columns and replace them with
     # numeric features before downstream sklearn steps (which expect numeric).
     #
-    # Column-parity invariant (2026-04-19 round-9 probe): train, val, and
+    # Column-parity invariant: train, val, and
     # test MUST emerge from TF-IDF with the same column set. Pre-fix the
     # code only TF-IDF-expanded train and left val/test untouched when
     # the text column happened to be missing from val/test (sparse splits,
@@ -767,7 +766,7 @@ def _select_scalable_numeric_columns(
     upstream from the fuzz harness, which masked the bug. The proper
     fix is to filter at the scaler boundary so production users with
     a single zero-spread column don't blow up the whole pipeline
-    (fuzz c0008 / c0116 / 2026-04-26).
+    (fuzz seeds c0008 / c0116).
     """
     scalable: List[str] = []
     skipped_reasons: dict = {}
@@ -776,11 +775,11 @@ def _select_scalable_numeric_columns(
     if not numeric_cols:
         return scalable
 
-    # 2026-05-08 perf: batch all per-col stats into ONE collect via
-    # lazy select. Previous loop did 3 collects per col (n_non_null
-    # check + 2 stat computations for the chosen ``method``); on c0031
-    # (~15 numeric cols, method=robust) that was ~45 PyLazyFrame.collect
-    # calls = ~0.4s wasted. Batched -> 1 collect total.
+    # Batch all per-col stats into ONE collect via lazy select. The
+    # naive per-col path would do 3 collects per col (n_non_null check +
+    # 2 stat computations for the chosen ``method``); on ~15 numeric
+    # cols with method=robust that's ~45 PyLazyFrame.collect calls (~0.4s
+    # wasted). Batched -> 1 collect total.
     has_drop_nans = all(hasattr(train_df[c], "drop_nans") for c in numeric_cols)
     select_exprs = []
     for c in numeric_cols:
@@ -887,7 +886,7 @@ def create_polarsds_pipeline(
             must NOT be ordinal/onehot-encoded. polars-ds's ``ordinal_encode(cols=None)``
             encodes ALL string-like columns it finds, which includes user-declared
             text_features like ``skills_text`` or synthetic fuzz ``text_0``
-            (discovered 2026-04-23 on fuzz c0085/c0049 -> CB Pool build failed with
+            (discovered on fuzz seeds c0085/c0049 -> CB Pool build failed with
             ``Invalid type for text_feature ... =187.0 : text_features must have
             string type`` because the text column arrived as float32 ordinal
             codes). When this set is non-empty, pass an explicit ``cols=`` list
@@ -942,7 +941,7 @@ def create_polarsds_pipeline(
     # which collapses to zero (or NaN) for all-constant or all-null
     # columns, producing ``ComputeError: division by zero`` /
     # ``quantile(None)`` deep inside the polars-ds C++ kernel
-    # (fuzz c0008 / c0116 / 2026-04-26). The historical workaround
+    # (observed in fuzz seeds). The historical workaround
     # forced ``remove_constant_columns=True`` from the fuzz harness,
     # which masked the bug; the proper fix is to compute the
     # scalable-column subset in Python and pass it explicitly so
@@ -973,7 +972,7 @@ def create_polarsds_pipeline(
     # when ``excluded`` is non-empty so polars-ds never touches the
     # reserved columns. When ``excluded`` is empty, keep the historical
     # ``cols=None`` (auto-detect) behaviour for byte-for-byte
-    # compatibility with the pre-2026-04-23 fastpath.
+    # compatibility with the legacy fastpath behaviour.
     def _encodable_cols() -> List[str]:
         out: List[str] = []
         for name, dtype in train_df.schema.items():
@@ -1057,8 +1056,8 @@ def _warn_on_schema_drift(
 ) -> None:
     """Warn when a non-train split (val / test) schema differs from train.
 
-    Before this check (2026-04-19 probe finding): ``pipeline.transform()``
-    was called on val/test with no schema validation. Three failure
+    Before this check landed: ``pipeline.transform()`` was called on
+    val/test with no schema validation. Three failure
     modes silently propagated:
       - Missing column: polars-ds pipeline errored deep inside with an
         opaque traceback (column lookup failure).
@@ -1102,11 +1101,12 @@ def _warn_on_schema_drift(
             split_name, len(extra_in_other), sorted(extra_in_other),
         )
 
-    # 2026-05-08 perf: compare dtypes via str() instead of native ``!=``.
-    # On c0034 the native ``!=`` was triggering Series.equals via
-    # pandas Index.__eq__ machinery (some dtype values had pandas-like
-    # __ne__) costing ~270ms per call x 6 calls = 1.6s wasted. str()
-    # forces a plain Python string compare (microseconds) and matches
+    # Compare dtypes via str() instead of native ``!=``. The native
+    # ``!=`` was triggering Series.equals via pandas Index.__eq__
+    # machinery (some dtype values had pandas-like __ne__) costing
+    # ~270ms per call x 6 calls = 1.6s wasted on the observed prod
+    # frame. str() forces a plain Python string compare (microseconds)
+    # and matches
     # the existing ``str(train_schema[col]), str(other_schema[col])``
     # used for the WARN message anyway. Semantic difference: two
     # otherwise-equal Enum dtypes with the SAME underlying category
@@ -1161,7 +1161,7 @@ def fit_and_transform_pipeline(
     pipeline = None
     cat_features = []
 
-    # 2026-04-24: datetime column decomposition moved to
+    # Datetime column decomposition is performed in
     # ``train_mlframe_models_suite`` (core.py) BEFORE the pre-pipeline
     # polars-clone point so the clone inherits the numeric decomposition.
     # Calling it here too would be a no-op -- the caller has already
@@ -1184,11 +1184,11 @@ def fit_and_transform_pipeline(
                 logger.info(f"Applying Polars-ds pipeline...")
 
             # Capture train schema BEFORE the fit-time transform so we
-            # can compare val/test schemas against it below (2026-04-19
-            # schema-drift probe finding: pipeline.transform(val_df) was
-            # called without any schema validation; missing/extra cols
-            # or dtype mismatches silently propagated either to a
-            # downstream sklearn shape-error or garbage output).
+            # can compare val/test schemas against it below. Without
+            # this snapshot, pipeline.transform(val_df) was called
+            # without any schema validation; missing/extra cols or dtype
+            # mismatches silently propagated either to a downstream
+            # sklearn shape-error or garbage output.
             _train_schema_snapshot = dict(train_df.schema)
 
             t0_transform = timer()

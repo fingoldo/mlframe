@@ -8,7 +8,7 @@ Users compose variants themselves (no implicit sweep over hyperparameters).
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, Tuple, Union
 
 logger = logging.getLogger(__name__)
 

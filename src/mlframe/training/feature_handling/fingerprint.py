@@ -1,10 +1,10 @@
 """
 Content fingerprint + cache-key dataclasses.
 
-Round-3 user-confirmation: in-memory cache uses CHEAP session-keyed
-identity (id() within suite -- safe because we hold a strong ref);
-content hashing happens ONLY at disk-cache writes, computed once at
-suite start in a background thread.
+The in-memory cache uses cheap session-keyed identity (id() within
+suite -- safe because we hold a strong ref); content hashing happens
+only at disk-cache writes, computed once at suite start in a
+background thread.
 
 Two key types:
 
@@ -19,10 +19,9 @@ Two key types:
   ONCE at suite start.
 
 The :func:`fingerprint_df` builder uses a deterministic linspace
-stride sample (round-3 R2-3 fix: ``np.unique`` on ``np.linspace``-rounded
-indices avoids duplicates for ``n < 4096``; round-3 R3-07 fix:
-explicit early-return for tiny frames hashes the entire frame).
-Universal across polars and pandas.
+stride sample (``np.unique`` on ``np.linspace``-rounded indices
+avoids duplicates for ``n < 4096``; tiny frames bypass the stride
+and hash the entire frame). Universal across polars and pandas.
 """
 
 from __future__ import annotations
@@ -339,7 +338,7 @@ def fingerprint_df(
                 # polars accepts numpy int64 indices via gather()
                 sub = df.select(cols_sorted)[sample_idx.tolist()]
                 if _HAVE_XX:
-                    # Fast path (bench_fingerprint.py 2026-05: ~100-700x faster than to_csv).
+                    # Fast path: ~100-700x faster than to_csv (see bench_fingerprint.py).
                     # ``hash_rows`` is the polars-native rowwise xxhash; we re-hash its bytes to
                     # collapse N×u64 into a fingerprint identical-length to the legacy blake path.
                     payload_parts.append(sub.hash_rows().to_numpy().tobytes())

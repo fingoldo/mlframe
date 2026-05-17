@@ -405,11 +405,10 @@ def _fit_persist_and_transform(
 
     try:
         import polars as pl
-        _pl_avail = True
     except ImportError:
-        _pl_avail = False
+        pl = None  # type: ignore[assignment]
 
-    if _pl_avail and isinstance(X, pl.DataFrame) and all(dt.is_numeric() for dt in X.dtypes):
+    if pl is not None and isinstance(X, pl.DataFrame) and all(dt.is_numeric() for dt in X.dtypes):
         from .utils import get_pandas_view_of_polars_df
         cols = X.columns
         # First pass: impute (fill_nan with drop_nans mean). Imputed mean == drop_nans mean so the imputer

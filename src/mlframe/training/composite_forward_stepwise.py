@@ -1,4 +1,4 @@
-"""OPEN-1 helper: forward_stepwise_multi_base greedy base selection. Picks additional bases to extend a linear_residual seed via 3-fold CV-RMSE on joint-OLS predictions. Lazy-imports ``_linear_residual_multi_fit`` from composite.py to break the import cycle (composite.py re-exports this module at the bottom)."""
+"""Forward-stepwise multi-base selection: picks additional bases to extend a linear_residual seed via 3-fold CV-RMSE on joint-OLS predictions. Lazy-imports ``_linear_residual_multi_fit`` from composite.py to break the import cycle (composite.py re-exports this module at the bottom)."""
 
 
 from __future__ import annotations
@@ -13,13 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------
-# forward_stepwise_multi_base (OPEN-1 from R10c follow-up; greedy forward-stepwise selection of additional base columns for ``linear_residual_multi``).
+# forward_stepwise_multi_base (greedy forward-stepwise selection of additional base columns for ``linear_residual_multi``).
 #
-# Given a base set of candidate columns and a target y, greedily ADD bases one at a time as long as the marginal RMSE reduction from a joint OLS fit exceeds ``min_marginal_rmse_gain`` (relative -- default 2%). Caller seeds with one or more anchor bases (typically the single-base ``linear_residual`` winner from discovery); the helper returns the upgraded base list + per-step diagnostics so the caller can inspect what was added and why.
+# Given a base set of candidate columns and a target y, greedily ADD bases one at a time as long as the marginal RMSE reduction from a joint OLS fit exceeds ``min_marginal_rmse_gain`` (relative; default 2%). Caller seeds with one or more anchor bases (typically the single-base ``linear_residual`` winner from discovery); the helper returns the upgraded base list + per-step diagnostics so the caller can inspect what was added and why.
 #
 # Use case: after Discovery returns a single-base ``linear_residual__TVT_prev`` spec, the user can call this helper to find additional bases (Y / X / depth / etc.) that contribute orthogonal signal. The upgraded base list feeds into ``CompositeTargetEstimator(transform_name="linear_residual_multi", base_columns=upgraded_bases)`` for production training.
 #
-# Why not auto-integrate into Discovery.fit()? The forward-stepwise pass adds K * (n_candidates - K) tiny CV-RMSE evaluations on top of the existing pipeline. On TVT-scale data (4M rows, ~25 candidate bases), that's 60-100 extra fits = 2-5 min added to discovery. Per the R10c "measure-first" rule, auto-promotion needs benchmarking on real datasets first. Standalone helper ships now; auto-integration follows if benchmarks confirm the trade-off.
+# Not auto-integrated into Discovery.fit(): the forward-stepwise pass adds K * (n_candidates - K) extra CV-RMSE evaluations on top of the existing pipeline (e.g. on 4M rows / 25 candidate bases, 60-100 extra fits = 2-5 min). Standalone helper ships now; auto-integration is opt-in.
 # ----------------------------------------------------------------------
 
 _MULTI_BASE_DEFAULT_MAX_K: int = 3

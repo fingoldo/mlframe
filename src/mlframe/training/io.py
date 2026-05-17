@@ -3,6 +3,21 @@ Model serialization and I/O utilities for mlframe.
 
 Provides functions for saving, loading, and cleaning mlframe models using
 zstandard compression and dill serialization.
+
+Threat model
+------------
+Pickle / dill deserialization is a code-execution vector. The default
+``load_mlframe_model(file, safe=True)`` routes loads through
+:class:`_SafeUnpickler`, which restricts ``find_class`` to a small allowlist
+of module prefixes (numpy, pandas, polars, sklearn, torch, catboost,
+lightgbm, xgboost, builtins, collections, datetime, dataclasses, types,
+dill, scipy, mlframe, category_encoders) plus an explicit ``_SAFE_SPECIFIC``
+set for a handful of ``typing`` markers. Loads of attacker-controlled files
+should keep ``safe=True``; the ``safe=False`` opt-out emits a
+``UserWarning`` and runs the vanilla ``dill.load`` (intended for trusted
+in-process artefacts only). The atomic-write path in
+:func:`atomic_write_bytes` provides crash-safety on the save side and is
+unrelated to the unpickler trust boundary.
 """
 
 from __future__ import annotations

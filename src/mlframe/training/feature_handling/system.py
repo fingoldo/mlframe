@@ -1,23 +1,21 @@
 """
 System-level helpers for the feature-handling subsystem.
 
-Bundles three small but load-bearing utilities surfaced by the round-3
-audits:
+Bundles three small but load-bearing utilities:
 
 * :func:`detect_memory_limit_bytes` -- cgroup-aware memory probe so
   containerised runs (Docker / K8s) honour their cgroup limit instead
-  of the host RAM (round-3 architecture R2-1: container-blind budget
-  on a 4 GB container of a 256 GB host derived ``budget=179 GB`` and
-  OOM-killed instantly).
+  of the host RAM (container-blind budget on a 4 GB container of a
+  256 GB host derives ``budget=179 GB`` and OOM-kills instantly).
 
 * :func:`classify_cuda_error` + :class:`CudaErrorClass` -- splits the
   retryable ``OutOfMemoryError`` from the "context-lost, restart
   Python" generic CUDA error so the halve-batch retry loop doesn't
-  spin forever after a driver crash (round-3 chaos C4).
+  spin forever after a driver crash.
 
 * :func:`long_path_safe` -- prepends the ``\\?\\`` UNC marker on
   Windows so cache paths longer than 260 chars don't ``FileNotFoundError``
-  through ``os.replace`` (round-3 chaos C7).
+  through ``os.replace``.
 """
 
 from __future__ import annotations
@@ -46,9 +44,8 @@ def _read_cgroup_memory_limit_bytes() -> Optional[int]:
     """Return the cgroup memory limit in bytes, or ``None`` if not in
     a cgroup or limit is unset.
 
-    Handles both cgroup v2 (``memory.max`` containing literal ``"max"``
-    when unlimited -- round-3 chaos C25) and cgroup v1 (a 9.2e18
-    sentinel when unlimited).
+    Handles both cgroup v2 (``memory.max`` contains literal ``"max"``
+    when unlimited) and cgroup v1 (a 9.2e18 sentinel when unlimited).
     """
     if sys.platform != "linux":
         return None
@@ -101,7 +98,7 @@ def detect_memory_limit_bytes() -> int:
 
     try:
         psutil_total = psutil.virtual_memory().total
-    except Exception as e:  # pragma: no cover -- exotic Linux configs (round-3 C23)
+    except Exception as e:  # pragma: no cover -- exotic Linux configs
         logger.warning("psutil.virtual_memory failed (%s); assuming 8 GB", e)
         return int(8 * 1e9)
 

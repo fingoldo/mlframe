@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 
-# stacking-aware transform selection (R10c brainstorm round-2 extension C; measure-first gate).
+# Stacking-aware transform selection (measure-first gate).
 #
 # Two complementary helpers:
 # 1. ``residual_correlation_matrix(transform_residuals)``: measurement-first diagnostic. Computes the pairwise Pearson correlation between transform residuals to answer "are these transforms decorrelated enough that stacking will help?" When the off-diagonal max correlation exceeds ~0.8, the agent's brainstorm recommends NOT using the stacking-aware gate (transforms are too redundant -- the ensemble can't extract orthogonal signal).
@@ -126,7 +126,9 @@ def stacking_aware_gate(
     from scipy.optimize import nnls  # lazy
     try:
         w, _ = nnls(X[finite_rows], y[finite_rows])
-    except Exception:
+    except (ValueError, RuntimeError, np.linalg.LinAlgError):
+        # NNLS can fail on degenerate / rank-deficient designs; uniform fallback so
+        # the caller is never starved of survivors.
         uniform = {n: 1.0 / len(names) for n in names}
         return list(names), uniform
     raw_weights = {n: float(w[i]) for i, n in enumerate(names)}

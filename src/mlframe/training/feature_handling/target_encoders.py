@@ -24,7 +24,7 @@ target mean (or median per ``TargetEncodeParams.prior``), and
 ``smoothing`` is the regulariser that pulls rare-category encodings
 toward the prior.
 
-Variants supported (round-3 plan §1.4):
+Variants supported:
   * ``target_mean`` -- standard smoothed mean (default).
   * ``target_m_estimate`` -- m-estimate (mathematically equivalent
     to target_mean with ``smoothing == m``).
@@ -86,8 +86,8 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
     """
     # Fast path: pandas Series with vectorised str cast.
     try:
-        import pandas as _pd
-        if isinstance(values, _pd.Series):
+        import pandas as pd
+        if isinstance(values, pd.Series):
             mask_null = values.isna()
             out = values.astype(str).to_numpy(dtype=object)
             if mask_null.any():
@@ -97,11 +97,11 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
         pass
     # Fast path: polars Series.
     try:
-        import polars as _pl
-        if isinstance(values, _pl.Series):
+        import polars as pl
+        if isinstance(values, pl.Series):
             mask_null = np.asarray(values.is_null().to_numpy())
             # cast to Utf8 then numpy; ``__NULL__`` overwrites nulls (polars cast yields ``None``).
-            out = values.cast(_pl.Utf8).to_numpy().astype(object)
+            out = values.cast(pl.Utf8).to_numpy().astype(object)
             if mask_null.any():
                 out[mask_null] = _NULL_SENTINEL
             # Float NaN cells survive cast as ``"NaN"``; rebrand to sentinel for parity with pandas path.
@@ -164,15 +164,15 @@ def _coerce_y_to_float64(y) -> np.ndarray:
     if isinstance(y, np.ndarray):
         return y.astype(np.float64, copy=False)
     try:
-        import pandas as _pd
-        if isinstance(y, (_pd.Series, _pd.DataFrame)):
+        import pandas as pd
+        if isinstance(y, (pd.Series, pd.DataFrame)):
             return y.to_numpy(dtype=np.float64, copy=False).ravel()
     except ImportError:
         pass
     try:
-        import polars as _pl
-        if isinstance(y, _pl.Series):
-            return y.cast(_pl.Float64).to_numpy().ravel()
+        import polars as pl
+        if isinstance(y, pl.Series):
+            return y.cast(pl.Float64).to_numpy().ravel()
     except ImportError:
         pass
     return np.asarray(y, dtype=np.float64).ravel()
@@ -242,7 +242,7 @@ class LeakageSafeEncoder:
     random_state : Optional[int]
         Seed for the K-fold splitter. ``None`` -> a fixed-but-arbitrary
         default (42) so two runs with identical config produce
-        identical encodings (round-3 R3-09 reproducibility).
+        identical encodings.
 
     Notes
     -----
@@ -437,11 +437,11 @@ class LeakageSafeEncoder:
         # (440 ms -> 48 ms in the encoder bench). Falls back to the
         # legacy loop only when pandas is unavailable.
         try:
-            import pandas as _pd
+            import pandas as pd
         except ImportError:  # pragma: no cover
-            _pd = None
-        if _pd is not None and len(cats) > 0:
-            codes, uniq = _pd.factorize(cats, sort=False)
+            pd = None
+        if pd is not None and len(cats) > 0:
+            codes, uniq = pd.factorize(cats, sort=False)
             K = len(uniq)
             if sample_weight is None:
                 counts_arr = np.bincount(codes, minlength=K).astype(np.int64)
@@ -488,11 +488,11 @@ class LeakageSafeEncoder:
         H-FH-14 regression test) and ~10x faster on 1M-row binary y.
         """
         try:
-            import pandas as _pd
+            import pandas as pd
         except ImportError:  # pragma: no cover
-            _pd = None
-        if _pd is not None and len(cats) > 0:
-            codes, uniq = _pd.factorize(cats, sort=False)
+            pd = None
+        if pd is not None and len(cats) > 0:
+            codes, uniq = pd.factorize(cats, sort=False)
             K = len(uniq)
             pos_mask = y == 1.0
             neg_mask = y == 0.0

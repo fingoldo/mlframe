@@ -79,8 +79,11 @@ def resolve_mlp_dataloader_defaults(
         ``prefetch_factor=None`` because PyTorch raises otherwise.
     """
     overrides = dict(user_overrides or {})
-    is_win = _is_windows() if force_windows is None else bool(force_windows)
-    n_cpu = cpu_count if cpu_count is not None else (os.cpu_count() or 1)
+    # `force_windows` / `cpu_count` are kept on the public signature so test
+    # callers can pin the autodetect path; their values are not currently
+    # consumed because num_workers is uniformly 0 (see _DEFAULT_NUM_WORKERS
+    # comment block above). When the datamodule moves to shared-memory
+    # tensors the per-OS / per-CPU tuning will read them again.
     if cuda_available is None:
         try:
             import torch
@@ -91,21 +94,14 @@ def resolve_mlp_dataloader_defaults(
         cuda_ok = bool(cuda_available)
 
     # 1. num_workers: 0 on EVERY OS unless user opts in. The TorchDataset
-    #    holds the entire Polars/pandas frame in its closure -- worker
-    #    spawn (Windows) pickles it, worker fork (Linux) breaks Arrow CoW
-    #    on every Python refcount write. Either way, n_workers > 0 on big
-    #    frames is a memory landmine. The ``is_win`` flag is kept on the
-    #    signature for future per-OS tuning when the datamodule is
-    #    rewritten to use shared-memory tensors.
+    #    holds the entire Polars/pandas frame in its closure; worker spawn
+    #    (Windows) pickles it, worker fork (Linux) breaks Arrow CoW on every
+    #    Python refcount write. Either way n_workers > 0 on big frames is a
+    #    memory landmine.
     if "num_workers" in overrides:
         num_workers = int(overrides["num_workers"])
     else:
         num_workers = _DEFAULT_NUM_WORKERS
-    # Silence the unused-variable warning -- ``is_win`` and ``n_cpu`` are
-    # retained on the signature so callers can still control the autodetect
-    # path from tests without breaking the contract.
-    _ = is_win
-    _ = n_cpu
 
     # 2. persistent_workers + prefetch_factor only valid when num_workers > 0.
     #    PyTorch raises a hard ValueError otherwise -- keep them aligned with

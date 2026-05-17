@@ -30,7 +30,7 @@ User overrides:
 
 The detector returns BOTH the text-column list AND a per-column
 decision trace so ``fhc.describe()`` can surface "why was this
-classified text" (round-3 U-R2-20).
+classified text".
 """
 
 from __future__ import annotations
@@ -240,7 +240,7 @@ def detect_text_columns(
     Returns ``(text_columns, decisions)`` where ``decisions`` is a
     list of :class:`TextDetectionDecision` -- one per evaluated
     column -- so ``fhc.describe()`` can surface the per-column
-    rationale (round-3 U-R2-20).
+    rationale.
 
     ``candidate_columns`` defaults to all string-like columns in df.
     ``config`` defaults to :class:`TextDetectionConfig` defaults.

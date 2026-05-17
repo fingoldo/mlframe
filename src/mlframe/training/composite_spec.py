@@ -30,7 +30,7 @@ class CompositeSpec:
     the rows isn't promoted.
     """
 
-    # Canonical composite name. Format (post-2026-05-13):
+    # Canonical composite name. Format:
     # ``{target_col}-{TRANSFORM_NAME_SHORT[transform_name]}-{base_column}``
     # e.g. ``"TVT-linres-TVT_prev"``. Built via
     # ``composite_transforms.compose_target_name``. The legacy
@@ -47,7 +47,7 @@ class CompositeSpec:
     mi_t: float
     valid_domain_frac: float
     n_train_rows: int
-    # R10c #1 (2026-05-11): multi-base extension. Empty tuple = legacy
+    # Multi-base extension. Empty tuple = legacy
     # single-base spec (the ``base_column`` field above is authoritative).
     # When ``len(extra_base_columns) >= 1`` the spec is multi-base; the
     # full base list is ``(base_column,) + tuple(extra_base_columns)``

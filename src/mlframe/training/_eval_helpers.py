@@ -540,8 +540,8 @@ def run_confidence_analysis(
     # SHAP's TreeExplainer rebuilds a CatBoost Pool using ONLY
     # ``cat_features`` from the model (no text awareness), so text
     # columns reaching Pool as numeric raise ``Bad value for
-    # num_feature ...: Cannot convert '<text>' to float`` (default-seed
-    # c0016 / c0017). Free-text TF-IDF features aren't analysable by
+    # num_feature ...: Cannot convert '<text>' to float``.
+    # Free-text TF-IDF features aren't analysable by
     # SHAP anyway, so dropping is the right scope reduction. Done at
     # the test_df level so the confidence_model is trained on the same
     # schema SHAP will see.
@@ -579,9 +579,9 @@ def run_confidence_analysis(
     elif isinstance(test_df, pl.DataFrame):
         # Polars-side auto-detect. The
         # earlier pandas-only branch missed:
-        #   - pl.Utf8 / pl.String text columns (default-seed c0056:
-        #     cb+hgb+xgb pl_nullable n=5000 -> CB Pool crash on ``text_0``)
-        #   - pl.List / pl.Array embedding columns (same combo, ``emb_0``
+        #   - pl.Utf8 / pl.String text columns
+        #     (CB Pool crashes on text-typed numerics like ``text_0``)
+        #   - pl.List / pl.Array embedding columns (e.g. ``emb_0``
         #     surfaces here when fit_params['embedding_features'] is
         #     None because the trailing model is HGB/XGB which doesn't
         #     accept the kwarg -> the explicit-drop list is empty)
@@ -632,8 +632,8 @@ def run_confidence_analysis(
     # ``confidence_targets`` is ill-defined. Skip with an INFO log so the
     # caller's ``include_confidence_analysis=True`` is honoured for the
     # cases where it makes sense and silently no-op for the cases where
-    # it cannot. Surfaced fuzz seed=default c0000 (multilabel target +
-    # confidence_analysis_cfg=True): IndexError shape mismatch (N,) (N,K).
+    # it cannot. Without this guard a multilabel target would
+    # raise IndexError on the (N,) vs (N,K) shape mismatch.
     test_target_arr = np.asarray(test_target)
     if test_target_arr.ndim != 1:
         if verbose:
@@ -659,9 +659,7 @@ def run_confidence_analysis(
     # others), the confidence model fits with mismatched lengths and
     # CB raises ``Length of label=N1 and length of data=N2 is
     # different``. Skip with INFO so the suite continues; the
-    # confidence pass is best-effort, not a hard contract. Surfaced
-    # default-seed c0074 (hgb / binary classification +
-    # confidence_analysis_cfg=True).
+    # confidence pass is best-effort, not a hard contract.
     _n_df = test_df.shape[0] if hasattr(test_df, "shape") else None
     _n_probs = test_probs.shape[0] if hasattr(test_probs, "shape") else None
     _n_target = test_target_arr.shape[0]
@@ -686,7 +684,6 @@ def run_confidence_analysis(
     # and CB rejects with "All train targets are equal". The
     # confidence regressor has nothing to learn anyway. Skip with a
     # WARN so the operator knows the diagnostic was un-runnable.
-    # Surfaced default-seed c0081 (hgb+lgb pandas n=300).
     n_unique_conf = int(np.unique(confidence_targets).size)
     if n_unique_conf < 2:
         logger.warning(
@@ -730,8 +727,7 @@ def run_confidence_analysis(
         # integer indices on DataFrame ``__getitem__`` with
         # ``cannot select columns using key of type 'numpy.int64'``.
         # Pass a pandas view so the indexing falls back to pandas's
-        # numpy-int-tolerant ``__getitem__``. Surfaced default-seed
-        # c0074 (hgb / multiclass + confidence_analysis_cfg=True).
+        # numpy-int-tolerant ``__getitem__``.
         # Use the Arrow-backed split-blocks bridge: SHAP rejects polars frames and
         # the default .to_pandas() consolidates blocks (~32x slower on multi-million-row
         # frames). The view materialises lazily where SHAP indexes column-by-column.

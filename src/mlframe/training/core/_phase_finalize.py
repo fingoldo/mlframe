@@ -188,7 +188,7 @@ def _aggregate_discovery_cache_stats(metadata: dict) -> dict:
 def _build_cache_stats(ctx) -> dict:
     """Assemble the ``metadata["cache_stats"]`` payload from ctx-side counters + discovery aggregate.
 
-    Layout (per Wave-8 observability spec):
+    Layout (observability spec):
         pipeline_cache    : PipelineCache.n_hits / n_misses merged from each _train_one_target call.
         discovery_cache   : aggregated from metadata["composite_target_cache"]; the locked
                             DiscoveryCache exposes no native counter, but every read site already
@@ -275,7 +275,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     except Exception as _cs_err:
         logger.warning("cache_stats aggregation failed: %s", _cs_err)
 
-    # Wave-2 predict-path parity: stamp the per-target chosen ensemble flavour into metadata BEFORE the metadata
+    # Predict-path parity: stamp the per-target chosen ensemble flavour into metadata BEFORE the metadata
     # write so predict_mlframe_models_suite / predict_from_models can replay the right ``arithm`` / ``harm`` /
     # ``geo`` / ... combine instead of hard-coding np.mean.
     try:
@@ -283,7 +283,7 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     except Exception as _ec_err:
         logger.warning("[ensembles_chosen] persist failed: %s", _ec_err)
 
-    # Wave-2 predict-path parity: dump the in-memory ``_CT_ENSEMBLE__*`` entries (cross-target ensembles built by
+    # Predict-path parity: dump the in-memory ``_CT_ENSEMBLE__*`` entries (cross-target ensembles built by
     # _phase_composite_post.py) to disk so the predict loader (load_mlframe_suite / predict_mlframe_models_suite)
     # actually sees them. Pre-fix they lived only in ctx.models and were silently lost across save / load.
     try:

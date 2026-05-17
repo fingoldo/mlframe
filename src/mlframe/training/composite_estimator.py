@@ -260,22 +260,20 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         self.base_estimator = base_estimator
         self.transform_name = transform_name
         self.base_column = base_column
-        # OPEN-4 (2026-05-11): rolling-buffer streaming alpha refit. When ``online_refit_enabled=True``, the wrapper carries a rolling buffer of last-N (y, base) observations across ``update()`` calls; each update runs ``streaming_alpha_check_and_refit`` and, when |z| > threshold, updates ``self.fitted_params_["alpha"]`` / ``["beta"]`` in-place so subsequent predict() calls use the drift-corrected coefficients. Default OFF: stateful estimators break sklearn.clone() (cloned instance starts with empty buffer) so the flag is explicit opt-in. The buffer fields use trailing underscore (``self._buffer_y_``) to mark runtime-only state; sklearn.clone() ignores those.
+        # Rolling-buffer streaming alpha refit. When ``online_refit_enabled=True``, the wrapper carries a rolling buffer of last-N (y, base) observations across ``update()`` calls; each update runs ``streaming_alpha_check_and_refit`` and, when |z| > threshold, updates ``self.fitted_params_["alpha"]`` / ``["beta"]`` in-place so subsequent predict() calls use the drift-corrected coefficients. Default OFF: stateful estimators break sklearn.clone() (cloned instance starts with empty buffer) so the flag is explicit opt-in. The buffer fields use trailing underscore (``self._buffer_y_``) to mark runtime-only state; sklearn.clone() ignores those.
         self.online_refit_enabled = online_refit_enabled
         self.online_refit_buffer_n = online_refit_buffer_n
         self.online_refit_z_threshold = online_refit_z_threshold
         self.online_refit_min_buffer_n = online_refit_min_buffer_n
-        # R10c extension #3 (2026-05-11): grouped-transform support.
-        # When the configured ``transform_name`` resolves to a transform
-        # with ``requires_groups=True`` (currently only
-        # ``linear_residual_grouped``), the wrapper extracts a 1-D groups
-        # ndarray from this column and passes it as a kwarg to
+        # Grouped-transform support. When the configured ``transform_name``
+        # resolves to a transform with ``requires_groups=True`` (currently
+        # only ``linear_residual_grouped``), the wrapper extracts a 1-D
+        # groups ndarray from this column and passes it as a kwarg to
         # fit / forward / inverse. None for ungrouped transforms; the
         # wrapper validates the pair at fit-time and raises a clear
         # error if a grouped transform is configured without group_column.
         self.group_column = group_column
-        # R10c extension #1 (2026-05-11): multi-base support.
-        # ``base_columns`` is the canonical multi-column path used by
+        # Multi-base support. ``base_columns`` is the canonical multi-column path used by
         # ``linear_residual_multi`` and any future multi-base transform.
         # When None and ``base_column`` is non-empty, falls back to a
         # single-element tuple so legacy callers continue to work
@@ -285,7 +283,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         self.base_columns = base_columns
         self.fallback_predict = fallback_predict
         self.drop_invalid_rows = drop_invalid_rows
-        # R10b improvement #8: when transform is ratio/logratio and
+        # When transform is ratio/logratio and
         # caller doesn't provide explicit sample_weight, auto-compute
         # variance-stabilising weights ~ 1/|base| (capped) to flatten
         # heteroscedasticity that ratio/logratio targets exhibit
@@ -490,10 +488,10 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         sample_weight_train = (
             np.asarray(sample_weight)[valid] if sample_weight is not None else None
         )
-        # R10c #3 (2026-05-11): grouped-transform support. When the
-        # transform requires_groups=True, extract group labels from the
-        # configured group_column and pass them as kwargs through fit/
-        # forward. The transform's own fit signature enforces presence.
+        # Grouped-transform support. When the transform requires_groups=True,
+        # extract group labels from the configured group_column and pass them
+        # as kwargs through fit / forward. The transform's own fit signature
+        # enforces presence.
         groups_train: np.ndarray | None = None
         if transform.requires_groups:
             if not self.group_column:
@@ -549,19 +547,19 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # materialise large polars frames -- that defeats the whole
         # zero-copy Arrow path on multi-GB datasets.
         X_valid = self._subset_rows(X, valid)
-        # R10c #3 (2026-05-11): for grouped transforms, the group_column
-        # is metadata for the transform (per-row alpha lookup) and is
-        # commonly non-numeric (e.g. well_id strings). Tree models like
-        # LightGBM reject object dtypes outright; the user-friendly
-        # behaviour is to drop the column from X_valid before passing
-        # to the inner so the wrapper hides this plumbing entirely.
+        # For grouped transforms, the group_column is metadata for the
+        # transform (per-row alpha lookup) and is commonly non-numeric
+        # (e.g. well_id strings). Tree models like LightGBM reject object
+        # dtypes outright; the user-friendly behaviour is to drop the column
+        # from X_valid before passing to the inner so the wrapper hides this
+        # plumbing entirely.
         if transform.requires_groups and self.group_column:
             X_valid = self._drop_columns(X_valid, [self.group_column])
         if sample_weight is not None:
             sample_weight = np.asarray(sample_weight)[valid]
         elif (getattr(self, "auto_variance_stabilise", False)
                 and self.transform_name in ("ratio", "logratio")):
-            # R10b #8: auto-compute variance-stabilising weights.
+            # Auto-compute variance-stabilising weights for ratio/logratio.
             # For multiplicative DGP, residual variance scales with
             # |base|. Weight ~ 1/|base| (capped at the 5th percentile
             # to avoid blow-up on near-zero base) flattens it.
@@ -650,7 +648,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # core transforms all degrade cleanly.
         domain_ok = transform.domain_check(None, base_arr)
 
-        # R10c #3 (2026-05-11): grouped-transform support at predict.
+        # Grouped-transform support at predict.
         # Extract per-row group labels and thread them as kwargs to the
         # inverse call. Unseen groups (not present at fit) fall back to
         # global alpha/beta inside the transform's inverse impl, so no
@@ -957,9 +955,9 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         """Return ``X`` without ``columns``, preserving frame flavour.
 
         Used to strip the wrapper's plumbing columns (group_column for
-        grouped transforms) before passing ``X`` to the inner estimator
-        — tree models like LightGBM reject object/string dtypes that
-        the wrapper needs for per-row group lookups.
+        grouped transforms) before passing ``X`` to the inner estimator -
+        tree models like LightGBM reject object/string dtypes that the
+        wrapper needs for per-row group lookups.
 
         Silently no-op for columns not present (the caller may pass
         columns that were already dropped upstream by feature selection).
@@ -975,7 +973,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         return X
 
     # ------------------------------------------------------------------
-    # OPEN-4 (2026-05-11): rolling-buffer streaming alpha refit
+    # Rolling-buffer streaming alpha refit
     # ------------------------------------------------------------------
 
     def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:

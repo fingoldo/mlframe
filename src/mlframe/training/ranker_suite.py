@@ -276,24 +276,12 @@ def train_mlframe_ranker_suite(
         random_seed=random_seed,
     )
 
-    # 2026-05-12 Wave 27: polars→pandas conversion + inf-cleaning in
-    # a single pass. The old path did ``to_pandas()`` (full copy #1),
-    # then ``df.copy()`` (full copy #2), then ``df[_num_cols].replace
-    # ([inf,-inf], nan)`` (full copy #3 of the numeric subset). On a
-    # 1M-row LTR frame that's 3 full DataFrame copies for ~18 s.
-    #
-    # Wave 27: clean inf values in polars BEFORE conversion (lazy
-    # with_columns, zero-copy), then convert via pyarrow-extension
-    # (Arrow-backed pandas, ~5-10× faster than the default materialise).
-    # The pyarrow-extension flag is memory-safe for LTR frames because
-    # the frame is ALREADY copied into pandas (one materialisation);
-    # Arrow-backed DFs are zero-copy views of the Arrow table that
-    # polars already built internally.
-    #
-    # Downstream: LGBRanker / XGBRanker / CatBoostRanker all accept
-    # pandas DataFrames with Arrow-backed numeric columns (tested
-    # 2026-05-12 on c0114 LTR 1M combo).
-    # Wave 27: single import + isinstance check (avoids the old double-import pattern)
+    # Convert polars to pandas in a single pass: clean inf in polars
+    # first (lazy with_columns, zero-copy), then convert via the
+    # Arrow-backed bridge. This replaces a 3-copy path (to_pandas,
+    # df.copy, df.replace) that cost ~18s on a 1M-row LTR frame.
+    # Downstream LGBRanker / XGBRanker / CatBoostRanker all accept
+    # pandas DataFrames with Arrow-backed numeric columns.
     import polars as _pl
     if isinstance(df_features, _pl.DataFrame):
         # Clean inf in polars (lazy with_columns, one pass)
@@ -352,15 +340,15 @@ def train_mlframe_ranker_suite(
             if str(dt).startswith("datetime"):
                 df_X = df_X.drop(columns=[col])
             elif dt is object:
-                # 2026-05-08: object-dtype columns can contain either
-                # scalar strings (cat features -> astype('category') OK)
-                # OR nested arrays/lists (embedding features from
-                # pl.List(pl.Float32) round-trip -> astype('category')
-                # raises ``TypeError: unhashable type: 'numpy.ndarray'``
-                # because pandas factorize can't hash arrays). Drop
-                # nested-element columns silently -- the rankers can't
-                # consume them as numeric anyway, and CB/XGB/LGB sklearn
-                # wrappers reject them at fit-time.
+                # object-dtype columns can contain either scalar strings
+                # (cat features -> astype('category') OK) OR nested
+                # arrays/lists (embedding features from pl.List(pl.Float32)
+                # round-trip -> astype('category') raises
+                # ``TypeError: unhashable type: 'numpy.ndarray'`` because
+                # pandas factorize can't hash arrays). Drop nested-element
+                # columns silently: the rankers can't consume them as
+                # numeric anyway, and CB/XGB/LGB sklearn wrappers reject
+                # them at fit-time.
                 _sample = next((v for v in df_X[col] if v is not None and not (isinstance(v, float) and np.isnan(v))), None)
                 if _sample is not None and isinstance(_sample, (list, tuple, np.ndarray)):
                     df_X = df_X.drop(columns=[col])
@@ -428,10 +416,10 @@ def train_mlframe_ranker_suite(
             if isinstance(X_tr[col].dtype, pd.CategoricalDtype) or X_tr[col].dtype == object:
                 cat_features.append(col)
 
-    # 2026-05-10: dummy / trivial-baseline floor for LTR (random_within_query
-    # / identity_input_order / mean_relevance). One verdict line at INFO,
-    # full table at DEBUG. Wrapped in try/except — failure must never
-    # block training.
+    # Dummy / trivial-baseline floor for LTR (random_within_query /
+    # identity_input_order / mean_relevance). One verdict line at INFO,
+    # full table at DEBUG. Wrapped in try/except so a baseline failure
+    # never blocks training.
     try:
         from mlframe.training.configs import DummyBaselinesConfig
         from mlframe.training.dummy_baselines import compute_dummy_baselines

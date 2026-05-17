@@ -17,14 +17,14 @@ Concurrency model:
     ``release()`` work on a single provider.
   * Double-checked locking on creation: re-check after acquiring the
     registry lock so the "first thread loads, second thread reuses"
-    path is correct (round-3 R2-2).
+    path is correct.
 
 Public API (consumed via the FeatureHandlingConfig cache layer):
   * :func:`acquire_provider(provider, fhc)` -- context manager that
     bumps refcount on enter, drops on exit. Banned naked acquire/
-    release so callers can't leak (round-3 chaos C22).
+    release so callers can't leak.
   * :func:`shutdown_all()` -- drop everything; useful for notebook
-    reload (round-3 chaos C18).
+    reload.
 
 Module-level state (per-process):
   * :data:`_REGISTRY` -- ``WeakValueDictionary[signature, _ProviderEntry]``
@@ -83,7 +83,7 @@ def _resolve_keep_n(cache_cfg) -> int:
     """Resolve ``cache.keep_n_providers`` to a concrete int.
 
     "auto" derivation: ``min(2, max(1, free_vram_gb // 1))`` on GPU,
-    else 2 (CPU-only, RAM is cheap; round-3 user confirmation).
+    else 2 (CPU-only, RAM is cheap).
     """
     val = getattr(cache_cfg, "keep_n_providers", "auto")
     if isinstance(val, int):
@@ -104,9 +104,8 @@ def _register_or_get(
     signature: str,
     provider_factory,
 ) -> _ProviderEntry:
-    """Atomic get-or-create. Round-3 R2-2: double-checked locking
-    avoids the TOCTOU race where two threads both create the same
-    provider.
+    """Atomic get-or-create. Double-checked locking avoids the TOCTOU
+    race where two threads both create the same provider.
 
     ``provider_factory`` is a zero-arg callable returning a
     :class:`FrozenFeaturizerProvider`. Called only when no entry
@@ -175,8 +174,8 @@ def acquire_provider(
       1. Lock entry, decrement refcount.
       2. If refcount==0 AND not in LRU tier, ``release()``.
 
-    Naked ``provider.acquire()`` is banned (round-3 chaos C22) -- the
-    refcount semantic is too easy to mess up otherwise.
+    Naked ``provider.acquire()`` is banned -- the refcount semantic is
+    too easy to mess up otherwise.
     """
     signature = provider.signature
     entry = _register_or_get(signature, lambda: provider)

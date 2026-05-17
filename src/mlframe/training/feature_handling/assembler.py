@@ -174,7 +174,7 @@ def _apply_svd(
     svd = TruncatedSVD(
         n_components=n_components_actual,
         random_state=random_state,
-        n_iter=5,                       # round-3 R3-08: pinned
+        n_iter=5,
         power_iteration_normalizer="auto",
     )
     reduced = svd.fit_transform(sparse_mat).astype(np.float32)
@@ -200,7 +200,7 @@ def assemble_for_model(
 
     Routing logic:
 
-    1. Validate same-column + same-method overlap raises (round-3 A8).
+    1. Validate same-column + same-method overlap raises.
     2. Group blocks by output_kind: sparse / dense / embedding.
     3. If model is sparse-aware: hstack all sparse blocks into ONE
        sparse matrix; concat all dense + embedding blocks; output
@@ -227,7 +227,7 @@ def assemble_for_model(
         if sig in seen:
             raise ValueError(
                 f"duplicate handler on column={b.column!r} method={b.method!r}; "
-                f"same-column + same-method handlers are not allowed (round-3 A8)."
+                f"same-column + same-method handlers are not allowed."
             )
         seen.add(sig)
 

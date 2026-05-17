@@ -1,0 +1,3 @@
+START 21:22:10
+S1 baseline survey complete
+Source fixes done: utils.py (drop Optional/Union); logging_transformers.py (drop Optional, cache _PROXY_CLS); grid.py (drop List/Optional); mlp_runtime_defaults.py (drop _ = is_win redundancy); _predict_guards.py (_pl_avail -> pl is not None); io.py (threat model docstring); splitting.py (assert->raise + a few comments); helpers.py (~12 dated-comment strips); _data_helpers.py (1 dated strip)

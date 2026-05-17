@@ -195,8 +195,15 @@ class RecurrentDataModule(LightningDataModule):
         self.predict_features = None
 
     def setup(self, stage: str | None = None):
-        """Setup datasets for each stage (data is already provided in __init__)."""
-        pass
+        """Lightning DataModule hook.
+
+        Intentionally a no-op: this DataModule receives already-prepared
+        arrays via ``__init__`` rather than loading from disk per stage,
+        so no per-stage setup work is needed. The method exists only to
+        satisfy the LightningDataModule interface (Lightning calls
+        ``setup(stage)`` before each fit/validate/test/predict).
+        """
+        return None
 
     def train_dataloader(self) -> DataLoader:
         """Return training DataLoader."""

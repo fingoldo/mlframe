@@ -393,7 +393,7 @@ def _mi_to_target(
 def _silence_tiny_model_output():
     """Context manager: silence the per-fold tiny-model fit/predict
     noise without changing the numeric path (no DataFrame->ndarray
-    conversion — we keep the user's frame as-is for performance).
+    conversion; we keep the user's frame as-is for performance).
 
     Suppressed:
     - sklearn ``UserWarning`` for "X has feature names, but X was

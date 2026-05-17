@@ -17,11 +17,10 @@ Public surface:
     (HGB, RF, NGB, MLP, recurrent, TabNet).
   * :func:`accepts_sparse(model_kind)` -- ``model_kind in SPARSE_AWARE``.
   * :func:`should_apply_svd(model_kind, n_sparse_cols, threshold)`
-    -- True iff the auto-SVD trigger fires (round-3 user-confirmed:
-    auto-apply with warning, not error).
+    -- True iff the auto-SVD trigger fires (auto-apply with warning,
+    not error).
   * :func:`hgb_max_features_cap(model_kind, requested_max_features)`
-    -- enforces HGB's 500-col cap (round-3 A18) with WARN+cap
-    semantics.
+    -- enforces HGB's 500-col cap with WARN+cap semantics.
 """
 
 from __future__ import annotations

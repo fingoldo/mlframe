@@ -19,7 +19,7 @@ Naming finalised: ``frozen_text_embedding`` / ``learnable_text_embedding``
 methods take ``provider: Optional[EmbeddingProvider]`` -- when ``None``
 the FHC-level ``default_text_provider`` applies, with auto-locale
 detection picking ``intfloat/multilingual-e5-small`` (multilingual
-default per round-3 user confirmation).
+default).
 """
 
 from __future__ import annotations
@@ -230,13 +230,9 @@ class EmbeddingProvider(BaseModel):
     def signature(self) -> str:
         """Stable string used in cache keys.
 
-        Phase A2 form: ``{kind}:{model}:{params_hash}`` with secrets
-        scrubbed before hashing so a swapped env-var doesn't perturb
-        the signature (round-3 R2-6: ``api_key`` env var changes must
-        NOT invalidate cache).
-
-        Phase D upgrades to the full :class:`ProviderIdentity` dataclass
-        with library versions, revision SHA, dtype, pool, etc.
+        Form: ``{kind}:{model}:{params_hash}`` with secrets scrubbed
+        before hashing so a swapped env-var doesn't perturb the
+        signature (``api_key`` env var changes must NOT invalidate cache).
         """
         scrubbed = _scrub_dict(self.params)
         # Sort keys for determinism

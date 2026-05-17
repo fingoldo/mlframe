@@ -1,17 +1,15 @@
 """
 ``Axis`` enum + ``HandlerSpec`` ABC + axis registry.
 
-Why a registry instead of a closed Literal: Round 3 future-proofing audit
-F1 flagged that the previous closed enumeration of axes (``cat | text |
-numeric``) would cost a 12-touchpoint refactor when image/audio/sequence
-axes arrive. The registry seam lets a new axis ship as a single new
-file plus one ``register_handler_spec`` call, no edits to existing code.
+Why a registry instead of a closed Literal: the previous closed
+enumeration of axes (``cat | text | numeric``) would cost a 12-touchpoint
+refactor when image/audio/sequence axes arrive. The registry seam lets a
+new axis ship as a single new file plus one ``register_handler_spec``
+call, no edits to existing code.
 
-This module is INTENTIONALLY tiny in phase M — it defines the
-extensibility contract; concrete ``TextHandlerSpec`` / ``CatHandlerSpec``
-land in phase A with their full per-method TypedDict params.
-
-# FUTURE: IMAGE, AUDIO, VIDEO, SEQUENCE axes -- see plan §F1, F23
+This module is intentionally small: it defines the extensibility contract;
+concrete ``TextHandlerSpec`` / ``CatHandlerSpec`` live alongside with their
+full per-method TypedDict params.
 """
 
 from __future__ import annotations
@@ -19,7 +17,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import (
-    TYPE_CHECKING,
     Callable,
     Dict,
     List,
@@ -28,9 +25,6 @@ from typing import (
     Type,
     Union,
 )
-
-if TYPE_CHECKING:
-    from pydantic import BaseModel as _BaseModel  # noqa: F401  (type-only)
 
 
 class Axis(str, Enum):
@@ -44,16 +38,11 @@ class Axis(str, Enum):
     CAT = "cat"
     TEXT = "text"
     NUMERIC = "numeric"
-    # FUTURE additions reserved here so future PRs are append-only:
-    # IMAGE = "image"     # see plan §F1
-    # AUDIO = "audio"     # see plan §F1
-    # VIDEO = "video"     # see plan §F1
-    # SEQUENCE = "sequence"  # see plan §F23
 
 
-# `apply_to` accepts list-of-names | regex | predicate (round 3 F8).
+# `apply_to` accepts list-of-names | regex | predicate.
 # The predicate form takes the input column list and returns a filtered
-# subset — useful for late-binding pipelines that synthesize columns
+# subset, useful for late-binding pipelines that synthesize columns
 # during preprocessing.
 ApplyToColumns = Union[
     List[str],
@@ -77,11 +66,11 @@ class HandlerSpec(ABC):
       * register themselves via :func:`register_handler_spec` at
         module load;
       * declare ``apply_to`` as a pydantic field of type
-        :data:`ApplyToColumns` (round-3 F8: list-of-names | regex |
-        callable for late-binding);
+        :data:`ApplyToColumns` (list-of-names | regex | callable for
+        late-binding);
       * declare ``group_columns: Optional[List[str]] = None`` for
-        group-aware encoding (round-3 F11: lifted to ABC contract so
-        symmetric across cat and text).
+        group-aware encoding (ABC contract is symmetric across cat
+        and text).
 
     NOTE: contract via docstring rather than class attributes here so
     the ABC doesn't declare instance-level defaults that pydantic

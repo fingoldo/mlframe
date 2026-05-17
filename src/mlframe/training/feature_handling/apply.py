@@ -14,15 +14,14 @@ The helper:
   2. Resolves the per-model effective handler chain (defaults +
      overrides + append).
   3. Validates the chain against the model's compat matrix entry
-     -- raises a single combined :class:`ValueError` listing every
-     mismatch (round-3 U-R2-29).
+     - raises a single combined :class:`ValueError` listing every
+     mismatch.
   4. Fits each handler on train rows; transforms train/val/test;
      hands the outputs to :func:`assemble_for_model`.
   5. Wires through :class:`FeatureCache` so the same handler outputs
      are reused across multiple consumer fits within one
-     ``train_mlframe_models_suite`` call -- the round-3 user-confirmed
-     simplification: in-memory cache uses cheap session-keyed identity,
-     no content hashing in hot path.
+     ``train_mlframe_models_suite`` call; in-memory cache uses cheap
+     session-keyed identity, no content hashing in hot path.
 
 Phase Q is the final foundation piece. Concrete model-specific
 wiring (CB ``embedding_features=`` plumbing in phase F, MLP-as-
@@ -512,16 +511,16 @@ def _text_column_content_token(train_df: Any, column: str) -> int:
     hashing cost. Returns 0 on any backend error; the caller still keys on (df_token, column, params)
     so collision risk degrades to the literal-zero baseline (no worse than pre-fix)."""
     try:
-        import polars as _pl
-        if isinstance(train_df, _pl.DataFrame):
+        import polars as pl
+        if isinstance(train_df, pl.DataFrame):
             ser = train_df[column]
             n = ser.len()
             sample_idx = [0, n // 4, n // 2, 3 * n // 4, max(0, n - 1)] if n else []
             sampled = [str(ser[i]) for i in sample_idx]
             buf = ("|".join(sampled) + f"|{n}|{column}").encode("utf-8", errors="replace")
         else:
-            import pandas as _pd
-            if isinstance(train_df, _pd.DataFrame):
+            import pandas as pd
+            if isinstance(train_df, pd.DataFrame):
                 ser = train_df[column]
                 n = len(ser)
                 sample_idx = [0, n // 4, n // 2, 3 * n // 4, max(0, n - 1)] if n else []

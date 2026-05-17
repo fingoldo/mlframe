@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 import logging
 import time
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable
 
 import psutil
 
@@ -130,6 +130,15 @@ class _LoggingProxy:
         return f"_LoggingProxy({self._inner!r})"
 
 
+# Per-(inner-class, label, methods-tuple) proxy class cache. Building a fresh
+# subclass on every wrap_with_logging() call leaks meta-class entries
+# proportionally to the number of estimator constructions in a long-lived
+# process (notebook kernel, daemonised serving worker). Same (cls, label,
+# methods) signature always produces identical instrumented methods, so the
+# subclass is safe to memoise.
+_PROXY_CLS_CACHE: dict = {}
+
+
 def wrap_with_logging(
     obj: Any,
     *,
@@ -143,27 +152,29 @@ def wrap_with_logging(
     """
 
     label = stage or type(obj).__name__
-    # Subclass per-call so instrumented methods don't leak across instances.
-    ProxyCls = type("_LoggingProxy", (_LoggingProxy,), {})
+    # Filter methods down to ones the inner object actually exposes so the
+    # cache key reflects what was instrumented (not what was requested).
+    instrumented = tuple(name for name in methods if getattr(obj, name, None) is not None)
+    cache_key = (type(obj), label, instrumented)
+    ProxyCls = _PROXY_CLS_CACHE.get(cache_key)
+    if ProxyCls is None:
+        ProxyCls = type("_LoggingProxy", (_LoggingProxy,), {})
 
-    for name in methods:
-        orig = getattr(obj, name, None)
-        if orig is None:
-            continue
+        for name in instrumented:
+            # Bind name per-iteration via default args to avoid the
+            # classic lambda-in-loop late-binding pitfall.
+            def _make(_name: str):
+                def _call(self, *a, **kw):
+                    return getattr(self._inner, _name)(*a, **kw)
 
-        # Bind name/orig per-iteration via default args to avoid the
-        # classic lambda-in-loop late-binding pitfall.
-        def _make(_name: str):
-            def _call(self, *a, **kw):
-                return getattr(self._inner, _name)(*a, **kw)
+                _call.__name__ = _name
+                _call.__qualname__ = f"_LoggingProxy.{_name}"
+                return _call
 
-            _call.__name__ = _name
-            _call.__qualname__ = f"_LoggingProxy.{_name}"
-            return _call
-
-        bound = _make(name)
-        wrapped = log_resources(stage=f"{label}.{name}")(bound)
-        setattr(ProxyCls, name, wrapped)
+            bound = _make(name)
+            wrapped = log_resources(stage=f"{label}.{name}")(bound)
+            setattr(ProxyCls, name, wrapped)
+        _PROXY_CLS_CACHE[cache_key] = ProxyCls
 
     return ProxyCls(obj)
 

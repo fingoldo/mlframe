@@ -80,17 +80,16 @@ except (ImportError, AttributeError, ModuleNotFoundError):
     CUDA_IS_AVAILABLE = False
 
 
-# 2026-05-10: per-library GPU support gating. ``CUDA_IS_AVAILABLE``
-# (numba probe) tells us only whether the system has a usable CUDA
-# device -- it does NOT tell us whether the installed XGBoost / LightGBM
-# binaries were COMPILED with GPU support. On Windows, the default
-# ``pip install xgboost`` ships the CPU-only wheel, so passing
-# ``device='cuda'`` triggers ``WARNING: Device is changed from GPU to
-# CPU as we couldn't find any available GPU on the system`` per-fit
-# (verified on prod log 2026-05-09 with a custom 3rdParty XGB build:
-# ``xgb.build_info() == {... 'USE_CUDA': False ...}`` despite CUDA
-# being available for CatBoost). Probe each binary's actual GPU
-# support ONCE at module-import so the helpers never set device='cuda'
+# Per-library GPU support gating. ``CUDA_IS_AVAILABLE`` (numba probe)
+# tells us only whether the system has a usable CUDA device; it does NOT
+# tell us whether the installed XGBoost / LightGBM binaries were COMPILED
+# with GPU support. On Windows the default ``pip install xgboost`` ships
+# the CPU-only wheel, so passing ``device='cuda'`` triggers ``WARNING:
+# Device is changed from GPU to CPU as we couldn't find any available GPU
+# on the system`` per-fit (custom 3rdParty XGB build can also report
+# ``xgb.build_info() == {... 'USE_CUDA': False ...}`` despite CUDA being
+# available for CatBoost). Probe each binary's actual GPU support ONCE at
+# module-import so the helpers never set device='cuda'
 
 def parse_catboost_devices(devices: str, all_gpus: list = None) -> List[Dict]:
     """
@@ -165,12 +164,11 @@ def get_training_configs(
     learning_rate: float = 0.1,
     def_regr_metric: str = "MAE",
     def_classif_metric: str = "AUC",
-    # 2026-04-24: target_type-aware classifier objective injection.
-    # When target_type is BINARY_CLASSIFICATION (default), the existing
-    # binary objectives ("binary:logistic" / "binary" etc.) are kept.
-    # For MULTICLASS / MULTILABEL, _classif_objective_kwargs replaces
-    # them with the right native dispatch ("multi:softprob"+num_class,
-    # "MultiLogloss", etc.).
+    # target_type-aware classifier objective injection. When target_type
+    # is BINARY_CLASSIFICATION (default), the existing binary objectives
+    # ("binary:logistic" / "binary" etc.) are kept. For MULTICLASS /
+    # MULTILABEL, _classif_objective_kwargs replaces them with the right
+    # native dispatch ("multi:softprob"+num_class, "MultiLogloss", etc.).
     target_type: Optional[Any] = None,  # TargetTypes; None = legacy binary
     n_classes: int = 2,
     catboost_custom_classif_metrics: Optional[Sequence] = None,
@@ -206,9 +204,9 @@ def get_training_configs(
     xgb_kwargs: dict = None,
     mlp_kwargs: dict = None,
     ngb_kwargs: dict = None,
-    # 2026-05-12: first-class predict-time MLP batch override. When None
-    # (default) the wrapper auto-adapts to memory + input width. Plumbed in
-    # from ``ModelHyperparamsConfig.mlp_predict_batch_size`` so callers don't
+    # First-class predict-time MLP batch override. When None (default) the
+    # wrapper auto-adapts to memory + input width. Plumbed in from
+    # ``ModelHyperparamsConfig.mlp_predict_batch_size`` so callers don't
     # need to dig into ``mlp_kwargs["datamodule_params"]``.
     mlp_predict_batch_size: Optional[int] = None,
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -216,9 +214,9 @@ def get_training_configs(
     # ----------------------------------------------------------------------------------------------------------------------------
     rfecv_kwargs: dict = None,
     # ----------------------------------------------------------------------------------------------------------------------------
-    # 2026-05-08 perf: skip MLP-config build (incl. ~14s pytorch / lightning
-    # import on first call) when MLP isn't in the requested model list.
-    # Default ``None`` preserves legacy behaviour (build all configs).
+    # Skip MLP-config build (incl. ~14s pytorch / lightning import on first
+    # call) when MLP isn't in the requested model list. Default ``None``
+    # preserves legacy behaviour (build all configs).
     # ----------------------------------------------------------------------------------------------------------------------------
     enabled_models: Optional[Sequence[str]] = None,
 ) -> tuple:
@@ -315,13 +313,13 @@ def get_training_configs(
     CB_CLASSIF = CB_GENERAL_PARAMS.copy()
     CB_CLASSIF.update({"eval_metric": def_classif_metric})
     # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
-    # TODO(2026-04-28): Raise issue at https://github.com/catboost/catboost/issues
+    # TODO: Raise issue at https://github.com/catboost/catboost/issues
     # "custom_metric": tuple(catboost_custom_classif_metrics or [])
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
     CB_REGR.update({"eval_metric": def_regr_metric})
     # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
-    # TODO(2026-04-28): Raise issue at https://github.com/catboost/catboost/issues
+    # TODO: Raise issue at https://github.com/catboost/catboost/issues
     # "custom_metric": tuple(catboost_custom_regr_metrics or [])
 
     HGB_GENERAL_PARAMS = dict(
@@ -335,11 +333,11 @@ def get_training_configs(
     )
     HGB_GENERAL_PARAMS.update(hgb_kwargs)
 
-    # 2026-05-10: device gating now reflects XGB build-info, not just
-    # CUDA presence. ``has_gpu and XGB_GPU_AVAILABLE`` skips ``cuda`` on
-    # CPU-only XGB binaries (avoids per-fit ``Device is changed from GPU
-    # to CPU`` warning storm). Caller's xgb_kwargs.update overrides win
-    # for advanced users.
+    # Device gating reflects XGB build-info, not just CUDA presence.
+    # ``has_gpu and XGB_GPU_AVAILABLE`` skips ``cuda`` on CPU-only XGB
+    # binaries (avoids per-fit ``Device is changed from GPU to CPU``
+    # warning storm). Caller's xgb_kwargs.update overrides win for
+    # advanced users.
     _xgb_device = "cuda" if (has_gpu and XGB_GPU_AVAILABLE) else "cpu"
     XGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -358,10 +356,10 @@ def get_training_configs(
     XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
     XGB_GENERAL_CLASSIF.update({"objective": "binary:logistic", "eval_metric": neg_ovr_roc_auc_score})
 
-    # 2026-04-24: target_type-aware objective injection. For non-binary
-    # classification target types, replace the binary defaults with the
-    # native multi-output objective. Binary path is a no-op (helper
-    # returns the same kwargs as the explicit defaults above).
+    # Target-type-aware objective injection. For non-binary classification
+    # target types, replace the binary defaults with the native multi-output
+    # objective. Binary path is a no-op (helper returns the same kwargs as
+    # the explicit defaults above).
     from .configs import TargetTypes
 
     _resolved_tt = target_type if target_type is not None else TargetTypes.BINARY_CLASSIFICATION
@@ -372,9 +370,9 @@ def get_training_configs(
         lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)
         if cb_obj:
             CB_CLASSIF.update(cb_obj)
-            # 2026-04-24 Session 6: when loss_function=MultiLogloss (multilabel),
-            # CB REJECTS eval_metric='AUC' with "metric AUC and loss MultiLogloss
-            # are incompatible". Override to HammingLoss for MultiLogloss,
+            # When loss_function=MultiLogloss (multilabel), CatBoost REJECTS
+            # eval_metric='AUC' with "metric AUC and loss MultiLogloss are
+            # incompatible". Override to HammingLoss for MultiLogloss,
             # Accuracy for MultiClass. Caller can still override via cb_kwargs.
             if cb_obj.get("loss_function") == "MultiLogloss":
                 CB_CLASSIF["eval_metric"] = "HammingLoss"
@@ -392,14 +390,12 @@ def get_training_configs(
             # LGB_GENERAL_PARAMS gets the multiclass objective too — it has
             # no separate _CLASSIF variant currently.
             pass  # applied to LGB after LGB_GENERAL_PARAMS is built (below)
-        # NOTE: _mlframe_target_type metadata tag was historically attached
-        # here but REMOVED 2026-04-24 Session 6 — CatBoostClassifier init
-        # raises TypeError on unknown kwargs, blocking the entire multilabel
-        # path. Downstream observability (which lib + target_type) is covered
-        # by the per-model model_schemas metadata record populated in
-        # core.py around the fit call. Adding a side-channel tag here was
-        # a premature optimisation that forked a 4-year-stable init API
-        # contract for a diagnostic that's available elsewhere.
+        # NOTE: no _mlframe_target_type metadata tag is attached here.
+        # CatBoostClassifier init raises TypeError on unknown kwargs, which
+        # would block the entire multilabel path. Downstream observability
+        # (which lib + target_type) is covered by the per-model
+        # model_schemas metadata record populated in core.py around the
+        # fit call.
 
     def integral_calibration_error(y_true: np.ndarray, y_score: np.ndarray, verbose: bool = False) -> float:
         """Compute integral calibration error for probabilistic predictions.
@@ -585,21 +581,21 @@ def get_training_configs(
         return metric_name, value, higher_is_better
 
     CB_CALIB_CLASSIF = CB_CLASSIF.copy()
-    # 2026-04-24 Session 6: ICE custom-metric only works for single-target
-    # CB objectives (binary/multiclass). For MultiLogloss (multilabel), CB
-    # asserts the custom metric inherits from MultiTargetCustomMetric. Until
-    # we ship a multi-target ICE variant, fall back to HammingLoss for
-    # multilabel — same as CB_CLASSIF (so calibrated path == base path).
+    # ICE custom-metric only works for single-target CatBoost objectives
+    # (binary / multiclass). For MultiLogloss (multilabel) CB asserts that
+    # the custom metric inherits from MultiTargetCustomMetric. Until we
+    # ship a multi-target ICE variant, fall back to HammingLoss for
+    # multilabel (same as CB_CLASSIF so calibrated path == base path).
     if _resolved_tt.is_classification and not _resolved_tt.is_binary and CB_CLASSIF.get("loss_function") == "MultiLogloss":
         # eval_metric already set to HammingLoss above; keep it.
         pass
     else:
         CB_CALIB_CLASSIF.update({"eval_metric": ICE(metric=final_integral_calibration_error, higher_is_better=False, max_arr_size=0)})
 
-    # 2026-05-10: same gating story as XGB. ``has_gpu and LGB_GPU_AVAILABLE``
-    # respects the LightGBM build's actual GPU support (default LightGBM
-    # wheels are CPU-only; opt-in via env ``MLFRAME_TRUST_LGB_CUDA=1``
-    # if you've built / installed a GPU-enabled LGB binary).
+    # Same gating story as XGB. ``has_gpu and LGB_GPU_AVAILABLE`` respects
+    # the LightGBM build's actual GPU support (default LightGBM wheels are
+    # CPU-only; opt-in via env ``MLFRAME_TRUST_LGB_CUDA=1`` if you've built
+    # / installed a GPU-enabled LGB binary).
     _lgb_device = "cuda" if (has_gpu and LGB_GPU_AVAILABLE) else "cpu"
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -622,11 +618,11 @@ def get_training_configs(
     )
     NGB_GENERAL_PARAMS.update(ngb_kwargs)
 
-    # 2026-05-08 perf: when caller declares which models are in scope
-    # AND mlp / recurrent are NOT among them, skip the entire MLP
-    # config block (saves ~14s of pytorch + lightning import overhead
-    # on the first call to get_training_configs in a process). Any
-    # caller that asks for MLP_GENERAL_PARAMS later will get None.
+    # When caller declares which models are in scope AND mlp / recurrent
+    # are NOT among them, skip the entire MLP config block (saves ~14s of
+    # pytorch + lightning import overhead on the first call to
+    # get_training_configs in a process). Any caller that asks for
+    # MLP_GENERAL_PARAMS later will get None.
     _mlp_in_scope = (
         enabled_models is None
         or any(m in ("mlp", "recurrent") for m in enabled_models)
@@ -640,18 +636,19 @@ def get_training_configs(
         MLP_GENERAL_PARAMS = None
     else:
         # Note: ``num_sanity_val_steps`` is intentionally left at
-        # Lightning's default (2). A 2026-05-09 A/B benchmark on the
-        # tightest MLP combo (c0120: cb+mlp pandas n=300 multiclass)
-        # showed setting it to 0 saves only 32 ms / 1.7% per fit
-        # (within combined stdev), because the "Sanity Checking" pass
-        # is just the first forward through cuDNN's auto-tuner --
-        # disabling it pushes the same kernel selection cost onto
-        # epoch 0 instead. Keeping the default preserves Lightning's
-        # fail-fast on a broken val pipeline at no measurable cost.
-        # 2026-05-12: AMP precision is now auto-resolved on Ampere+ CUDA hosts
-        # (RTX 30/40, A100, H100) -> "bf16-mixed" for ~2x throughput on tabular
-        # MLPs. Falls back to "32-true" on older GPUs / CPU. The user override
-        # under mlp_kwargs["trainer_params"]["precision"] always wins.
+        # Lightning's default (2). An A/B benchmark on the tightest MLP
+        # combo (cb+mlp pandas n=300 multiclass) showed setting it to 0
+        # saves only 32 ms / 1.7% per fit (within combined stdev) because
+        # the "Sanity Checking" pass is just the first forward through
+        # cuDNN's auto-tuner; disabling it pushes the same kernel
+        # selection cost onto epoch 0 instead. Keeping the default
+        # preserves Lightning's fail-fast on a broken val pipeline at no
+        # measurable cost.
+        # AMP precision is auto-resolved on Ampere+ CUDA hosts (RTX
+        # 30/40, A100, H100) to "bf16-mixed" for ~2x throughput on
+        # tabular MLPs. Falls back to "32-true" on older GPUs / CPU. The
+        # user override under mlp_kwargs["trainer_params"]["precision"]
+        # always wins.
         from .mlp_runtime_defaults import resolve_mlp_precision_default
         _user_precision = (
             (mlp_kwargs or {}).get("trainer_params", {}).get("precision")
@@ -667,12 +664,11 @@ def get_training_configs(
             # ------------------------------------------------------------------
             min_epochs=1,
             max_epochs=iterations,
-            # 2026-05-12: hard 30-min cap on a 4M-row TVT regression got the
-            # MLP stopped at ~6 epochs (RMSE 585 vs Linear 252). Default
-            # raised to 2h so a slow DataLoader path can still converge; the
-            # caller-side ``early_stopping_rounds`` (default 100 epochs of
-            # no val improvement) still terminates well before then on
-            # healthy training. Override via
+            # 2h cap (raised from a prior 30-min default that cut a 4M-row
+            # TVT regression at ~6 epochs). The caller-side
+            # ``early_stopping_rounds`` (default 100 epochs of no val
+            # improvement) still terminates well before this on healthy
+            # training. Override via
             # ``mlp_kwargs["trainer_params"]["max_time"]``.
             max_time={"days": 0, "hours": 2, "minutes": 0},
             # ------------------------------------------------------------------
@@ -710,8 +706,8 @@ def get_training_configs(
         loss_fn = F.cross_entropy
         labels_dtype = torch.int64
 
-        # 2026-05-13 (TVT-failure root cause): defaults switched from
-        # AdamW + LR=1e-3 to Adam + LR=3e-3.
+        # Defaults: Adam + LR=3e-3 (chosen after a TVT-failure root cause
+        # analysis; was previously AdamW + LR=1e-3).
         #
         # Why Adam (not AdamW): AdamW's built-in weight_decay=0.01
         # penalises large weights -- which is EXACTLY what an MLP needs
@@ -743,11 +739,11 @@ def get_training_configs(
         if mlp_kwargs:
             mlp_model_params.update(mlp_kwargs.get("model_params", {}))
 
-        # 2026-05-12: cross-platform-safe DataLoader defaults. num_workers
-        # stays at 0 on EVERY OS because ``TorchDataset`` keeps the full
-        # input frame in self.features. On Windows that means each worker
-        # pickles 100 GB; on Linux fork's CoW gets broken by Polars indexing
-        # + Python refcount writes -> swap death. pin_memory still defaults
+        # Cross-platform-safe DataLoader defaults. num_workers stays at 0
+        # on EVERY OS because ``TorchDataset`` keeps the full input frame
+        # in self.features. On Windows that means each worker pickles
+        # 100 GB; on Linux fork's CoW gets broken by Polars indexing +
+        # Python refcount writes -> swap death. pin_memory still defaults
         # ON for CUDA hosts (no IPC landmine). User opts in to workers via
         # ``mlp_kwargs["dataloader_params"]["num_workers"]`` once their
         # specific dataset is verified to fit each worker's memory budget.
@@ -780,8 +776,8 @@ def get_training_configs(
             features_dtype=torch.float32, labels_dtype=labels_dtype,
             dataloader_params=mlp_dataloader_params,
         )
-        # 2026-05-12: plumb the suite-level predict-batch-size knob through
-        # the datamodule -- the wrapper's _predict_raw consults this when no
+        # Plumb the suite-level predict-batch-size knob through the
+        # datamodule; the wrapper's _predict_raw consults this when no
         # explicit batch_size is passed to .predict(). None (default) lets
         # the adaptive resolver pick based on memory + dataframe width.
         if mlp_predict_batch_size is not None:
@@ -875,12 +871,11 @@ def get_training_configs(
 # CB's default occurrence_lower_bound (CatBoost master, 2026). Words appearing
 # in fewer rows than this are pruned from the TF-IDF dictionary. On small
 # training sets the default is too aggressive and can either raise
-# "Dictionary size is 0" or — in the C++ _train loop — HANG indefinitely
-# while the empty dictionary stalls bag-of-words feature construction
-# (fuzz c0056 / c0070, observed 2026-04-26).
+# "Dictionary size is 0" or - in the C++ _train loop - HANG indefinitely
+# while the empty dictionary stalls bag-of-words feature construction.
 CB_DEFAULT_OCCURRENCE_LOWER_BOUND = 50
 
-# Above this row count we keep CB's defaults — production-sized data needs
+# Above this row count we keep CB's defaults; production-sized data needs
 # the original 50-occurrence floor to keep dictionaries bounded. Below it
 # we scale the floor down proportionally so RFECV inner CV folds and
 # small-n training runs do not collapse the dictionary.

@@ -18,7 +18,7 @@ import os
 import re
 import sys
 from textwrap import shorten
-from typing import Any, Union, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd

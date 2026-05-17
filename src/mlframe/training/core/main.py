@@ -184,11 +184,11 @@ def train_mlframe_models_suite(
     if verbose:
         _ensure_logging_visible()
 
-    # Audit 2026-05-17 (Wave 1.5): apply the third-party patches the
-    # suite relies on (LGBMModel.feature_names_in_ setter; dataset-build
-    # logging) lazily at suite entry. Previously these ran as import-
-    # time side effects of ``mlframe.training``; now bare imports leave
-    # joblib / lightgbm / catboost / xgboost untouched.
+    # Apply the third-party patches the suite relies on
+    # (LGBMModel.feature_names_in_ setter; dataset-build logging) lazily
+    # at suite entry. Previously these ran as import-time side effects
+    # of ``mlframe.training``; now bare imports leave joblib / lightgbm
+    # / catboost / xgboost untouched.
     from .. import apply_loky_cpu_count_override as _apply_loky
     from .._model_factories import apply_third_party_patches_once
     _apply_loky()
@@ -523,7 +523,7 @@ def train_mlframe_models_suite(
         cat_features=cat_features,
         was_polars_input=was_polars_input,
         all_models_polars_native=all_models_polars_native,
-        # Wave-7: _phase_fit_pipeline reports whether the pre-fit polars-stage actually ran (skipped when caller passed
+        # _phase_fit_pipeline reports whether the pre-fit polars-stage actually ran (skipped when caller passed
         # pandas or when no model is polars-native). The pandas-conversion phase needs the truthful value, not the
         # default=True placeholder, to decide whether the polars-side cat fixes (Utf8 -> Categorical fills) need to be
         # mirrored back into the pandas-side frames before CatBoost Pool construction.
@@ -632,12 +632,11 @@ def train_mlframe_models_suite(
         was_polars_input=was_polars_input,
         verbose=bool(verbose),
     )
-    # 2026-05-16 wiring fix: write the filled frames BACK to ctx.
-    # _train_one_target later does ``train_df_polars = ctx.train_df_polars``
-    # (main.py:563+); without this back-write it would read the pre-fix
-    # frames with nulls still in cat columns, causing CB Arrow Pool to
-    # crash with 'Data with nulls is not supported for categorical
-    # columns'. Surfaced 2026-05-16 by
+    # Write the filled frames BACK to ctx. ``_train_one_target`` later
+    # does ``train_df_polars = ctx.train_df_polars``; without this
+    # back-write it would read the pre-fix frames with nulls still in
+    # cat columns, causing CB Arrow Pool to crash with 'Data with nulls
+    # is not supported for categorical columns'. Covered by
     # test_sensor_polars_utf8_nullable_cat_fills_before_cb +
     # test_sensor_enum_null_fill_reaches_lazy_pandas_conversion.
     _bulk_setattr_to_ctx(ctx, (

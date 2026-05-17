@@ -745,7 +745,7 @@ def _maybe_run_feature_handling_apply(
     SCOPE constraint forbids touching _training_context.py in this wave.
 
     sample_weight is accepted for forward compatibility: feature_handling_apply does not yet take it
-    (validated against apply.py 2026-05-16). The keyword is plumbed through so a later apply.py
+    (validated against the current apply.py). The keyword is plumbed through so a later apply.py
     extension picks it up without a second wire-in change here. NOTE: the underlying handlers do
     consume sample_weight via LeakageSafeEncoder -- once apply.py grows the kwarg, drop the silent
     discard below.
@@ -1307,7 +1307,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             if polars_fastpath_active:
                 if verbose:
                     logger.info("  Polars fastpath active for %s (strategy=%s)", mlframe_model_name, type(strategy).__name__)
-                # MUST use the post-promotion `cat_features` (Phase 3.5 reassignment), NOT the stale
+                # MUST use the post-promotion `cat_features` (post-auto-detect reassignment), NOT the stale
                 # `cat_features_polars` snapshot from before auto-detect ran - the latter would still list
                 # text-promoted columns and trip CB's polars-categorical fastpath on String dtypes.
                 _cat_features = list(cat_features or [])

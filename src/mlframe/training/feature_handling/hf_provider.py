@@ -1,18 +1,14 @@
 """
 HuggingFaceProvider: concrete frozen-text-embedding implementation.
 
-Phase B v1: frozen mode only. ``transform(texts) -> ndarray``. Uses
+Frozen mode only. ``transform(texts) -> ndarray``. Uses
 ``transformers.AutoModel`` + ``transformers.AutoTokenizer`` directly
 so no extra deps (no ``sentence-transformers``).
 
-Trainable mode (``as_module``) lands in phase G alongside the
-``TabularInputEncoder``.
-
 Default model behaviour:
   * ``intfloat/multilingual-e5-small`` is the FHC-level default
-    (round-3 user confirmation -- multilingual is the safer default;
-    English-only users opt in to ``BAAI/bge-small-en-v1.5`` via
-    explicit provider).
+    (multilingual is the safer default; English-only users opt in
+    to ``BAAI/bge-small-en-v1.5`` via explicit provider).
   * E5 family auto-prefix: input texts get ``"passage: "`` prepended
     automatically (e5 was trained with this convention; missing it
     halves retrieval quality). Detected by checking if model name
@@ -24,13 +20,12 @@ Lifecycle:
   * ``release()`` drops both, calls ``torch.cuda.empty_cache()`` on
     GPU.
   * Loaded model + tokenizer ARE NOT pickled with the provider
-    (round-3 chaos C24 + greenfield assumption: signature is enough
-    to re-acquire).
+    (signature is enough to re-acquire).
 
 Robustness:
-  * ``trust_remote_code=False`` hardcoded (round-3 security S4 --
-    require explicit opt-in; HF repos with malicious modeling.py
-    would otherwise execute on import).
+  * ``trust_remote_code=False`` hardcoded (require explicit opt-in;
+    HF repos with malicious modeling.py would otherwise execute on
+    import).
   * GPU OOM mid-batch -> halve batch and retry. Driver-crash
     (``CudaErrorClass.CONTEXT_LOST``) -> abort with restart-Python
     message.
@@ -275,9 +270,8 @@ class HuggingFaceProvider:
         if not self._is_loaded:
             raise RuntimeError("HuggingFaceProvider not acquired -- call acquire() first")
 
-        # Coerce non-string entries to empty (round-3 tests T8: empty
-        # / null input must not crash). Round-3 T9: Unicode round-trip
-        # safety -- relying on the underlying tokenizer.
+        # Coerce non-string entries to empty so empty/null input doesn't
+        # crash; Unicode round-trip safety relies on the underlying tokenizer.
         clean_texts: List[str] = []
         for t in texts:
             if t is None:

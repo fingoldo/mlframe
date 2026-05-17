@@ -92,10 +92,9 @@ from .composite_spec import CompositeSpec  # noqa: F401
 
 
 
-# Phase 3 split: re-export everything from composite_transforms for
-# full back-compat. Existing callers ``from mlframe.training.composite
-# import Transform, _TRANSFORMS_REGISTRY, get_transform, ...`` keep
-# working unchanged.
+# Re-export everything from composite_transforms for full back-compat.
+# Existing callers ``from mlframe.training.composite import Transform,
+# _TRANSFORMS_REGISTRY, get_transform, ...`` keep working unchanged.
 # ----------------------------------------------------------------------
 from .composite_transforms import (  # noqa: E402,F401
     DomainViolationError,
@@ -147,10 +146,8 @@ from .composite_transforms import (  # noqa: E402,F401
 
 
 # ----------------------------------------------------------------------
-# Phase 4a split: re-export CompositeTargetEstimator + helpers from
-# composite_estimator for full back-compat. Existing callers
-# ``from mlframe.training.composite import CompositeTargetEstimator``
-# keep working unchanged.
+# Re-export CompositeTargetEstimator + helpers from composite_estimator
+# for full back-compat (callers import from this module).
 # ----------------------------------------------------------------------
 from .composite_estimator import (  # noqa: E402,F401
     CompositeTargetEstimator,
@@ -165,7 +162,7 @@ from .composite_estimator import (  # noqa: E402,F401
 
 
 # ----------------------------------------------------------------------
-# Phase 4b split: re-export CompositeProvenance + report_to_markdown.
+# Re-export CompositeProvenance + report_to_markdown.
 # ----------------------------------------------------------------------
 from .composite_provenance import (  # noqa: E402,F401
     CompositeProvenance,
@@ -175,7 +172,7 @@ from .composite_provenance import (  # noqa: E402,F401
 
 
 # ----------------------------------------------------------------------
-# Phase 4c split: re-export ensemble + OOF + util symbols.
+# Re-export ensemble + OOF + util symbols.
 # ----------------------------------------------------------------------
 from .composite_ensemble import (  # noqa: E402,F401
     CompositeCrossTargetEnsemble,
@@ -187,7 +184,7 @@ from .composite_ensemble import (  # noqa: E402,F401
 
 
 # ----------------------------------------------------------------------
-# Phase 4d split: re-export screening helpers.
+# Re-export screening helpers.
 # ----------------------------------------------------------------------
 from .composite_screening import (  # noqa: E402,F401
     _extract_column_array,
@@ -208,8 +205,7 @@ from .composite_screening import (  # noqa: E402,F401
 )
 
 # ----------------------------------------------------------------------
-# Phase 1+2 splits: re-export independent + dependent helper modules.
-# Restored after the Phase 4e extraction inadvertently dropped them.
+# Re-export independent + dependent helper modules.
 # ----------------------------------------------------------------------
 from .composite_auto_detect import (  # noqa: E402,F401
     detect_time_column_candidates,
@@ -253,6 +249,6 @@ from .composite_feature_stacking import (  # noqa: E402,F401
 
 
 # ----------------------------------------------------------------------
-# Phase 4e split: re-export CompositeTargetDiscovery.
+# Re-export CompositeTargetDiscovery.
 # ----------------------------------------------------------------------
 from .composite_discovery import CompositeTargetDiscovery  # noqa: E402,F401

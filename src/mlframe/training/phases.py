@@ -40,7 +40,7 @@ class _PhaseRegistry:
         self._lock = threading.Lock()
         self._totals: dict[str, float] = {}
         self._counts: dict[str, int] = {}
-        # 2026-05-10 (rec d): per-phase cumulative RAM delta (GB).
+        # Per-phase cumulative RAM delta (GB).
         # Phase-level RAM growth surfaces leaks that the per-call ``Done.
         # RAM usage: NGB`` line can't show -- e.g. "compute_split_metrics
         # +1.2GB across 32 calls" tells the operator which phase to
@@ -114,8 +114,8 @@ def _try_get_rss_gb() -> float:
 def format_phase_summary(top: int = 30) -> str:
     """Format the top-N phases by accumulated wall-clock time into a table.
 
-    2026-05-10 (rec d): adds a ``+/-RAM_GB`` column when the registry has
-    captured per-phase RAM deltas (auto-populated by the ``phase()`` ctx
+    Adds a ``+/-RAM_GB`` column when the registry has captured per-phase
+    RAM deltas (auto-populated by the ``phase()`` ctx
     manager). Phases where the delta is exactly 0.0 (no measurement, or
     truly zero net change) render as ``     `` (blank) so the column
     only highlights phases that moved RSS.
@@ -144,8 +144,8 @@ def format_phase_summary(top: int = 30) -> str:
 def _format_ctx(context: dict[str, Any], max_val_len: int = 120) -> str:
     """Format phase-context kwargs for log output with value truncation.
 
-    Truncation rationale (added 2026-04-19): callers may pass large
-    objects as context kwargs — e.g. ``phase("fit", eval_set=huge_list)``
+    Truncation rationale: callers may pass large objects as context
+    kwargs, e.g. ``phase("fit", eval_set=huge_list)``
     or a debugger accidentally passing a 10k-row DataFrame. Without
     truncation the log line grows to MB+ per phase START/DONE pair,
     which blows past log rotation, breaks structured log aggregation
@@ -191,8 +191,8 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
     ctx_str = _format_ctx(context)
     logger.log(level, f"[phase] {name} START {ctx_str}".rstrip())
     t0 = _timer()
-    # 2026-05-10 (rec d): bracket each phase with RSS sample so the
-    # registry accumulates a RAM-delta column. psutil-optional; if
+    # Bracket each phase with RSS sample so the registry accumulates a
+    # RAM-delta column. psutil-optional; if
     # missing or transiently fails, we simply skip the delta.
     rss_pre_gb = _try_get_rss_gb()
     raised: BaseException | None = None

@@ -14,9 +14,7 @@ Key functions:
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import os
 from timeit import default_timer as timer
 
 from sklearn.exceptions import NotFittedError
@@ -35,9 +33,8 @@ except ImportError:
     pl = None  # type: ignore
 
 from sklearn.pipeline import Pipeline
-from sklearn.base import BaseEstimator
 
-from .utils import log_ram_usage, filter_existing
+from .utils import log_ram_usage
 
 logger = logging.getLogger(__name__)
 
@@ -197,14 +194,14 @@ def _prepare_test_split(
             test_target = _extract_target_subset(target, test_idx)
 
         if model is not None and pre_pipeline:
-            # 2026-05-13: even when the train/val path took a cache hit
+            # Even when the train/val path took a cache hit
             # (``skip_pre_pipeline_transform=True``), test_df MUST be
             # transformed if the pre_pipeline is fitted AND changes the
-            # data (not identity-equivalent).  The 2026-05-13 prod crash
-            # hit this precisely: ``cached_dfs`` carried raw test_df
-            # with NaN; ``skip_pre_pipeline_transform`` was True;
-            # LinearRegression received NaN -> ValueError.  Tree models
-            # (CB/XGB/LGB) handle NaN natively, so they were fine.
+            # data (not identity-equivalent). A prod crash hit this
+            # precisely: ``cached_dfs`` carried raw test_df with NaN;
+            # ``skip_pre_pipeline_transform`` was True; LinearRegression
+            # received NaN -> ValueError. Tree models (CB/XGB/LGB)
+            # handle NaN natively, so they were fine.
             #
             # The guard: if the pre_pipeline is identity-equivalent
             # (kept all columns, no recipes), transform is a no-op AND
@@ -281,7 +278,7 @@ def _is_fitted(estimator):
         return False
     # For a sklearn Pipeline, ``check_is_fitted`` passes as long as ANY step
     # has fitted state -- even if later steps are still unfitted. That bit
-    # us on 2026-04-22 (fuzz c0031): LinearModelStrategy's pre_pipeline had
+    # us in fuzz testing: LinearModelStrategy's pre_pipeline had
     # a fitted MRMR step (reused from a prior CB iteration) but un-fitted
     # encoder/imputer/scaler. _is_fitted returned True -> code took the
     # ".transform only" branch -> imputer.transform raised ValueError 'The
@@ -347,7 +344,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     Feature selectors (MRMR, RFECV) can't encode text or list-of-float embedding columns;
     catboost needs them back intact for fit. Hide -> run -> re-attach preserves both.
 
-    Numpy-output fallback (2026-04-22): if the inner ``fn`` is a default sklearn
+    Numpy-output fallback: if the inner ``fn`` is a default sklearn
     Pipeline (no ``set_output(transform="pandas")``), ``out`` comes back as a numpy
     array. The original code detected this via ``hasattr(out, "columns")`` and
     silently returned numpy -- dropping ``passthrough_cols`` and, worse, collapsing
@@ -361,7 +358,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     sample-grouping signal. fix audit row FS-P1-1.
     """
 
-    # 2026-05-11 Wave 20: convert sklearn/polars "empty output" errors into
+    # Convert sklearn/polars "empty output" errors into
     # an empty-frame return so the downstream ``train_df.shape[1] == 0``
     # guard at trainer.py:4515 fires cleanly. Triggered by MRMR / RFECV
     # confirming 0 predictors: ``fit_transform`` returns ``(N, 0)`` which
@@ -371,7 +368,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     #   - sklearn's pandas-container wrap of a polars ``(N, 0)`` frame:
     #     ``ValueError: need at least one array to concatenate``
     #     (polars.to_numpy -> vstack on empty list).
-    # Surfaced by Wave 15 MRMR fuzz axes (c0008 with interactions_max_order=3
+    # Surfaced by MRMR fuzz axes (c0008 with interactions_max_order=3
     # + fe_max_steps=2 confirming 0 predictors).
     def _call_fit(_fn, _arg, _target_arg):
         """Invoke fit/fit_transform with ``groups`` when supported. sklearn
@@ -443,7 +440,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
                 held_pd = _get_pandas_view(held)
             else:
                 held_pd = held
-            # 2026-05-12 Wave 26: single ``pd.concat`` instead of per-column
+            # Single ``pd.concat`` instead of per-column
             # ``out.loc[:, c] = ...`` assignment loop. Each column write
             # triggers a full-DataFrame copy; concat does one allocation
             # and copies all columns in one pass.
@@ -465,7 +462,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             col_names = [f"f{i}" for i in range(out.shape[1])]
         out = pd.DataFrame(out, columns=col_names, index=getattr(reduced, "index", None))
         held_pd = held.to_pandas() if is_polars else held
-        # Wave 26: single concat instead of per-column assignment loop.
+        # Single concat instead of per-column assignment loop.
         out = pd.concat([out, held_pd], axis=1)
     return out
 
@@ -594,7 +591,7 @@ def _apply_pre_pipeline_transforms(
     """
     if model is not None and pre_pipeline:
         t0_pre = timer()
-        # 2026-05-13 (duplicate-pipeline skip): capture input column names
+        # Duplicate-pipeline skip: capture input column names
         # BEFORE transform so we can detect identity-equivalent pipelines
         # (selected all columns, created none). Set on the pre_pipeline
         # instance so the suite loop in core/main.py can skip redundant
@@ -602,7 +599,7 @@ def _apply_pre_pipeline_transforms(
         _input_cols = (
             list(train_df.columns) if hasattr(train_df, "columns") else None
         )
-        # 2026-05-12: structurally-identical-pipeline cache. When the
+        # Structurally-identical-pipeline cache. When the
         # PER-TARGET loop runs Linear then MLP back-to-back, both build
         # ``SimpleImputer + StandardScaler``; without this short-circuit we
         # re-fit the identical arithmetic on the same train_df (~46s linear
@@ -632,7 +629,7 @@ def _apply_pre_pipeline_transforms(
             # Transfer fit state from cached pipeline so the caller's (cloned, unfitted) instance
             # can transform test_df at predict time. Without this, _prepare_test_split called
             # pre_pipeline.transform on an unfitted Pipeline and raised NotFittedError (surfaced
-            # 2026-05-16 by test_train_mixed_linear_and_lgb after value-transforming pipelines
+            # by test_train_mixed_linear_and_lgb after value-transforming pipelines
             # stopped being marked identity-equivalent).
             if fitted_cached is not None:
                 try:
@@ -707,7 +704,7 @@ def _apply_pre_pipeline_transforms(
                 if val_df is not None:
                     if verbose:
                         logger.info(f"Transforming val_df via pre_pipeline...")
-                    # Historical 0-row val skip removed 2026-04-27 (batch 3).
+                    # The historical 0-row val skip has been removed.
                     # The original empty-val window came from outlier
                     # detection rejecting almost every val row; that's now
                     # guarded at the source by the val-side ``min_keep``
@@ -727,7 +724,7 @@ def _apply_pre_pipeline_transforms(
             else:
                 if verbose:
                     logger.info("Fitting & transforming train_df via pre_pipeline %s...", pre_pipeline)
-                # 2026-04-24 Session 6: supervised encoders (category_encoders
+                # Supervised encoders (category_encoders
                 # TargetEncoder, polars-ds supervised steps) reject 2-D y. Collapse
                 # multilabel targets to "any positive label" for the encoder fit
                 # only -- actual model still trains on the full (N, K) target.
@@ -748,7 +745,7 @@ def _apply_pre_pipeline_transforms(
                 # is left half-fitted (selector fitted, imputer/scaler not). Running
                 # pre_pipeline.transform on val_df then raises NotFittedError. Mirror the
                 # empty-frame return on val_df so trainer.py's 0-feature guard can fire
-                # cleanly. (Surfaced 2026-05-16 by test_mrmr_no_impact_classification
+                # cleanly. (Covered by test_mrmr_no_impact_classification
                 # which uses min_relevance_gain=10.0 to force 0 features.)
                 _train_is_empty = (
                     hasattr(train_df, "shape") and len(train_df.shape) == 2 and train_df.shape[1] == 0
@@ -766,7 +763,7 @@ def _apply_pre_pipeline_transforms(
                 elif val_df is not None:
                     if verbose:
                         logger.info("Transforming val_df via pre_pipeline %s...", pre_pipeline)
-                    # Historical 0-row val skip removed 2026-04-27 (batch 3) --
+                    # The historical 0-row val skip has been removed --
                     # see fit-transform branch comment for rationale.
                     val_df = _passthrough_cols_fit_transform(
                         pre_pipeline.transform,
@@ -779,8 +776,8 @@ def _apply_pre_pipeline_transforms(
             if verbose:
                 shape_str = f"{train_df.shape[0]:_}x{train_df.shape[1]}" if hasattr(train_df, "shape") else ""
                 logger.info("  pre_pipeline done -- train: %s, %.1fs", shape_str, timer() - t0_pre)
-            # 2026-05-12: populate the LRU cache so the next sklearn-non-
-            # native model in this per-target iteration (typically MLP
+            # Populate the LRU cache so the next sklearn-non-native
+            # model in this per-target iteration (typically MLP
             # after Linear) gets a cache hit on the same train_df + the
             # same structural pipeline. Guarded: only stash when we
             # actually went through the fit-transform branch (the others
@@ -808,7 +805,7 @@ def _apply_pre_pipeline_transforms(
         # those steps preserve column names while remapping string cats to
         # numeric, so the suite skipped pre_pipeline.transform on test_df and
         # LogisticRegression got raw string cats at predict time (TypeError in
-        # safe_sparse_dot, surfaced 2026-05-16 fuzz_regression_sensors x6).
+        # safe_sparse_dot, surfaced by fuzz_regression_sensors).
         if _input_cols is not None and hasattr(train_df, "columns"):
             _output_cols = list(train_df.columns)
             _cols_same = _input_cols == _output_cols

@@ -1,19 +1,19 @@
 """
 Model x axis x handler compatibility matrix + early validation.
 
-Round-3 R2-7: ``_MODEL_AXIS_SUPPORT`` is the central source of truth
-for "which handler methods does model X accept on axis Y". Validation
-runs at FHC construction (via the ``_validate_handlers`` entry point),
-paired with the active ``mlframe_models`` list, and raises
-``ValueError`` with ``difflib.get_close_matches()`` suggestions for
-typo'd method names.
+``_MODEL_AXIS_SUPPORT`` is the central source of truth for "which
+handler methods does model X accept on axis Y". Validation runs at
+FHC construction (via the ``_validate_handlers`` entry point), paired
+with the active ``mlframe_models`` list, and raises ``ValueError``
+with ``difflib.get_close_matches()`` suggestions for typo'd method
+names.
 
 Public API for downstream consumers:
   * :data:`_MODEL_AXIS_SUPPORT` -- frozen lookup table.
   * :data:`_NATIVE_EMBEDDING_OUTPUT_SUPPORT` -- which models accept
     ``output="as_embedding_feature"``.
   * :func:`register_model_axis_support` -- runtime extension point
-    for custom user models (round-3 F16).
+    for custom user models.
   * :func:`validate_handler_for_model` -- single-spec validator with
     actionable error messages.
   * :func:`validate_fhc_handlers` -- full FHC pass: walks defaults +
@@ -98,7 +98,7 @@ def register_model_axis_support(
     axis: Axis,
     methods: Iterable[str],
 ) -> None:
-    """Extension hook for user-defined models (round-3 F16).
+    """Extension hook for user-defined models.
 
     The compat matrix is closed by default to make typos surface
     early. Users with a custom model that needs a different combination
@@ -124,7 +124,7 @@ def register_model_axis_support(
 
 def _suggest_method(typo: str, valid: Iterable[str]) -> str:
     """Return ``" did you mean 'tfidf'?"`` style suggestion, capped to
-    3 closest matches per round-3 U-R2-29."""
+    3 closest matches."""
     matches = difflib.get_close_matches(typo, list(valid), n=3, cutoff=0.5)
     if not matches:
         return ""
@@ -146,8 +146,7 @@ def validate_handler_for_model(
     # Cross-cutting rule: ``learnable_text_embedding`` is neural-only.
     # Check this FIRST so the user gets the most-specific error message
     # ("requires neural") instead of the matrix-default ("not in valid
-    # methods"). Round-3 R2-7 corollary: cross-cutting policies beat
-    # matrix lookup.
+    # methods"); cross-cutting policies beat matrix lookup.
     if method == "learnable_text_embedding" and model_kind not in _NEURAL_MODELS:
         raise ValueError(
             f"method='learnable_text_embedding' requires a neural model; "
@@ -194,8 +193,8 @@ def validate_fhc_handlers(
 ) -> None:
     """FHC-level validator. Walks defaults + per_model overrides for
     every active model, accumulates errors, raises one combined
-    ``ValueError`` so users see ALL mismatches in one go (round-3
-    U-R2-29: don't make them fix one error, run again, fix the next).
+    ``ValueError`` so users see ALL mismatches in one go (rather than
+    fix one error, run again, fix the next).
     """
     active = set(active_models)
     errors: List[str] = []

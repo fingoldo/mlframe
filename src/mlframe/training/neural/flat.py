@@ -103,13 +103,30 @@ def generate_mlp(
     # Don't modify min_layer_neurons directly; use effective_min_neurons instead.
     effective_min_neurons = max(min_layer_neurons, num_classes) if num_classes and num_classes > 1 else min_layer_neurons
 
-    assert dropout_prob >= 0.0
-    assert inputs_dropout_prob >= 0.0
-    assert consec_layers_neurons_ratio >= 1.0
-    assert nlayers >= 1 and isinstance(nlayers, int)
-    assert min_layer_neurons >= 1 and isinstance(min_layer_neurons, int)
-    assert num_classes is None or (num_classes >= 0 and isinstance(num_classes, int))
-    assert first_layer_num_neurons >= min_layer_neurons and isinstance(first_layer_num_neurons, int)
+    # Validate API-boundary args explicitly so failures survive `python -O`
+    # (asserts are stripped) and produce informative ValueError messages.
+    if dropout_prob < 0.0:
+        raise ValueError(f"dropout_prob must be >= 0.0, got {dropout_prob!r}")
+    if inputs_dropout_prob < 0.0:
+        raise ValueError(f"inputs_dropout_prob must be >= 0.0, got {inputs_dropout_prob!r}")
+    if consec_layers_neurons_ratio < 1.0:
+        raise ValueError(
+            f"consec_layers_neurons_ratio must be >= 1.0, got {consec_layers_neurons_ratio!r}"
+        )
+    if not (isinstance(nlayers, int) and nlayers >= 1):
+        raise ValueError(f"nlayers must be a positive int, got {nlayers!r}")
+    if not (isinstance(min_layer_neurons, int) and min_layer_neurons >= 1):
+        raise ValueError(f"min_layer_neurons must be a positive int, got {min_layer_neurons!r}")
+    if num_classes is not None and not (isinstance(num_classes, int) and num_classes >= 0):
+        raise ValueError(f"num_classes must be None or a non-negative int, got {num_classes!r}")
+    if not (
+        isinstance(first_layer_num_neurons, int)
+        and first_layer_num_neurons >= min_layer_neurons
+    ):
+        raise ValueError(
+            f"first_layer_num_neurons must be an int >= min_layer_neurons "
+            f"({min_layer_neurons}), got {first_layer_num_neurons!r}"
+        )
 
     layers = []
     layer_sizes = [num_features]  # tracked for verbose logging

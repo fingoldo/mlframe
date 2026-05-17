@@ -10,7 +10,7 @@ import pandas as pd
 
 
 # ----------------------------------------------------------------------
-# generate_interaction_bases (R10c brainstorm #9; synthetic base column generator).
+# generate_interaction_bases (synthetic base column generator).
 #
 # Takes a small set of candidate base column NAMES + their numpy arrays and produces synthetic base columns by pairwise combination under the specified binary operations. Output names follow the convention ``<a>__<op>__<b>`` (mirroring the composite-target naming convention) so they're distinguishable from raw bases in downstream metadata. Synthetic bases are then fed into the standard linear_residual / ratio / etc transforms as inputs.
 #

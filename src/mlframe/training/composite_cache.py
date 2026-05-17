@@ -31,12 +31,12 @@ def _is_polars_df(x: Any) -> bool:
 
 
 # ----------------------------------------------------------------------
-# Discovery caching layer (R10c brainstorm round-2 extension E; content-hash cache for discovery).
+# Discovery caching layer (content-hash cache for discovery).
 #
 # R&D workflows often re-run ``CompositeTargetDiscovery`` on the same data while only varying the inner-model hyperparameters. The discovery step (MI permutation null, Wilcoxon per spec, tiny-model rerank) burns minutes on multi-million-row datasets. The caching layer keys discovery results by a content hash of (data-sample, target-column, config-signature, random_state) so repeated discovery calls with the same inputs return the cached specs in milliseconds.
 #
 # Three primitives:
-# 1. ``data_signature(df, target_col, feature_cols, sample_n=1000, random_state=42)`` -- blake2b hash over a deterministic sample of the data + column names + dtypes + a head/tail row-order fingerprint. Quantises to a 16-byte fingerprint that is SENSITIVE to row reorder (changed in commit 4e2f031 / 2026-05-16): a shuffled frame produces a different signature than the original, so reorder no longer replays a stale spec.
+# 1. ``data_signature(df, target_col, feature_cols, sample_n=1000, random_state=42)`` -- blake2b hash over a deterministic sample of the data + column names + dtypes + a head/tail row-order fingerprint. Quantises to a 16-byte fingerprint that is SENSITIVE to row reorder: a shuffled frame produces a different signature than the original, so reorder no longer replays a stale spec.
 # 2. ``DiscoveryCache(cache_dir)`` -- disk-backed key->value store. Keys are hex strings; values are pickled (using stdlib ``pickle``; safe since the values are dataclass-derived dicts, not arbitrary user objects). API: ``get(key)`` / ``set(key, value)`` / ``invalidate(key)`` / ``clear()`` / ``__contains__``.
 # 3. Convenience ``make_discovery_cache_key(df_sig, target_col, config_signature, random_state)`` -- combines the parts into a stable hex key.
 #
@@ -45,7 +45,7 @@ def _is_polars_df(x: Any) -> bool:
 
 
 _DISCOVERY_SIGNATURE_SAMPLE_N: int = 1000
-# CACHE-P2-5: single source of truth for discovery cache seed; both
+# Single source of truth for discovery cache seed; both
 # ``data_signature`` and ``make_discovery_cache_key`` reference it so a
 # downstream override touches one constant, not two function defaults.
 _DISCOVERY_DEFAULT_SEED: int = 42
@@ -377,10 +377,10 @@ class DiscoveryCache:
     def get(self, key: str, default: Any = None) -> Any:
         """Return the cached value, or ``default`` if the key is absent / unreadable.
 
-        Pre-2026-05-15 the implementation checked ``os.path.exists`` before
-        opening; on Windows a delete-between-exists-and-open race surfaced
-        ``FileNotFoundError`` after the existence check passed. The two-step
-        guard is gone now - we just try-open and treat any failure (missing
+        We deliberately omit any ``os.path.exists`` check before opening:
+        on Windows a delete-between-exists-and-open race surfaced
+        ``FileNotFoundError`` after the existence check passed. The
+        implementation just try-opens and treats any failure (missing
         file, locked file, corrupt pickle) as a cache miss.
 
         A successful read updates the LRU sidecar so subsequent eviction

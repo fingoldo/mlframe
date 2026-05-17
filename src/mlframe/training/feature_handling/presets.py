@@ -82,15 +82,14 @@ def cb_native_only(**fhc_kwargs: Any) -> FeatureHandlingConfig:
 
 
 def embedding_only(
-    provider: Optional[Any] = None,  # EmbeddingProvider — phase A2
+    provider: Optional[Any] = None,  # EmbeddingProvider
     pool: str = "mean",
     **fhc_kwargs: Any,
 ) -> FeatureHandlingConfig:
     """All models receive frozen-text-embeddings for text + native cat.
 
-    The EmbeddingProvider object lands in phase A2 -- until then
-    ``provider`` is a placeholder. Phase A2 will set the default to
-    ``intfloat/multilingual-e5-small`` (round-3 user confirmation).
+    Default provider is ``intfloat/multilingual-e5-small``; pass an
+    explicit ``EmbeddingProvider`` to override.
     """
     return FeatureHandlingConfig(
         default_text=[

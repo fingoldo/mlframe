@@ -1,0 +1,2 @@
+2026-05-17T21:21:24+03:00 | START | agent_wave45_composite | started
+2026-05-17T21:23:50+03:00 | EDIT | composite_spec.py / composite_streaming.py / composite_stacking.py / composite_feature_stacking.py | stripped dated tags + narrowed excepts

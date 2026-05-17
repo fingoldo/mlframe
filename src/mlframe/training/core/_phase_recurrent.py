@@ -342,7 +342,7 @@ def train_recurrent_models(
 ) -> dict:
     """Train recurrent models across all target types and targets.
 
-    When ``ctx`` is supplied (post-2026-05-16 wiring), each fitted recurrent model gets val/test/train preds
+    When ``ctx`` is supplied (current wiring), each fitted recurrent model gets val/test/train preds
     computed and is wrapped into a member-entry compatible with ``score_ensemble``; then
     ``_rerun_ensemble_with_recurrent`` rebuilds the per-target ensemble so the recurrent members actually
     participate. Without ctx the legacy raw-model-append behaviour is preserved for back-compat with any

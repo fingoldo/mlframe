@@ -189,7 +189,7 @@ class CompositeTargetDiscovery:
         y_full = _extract_column_array(df, target_col)
         y_train = y_full[train_idx]
 
-        # R10b stat #8: auto-boost mi_n_strata on heavy-tail y. The
+        # Auto-boost mi_n_strata on heavy-tail y. The
         # default 10 strata produces unstable MI estimates when the
         # tail dominates the signal -- one or two tail rows per bin.
         # Detect via skew or kurtosis on train; if either is high,
@@ -266,7 +266,7 @@ class CompositeTargetDiscovery:
         # only the first effect, so both halves use the same feature
         # set: X without the base column.
 
-        # OPEN-1 integration (2026-05-12): stash the per-candidate base arrays so the multi-base forward-stepwise extension (run after kept_specs is finalised) can pick from the SAME pool of MI-ranked bases that the single-base discovery considered. Keyed by column name; values are train-row-restricted ndarrays.
+        # Stash the per-candidate base arrays so the multi-base forward-stepwise extension (run after kept_specs is finalised) can pick from the SAME pool of MI-ranked bases that the single-base discovery considered. Keyed by column name; values are train-row-restricted ndarrays.
         self._auto_base_pool: dict[str, np.ndarray] = {}
 
         # Score each (base, transform).
@@ -282,9 +282,9 @@ class CompositeTargetDiscovery:
                 df, x_remaining, train_idx_screen,
             )
 
-            # 2026-05-13 (perf): pre-bin feature columns for this base
-            # so all transforms evaluated against it reuse the same
-            # quantile edges + bin indices (~50 % of MI wall time).
+            # Pre-bin feature columns for this base so all transforms
+            # evaluated against it reuse the same quantile edges + bin
+            # indices (~50% of MI wall time).
             _x_prebinned = (
                 _prebin_feature_columns(
                     x_remaining_matrix, nbins=int(self.config.mi_nbins),
@@ -389,7 +389,7 @@ class CompositeTargetDiscovery:
                     mi_y_compare = mi_y_for_base
                 mi_gain = mi_t - mi_y_compare
 
-                # R10b stat #8: bootstrap CI on mi_gain. The
+                # Bootstrap CI on mi_gain. The
                 # point-estimate has a noise floor that scales with
                 # screening-sample size and y-tail heaviness; the
                 # absolute eps_mi_gain threshold misses this. Bootstrap
@@ -476,9 +476,9 @@ class CompositeTargetDiscovery:
             spec: CompositeSpec | None = entry.get("spec")
             if spec is None:
                 continue  # already a reject
-            # R10b stat #8: gate compares LCB (lower CI bound), not
-            # point estimate, when bootstrap is enabled. Falls back
-            # to point estimate when LCB unavailable.
+            # Gate compares LCB (lower CI bound), not point estimate,
+            # when bootstrap is enabled. Falls back to point estimate
+            # when LCB unavailable.
             mi_gain_for_gate = entry.get("mi_gain_lcb", spec.mi_gain)
             if mi_gain_for_gate <= self.config.eps_mi_gain:
                 entry["reason"] = (
@@ -578,7 +578,7 @@ class CompositeTargetDiscovery:
                         if reject_on_drift:
                             drift_dropped.append((s.name, float(z)))
                             continue
-                        # I4 fix (2026-05-11): demote inline warning to DEBUG. Many drift-detected specs are subsequently rejected by the raw-y baseline gate / Wilcoxon filter; emitting a WARNING for each one before the gate produces dead-noise. A summary WARNING is emitted at the end of discovery ONLY for specs that survived all gates.
+                        # Demoted to DEBUG: many drift-detected specs are subsequently rejected by the raw-y baseline gate / Wilcoxon filter; emitting a WARNING for each one before the gate produces dead-noise. A summary WARNING is emitted at the end of discovery ONLY for specs that survived all gates.
                         else:
                             logger.debug(
                                 "[CompositeTargetDiscovery] alpha drift "
@@ -764,7 +764,7 @@ class CompositeTargetDiscovery:
             target_col, len(kept_specs), len(candidates), elapsed,
         )
 
-        # I4 emit (2026-05-11): alpha-drift WARNINGs only for the SURVIVING specs. Earlier inline emits were demoted to DEBUG so the user sees a single, actionable warning at the end of discovery rather than a wall of warnings for specs that the raw-y baseline gate / Wilcoxon filter dropped anyway.
+        # Alpha-drift WARNINGs only for the SURVIVING specs. Inline emits during scoring are at DEBUG; the user sees a single, actionable warning at the end of discovery rather than a wall of warnings for specs that the raw-y baseline gate / Wilcoxon filter dropped anyway.
         _drift_flags = getattr(self, "_alpha_drift_flags", {})
         if _drift_flags and kept_specs:
             _drift_threshold = float(getattr(
@@ -903,9 +903,8 @@ class CompositeTargetDiscovery:
         # First pass: cheap-fail filters (name patterns, type, finite
         # count, near-constant). Build a list of survivors + their
         # train-row arrays so the corr check can be vectorised across
-        # all survivors in ONE matrix op (2.2x faster vs per-column
-        # ``_safe_corr`` loop on 200 cols x 80K rows; benchmarked
-        # 2026-05-10).
+        # all survivors in ONE matrix op (~2.2x faster vs per-column
+        # ``_safe_corr`` loop on 200 cols x 80K rows).
         drops: list[dict[str, Any]] = []
         corr_drops: list[tuple[str, float]] = []
         candidates: list[str] = []
@@ -1986,7 +1985,7 @@ class CompositeTargetDiscovery:
         # Trim to top-M.
         top_m = max(1, self.config.top_m_after_tiny)
         reranked = reranked[:top_m]
-        # Logging: show the rerank effect. The "top-%d" label reflects the ACTUAL length of the survivor set (which may be smaller than ``top_m`` after the raw-y baseline gate / Wilcoxon filter), not the configured target -- the previous "top-3" message that listed 1 spec was a confusing off-by-N (B4 fix, 2026-05-11).
+        # Logging: show the rerank effect. The "top-%d" label reflects the ACTUAL length of the survivor set (which may be smaller than ``top_m`` after the raw-y baseline gate / Wilcoxon filter), not the configured target.
         original_top = [s.name for s in kept_specs[: top_m]]
         new_top = [s.name for s in reranked]
         if original_top != new_top:
@@ -2078,7 +2077,7 @@ from .composite_interaction_bases import (  # noqa: E402,F401
     _INTERACTION_OPS_DEFAULT,
 )
 
-# Phase 2 re-exports.
+# Dependent helper re-exports.
 from .composite_forward_stepwise import (  # noqa: E402,F401
     _MULTI_BASE_DEFAULT_MAX_K,
     _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,

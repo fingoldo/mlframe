@@ -37,9 +37,9 @@ logger = logging.getLogger(__name__)
 #    (alpha, beta) is a multivariate-t with v = n-2 degrees of freedom.
 #    On large n the t collapses to a normal, so the result coincides
 #    with the OLS standard-error interval.
-# 2. ``bayesian_alpha_fit_bootstrap``: empirical bootstrap (alias of the
-#    pre-2026 implementation). Useful for residual distributions where
-#    the Gaussian-eps assumption is dubious.
+# 2. ``bayesian_alpha_fit_bootstrap``: empirical bootstrap (legacy
+#    implementation). Useful for residual distributions where the
+#    Gaussian-eps assumption is dubious.
 
 
 _BAYESIAN_ALPHA_DEFAULT_N_BOOTSTRAP: int = 200
@@ -155,13 +155,13 @@ def bayesian_alpha_fit(
     try:
         from scipy.stats import t as _t_dist
         t_q = float(_t_dist.ppf(1.0 - half_tail, df=max(v, 1)))
-    except Exception:
+    except ImportError:
         # Fallback to normal quantile when scipy.stats is unavailable;
         # underestimates tails for small v but never crashes.
         try:
             from scipy.stats import norm as _norm
             t_q = float(_norm.ppf(1.0 - half_tail))
-        except Exception:
+        except ImportError:
             t_q = 1.96  # 95% normal approximation
     sqrt_s2 = float(np.sqrt(max(s2_hat, 0.0)))
     alpha_t_scale = sqrt_s2 * float(np.sqrt(max(XtX_inv[0, 0], 0.0)))

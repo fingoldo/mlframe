@@ -11,13 +11,14 @@ import pandas as pd
 try:
     import polars as pl  # type: ignore
     _HAS_POLARS = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     pl = None  # type: ignore
     _HAS_POLARS = False
 
 
 def _is_polars_df(x: Any) -> bool:
-    """ENS-P2-6: prefer explicit isinstance check over duck-typing."""
+    """True iff polars is importable and ``x`` is a polars DataFrame. Explicit
+    isinstance avoids duck-typing false positives (e.g. user-side wrappers)."""
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
@@ -25,7 +26,7 @@ from .composite_screening import _is_numeric_column
 
 
 # ----------------------------------------------------------------------
-# detect_time_column + sort_df_by_time (OPEN-3 from R10c follow-up; auto-sort for EWMA / rolling / frac_diff transforms which assume chronological row order).
+# detect_time_column + sort_df_by_time (auto-sort for EWMA / rolling / frac_diff transforms which assume chronological row order).
 #
 # The time-series transforms (``ewma_residual`` / ``rolling_quantile_ratio`` / ``frac_diff``) silently produce semantically-wrong T when fed unordered rows -- the EWMA recursion + rolling window assume rows are in chronological order. Most datasets at the discovery stage are unsorted (sample / shuffled splits), so unconditional default would corrupt results. These helpers solve that.
 #
@@ -140,7 +141,7 @@ def sort_df_by_time_column(df: Any, time_column: str, *, ascending: bool = True)
 
 
 # ----------------------------------------------------------------------
-# detect_group_column (OPEN-2 from R10c follow-up; auto-detect a categorical column suitable for ``linear_residual_grouped``).
+# detect_group_column (auto-detect a categorical column suitable for ``linear_residual_grouped``).
 #
 # Discovery doesn't currently know how to pick a ``group_column`` for the grouped residual transform -- callers configure it manually. This helper scans the dataframe and recommends column candidates that look like group keys (categorical, moderate cardinality, balanced sizes).
 #

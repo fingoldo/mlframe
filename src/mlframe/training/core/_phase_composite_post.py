@@ -784,7 +784,7 @@ def run_composite_post_processing(
                     else {"strategy": "single_best_fallback"}
                 )
                 # Stamp the chosen ensemble flavour into metadata["ensembles_chosen"] so the predict path can replay
-                # the right combine for the cross-target slot (Wave-2 predict-path parity Fix 3). The CT key reuses
+                # the right combine for the cross-target slot (predict-path parity). The CT key reuses
                 # the _CT_ENSEMBLE__ literal so the predict per-target lookup hits the same slot the loader produces.
                 _ce_actual_strategy = getattr(_ensemble, "strategy", None) or _ce_strategy
                 metadata.setdefault("ensembles_chosen", {}) \

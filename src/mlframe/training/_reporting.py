@@ -79,12 +79,12 @@ def _canonical_multilabel_y(targets) -> np.ndarray:
     / unhandled — caller decides).
 
     For float-typed cells (``pl.List(pl.Float32)`` source), the
-    output is cast to ``int64`` via ``>= 0.5`` threshold (round-3
-    audit A#22): downstream metrics expect ``{0, 1}`` indicators.
+    output is cast to ``int64`` via ``>= 0.5`` threshold:
+    downstream metrics expect ``{0, 1}`` indicators.
 
-    Extracted from the inline canonicalization at evaluation.py
-    (Session 2026-04-28) so ``mlframe.training.dummy_baselines`` and
-    other consumers share one path.
+    Extracted from the inline canonicalization at evaluation.py so
+    ``mlframe.training.dummy_baselines`` and other consumers share
+    one path.
     """
     if isinstance(targets, pd.DataFrame):
         targets_arr = targets.values
@@ -894,7 +894,6 @@ def report_probabilistic_model_perf(
     # Also detect object-dtype-of-arrays (the polars
     # ``pl.List(pl.Int8)`` -> pandas object roundtrip), stack to 2-D so
     # ``targets_arr[:, class_id]`` works in the multilabel branch.
-    # Surfaced 3-way fuzz c0000 / c0008 (cb / multilabel target).
     # Extracted to ``_canonical_multilabel_y`` helper so the
     # new ``mlframe.training.dummy_baselines`` module can reuse the same
     # canonicalization logic without duplication.
@@ -1084,8 +1083,8 @@ def report_probabilistic_model_perf(
         # pyutilz.logginglib.init_logging) capture the report block.
         # See sibling fix in report_regression_model_perf at line 659.
         # Replace sklearn's ``classification_report`` with the
-        # njit-backed ``format_classification_report``. cProfile of fuzz
-        # c0014 traced 90ms (55 %) of the warm-path
+        # njit-backed ``format_classification_report``. cProfile traced
+        # ~90ms (55 %) of the warm-path
         # ``report_probabilistic_model_perf`` to sklearn's
         # ``precision_recall_fscore_support`` + ``multilabel_confusion_matrix``
         # path, which is overkill for single-label classification. The

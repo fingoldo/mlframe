@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
-from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -19,22 +17,17 @@ try:
 except ImportError:
     pl = None  # type: ignore
 
-from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-
 from sklearn.isotonic import IsotonicRegression
 
 from mlframe.core.helpers import get_model_best_iter
-from mlframe.config import CATBOOST_MODEL_TYPES, XGBOOST_MODEL_TYPES
+from mlframe.config import CATBOOST_MODEL_TYPES
 
 from ._cb_pool import (
-    _coerce_label_for_cb_pool,
     _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
     _polars_schema_diagnostic,
 )
 from ._eval_helpers import _align_xgb_cat_categories
-from ._pipeline_helpers import _passthrough_cols_fit_transform
-from ._predict_guards import _recover_cb_feature_names
 from .helpers import CB_DEFAULT_OCCURRENCE_LOWER_BOUND, compute_cb_text_processing
 from .phases import phase
 from .pipeline import prepare_df_for_catboost as _prep_cb
@@ -83,8 +76,7 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
 
 
 def _handle_oom_error(model_obj, model_type_name: str) -> bool:
-    """2026-05-12: migrated from _eval_helpers refactor fallout.
-    Attempts to recover from an OOM error by clearing caches and
+    """Attempt to recover from an OOM error by clearing caches and
     returning True if the caller should retry the fit.
     """
     import gc
@@ -120,8 +112,8 @@ class _PostHocCalibratedModel:
     """Transparent wrapper that applies isotonic post-hoc calibration to
     predict_proba outputs of a fitted binary classifier.
 
-    Added 2026-04-15 to make ``prefer_calibrated_classifiers=True`` actually
-    calibrate tree classifiers. Prior behavior only swapped the early-stopping
+    Makes ``prefer_calibrated_classifiers=True`` actually calibrate tree
+    classifiers. The naive path only swapped the early-stopping
     eval_metric, which was a no-op when early stopping did not trigger -- so
     calibrated and uncalibrated runs produced bit-identical probabilities.
 
@@ -177,8 +169,8 @@ class _PostHocCalibratedModel:
 class _PerClassIsotonicCalibrator:
     """Multi-output post-hoc calibrator: K independent IsotonicRegression fits.
 
-    Added 2026-04-24 Session 4 to unblock calibration on
-    ``MULTICLASS_CLASSIFICATION`` and ``MULTILABEL_CLASSIFICATION``
+    Unblocks calibration on ``MULTICLASS_CLASSIFICATION`` and
+    ``MULTILABEL_CLASSIFICATION``
     target types (previously raised ``NotImplementedError`` in
     ``evaluation.post_calibrate_model``).
 
@@ -387,19 +379,19 @@ def _train_model_with_fallback(
         (trained_model, best_iteration) where best_iteration may be None.
     """
     t0_fit = timer()
-    # Fix 9.4.3 (CB only, 2026-04-21): reuse a single ``catboost.Pool``
-    # across weight schemas and same-target_type targets by mutating the
-    # Pool's label/weight in place instead of letting the sklearn wrapper
-    # rebuild from X on every fit. Gated on:
+    # CB-only: reuse a single ``catboost.Pool`` across weight schemas
+    # and same-target_type targets by mutating the Pool's label/weight
+    # in place instead of letting the sklearn wrapper rebuild from X on
+    # every fit. Gated on:
     #   * model is CatBoost-family;
     #   * installed CatBoost exposes ``Pool.set_label`` and
     #     ``Pool.set_weight`` (callable);
     #   * ``CatBoostClassifier.fit(X=Pool)`` is the idiomatic native path
     #     (short-circuits rebuild in ``_build_train_pool``).
-    # XGB/LGB are not covered this round -- their sklearn wrappers don't
-    # accept pre-built DMatrix/Dataset yet (upstream FRs drafted in
+    # XGB/LGB are not yet covered -- their sklearn wrappers don't accept
+    # pre-built DMatrix/Dataset yet (upstream FRs drafted in
     # ``D:\Machine Learning\3rdParty\reproducers\upstream_feature_requests\``).
-    # Only the per-build logging from Fix 9.4.1 makes their rebuild cost visible.
+    # The per-build logging is what makes their rebuild cost visible.
     _cb_pool = _maybe_get_or_build_cb_pool(
         model_type_name=model_type_name,
         model=model,
@@ -407,7 +399,7 @@ def _train_model_with_fallback(
         train_target=train_target,
         fit_params=fit_params,
     )
-    # Fix Orch-1 (2026-04-21): also reuse the val Pool across fits.
+    # Also reuse the val Pool across fits.
     # Rewrites fit_params['eval_set'] from (val_df, val_target) to a
     # cached Pool so CB's sklearn wrapper short-circuits the val-side
     # rebuild too. Only fires when _cb_pool is active (train-side reuse
@@ -447,7 +439,7 @@ def _train_model_with_fallback(
     # ...) MUST arrive with pandas; if a pl.DataFrame gets here for them, the
     # upstream lazy-conversion -> pipeline_cache -> process_model chain has a
     # leak. Previously the trainer silently ran a second polars->pandas
-    # conversion as a "self-heal" -- which hid the 2026-04-23 regression where
+    # conversion as a "self-heal" -- which hid a regression where
     # ``pipeline_cache`` crossed streams between XGB (polars-native,
     # ``cache_key="tree" + tier(False,False)``) and LGB (same key) -- LGB kept
     # pulling XGB's polars frame out of cache and paying a duplicate 224 s
@@ -482,7 +474,7 @@ def _train_model_with_fallback(
             f"conversion path. Most likely cause: ``pipeline_cache`` returned "
             f"a polars frame cached by a polars-native strategy under a "
             f"``cache_key`` that collides with this strategy's key (see the "
-            f"2026-04-23 kind-suffix fix in core.py). Diagnose via "
+            f"kind-suffix fix in core.py). Diagnose via "
             f"pipeline_cache keys + id() -- do NOT add another silent "
             f"self-heal."
         )
@@ -566,14 +558,12 @@ def _train_model_with_fallback(
                         )
 
     try:
-        # 2026-04-28 (batch 4): final cat alignment right before fit, by
-        # which point any upstream polars->pandas conversion has run.
-        # Targets the seed=2024 c0060 flake: c0009 (polars_nullable
-        # multilabel) leaves the polars_nullable->pandas conversion in
-        # a state where c0060's pandas frame ends up with a
-        # pd.CategoricalDtype whose categories list disagrees between
-        # train and val/test. Re-align here so XGB's stored cat index
-        # matches at predict.
+        # Final cat alignment right before fit, by which point any
+        # upstream polars->pandas conversion has run. Targets a flake
+        # where a prior polars_nullable->pandas conversion leaves a
+        # later case's pandas frame with a pd.CategoricalDtype whose
+        # categories list disagrees between train and val/test.
+        # Re-align here so XGB's stored cat index matches at predict.
         _eval_set_for_align = fit_params.get("eval_set")
         _val_df_from_eval = None
         if _eval_set_for_align:
@@ -622,13 +612,13 @@ def _train_model_with_fallback(
                 _ensure_xgb_classification_objective(model, train_target)
                 _model_pre_wrap_type = type(model).__name__
                 model = _maybe_wrap_for_2d_target(model, train_target)
-                # 2026-04-29: when ``_maybe_wrap_for_2d_target`` introduced a
+                # When ``_maybe_wrap_for_2d_target`` introduced a
                 # MultiOutputClassifier wrapper, strip ``eval_set`` from
                 # fit_params - MOC doesn't slice eval_set per label, so the
                 # inner estimator would see a 2-D val y and raise
                 # ``y should be a 1d array``. The inner HGB / LGB / Linear
-                # classifiers don't accept eval_set anyway. Surfaced 3-way
-                # fuzz c0036 / c0041 / c0045 / c0056 (cb_hgb_lgb_linear*xgb /
+                # classifiers don't accept eval_set anyway. Surfaced by
+                # 3-way fuzz cases (cb_hgb_lgb_linear*xgb /
                 # multilabel + eval_set passed through).
                 if type(model).__name__ == "MultiOutputClassifier" and _model_pre_wrap_type != "MultiOutputClassifier":
                     # Strip val-injected fit_params - MOC doesn't slice
@@ -667,8 +657,8 @@ def _train_model_with_fallback(
             # CatBoost's text feature estimator failed to build a TF-IDF
             # vocabulary -- the column's non-null samples, after the
             # occurrence_lower_bound filter, leave an empty dictionary.
-            # Root cause (seen 2026-04-19 in prod): columns auto-promoted
-            # to text_features that have >99.9% null rows (e.g.
+            # Root cause: columns auto-promoted to text_features that
+            # have >99.9% null rows (e.g.
             # _raw_countries, job_post_source with 6-20 non-null
             # strings out of 810_000). Proactive guard in
             # _auto_detect_feature_types now blocks these at promotion
@@ -716,7 +706,7 @@ def _train_model_with_fallback(
             # either "No matching signature found" (fused cpdef dispatch miss) or
             # the categorical/numeric type mismatch above. Fall back to the pandas
             # path: zero-copy Arrow view + `prepare_df_for_catboost` preserves
-            # dtypes (post-2026-04-18) and CatBoost's pandas path accepts a wider
+            # dtypes and CatBoost's pandas path accepts a wider
             # range of category backings.
             # Full last-line for the one-line message, plus a structured
             # schema dump so the NEXT occurrence is diagnosable from the
@@ -848,9 +838,9 @@ def _train_model_with_fallback(
         logger.info("  model.fit(%s) done -- %s, %.1fs", model_type_name, shape_str, fit_elapsed)
 
     # Apply post-hoc isotonic calibration to binary classifiers that were
-    # tagged with ``_mlframe_posthoc_calibrate=True``. Fix 2026-04-15 for the
-    # long-standing no-op behavior of ``prefer_calibrated_classifiers=True``
-    # on tree models.
+    # tagged with ``_mlframe_posthoc_calibrate=True``. Without this the
+    # ``prefer_calibrated_classifiers=True`` flag is a no-op on tree
+    # models.
     try:
         model = _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=verbose)
     except Exception as _calib_err:
@@ -937,8 +927,8 @@ def _maybe_wrap_for_2d_target(model, train_target):
     if _mt in ("CatBoostClassifier", "CatBoostRegressor"):
         return model  # CB native multilabel via MultiLogloss
     if _mt in ("PytorchLightningClassifier", "PytorchLightningRegressor"):
-        # 2026-05-07: MLP supports multilabel natively via per-label
-        # sigmoid + BCEWithLogitsLoss (NeuralNetStrategy.supports_native_
+        # MLP supports multilabel natively via per-label sigmoid +
+        # BCEWithLogitsLoss (NeuralNetStrategy.supports_native_
         # multilabel=True). Output layer is K units, predict_step applies
         # sigmoid when task_type='multilabel'. No wrap needed.
         return model

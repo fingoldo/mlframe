@@ -60,6 +60,13 @@ if TYPE_CHECKING:
     import polars as pl_df
 
 
+# Default number of channels per timestep when callers don't supply
+# sequences (FEATURES_ONLY mode keeps the RNN branch dormant). Kept as a
+# module-level constant so the save/load round-trip and the wrapper
+# initialisation agree on the same fallback.
+_DEFAULT_SEQ_INPUT_SIZE: int = 4
+
+
 __all__ = [
     # Enums
     "RNNType",
@@ -149,7 +156,7 @@ class RecurrentTorchModel(L.LightningModule):
     def __init__(
         self,
         config: RecurrentConfig,
-        seq_input_size: int = 4,
+        seq_input_size: int = _DEFAULT_SEQ_INPUT_SIZE,
         aux_input_size: int = 0,
         class_weight: torch.Tensor | None = None,
         is_regression: bool = False,
@@ -551,7 +558,7 @@ class _RecurrentWrapperBase(BaseEstimator):
         self.model: RecurrentTorchModel | None = None
         self.trainer: L.Trainer | None = None
         self._aux_input_size: int = 0
-        self._seq_input_size: int = 4
+        self._seq_input_size: int = _DEFAULT_SEQ_INPUT_SIZE
         self._feature_scaler: StandardScaler | None = None
         self._prediction_cache: dict[bytes, np.ndarray] = {}
 
@@ -619,6 +626,9 @@ class _RecurrentWrapperBase(BaseEstimator):
         else:
             raise ValueError(f"eval_set must have 2 or 3 elements, got {len(eval_set)}")
 
+    # Domain-specific scale only applied when the caller opts into
+    # ``sequence_preprocessing="astronomy_mjd_delta"``. The generic
+    # ``"none"`` and ``"per_sequence_zscore"`` modes never reference it.
     _DELTA_MJD_SCALE: float = 10.0
     _STD_EPSILON: float = 1e-8
 
@@ -627,15 +637,16 @@ class _RecurrentWrapperBase(BaseEstimator):
         """Preprocess a single sequence.
 
         ``mode``:
-          * ``"none"``: cast to float32 and return -- magnitude preserved.
+          * ``"none"``: cast to float32 and return; magnitude preserved.
           * ``"per_sequence_zscore"``: independent z-score per channel per
             sequence. Destroys cross-sequence magnitude information; use
             only when each sequence is a standalone series whose
             absolute scale is irrelevant.
           * ``"astronomy_mjd_delta"``: legacy compat for in-house
-            astronomy datasets -- column 0 delta-encoded + /10 scale,
-            columns 1+ per-sequence z-score. Provided so existing
-            astronomy callers don't break after the default flip.
+            astronomy datasets. Column 0 is delta-encoded then scaled
+            by ``_DELTA_MJD_SCALE``; columns 1+ get per-sequence
+            z-score. Provided so existing astronomy callers don't break
+            after the default flip.
         """
         result = seq.astype(np.float32)
         if mode == "none":
@@ -889,7 +900,7 @@ class _RecurrentWrapperBase(BaseEstimator):
 
         wrapper = cls(config=config, random_state=state["random_state"])
         wrapper._aux_input_size = state.get("aux_input_size", 0)
-        wrapper._seq_input_size = state.get("seq_input_size", 4)
+        wrapper._seq_input_size = state.get("seq_input_size", _DEFAULT_SEQ_INPUT_SIZE)
 
         _sd = state.get("feature_scaler_dict")
         if _sd is not None:
@@ -984,7 +995,11 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         val_loader = self._create_dataloader(val_dataset, shuffle=False) if val_dataset else None
 
         self._aux_input_size = features.shape[1] if features is not None else 0
-        self._seq_input_size = sequences[0].shape[1] if sequences is not None and len(sequences) > 0 else 4
+        self._seq_input_size = (
+            sequences[0].shape[1]
+            if sequences is not None and len(sequences) > 0
+            else _DEFAULT_SEQ_INPUT_SIZE
+        )
 
         self.model = self._create_model(
             seq_input_size=self._seq_input_size,
@@ -1147,7 +1162,11 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         val_loader = self._create_dataloader(val_dataset, shuffle=False) if val_dataset else None
 
         self._aux_input_size = features.shape[1] if features is not None else 0
-        self._seq_input_size = sequences[0].shape[1] if sequences is not None and len(sequences) > 0 else 4
+        self._seq_input_size = (
+            sequences[0].shape[1]
+            if sequences is not None and len(sequences) > 0
+            else _DEFAULT_SEQ_INPUT_SIZE
+        )
 
         self.model = self._create_model(
             seq_input_size=self._seq_input_size,

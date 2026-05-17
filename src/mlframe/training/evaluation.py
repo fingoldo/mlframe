@@ -73,30 +73,16 @@ def _get_cached_plot_idx(n: int, sample_size: int, seed: int) -> "np.ndarray":
 import polars as pl
 import matplotlib.pyplot as plt
 
-from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
+from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.preprocessing import LabelEncoder
 from sklearn.pipeline import Pipeline
-from sklearn.metrics import (
-    mean_absolute_error,
-    max_error,
-    r2_score,
-    classification_report,
-)
 
-# Numba-accelerated drop-ins for the regression metrics.
-# Used on 1-D float arrays (the common case in report_regression_model_perf);
-# 6-23x faster than sklearn at N=1M (sklearn's input validation overhead
-# dominates the tiny reductions). Multioutput / sample_weight paths still
-# use sklearn (the fast helpers don't cover those).
-from mlframe.metrics.core import (
-    fast_mean_absolute_error,
-    fast_max_error,
-    fast_r2_score,
-    fast_root_mean_squared_error,
-)
-
+# ``root_mean_squared_error`` is re-exported here because external test modules
+# import it from ``mlframe.training.evaluation``; under sklearn < 1.4 fall back
+# to a thin wrapper around ``mean_squared_error``. The other sklearn / fast-*
+# metric imports the module used to carry were dead and were removed.
 try:
-    from sklearn.metrics import root_mean_squared_error
+    from sklearn.metrics import root_mean_squared_error  # noqa: F401
 except ImportError:
     from sklearn.metrics import mean_squared_error
 
@@ -110,12 +96,7 @@ except ImportError:
         return np.average(output_errors, weights=multioutput)
 
 
-from pyutilz.pythonlib import get_human_readable_set_size
-from IPython.display import display
-
-from mlframe.metrics.core import fast_calibration_report, fast_roc_auc, compute_fairness_metrics
 from mlframe.feature_selection.importance import plot_feature_importance
-from mlframe.training.phases import phase
 from ._reporting import (  # noqa: E402,F401
     _canonical_multilabel_y,
     report_model_perf,
