@@ -499,3 +499,34 @@ code we cannot rewrite without forking Lightning.
 **Verdict: REJECT.** No actionable mlframe hotspot on c0097 above the
 1.2x gate. The deadlock fix from iter 12 was the only real bug surface
 this fuzz cell exposed. Streak counter: 1/100.
+
+## Iter 14 -- 2026-05-17 -- REJECTED (streak 2/100)
+
+Picked `c0079_8aeeb5d5-cb_hgb_lgb_xgb-pl_nullable-n5000` -- 4-booster
+suite (no MLP, to avoid the iter 13 torch dominance), pl_nullable
+dtype, n=5000, target_type=`multilabel_classification`, 1 embedding col.
+
+**cProfile run aborted at 79s** with
+`joblib.externals.loky.process_executor.BrokenProcessPool: A task has
+failed to un-serialize. Please ensure that the arguments of the function
+are all picklable.` during `MultiOutputClassifier.fit` for the LGB
+member with `weight=uniform`.
+
+**Native run (no cProfile) passes in 28s.**
+
+Root cause: `python -m cProfile` instruments the parent interpreter
+state, which loky must pickle and ship to child workers when
+`MultiOutputClassifier` parallelises per-target fits. The cProfile
+profiler object is not picklable; the loky child receives garbage and
+unpickle dies before invoking the wrapped fit. Multilabel combos that
+spawn loky child pools cannot be cProfile-wrapped at the parent layer.
+
+**This is a profiler limitation, not an mlframe bug.** The native test
+passes; no source code change is warranted.
+
+Mitigation for future iterations: skip combos with
+`target_type == "multilabel_classification"` when running under
+cProfile wrap, OR force sequential joblib via
+`JOBLIB_MULTIPROCESSING=0` env. Going with the former for simplicity.
+
+**Verdict: REJECT.** Streak counter: 2/100.
