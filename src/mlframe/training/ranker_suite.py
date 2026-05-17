@@ -546,12 +546,26 @@ def train_mlframe_ranker_suite(
         #    callers who already pinned the loose field to "score_mean" or "borda".
         # 3. ``ranking_config.ltr_ensemble_method`` (typed Literal["rrf","borda"];
         #    new preferred source for fresh configurations).
+        #
+        # When BOTH the legacy and typed fields are set to non-default conflicting
+        # values, the legacy wins per priority above, but we WARN so the operator
+        # sees the silent fallthrough rather than discovering it via metrics.
+        _legacy = getattr(ranking_config, "ensemble_method", "rrf")
+        _typed = getattr(ranking_config, "ltr_ensemble_method", "rrf")
         if ensemble_method is not None:
             method = ensemble_method
-        elif getattr(ranking_config, "ensemble_method", "rrf") != "rrf":
-            method = ranking_config.ensemble_method
+        elif _legacy != "rrf":
+            if _typed != "rrf" and _typed != _legacy:
+                logger.warning(
+                    "train_mlframe_ranker_suite: ranking_config.ensemble_method=%r and "
+                    "ranking_config.ltr_ensemble_method=%r both set to conflicting non-default "
+                    "values; using legacy ensemble_method=%r (typed ltr_ensemble_method ignored). "
+                    "Pass ensemble_method=... explicitly or align the two fields to silence.",
+                    _legacy, _typed, _legacy,
+                )
+            method = _legacy
         else:
-            method = getattr(ranking_config, "ltr_ensemble_method", ranking_config.ensemble_method)
+            method = _typed
         ens_val = ensemble_ranker_scores(
             val_scores_per_model, g_va,
             method=method, rrf_k=ranking_config.rrf_k,

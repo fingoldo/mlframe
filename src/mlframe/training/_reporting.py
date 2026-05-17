@@ -1107,7 +1107,11 @@ def report_probabilistic_model_perf(
                 )
             else:
                 _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
-        except Exception:
+        except (ValueError, TypeError, ImportError, AttributeError) as _cls_err:
+            # Fall back to sklearn's classification_report when the njit-backed
+            # path can't handle the input shape / dtype. Narrow catch leaves
+            # programming bugs (KeyboardInterrupt, MemoryError) to propagate.
+            logger.debug("fast classification_report fallback: %s", _cls_err)
             _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
         _report_lines = [
             report_title + " " + model_name,
@@ -1147,11 +1151,15 @@ def report_probabilistic_model_perf(
                     for name, val in extra:
                         try:
                             _ml_lines.append(f"\t{name}={val:.{report_ndigits}f}")
-                        except Exception:
+                        except (TypeError, ValueError):
+                            # val is non-numeric (str / dict / etc.); format
+                            # as-is rather than crashing the whole report.
                             _ml_lines.append(f"\t{name}={val}")
                     logger.info("\n".join(_ml_lines))
-        except Exception as e:
-            # Never fail a report because of metrics-registry plumbing.
+        except (ImportError, AttributeError, ValueError, TypeError) as e:
+            # Narrow: import failures, missing attributes, sklearn metric input
+            # rejection. Anything else (programming bug) propagates so it is
+            # diagnosed at the call site instead of silently dropped.
             logger.debug("multilabel metrics registry skipped: %s", e)
 
     if subgroups:

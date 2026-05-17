@@ -222,7 +222,11 @@ def load_mlframe_model(file: str, safe: bool = True) -> Optional[object]:
                     model = dill.load(zf)
         return model
     except Exception as e:
-        logger.error(f"Could not load model from file {file}: {e}")
+        # logger.exception captures the traceback automatically so the
+        # operator can see the unpickler / zstd error stack rather than
+        # only the str(e) summary. Previous .error() obscured the
+        # underlying cause for any non-trivial load failure.
+        logger.exception("Could not load model from file %s: %s", file, e)
         return None
 
 

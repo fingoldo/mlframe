@@ -355,13 +355,18 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
                     "unbiased negative). Found none -- switch to "
                     "unbiased_only or check is_unbiased flag."
                 )
-            sample_weight = np.where(s == 1, 1.0 / n1, 1.0 / n0).astype(np.float32)
+            # float64 throughout: 1.0/n1 for large n (>= 2**24) loses precision
+            # in float32 and the per-class balance multiplier compounds the
+            # rounding error. Most sklearn estimators internally coerce
+            # sample_weight to float64 anyway, so producing float32 here only
+            # paid the rounding cost without saving downstream work.
+            sample_weight = np.where(s == 1, 1.0 / n1, 1.0 / n0).astype(np.float64)
             sample_weight *= (n0 + n1)  # rescale for numerical stability
         else:
             sample_weight = None
 
         if "sample_weight" in fit_params:
-            extra_sw = np.asarray(fit_params.pop("sample_weight"), dtype=np.float32)
+            extra_sw = np.asarray(fit_params.pop("sample_weight"), dtype=np.float64)
             sample_weight = (sample_weight * extra_sw) if sample_weight is not None else extra_sw
 
         self.base_estimator_ = clone(self.base_estimator)

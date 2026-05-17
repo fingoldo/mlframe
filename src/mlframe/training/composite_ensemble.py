@@ -7,6 +7,7 @@ import hashlib
 import logging
 import math
 import warnings
+from collections import OrderedDict
 from typing import (
     Any, Dict, List, Optional, Sequence, Tuple, Union,
 )
@@ -175,23 +176,27 @@ def _maybe_pass_sample_weight(fit_callable, X, y, sw: np.ndarray | None):
 # Module-level memo cache for compute_oof_holdout_predictions. OOF-K-NOT-CACHED: keyed by
 # (cache_key, kfold, random_state). The cache_key argument is opaque -- callers pass a hashable
 # tuple summarising the (component, X, y, sw) identity (e.g. (id(train_X), y_hash, spec_hash)).
-# 16-entry LRU; once full the oldest entry is evicted on insertion. Stays in-process; cleared at
-# interpreter shutdown.
-_OOF_HOLDOUT_CACHE: dict[tuple, tuple[np.ndarray, np.ndarray, list[str]]] = {}
+# 16-entry LRU; once full the least-recently-USED entry is evicted on insertion. Stays in-process;
+# cleared at interpreter shutdown. ``OrderedDict.move_to_end`` on cache hits keeps the eviction
+# order driven by access (true LRU), not just insertion order (which would degrade to FIFO).
+_OOF_HOLDOUT_CACHE: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray, list[str]]]" = OrderedDict()
 _OOF_HOLDOUT_CACHE_CAP = 16
 
 
 def _oof_cache_get(key: tuple):
-    return _OOF_HOLDOUT_CACHE.get(key)
+    if key not in _OOF_HOLDOUT_CACHE:
+        return None
+    _OOF_HOLDOUT_CACHE.move_to_end(key)
+    return _OOF_HOLDOUT_CACHE[key]
 
 
 def _oof_cache_put(key: tuple, value: tuple) -> None:
+    if key in _OOF_HOLDOUT_CACHE:
+        _OOF_HOLDOUT_CACHE.move_to_end(key)
+        _OOF_HOLDOUT_CACHE[key] = value
+        return
     if len(_OOF_HOLDOUT_CACHE) >= _OOF_HOLDOUT_CACHE_CAP:
-        try:
-            _oldest = next(iter(_OOF_HOLDOUT_CACHE))
-            del _OOF_HOLDOUT_CACHE[_oldest]
-        except StopIteration:  # pragma: no cover
-            pass
+        _OOF_HOLDOUT_CACHE.popitem(last=False)
     _OOF_HOLDOUT_CACHE[key] = value
 
 
@@ -563,22 +568,28 @@ class CompositeCrossTargetEnsemble:
         self.is_convex = bool(is_convex)
         self.notes = dict(notes or {})
         # REFIT-NNLS / REFIT-RIDGE: small LRU cache for surviving-subset refits. 32 entries is plenty
-        # for the handful of distinct member-dropout patterns a production session sees.
-        self._refit_cache: dict[tuple[str, tuple[int, ...]], tuple[np.ndarray, float]] = {}
+        # for the handful of distinct member-dropout patterns a production session sees. Backed by
+        # ``OrderedDict`` + ``move_to_end`` so the eviction order tracks ACCESS, not just insertion
+        # (the pre-fix dict-only impl was FIFO despite the LRU label).
+        self._refit_cache: OrderedDict[tuple[str, tuple[int, ...]], tuple[np.ndarray, float]] = OrderedDict()
         self._refit_cache_capacity: int = 32
 
     def _refit_cache_get(self, kind: str, surviving_key: tuple[int, ...]):
-        return self._refit_cache.get((kind, surviving_key))
+        key = (kind, surviving_key)
+        if key not in self._refit_cache:
+            return None
+        self._refit_cache.move_to_end(key)
+        return self._refit_cache[key]
 
     def _refit_cache_put(self, kind: str, surviving_key: tuple[int, ...], value):
-        # Tiny LRU: pop the oldest if at capacity. dict preserves insertion order on Python 3.7+.
+        key = (kind, surviving_key)
+        if key in self._refit_cache:
+            self._refit_cache.move_to_end(key)
+            self._refit_cache[key] = value
+            return
         if len(self._refit_cache) >= self._refit_cache_capacity:
-            try:
-                _oldest = next(iter(self._refit_cache))
-                del self._refit_cache[_oldest]
-            except StopIteration:  # pragma: no cover -- empty
-                pass
-        self._refit_cache[(kind, surviving_key)] = value
+            self._refit_cache.popitem(last=False)
+        self._refit_cache[key] = value
 
     # ------------------------------------------------------------------
     # Constructors / factory methods

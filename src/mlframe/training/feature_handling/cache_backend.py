@@ -216,10 +216,21 @@ class LocalDiskBackend:
     def _evict_to_caps(self) -> int:
         """Evict least-recently-accessed entries until both caps fit.
         Returns the number of entries removed.
+
+        Fast-path: when ``max_size_mb`` is unset and the sidecar entry count is already at-or-below
+        ``max_entries``, skip the listdir + per-entry stat entirely. The pre-fix unconditional
+        listdir paid O(N) on every write even when no eviction was due, which dominated bulk insert
+        latency once N grew into the thousands.
         """
         if self.max_entries is None and self.max_size_mb is None:
             return 0
         lru = self._load_lru()
+        if (
+            self.max_size_mb is None
+            and self.max_entries is not None
+            and len(lru) <= self.max_entries
+        ):
+            return 0
         # Collect every on-disk entry; pre-cap legacy keys default to
         # timestamp 0 so they evict first.
         entries: List[tuple] = []

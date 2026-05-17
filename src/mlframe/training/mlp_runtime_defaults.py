@@ -156,6 +156,7 @@ def resolve_mlp_precision_default(
     user_override: str | None = None,
     cuda_available: bool | None = None,
     cuda_compute_capability_major: int | None = None,
+    device_id: int = 0,
 ) -> str:
     """Return a Lightning ``precision=`` string.
 
@@ -172,7 +173,14 @@ def resolve_mlp_precision_default(
         Override CUDA detection. ``None`` probes via ``torch.cuda.is_available()``.
     cuda_compute_capability_major
         Override the GPU compute capability major version. ``None`` probes
-        the first device via ``torch.cuda.get_device_capability(0)``.
+        the configured device via ``torch.cuda.get_device_capability(device_id)``.
+    device_id
+        CUDA device index to probe for compute capability. Defaults to 0
+        (the only valid choice on single-GPU hosts). Heterogeneous multi-GPU
+        boxes -- e.g. an Ampere A100 alongside a Volta V100 used for the run
+        -- need to pass the actual training device index here so the
+        precision auto-resolution does not promise bf16 capability that the
+        used GPU does not have.
     """
     if user_override is not None:
         return str(user_override)
@@ -189,7 +197,7 @@ def resolve_mlp_precision_default(
     if cuda_compute_capability_major is None:
         try:
             import torch
-            cc_major, _ = torch.cuda.get_device_capability(0)
+            cc_major, _ = torch.cuda.get_device_capability(int(device_id))
         except Exception:
             # Probing failed -- fall back to the conservative default.
             return "32-true"
@@ -248,11 +256,20 @@ _TRAIN_MEM_FRACTION: float = 0.10
 _TRAIN_DTYPE_BYTES: int = 4
 
 
-def _probe_available_memory_bytes(*, cuda_available: bool | None = None) -> int | None:
+def _probe_available_memory_bytes(
+    *,
+    cuda_available: bool | None = None,
+    device_id: int = 0,
+) -> int | None:
     """Return available memory (GPU free if CUDA, else CPU available).
 
     Returns ``None`` when the probe fails -- caller falls back to a constant.
     Split from the resolver so tests can monkeypatch the probe directly.
+
+    ``device_id`` selects the CUDA device when CUDA is available; mirrors the
+    same knob on ``resolve_mlp_precision_default`` so heterogeneous multi-GPU
+    boxes can target the actual training device's free memory rather than
+    always device 0.
     """
     if cuda_available is None:
         try:
@@ -265,7 +282,7 @@ def _probe_available_memory_bytes(*, cuda_available: bool | None = None) -> int 
     if cuda_ok:
         try:
             import torch
-            free_bytes, _total_bytes = torch.cuda.mem_get_info(0)
+            free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
             return int(free_bytes)
         except Exception:
             pass

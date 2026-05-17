@@ -1,0 +1,4 @@
+2026-05-17T00:00:00Z | START | wave3_feature_handling | begin
+2026-05-17T00:01:00Z | ANALYZE | feature_handling/*.py | 12 candidates identified
+2026-05-17T00:02:00Z | FIX | providers.py:74-115 cache_backend.py:226 fingerprint.py:65-100 custom_handler.py:126 text_detection.py:158 registry.py:227 | 8 fixes complete
+2026-05-17T00:03:00Z | TEST | test_audit_2026_05_17_medium_feature_handling.py | written, running pytest

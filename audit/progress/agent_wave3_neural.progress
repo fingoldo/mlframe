@@ -1,0 +1,6 @@
+2026-05-17T18:20:54 | EXPLORE | reading neural files | begin
+2026-05-17T18:27:12 | FIX | recurrent.py multiple | applied (pack_padded zero-len, R2 single-sample, generator seed, ThreadPool threshold, xxhash top, sequence_preprocessing imports hoisted)
+2026-05-17T18:27:12 | FIX | flat.py | applied (multilabel argmax, cpu cache key)
+2026-05-17T18:27:12 | FIX | ranker.py | applied (set_epoch callback, EarlyStopping hoist, _L_MODULE reuse)
+2026-05-17T18:27:12 | FIX | ranking.py | applied (cb init_kwargs ordering)
+2026-05-17T18:27:12 | FIX | ranker_suite.py | applied (ensemble fallthrough WARN)

@@ -47,11 +47,14 @@ except ImportError:  # pragma: no cover -- optional accel
 
 
 # Per-process memo cache for repeated ``fingerprint_df`` calls on the same frame. Key is
-# ``(id(df), n_cols)`` so we don't have to walk the schema again when a hot path (per-target loop)
-# fingerprints the same frame N times. Bounded to ``_FP_CACHE_MAX`` entries (LRU); the strong-ref
-# guarantee that makes ``id()`` safe inside a suite holds here too.
+# ``(id(df), n_cols, columns_signature)`` where ``columns_signature`` is a cheap digest over the
+# tuple of column names. Pre-fix the key was ``(id(df), n_cols)``: two frames with the same column
+# count but different schemas could collide if ``id()`` from a recently-collected frame got
+# recycled mid-suite (rare but possible after explicit ``del`` / GC inside a loop). Bounded to
+# ``_FP_CACHE_MAX`` entries (LRU); the strong-ref guarantee that makes ``id()`` safe inside a suite
+# holds here too.
 _FP_CACHE_MAX = 32
-_fingerprint_cache: "OrderedDict[Tuple[int, int], ContentFingerprint]" = OrderedDict()
+_fingerprint_cache: "OrderedDict[Tuple[int, int, int], ContentFingerprint]" = OrderedDict()
 # Module lock that serialises mutations of the fingerprint memo and the
 # session token. Without it, ``_fp_cache_put`` / ``_fp_cache_get`` racing
 # with ``reset_session`` (which clears the memo) can interleave through
@@ -62,10 +65,26 @@ _fingerprint_cache: "OrderedDict[Tuple[int, int], ContentFingerprint]" = Ordered
 _FP_LOCK = threading.Lock()
 
 
-def _fp_cache_get(df: Any) -> "Optional[ContentFingerprint]":
+def _fp_cache_key(df: Any) -> "Optional[Tuple[int, int, int]]":
+    """Build the ``(id, n_cols, columns_signature)`` cache key. Returns ``None`` on any backend
+    failure so the caller skips the memo (defensive: cache miss is the safe fallback)."""
     try:
-        key = (id(df), len(df.columns))
+        cols = list(df.columns)
     except Exception:
+        return None
+    # Hash the tuple of column names so two same-id-same-count frames with different schemas
+    # never collide. ``hash(tuple(...))`` is process-local but stable within one interpreter run,
+    # which is exactly the scope this memo lives in.
+    try:
+        col_sig = hash(tuple(cols))
+    except Exception:
+        return None
+    return (id(df), len(cols), col_sig)
+
+
+def _fp_cache_get(df: Any) -> "Optional[ContentFingerprint]":
+    key = _fp_cache_key(df)
+    if key is None:
         return None
     with _FP_LOCK:
         val = _fingerprint_cache.get(key)
@@ -75,9 +94,8 @@ def _fp_cache_get(df: Any) -> "Optional[ContentFingerprint]":
 
 
 def _fp_cache_put(df: Any, fp: "ContentFingerprint") -> None:
-    try:
-        key = (id(df), len(df.columns))
-    except Exception:
+    key = _fp_cache_key(df)
+    if key is None:
         return
     with _FP_LOCK:
         _fingerprint_cache[key] = fp

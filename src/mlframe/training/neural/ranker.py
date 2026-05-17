@@ -207,6 +207,16 @@ def _import_lightning():
 # raise _pickle.PicklingError: Can't pickle ... it's not found as ...<locals>...
 _L_MODULE = _import_lightning()
 
+# Module-top EarlyStopping resolution: the fit-time try/except ImportError was repeated
+# on every fit call and obscured the hot-loop signal.
+try:
+    from lightning.pytorch.callbacks import EarlyStopping as _EarlyStopping
+except ImportError:
+    try:
+        from pytorch_lightning.callbacks import EarlyStopping as _EarlyStopping  # type: ignore
+    except ImportError:
+        _EarlyStopping = None  # type: ignore
+
 
 class MLPRankerLightningModule(_L_MODULE.LightningModule):
     """LightningModule for MLPRanker.
@@ -266,6 +276,25 @@ class MLPRankerLightningModule(_L_MODULE.LightningModule):
 def _make_lightning_module(network: nn.Module, loss_name: str, learning_rate: float):
     """Back-compat factory for existing MLPRanker.fit call sites."""
     return MLPRankerLightningModule(network, loss_name, learning_rate)
+
+
+class _SamplerSetEpochCallback(_L_MODULE.Callback):
+    """Call set_epoch(current_epoch) on a custom train batch_sampler.
+
+    PyTorch Lightning only auto-calls ``set_epoch`` on torch's DistributedSampler;
+    custom samplers (here: ``GroupBatchSampler``) must be advanced explicitly per
+    epoch so shuffle=True actually produces a different order across epochs. Without
+    this, every epoch processed queries in the SAME random order (seeded once at
+    sampler construction) and training stalled in a local optimum.
+    """
+
+    def __init__(self, sampler: GroupBatchSampler) -> None:
+        super().__init__()
+        self._sampler = sampler
+
+    def on_train_epoch_start(self, trainer, pl_module) -> None:  # noqa: D401
+        if hasattr(self._sampler, "set_epoch"):
+            self._sampler.set_epoch(trainer.current_epoch)
 
 
 # ----------------------------------------------------------------------------------
@@ -335,7 +364,10 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         columns must already be numeric-encoded by the caller (MLPRanker doesn't support
         raw categoricals).
         """
-        L = _import_lightning()
+        # _L_MODULE is the module-level resolved lightning package; the prior per-fit
+        # ``_import_lightning()`` call re-resolved it on every fit (cheap but tarnishes
+        # the audit signal for "lazy import inside hot loop"). Reuse the module top result.
+        L = _L_MODULE
 
         torch.manual_seed(self.seed)
         np.random.seed(self.seed)
@@ -391,14 +423,10 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             network, self.loss_fn, self.learning_rate,
         )
 
-        callbacks = []
-        if self.early_stopping_patience is not None and val_loader is not None:
-            try:
-                from lightning.pytorch.callbacks import EarlyStopping
-            except ImportError:
-                from pytorch_lightning.callbacks import EarlyStopping
+        callbacks: list = [_SamplerSetEpochCallback(train_sampler)]
+        if self.early_stopping_patience is not None and val_loader is not None and _EarlyStopping is not None:
             callbacks.append(
-                EarlyStopping(
+                _EarlyStopping(
                     monitor="val_loss", patience=self.early_stopping_patience,
                     mode="min", verbose=False,
                 )

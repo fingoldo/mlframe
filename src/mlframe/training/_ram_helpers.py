@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-import gc, logging, os, sys
+import gc, logging, os, sys, threading
 
 import psutil
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Lock for the adaptive baseline so concurrent callers (e.g. parallel
+# joblib worker pools and the main thread both invoking
+# `maybe_clean_ram_adaptive`) read-modify-write the baseline atomically.
+_MAYBE_CLEAN_LOCK = threading.Lock()
 
 def _caller_logger() -> logging.Logger:
     """Return the logger bound to the module that called the public helper
@@ -57,23 +62,27 @@ def maybe_clean_ram_adaptive() -> None:
     ``_MAYBE_CLEAN_MIN_GROWTH_MB`` since the previous clean. Cheap
     short-circuit replacement for bare ``clean_ram()`` on hot training
     paths where small-DF runs don't justify a 0.4s gc.collect per call.
+
+    Thread-safe: a module-level lock serializes baseline read-modify-write
+    so concurrent callers from joblib workers don't race the float assignment
+    (CPython float store is atomic but the if/clean/re-read sequence is not).
     """
     global _MAYBE_CLEAN_BASELINE_MB
     try:
-        import psutil
         rss_mb = psutil.Process().memory_info().rss / 1024**2
     except Exception:
         clean_ram()
         return
-    if _MAYBE_CLEAN_BASELINE_MB == 0.0:
-        _MAYBE_CLEAN_BASELINE_MB = rss_mb
-        return
-    if rss_mb - _MAYBE_CLEAN_BASELINE_MB > _MAYBE_CLEAN_MIN_GROWTH_MB:
-        clean_ram()
-        try:
-            _MAYBE_CLEAN_BASELINE_MB = psutil.Process().memory_info().rss / 1024**2
-        except Exception:
+    with _MAYBE_CLEAN_LOCK:
+        if _MAYBE_CLEAN_BASELINE_MB == 0.0:
             _MAYBE_CLEAN_BASELINE_MB = rss_mb
+            return
+        if rss_mb - _MAYBE_CLEAN_BASELINE_MB > _MAYBE_CLEAN_MIN_GROWTH_MB:
+            clean_ram()
+            try:
+                _MAYBE_CLEAN_BASELINE_MB = psutil.Process().memory_info().rss / 1024**2
+            except Exception:
+                _MAYBE_CLEAN_BASELINE_MB = rss_mb
 
 
 def clean_ram_and_gpu(verbose: bool = False) -> None:
@@ -127,9 +136,8 @@ def estimate_df_size_mb(df) -> float:
 def get_process_rss_mb() -> float:
     """Current process RSS in MB."""
     try:
-        import psutil
         return psutil.Process().memory_info().rss / 1024**2
-    except ImportError:
+    except Exception:
         return 0.0
 
 
@@ -151,7 +159,6 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
     4 calls of ``should_clean_ram`` to ``virtual_memory()`` alone.
     """
     try:
-        import psutil
         rss_mb = psutil.Process().memory_info().rss / 1024**2
     except Exception as e:
         logger.debug("should_clean_ram: RSS measurement failed, falling back to clean", exc_info=e)
@@ -166,7 +173,6 @@ def should_clean_ram(baseline_rss_mb: float, df_size_mb: float, min_growth_mb: f
     if df_size_mb < 256:
         return False
     try:
-        import psutil
         free_mb = psutil.virtual_memory().available / 1024**2
     except Exception as e:
         logger.debug("should_clean_ram: free-RAM measurement failed, falling back to clean", exc_info=e)

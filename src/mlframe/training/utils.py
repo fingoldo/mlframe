@@ -62,6 +62,19 @@ def coerce_to_numpy(arr, *, allow_none: bool = False):
     # pyutilz wrappers occasionally do). Saves a no-op copy on hot loops that pass ndarrays in.
     if isinstance(arr, np.ndarray):
         return arr
+    # Fast-path for pandas Series: .values is a zero-copy view of the underlying ndarray
+    # (when dtype is numeric / object), strictly cheaper than .to_numpy() which always
+    # honours its copy=False default with an extra dtype-resolution step.
+    if isinstance(arr, pd.Series):
+        return arr.values
+    # Fast-path for polars Series: explicit zero_copy_only hint avoids
+    # the materialise-via-Arrow step polars takes when called with no kwargs.
+    if pl is not None and isinstance(arr, pl.Series):
+        try:
+            return arr.to_numpy(zero_copy_only=False)
+        except TypeError:
+            # Older polars without zero_copy_only kwarg.
+            return arr.to_numpy()
     if hasattr(arr, "to_numpy"):
         return arr.to_numpy()
     if hasattr(arr, "values"):
@@ -144,7 +157,10 @@ def drop_columns_from_dataframe(
     if verbose:
         logger.info(f"Dropping {len(all_cols_to_drop)} column(s): {shorten(','.join(all_cols_to_drop),250)}...")
 
-    if isinstance(df, pl.DataFrame):
+    # Guard isinstance with `pl is not None` -- the module's top-level
+    # `import polars as pl` is wrapped in try/except (line 27) so `pl`
+    # can be None on installs without polars; isinstance(df, None) raises.
+    if pl is not None and isinstance(df, pl.DataFrame):
         df = df.drop(all_cols_to_drop, strict=False)
     else:
         existing_cols = all_cols_to_drop.intersection(set(df.columns))
@@ -303,7 +319,7 @@ def compute_model_input_fingerprint(
     schema = []
     for col in sorted(df_at_fit.columns):
         try:
-            if isinstance(df_at_fit, pl.DataFrame):
+            if pl is not None and isinstance(df_at_fit, pl.DataFrame):
                 dt = df_at_fit.schema[col]
             else:
                 dt = df_at_fit[col].dtype
@@ -417,7 +433,7 @@ def get_pandas_view_of_polars_df(
         (fixed domain preserved across slices), not a post-hoc Arrow-level
         cache.
     """
-    if not isinstance(df, (pl.DataFrame, pl.Series)):
+    if pl is None or not isinstance(df, (pl.DataFrame, pl.Series)):
         raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
 
     import pyarrow as pa
@@ -429,7 +445,7 @@ def get_pandas_view_of_polars_df(
     import time as _time
     _t0 = _time.perf_counter()
     _rss_before_gb = get_own_memory_usage()
-    _shape_str = f"{df.shape[0]:_}x{df.shape[1]}" if isinstance(df, pl.DataFrame) else f"{len(df):_}"
+    _shape_str = f"{df.shape[0]:_}x{df.shape[1]}" if (pl is not None and isinstance(df, pl.DataFrame)) else f"{len(df):_}"
 
     # Diagnostic: warn on nested Polars types that pyarrow's default
     # ``to_pandas()`` materializes as ``object`` dtype with Python list/
@@ -447,7 +463,7 @@ def get_pandas_view_of_polars_df(
     # frame with embedding features would emit the same WARN every call.
     # Fire at most once per unique (column-name, dtype-str) tuple set
     # observed in the process -- repeated identical schemas stay quiet.
-    if isinstance(df, pl.DataFrame):
+    if pl is not None and isinstance(df, pl.DataFrame):
         nested_cols = []
         for name, dt in df.schema.items():
             type_str = str(dt)
@@ -606,14 +622,15 @@ def save_series_or_df(
     if parent_dir and not os.path.exists(parent_dir):
         raise FileNotFoundError(f"Parent directory does not exist: {parent_dir}")
 
-    if isinstance(obj, (pd.Series, pl.Series)):
+    _series_types = (pd.Series,) if pl is None else (pd.Series, pl.Series)
+    if isinstance(obj, _series_types):
         if name:
             obj = obj.to_frame(name=name)
         else:
             obj = obj.to_frame()
     if isinstance(obj, pd.DataFrame):
         obj.to_parquet(file, compression=compression)
-    elif isinstance(obj, pl.DataFrame):
+    elif pl is not None and isinstance(obj, pl.DataFrame):
         obj.write_parquet(file, compression=compression)
 
 

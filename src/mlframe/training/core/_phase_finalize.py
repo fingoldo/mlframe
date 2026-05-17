@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from os.path import join
 from typing import TYPE_CHECKING, Any
@@ -59,7 +60,7 @@ def _pick_best_flavour(ensembles_for_target: dict) -> str | None:
                 _val = float(_mv)
             except (TypeError, ValueError):
                 continue
-            if _val != _val:  # NaN check
+            if math.isnan(_val):
                 continue
             _scored.append((str(_method), _val, _is_minimise_metric(_mn)))
             break

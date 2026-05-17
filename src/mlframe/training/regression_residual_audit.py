@@ -525,9 +525,16 @@ def plot_residual_diagnostics(
         n_bins = max(20, min(80, int(math.sqrt(plot_resid.size))))
         ax_hist.hist(plot_resid, bins=n_bins, alpha=0.6, color="steelblue",
                      edgecolor="white", linewidth=0.4, density=True)
-        # Overlay fitted Normal density (the baseline assumption).
-        if audit.std > 0:
-            x_grid = np.linspace(plot_resid.min(), plot_resid.max(), 200)
+        # Overlay fitted Normal density (the baseline assumption). Guard
+        # against constant-residual inputs: when min == max, linspace
+        # collapses to a single point and the normal PDF is meaningless.
+        # The audit.std > 0 check covered most cases but ``residuals.std``
+        # uses ddof=1 on a SAMPLED subset, so the plot-time residual array
+        # can still be all-identical even when the population std is nonzero.
+        _r_min = float(plot_resid.min())
+        _r_max = float(plot_resid.max())
+        if audit.std > 0 and _r_max > _r_min:
+            x_grid = np.linspace(_r_min, _r_max, 200)
             normal_pdf = (
                 1 / (audit.std * math.sqrt(2 * math.pi))
                 * np.exp(-0.5 * ((x_grid - audit.mean) / audit.std) ** 2)

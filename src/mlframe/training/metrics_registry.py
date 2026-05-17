@@ -34,20 +34,50 @@ Returns any value with a ``__format__`` method (typically float).
 """
 from __future__ import annotations
 
-from typing import Callable, Dict, Iterator, Tuple, Any
+from dataclasses import dataclass, field
+from typing import Callable, Dict, Iterator, Optional, Tuple, Any
 
 from .configs import TargetTypes
 
 
-_REGISTRY: dict[TargetTypes, dict[str, Callable]] = {}
+@dataclass(frozen=True)
+class MetricSpec:
+    """Structured metadata for a registered metric.
+
+    Fields:
+    - fn: the metric callable ``(y_true, probs_NK, preds_NK) -> value``.
+    - higher_is_better: True when larger values mean better performance
+      (e.g. accuracy, AUC), False for losses (e.g. log_loss, hamming).
+    - description: optional human-readable blurb surfaced in introspection.
+    """
+    fn: Callable
+    higher_is_better: bool = True
+    description: str = ""
 
 
-def register_metric(target_type: TargetTypes, name: str, fn: Callable) -> None:
+_REGISTRY: dict[TargetTypes, dict[str, MetricSpec]] = {}
+
+
+def register_metric(
+    target_type: TargetTypes,
+    name: str,
+    fn: Callable,
+    *,
+    higher_is_better: bool = True,
+    description: str = "",
+) -> None:
     """Register a metric function for a target type.
 
-    Idempotent — re-registering the same name overwrites.
+    The optional ``higher_is_better`` flag lets downstream callers (lift-pct,
+    strongest-pick, leaderboards) interpret the metric direction without
+    hard-coding string lookups against the metric name. The ``description``
+    surfaces in :func:`list_registered_specs` for help-text rendering.
+
+    Idempotent: re-registering the same name overwrites.
     """
-    _REGISTRY.setdefault(target_type, {})[name] = fn
+    _REGISTRY.setdefault(target_type, {})[name] = MetricSpec(
+        fn=fn, higher_is_better=bool(higher_is_better), description=description,
+    )
 
 
 def unregister_metric(target_type: TargetTypes, name: str) -> None:
@@ -61,22 +91,40 @@ def iter_extra_metrics(
 ) -> Iterator[tuple[str, Any]]:
     """Yield (name, value) for every registered metric on this target type.
 
-    Metrics that fail (raise) are silently skipped — report keeps going.
+    Narrow exception catch: only the documented failure modes for sklearn
+    metric callables propagate as recoverable (ValueError on degenerate
+    inputs, ZeroDivisionError on empty groups, TypeError on shape
+    mismatches). Anything else (KeyboardInterrupt, MemoryError, programming
+    bugs in caller-supplied metrics) bubbles up so a real bug is not
+    masquerading as "metric not applicable".
     """
     import logging
     logger = logging.getLogger(__name__)
 
-    for name, fn in _REGISTRY.get(target_type, {}).items():
+    for name, spec in _REGISTRY.get(target_type, {}).items():
         try:
-            value = fn(y_true, probs_NK, preds_NK)
+            value = spec.fn(y_true, probs_NK, preds_NK)
             yield name, value
-        except Exception as e:
-            logger.debug("metric %r failed: %s", name, e)
+        except (ValueError, ZeroDivisionError, TypeError, FloatingPointError) as e:
+            logger.debug("metric %r failed: %s: %s", name, type(e).__name__, e)
 
 
 def list_registered(target_type: TargetTypes) -> list:
     """Introspection: list registered metric names for a target type."""
     return list(_REGISTRY.get(target_type, {}).keys())
+
+
+def list_registered_specs(target_type: TargetTypes) -> dict[str, MetricSpec]:
+    """Introspection: full {name: MetricSpec} map (direction + description)."""
+    return dict(_REGISTRY.get(target_type, {}))
+
+
+def get_metric_direction(
+    target_type: TargetTypes, name: str,
+) -> Optional[bool]:
+    """Return ``higher_is_better`` for a registered metric, or None if absent."""
+    spec = _REGISTRY.get(target_type, {}).get(name)
+    return None if spec is None else spec.higher_is_better
 
 
 # ----------------------------------------------------------------------------
@@ -98,9 +146,21 @@ def _register_builtin_multilabel():
     def _jac(y_true, probs_NK, preds_NK):
         return jaccard_score_multilabel(y_true, preds_NK)
 
-    register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "hamming_loss", _ham)
-    register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "subset_accuracy", _sub)
-    register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "jaccard_samples", _jac)
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "hamming_loss", _ham,
+        higher_is_better=False,
+        description="Fraction of labels predicted incorrectly per sample (lower is better).",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "subset_accuracy", _sub,
+        higher_is_better=True,
+        description="Exact-match accuracy: 1 only when every label is correct.",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "jaccard_samples", _jac,
+        higher_is_better=True,
+        description="Per-sample Jaccard (intersection over union) averaged across rows.",
+    )
 
 
 _register_builtin_multilabel()

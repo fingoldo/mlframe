@@ -3,6 +3,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import glob
+import hashlib
+import json
+import os
+import pickle
+import tempfile
+import time
+import warnings
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -53,7 +62,6 @@ def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
     Returns ``""`` on any access failure (degrades to the prior reorder-stable behaviour rather
     than crashing on exotic frame types).
     """
-    import hashlib
     try:
         if _is_polars_df(df):
             head_repr = str(df.head(n_edge).rows())
@@ -106,7 +114,6 @@ def data_signature(
     -------
     32-character hex string (blake2b digest, 16 bytes).
     """
-    import hashlib
     n_rows = len(df)
     if n_rows == 0:
         return hashlib.blake2b(b"empty", digest_size=16).hexdigest()
@@ -229,7 +236,6 @@ def make_discovery_cache_key(
     random_state: int = _DISCOVERY_DEFAULT_SEED,
 ) -> str:
     """Combine the parts of a discovery cache key into a stable hex string. The ``config_signature`` is caller-supplied (usually a hash of the JSON-serialised CompositeTargetDiscoveryConfig)."""
-    import hashlib
     h = hashlib.blake2b(digest_size=16)
     h.update(df_sig.encode("utf-8"))
     h.update(b"|")
@@ -285,7 +291,6 @@ class DiscoveryCache:
         artifact path crashed on Windows even though the same directory
         worked under ``LocalDiskBackend``.
         """
-        import os
         from .feature_handling.system import long_path_safe
         self.cache_dir = long_path_safe(os.path.abspath(str(cache_dir)))
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -296,7 +301,6 @@ class DiscoveryCache:
         # repeated R&D runs. Surface a one-time WARN at construction so the operator notices before
         # the disk fills; if they set either cap explicitly the warning stays silent.
         if max_entries is None and max_size_mb is None:
-            import warnings
             warnings.warn(
                 f"DiscoveryCache at {self.cache_dir!r} constructed with max_entries=None and max_size_mb=None: "
                 f"cache will grow without bound. Pass at least one cap to enable LRU eviction.",
@@ -325,11 +329,9 @@ class DiscoveryCache:
             from filelock import FileLock as _FileLock  # type: ignore[import-untyped]
             return _FileLock(lock_path, timeout=30)
         except ImportError:  # pragma: no cover
-            import contextlib
             return contextlib.nullcontext()
 
     def _load_lru(self) -> Dict[str, float]:
-        import os, json
         if not os.path.exists(self._lru_path):
             return {}
         try:
@@ -342,7 +344,6 @@ class DiscoveryCache:
         return {}
 
     def _save_lru(self, lru: Dict[str, float]) -> None:
-        import os, json, tempfile
         # Same atomic-rename + fsync discipline as the value writes - LRU
         # corruption would silently break eviction order.
         fd, tmp_path = tempfile.mkstemp(dir=self.cache_dir, prefix=".lru.", suffix=".tmp")
@@ -359,7 +360,6 @@ class DiscoveryCache:
                 pass
 
     def _touch_lru(self, key: str) -> None:
-        import time
         # Cross-process file lock around read-modify-write so a concurrent process can't replay a
         # stale-snapshot save and overwrite a fresh access timestamp. filelock is optional.
         with self._maybe_filelock(self._lock_path()):
@@ -368,12 +368,10 @@ class DiscoveryCache:
             self._save_lru(lru)
 
     def _path(self, key: str) -> str:
-        import os
         safe_key = self._safe_key(key)
         return os.path.join(self.cache_dir, f"{safe_key}.pkl")
 
     def __contains__(self, key: str) -> bool:
-        import os
         return os.path.exists(self._path(key))
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -389,7 +387,6 @@ class DiscoveryCache:
         picks the least-recently-USED (not just least-recently-WRITTEN)
         entry.
         """
-        import pickle  # lazy
         path = self._path(key)
         try:
             with open(path, "rb") as f:
@@ -415,7 +412,6 @@ class DiscoveryCache:
         "strip non-alnum" sanitiser collapsing ``abc-def`` and ``abcdef`` (or
         ``abc/../def`` and ``abcdef``) to the same filename.
         """
-        import hashlib
         if not key:
             raise ValueError(f"DiscoveryCache: empty key {key!r}")
         # Pure-hex (the format make_discovery_cache_key emits) passes through unchanged.
@@ -425,7 +421,6 @@ class DiscoveryCache:
         return f"{digest}__h{len(key.encode('utf-8'))}"
 
     def _entry_size_bytes(self, safe_key: str) -> int:
-        import os
         path = os.path.join(self.cache_dir, f"{safe_key}.pkl")
         try:
             return os.path.getsize(path)
@@ -443,7 +438,6 @@ class DiscoveryCache:
         evict first - keeping pre-existing-without-LRU entries pinned
         forever would defeat the cap.
         """
-        import os, glob
         if self.max_entries is None and self.max_size_mb is None:
             return 0
         # Same lock as _touch_lru: eviction reads + writes the sidecar AND removes files; another
@@ -456,7 +450,6 @@ class DiscoveryCache:
             _lock_ctx.__exit__(None, None, None)
 
     def _evict_to_caps_locked(self) -> int:
-        import os, glob
         lru = self._load_lru()
         # Enumerate every on-disk entry, defaulting unseen ones to ts=0.
         files = glob.glob(os.path.join(self.cache_dir, "*.pkl"))
@@ -508,7 +501,6 @@ class DiscoveryCache:
         ``max_entries`` / ``max_size_mb`` are configured, least-recently-
         accessed entries are evicted to fit the caps.
         """
-        import os, pickle, tempfile  # lazy
         path = self._path(key)
         # Write to a temp file in the same directory, then rename atomically.
         fd, tmp_path = tempfile.mkstemp(dir=self.cache_dir, suffix=".tmp")
@@ -539,7 +531,6 @@ class DiscoveryCache:
 
     def invalidate(self, key: str) -> bool:
         """Remove a cached entry. Returns True if the entry existed, False otherwise."""
-        import os
         path = self._path(key)
         if os.path.exists(path):
             os.remove(path)
@@ -556,7 +547,6 @@ class DiscoveryCache:
 
     def clear(self) -> int:
         """Remove all cached entries. Returns the number of files removed."""
-        import os, glob  # lazy
         files = glob.glob(os.path.join(self.cache_dir, "*.pkl"))
         for f in files:
             try:

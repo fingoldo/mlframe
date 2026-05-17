@@ -157,7 +157,16 @@ def _column_stats(values: List[str]) -> Dict[str, float]:
 
 def _column_to_string_list(df: Any, column: str, max_sample: int) -> List[str]:
     """Polars / pandas -> list[str | None], capped at ``max_sample``.
-    Unknown dtypes return empty (caller treats as non-string)."""
+    Unknown dtypes return empty (caller treats as non-string).
+
+    Sampling is via ``np.linspace`` rounded to int indices so the sampled rows are spread evenly
+    across the FULL column. Pre-fix the integer-step formula (``step = max(1, n // max_sample)``
+    then ``ser[::step][:max_sample]``) was either an exact stride OR silently truncated to the
+    front of the column - e.g. ``n=25_000``, ``max_sample=10_000`` gave ``step=2`` and consumed
+    only the first 20_000 rows, losing the trailing 20% of the column. For text vs UUID detection
+    that systematically biased the entropy / token statistics on append-only frames where
+    schema drift accumulates at the tail.
+    """
     try:
         import polars as pl
         if isinstance(df, pl.DataFrame):
@@ -170,9 +179,9 @@ def _column_to_string_list(df: Any, column: str, max_sample: int) -> List[str]:
                     return []
             n = len(ser)
             if n > max_sample:
-                # deterministic stride sample
-                step = max(1, n // max_sample)
-                ser = ser[::step][:max_sample]
+                idx = np.linspace(0, n - 1, max_sample).round().astype(np.int64)
+                idx = np.unique(idx)
+                ser = ser[idx.tolist()]
             return ser.to_list()
     except ImportError:  # pragma: no cover
         pass
@@ -185,8 +194,9 @@ def _column_to_string_list(df: Any, column: str, max_sample: int) -> List[str]:
                 return []
             n = len(ser)
             if n > max_sample:
-                step = max(1, n // max_sample)
-                ser = ser.iloc[::step].iloc[:max_sample]
+                idx = np.linspace(0, n - 1, max_sample).round().astype(np.int64)
+                idx = np.unique(idx)
+                ser = ser.iloc[idx]
             return ser.tolist()
     except ImportError:  # pragma: no cover
         pass

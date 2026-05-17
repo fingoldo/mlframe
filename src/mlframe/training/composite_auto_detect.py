@@ -58,7 +58,10 @@ def detect_time_column_candidates(
     if _is_polars_df(df):
         if candidate_columns is None:
             candidate_columns = list(df.columns)
-        import polars as pl  # lazy
+        # ``_is_polars_df`` already ensured polars is importable, so we
+        # can reference the module-level ``pl`` symbol directly. The
+        # prior local re-import was dead code that obscured the
+        # dependency from static analysers.
         def get_col(c):
             return df.get_column(c)
         def get_dtype(c):

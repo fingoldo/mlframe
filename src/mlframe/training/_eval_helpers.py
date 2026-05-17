@@ -45,8 +45,8 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     path doesn't reject val/test rows whose category was never seen
     at fit time.
 
-    Background (fuzz seed=2024 c0060 / 2026-04-27): XGBoost stores the
-    category index from train at fit time. If a row in ``val_df`` /
+    Background: XGBoost stores the category index from train at fit
+    time. If a row in ``val_df`` /
     ``test_df`` carries a category that wasn't in ``train_df``, the
     XGBoost C++ ``cat_container.h:29`` raises
     ``"Found a category not in the training set for the Nth column"``.
@@ -86,8 +86,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     # in ``training.core`` (built once from the train+val union, leak-free).
     # Doing it again here would, for non-XGB models in mixed suites, undo
     # the CB-specific ``Enum->String`` text-feature cast that core.py
-    # applies at line ~3466 -- surfaced by fuzz c0025
-    # (cb_hgb_lgb_xgb / pl_enum) failing with
+    # applies elsewhere -- otherwise CB rejects with
     # ``Unsupported data type Enum(...) for a text feature column``.
     if isinstance(train_df, pl.DataFrame):
         return train_df, val_df, test_df
@@ -104,7 +103,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
         if isinstance(_dt, pd.CategoricalDtype):
             cat_cols_to_align.append(_col)
 
-    # DIAG: print full cat layout to localise c0060 flake.
+    # DIAG: print full cat layout to localise cat-alignment failures.
     if os.environ.get("MLFRAME_CAT_DIAG"):
         try:
             for _df_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
@@ -173,8 +172,8 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
     """Convert ``pd.CategoricalDtype`` columns whose underlying category
     values are floats back to plain numeric float columns.
 
-    Background (fuzz c0102 / 2026-04-27): after ``CatBoostEncoder`` /
-    target encoders / RFECV-driven re-encodings, a column may end up
+    Background: after ``CatBoostEncoder`` / target encoders /
+    RFECV-driven re-encodings, a column may end up
     as a categorical whose category levels are floats (e.g. target-
     encoded means ``[0.13, 0.42, ...]`` were ``.astype("category")``
     boxed). At that point the column is *semantically numeric* -- the

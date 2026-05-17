@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import (
     TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple,
 )
@@ -93,8 +93,6 @@ class CompositeProvenance:
         ``composite_id`` (sha256 prefix) so the same spec recurring in
         future runs is recognisable.
         """
-        from datetime import timezone
-
         # Stable id derived from (target, transform, base, fitted_params).
         canonical = json.dumps(
             {

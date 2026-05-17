@@ -125,12 +125,31 @@ class CustomHandler:
 
     def fit_transform(self, df: Any, y: Optional[Any] = None) -> Any:
         column_data = self._extract_column(df)
-        try:
-            out = self.params.transformer.fit_transform(column_data, y) if y is not None else self.params.transformer.fit_transform(column_data)
-        except (AttributeError, TypeError):
-            # Some transformers don't implement fit_transform; fall back to fit + transform.
+        transformer = self.params.transformer
+        if not hasattr(transformer, "fit_transform") or not callable(getattr(transformer, "fit_transform", None)):
+            # No ``fit_transform`` on the transformer -- structural fallback. Catching AttributeError
+            # at call site would also swallow AttributeErrors raised INSIDE a buggy ``fit_transform``,
+            # masking the real failure.
             self.fit(df, y)
             out = self.transform(df)
+            self._fitted = True
+            return out
+        try:
+            out = transformer.fit_transform(column_data, y) if y is not None else transformer.fit_transform(column_data)
+        except TypeError as exc:
+            # Narrow the retry to the y-signature mismatch class. Pre-fix any TypeError raised
+            # deep inside ``fit_transform`` (shape mismatch, dtype incompatibility, etc.) silently
+            # demoted to fit-only and re-ran the transformer twice, hiding the original error.
+            msg = str(exc).lower()
+            if y is not None and ("argument" in msg or "positional" in msg or "keyword" in msg) and ("y" in msg or "2" in msg):
+                logger.warning(
+                    "CustomHandler(%r): fit_transform(X, y) raised TypeError (%s); retrying with fit + transform.",
+                    self.column, exc,
+                )
+                self.fit(df, y)
+                out = self.transform(df)
+            else:
+                raise
         self._fitted = True
         return out
 

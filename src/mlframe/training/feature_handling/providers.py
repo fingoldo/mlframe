@@ -27,8 +27,8 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional
-from urllib.parse import parse_qs, urlsplit
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -45,13 +45,23 @@ _SECRET_KEY_PATTERNS = (
     "token",
     "secret",
     "auth",
+    "authorization",
     "bearer",
     "credential",
+    "credentials",
     "password",
     "passwd",
 )
 
 _ENV_PREFIX = "env:"
+
+# Word-boundary regex for secret-field detection. Substring matching let names like ``monkey`` /
+# ``tokenizer_path`` / ``author`` trigger the scrubber, which both pollutes diagnostics with masked
+# values that are not secrets AND -- more importantly -- hashes a constant ``***`` for those keys
+# into the provider signature so two distinct, non-secret values would collide on the cache key.
+# Splitting on common separators (``_``, ``-``, ``.``) before whole-token equality avoids both
+# failure modes while still catching ``api_key`` / ``Authorization`` / ``X-Auth-Token``.
+_SECRET_FIELD_TOKEN_RE = re.compile(r"[^A-Za-z0-9]+")
 
 _URI_RE = re.compile(r"^(?P<kind>[a-z][a-z0-9-]+)://(?P<rest>.+)$", re.IGNORECASE)
 
@@ -72,17 +82,45 @@ _URI_KIND_ALIAS: Dict[str, str] = {
 
 
 def _is_secret_field(field_name: str) -> bool:
-    """Heuristic: does a field name look secret-bearing?"""
-    lname = field_name.lower()
-    return any(pat in lname for pat in _SECRET_KEY_PATTERNS)
+    """Heuristic: does a field name look secret-bearing?
+
+    Whole-token match against the secret keyword set after splitting on common identifier separators
+    (``_``, ``-``, ``.``, etc.). Pure substring matching (the pre-fix behaviour) flagged
+    ``tokenizer`` / ``monkey`` / ``author`` / ``keychain`` as secrets - both noisy in diagnostics AND
+    a cache-key footgun, because every distinct non-secret value gets hashed as the constant ``***``
+    in :attr:`EmbeddingProvider.signature`.
+    """
+    tokens = _SECRET_FIELD_TOKEN_RE.split(field_name.lower())
+    token_set = {t for t in tokens if t}
+    return any(pat in token_set for pat in _SECRET_KEY_PATTERNS)
+
+
+def _scrub_value(value: Any) -> Any:
+    """Recurse into nested dicts / lists / tuples so secrets buried under ``headers`` / ``extras`` /
+    ``auth_config`` get masked too. Pre-fix only the top-level params dict was scrubbed; structures
+    like ``params={'headers': {'Authorization': 'Bearer ...'}}`` leaked the bearer token through
+    :meth:`EmbeddingProvider.model_dump` and ``__repr__`` despite the scrubber being active.
+    Non-container leaves pass through unchanged. Sets are normalised to lists because pydantic's
+    JSON dump path serialises them similarly; this keeps deterministic ordering for diagnostics.
+    """
+    if isinstance(value, dict):
+        return _scrub_dict(value)
+    if isinstance(value, list):
+        return [_scrub_value(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_scrub_value(v) for v in value)
+    return value
 
 
 def _scrub_dict(d: Dict[str, Any]) -> Dict[str, Any]:
-    """Mask secret-like values for repr / model_dump."""
-    return {
-        k: ("***" if _is_secret_field(k) else v)
-        for k, v in d.items()
-    }
+    """Mask secret-like values for repr / model_dump. Recursive."""
+    out: Dict[str, Any] = {}
+    for k, v in d.items():
+        if _is_secret_field(str(k)):
+            out[k] = "***"
+        else:
+            out[k] = _scrub_value(v)
+    return out
 
 
 class EmbeddingProvider(BaseModel):
@@ -174,6 +212,12 @@ class EmbeddingProvider(BaseModel):
         else:
             model_part = rest
             params = {}
+        # URL-decode the model name. ``parse_qs`` already decodes the param block, but the model
+        # portion is treated as a path-style segment by us, not by ``urllib`` - if the caller
+        # encoded reserved characters (``%2F`` for ``/`` inside an org name, ``%20`` for a space)
+        # the literal ``%XX`` survived into the stored ``model`` field and broke downstream
+        # lookups (HuggingFace expects ``BAAI/bge-small`` not ``BAAI%2Fbge-small``).
+        model_part = unquote(model_part)
         if not model_part:
             raise ValueError(f"empty model name in URI {uri!r}")
         return cls(kind=kind, model=model_part, params=params)

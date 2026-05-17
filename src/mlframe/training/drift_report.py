@@ -92,7 +92,9 @@ def _multilabel_split_summary(arr: np.ndarray) -> dict[str, Any]:
     if hasattr(arr, "dtype") and arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
         try:
             arr = np.stack([np.asarray(c) for c in arr], axis=0)
-        except Exception:
+        except (ValueError, TypeError):
+            # Jagged / mixed-shape object array; leave as-is and let the
+            # subsequent ndim check route via the 1-D fallback.
             pass
     n, k = (int(arr.shape[0]), int(arr.shape[1])) if arr.ndim == 2 else (int(arr.shape[0]), 1)
     if arr.ndim == 1:

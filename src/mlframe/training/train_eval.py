@@ -397,13 +397,13 @@ def select_target(
         def _binary_pos_rate(arr):
             """Robust binary-positive-rate computation.
 
-            Round-2026-05-09: hardened against object-arrays of arrays
-            (some LTR / hybrid target shapes hand back ``np.array([np.array([...]),
-            ...], dtype=object)`` so naive ``arr == 1`` comparisons
-            broadcast per-cell into nested bool arrays, and the outer
-            comparison trips ``ValueError: truth value of an array
-            with more than one element is ambiguous``). Surfaced by
-            metamorphic-test fuzz combo c0103 (hgb_mlp pl_utf8 n5000).
+            Hardened against object-arrays of arrays (some LTR / hybrid
+            target shapes hand back
+            ``np.array([np.array([...]), ...], dtype=object)`` so naive
+            ``arr == 1`` comparisons broadcast per-cell into nested bool
+            arrays, and the outer comparison trips
+            ``ValueError: truth value of an array with more than one element
+            is ambiguous``).
             """
             if arr is None:
                 return None

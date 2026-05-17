@@ -119,17 +119,23 @@ class TestDiscoveryCache:
             assert f"key{i}" not in cache
 
     def test_unsafe_key_sanitised_or_rejected(self, tmp_path) -> None:
+        # Audit H-COMP-09: _safe_key now hashes any non-hex key via
+        # blake2b (collision-proof; the legacy "strip non-alnum"
+        # sanitiser collapsed abc-def and abcdef to the same filename).
+        # Path-traversal protection is preserved by construction --
+        # the hashed filename never contains "/" or "..".
         tmp = str(tmp_path)
         cache = DiscoveryCache(tmp)
-        # Empty / all-non-alphanumeric keys -> ValueError.
+        # Empty key -> ValueError.
         with pytest.raises(ValueError, match="empty"):
             cache.set("", "value")
-        with pytest.raises(ValueError, match="empty"):
-            cache.set("../", "value")  # all non-alphanumeric
-        # Path-traversal characters get stripped to a safe alphanumeric subset; the value writes to that sanitised key. Lock: NO file appears outside cache_dir.
+        # Path-traversal characters get hashed into a safe filename; the
+        # write succeeds but cannot escape ``cache_dir``.
         cache.set("../../etc/passwd", "value")
         outside_target = os.path.join(tmp, "..", "..", "etc", "passwd")
         assert not os.path.exists(outside_target), "Path-traversal must not escape cache dir"
+        # And the value round-trips.
+        assert cache.get("../../etc/passwd") == "value"
 
     def test_atomic_write_does_not_leave_partial_files(self, tmp_path) -> None:
         """Atomic write via tmp-file rename: even if pickle fails mid-write, no partial file is left at the target path."""

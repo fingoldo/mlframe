@@ -234,15 +234,12 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
     traceback.
 
     Idempotent per signature -- the Future is cached for the suite
-    lifetime, so two prewarm calls return the same Future.
+    lifetime, so two prewarm calls return the same Future. The cache
+    lookup + submit is serialised under ``_REGISTRY_LOCK`` so two
+    threads racing on a fresh signature don't both submit a load job
+    (which on a GPU provider doubles the VRAM peak).
     """
     signature = provider.signature
-    fut = _PREWARM_FUTURES.get(signature)
-    if fut is not None and not fut.done():
-        return fut
-    if fut is not None and fut.exception() is None:
-        # Already loaded successfully -- hand back the resolved future.
-        return fut
 
     def _do_load():
         # acquire_provider is a context manager; for prewarm we want
@@ -277,9 +274,16 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
             raise
         return signature
 
-    new_fut = _PREWARM_EXECUTOR.submit(_do_load)
-    _PREWARM_FUTURES[signature] = new_fut
-    return new_fut
+    with _REGISTRY_LOCK:
+        fut = _PREWARM_FUTURES.get(signature)
+        if fut is not None and not fut.done():
+            return fut
+        if fut is not None and fut.exception() is None:
+            # Already loaded successfully -- hand back the resolved future.
+            return fut
+        new_fut = _PREWARM_EXECUTOR.submit(_do_load)
+        _PREWARM_FUTURES[signature] = new_fut
+        return new_fut
 
 
 def wait_prewarm(provider: FrozenFeaturizerProvider, timeout: float = 600.0) -> None:

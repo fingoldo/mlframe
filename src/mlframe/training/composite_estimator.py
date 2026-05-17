@@ -911,20 +911,25 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         return getattr(self._require_fitted("intercept_"), "intercept_", None)
 
     def get_booster(self):
-        """XGBoost shim."""
-        est = getattr(self, "estimator_", None)
-        if est is None:
-            raise RuntimeError("get_booster called before fit.")
-        return est.get_booster()
+        """XGBoost shim. Uses the same ``_require_fitted`` path as the
+        sklearn-convention properties so the error class is
+        ``NotFittedError`` rather than the bespoke ``RuntimeError`` it
+        used to raise - callers can catch both shapes uniformly."""
+        return self._require_fitted("get_booster").get_booster()
 
     @property
     def booster_(self):
-        """LightGBM shim."""
-        return getattr(getattr(self, "estimator_", None), "booster_", None)
+        """LightGBM shim. Raises ``NotFittedError`` when called before
+        ``fit`` so callers fail loudly instead of receiving a silent
+        ``None`` and crashing downstream (sklearn convention)."""
+        return getattr(self._require_fitted("booster_"), "booster_", None)
 
     @property
     def n_features_in_(self) -> int | None:
-        return getattr(getattr(self, "estimator_", None), "n_features_in_", None)
+        """sklearn convention: raise ``NotFittedError`` before fit so
+        callers can't probe an unfit wrapper for feature count and
+        silently receive ``None``."""
+        return getattr(self._require_fitted("n_features_in_"), "n_features_in_", None)
 
     # ------------------------------------------------------------------
     # Internals
@@ -935,9 +940,9 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         """Row-subset X, preserving the dataframe flavour. Polars / pandas
         / ndarray supported. Raises TypeError otherwise."""
         if _is_polars_df(X):
-            # Polars: lazy-import to keep the module light when polars
-            # isn't installed in the environment.
-            import polars as pl
+            # ``_is_polars_df`` only returns True when the module-level
+            # ``pl`` reference is the real polars module, so we can use
+            # it directly without an extra import.
             return X.filter(pl.Series(mask))
         if isinstance(X, pd.DataFrame):
             return X.loc[mask].reset_index(drop=True)
@@ -1003,7 +1008,6 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             )
         # Lazy-init the rolling buffers on first update.
         if not hasattr(self, "_buffer_y_"):
-            from collections import deque
             self._buffer_y_ = deque(maxlen=int(self.online_refit_buffer_n))
             self._buffer_base_ = deque(maxlen=int(self.online_refit_buffer_n))
         y_arr = np.asarray(y_recent, dtype=np.float64).reshape(-1)

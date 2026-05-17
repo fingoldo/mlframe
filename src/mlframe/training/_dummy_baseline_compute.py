@@ -85,8 +85,12 @@ def _pick_per_group_categorical(
             candidates.append((n_unique, col))
     if not candidates:
         return None
-    # Highest-cardinality among passing candidates.
-    candidates.sort(reverse=True)
+    # Highest-cardinality among passing candidates. Tiebreaker: column name
+    # (alphabetical) so the strongest-pick is deterministic across runs when
+    # two cat features share the same cardinality. Without the tiebreaker, the
+    # ordering depended on dict-insertion order of cat_features, which a caller
+    # could pass in any order.
+    candidates.sort(key=lambda nc: (-nc[0], nc[1]))
     return candidates[0][1]
 
 
@@ -164,7 +168,7 @@ def _per_group_predict(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, float]]:
     """Compute per-group baseline predictions on val + test (D1).
 
-    Handles polars Categorical / Enum / pandas categorical / object via uniform string coercion + ``__NULL__`` sentinel for NaN keys (round-3 A#13).
+    Handles polars Categorical / Enum / pandas categorical / object via uniform string coercion + ``__NULL__`` sentinel for NaN keys.
 
     When ALL three inputs are ``pl.DataFrame`` the function dispatches to a polars-native group_by + join path that skips the pandas bridge entirely; otherwise
     the legacy pandas implementation is used unchanged. CLAUDE.md forbids in-wrapper format auto-conversion, so we only take the polars-native path when all sides
@@ -880,14 +884,14 @@ def _compute_quantile_baselines(
     Emits, per requested alpha:
       - ``quantile_alpha_{a:.3f}``: constant prediction = empirical alpha-th
         percentile of train_y (clamped to [1e-3, 1-1e-3] for boundary alpha
-        per round-3 A#9); shape ``(N, K)`` where K=len(alphas).
+        for boundary alpha; shape ``(N, K)`` where K=len(alphas).
       - ``median_for_all``: single ``np.median(train_y)`` constant
-        broadcast across all alpha (D19: identical to alpha=0.5 row by
+        broadcast across all alpha (identical to alpha=0.5 row by
         construction; documented in row label).
 
     Predictions are 2D ``(N, K)``. Pinball loss is computed per alpha
     plus a ``mean_pinball`` aggregate over non-boundary alpha (alpha in
-    ``[0.05, 0.95]``; round-3 C#7).
+    ``[0.05, 0.95]``).
     """
     val_preds: dict[str, np.ndarray] = {}
     test_preds: dict[str, np.ndarray] = {}

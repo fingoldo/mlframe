@@ -444,8 +444,7 @@ class BaselineReport(NamedTuple):
     n_train, n_val, n_test
         Row counts of the splits.
     n_train_finite, n_val_finite, n_test_finite
-        Finite-target row counts (round-3 D9 -- surfaces all-NaN target
-        columns).
+        Finite-target row counts (surfaces all-NaN target columns).
     extras
         Free-form dict for target-type-specific diagnostics
         (per-output strongest-pick block for multi-output regression,
@@ -555,8 +554,18 @@ class BaselineReport(NamedTuple):
             if trivial_name is not None and trivial_name != self.strongest:
                 trivial_val = self.table.loc[trivial_name].get(self.primary_metric, float("nan"))
                 if np.isfinite(primary_val) and np.isfinite(trivial_val) and trivial_val != 0:
-                    # For minimize-metric (RMSE / log_loss), lift = (trivial - strongest) / trivial
-                    lift_pct = (trivial_val - primary_val) / abs(trivial_val) * 100
+                    # Direction-aware lift. Maximize metrics (NDCG/MAP/MRR/AUC):
+                    # lift = (primary - trivial) / trivial. Minimize metrics
+                    # (RMSE / log_loss / pinball): lift = (trivial - primary) / trivial.
+                    # Sign convention: positive lift always means "strongest beat trivial".
+                    _maximize_metrics = (
+                        "val_NDCG@10", "val_NDCG@5", "val_NDCG@1",
+                        "val_MAP@10", "val_MRR", "val_AUC", "val_roc_auc",
+                    )
+                    if self.primary_metric in _maximize_metrics:
+                        lift_pct = (primary_val - trivial_val) / abs(trivial_val) * 100
+                    else:
+                        lift_pct = (trivial_val - primary_val) / abs(trivial_val) * 100
                     lift_str = f" lift_vs_{trivial_name}={lift_pct:+.1f}%"
             tie_suffix = ""
             paired = self.extras.get("paired_bootstrap") if isinstance(self.extras, dict) else None
@@ -757,7 +766,7 @@ def _is_temporally_monotonic(
 
 
 def _infer_ts_step_periods(ts_train: np.ndarray) -> tuple[str, list[int]]:
-    """Step-size auto-infer (round-3 A#4: np.unique to handle duplicates).
+    """Step-size auto-infer; uses ``np.unique`` to handle duplicates.
 
     Returns ``(step_label, default_periods_for_that_step)``.
     """
@@ -791,11 +800,11 @@ def _infer_ts_step_periods(ts_train: np.ndarray) -> tuple[str, list[int]]:
 
 
 def _detect_acf_periods(y_train: np.ndarray, n_train: int) -> list[int]:
-    """ACF-based period detection (round-3 C#6: differencing + stratified sample).
+    """ACF-based period detection (differencing + stratified sample).
 
     Uses statsmodels.tsa.stattools.acf on first-differenced y_train.
     Returns top-2 peaks above 2/sqrt(n) threshold, filtered to
-    ``2 <= P <= n_train // 4`` (round-3 A#17).
+    ``2 <= P <= n_train // 4``.
 
     statsmodels imported lazily inside the function (D17): import
     failure -> empty list + INFO log, not module-load failure.
@@ -1603,7 +1612,14 @@ def _compute_metrics_table(
                             p_arr = np.ascontiguousarray(p, dtype=np.float64)
                             macro = float(_numba_macro_log_loss(y_int, p_arr, n, K))
                             micro = float(_numba_micro_log_loss(y_int, p_arr, n, K))
-                        except Exception:
+                        except (TypeError, ValueError, FloatingPointError, RuntimeError) as _ll_exc:
+                            # Numba kernel rejects non-contiguous / wrong-dtype input
+                            # with TypeError; ValueError on shape mismatch. Fall back
+                            # to NaN so the metric row still emits.
+                            logger.debug(
+                                "[dummy-baselines] numba log_loss kernel fallback: %s: %s",
+                                type(_ll_exc).__name__, _ll_exc,
+                            )
                             macro = float("nan")
                             micro = float("nan")
                         row[f"{split_name}_log_loss_macro"] = macro
@@ -1714,10 +1730,19 @@ def _pick_strongest(
     metric_col = eligible[ref_metric].dropna()
     if metric_col.empty:
         return None, None
+    # Deterministic tiebreaker: when two baselines share the optimum metric
+    # value, pick the alphabetically first name. ``idxmin/idxmax`` resolve
+    # ties by first-occurrence in DataFrame order, which is sensitive to the
+    # insertion order chosen by upstream dispatchers; alphabetical ordering
+    # is reproducible across reruns and across dispatcher refactors.
     if minimize:
-        strongest = metric_col.idxmin()
+        best = float(metric_col.min())
+        tied = sorted(metric_col.index[metric_col == best].tolist())
+        strongest = tied[0] if tied else metric_col.idxmin()
     else:
-        strongest = metric_col.idxmax()
+        best = float(metric_col.max())
+        tied = sorted(metric_col.index[metric_col == best].tolist())
+        strongest = tied[0] if tied else metric_col.idxmax()
 
     # Determine ts_period if strongest is a TS baseline
     ts_period_used = None
@@ -2220,7 +2245,7 @@ def _bootstrap_ci_for_strongest(
     n_resamples: int = 1000,
     seed: int = 0,
 ) -> dict[str, Any] | None:
-    """D16: bootstrap CI on val + test for the strongest baseline only.
+    """Bootstrap CI on val + test for the strongest baseline only.
 
     Returns ``{"val": (lo, point, hi), "test": (lo, point, hi)}`` or
     ``None`` when not computable. 1000 resamples by default; cost ~1s on
@@ -2406,7 +2431,7 @@ def _compute_multi_output_regression(
     n_train: int, n_val: int, n_test: int,
     n_train_finite: int, n_val_finite: int, n_test_finite: int,
 ) -> BaselineReport:
-    """D4: multi-output regression dispatcher.
+    """Multi-output regression dispatcher.
 
     Runs ``compute_dummy_baselines`` per output (K independent calls), then
     aggregates a per-output strongest-pick block + cross-output normalized

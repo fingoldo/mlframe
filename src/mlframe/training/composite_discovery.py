@@ -1177,8 +1177,15 @@ class CompositeTargetDiscovery:
         demote_set: set = set()
         if getattr(self.config, "auto_base_demote_time_index", True) \
                 and finite.sum() >= 50:
-            # Spearman(rank(x), arange(n)) computed via the cleaner
-            # equivalent: |corr(argsort(argsort(x)), arange(n))|.
+            # Spearman(rank(x), arange(n)) computed as |corr(rankdata(x), arange(n))|.
+            # ``scipy.stats.rankdata`` uses fractional (average) ranks for ties; the prior
+            # ``argsort(argsort(x))`` assigned arbitrary integer positions to tied values,
+            # which inflated |Spearman| toward 1.0 on columns with many duplicate values
+            # (e.g. integer-encoded categoricals) and silently misfired the time-index demoter.
+            try:
+                from scipy.stats import rankdata as _rankdata
+            except ImportError:  # pragma: no cover - scipy is a hard dep but allow graceful skip
+                _rankdata = None
             n_screen = int(finite.sum())
             row_idx = np.arange(n_screen, dtype=np.float64)
             # R10c bug #2 extension: hint features are IMMUNE from
@@ -1189,7 +1196,10 @@ class CompositeTargetDiscovery:
                 if col_name in time_hint_protected:
                     continue
                 col_finite = x_matrix[finite, j]
-                col_ranks = np.argsort(np.argsort(col_finite)).astype(np.float64)
+                if _rankdata is not None:
+                    col_ranks = _rankdata(col_finite, method="average").astype(np.float64)
+                else:
+                    col_ranks = np.argsort(np.argsort(col_finite)).astype(np.float64)
                 # Pearson on rank vs row-index = Spearman(x, time).
                 spearman = abs(_safe_corr(col_ranks, row_idx))
                 if spearman > 0.95:

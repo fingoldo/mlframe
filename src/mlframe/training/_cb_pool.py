@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from timeit import default_timer as timer
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -26,6 +27,15 @@ from pyutilz.system import get_gpuinfo_gpu_info
 from .phases import phase
 
 logger = logging.getLogger(__name__)
+
+# Guards concurrent first-time probing of the GPU info cache and the CB-GPU
+# usable cache. Two parallel suite invocations can otherwise both pay the
+# `nvidia-smi` subprocess cost or duplicate the tiny CB probe fit; the lock
+# costs nothing on the hot path (single test + return). RLock (not Lock):
+# _cb_gpu_usable acquires this lock and then calls _cached_gpu_info which
+# acquires it again; with a plain Lock the second acquire deadlocks on the
+# very first probe (before _GPU_INFO_PROBED is True).
+_GPU_PROBE_LOCK = threading.RLock()
 
 
 def _coerce_label_for_cb_pool(target):
@@ -480,17 +490,24 @@ def _cached_gpu_info() -> list:
     in ``_GPU_INFO_PROBED`` so the empty-list cache hit also short-circuits.
     """
     global _GPU_INFO_CACHE, _GPU_INFO_PROBED
+    # Fast lock-free read of already-probed cache; only enter the lock when
+    # we actually need to probe so callers don't queue behind nvidia-smi.
     if _GPU_INFO_PROBED and not os.environ.get("MLFRAME_NO_GPU_INFO_CACHE"):
         return _GPU_INFO_CACHE or []
-    import shutil
-    if shutil.which("nvidia-smi") is None:
-        _GPU_INFO_CACHE = []
+    with _GPU_PROBE_LOCK:
+        # Re-check inside lock; another thread may have populated while we
+        # waited.
+        if _GPU_INFO_PROBED and not os.environ.get("MLFRAME_NO_GPU_INFO_CACHE"):
+            return _GPU_INFO_CACHE or []
+        import shutil
+        if shutil.which("nvidia-smi") is None:
+            _GPU_INFO_CACHE = []
+            _GPU_INFO_PROBED = True
+            return _GPU_INFO_CACHE
+        result = get_gpuinfo_gpu_info()
+        _GPU_INFO_CACHE = result
         _GPU_INFO_PROBED = True
-        return _GPU_INFO_CACHE
-    result = get_gpuinfo_gpu_info()
-    _GPU_INFO_CACHE = result
-    _GPU_INFO_PROBED = True
-    return result
+        return result
 
 
 _CB_GPU_USABLE_CACHE: bool | None = None
@@ -510,21 +527,26 @@ def _cb_gpu_usable() -> bool:
     global _CB_GPU_USABLE_CACHE
     if _CB_GPU_USABLE_CACHE is not None:
         return _CB_GPU_USABLE_CACHE
-    if not _cached_gpu_info():
-        _CB_GPU_USABLE_CACHE = False
-        return False
-    try:
-        from catboost import CatBoostRegressor
-        import numpy as _np
-        _probe = CatBoostRegressor(
-            iterations=1, task_type="GPU", devices="0",
-            allow_writing_files=False, verbose=False,
-        )
-        _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
-        _CB_GPU_USABLE_CACHE = True
-    except Exception:
-        _CB_GPU_USABLE_CACHE = False
-    return _CB_GPU_USABLE_CACHE
+    # Serialize the probe across threads; the tiny CB GPU fit is otherwise
+    # paid N times for N concurrent first-time callers.
+    with _GPU_PROBE_LOCK:
+        if _CB_GPU_USABLE_CACHE is not None:
+            return _CB_GPU_USABLE_CACHE
+        if not _cached_gpu_info():
+            _CB_GPU_USABLE_CACHE = False
+            return False
+        try:
+            from catboost import CatBoostRegressor
+            import numpy as _np
+            _probe = CatBoostRegressor(
+                iterations=1, task_type="GPU", devices="0",
+                allow_writing_files=False, verbose=False,
+            )
+            _probe.fit(_np.zeros((2, 1), dtype=_np.float32), _np.array([0.0, 1.0], dtype=_np.float32))
+            _CB_GPU_USABLE_CACHE = True
+        except Exception:
+            _CB_GPU_USABLE_CACHE = False
+        return _CB_GPU_USABLE_CACHE
 
 
 def _cb_reuse_capable() -> bool:

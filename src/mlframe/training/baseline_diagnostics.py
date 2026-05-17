@@ -382,7 +382,13 @@ class BaselineDiagnostics:
                 composite_recommendation_reason=reason,
                 elapsed_seconds=timer() - t0,
             )
-        except Exception as exc:  # pragma: no cover - defensive
+        except (ValueError, TypeError, RuntimeError, ImportError, KeyError,
+                AttributeError, IndexError) as exc:  # pragma: no cover - defensive
+            # Narrow catch covers degenerate-input ValueError, dtype-mismatch
+            # TypeError, LightGBM RuntimeError, missing optional dep ImportError,
+            # config KeyError. KeyboardInterrupt / MemoryError / generic Exception
+            # still propagate so a programming bug is not swallowed as
+            # "internal_error".
             logger.warning(
                 "BaselineDiagnostics failed for target='%s' (type=%s): %s. "
                 "Training continues without diagnostics.",
@@ -583,7 +589,7 @@ class BaselineDiagnostics:
         a thread pool is available; each LightGBM gets ``n_jobs=1`` so
         the inner threads don't oversubscribe with the outer worker
         pool. Profiled wall-time on n=2000, K=4: 627 ms serial -> ~250 ms
-        parallel (2.5x), measured 2026-05-10.
+        parallel (2.5x).
         """
         if raw_fi.size == 0 or raw_fi.sum() == 0:
             logger.info(
@@ -617,7 +623,10 @@ class BaselineDiagnostics:
                     X_drop, y, kept, cat_kept, target_type, metric_name,
                     inner_n_jobs=1,  # outer pool owns the cores
                 )
-            except Exception as exc:
+            except (ValueError, RuntimeError, TypeError, IndexError) as exc:
+                # LightGBM ablation: degenerate-input ValueError, dtype
+                # TypeError, LightGBM RuntimeError. KeyboardInterrupt /
+                # MemoryError still propagate.
                 logger.warning(
                     "BaselineDiagnostics: ablation refit for '%s' failed: %s; skipping.",
                     feat, exc,
@@ -744,7 +753,10 @@ class BaselineDiagnostics:
                     base_values = B_aug @ coef
                 kept_feats = [e.feature for e, k in zip(chosen, keep_cols) if k]
                 feature_used = "+".join(kept_feats) if kept_feats else chosen[0].feature
-            except Exception as exc:
+            except (ValueError, np.linalg.LinAlgError, RuntimeError, TypeError) as exc:
+                # OLS / LR combiner can fail on rank-deficient B or NaN-rich
+                # y; fall back to single-feature mode. KeyboardInterrupt /
+                # MemoryError still propagate.
                 logger.info(
                     "BaselineDiagnostics: init_score combiner failed (%s); "
                     "falling back to top-1.", exc,
@@ -794,7 +806,10 @@ class BaselineDiagnostics:
                 X, y, feature_cols, cat_features, target_type,
                 metric_name, init_score=init_score_arg,
             )
-        except Exception as exc:
+        except (ValueError, RuntimeError, TypeError, IndexError) as exc:
+            # init_score path on LightGBM can fail on dtype mismatch / NaN-rich
+            # init_score / single-class y. KeyboardInterrupt / MemoryError
+            # still propagate.
             logger.warning(
                 "BaselineDiagnostics: init_score refit failed: %s; baseline skipped.",
                 exc,

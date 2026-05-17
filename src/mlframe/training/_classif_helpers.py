@@ -378,10 +378,16 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         features to avoid training-data leak.
     """
 
-    def __init__(self, base_estimator, n_labels, n_chains=3, seeds=None,
+    def __init__(self, base_estimator=None, n_labels=None, n_chains=3, seeds=None,
                  order_strategy="random", user_orders=None, cv=5):
-        # All params stored as plain attributes — sklearn BaseEstimator
-        # reads them back via get_params() for cloning.
+        # All params stored as plain attributes -- sklearn BaseEstimator
+        # reads them back via get_params() for cloning. Defaults given to
+        # `base_estimator` / `n_labels` so that sklearn dispatchers that
+        # introspect via `inspect.signature(_ChainEnsemble)` (RFECV,
+        # CalibratedClassifierCV's clone path, sklearn.tests probes) do not
+        # raise `TypeError: missing 2 required positional arguments` on a
+        # bare introspection call. `fit` still raises on None to keep the
+        # contract loud at use-time.
         self.base_estimator = base_estimator
         self.n_labels = n_labels
         self.n_chains = n_chains
@@ -391,6 +397,15 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         self.cv = cv
 
     def fit(self, X, y, **fit_params):
+        # Validate required state at fit-time (defaults on __init__ are for
+        # sklearn introspection compliance; actually fitting with None
+        # base_estimator / n_labels is a contract violation we surface
+        # explicitly rather than letting `clone(None)` raise a confusing
+        # AttributeError deep inside sklearn.).
+        if self.base_estimator is None:
+            raise ValueError("_ChainEnsemble.fit: base_estimator must be set")
+        if self.n_labels is None:
+            raise ValueError("_ChainEnsemble.fit: n_labels must be set")
 
         # Resolve seeds + per-chain orders lazily at fit time so that
         # cloning (which calls __init__ with the params get_params returned)

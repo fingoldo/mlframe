@@ -1182,12 +1182,21 @@ def _phase_fit_pipeline(
             ):
                 _new_cols = [c for c in train_df.columns if c not in set(_pre_polars_columns_snapshot)]
                 if _new_cols:
-                    for _label, _pd_df, _pl_attr in (
-                        ("train", train_df, "train_df_polars_pre"),
-                        ("val", val_df, "val_df_polars_pre"),
-                        ("test", test_df, "test_df_polars_pre"),
+                    # Explicit (label, pandas-frame, polars-pre-frame) triples so the
+                    # back-merge no longer fishes the polars-side frame out of locals()
+                    # by string lookup. Captures the current binding at iteration time;
+                    # rebinding below updates the same local name afterward.
+                    _polars_pre_by_label = {
+                        "train": train_df_polars_pre,
+                        "val": val_df_polars_pre,
+                        "test": test_df_polars_pre,
+                    }
+                    for _label, _pd_df in (
+                        ("train", train_df),
+                        ("val", val_df),
+                        ("test", test_df),
                     ):
-                        _pl_df = locals().get(_pl_attr)
+                        _pl_df = _polars_pre_by_label.get(_label)
                         if not isinstance(_pl_df, pl.DataFrame) or not isinstance(_pd_df, pd.DataFrame):
                             continue
                         if _pd_df.shape[0] != _pl_df.shape[0]:

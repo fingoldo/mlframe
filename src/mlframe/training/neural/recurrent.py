@@ -47,6 +47,14 @@ from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 from sklearn.preprocessing import StandardScaler
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from torch.utils.data import DataLoader, WeightedRandomSampler
+from concurrent.futures import ThreadPoolExecutor
+
+try:
+    import xxhash as _xxhash  # noqa: F401  module-top for hot cache-key path
+    _HAS_XXHASH = True
+except ImportError:
+    _HAS_XXHASH = False
+import hashlib as _hashlib
 
 if TYPE_CHECKING:
     import polars as pl_df
@@ -321,19 +329,28 @@ class RecurrentTorchModel(L.LightningModule):
 
         # RNN path: pack_padded_sequence skips compute on padded steps; enforce_sorted=False lets us pass unsorted lengths.
         # lengths.cpu() is required: pack_padded_sequence dispatches length-sort on CPU even when the data is on GPU.
+        # Guard: pack_padded_sequence raises RuntimeError when any length == 0 (zero-row sequence). Treat as length-1
+        # padded row so the call stays valid; the caller's downstream attention/last-hidden gather will still work.
+        lengths_cpu = lengths.detach().cpu()
+        if (lengths_cpu <= 0).any():
+            lengths_cpu = torch.clamp(lengths_cpu, min=1)
         packed = pack_padded_sequence(
             sequences,
-            lengths.cpu(),
+            lengths_cpu,
             batch_first=True,
             enforce_sorted=False,
         )
         packed_out, _ = self.rnn(packed)
         rnn_out, _ = pad_packed_sequence(packed_out, batch_first=True)
 
+        # Downstream attention/last-hidden expect lengths >= 1 (last_idx = lengths - 1 must be >=0).
+        # Pass the clamped tensor on the original device to keep gather indices valid for zero-len rows.
+        safe_lengths = lengths.clamp(min=1) if (lengths <= 0).any() else lengths
+
         if self.config.use_attention:
-            return self.attention(rnn_out, lengths)
+            return self.attention(rnn_out, safe_lengths)
         else:
-            return self._get_last_hidden(rnn_out, lengths)
+            return self._get_last_hidden(rnn_out, safe_lengths)
 
     @staticmethod
     def _get_last_hidden(rnn_out: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
@@ -385,9 +402,14 @@ class RecurrentTorchModel(L.LightningModule):
             if self.is_regression:
                 preds = logits.squeeze(-1)
                 self.val_mse(preds, batch["labels"])
-                self.val_r2(preds, batch["labels"])
                 self.log("val_mse", self.val_mse, prog_bar=True, on_step=False, on_epoch=True)
-                self.log("val_r2", self.val_r2, prog_bar=True, on_step=False, on_epoch=True)
+                # R2Score returns NaN when fewer than 2 samples are observed (variance undefined).
+                # The metric accumulates across batches inside the epoch but the per-step update
+                # also needs >=2 elements to keep total_sum_squares finite, otherwise the logged
+                # val_r2 turns NaN and any downstream EarlyStopping monitoring it stalls silently.
+                if preds.numel() >= 2:
+                    self.val_r2(preds, batch["labels"])
+                    self.log("val_r2", self.val_r2, prog_bar=True, on_step=False, on_epoch=True)
             elif self.task_type == "multilabel":
                 # Both preds and target shape (N, K): thresholded preds for accuracy, raw sigmoid probs for AUROC / AUPRC.
                 probs = torch.sigmoid(logits)
@@ -564,8 +586,11 @@ class _RecurrentWrapperBase(BaseEstimator):
                 processed_seqs = [np.asarray(s, dtype=np.float32) for s in sequences]
             else:
                 _preprocess = lambda s: _RecurrentWrapperBase._preprocess_sequence(s, mode=mode)
-                if len(sequences) > 10_000:
-                    from concurrent.futures import ThreadPoolExecutor
+                # Threshold tuned for >100k sequences: ThreadPool overhead (thread spin-up + GIL
+                # contention on numpy ops that release the GIL) only pays back at ~100k+ sequences.
+                # Below that the synchronous loop is faster because the numpy std/mean kernels run
+                # in C; the executor's per-task scheduling cost dominates.
+                if len(sequences) > 100_000:
                     with ThreadPoolExecutor() as executor:
                         processed_seqs = list(executor.map(_preprocess, sequences))
                 else:
@@ -663,12 +688,26 @@ class _RecurrentWrapperBase(BaseEstimator):
             if len(unique_labels) > 1 and (class_counts > 0).all():
                 label_to_weight = {int(lbl): 1.0 / int(cnt) for lbl, cnt in zip(unique_labels, class_counts)}
                 sample_weights = np.array([label_to_weight[int(lbl)] for lbl in labels], dtype=np.float64)
+                # Seeded generator: WeightedRandomSampler without an explicit generator pulls from
+                # the GLOBAL torch RNG, which means parallel processes / re-instantiated wrappers
+                # produce different sample orders across runs. self.random_state pins the order.
+                _gen_sampler = torch.Generator()
+                _gen_sampler.manual_seed(int(self.random_state))
                 sampler = WeightedRandomSampler(
                     weights=sample_weights,
                     num_samples=len(dataset),
                     replacement=True,
+                    generator=_gen_sampler,
                 )
                 shuffle = False
+
+        # DataLoader shuffle=True also uses the global torch RNG unless an explicit generator
+        # is passed. Pin to self.random_state so two wrapper instances with the same seed produce
+        # identical batch sequences (required by sklearn clone() round-trip reproducibility).
+        _gen_dl = None
+        if shuffle:
+            _gen_dl = torch.Generator()
+            _gen_dl.manual_seed(int(self.random_state))
 
         return DataLoader(
             dataset,
@@ -679,6 +718,7 @@ class _RecurrentWrapperBase(BaseEstimator):
             collate_fn=recurrent_collate_fn,
             pin_memory=torch.cuda.is_available(),
             persistent_workers=self.config.num_workers > 0,
+            generator=_gen_dl,
         )
 
     def _create_model(
@@ -763,16 +803,15 @@ class _RecurrentWrapperBase(BaseEstimator):
         otherwise) keyed on shape+dtype to make sub-cell changes always
         invalidate the cache.
         """
-        import hashlib
-        try:
-            import xxhash
-            _hasher = xxhash.xxh3_128()
-            _update = _hasher.update
-            _digest = _hasher.digest
-        except ImportError:
-            _hasher = hashlib.blake2b(digest_size=16)
-            _update = _hasher.update
-            _digest = _hasher.digest
+        # Module-top imports (hashlib + optional xxhash) keep the predict-hot
+        # path import-free; the previous try/except ImportError ran on EVERY
+        # predict call. xxhash is ~5x faster than blake2b on tobytes payloads.
+        if _HAS_XXHASH:
+            _hasher = _xxhash.xxh3_128()
+        else:
+            _hasher = _hashlib.blake2b(digest_size=16)
+        _update = _hasher.update
+        _digest = _hasher.digest
 
         if features is not None:
             _update(b"FEAT")

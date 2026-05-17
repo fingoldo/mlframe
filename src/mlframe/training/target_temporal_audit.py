@@ -56,7 +56,14 @@ try:
 except ImportError:
     _HAS_POLARS = False
 
-import ruptures as rpt  # required dep — Pelt is the default change-point algo
+def _import_ruptures():
+    """Lazy import of ``ruptures`` so callers using only the z-score detector
+    never pay the import cost (ruptures pulls in scipy.sparse.linalg + numba
+    extensions; ~150ms cold). ``ImportError`` propagates to the caller; the
+    z-score path is dependency-free and the obvious fallback.
+    """
+    import ruptures as rpt  # type: ignore[import-not-found]
+    return rpt
 
 logger = logging.getLogger(__name__)
 
@@ -552,6 +559,7 @@ def find_change_points_pelt(
         var = float(np.var(rates_for_fit))
         penalty = max(0.05, var * math.log(max(n, 2)))
 
+    rpt = _import_ruptures()
     algo = rpt.Pelt(model=model, min_size=min_segment_size, jump=1)
     algo.fit(rates_for_fit.reshape(-1, 1))
     # ruptures returns ascending end-indices ending at n (e.g. [14, 18, 33]

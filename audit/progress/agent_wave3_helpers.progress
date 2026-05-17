@@ -1,0 +1,13 @@
+2026-05-17 18:21:24 | START | wave3_helpers | begin
+2026-05-17 18:23:59 | PLAN | wave3_helpers | 13 MEDIUM fixes targeted
+2026-05-17 18:32:09 | FIX | utils.py:147 | polars guards added
+2026-05-17 18:32:09 | FIX | utils.py:60 | coerce_to_numpy fast-path pandas/polars Series
+2026-05-17 18:32:09 | FIX | _cb_pool.py:30 | _GPU_PROBE_LOCK added
+2026-05-17 18:32:09 | FIX | _ram_helpers.py:11 | _MAYBE_CLEAN_LOCK + drop redundant psutil imports
+2026-05-17 18:32:09 | FIX | io.py:225 | load_mlframe_model logger.exception
+2026-05-17 18:32:09 | FIX | lgb_shim.py:455 | eval_set list-of-matrices guard
+2026-05-17 18:32:09 | FIX | helpers.py:961 | get_trainset_features_stats vectorise
+2026-05-17 18:32:09 | FIX | mlp_runtime_defaults.py:160 | device_id param added
+2026-05-17 18:32:09 | FIX | helpers.py:50 | drop noqa F401 re-export of _probe_xgb/lgb
+2026-05-17 18:32:09 | FIX | _classif_helpers.py:381 | _ChainEnsemble defaults
+2026-05-17 18:32:09 | FIX | splitting.py:367 | factorize-based date label LUT

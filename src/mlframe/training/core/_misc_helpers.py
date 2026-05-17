@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from ..utils import filter_existing
+from ..utils import filter_existing, compute_model_input_fingerprint, _dtype_family
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +329,6 @@ def _validate_input_columns_against_metadata(
     # Silent pass on old metadata files predating model_schemas.
     model_schemas = metadata.get("model_schemas")
     if model_schemas:
-        from mlframe.training.utils import compute_model_input_fingerprint, _dtype_family
         live_hash, live_schema = compute_model_input_fingerprint(
             df,
             cat_features=metadata.get("cat_features") or [],

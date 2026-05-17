@@ -197,10 +197,9 @@ def plot_model_feature_importances(
     model_name : str, optional
         Title for the plot.
     num_factors : int, default=10
-        Maximum number of features to display. Reduced from 40 to 10
-        (2026-05-12) so plots stay scannable on common feature counts;
-        override via ``reporting_config.fi_top_n`` in
-        ``train_mlframe_models_suite``.
+        Maximum number of features to display. Reduced from 40 to 10 so
+        plots stay scannable on common feature counts; override via
+        ``reporting_config.fi_top_n`` in ``train_mlframe_models_suite``.
     figsize : tuple, default=(15, 10)
         Figure size for the plot.
     positive_fi_only : bool, default=False
@@ -588,8 +587,19 @@ __all__ = [
 
 
 def _compute_metric(metric: str, y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Thin dispatcher used by compute_ml_perf_by_time."""
+    """Thin dispatcher used by compute_ml_perf_by_time.
+
+    Accepts ``y_pred`` as either a 1-D vector of positive-class probabilities
+    OR a 2-D ``(N, 2)`` probability matrix from a binary classifier; in the
+    latter case the positive-class column is sliced out before metric call.
+    Without this guard, callers passing 2-D probs hit sklearn's
+    ``ValueError: bad input shape`` deep inside the metric.
+    """
     from sklearn.metrics import roc_auc_score, average_precision_score, brier_score_loss, mean_squared_error
+
+    y_pred = np.asarray(y_pred)
+    if y_pred.ndim == 2 and y_pred.shape[1] == 2:
+        y_pred = y_pred[:, 1]
 
     if metric == "roc_auc":
         if len(np.unique(y_true)) < 2:
@@ -602,6 +612,22 @@ def _compute_metric(metric: str, y_true: np.ndarray, y_pred: np.ndarray) -> floa
     if metric == "mse":
         return float(mean_squared_error(y_true, y_pred))
     raise ValueError(f"Unsupported metric: {metric}")
+
+
+def _normalize_pandas_offset_alias(freq: str) -> str:
+    """Map legacy single-letter pandas offset aliases ("M", "Q", "Y", "A") to
+    their pandas-2.2+ end-of-period equivalents ("ME", "QE", "YE", "YE") so
+    callers using the historical aliases don't emit FutureWarning.
+
+    Pandas 2.2 deprecated bare "M"/"Q"/"Y"/"A" in favour of explicit
+    "ME"/"QE"/"YE" (month-end / quarter-end / year-end). This shim is a
+    forwards-compatible no-op for already-correct strings and for non-affected
+    aliases ("D", "H", "h", "W", weekday-anchored frequencies).
+    """
+    _ALIAS_MAP = {"M": "ME", "Q": "QE", "Y": "YE", "A": "YE"}
+    if not isinstance(freq, str):
+        return freq
+    return _ALIAS_MAP.get(freq, freq)
 
 
 def compute_ml_perf_by_time(
@@ -627,7 +653,8 @@ def compute_ml_perf_by_time(
     )
     df = df.set_index("ts").sort_index()
     rows = []
-    for bin_start, chunk in df.groupby(pd.Grouper(freq=freq)):
+    _freq = _normalize_pandas_offset_alias(freq)
+    for bin_start, chunk in df.groupby(pd.Grouper(freq=_freq)):
         n = len(chunk)
         if n == 0:
             continue
@@ -636,7 +663,10 @@ def compute_ml_perf_by_time(
         else:
             try:
                 val = _compute_metric(metric, chunk["y_true"].values, chunk["y_pred"].values)
-            except Exception as exc:
+            except (ValueError, TypeError, ZeroDivisionError, FloatingPointError) as exc:
+                # Per-bin metric can fail on degenerate inputs (single-class
+                # y_true, all-NaN y_pred); record NaN and continue with the
+                # remaining bins. Programming bugs / Memory still propagate.
                 logger.warning("metric %s failed on bin %s: %s", metric, bin_start, exc)
                 val = float("nan")
         rows.append({"bin": bin_start, metric: val, "n_samples": n})
@@ -681,7 +711,10 @@ def visualize_ml_metric_by_time(
     try:
         ax.set_xticks(xs)
         ax.set_xticklabels([str(i) for i in perf_df.index], rotation=45)
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
+        # matplotlib raises ValueError on bad tick counts and AttributeError
+        # when a non-Axes was passed; either way, skip xticks and let the
+        # caller see the default labels.
         pass
     ax.set_ylabel(metric)
     ax.set_title(f"{metric} by time bin")

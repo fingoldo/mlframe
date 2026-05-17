@@ -452,7 +452,24 @@ class _DatasetReuseMixin:
                     or hasattr(_first, "iloc") or hasattr(_first, "dtypes")
                 )
                 if _looks_like_pair_item:
-                    eval_set = [tuple(eval_set)]
+                    # Second arm: confirm shape-shape disagreement consistent
+                    # with a (X, y[, w]) bundle rather than a list of equal-
+                    # rank feature matrices. y has shape (N,) or (N, K) and is
+                    # almost always strictly lower-rank than X. If the second
+                    # element is ALSO 2-D + matches X's ncols, treat as a
+                    # legit list of N feature matrices and DO NOT wrap.
+                    _second = eval_set[1]
+                    _first_ncols = getattr(_first, "shape", (None, None))
+                    _second_shape = getattr(_second, "shape", None)
+                    _is_legit_list_of_matrices = (
+                        _second_shape is not None
+                        and len(_second_shape) >= 2
+                        and _first_ncols
+                        and len(_first_ncols) >= 2
+                        and _second_shape[1] == _first_ncols[1]
+                    )
+                    if not _is_legit_list_of_matrices:
+                        eval_set = [tuple(eval_set)]
         valid_sets: list[Any] = []
         valid_names: list[str] = []
         if eval_set:

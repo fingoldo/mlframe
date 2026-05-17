@@ -285,7 +285,18 @@ def _fit_cb_ranker(
         if early_stopping_rounds is not None:
             fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
 
-    init_kwargs = {**obj_kwargs, **model_kwargs}
+    # obj_kwargs encodes the ranking objective / loss function resolved by the strategy;
+    # silently letting model_kwargs override them (the prior {**obj_kwargs, **model_kwargs}
+    # ordering) would let a caller-passed loss_function break the ranker assumption. Detect
+    # conflicts, log them, and let obj_kwargs win.
+    _conflicts = {k: model_kwargs[k] for k in model_kwargs if k in obj_kwargs and model_kwargs[k] != obj_kwargs[k]}
+    if _conflicts:
+        logger.warning(
+            "_fit_cb_ranker: model_kwargs override of ranker objective kwargs ignored: %s "
+            "(obj_kwargs from strategy: %s). Drop these keys from model_kwargs to silence.",
+            _conflicts, {k: obj_kwargs[k] for k in _conflicts},
+        )
+    init_kwargs = {**model_kwargs, **obj_kwargs}
     init_kwargs.setdefault("verbose", verbose if isinstance(verbose, int) else (100 if verbose else False))
 
     model = CatBoostRanker(**init_kwargs)

@@ -17,6 +17,7 @@ from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import lightning as L
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -582,30 +583,58 @@ class MLPTorchModel(L.LightningModule):
         need_softmax = any(m.requires_probs for m in self.metrics)
         need_cpu = any(m.requires_cpu for m in self.metrics)
 
+        # argmax along the class dim only makes sense for multi-class K>1 logits (shape (N, K)).
+        # Regression (dim==1) or multilabel BCE (each label independent) would silently emit
+        # garbage from raw_predictions.argmax(dim=1); guard explicitly.
+        _is_multiclass = (raw_predictions.dim() == 2 and raw_predictions.shape[1] > 1 and self.task_type != "multilabel")
+
         preds_dict = {}
         if need_argmax:
-            preds_dict["argmax"] = raw_predictions.argmax(dim=1)
+            if _is_multiclass:
+                preds_dict["argmax"] = raw_predictions.argmax(dim=1)
+            elif self.task_type == "multilabel":
+                # Multilabel: per-label thresholded predictions at 0.5 (each output independent binary).
+                preds_dict["argmax"] = (torch.sigmoid(raw_predictions) >= 0.5).long()
+            else:
+                # Regression / binary single-output: argmax has no meaning; skip metric below.
+                preds_dict["argmax"] = None
         if need_softmax:
-            preds_dict["softmax"] = F.softmax(raw_predictions, dim=1)
+            if _is_multiclass:
+                preds_dict["softmax"] = F.softmax(raw_predictions, dim=1)
+            elif self.task_type == "multilabel":
+                preds_dict["softmax"] = torch.sigmoid(raw_predictions)
+            else:
+                preds_dict["softmax"] = raw_predictions
 
         labels_cpu = None
         if need_cpu:
             # cpu=False: tensors are already on CPU thanks to the per-step .cpu() in *_step.
             labels_cpu = to_numpy_safe(labels, cpu=False)
 
+        # CPU-numpy memoisation keyed by tagged source (argmax / softmax / raw) NOT id(preds).
+        # id() values can be reused after garbage collection across loop iterations and silently
+        # return the wrong tensor's cached numpy view.
+        cpu_cache: dict[str, np.ndarray] = {}
+
         for metric in self.metrics:
             if metric.requires_argmax:
                 preds = preds_dict["argmax"]
+                preds_tag = "argmax"
             elif metric.requires_probs:
                 preds = preds_dict["softmax"]
+                preds_tag = "softmax"
             else:
                 preds = raw_predictions
+                preds_tag = "raw"
+
+            if preds is None:
+                # argmax requested but logits aren't multi-class; skip silently to avoid garbage.
+                continue
 
             if metric.requires_cpu:
-                key = f"cpu_{id(preds)}"
-                if key not in preds_dict:
-                    preds_dict[key] = to_numpy_safe(preds, cpu=False)
-                preds_np = preds_dict[key]
+                if preds_tag not in cpu_cache:
+                    cpu_cache[preds_tag] = to_numpy_safe(preds, cpu=False)
+                preds_np = cpu_cache[preds_tag]
                 labels_np = labels_cpu
             else:
                 preds_np = preds
