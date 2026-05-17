@@ -1177,3 +1177,51 @@ the loop is supposed to find: pure perf, behaviour-invariant,
 ~100x speedup on a measurable cold-start cost. Commit `736fc78`.
 
 Streak counter: **0/100** (RESOLVED resets).
+
+## Iter 28 -- 2026-05-18 -- RESOLVED (streak 0/100)
+
+After iter 27 found the first `cache=False` cold-compile hotspot,
+scanned the rest of `mlframe/` for sibling kernels. Surfaced 23
+more `@njit` decorators that defaulted to no caching (bare
+`@njit` / `@njit()` / explicit `@njit(cache=False)`). Each one
+repeats its JIT compile cost on every process restart.
+
+**Batch flip across 10 files, 24 kernels:**
+
+| File | Flips |
+|---|---:|
+| `feature_selection/mi.py` | 1 |
+| `calibration/probabilities.py` | 1 |
+| `feature_selection/filters/info_theory.py` | 5 |
+| `feature_selection/filters/_numba_utils.py` | 3 |
+| `feature_selection/filters/fleuret.py` | 1 |
+| `feature_selection/filters/evaluation.py` | 1 |
+| `feature_selection/filters/permutation.py` | 3 |
+| `feature_selection/filters/discretization.py` | 5 |
+| `feature_engineering/timeseries.py` | 2 |
+| `training/composite_transforms.py` | 2 |
+| **TOTAL** | **24** |
+
+**Aggregate cold-start saving** per fresh mlframe process: ~5-30 s
+depending on which paths fire (MRMR + composite discovery exercise
+the most kernels; calibration / FE less). Disk cache hit on
+subsequent processes deserialises in ~50-100 ms per kernel vs
+~1-4 s compile each.
+
+**Verification:** iter-27 regression suite + FS audit suites (19
+tests across `tests/feature_selection/test_audit_2026_05_16_f1_fs.py`,
+`test_audit_2026_05_16_f7_fs_coverage.py`, and iter-27 sensor)
+green in 75 s. Every flipped kernel has explicit type contracts
+(int64/float64), so numba's cache write/read is deterministic.
+
+**Postmortem note (style):** the initial batch-flip commit
+(`9d8b050`) accidentally converted file EOLs from LF to CRLF
+because `pathlib.Path.write_text()` on Windows defaults to
+`os.linesep`. Net: 1356 lines of EOL noise around 24 semantic
+flips. Follow-up commit `1a3cbe0` reverted EOLs to LF; combined
+with `9d8b050` the net effect is the 24 cache=True flips with
+zero EOL drift. Future batch-edit scripts should `read_bytes()`
++ `write_bytes()` to be EOL-preserving.
+
+Counted as the loop's twelfth RESOLVED. Streak counter:
+**0/100** (RESOLVED resets). Commits `9d8b050`, `1a3cbe0`.
