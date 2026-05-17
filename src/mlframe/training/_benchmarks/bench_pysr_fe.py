@@ -1,6 +1,14 @@
 """Bench the PySR FE upgrade vs legacy defaults.
 
-Run directly: ``python -m mlframe.training._benchmarks.bench_pysr_fe``.
+Run from the repo root with src/ on PYTHONPATH (mlframe uses the src-layout so a
+plain ``python -m mlframe...`` fails with ModuleNotFoundError unless the package
+is pip-installed in editable mode):
+
+.. code-block:: bash
+
+    PYTHONPATH=src python -m mlframe.training._benchmarks.bench_pysr_fe
+    # OR (no env var needed):
+    python src/mlframe/training/_benchmarks/bench_pysr_fe.py
 
 Synthetic ground-truth: ``y = 3*sin(x1) + log(|x2|+1) - 0.5*x3**2 + noise``
 with 5 extra noise features. Measures, per configuration:

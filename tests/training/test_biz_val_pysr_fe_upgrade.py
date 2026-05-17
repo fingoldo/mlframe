@@ -38,25 +38,37 @@ def _make_synth(n: int = 800, seed: int = 0) -> pd.DataFrame:
     return df
 
 
-def _holdout_rmse_from_metadata(metadata: dict, target_name: str = "target") -> float:
-    """Best test-RMSE across all trained models for the named target."""
-    # ``metadata['test_metrics']`` shape varies by ensemble flavour but always
-    # contains per-(target,model) RMSE under one of these layouts.
-    for slot in ("test_metrics", "metrics", "scores"):
-        block = metadata.get(slot)
-        if not isinstance(block, dict):
+def _holdout_rmse_from_models(models: dict) -> float:
+    """Best test-RMSE across all trained model entries.
+
+    Mlframe's per-target loop attaches a ``.metrics`` dict to every trained model
+    object with the shape ``{split: {metric_name: value}}``. Iterate every leaf
+    (target_type -> target_name -> [list of model entries]) and pull the
+    minimum test-split RMSE.
+    """
+    rmses: list[float] = []
+    if not isinstance(models, dict):
+        return float("inf")
+    for tt_block in models.values():
+        if not isinstance(tt_block, dict):
             continue
-        rmses = []
-        for k, v in block.items():
-            if isinstance(v, dict):
-                for kk, vv in v.items():
-                    if "rmse" in str(kk).lower() and isinstance(vv, (int, float)):
-                        rmses.append(float(vv))
-            elif "rmse" in str(k).lower() and isinstance(v, (int, float)):
-                rmses.append(float(v))
-        if rmses:
-            return min(rmses)
-    return float("inf")
+        for entries in tt_block.values():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                m = getattr(entry, "metrics", None) or (entry.get("metrics") if isinstance(entry, dict) else None)
+                if not isinstance(m, dict):
+                    continue
+                test_block = m.get("test") or {}
+                # `test_block` may be flat {metric: value} or {class_idx: {...}} (binary/multiclass).
+                _candidates = [test_block] + [v for v in test_block.values() if isinstance(v, dict)]
+                for cand in _candidates:
+                    if not isinstance(cand, dict):
+                        continue
+                    for k, v in cand.items():
+                        if "rmse" in str(k).lower() and isinstance(v, (int, float)):
+                            rmses.append(float(v))
+    return min(rmses) if rmses else float("inf")
 
 
 def _equation_forms_rediscovered(metadata: dict) -> int:
@@ -102,7 +114,7 @@ def test_pysr_upgrade_beats_pysr_off_on_synthetic_ground_truth(tmp_path):
     output_on = OutputConfig(data_dir=str(tmp_path / "on"), models_dir="m")
 
     # Baseline: PySR off
-    _, meta_off = train_mlframe_models_suite(
+    models_off, meta_off = train_mlframe_models_suite(
         df=df, target_name="target", model_name="bench_off",
         features_and_targets_extractor=fte,
         mlframe_models=["lgb"],
@@ -112,7 +124,7 @@ def test_pysr_upgrade_beats_pysr_off_on_synthetic_ground_truth(tmp_path):
     )
 
     # Treatment: PySR on with new standard preset defaults
-    _, meta_on = train_mlframe_models_suite(
+    models_on, meta_on = train_mlframe_models_suite(
         df=df, target_name="target", model_name="bench_on",
         features_and_targets_extractor=fte,
         mlframe_models=["lgb"],
@@ -129,8 +141,8 @@ def test_pysr_upgrade_beats_pysr_off_on_synthetic_ground_truth(tmp_path):
         use_mlframe_ensembles=False, verbose=0,
     )
 
-    rmse_off = _holdout_rmse_from_metadata(meta_off)
-    rmse_on = _holdout_rmse_from_metadata(meta_on)
+    rmse_off = _holdout_rmse_from_models(models_off)
+    rmse_on = _holdout_rmse_from_models(models_on)
     forms_found = _equation_forms_rediscovered(meta_on)
 
     # Either improvement axis is acceptable:
