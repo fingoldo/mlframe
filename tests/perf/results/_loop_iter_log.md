@@ -1334,3 +1334,68 @@ Counts as the cleanest profile of the entire loop run -- 211 ms
 total mlframe-OWN tottime out of 102 s wall = 0.2 %.
 
 **Verdict: REJECT.** Streak counter: 3/100.
+
+## Iter 32 -- 2026-05-18 -- REJECTED (streak 4/100)
+
+Cell: `c0125_25ef1865-cb_hgb_lgb-pl_utf8-n1000` (3 boosters binary
+classification with MRMR + recency weights + custom_prep=pca2 +
+pl_utf8). Test passed under cProfile in 126.87 s.
+
+**mlframe-OWN tottime (>20ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `_dummy_baseline_compute.py:106(_per_group_predict_polars)` | 75 ms | 1 | 75 ms |
+| `dummy_baselines.py:2258(_resample_metric)` | 61 ms | 2 | 30 ms |
+| `dummy_baselines.py:1985(_paired_bootstrap_vs_runner_up)` | 47 ms | 1 | 47 ms |
+| `io.py:39(atomic_write_bytes)` | 21 ms | 8 | 2.6 ms |
+
+`_resample_metric` and `_paired_bootstrap_vs_runner_up` were
+already optimized in iters 2 + 3 (~56x vectorisation). The
+current 30-47 ms tottime is Python-wrapper overhead around the
+vectorised numpy ops, well below the 1.2x gate.
+
+`_per_group_predict_polars` 75 ms own is polars-native already:
+single `group_by(cat_col).agg(mean, len)` pass, single
+`left-join` per side, no pandas bridge. The 75 ms is Python
+orchestration (3 dict ops + 3 join dispatches), each polars op
+is C-ext underneath. Not actionable.
+
+**Verdict: REJECT.** Streak counter: 4/100.
+
+## Iter 32.5 (interlude) -- 2026-05-18 -- fuzz axis extension
+
+User directive: cover 10+ MRMR FE-search knobs that prior axes
+didn't exercise -- `fe_npermutations`, `fe_ntop_features`,
+`fe_unary_preset`, `fe_binary_preset`, `fe_smart_polynom_iters`,
+`fe_smart_polynom_optimization_steps`, `fe_min_polynom_degree`,
+`fe_max_polynom_degree`, `CatFEConfig.include_numeric`.
+
+Added 9 new axes (commit `6e089cc`):
+
+| Axis | Values |
+|---|---|
+| `mrmr_fe_npermutations_cfg` | (0, 10) |
+| `mrmr_fe_ntop_features_cfg` | (0, 5) |
+| `mrmr_fe_unary_preset_cfg` | ("minimal", "medium") |
+| `mrmr_fe_binary_preset_cfg` | ("minimal", "medium") |
+| `mrmr_fe_smart_polynom_iters_cfg` | (0, 1) |
+| `mrmr_fe_smart_polynom_steps_cfg` | (10,) |
+| `mrmr_fe_min_polynom_degree_cfg` | (3,) |
+| `mrmr_fe_max_polynom_degree_cfg` | (3, 5) |
+| `mrmr_cat_fe_include_numeric_cfg` | (False, True) |
+
+All canonicalise to library defaults when `use_mrmr_fs=False` so
+dedup collapses identical-behaviour combos.
+
+Coverage on default master_seed=20260422 (150 combos):
+- 60 exercise FE-pollination (npermutations or ntop > 0)
+- 46 exercise smart_polynom_iters > 0
+- 49 exercise unary_preset=medium
+- 22 exercise cat_fe + include_numeric=True
+
+Smoke test: `c0145_42fe3a13` (ntop=5, smart=0, unary=medium)
+passes natively in 42 s. Enumerator-meta tests stay green.
+
+`fe_polynomial_basis` was commented out in the user's example
+spec; not added as a new axis pending explicit signal.
