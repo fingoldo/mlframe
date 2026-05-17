@@ -284,3 +284,132 @@ Combined wins across the loop session:
 - Bootstrap CI surface (iters 2+3): ~28s -> ~0.5s on small-n cells = ~56x.
 - Cold-start (iter 5): -16s on every first call where `use_mrmr_fs=False`
   (the default).
+
+## Iter 7 -- 2026-05-17 -- REJECTED (streak 2/100)
+
+Cell profiled: `test_predict_round_trip_parity` -- predict-path cProfile on
+the round-trip parity test (LGB + HGB + CB suite, n=600). 18.4s wall.
+
+mlframe-owned TOTTIME breakdown (only entries > 0.05 s OWN CPU):
+
+| Function | tottime | calls |
+|---|---:|---:|
+| `_run_predict_phases` orchestrator | 0.014 s | 8 |
+| `_combine_probs` | 0.011 s | 24 |
+| `_resolve_quantile_alphas_metadata_lookup` | 0.003 s | 24 |
+
+Cumulative time inside predict entries is 17.8s (~96% of wall), but the
+mlframe-side share is < 0.1 s OWN CPU. Bottlenecks are CatBoost
+`_predict_with_fallback` (8.4 s cumtime, CB pool C-ext), LGB Booster
+`predict` (4.1 s cumtime), and HGB `predict_proba` (2.3 s cumtime).
+
+**Verdict: REJECT.** Predict path is third-party-dominated; nothing in
+mlframe orchestration measurable above noise.
+
+## Iter 8 -- 2026-05-17 -- REJECTED (streak 3/100)
+
+Candidate: `metrics/core.py:2606(_batch_per_class_ice_kernel)` -- 114.30 s
+tottime / 939 calls in `profile_iter147_baseline.txt`, largest mlframe-
+owned TOTTIME across all 196 archived baselines.
+
+Already decorated `@numba.njit(fastmath=False, cache=True, nogil=True,
+parallel=True)`. Probed whether enabling `fastmath=True` would speed up
+the reductions at the parallelism threshold.
+
+Bench (N=1_000_000 K=3, 7 trials each):
+- current (fastmath=False): 234.6 ms median
+- fastmath=True clone:      251.4 ms median
+- speedup: 0.93x (REGRESSION)
+- numerical drift: 3.8e-6 max abs diff
+
+**Verdict: REJECT.** Kernel is already memory-bandwidth bound at this N;
+fastmath does not help and trades 4 ppm of numerical fidelity for nothing.
+Documented so it isn't re-flagged in future loop iterations.
+
+## Iter 9 -- 2026-05-17 -- REJECTED (streak 4/100)
+
+Candidate: `metrics/core.py:374(_cb_logits_to_probs_multiclass_par)` --
+4.85 s tottime in `profile_iter147_baseline.txt`. Parallel softmax with
+max-subtraction trick.
+
+Bench (N=1_000_000 K=3, 7 trials each):
+- current (fastmath=False): 9.54 ms median
+- fastmath=True clone:      11.55 ms median
+- speedup: 0.83x (REGRESSION)
+- numerical drift: 5.55e-17 (machine epsilon, indistinguishable)
+
+**Verdict: REJECT.** Same conclusion as ICE kernel: softmax is already
+memory-bandwidth bound; fastmath's reassociation overhead exceeds its
+compute win on this kernel shape. Numerically identical, so fastmath
+would be safe -- but slower is slower.
+
+## Iter 10 -- 2026-05-17 -- REJECTED (streak 5/100)
+
+Candidate: `training/helpers.py:400(integral_calibration_error)` --
+2.68 s tottime, 929 calls, 134.15 s cumtime in `profile_iter147_baseline.txt`.
+
+Closure-wrapped `integral_calibration_error` that forwards to
+`compute_probabilistic_multiclass_error` with captured `method`,
+`mae_weight`, `*_weight` config. Own work / inner work ratio = 2.681 /
+134.152 = **2.0 %**.
+
+**Verdict: REJECT.** Even if the closure dispatch were free, the ceiling
+speedup is 1.02x -- below the 1.2x gate. The 144 ms / call cumtime is
+dominated by the numba kernel (iter 8) and downstream brier / roc_auc
+sklearn calls, not by Python orchestration.
+
+## Iter 11 -- 2026-05-17 -- REJECTED (streak 6/100)
+
+Candidate: `training/utils.py:375(get_pandas_view_of_polars_df)` -- up to
+1.05 s tottime in `profile_iter103_baseline.txt` (3 calls, 5.41 s cumtime).
+Per-call OWN time ~350 ms.
+
+Read the function: per-call work is (1) nested-dtype scan with WARN, (2)
+`to_arrow()` C-ext, (3) dictionary-column int32 cast loop, (4) bool-column
+detection, (5) `to_pandas()` C-ext. Existing inline comment
+(`utils.py:513-515`) already records a 2026-04-14 bench: "short-circuit on
+'no dictionary columns' delivered only 1.16x on pure-numeric workloads
+(below 1.2x threshold)".
+
+Available Python-level reductions:
+- Combine scans (2) + (3) + (4) into one pass: marginal, < 5 % of OWN time.
+- Skip nested-dtype WARN scan after first call same-schema seen: already
+  cached in `_NESTED_DTYPE_WARN_SEEN`.
+
+Effective ceiling on the wrapper: ~1.05 s OWN out of 5.41 s cumtime = 19 %.
+Compressing wrapper OWN to zero would yield 1.24x on the wrapper alone,
+but it's called 3x and the bulk of training-loop wall is elsewhere; net
+suite-level impact < 5 %.
+
+**Verdict: REJECT.** Below 1.2x net-suite gate; the prior 2026-04-14 bench
+already explored this surface.
+
+## Status after iters 6-11
+
+| Iter | Verdict | Streak | Candidate |
+|---:|---|---:|---|
+| 6 | REJECT | 1/100 | linear+mlp pl_enum n=5000 fuzz combo |
+| 7 | REJECT | 2/100 | predict-path round-trip parity |
+| 8 | REJECT | 3/100 | `_batch_per_class_ice_kernel` (numba) |
+| 9 | REJECT | 4/100 | `_cb_logits_to_probs_multiclass_par` (numba) |
+| 10 | REJECT | 5/100 | `integral_calibration_error` (closure) |
+| 11 | REJECT | 6/100 | `get_pandas_view_of_polars_df` |
+
+After 6 consecutive REJECTs, the surface mlframe owns at >1.2x gate
+appears exhausted on the archived baselines. The pattern across all six:
+
+1. **numba parallel kernels** (iters 8, 9) are memory-bandwidth bound at
+   the parallelism threshold; fastmath is a regression on both. Likely
+   also true for the remaining numba kernels (mrmr inner loops etc.) but
+   each individual probe is cheap if needed.
+2. **Closure wrappers** (iter 10) have low own/cum ratios (< 5 %),
+   capping any wrapper-level win below the 1.2x gate.
+3. **C-extension bridges** (iter 11, pandas-view) are dominated by the
+   underlying C-ext call itself; Python-level scans contribute < 1.2x
+   ceiling.
+4. **Third-party heavy lifters** (iter 6 LightGBM/Lightning, iter 7
+   CB/LGB/HGB predict) are off-limits.
+
+Loop continues per the 100-consecutive-reject policy, but each subsequent
+iteration is expected to follow one of these four patterns until an
+unprofiled code path surfaces.
