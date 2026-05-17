@@ -433,17 +433,44 @@ def run_composite_target_discovery(
             from ..composite import get_transform as _get_transform_local
             for _spec in _disc.specs_:
                 _transform = _get_transform_local(_spec.transform_name)
-                _base_full = _build_full_column_from_splits(
+                # Multi-base specs (extra_base_columns non-empty) need a
+                # (n_total, 1+K) matrix stacking the primary base column
+                # with each extra base. linear_residual_multi.forward
+                # consumes that 2-D matrix; passing only the primary
+                # column raises ValueError("base has N columns but
+                # fitted alphas has M entries") in the forward call.
+                _extra_bases = tuple(getattr(_spec, "extra_base_columns", ()) or ())
+                _base_primary = _build_full_column_from_splits(
                     _spec.base_column,
                     train_df_pd, val_df_pd, test_df_pd,
                     train_idx, val_idx, test_idx,
                     n_total=_y_arr.shape[0],
                 )
+                if _extra_bases:
+                    _base_cols = [_base_primary]
+                    for _eb_name in _extra_bases:
+                        _base_cols.append(
+                            _build_full_column_from_splits(
+                                _eb_name,
+                                train_df_pd, val_df_pd, test_df_pd,
+                                train_idx, val_idx, test_idx,
+                                n_total=_y_arr.shape[0],
+                            )
+                        )
+                    _base_full = np.column_stack(_base_cols)
+                else:
+                    _base_full = _base_primary
                 _valid = _transform.domain_check(_y_arr, _base_full)
                 _ct_t_full = np.full(_y_arr.shape[0], np.nan, dtype=np.float64)
                 if _valid.any():
+                    # For multi-base, _base_full is 2-D — pass the
+                    # row-filtered 2-D slice; for single-base it stays 1-D.
+                    _base_for_forward = (
+                        _base_full[_valid, :] if _base_full.ndim == 2
+                        else _base_full[_valid]
+                    )
                     _ct_t_full[_valid] = _transform.forward(
-                        _y_arr[_valid], _base_full[_valid], _spec.fitted_params,
+                        _y_arr[_valid], _base_for_forward, _spec.fitted_params,
                     )
                 if not np.all(np.isfinite(_ct_t_full)):
                     _t_train_for_median = _ct_t_full[filtered_train_idx]
