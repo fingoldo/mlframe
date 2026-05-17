@@ -103,7 +103,7 @@ except ImportError:
     _NUMBA_AVAILABLE = False
 
 if _NUMBA_AVAILABLE:
-    @njit(parallel=True, fastmath=True, cache=False)
+    @njit(parallel=True, fastmath=True, cache=True)
     def _numba_macro_log_loss(y_int, p, n, K):
         """Per-label-averaged binary log-loss; skips all-constant labels.
 
@@ -144,7 +144,7 @@ if _NUMBA_AVAILABLE:
             return np.nan
         return total / valid_count
 
-    @njit(fastmath=True, cache=False)
+    @njit(fastmath=True, cache=True)
     def _numba_micro_log_loss(y_int, p, n, K):
         """Pooled (micro) binary log-loss across all (N, K) cells."""
         eps = 1e-15
@@ -193,7 +193,7 @@ if _NUMBA_AVAILABLE:
             c += 1
         return out
 
-    @njit(parallel=True, fastmath=True, cache=False)
+    @njit(parallel=True, fastmath=True, cache=True)
     def _numba_paired_bootstrap_rmse(y, p1, p2, n_resamples, seed):
         """Paired bootstrap on RMSE between two predictors.
 
@@ -223,7 +223,7 @@ if _NUMBA_AVAILABLE:
             out[i] = np.sqrt(sse1 / n) - np.sqrt(sse2 / n)
         return out
 
-    @njit(parallel=True, fastmath=True, cache=False)
+    @njit(parallel=True, fastmath=True, cache=True)
     def _numba_paired_bootstrap_mae(y, p1, p2, n_resamples, seed):
         """MAE-paired-bootstrap counterpart of _numba_paired_bootstrap_rmse."""
         n = len(y)
@@ -240,7 +240,7 @@ if _NUMBA_AVAILABLE:
             out[i] = sae1 / n - sae2 / n
         return out
 
-    @njit(parallel=True, fastmath=True, cache=False)
+    @njit(parallel=True, fastmath=True, cache=True)
     def _numba_bootstrap_rmse_samples(y, p, n_resamples, seed):
         """Bootstrap CI on a single predictor's RMSE.
 
@@ -260,7 +260,7 @@ if _NUMBA_AVAILABLE:
             out[i] = np.sqrt(sse / n)
         return out
 
-    @njit(parallel=True, fastmath=True, cache=False)
+    @njit(parallel=True, fastmath=True, cache=True)
     def _numba_bootstrap_mae_samples(y, p, n_resamples, seed):
         n = len(y)
         out = np.empty(n_resamples, dtype=np.float64)
@@ -274,7 +274,7 @@ if _NUMBA_AVAILABLE:
             out[i] = sae / n
         return out
 
-    @njit(parallel=True, fastmath=True, cache=False)
+    @njit(parallel=True, fastmath=True, cache=True)
     def _numba_paired_bootstrap_logloss_binary(y_int, p1, p2, n_resamples, seed):
         """Binary cross-entropy paired bootstrap.
 
@@ -319,7 +319,7 @@ if _NUMBA_AVAILABLE:
             out[i] = ll1 / n - ll2 / n
         return out
 
-    @njit(parallel=True, fastmath=True, cache=False)
+    @njit(parallel=True, fastmath=True, cache=True)
     def _numba_bootstrap_logloss_binary_samples(y_int, p, n_resamples, seed):
         """Bootstrap CI samples for binary log-loss on a single predictor."""
         n = len(y_int)
