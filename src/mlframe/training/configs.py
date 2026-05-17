@@ -585,6 +585,15 @@ class PreprocessingExtensionsConfig(BaseConfig):
         "or 'physics' (trig + power for oscillatory/wave targets). None means use the in-suite "
         "default ('standard'). See mlframe.feature_engineering.pysr_operators.VALID_PRESETS.",
     )
+    pysr_warm_start: Optional[bool] = Field(
+        default=None,
+        description="When True, PySR persists GA-population state across calls within the same "
+        "Python process so a subsequent train_mlframe_models_suite call on similar data resumes "
+        "from the prior fit instead of restarting from scratch. Useful for hyperparameter "
+        "sweeps + multi-target loops sharing one feature matrix. Breaks if `maxsize` or operator "
+        "preset changes between calls -- PySR raises in that case rather than silently dropping "
+        "state. Default None = warm_start=False (cold start every call).",
+    )
 
     @field_validator("pysr_precision")
     @classmethod

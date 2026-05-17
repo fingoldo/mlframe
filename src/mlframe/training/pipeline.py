@@ -279,6 +279,7 @@ def _apply_pysr_fe(
         ("pysr_batching", "batching"),
         ("pysr_batch_size", "batch_size"),
         ("pysr_precision", "precision"),
+        ("pysr_warm_start", "warm_start"),
     ):
         _typed_val = getattr(config, _typed_name, None)
         if _typed_val is not None:
