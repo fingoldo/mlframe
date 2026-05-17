@@ -231,9 +231,45 @@ Regression suite at
    (opt-in path correct).
 4/4 pass in 16s.
 
-## Final wrap-up
+## Iter 6 -- 2026-05-17 -- REJECTED (streak 1/100)
 
-5/5 iterations complete:
+Cell profiled: `c0020_695e4e82-linear_mlp-pl_enum-n5000` (linear+mlp on
+polars Enum dtype, n=5000). 204s wall.
+
+mlframe-owned TOTTIME breakdown (only entries > 0.05 s OWN CPU):
+
+| Function | tottime | calls |
+|---|---:|---:|
+| `io._writer` (zstd compression for model save) | 0.565 s | 2 |
+| `neural/data._extract` (MLP DataLoader per-batch) | 0.313 s | 78 |
+| `_train_one_target` | 0.001 s | 1 |
+| `train_and_evaluate_model` | 0.001 s | 8 |
+
+Cumulative time inside `_train_one_target` is 183s (~90% of wall), but the
+mlframe-side share of that is negligible: `train_and_evaluate_model` adds
+0.001s own; the rest is sklearn (linear) + torch + Lightning (MLP) C++ /
+C-extension work.
+
+`io._writer` 0.565s is pickle.dumps + zstd.compress -- both C-ext-bound;
+mlframe just dispatches. `neural/data._extract` 0.313s across 78 batches =
+4ms/batch -- batch-extract bookkeeping with no obvious vectorisation gain
+without architectural changes.
+
+**Verdict: REJECT.** No mlframe-owned hot computation surfaces above the
+1.2x gate on this profile. Streak counter: 1/100. Loop continues.
+
+## Termination policy clarification (post-iter-5)
+
+Mid-session correction by user: the loop is NOT capped at a fixed iteration
+count. The real termination signal is a **consecutive-rejection streak**:
+stop only after 100 reject-in-a-row (each `RESOLVED` resets the counter).
+Documented in CLAUDE.md.
+
+Streak after iter 5: **0/100** (iter 5 was RESOLVED). Loop resumes with iter 6+.
+
+## Partial wrap-up (iters 1-5)
+
+5 iterations so far:
 - Iter 1: REJECT -- 1M-row orchestration < 0.05 % of wall, no mlframe hotspot.
 - Iter 2: 63x on `_resample_metric` log_loss bootstrap CI (commit 4c2574e).
 - Iter 3: 53.6x on `_paired_bootstrap_vs_runner_up` log_loss bootstrap
