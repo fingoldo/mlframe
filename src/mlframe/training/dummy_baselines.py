@@ -163,7 +163,7 @@ if _NUMBA_AVAILABLE:
                     s -= np.log(1.0 - pi)
         return s / (n * K)
 
-    @njit(cache=False)
+    @njit(cache=True)
     def _numba_within_group_descending_rank(group_ids: np.ndarray) -> np.ndarray:
         """Descending within-group rank: row 0 of each group -> highest score.
 
