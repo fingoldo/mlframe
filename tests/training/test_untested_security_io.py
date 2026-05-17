@@ -133,26 +133,38 @@ def test_finalize_saves_and_roundtrips(tmp_path):
     loaded = _load_metadata(metadata_dir)
     assert loaded["model_name"] == "m1"
     assert loaded["trainset_features_stats"] == {"mean": 0.1}
-    assert loaded["outlier_detection_result"] == outlier_detection_result
+    assert loaded["outlier_detection_result"] == ctx.outlier_detection_result
 
 
-def test_finalize_adds_slug_mappings(tmp_path):
-    metadata = {"model_name": "m", "target_name": "t", "mlframe_models": []}
-    (Path(tmp_path) / "models" / "t" / "m").mkdir(parents=True)
-    _finalize_and_save_metadata(
-        metadata=metadata,
+def _make_ctx(**overrides):
+    """Helper: minimal ctx for _finalize_and_save_metadata tests."""
+    from types import SimpleNamespace
+    base = dict(
+        metadata={"model_name": "m", "target_name": "t", "mlframe_models": []},
         outlier_detector=None,
         outlier_detection_result={},
         trainset_features_stats=None,
-        data_dir=str(tmp_path),
-
-        models_dir="models",
+        slug_to_original_target_type={},
+        slug_to_original_target_name={},
+        data_dir="",
+        models_dir="",
         target_name="t",
         model_name="m",
         verbose=0,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def test_finalize_adds_slug_mappings(tmp_path):
+    (Path(tmp_path) / "models" / "t" / "m").mkdir(parents=True)
+    ctx = _make_ctx(
+        data_dir=str(tmp_path),
+        models_dir="models",
         slug_to_original_target_type={"reg": "Regression"},
         slug_to_original_target_name={"t": "Target"},
     )
+    _finalize_and_save_metadata(ctx)
     metadata_dir = Path(tmp_path) / "models" / "t" / "m"
     loaded = _load_metadata(metadata_dir)
     assert loaded["slug_to_original_target_type"] == {"reg": "Regression"}
@@ -160,22 +172,11 @@ def test_finalize_adds_slug_mappings(tmp_path):
 
 
 def test_finalize_no_save_when_no_dirs():
-    metadata = {"model_name": "m", "target_name": "t", "mlframe_models": []}
-    # Should not raise even when no dirs given
-    _finalize_and_save_metadata(
-        metadata=metadata,
-        outlier_detector=None,
-        outlier_detection_result={},
-        trainset_features_stats=None,
-        data_dir="",
-
-        models_dir="",
-        target_name="t",
-        model_name="m",
-        verbose=0,
-    )
-    # Metadata still populated in place
-    assert "outlier_detection_result" in metadata
+    ctx = _make_ctx()
+    # Should not raise even when no dirs given.
+    _finalize_and_save_metadata(ctx)
+    # Metadata still populated in place.
+    assert "outlier_detection_result" in ctx.metadata
 
 
 def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
@@ -194,18 +195,9 @@ def test_finalize_bubbles_ioerror(tmp_path, monkeypatch):
         raise IOError("disk full")
 
     monkeypatch.setattr(io_mod, "atomic_write_bytes", _bad_write)
+    ctx = _make_ctx(data_dir=str(bad_dir), models_dir="models")
     with pytest.raises(IOError):
-        _finalize_and_save_metadata(
-            metadata={"model_name": "m", "target_name": "t", "mlframe_models": []},
-            outlier_detector=None,
-            outlier_detection_result={},
-            trainset_features_stats=None,
-            data_dir=str(bad_dir),
-            models_dir="models",
-            target_name="t",
-            model_name="m",
-            verbose=0,
-        )
+        _finalize_and_save_metadata(ctx)
 
 
 # ----- save_split_artifacts -----
