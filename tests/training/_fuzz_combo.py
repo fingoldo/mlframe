@@ -283,6 +283,43 @@ AXES: dict[str, tuple[Any, ...]] = {
     # restricts to the pre-Pack-J/K set so dedup-vs-default regressions
     # surface. Canonicalised to None when discovery is disabled.
     "composite_transforms_mode_cfg": (None, "unary_only", "chain_only", "legacy"),
+    # 2026-05-18 -- MRMR feature-engineering FE-search knobs. Each
+    # toggles a distinct code path inside ``mrmr.fit`` that prior fuzz
+    # axes did NOT exercise. All canonicalise to defaults when
+    # ``use_mrmr_fs=False`` so dedup collapses identical-behaviour
+    # combos.
+    #
+    # fe_npermutations: classical unary/binary FE permutation-confirmation
+    # budget. 0 = disabled fast path; >0 fires the permutation-test
+    # confirmation step. Pin small (10) for fuzz so the inner FE pass
+    # doesn't dominate runtime.
+    "mrmr_fe_npermutations_cfg": (0, 10),
+    # fe_ntop_features: how many top-ranked features get pollinated with
+    # unary/binary transforms. 0 = FE step OFF; >0 = small pollination
+    # pool. Pin small for fuzz speed.
+    "mrmr_fe_ntop_features_cfg": (0, 5),
+    # fe_unary_preset: which preset of unary transforms to generate.
+    # MRMR ships {"minimal","medium","maximal"}; fuzz skips "maximal"
+    # (too slow on inner-loop FE) but covers the minimal->medium path.
+    "mrmr_fe_unary_preset_cfg": ("minimal", "medium"),
+    # fe_binary_preset: same for binary transforms (hypot/atan2/...).
+    "mrmr_fe_binary_preset_cfg": ("minimal", "medium"),
+    # fe_smart_polynom_iters: smart orthogonal-polynom FE via Optuna.
+    # 0 = disabled; >0 = N study-restarts. Pin small (1) for fuzz.
+    "mrmr_fe_smart_polynom_iters_cfg": (0, 1),
+    # fe_smart_polynom_optimization_steps: trials within one study.
+    # Only effective when iters > 0; pin tiny (10) for fuzz so the
+    # Optuna sweep doesn't blow runtime.
+    "mrmr_fe_smart_polynom_steps_cfg": (10,),
+    # fe_(min,max)_polynom_degree: polynomial degree range. Library
+    # default is (3, 8); fuzz tightens the upper bound to keep the
+    # search space cheap.
+    "mrmr_fe_min_polynom_degree_cfg": (3,),
+    "mrmr_fe_max_polynom_degree_cfg": (3, 5),
+    # CatFEConfig.include_numeric: when True, MRMR's cat-FE also pulls
+    # in discretized numeric columns alongside categoricals. Default
+    # False (avoid spurious aliasing from noisy floats).
+    "mrmr_cat_fe_include_numeric_cfg": (False, True),
 }
 
 
@@ -396,6 +433,19 @@ class FuzzCombo:
     # archived ``_fuzz_results.jsonl`` rows keep deserialising.
     composite_discovery_enabled_cfg: bool = False
     composite_transforms_mode_cfg: "str | None" = None
+    # 2026-05-18 — MRMR feature-engineering FE-search knobs. All
+    # default to library defaults so existing pinned sensor combos
+    # and archived ``_fuzz_results.jsonl`` rows keep deserialising
+    # without behaviour change.
+    mrmr_fe_npermutations_cfg: int = 0
+    mrmr_fe_ntop_features_cfg: int = 0
+    mrmr_fe_unary_preset_cfg: str = "minimal"
+    mrmr_fe_binary_preset_cfg: str = "minimal"
+    mrmr_fe_smart_polynom_iters_cfg: int = 0
+    mrmr_fe_smart_polynom_steps_cfg: int = 10
+    mrmr_fe_min_polynom_degree_cfg: int = 3
+    mrmr_fe_max_polynom_degree_cfg: int = 3
+    mrmr_cat_fe_include_numeric_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -676,6 +726,38 @@ class FuzzCombo:
                 self.composite_discovery_enabled_cfg
                 and self.target_type == "regression"
             ) else None,
+            # MRMR FE knobs canonicalise to defaults when
+            # ``use_mrmr_fs=False`` so dedup collapses identical
+            # behaviour combos. The library defaults (npermutations=0,
+            # ntop_features=0, unary/binary_preset="minimal",
+            # smart_polynom_iters=0, etc.) keep the FE step OFF and
+            # the polynomial search disabled; any non-default value
+            # activates a code path the prior fuzz axis space did
+            # not exercise.
+            self.mrmr_fe_npermutations_cfg if self.use_mrmr_fs else 0,
+            self.mrmr_fe_ntop_features_cfg if self.use_mrmr_fs else 0,
+            self.mrmr_fe_unary_preset_cfg if self.use_mrmr_fs else "minimal",
+            self.mrmr_fe_binary_preset_cfg if self.use_mrmr_fs else "minimal",
+            self.mrmr_fe_smart_polynom_iters_cfg if self.use_mrmr_fs else 0,
+            # smart_polynom_steps is a no-op when smart_polynom_iters=0.
+            self.mrmr_fe_smart_polynom_steps_cfg if (
+                self.use_mrmr_fs and self.mrmr_fe_smart_polynom_iters_cfg > 0
+            ) else 10,
+            # min/max polynom_degree only matter when smart_polynom is on.
+            self.mrmr_fe_min_polynom_degree_cfg if (
+                self.use_mrmr_fs and self.mrmr_fe_smart_polynom_iters_cfg > 0
+            ) else 3,
+            self.mrmr_fe_max_polynom_degree_cfg if (
+                self.use_mrmr_fs and self.mrmr_fe_smart_polynom_iters_cfg > 0
+            ) else 3,
+            # CatFEConfig.include_numeric only matters when cat-FE is
+            # enabled AND MRMR is on AND there are categorical columns
+            # to mix discretized numerics with.
+            self.mrmr_cat_fe_include_numeric_cfg if (
+                self.use_mrmr_fs
+                and self.mrmr_cat_fe_enable_cfg
+                and self.cat_feature_count > 0
+            ) else False,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -1236,6 +1318,15 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ltr_assume_comparable_scales_cfg=axes.get("ltr_assume_comparable_scales_cfg", False),
         composite_discovery_enabled_cfg=axes.get("composite_discovery_enabled_cfg", False),
         composite_transforms_mode_cfg=axes.get("composite_transforms_mode_cfg", None),
+        mrmr_fe_npermutations_cfg=axes.get("mrmr_fe_npermutations_cfg", 0),
+        mrmr_fe_ntop_features_cfg=axes.get("mrmr_fe_ntop_features_cfg", 0),
+        mrmr_fe_unary_preset_cfg=axes.get("mrmr_fe_unary_preset_cfg", "minimal"),
+        mrmr_fe_binary_preset_cfg=axes.get("mrmr_fe_binary_preset_cfg", "minimal"),
+        mrmr_fe_smart_polynom_iters_cfg=axes.get("mrmr_fe_smart_polynom_iters_cfg", 0),
+        mrmr_fe_smart_polynom_steps_cfg=axes.get("mrmr_fe_smart_polynom_steps_cfg", 10),
+        mrmr_fe_min_polynom_degree_cfg=axes.get("mrmr_fe_min_polynom_degree_cfg", 3),
+        mrmr_fe_max_polynom_degree_cfg=axes.get("mrmr_fe_max_polynom_degree_cfg", 3),
+        mrmr_cat_fe_include_numeric_cfg=axes.get("mrmr_cat_fe_include_numeric_cfg", False),
     )
 
 

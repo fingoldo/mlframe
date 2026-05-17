@@ -50,18 +50,26 @@ COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_
 
 
 def _make_cat_fe_config_for_fuzz(combo: FuzzCombo):
-    """Build a ``CatFEConfig`` honoring the combo's ``mrmr_cat_fe_enable_cfg``
-    axis. Returns ``None`` when cat-FE should keep its default-on behavior
-    (no override needed); returns an explicit ``CatFEConfig(enable=False)``
-    when the combo asks for the disabled variant. Keeping the cheap-default
-    knobs (top_k_pairs=32, full_npermutations=100, etc.) on the enabled
-    path so the cat-FE algorithm runs with realistic settings rather than
-    a degenerate small-sample config.
+    """Build a ``CatFEConfig`` honoring the combo's
+    ``mrmr_cat_fe_enable_cfg`` + ``mrmr_cat_fe_include_numeric_cfg``
+    axes. Returns ``None`` when cat-FE should keep its full default-on
+    behavior (no override needed); returns an explicit ``CatFEConfig``
+    when any axis demands a non-default value.
+
+    Keeping the cheap-default knobs (top_k_pairs=32,
+    full_npermutations=100, etc.) on the enabled path so the cat-FE
+    algorithm runs with realistic settings rather than a degenerate
+    small-sample config.
     """
-    if combo.mrmr_cat_fe_enable_cfg:
-        return None  # MRMR's own default CatFEConfig() (enable=True)
     from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
-    return CatFEConfig(enable=False)
+    if not combo.mrmr_cat_fe_enable_cfg:
+        return CatFEConfig(enable=False)
+    # 2026-05-18 -- include_numeric axis. When True, MRMR's cat-FE
+    # pulls in discretized numeric columns alongside categoricals.
+    # Default False (avoid spurious aliasing from noisy floats).
+    if combo.mrmr_cat_fe_include_numeric_cfg:
+        return CatFEConfig(enable=True, include_numeric=True)
+    return None  # full library default (enable=True, include_numeric=False)
 
 
 def _config_for_models(
@@ -893,6 +901,18 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     "interactions_max_order": combo.mrmr_interactions_max_order_cfg,
                     "fe_max_steps": combo.mrmr_fe_max_steps_cfg,
                     "cat_fe_config": _make_cat_fe_config_for_fuzz(combo),
+                    # 2026-05-18 -- MRMR feature-engineering FE-search
+                    # knobs. Each axis toggles a distinct code path
+                    # inside mrmr.fit (classical unary/binary FE,
+                    # smart orthogonal-polynom FE via Optuna).
+                    "fe_npermutations": combo.mrmr_fe_npermutations_cfg,
+                    "fe_ntop_features": combo.mrmr_fe_ntop_features_cfg,
+                    "fe_unary_preset": combo.mrmr_fe_unary_preset_cfg,
+                    "fe_binary_preset": combo.mrmr_fe_binary_preset_cfg,
+                    "fe_smart_polynom_iters": combo.mrmr_fe_smart_polynom_iters_cfg,
+                    "fe_smart_polynom_optimization_steps": combo.mrmr_fe_smart_polynom_steps_cfg,
+                    "fe_min_polynom_degree": combo.mrmr_fe_min_polynom_degree_cfg,
+                    "fe_max_polynom_degree": combo.mrmr_fe_max_polynom_degree_cfg,
                 } if combo.use_mrmr_fs else None),
                 # rfecv_models: pass exactly the canonical estimator (None when
                 # the combo would mis-use it) — wrap in a single-element list
