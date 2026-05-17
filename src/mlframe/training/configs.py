@@ -578,12 +578,31 @@ class PreprocessingExtensionsConfig(BaseConfig):
         description="Top-K equations (by score) to materialise as new feature columns. Default "
         "min(5, population_size // 2); higher means more columns but diminishing-quality picks.",
     )
+    pysr_operator_preset: Optional[str] = Field(
+        default=None,
+        description="Operator preset for the PySR GA: 'minimal' (legacy log+inv, safe-log fix), "
+        "'standard' (default for tabular FE -- adds safe_sqrt, sign, square, tanh, exp, max, min), "
+        "or 'physics' (trig + power for oscillatory/wave targets). None means use the in-suite "
+        "default ('standard'). See mlframe.feature_engineering.pysr_operators.VALID_PRESETS.",
+    )
 
     @field_validator("pysr_precision")
     @classmethod
     def _validate_pysr_precision(cls, v: Optional[int]) -> Optional[int]:
         if v is not None and v not in (16, 32, 64):
             raise ValueError(f"pysr_precision must be 16, 32, or 64 (got {v!r})")
+        return v
+
+    @field_validator("pysr_operator_preset")
+    @classmethod
+    def _validate_pysr_operator_preset(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        from mlframe.feature_engineering.pysr_operators import VALID_PRESETS
+        if v not in VALID_PRESETS:
+            raise ValueError(
+                f"pysr_operator_preset must be one of {VALID_PRESETS} (got {v!r})"
+            )
         return v
 
     @model_validator(mode="after")

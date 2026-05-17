@@ -22,15 +22,20 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
-# JULIA_NUM_THREADS must be set BEFORE Julia/PySR boots; module-import time is the latest safe point.
+# Thread-count env vars must be set BEFORE Julia/PySR boots; module-import time is the latest safe
+# point. Under juliacall (PySR >= 1.0 default bridge) the honoured var is PYTHON_JULIACALL_THREADS;
+# JULIA_NUM_THREADS only takes effect if the Julia process is started by hand. Set BOTH for forward
+# / backward compatibility -- see PySR discussion #873.
 # `os.cpu_count() // 2` is the safe default: PySR's GA scales well across cores but leaves the other
 # half for sklearn/CB/LGB/XGB inner-loop threads + the OS. Caller can override via env before import.
-if "JULIA_NUM_THREADS" not in os.environ:
-    try:
-        _ncpu = os.cpu_count() or 4
-        os.environ["JULIA_NUM_THREADS"] = str(max(2, _ncpu // 2))
-    except Exception:
-        pass
+try:
+    _ncpu = os.cpu_count() or 4
+    _suggested_threads = str(max(2, _ncpu // 2))
+    for _env_name in ("PYTHON_JULIACALL_THREADS", "JULIA_NUM_THREADS"):
+        if _env_name not in os.environ:
+            os.environ[_env_name] = _suggested_threads
+except Exception:
+    pass
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -208,11 +213,7 @@ def _apply_pysr_fe(
         )
         return []
     try:
-        from mlframe.feature_engineering.bruteforce import (
-            run_pysr_feature_engineering,
-            DEFAULT_BINARY_OPERATORS,
-            DEFAULT_UNARY_OPERATORS,
-        )
+        from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     except (ImportError, OSError, subprocess.CalledProcessError):
         if verbose:
             logger.warning(
@@ -223,29 +224,46 @@ def _apply_pysr_fe(
     import numpy as np
 
     pysr_params = getattr(config, "pysr_params", None) or {}
-    # Defaults tuned for the in-suite path. Key speed knobs:
-    # 1. No `procs` override -- bruteforce defaults to PySR multithreading which honours JULIA_NUM_THREADS
-    #    set at module import. Previously hardcoded procs=1 forced single-process serial search
-    #    (CPU cores idle, user reported 1h hang on 4M-row input).
-    # 2. `batching=True, batch_size=10000` -- each GA iter draws a random 10K subsample from the pool
-    #    instead of evaluating every candidate on the full sample. Addresses PySR's own ">10K datapoints
-    #    slow GA" warning AND removes any need to throttle the pool size.
-    # 3. `precision=32` -- float32 GA eval is ~2x faster on modern x86 SIMD; symbolic regression discovers
-    #    equation FORM, not parameter precision, so f64 is overkill.
-    # 4. `turbo=True, bumper=True` -- SIMD + bumper-allocator (already bruteforce defaults; defensive).
-    # 5. `update=False, progress=False` -- skip Julia registry update check + Jupyter progress overhead.
-    # 6. Operator set is bruteforce.py's blessed default (log + inv); previously hard-coded "log_abs"
-    #    failed at Julia eval time because no operator with that name was defined in Main scope.
-    # `niterations` bumped 200 -> 400: batching makes each iter cheaper so more iters give better
-    # coverage; users wanting bruteforce-grade search pass `niterations=2000` via pysr_params.
+    # Operator preset (minimal / standard / physics) -- standard is the in-suite default. The preset
+    # supplies binary_operators, unary_operators, complexity_of_operators, nested_constraints, and
+    # extra_sympy_mappings; the raw pysr_params dict can still override any individual key.
+    from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
+    _preset_name = getattr(config, "pysr_operator_preset", None) or "standard"
+    _preset = get_preset_kwargs(_preset_name)
+
+    # Defaults tuned for the in-suite path. Key knobs (rationales in docs/pysr_fe_upgrade_research.md):
+    # - Multithreading auto-on via PYTHON_JULIACALL_THREADS + JULIA_NUM_THREADS env set at module import.
+    # - batching=True, batch_size=10000 -- each GA iter samples 10K rows from the pool, bounded per-iter
+    #   cost regardless of pool size.
+    # - precision=32 -- f32 SIMD eval ~2x faster than f64; f16 is broken on Julia 1.10 under turbo=True.
+    # - turbo=True, bumper=True -- SIMD + bumper-allocator.
+    # - update=False, progress=False -- skip Julia registry probe + Jupyter progress in embedded use.
+    # - parsimony=1e-4 + weight_optimize=0.001 -- tuning-guide recommended for ncycles_per_iteration=380.
+    # - maxsize=20 + maxdepth=5 -- tabular FE doesn't need 30-node 30-deep trees; smaller = faster eval.
+    # - populations=max(15, 3 * num_cores // 2) -- tuning-guide rule scaled to leave half cores for OS.
+    # - tournament_selection_n=15 -- matches PySR master; weaker tournament loses good equations.
+    # - heap_size_hint_in_bytes=RAM/10 -- mitigates Julia GC growth on long fits (issue #441).
+    try:
+        import psutil as _psutil
+        _heap_hint = int(_psutil.virtual_memory().total // 10)
+    except Exception:
+        _heap_hint = 1_000_000_000  # 1 GB conservative fallback
+    _ncpu_local = os.cpu_count() or 4
     defaults = dict(
         niterations=400,
-        populations=15,
+        populations=max(15, 3 * max(2, _ncpu_local // 2)),
         population_size=33,
-        tournament_selection_n=8,
+        tournament_selection_n=15,
+        maxsize=20,
         maxdepth=5,
-        binary_operators=list(DEFAULT_BINARY_OPERATORS),
-        unary_operators=list(DEFAULT_UNARY_OPERATORS),
+        parsimony=1e-4,
+        weight_optimize=0.001,
+        heap_size_hint_in_bytes=_heap_hint,
+        binary_operators=_preset["binary_operators"],
+        unary_operators=_preset["unary_operators"],
+        complexity_of_operators=_preset["complexity_of_operators"],
+        nested_constraints=_preset["nested_constraints"],
+        extra_sympy_mappings=_preset["extra_sympy_mappings"],
         batching=True,
         batch_size=10000,
         precision=32,
