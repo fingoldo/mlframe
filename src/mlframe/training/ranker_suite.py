@@ -416,6 +416,59 @@ def train_mlframe_ranker_suite(
             if isinstance(X_tr[col].dtype, pd.CategoricalDtype) or X_tr[col].dtype == object:
                 cat_features.append(col)
 
+    # LightGBM (`LGBMRanker` + `Booster.predict`) rejects pandas object-
+    # dtype columns at both fit and predict time with
+    # ``ValueError: pandas dtypes must be int, float or bool. Fields with
+    # bad pandas dtypes: cat_0: object, ...``. The main classifier/
+    # regressor path's CatBoostEncoder pre-pipeline does the object ->
+    # CategoricalDtype upgrade upstream, but the LTR dispatch
+    # (train_mlframe_ranker_suite) consumes the post-FTE frame directly.
+    # Label-encode object-dtype cat columns to int32 codes ONCE here
+    # using a shared train+val+test vocabulary so all downstream
+    # consumers (_fit_lgb_ranker, predict_ranker_scores, dummy_baselines)
+    # see int codes uniformly. LGB treats each unique int code as a
+    # category. NaN/null cells map to -1 which LGB treats as missing.
+    if isinstance(X_tr, pd.DataFrame) and cat_features:
+        _to_encode = [
+            c for c in cat_features
+            if c in X_tr.columns and X_tr[c].dtype == object
+        ]
+        if _to_encode:
+            _splits_for_vocab = [X_tr]
+            if isinstance(X_va, pd.DataFrame):
+                _splits_for_vocab.append(X_va)
+            if isinstance(X_te, pd.DataFrame):
+                _splits_for_vocab.append(X_te)
+            _vocabs: dict[str, dict] = {}
+            for _c in _to_encode:
+                _vals = set()
+                for _split in _splits_for_vocab:
+                    if _c in _split.columns:
+                        _vals.update(v for v in _split[_c].dropna().tolist())
+                # Stable code assignment via sorted string repr -- avoids
+                # run-to-run drift on dict-ordering of insertion sets.
+                _vocabs[_c] = {
+                    v: i for i, v in enumerate(
+                        sorted(_vals, key=lambda x: str(x))
+                    )
+                }
+            for _split_name, _split in (("train", X_tr), ("val", X_va), ("test", X_te)):
+                if not isinstance(_split, pd.DataFrame):
+                    continue
+                _split_local = _split.copy()
+                for _c in _to_encode:
+                    if _c in _split_local.columns:
+                        _vmap = _vocabs[_c]
+                        _split_local[_c] = (
+                            _split_local[_c].map(_vmap).fillna(-1).astype("int32")
+                        )
+                if _split_name == "train":
+                    X_tr = _split_local
+                elif _split_name == "val":
+                    X_va = _split_local
+                elif _split_name == "test":
+                    X_te = _split_local
+
     # Dummy / trivial-baseline floor for LTR (random_within_query /
     # identity_input_order / mean_relevance). One verdict line at INFO,
     # full table at DEBUG. Wrapped in try/except so a baseline failure
