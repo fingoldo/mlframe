@@ -184,6 +184,29 @@ write-path bug). On a 100 GB polars frame this would have OOM'd the
 host. Removed; the test suite now demonstrates the in-suite pattern
 (caller does the conversion at the boundary if the inner needs it).
 
+## /loop fuzz-profile-optimize policy: stop after 100 consecutive rejects (CRITICAL)
+
+When running `/loop` on the fuzz profile-and-optimize prompt (see
+`tests/perf/results/_loop_iter_log.md` for the canonical log shape), the
+termination rule is NOT a fixed iteration cap. It is a **rejection streak**:
+
+- Each iteration ends with one of: `RESOLVED+<speedup>`, `REJECT+<reason>`,
+  `BLOCKED+<reason>`.
+- Track a counter of CONSECUTIVE rejects. Reset to 0 on every `RESOLVED`.
+- **Stop the loop after 100 consecutive rejects** -- that's the signal the
+  suite has nothing more cheaply optimisable at the profiled scales.
+- Do NOT treat "max 5 iterations" or similar hard caps as the termination
+  signal even if the human's invocation prompt suggested one; the prompt's
+  cap is advisory at most, the streak rule is the binding policy.
+
+The rationale: a perf-discovery loop is only useful while it's finding
+optimisations. Two rejects in a row is normal (the next profile might surface
+a new hotspot). 100 in a row across diverse fuzz cells is statistically
+strong evidence the suite is genuinely optimised at that scale -- further
+iterations burn compute without gain. Tracking the streak (not the total
+count) keeps the loop running through productive stretches and ending
+naturally only when it stops being productive.
+
 ## Profile every new feature with cProfile + optimize hotspots (CRITICAL)
 
 Each new feature added to mlframe must be profiled and its hotspots
