@@ -1430,3 +1430,35 @@ actionable mlframe-Python hotspot above the 1.2x gate.
 **Verdict: REJECT.** Streak counter: 5/100. Validates that the
 iter-32.5 fuzz axes do reach the smart-polynom Optuna study (not
 a dead axis).
+
+## Iter 34 -- 2026-05-18 -- REJECTED (streak 6/100)
+
+Cell: `c0000_3a60935f-cb-pandas-n600` (single CB binary
+classification, MRMR with **both** new FE paths active:
+`ntop_features=5` AND `smart_polynom_iters=1`). Test passed in
+39.40 s.
+
+**Cleanest profile of the entire loop run:**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `dummy_baselines.py:2186(_vectorized_bootstrap_logloss_samples)` | 23 ms | 2 | 11 ms |
+
+That's the iter-2 vectorised path doing its job (was ~28 s before
+iter-2's 63x rewrite). Pre-iter-2 cProfile would have shown
+2-5 s here.
+
+Both new MRMR-FE paths (ntop pollination + smart Optuna) fired
+without crashing or surfacing new hotspots. The classical
+unary/binary FE pollination kernel is in `feature_engineering.py`
+and uses numba; the smart-polynom Optuna study runs in
+`hermite_fe.py` whose 13 kernels are already
+`@njit(cache=True, fastmath=True, parallel=True)`.
+
+Total mlframe-OWN tottime ~25 ms out of 39.4 s = **0.06%**. The
+loop has hit a clear diminishing-returns plateau on
+cProfile-driven discovery: every unprofiled-path probe over the
+last 3 iters (smart-polynom in iter 33, classical-FE-pollination
+in iter 34) lands in already-optimized code.
+
+**Verdict: REJECT.** Streak counter: 6/100.
