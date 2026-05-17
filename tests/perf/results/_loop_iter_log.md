@@ -462,3 +462,40 @@ the function was always meant to do.
 
 Streak counter: **0/100** (RESOLVED resets the consecutive-reject count).
 Commit: `ca67aa9`. Loop continues.
+
+## Iter 13 -- 2026-05-17 -- REJECTED (streak 1/100)
+
+Re-ran the same `c0097_867cf5d3-cb_hgb_lgb_mlp_xgb-pl_utf8-n1000` fuzz
+cell now that iter 12 unblocked the GPU-probe deadlock. cProfile dump
+landed in 295.83s test wall (cProfile-internal 328s).
+
+**Wall breakdown** (mlframe vs third-party):
+
+| Component | Time | % of wall | Owner |
+|---|---:|---:|---|
+| MLP / PyTorch Lightning fit | 173 s | 58 % | torch (third-party) |
+| `screen_predictors` numba JIT cold-start | 9 s | 3 % | numba JIT (one-shot) |
+| MRMR + pre-pipeline orchestration | 40 s | 14 % | mlframe (distributed) |
+| CB / LGB / HGB native fits | 30 s | 10 % | C-ext (third-party) |
+| Misc orchestration + model I/O | 43 s | 15 % | mixed |
+
+**mlframe-owned TOTTIME (only entries > 0.05 s OWN CPU):**
+
+| Function | tottime | calls | per-call |
+|---|---:|---:|---:|
+| `permutation.py:35(shuffle_arr)` | 0.478 s | 21 | 23 ms |
+| `io.py:174(_writer)` (pickle/zstd save) | 0.191 s | 11 | 17 ms |
+
+Everything else is < 0.05 s tottime. The largest mlframe-OWN compute is
+0.478 s out of 295 s = 0.18 % of wall. Compressing it to zero buys
+0.0018x suite speedup -- two orders of magnitude below the 1.2x gate.
+
+**The biggest single cost (173 s MLP / Lightning fit on n=1000) is
+genuinely torch overhead**, not mlframe orchestration: 2 fits x ~86 s
+each, with ~15 epochs at ~30-75 it/s. Lightning DataLoader / Trainer
+setup amortizes poorly at this N, but the setup itself is library
+code we cannot rewrite without forking Lightning.
+
+**Verdict: REJECT.** No actionable mlframe hotspot on c0097 above the
+1.2x gate. The deadlock fix from iter 12 was the only real bug surface
+this fuzz cell exposed. Streak counter: 1/100.
