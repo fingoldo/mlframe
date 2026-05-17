@@ -131,6 +131,15 @@ class Transform:
     # with James-Stein shrinkage). Default False: legacy transforms
     # keep their 3-arg signatures and the wrapper never passes groups.
     requires_groups: bool = False
+    # Unary y-transform support (Pack J): when False the wrapper skips
+    # the base-column extraction step and feeds a placeholder ``None``
+    # array as the ``base`` arg to fit / forward / inverse / domain_check.
+    # Unary transforms (``cbrt_y``, ``log_y``, ``yeo_johnson_y``,
+    # ``quantile_normal_y``) declare ``requires_base=False`` so callers
+    # may instantiate ``CompositeTargetEstimator`` without configuring
+    # a base column. Default True keeps the 11 legacy bivariate
+    # transforms unchanged.
+    requires_base: bool = True
 
 
 # ----------------------------------------------------------------------
@@ -1278,6 +1287,135 @@ def _frac_diff_domain(
 # Registry and lookup
 # ----------------------------------------------------------------------
 
+# ----------------------------------------------------------------------
+# Pack J: unary y-only transforms (no base column required).
+# Implementation lives in composite_unary_transforms.py; we wrap the
+# unary signatures (y, params) into the registry's (y, base, params)
+# signature by ignoring the base arg.
+# ----------------------------------------------------------------------
+from .composite_unary_transforms import (  # noqa: E402
+    cbrt_y_fit as _cbrt_y_fit_raw,
+    cbrt_y_forward as _cbrt_y_forward_raw,
+    cbrt_y_inverse as _cbrt_y_inverse_raw,
+    cbrt_y_domain as _cbrt_y_domain_raw,
+    log_y_fit as _log_y_fit_raw,
+    log_y_forward as _log_y_forward_raw,
+    log_y_inverse as _log_y_inverse_raw,
+    log_y_domain as _log_y_domain_raw,
+    yeo_johnson_y_fit as _yj_y_fit_raw,
+    yeo_johnson_y_forward as _yj_y_forward_raw,
+    yeo_johnson_y_inverse as _yj_y_inverse_raw,
+    yeo_johnson_y_domain as _yj_y_domain_raw,
+    quantile_normal_y_fit as _qn_y_fit_raw,
+    quantile_normal_y_forward as _qn_y_forward_raw,
+    quantile_normal_y_inverse as _qn_y_inverse_raw,
+    quantile_normal_y_domain as _qn_y_domain_raw,
+    chain_bivariate_then_unary_fit as _chain_fit_raw,
+    chain_bivariate_then_unary_forward as _chain_forward_raw,
+    chain_bivariate_then_unary_inverse as _chain_inverse_raw,
+)
+
+
+def _make_unary_registry_adapter(
+    fit_fn, forward_fn, inverse_fn, domain_fn,
+):
+    """Adapt a unary (y, params) signature to the registry's (y, base, params) signature by ignoring ``base``. Returns (fit_adapter, forward_adapter, inverse_adapter, domain_adapter)."""
+
+    def _fit(y, base):  # noqa: ARG001
+        return fit_fn(y)
+
+    def _forward(y, base, params):  # noqa: ARG001
+        return forward_fn(y, params)
+
+    def _inverse(t_hat, base, params):  # noqa: ARG001
+        return inverse_fn(t_hat, params)
+
+    def _domain(y, base):  # noqa: ARG001
+        # The unary helper accepts (y) or (y, params); the registry
+        # contract is domain_check(y, base) at fit-time and (None, base)
+        # at predict-time. Predict-side call passes y=None so we cannot
+        # apply the unary domain on y -- gate on finite base / always-True
+        # for unary which has no base constraint at predict.
+        if y is None:
+            return np.ones(len(base) if hasattr(base, "__len__") else 1, dtype=bool)
+        return domain_fn(y)
+
+    return _fit, _forward, _inverse, _domain
+
+
+# Pre-build per-unary adapters (cheap, done once at import).
+_cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain = _make_unary_registry_adapter(
+    _cbrt_y_fit_raw, _cbrt_y_forward_raw, _cbrt_y_inverse_raw, _cbrt_y_domain_raw,
+)
+_log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a = _make_unary_registry_adapter(
+    _log_y_fit_raw, _log_y_forward_raw, _log_y_inverse_raw,
+    # log_y_domain is the 2-arg form (y, params); wrap to drop params at fit-time.
+    lambda y: _log_y_domain_raw(y),
+)
+_yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a = _make_unary_registry_adapter(
+    _yj_y_fit_raw, _yj_y_forward_raw, _yj_y_inverse_raw,
+    lambda y: _yj_y_domain_raw(y),
+)
+_qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a = _make_unary_registry_adapter(
+    _qn_y_fit_raw, _qn_y_forward_raw, _qn_y_inverse_raw,
+    lambda y: _qn_y_domain_raw(y),
+)
+
+
+# ----------------------------------------------------------------------
+# Pack K: chain factory. Build a registry-compatible Transform that
+# composes a bivariate (y, base) -> T1 with a unary T1 -> T2.
+# ----------------------------------------------------------------------
+
+def _make_chain_transform(
+    *, name: str, short_name: str,
+    bivariate_name: str,
+    bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
+    unary_fit, unary_forward, unary_inverse,
+    description: str,
+):
+    """Create a registry Transform for ``chain(bivariate, unary)``.
+
+    The chain inherits ``requires_base=True`` from the bivariate half (it still needs a base column at fit + predict). At fit-time it first fits the bivariate, applies forward to get T1, then fits the unary on T1; the joint params dict stores both. Forward / inverse run in the matching order. Domain check delegates to the bivariate's check since the unary half has no base-dependent constraint at predict.
+    """
+    unary_tup = (unary_fit, unary_forward, unary_inverse)
+
+    def _fit(y, base):
+        return _chain_fit_raw(
+            y=y, base=base,
+            bivariate_fit=bivariate_fit,
+            bivariate_forward=bivariate_forward,
+            unary=unary_tup,
+        )
+
+    def _forward(y, base, params):
+        return _chain_forward_raw(
+            y=y, base=base, params=params,
+            bivariate_forward=bivariate_forward,
+            unary=unary_tup,
+        )
+
+    def _inverse(t_hat, base, params):
+        return _chain_inverse_raw(
+            t2=t_hat, base=base, params=params,
+            bivariate_inverse=bivariate_inverse,
+            unary=unary_tup,
+        )
+
+    def _domain(y, base):
+        return bivariate_domain(y, base)
+
+    return Transform(
+        name=name,
+        forward=_forward,
+        inverse=_inverse,
+        fit=_fit,
+        domain_check=_domain,
+        description=description,
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    )
+
+
 _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     "diff": Transform(
         name="diff",
@@ -1409,6 +1547,136 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
+    # ------------------------------------------------------------------
+    # Pack J: unary y-only transforms. ``requires_base=False`` tells the
+    # wrapper to skip base-column extraction. Composite-target name has
+    # no ``base`` segment (e.g. ``TVT-cbrtY``) since there is no base.
+    # ------------------------------------------------------------------
+    "cbrt_y": Transform(
+        name="cbrt_y",
+        forward=_cbrt_forward,
+        inverse=_cbrt_inverse,
+        fit=_cbrt_fit,
+        domain_check=_cbrt_domain,
+        description=(
+            "Signed cube-root unary y-transform: T = sign(y) * |y|^(1/3). "
+            "Inverse y = T^3. Defined for all real y, no fitted parameters. "
+            "Compresses heavy tails without breaking sign -- particularly "
+            "useful when an upstream bivariate composite has absorbed the "
+            "dominant feature but the residual is still Laplace-leptokurtic."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_base=False,
+    ),
+    "log_y": Transform(
+        name="log_y",
+        forward=_log_forward_a,
+        inverse=_log_inverse_a,
+        fit=_log_fit_a,
+        domain_check=_log_domain_a,
+        description=(
+            "Shifted log unary y-transform: T = log(y + offset) where offset is fitted so "
+            "min(y_train) + offset > 0. Inverse y = exp(T) - offset. Compresses right-skewed "
+            "targets (typical for non-negative regression targets like duration / count / cost)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_base=False,
+    ),
+    "yeo_johnson_y": Transform(
+        name="yeo_johnson_y",
+        forward=_yj_forward_a,
+        inverse=_yj_inverse_a,
+        fit=_yj_fit_a,
+        domain_check=_yj_domain_a,
+        description=(
+            "Yeo-Johnson power transform with lambda fitted by MLE (scipy Brent, range "
+            "clipped to [-2, 4]). Works on mixed-sign y unlike Box-Cox. Inverse is the "
+            "closed-form YJ inverse with the same lambda."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_base=False,
+    ),
+    "quantile_normal_y": Transform(
+        name="quantile_normal_y",
+        forward=_qn_forward_a,
+        inverse=_qn_inverse_a,
+        fit=_qn_fit_a,
+        domain_check=_qn_domain_a,
+        description=(
+            "Empirical-CDF -> standard Normal: T = Phi^-1(rank(y) / (n + 1)) via knot "
+            "interpolation. Inverse interpolates the fitted CDF. Robust to any monotone "
+            "distortion of y but loses absolute scale -- use when the noise-distribution "
+            "hypothesis is itself uncertain."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_base=False,
+    ),
+    # ------------------------------------------------------------------
+    # Pack K: chain transforms. Bivariate residual + unary tail
+    # compression, composed by the chain factory above.
+    # ------------------------------------------------------------------
+    "chain_linres_cbrt": _make_chain_transform(
+        name="chain_linres_cbrt", short_name="linres+cbrt",
+        bivariate_name="linear_residual",
+        bivariate_fit=_linear_residual_fit,
+        bivariate_forward=_linear_residual_forward,
+        bivariate_inverse=_linear_residual_inverse,
+        bivariate_domain=_linear_residual_domain,
+        unary_fit=_cbrt_y_fit_raw,
+        unary_forward=_cbrt_y_forward_raw,
+        unary_inverse=_cbrt_y_inverse_raw,
+        description=(
+            "Chain: T1 = y - alpha*base - beta (linear_residual, OLS-fitted alpha+beta), then "
+            "T2 = sign(T1) * |T1|^(1/3) (signed cube root). Inverse runs cbrt^-1 then "
+            "y = T1 + alpha*base + beta. Targets heavy-tailed residual on top of a "
+            "single-base linear regression -- the production TVT-linres-TVT_prev case "
+            "with excess_kurt=+2.40."
+        ),
+    ),
+    "chain_linres_yj": _make_chain_transform(
+        name="chain_linres_yj", short_name="linres+yj",
+        bivariate_name="linear_residual",
+        bivariate_fit=_linear_residual_fit,
+        bivariate_forward=_linear_residual_forward,
+        bivariate_inverse=_linear_residual_inverse,
+        bivariate_domain=_linear_residual_domain,
+        unary_fit=_yj_y_fit_raw,
+        unary_forward=_yj_y_forward_raw,
+        unary_inverse=_yj_y_inverse_raw,
+        description=(
+            "Chain: linear_residual + Yeo-Johnson(lambda MLE). YJ adapts to the actual "
+            "residual skew + tail shape so the inner boosting sees a near-Gaussian target."
+        ),
+    ),
+    "chain_monres_cbrt": _make_chain_transform(
+        name="chain_monres_cbrt", short_name="monres+cbrt",
+        bivariate_name="monotonic_residual",
+        bivariate_fit=_monotonic_residual_fit,
+        bivariate_forward=_monotonic_residual_forward,
+        bivariate_inverse=_monotonic_residual_inverse,
+        bivariate_domain=_monotonic_residual_domain,
+        unary_fit=_cbrt_y_fit_raw,
+        unary_forward=_cbrt_y_forward_raw,
+        unary_inverse=_cbrt_y_inverse_raw,
+        description=(
+            "Chain: monotonic_residual (PCHIP-fitted g(base)) + signed cube root. "
+            "Combines a nonlinear-monotone base absorber with tail compression."
+        ),
+    ),
+    "chain_monres_yj": _make_chain_transform(
+        name="chain_monres_yj", short_name="monres+yj",
+        bivariate_name="monotonic_residual",
+        bivariate_fit=_monotonic_residual_fit,
+        bivariate_forward=_monotonic_residual_forward,
+        bivariate_inverse=_monotonic_residual_inverse,
+        bivariate_domain=_monotonic_residual_domain,
+        unary_fit=_yj_y_fit_raw,
+        unary_forward=_yj_y_forward_raw,
+        unary_inverse=_yj_y_inverse_raw,
+        description=(
+            "Chain: monotonic_residual + Yeo-Johnson power transform."
+        ),
+    ),
 }
 
 
@@ -1443,6 +1711,16 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "ewma_residual": "ewma",
     "rolling_quantile_ratio": "rqr",
     "frac_diff": "fdiff",
+    # Pack J unary y-transforms (no base segment in the composite name).
+    "cbrt_y": "cbrtY",
+    "log_y": "logY",
+    "yeo_johnson_y": "yjY",
+    "quantile_normal_y": "qnY",
+    # Pack K chain transforms.
+    "chain_linres_cbrt": "linresCbrt",
+    "chain_linres_yj": "linresYj",
+    "chain_monres_cbrt": "monresCbrt",
+    "chain_monres_yj": "monresYj",
 }
 
 

@@ -2029,6 +2029,11 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         default_factory=lambda: [
             "diff", "ratio", "logratio", "linear_residual",
             "quantile_residual", "monotonic_residual",
+            # Pack J unary y-transforms (``requires_base=False`` -- tried once across all bases via the discovery loop's per-transform dedup).
+            "cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y",
+            # Pack K chain transforms (bivariate residual + unary tail compression).
+            "chain_linres_cbrt", "chain_linres_yj",
+            "chain_monres_cbrt", "chain_monres_yj",
         ]
     )
 

@@ -433,21 +433,25 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     ) -> CompositeTargetEstimator:
         if self.base_estimator is None:
             raise ValueError("CompositeTargetEstimator: base_estimator must not be None.")
-        base_columns = self._resolve_base_columns()
-        if not base_columns:
-            raise ValueError(
-                "CompositeTargetEstimator: either base_column (str) or "
-                "base_columns (sequence) must be supplied."
-            )
         transform = get_transform(self.transform_name)
-
-        y_arr = _to_1d_numpy(y).astype(np.float64)
-        base_arr = self._extract_base_for_transform(X, base_columns)
-        if len(y_arr) != len(base_arr):
-            raise ValueError(
-                f"CompositeTargetEstimator.fit: y has {len(y_arr)} rows but X "
-                f"has {len(base_arr)} -- caller passed misaligned inputs."
-            )
+        base_columns = self._resolve_base_columns()
+        # Pack J: unary y-transforms (cbrt_y, log_y, ...) have ``requires_base=False`` and must not require a base column. Feed a zeros placeholder so downstream calls keep their (y, base, params) signatures without branching.
+        if not transform.requires_base:
+            y_arr = _to_1d_numpy(y).astype(np.float64)
+            base_arr = np.zeros_like(y_arr)
+        else:
+            if not base_columns:
+                raise ValueError(
+                    "CompositeTargetEstimator: either base_column (str) or "
+                    "base_columns (sequence) must be supplied."
+                )
+            y_arr = _to_1d_numpy(y).astype(np.float64)
+            base_arr = self._extract_base_for_transform(X, base_columns)
+            if len(y_arr) != len(base_arr):
+                raise ValueError(
+                    f"CompositeTargetEstimator.fit: y has {len(y_arr)} rows but X "
+                    f"has {len(base_arr)} -- caller passed misaligned inputs."
+                )
 
         # Apply domain check before fitting transform params: invalid
         # rows must NOT bias the OLS / MAD computation.
@@ -638,15 +642,32 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         transform = get_transform(self.transform_name)
         params = self.fitted_params_
 
-        base_columns = self._resolve_base_columns()
-        base_arr = self._extract_base_for_transform(X, base_columns)
+        # Determine the row count for the prediction. For unary
+        # transforms (``requires_base=False``) we cannot rely on a base
+        # column for the size; ask the inner estimator's prediction
+        # length implicitly by deferring extraction.
+        if transform.requires_base:
+            base_columns = self._resolve_base_columns()
+            base_arr = self._extract_base_for_transform(X, base_columns)
+        else:
+            # Placeholder zeros sized to predict-time inputs. We let the
+            # inner predict (below) drive the row count, and re-size the
+            # placeholder after t_hat is known. Cheap (zeros allocate
+            # lazily on virtually-mmapped memory).
+            base_arr = None
         # Domain check at predict: y is unknown, so we ask the transform
         # to gate on base-side conditions only (e.g. base > 0 for
         # logratio, |base| > 0 for ratio). The ``y=None`` sentinel is
         # part of the domain_check contract -- transforms whose forward
         # is purely y-side (none here) would still need a y; the four
-        # core transforms all degrade cleanly.
-        domain_ok = transform.domain_check(None, base_arr)
+        # core transforms all degrade cleanly. For unary transforms
+        # (no base) we delegate to the transform's own domain_check on
+        # ``y=None, base=None`` which the registry adapter handles by
+        # returning all-True for the t_hat row count below.
+        if transform.requires_base:
+            domain_ok = transform.domain_check(None, base_arr)
+        else:
+            domain_ok = None  # sized after t_hat is computed
 
         # Grouped-transform support at predict.
         # Extract per-row group labels and thread them as kwargs to the
@@ -679,6 +700,13 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         t_hat = np.asarray(
             self.estimator_.predict(X_for_inner), dtype=np.float64,
         ).reshape(-1)
+
+        # Unary transforms have no base column at predict-time; size the
+        # placeholder + domain mask to match t_hat. Inverse ignores the
+        # base arg (registry adapter; see composite_transforms.py).
+        if not transform.requires_base:
+            base_arr = np.zeros_like(t_hat)
+            domain_ok = np.ones_like(t_hat, dtype=bool)
 
         # Apply inverse only on valid rows; fill the rest with fallback.
         if domain_ok.all():

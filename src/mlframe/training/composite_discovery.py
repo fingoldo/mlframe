@@ -270,6 +270,12 @@ class CompositeTargetDiscovery:
         self._auto_base_pool: dict[str, np.ndarray] = {}
 
         # Score each (base, transform).
+        # Pack J: unary y-transforms (``requires_base=False``) ignore the base column;
+        # tracking which unary names we've already evaluated lets us skip the redundant
+        # re-fit on the second / third / ... base loop iteration. Bivariate + chain
+        # transforms still iterate per base normally.
+        _unary_evaluated: set[str] = set()
+
         candidates: list[dict[str, Any]] = []
         for base in base_candidates:
             base_train = _extract_column_array(df, base)[train_idx]
@@ -323,6 +329,14 @@ class CompositeTargetDiscovery:
                 except UnknownTransformError as exc:
                     logger.warning("[CompositeTargetDiscovery] %s; skipping.", exc)
                     continue
+
+                # Pack J dedup: unary transforms produce identical T regardless of base,
+                # so a second pass over the same unary name on a different base is wasted
+                # MI / tiny-CV compute. Skip after the first evaluation.
+                if not transform.requires_base:
+                    if transform_name in _unary_evaluated:
+                        continue
+                    _unary_evaluated.add(transform_name)
 
                 # Domain check on train, drop invalids, fit transform
                 # params on the surviving rows only.

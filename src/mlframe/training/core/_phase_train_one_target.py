@@ -50,6 +50,105 @@ def _cached_slugify(name: str) -> str:
     return _slugify_raw(name)
 
 
+# ----------------------------------------------------------------------
+# Pack H wiring: auto-pick MAE / Huber loss for heavy-tail regression
+# residuals.
+# ----------------------------------------------------------------------
+
+
+def _is_regression_target_type(target_type: Any) -> bool:
+    """True when target_type designates a regression target.
+
+    Imported lazily so the module load order stays unchanged on configs
+    refactor; the configs module pulls in sklearn / pydantic which we
+    don't want at import-time for this hot file.
+    """
+    try:
+        from ..configs import TargetTypes as _TT
+    except Exception:
+        return False
+    return target_type == _TT.REGRESSION
+
+
+def _apply_loss_recommendation_in_place(
+    *,
+    models_params: dict,
+    target_values: Any,
+    composite_name: str,
+    logger_: Any,
+    verbose: bool,
+) -> None:
+    """Mutate ``models_params`` in place so CB / LGB / XGB inner estimators use a robust loss when ``target_values`` is heavy-tailed.
+
+    Hooks the ``recommend_boosting_regression_loss`` helper (Pack H) onto the per-target loop: after ``select_target`` returns the per-backend templates, override their ``loss_function`` / ``objective`` based on excess-kurtosis of the target. Production motivator: composite ``TVT-linres-TVT_prev`` had excess_kurt=+2.40 (Laplace-like) but CB / LGB / XGB defaulted to RMSE objective and early-stopped at iter=4-10 -- the RMSE gradient collapses near zero on Laplace residuals.
+
+    Backends:
+    - CatBoost: ``set_params(loss_function='MAE' | 'Huber:delta=1.345')``.
+    - LightGBM: ``set_params(objective='regression_l1' | 'huber')``.
+    - XGBoost: ``set_params(objective='reg:absoluteerror' | 'reg:pseudohubererror')``.
+
+    Non-applicable cases (Gaussian, degenerate input) are no-ops; the helper logs the rationale at INFO once per call so an operator can confirm the auto-switch fired (or did not) when reading suite output.
+
+    Mutation is in-place to keep parity with the surrounding code (which already mutates ``models_params`` for cache restoration).
+    """
+    try:
+        from ..loss_recommendation import recommend_boosting_regression_loss
+    except Exception as _imp_err:
+        # Best-effort: never crash training because the auto-loss helper failed to import.
+        if verbose:
+            logger_.warning(
+                "[auto-loss] could not import loss recommendation helper: %s. "
+                "Inner regression models keep their default loss.", _imp_err,
+            )
+        return
+
+    try:
+        rec = recommend_boosting_regression_loss(target_values)
+    except Exception as _rec_err:
+        if verbose:
+            logger_.warning(
+                "[auto-loss] recommend_boosting_regression_loss failed on target='%s': %s. "
+                "Inner regression models keep their default loss.",
+                composite_name, _rec_err,
+            )
+        return
+
+    # Backend -> (param name on the estimator, recommended value).
+    _backend_param = {
+        "cb": ("loss_function", rec.get("cb")),
+        "lgb": ("objective", rec.get("lgb")),
+        "xgb": ("objective", rec.get("xgb")),
+    }
+    _applied: list[str] = []
+    for _backend, (_param_name, _value) in _backend_param.items():
+        if not _value:
+            continue
+        _entry = models_params.get(_backend)
+        if not isinstance(_entry, dict):
+            continue
+        _model = _entry.get("model")
+        if _model is None or not hasattr(_model, "set_params"):
+            continue
+        try:
+            _model.set_params(**{_param_name: _value})
+            _applied.append(f"{_backend}:{_param_name}={_value}")
+        except (ValueError, TypeError) as _set_err:
+            # Backend may reject the value (e.g. CB rejecting 'Huber:delta=1.345' on a specific board). Log and move on; default stays.
+            if verbose:
+                logger_.debug(
+                    "[auto-loss] %s.set_params(%s=%r) rejected: %s. Keeping default.",
+                    _backend, _param_name, _value, _set_err,
+                )
+
+    if verbose and _applied:
+        logger_.info(
+            "[auto-loss] target='%s' excess_kurt=%.2f (n_finite=%d) -- %s. Applied: %s.",
+            composite_name, float(rec.get("excess_kurt", float("nan"))),
+            int(rec.get("n_finite", 0)),
+            rec.get("rationale", ""), ", ".join(_applied),
+        )
+
+
 # Back-compat alias so existing call sites that read ``slugify`` continue to work.
 slugify = _cached_slugify
 
@@ -1045,6 +1144,20 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         if verbose:
             logger.info("  select_target done in %s", _elapsed_str(t0_select_target))
             log_ram_usage()
+
+        # Pack H: auto-pick MAE / Huber loss for heavy-tail regression
+        # residuals. ``cur_target_values`` is the raw y for raw-target or
+        # the composite residual T for composite-target paths; in both
+        # cases the inner boosting fits this distribution directly, so
+        # the auto-switch matches the actual signal-vs-noise regime.
+        if _is_regression_target_type(target_type):
+            _apply_loss_recommendation_in_place(
+                models_params=models_params,
+                target_values=cur_target_values,
+                composite_name=cur_target_name,
+                logger_=logger,
+                verbose=verbose,
+            )
 
         pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
             use_ordinary_models=use_ordinary_models,
