@@ -227,10 +227,9 @@ def _apply_pysr_fe(
     # 1. No `procs` override -- bruteforce defaults to PySR multithreading which honours JULIA_NUM_THREADS
     #    set at module import. Previously hardcoded procs=1 forced single-process serial search
     #    (CPU cores idle, user reported 1h hang on 4M-row input).
-    # 2. `batching=True, batch_size=10000` -- each GA iter draws a random 10K subsample from `sample_n`
-    #    rows instead of evaluating every candidate on the full sample. Over `niterations` the GA touches
-    #    the whole sample but each iter is bounded. Addresses PySR's own ">10K datapoints slow GA" warning
-    #    AND lets us pass much more data than the legacy 20K hard cap (raised below to 200K).
+    # 2. `batching=True, batch_size=10000` -- each GA iter draws a random 10K subsample from the pool
+    #    instead of evaluating every candidate on the full sample. Addresses PySR's own ">10K datapoints
+    #    slow GA" warning AND removes any need to throttle the pool size.
     # 3. `precision=32` -- float32 GA eval is ~2x faster on modern x86 SIMD; symbolic regression discovers
     #    equation FORM, not parameter precision, so f64 is overkill.
     # 4. `turbo=True, bumper=True` -- SIMD + bumper-allocator (already bruteforce defaults; defensive).
@@ -256,16 +255,37 @@ def _apply_pysr_fe(
         progress=False,
         verbosity=0,
     )
+    # Typed knobs from PreprocessingExtensionsConfig (override defaults when not None).
+    for _typed_name, _pysr_name in (
+        ("pysr_niterations", "niterations"),
+        ("pysr_batching", "batching"),
+        ("pysr_batch_size", "batch_size"),
+        ("pysr_precision", "precision"),
+    ):
+        _typed_val = getattr(config, _typed_name, None)
+        if _typed_val is not None:
+            defaults[_pysr_name] = _typed_val
+    # pysr_params dict is the final override -- power-user escape hatch beats typed fields.
     defaults.update(pysr_params)
     # Use a shallow copy so underlying YAML/dict config isn't mutated.
     merged_params = dict(defaults)
 
-    top_k = min(5, merged_params.get("population_size", 20) // 2)
-    # 200K cap (was 20K): with batching=True PySR samples batch_size rows per iter from whatever we feed,
-    # so the cap is about how diverse the pool is, not how slow each iter runs. 200K x 26 features x f32
-    # = ~20MB -- trivial. Drops to len(train_df) when smaller. Caller can pass `pysr_params={"batching":
-    # False, "batch_size": ...}` to opt out and revert to the legacy "all rows per iter" path.
-    sample_n = min(len(train_df), 200_000)
+    _top_k_override = getattr(config, "pysr_top_k", None)
+    top_k = int(_top_k_override) if _top_k_override is not None else min(5, merged_params.get("population_size", 20) // 2)
+    # No hard cap on pool size by default: with batching=True PySR samples batch_size rows per iter,
+    # so pool-size only controls diversity (the pool acts as the universe sampled-from across iters).
+    # Caller can pin via PreprocessingExtensionsConfig.pysr_sample_size when memory is tight (each row
+    # is ~26 floats * 4 bytes = ~100B in pandas; 4M rows = ~400 MB after the polars->pandas copy at
+    # bruteforce.py:_run_pysr_feature_engineering).
+    _sample_override = getattr(config, "pysr_sample_size", None)
+    sample_n = min(len(train_df), int(_sample_override)) if _sample_override is not None else len(train_df)
+    # Log when pool is large enough to noticeably affect memory; users can opt to cap via the config.
+    if sample_n > 1_000_000:
+        logger.info(
+            "PySR pool size %d rows (no cap; set PreprocessingExtensionsConfig.pysr_sample_size "
+            "to cap). batching=%s, batch_size=%s -- per-iter cost bounded by batch_size, not pool.",
+            sample_n, merged_params.get("batching"), merged_params.get("batch_size"),
+        )
     temp_target_col = "_pysr_y_"
 
     # Inject y_train as a temporary column (bruteforce expects target as a column in the DataFrame).

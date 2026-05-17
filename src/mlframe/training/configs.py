@@ -542,8 +542,49 @@ class PreprocessingExtensionsConfig(BaseConfig):
     pysr_enabled: bool = False
     pysr_params: Optional[Dict] = Field(
         default=None,
-        description="passed to PySRRegressor() as constructor kwargs"
+        description="passed to PySRRegressor() as constructor kwargs (escape hatch for power users; "
+        "the typed pysr_* fields below cover the common speed/quality knobs)",
     )
+
+    # Typed PySR knobs (None = use the in-suite default applied in pipeline.py:_apply_pysr_fe).
+    # Merge order: pipeline.py defaults < these typed fields < pysr_params dict. Power users keep the
+    # raw pysr_params escape hatch; typical callers only ever touch these fields.
+    pysr_sample_size: Optional[int] = Field(
+        default=None,
+        description="Rows fed into PySR (random subsample when train > N). Default 200_000. With "
+        "pysr_batching=True this is the pool size PySR samples batch_size rows from per GA iter.",
+    )
+    pysr_niterations: Optional[int] = Field(
+        default=None,
+        description="GA iterations. Default 400 (4x PySR's own default 40, 2x bruteforce.py legacy). "
+        "Each iter is cheap under batching=True; more iters give better coverage of the pool.",
+    )
+    pysr_batching: Optional[bool] = Field(
+        default=None,
+        description="Whether each GA iter samples batch_size rows from the pool (default True). "
+        "Off = legacy 'all rows per iter' path. Set False only when sample_size is already small.",
+    )
+    pysr_batch_size: Optional[int] = Field(
+        default=None,
+        description="Rows per GA iter when batching=True. Default 10000 (PySR's documented GA knee).",
+    )
+    pysr_precision: Optional[int] = Field(
+        default=None,
+        description="Float precision of GA eval: 16 / 32 / 64. Default 32 (~2x faster than 64 on SIMD; "
+        "symbolic regression discovers equation FORM, not parameter precision).",
+    )
+    pysr_top_k: Optional[int] = Field(
+        default=None,
+        description="Top-K equations (by score) to materialise as new feature columns. Default "
+        "min(5, population_size // 2); higher means more columns but diminishing-quality picks.",
+    )
+
+    @field_validator("pysr_precision")
+    @classmethod
+    def _validate_pysr_precision(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v not in (16, 32, 64):
+            raise ValueError(f"pysr_precision must be 16, 32, or 64 (got {v!r})")
+        return v
 
     @model_validator(mode="after")
     def _check_mutual_exclusion(self) -> "PreprocessingExtensionsConfig":
