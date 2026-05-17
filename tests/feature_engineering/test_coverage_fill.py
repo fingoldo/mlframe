@@ -1786,14 +1786,7 @@ class TestBruteforceAdvancedCoverage:
 
     @pytest.fixture(autouse=True)
     def _gate_julia(self):
-        import os, shutil, sys
-        # Back-to-back PySR fits in one process hit Julia threading ReadOnlyMemoryError on Windows
-        # (StrideArraysCore unsafe_store! into a freed PythonCall buffer). Same-process restart is the
-        # only known mitigation -- xdist subprocess-per-test would also work but is out of scope for
-        # an autouse fixture. CI on Linux/macOS exercises the path; Windows skip matches our existing
-        # WinError-1455 paging-overflow skip pattern.
-        if sys.platform == "win32":
-            pytest.skip("PySR back-to-back fits crash Julia thread state on Windows; CI runs on Linux/macOS")
+        import os, shutil
         julia = shutil.which("julia") or "D:/Julia/bin/julia.exe"
         if not os.path.isfile(julia):
             pytest.skip("Julia runtime not available")

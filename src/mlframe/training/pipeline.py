@@ -16,10 +16,21 @@ from __future__ import annotations
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import os
 from timeit import default_timer as timer
 import subprocess
 
 logger = logging.getLogger(__name__)
+
+# JULIA_NUM_THREADS must be set BEFORE Julia/PySR boots; module-import time is the latest safe point.
+# `os.cpu_count() // 2` is the safe default: PySR's GA scales well across cores but leaves the other
+# half for sklearn/CB/LGB/XGB inner-loop threads + the OS. Caller can override via env before import.
+if "JULIA_NUM_THREADS" not in os.environ:
+    try:
+        _ncpu = os.cpu_count() or 4
+        os.environ["JULIA_NUM_THREADS"] = str(max(2, _ncpu // 2))
+    except Exception:
+        pass
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -212,22 +223,37 @@ def _apply_pysr_fe(
     import numpy as np
 
     pysr_params = getattr(config, "pysr_params", None) or {}
-    # Merge sensible defaults so the user doesn't need to specify every knob.
-    # niterations was previously 5 (100x below bruteforce.py's 2000-iter knee where the Pareto front
-    # stabilises); equations sampled at iter=5 are noise-level. Default raised to 200 -- enough to find
-    # reproducible signal on small tabular data, still ~10x faster than the bruteforce default for the
-    # in-suite path; users wanting bruteforce-grade search pass ``niterations=2000`` in pysr_params.
-    # Operator set is bruteforce.py's blessed default (log + inv); previously hard-coded "log_abs" failed
-    # at Julia eval time because no operator with that name was defined in Main scope.
+    # Defaults tuned for the in-suite path. Key speed knobs:
+    # 1. No `procs` override -- bruteforce defaults to PySR multithreading which honours JULIA_NUM_THREADS
+    #    set at module import. Previously hardcoded procs=1 forced single-process serial search
+    #    (CPU cores idle, user reported 1h hang on 4M-row input).
+    # 2. `batching=True, batch_size=10000` -- each GA iter draws a random 10K subsample from `sample_n`
+    #    rows instead of evaluating every candidate on the full sample. Over `niterations` the GA touches
+    #    the whole sample but each iter is bounded. Addresses PySR's own ">10K datapoints slow GA" warning
+    #    AND lets us pass much more data than the legacy 20K hard cap (raised below to 200K).
+    # 3. `precision=32` -- float32 GA eval is ~2x faster on modern x86 SIMD; symbolic regression discovers
+    #    equation FORM, not parameter precision, so f64 is overkill.
+    # 4. `turbo=True, bumper=True` -- SIMD + bumper-allocator (already bruteforce defaults; defensive).
+    # 5. `update=False, progress=False` -- skip Julia registry update check + Jupyter progress overhead.
+    # 6. Operator set is bruteforce.py's blessed default (log + inv); previously hard-coded "log_abs"
+    #    failed at Julia eval time because no operator with that name was defined in Main scope.
+    # `niterations` bumped 200 -> 400: batching makes each iter cheaper so more iters give better
+    # coverage; users wanting bruteforce-grade search pass `niterations=2000` via pysr_params.
     defaults = dict(
-        niterations=200,
+        niterations=400,
         populations=15,
         population_size=33,
         tournament_selection_n=8,
         maxdepth=5,
         binary_operators=list(DEFAULT_BINARY_OPERATORS),
         unary_operators=list(DEFAULT_UNARY_OPERATORS),
-        procs=1,
+        batching=True,
+        batch_size=10000,
+        precision=32,
+        turbo=True,
+        bumper=True,
+        update=False,
+        progress=False,
         verbosity=0,
     )
     defaults.update(pysr_params)
@@ -235,7 +261,11 @@ def _apply_pysr_fe(
     merged_params = dict(defaults)
 
     top_k = min(5, merged_params.get("population_size", 20) // 2)
-    sample_n = min(len(train_df), 20000)
+    # 200K cap (was 20K): with batching=True PySR samples batch_size rows per iter from whatever we feed,
+    # so the cap is about how diverse the pool is, not how slow each iter runs. 200K x 26 features x f32
+    # = ~20MB -- trivial. Drops to len(train_df) when smaller. Caller can pass `pysr_params={"batching":
+    # False, "batch_size": ...}` to opt out and revert to the legacy "all rows per iter" path.
+    sample_n = min(len(train_df), 200_000)
     temp_target_col = "_pysr_y_"
 
     # Inject y_train as a temporary column (bruteforce expects target as a column in the DataFrame).
