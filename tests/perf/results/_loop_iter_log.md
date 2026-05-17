@@ -861,3 +861,30 @@ no-op view).
 All 4 green in 2.9 s. c0143 fuzz cell passes natively in 86 s.
 
 Streak counter: **0/100** (RESOLVED resets). Commit `c02b1d9`.
+
+## Iter 22 -- 2026-05-18 -- REJECTED (streak 1/100)
+
+Cell: `c0025_766a78c8-cb_hgb_lgb-pl_nullable-n600` -- 3-booster
+multiclass on pl_nullable, n=600, MRMR (no ensembles), parquet
+storage. Test passed under cProfile in 122s.
+
+**mlframe-OWN tottime (>15ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `target_temporal_audit.py:270(_pick_granularity)` | 112 ms | 1 | 112 ms |
+| `target_temporal_audit.py:148(<listcomp>)` | 77 ms | 1 | 77 ms |
+| `splitting.py:79(make_train_test_split)` | 39 ms | 1 | 39 ms |
+| `drift_report.py:75(<dictcomp>)` | 34 ms | 3 | 11 ms |
+| `_data_helpers.py:230(_validate_target_values)` | 32 ms | 8 | 4 ms |
+
+`_pick_granularity` already rejected at iter 15 (one-time pandas
+datetime conversion, no clean alternative). The :148 listcomp builds
+JSON-safe bin dicts with isoformat() per bin -- inflated by cProfile
+attribution. `_validate_target_values` at 4 ms/call (8 calls)
+confirms the iter-15 isfinite fastpath continues to land in the wild.
+
+Total mlframe-OWN tottime ~300 ms out of 122 s suite = 0.25%. No
+actionable hotspot above the 1.2x gate.
+
+**Verdict: REJECT.** Streak counter: 1/100.
