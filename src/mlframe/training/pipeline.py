@@ -22,20 +22,25 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
-# Thread-count env vars must be set BEFORE Julia/PySR boots; module-import time is the latest safe
-# point. Under juliacall (PySR >= 1.0 default bridge) the honoured var is PYTHON_JULIACALL_THREADS;
-# JULIA_NUM_THREADS only takes effect if the Julia process is started by hand. Set BOTH for forward
-# / backward compatibility -- see PySR discussion #873.
-# `os.cpu_count() // 2` is the safe default: PySR's GA scales well across cores but leaves the other
-# half for sklearn/CB/LGB/XGB inner-loop threads + the OS. Caller can override via env before import.
-try:
-    _ncpu = os.cpu_count() or 4
-    _suggested_threads = str(max(2, _ncpu // 2))
-    for _env_name in ("PYTHON_JULIACALL_THREADS", "JULIA_NUM_THREADS"):
-        if _env_name not in os.environ:
-            os.environ[_env_name] = _suggested_threads
-except Exception:
-    pass
+# Thread-count env vars must be set BEFORE Julia/PySR boots; we defer the set until the first
+# ``_apply_pysr_fe`` call so importers who never touch PySR don't get their env mutated.
+def _maybe_set_pysr_thread_env() -> None:
+    """Set PYTHON_JULIACALL_THREADS / JULIA_NUM_THREADS if either is unset.
+
+    Both vars are honoured: PYTHON_JULIACALL_THREADS by the juliacall bridge PySR>=1.0 uses,
+    JULIA_NUM_THREADS by manually-launched Julia processes (forward/backward compat per PySR
+    discussion #873). ``os.cpu_count() // 2`` is the safe default: PySR's GA scales across cores
+    but the other half stays free for sklearn/CB/LGB/XGB inner threads + the OS. Caller may pin
+    either var before this is called.
+    """
+    try:
+        _ncpu = os.cpu_count() or 4
+        _suggested_threads = str(max(2, _ncpu // 2))
+        for _env_name in ("PYTHON_JULIACALL_THREADS", "JULIA_NUM_THREADS"):
+            if _env_name not in os.environ:
+                os.environ[_env_name] = _suggested_threads
+    except Exception:
+        pass
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
@@ -212,6 +217,9 @@ def _apply_pysr_fe(
             "engineering SKIPPED. Pass a 1-D y_train array to enable it."
         )
         return []
+    # Set Julia thread-count env BEFORE importing run_pysr_feature_engineering (which boots juliacall).
+    # Deferred from module-import time so callers who never trigger PySR don't get their env mutated.
+    _maybe_set_pysr_thread_env()
     try:
         from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     except (ImportError, OSError, subprocess.CalledProcessError):
@@ -240,25 +248,25 @@ def _apply_pysr_fe(
     # - update=False, progress=False -- skip Julia registry probe + Jupyter progress in embedded use.
     # - parsimony=1e-4 + weight_optimize=0.001 -- tuning-guide recommended for ncycles_per_iteration=380.
     # - maxsize=20 + maxdepth=5 -- tabular FE doesn't need 30-node 30-deep trees; smaller = faster eval.
-    # - populations=max(15, 3 * num_cores // 2) -- tuning-guide rule scaled to leave half cores for OS.
+    # - populations capped at min(15, ncpu//3) -- tuning-guide says 3*ncpu but PySR + juliacall on
+    #   Windows OOMs at 24 populations on machines with already-committed RAM (e.g. notebook with 10GB
+    #   df loaded). Cap conservatively; users with idle workstations can override via pysr_params.
     # - tournament_selection_n=15 -- matches PySR master; weaker tournament loses good equations.
-    # - heap_size_hint_in_bytes=RAM/10 -- mitigates Julia GC growth on long fits (issue #441).
-    try:
-        import psutil as _psutil
-        _heap_hint = int(_psutil.virtual_memory().total // 10)
-    except Exception:
-        _heap_hint = 1_000_000_000  # 1 GB conservative fallback
+    # - heap_size_hint_in_bytes=256MB -- LOWER means MORE-frequent GC = lower peak memory. Setting hint
+    #   too high (RAM/10 ~= 1.6GB on 16GB box) defers GC and triggers Julia "malloc: Not enough space"
+    #   SIGABRT under populations>=10 on Windows. 256MB is the smallest value that doesn't cripple GA
+    #   throughput per gh discussion #441.
     _ncpu_local = os.cpu_count() or 4
     defaults = dict(
         niterations=400,
-        populations=max(15, 3 * max(2, _ncpu_local // 2)),
+        populations=max(4, min(15, _ncpu_local // 3)),
         population_size=33,
         tournament_selection_n=15,
         maxsize=20,
         maxdepth=5,
         parsimony=1e-4,
         weight_optimize=0.001,
-        heap_size_hint_in_bytes=_heap_hint,
+        heap_size_hint_in_bytes=256 * 1024 * 1024,
         binary_operators=_preset["binary_operators"],
         unary_operators=_preset["unary_operators"],
         complexity_of_operators=_preset["complexity_of_operators"],
@@ -336,7 +344,8 @@ def _apply_pysr_fe(
                 "PySR fit failed; skipping symbolic feature engineering.",
                 exc_info=True,
             )
-        train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")
+        # The ``finally`` clause below ALWAYS runs and drops the temp column, including on this
+        # except-return path. The previous duplicate drop here was redundant.
         return []
     finally:
         train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")

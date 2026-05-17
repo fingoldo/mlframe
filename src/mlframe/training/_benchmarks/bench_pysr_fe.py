@@ -97,14 +97,16 @@ def _run_one(
         from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
         preset = get_preset_kwargs(preset_name or "standard")
         params = dict(
+            # Mirrors pipeline.py:_apply_pysr_fe defaults exactly so the bench reflects what users see.
             niterations=400,
-            populations=max(15, 3 * max(2, (os.cpu_count() or 4) // 2)),
+            populations=max(4, min(15, (os.cpu_count() or 4) // 3)),
             population_size=33,
             tournament_selection_n=15,
             maxsize=20,
             maxdepth=5,
             parsimony=1e-4,
             weight_optimize=0.001,
+            heap_size_hint_in_bytes=256 * 1024 * 1024,
             binary_operators=preset["binary_operators"],
             unary_operators=preset["unary_operators"],
             complexity_of_operators=preset["complexity_of_operators"],
