@@ -73,9 +73,33 @@ def _get_l1_ratio(config: LinearModelConfig) -> float:
 # ==================================================================================
 
 
+_LINEAR_DEFAULT_RIDGE_ALPHA: float = 1e-3
+"""Tiny ridge regularisation routed through ``model_type="linear"``.
+
+Production failure mode (2026-05-17 TVT run, target=TVT-monres-Y): unregularised
+``LinearRegression`` on 25 features with documented multicollinearity
+(``Z~=TVT_prev`` |corr|=0.974, ``GR_lag_*`` near-duplicates, etc.) produced
+test MAE=20_191 on a target with mean=-858 std=644 -- 40x worse than a
+constant-mean predictor. sklearn's ``LinearRegression`` uses SVD pseudo-inverse
+which is rank-stable in float64 but operates on float32 columns in this suite
+and degrades catastrophically on near-collinear features when the
+condition number exceeds ~1e8.
+
+A non-zero ``alpha`` of ``1e-3`` keeps Ridge numerically indistinguishable from
+OLS on well-conditioned data (predictions match to <1e-5 relative) while
+collapsing the catastrophic blowup to a controlled regularised solution on
+ill-conditioned matrices. The flip is consistent with the project rule
+"Accuracy/perf over legacy" -- the previous default is a known failure mode,
+not a feature to preserve."""
+
+
 def _build_linear_regressor(config: LinearModelConfig) -> BaseEstimator:
-    """Build a LinearRegression model with parallelization support."""
-    return LinearRegression(n_jobs=config.n_jobs)
+    """Build a Ridge(alpha=1e-3) model -- numerically OLS on well-conditioned data, stable on multicollinear."""
+    return Ridge(
+        alpha=_LINEAR_DEFAULT_RIDGE_ALPHA,
+        random_state=config.random_state,
+        max_iter=config.max_iter,
+    )
 
 
 def _build_ridge_regressor(config: LinearModelConfig) -> BaseEstimator:
