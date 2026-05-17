@@ -579,3 +579,55 @@ two) AND measurably faster at the hot boundary -- both legs of the
 `feedback_perf_measure_first` gate met.
 
 Streak counter: **0/100** (RESOLVED resets).
+
+## Iter 16 -- 2026-05-17 -- REJECTED (streak 1/100)
+
+Cell: `c0127_bf69c8a4-cb_linear_xgb-pl_enum-n5000` -- 3-model binary
+classification with MRMR + ensembles + OCSVM outlier detection. Test
+passed under cProfile in 193.16s.
+
+**mlframe-OWN tottime breakdown (>50ms only):**
+
+| Function | tottime | ncalls | per-call | bench (real) | disposition |
+|---|---:|---:|---:|---:|---|
+| `utils.py:395(get_pandas_view_of_polars_df)` | 317 ms | 5 | 63 ms | 1.18 ms | REJECT |
+| `_data_helpers.py:230(_validate_target_values)` | 179 ms | 12 | 15 ms | ~25 us | iter-15 fix verified |
+| `metrics/core.py:2868(compute_probabilistic_multiclass_error)` | 54 ms | 130 | 0.4 ms | -- | noise |
+
+**iter-15 fix verification:** `_validate_target_values` was 269 ms
+across 4 calls in c0108 (pre-iter-15). After the iter-15 single-pass
+isfinite fastpath, this cell hits it 12 times for 179 ms total --
+15 ms/call vs the prior 67 ms/call. **1.5x verified** (function got
+faster; ncalls scaled per the model count).
+
+**get_pandas_view_of_polars_df bench (n=5000 frame, 8 numeric + 1
+pl_enum cat column, 15 trials):**
+- median 1.18 ms / call
+
+The 317 ms cProfile-attributed cost reflects ~270x attribution
+inflation. Suite-level real cost is 5 calls x 1.18 ms = ~6 ms.
+The existing 2026-04-14 comment at `utils.py:513-515` already
+documents the 1.16x ceiling on pure-numeric workloads; the pl_enum
+addition (one dict-cast loop iteration) doesn't lift the gate.
+
+**score_ensemble 30.2s cumtime / 12 methods x 2.5s/method:**
+each ensemble-method evaluation calls `train_and_evaluate_model(
+model=None, ...)` which runs the metric+confidence pipeline on
+the ensembled predictions. The 30s splits into:
+- 12 ensemble methods x ~2.5s metric+confidence each
+- `train_and_evaluate_model` itself: 0.016 s tottime across 30
+  calls (mlframe orchestration is fast)
+- ~95% of each call's wall time is C-ext: CatBoostRegressor fit
+  (200 iterations cap, ~1s) + SHAP TreeExplainer (~1s).
+
+This is O(K) work where K = number of ensemble methods (12 in
+this cell). Each method's confidence analysis must re-fit because
+the target (confidence-of-ensembled-prediction) differs per
+method. Not cacheable without changing the contract.
+
+**Verdict: REJECT.** No actionable mlframe-side optimization
+above the 1.2x gate. The two large surfaces (confidence analysis,
+ensemble metrics) are both genuine third-party C-ext work that
+mlframe orchestrates, not Python overhead we can vectorise.
+
+Streak counter: **1/100**.
