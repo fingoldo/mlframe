@@ -156,6 +156,17 @@ def _subset_dataframe(
     if idx is None:
         result = df
     elif isinstance(df, pd.DataFrame):
+        # Validate boolean masks eagerly: ``df.iloc[bool_idx]`` with a
+        # mismatched-length bool array raises a confusing IndexError deep in
+        # pandas, often masked when ``df`` is empty (no error) or when the
+        # mismatch is by one row. Surface the precondition violation here.
+        _idx_arr = np.asarray(idx) if idx is not None and not isinstance(idx, np.ndarray) else idx
+        if isinstance(_idx_arr, np.ndarray) and _idx_arr.dtype == bool:
+            if _idx_arr.shape[0] != len(df):
+                raise ValueError(
+                    f"select_subset: boolean idx length {_idx_arr.shape[0]} "
+                    f"does not match dataframe length {len(df)}"
+                )
         result = df.iloc[idx]
     elif isinstance(df, pl.DataFrame):
         result = df[idx]

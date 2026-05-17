@@ -60,21 +60,38 @@ def test_nan_guard_uses_persisted_stats_no_leakage():
     )
 
 
-def test_nan_guard_warns_when_no_persisted_stats_and_fit_at_predict_false(caplog):
-    """When fit_at_predict=False and the model has no persisted stats, the guard MUST emit a leakage warning
-    so the operator is notified that the current-frame statistics are leaking. Regression catches accidental
-    misuse where the training-time priming step was skipped."""
+def test_nan_guard_refuses_when_no_persisted_stats_and_fit_at_predict_false():
+    """Audit 2026-05-17 (C10): when ``fit_at_predict=False`` (default)
+    and the model has no persisted stats, the guard MUST REFUSE rather
+    than silently fit on the current frame. Pre-fix the path emitted a
+    leakage WARN and proceeded; post-fix it raises
+    :class:`NanGuardNotPrimedError` so silent leakage is impossible.
+    Callers that explicitly want fit-on-current-frame semantics must
+    opt in via ``fit_at_predict=True``."""
+    from mlframe.training._predict_guards import _apply_nan_guard, NanGuardNotPrimedError
+
+    _, pred_x = _make_train_predict_frames()
+    pred_df = pd.DataFrame({"x": pred_x})
+    model = _DummyModel()
+
+    with pytest.raises(NanGuardNotPrimedError, match="prime_nan_guard_stats"):
+        _apply_nan_guard(model, pred_df, model, n_rows=len(pred_df), fit_at_predict=False)
+
+
+def test_nan_guard_opt_in_fit_at_predict_still_works():
+    """Audit 2026-05-17 (C10): the legacy fit-on-current-frame path is
+    still available via ``fit_at_predict=True`` so callers that
+    genuinely want it (e.g. one-shot scoring without a training tail)
+    aren't blocked."""
     from mlframe.training._predict_guards import _apply_nan_guard
 
     _, pred_x = _make_train_predict_frames()
     pred_df = pd.DataFrame({"x": pred_x})
     model = _DummyModel()
 
-    with caplog.at_level("WARNING"):
-        _apply_nan_guard(model, pred_df, model, n_rows=len(pred_df), fit_at_predict=False)
-
-    matched = [r for r in caplog.records if "no persisted" in r.getMessage() or "leakage" in r.getMessage()]
-    assert matched, f"expected leakage WARN; got messages={[r.getMessage() for r in caplog.records]}"
+    _ = _apply_nan_guard(model, pred_df, model, n_rows=len(pred_df), fit_at_predict=True)
+    assert hasattr(model, "_mlframe_nan_imputer")
+    assert hasattr(model, "_mlframe_nan_scaler")
 
 
 def test_nan_guard_skips_when_no_nan_present():

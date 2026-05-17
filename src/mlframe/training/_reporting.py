@@ -105,7 +105,7 @@ def _canonical_multilabel_y(targets) -> np.ndarray:
                 # caller's exception path surfaces the underlying issue.
                 return targets_arr
 
-    # Coerce float-indicator multilabel to int via threshold (round-3 A#22).
+    # Coerce float-indicator multilabel to int via threshold.
     if targets_arr.ndim == 2 and targets_arr.dtype.kind == "f":
         targets_arr = (targets_arr >= 0.5).astype(np.int64)
 
@@ -283,7 +283,7 @@ def report_model_perf(
             "report_regression_model_perf",
             n_rows=(len(targets) if hasattr(targets, '__len__') else None),
         ):
-            # 2026-05-09: thread plot_outputs explicitly so the regression
+            # Thread plot_outputs explicitly so the regression
             # report can pick the plotly DSL path. Probabilistic path
             # uses plot_outputs differently (multi_target_panels at L277);
             # regression's only consumer is the residual-diagnostics chart.
@@ -291,7 +291,7 @@ def report_model_perf(
                 **common_params, plot_outputs=plot_outputs, plot_dpi=plot_dpi,
             )
 
-    # 2026-05-08 PR2 wiring: render multiclass / multilabel / LTR panel
+    # Render multiclass / multilabel / LTR panel
     # grids when the caller has supplied per-target_type templates +
     # output DSL. No-op for binary classification / regression / when
     # templates are unset. Failures are logged + swallowed (panels are
@@ -424,21 +424,21 @@ def report_regression_model_perf(
         # symmetric pandas fallback -- same pattern as fit. Without this
         # wrap, a polars val/test DF + a CB model whose fit path fell
         # back to pandas would crash at predict time with the identical
-        # opaque TypeError (2026-04-19 prod incident).
+        # opaque TypeError (prod incident).
         from mlframe.training.trainer import _predict_with_fallback
         preds = _predict_with_fallback(model, df, method="predict")
 
     if isinstance(targets, pd.Series):
         targets = targets.values
 
-    # 2026-05-09: numba fast helpers now cover full sklearn signature
+    # Numba fast helpers now cover full sklearn signature
     # (1-D / 2-D, sample_weight, multioutput) so all regression metric
     # call sites here go through the fast path. 6-23x faster than
     # sklearn at production size.
     targets_arr = np.asarray(targets)
     preds_arr = np.asarray(preds)
     if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
-        # 2026-04-28 (batch 4): WARN-loud when this multioutput path
+        # WARN-loud when this multioutput path
         # fires. Multilabel classification SHOULD route to
         # ``report_probabilistic_model_perf`` via the
         # ``is_classifier(model)`` dispatch upstream; (N, K) reaching the
@@ -473,7 +473,7 @@ def report_regression_model_perf(
         metrics.update(current_metrics)
 
     # Compute residual audit ONCE (used by both the chart and the print-report block; cheap thanks to internal sampling).
-    # 2026-05-12 (user clarification): ``behavior_config.report_residual_audit`` is a LOG-ONLY toggle. When False we MUST still compute the audit so the chart's hist + resid-vs-pred panels stay populated -- only the multi-line verdict text in the log is suppressed. Multi-output targets still skip the audit (no scalar residuals to fit a distribution to).
+    # ``behavior_config.report_residual_audit`` is a LOG-ONLY toggle. When False we MUST still compute the audit so the chart's hist + resid-vs-pred panels stay populated -- only the multi-line verdict text in the log is suppressed. Multi-output targets still skip the audit (no scalar residuals to fit a distribution to).
     _residual_audit = None
     from .evaluation import _get_residual_audit_enabled  # lazy: breaks cycle with .evaluation
     _audit_log_enabled = bool(_get_residual_audit_enabled())
@@ -492,7 +492,7 @@ def report_regression_model_perf(
                 model_name, _audit_err,
             )
 
-    # 2026-05-09: short-circuit when there is NO consumer for the chart.
+    # Short-circuit when there is NO consumer for the chart.
     # Same logic as ``mlframe.metrics.core.show_calibration_plot``: in a script /
     # CI / fuzz process (no IPython kernel, no ``sys.ps1``) the
     # ``show_perf_chart=True`` default renders a matplotlib figure that
@@ -509,7 +509,7 @@ def report_regression_model_perf(
             show_perf_chart = False  # disable for the guards below
 
     if show_perf_chart or plot_file:
-        # 2026-05-08 (user feedback): split the long title into three pieces.
+        # Split the long title into three pieces.
         # - ``header_str``: split / model_name + [features/rows] -> figure SUPTITLE
         # - ``metrics_str``: MAE / RMSE / MaxError / R2 -> scatter (left) title
         # - residual hypothesis (formerly tacked onto scatter) -> moved
@@ -531,7 +531,7 @@ def report_regression_model_perf(
         # ``title`` retained for the (deprecated) print-report path that still concatenates everything for stdout. Charts use the split.
         title = header_str + "\n " + metrics_str  # noqa: F841 -- see comment above
 
-        # 2026-04-27 (batch 3): for (N, K) multilabel-as-regression
+        # For (N, K) multilabel-as-regression
         # targets the scatter plot below would do
         # ``np.argsort(preds[idx])`` on a 2-D array (which sorts rows
         # element-wise instead of by-row), then ``plt.scatter`` would
@@ -554,7 +554,7 @@ def report_regression_model_perf(
             )
             _audit = _residual_audit  # reuse pre-computed audit
 
-            # 2026-05-09: when ReportingConfig.plot_outputs is set
+            # When ReportingConfig.plot_outputs is set
             # (default ``"plotly[html,png]"``), bypass the inline
             # matplotlib block and route through the FigureSpec / DSL
             # pipeline so plotly + matplotlib emit per the user's
@@ -586,7 +586,7 @@ def report_regression_model_perf(
                 # Three-panel figure: scatter | residuals histogram | residuals vs predicted.
                 # constrained_layout cached solver state -- ~13s saved
                 # vs tight_layout per-chart on multi-chart reports.
-                # 2026-05-11: honour plot_dpi when caller set it.
+                # Honour plot_dpi when caller set it.
                 _reg_subplots_kwargs = dict(
                     figsize=(figsize[0] * 3 / 2, figsize[1]),
                     layout="constrained",
@@ -596,7 +596,7 @@ def report_regression_model_perf(
                 fig, axes = plt.subplots(1, 3, **_reg_subplots_kwargs)
                 ax_scatter, ax_hist, ax_resid = axes
 
-                # 2026-05-09 fix: y=1.02 puts the suptitle ABOVE the
+                # y=1.02 puts the suptitle ABOVE the
                 # axes region so constrained_layout auto-extends the
                 # top margin. Previously y=0.995 placed the suptitle
                 # inside the axes row, causing collision with the
@@ -637,21 +637,21 @@ def report_regression_model_perf(
                 _close_unless_interactive(fig, was_shown=show_perf_chart)
 
     if print_report:
-        # 2026-05-10: route through logger so file handlers (e.g.
+        # Route through logger so file handlers (e.g.
         # pyutilz.logginglib.init_logging) capture the report block.
         # Pre-fix: bare print() bypassed the logging system entirely
         # → cell output ✓ but file handler ✗. Operators using
         # init_logging in jupyter notebooks lost the metric blocks
         # from on-disk logs.
         from ._format import format_metric as _fmt
-        # C2 (2026-05-11): annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
+        # Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
         _is_t_scale_composite = "MTRESID=" in model_name
         _scale_note = (
             "  (T-scale residual; y-scale metrics in "
             "[CompositeTargetEstimator] log line)"
             if _is_t_scale_composite else ""
         )
-        # 2026-05-12 (user request): one-line metrics in the log block.
+        # One-line metrics in the log block.
         # Reuses the SAME ``metrics_str`` formula the chart title carries
         # (``MAE=... RMSE=... MaxError=... R2=...`` separated by spaces) so
         # the log line is immediately searchable / regex-friendly and the
@@ -667,7 +667,7 @@ def report_regression_model_perf(
             report_title + " " + model_name + _scale_note,
             _metrics_one_line,
         ]
-        # 2026-05-12: residual-audit VERDICT TEXT is gated on the suite flag.
+        # Residual-audit VERDICT TEXT is gated on the suite flag.
         # The audit is still computed above (so the chart panels stay
         # populated); only the multi-line text block here is suppressed when
         # ``behavior_config.report_residual_audit=False``.
@@ -809,7 +809,7 @@ def report_probabilistic_model_perf(
             # predict_proba, returns NotImplemented, or a non-CB TypeError)
             # bubbles to the outer except and hits the predict() fallback
             # path below -- with the same Polars fallback wrapping so we
-            # don't retry into the same dispatcher miss (2026-04-19 bug).
+            # don't retry into the same dispatcher miss.
             probs = _predict_with_fallback(model, df, method="predict_proba")
         except (AttributeError, TypeError, NotImplementedError) as e:
             logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")
@@ -826,9 +826,9 @@ def report_probabilistic_model_perf(
             probs[np.arange(len(preds_fallback)), class_indices] = 1.0
 
     if preds is None:
-        # 2026-04-24 Session 6: multilabel target -> (N, K) probs, threshold
+        # Multilabel target -> (N, K) probs, threshold
         # each column independently; do NOT argmax (collapses to single class).
-        # 2026-04-28: also treat object-dtype-of-arrays as 2-D (the
+        # Also treat object-dtype-of-arrays as 2-D (the
         # ``pl.List`` -> pandas roundtrip). Without this, preds was
         # computed via argmax (1-D class index) while targets stayed
         # multilabel-indicator (2-D), and ``classification_report`` raised
@@ -887,15 +887,15 @@ def report_probabilistic_model_perf(
     log_losses = []
     robust_integral_errors = []
 
-    # 2026-04-24 Session 6: detect multilabel from 2-D target shape. Each
+    # Detect multilabel from 2-D target shape. Each
     # column is an independent binary label; the per-class loop below uses
     # the column directly instead of `targets == class_name` (which would
     # broadcast a 2-D bool against a 1-D y_score and crash).
-    # 2026-04-28: also detect object-dtype-of-arrays (the polars
+    # Also detect object-dtype-of-arrays (the polars
     # ``pl.List(pl.Int8)`` -> pandas object roundtrip), stack to 2-D so
     # ``targets_arr[:, class_id]`` works in the multilabel branch.
     # Surfaced 3-way fuzz c0000 / c0008 (cb / multilabel target).
-    # 2026-05-10: extracted to ``_canonical_multilabel_y`` helper so the
+    # Extracted to ``_canonical_multilabel_y`` helper so the
     # new ``mlframe.training.dummy_baselines`` module can reuse the same
     # canonicalization logic without duplication.
     targets_arr = _canonical_multilabel_y(targets)
@@ -1080,10 +1080,10 @@ def report_probabilistic_model_perf(
             metrics.update({class_id: class_metrics})
 
     if print_report:
-        # 2026-05-10: route through logger so file handlers (e.g.
+        # Route through logger so file handlers (e.g.
         # pyutilz.logginglib.init_logging) capture the report block.
         # See sibling fix in report_regression_model_perf at line 659.
-        # 2026-04-29: replace sklearn's ``classification_report`` with the
+        # Replace sklearn's ``classification_report`` with the
         # njit-backed ``format_classification_report``. cProfile of fuzz
         # c0014 traced 90ms (55 %) of the warm-path
         # ``report_probabilistic_model_perf`` to sklearn's
@@ -1127,7 +1127,7 @@ def report_probabilistic_model_perf(
         if robust_integral_error is not None:
             logger.info(f"TOTAL ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
 
-        # 2026-04-24 Session 4: pluggable multi-output metrics registry.
+        # Pluggable multi-output metrics registry.
         # Dispatches hamming_loss / subset_accuracy / jaccard_score_multilabel
         # (registered in mlframe.training.metrics_registry) when the
         # report-caller context indicates a multilabel target. Additional

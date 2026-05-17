@@ -63,17 +63,25 @@ def fix_quantile_crossing(
         return np.sort(preds_NK, axis=1)
 
     if mode == "isotonic":
-        from sklearn.isotonic import IsotonicRegression
-        alphas_arr = np.asarray(alphas, dtype=np.float64)
-        out = np.empty_like(preds_NK)
-        ir = IsotonicRegression(increasing=True, out_of_bounds="clip")
+        # Functional ``isotonic_regression`` skips the IsotonicRegression
+        # constructor / fit-state machinery (no estimator object created,
+        # no interp1d fallback path, no out_of_bounds branching), which
+        # saves dozens of microseconds per row and adds up to minutes on
+        # 1M-row predictions. Because all K alpha-levels are the same set
+        # for every row and we only need the isotonic projection ON those
+        # exact x-values (no interpolation to new x), this is functionally
+        # identical to ``ir.fit(alphas, row).transform(alphas)``.
+        from sklearn.isotonic import isotonic_regression
+        out = np.empty_like(preds_NK, dtype=np.float64)
+        # Vectorised monotone-shortcut mask: rows already sorted ascending
+        # skip the isotonic call entirely. ``np.diff`` along axis=1.
+        _is_mono = np.all(np.diff(preds_NK, axis=1) >= 0, axis=1)
         for i in range(preds_NK.shape[0]):
-            row = preds_NK[i].astype(np.float64)
-            # Already monotone -> shortcut.
-            if np.all(np.diff(row) >= 0):
+            row = preds_NK[i].astype(np.float64, copy=False)
+            if _is_mono[i]:
                 out[i] = row
-                continue
-            out[i] = ir.fit(alphas_arr, row).transform(alphas_arr)
+            else:
+                out[i] = isotonic_regression(row, increasing=True)
         return out
 
     raise ValueError(

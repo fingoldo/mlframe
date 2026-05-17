@@ -1098,7 +1098,7 @@ def _audit_from_agg(
             target_name=target_name, target_type=target_type,
             timestamp_col=timestamp_col, granularity=granularity,
             bins=[], change_point_indices=[], segments=[],
-            warnings=["empty aggregation — no data after time-binning"],
+            warnings=["empty aggregation - no data after time-binning"],
             actionable={},
         )
 
@@ -1126,7 +1126,7 @@ def _audit_from_agg(
             bins=bins, change_point_indices=[], segments=[],
             warnings=[
                 f"only {len(kept_bins)} non-sparse bins after the {min_bin_fraction}× median-n_obs filter "
-                f"— too few for a temporal audit. Consider a finer granularity or a longer time span.",
+                f"- too few for a temporal audit. Consider a finer granularity or a longer time span.",
             ],
             actionable={},
         )
@@ -1240,7 +1240,7 @@ def plot_target_over_time(
     matplotlib.figure.Figure or None
         Returns the Figure when neither save_path nor show is set.
     """
-    # 2026-05-08: opt-in DSL render path. When ``plot_outputs`` +
+    # Opt-in DSL render path. When ``plot_outputs`` +
     # ``base_path`` are supplied, route through the spec pipeline
     # (matplotlib + plotly via the same DSL). Default behaviour
     # preserved -- legacy callers see no change.

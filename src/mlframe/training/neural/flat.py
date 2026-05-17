@@ -408,6 +408,30 @@ class MLPTorchModel(L.LightningModule):
                 return batch[0], batch[1], None
         raise ValueError(f"Unexpected batch format: {type(batch)}")
 
+    def _loss_unreduced(self, predictions: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """Per-sample loss via self.loss_fn with reduction='none' when available.
+
+        Most torch.nn loss modules expose a ``reduction`` attribute; toggling it
+        round-trip preserves the loss type (BCE stays BCE, MSE stays MSE) so
+        sample weighting doesn't silently swap loss semantics.
+        """
+        # Module loss (CrossEntropyLoss / BCEWithLogitsLoss / MSELoss / ...):
+        # set reduction='none', call, restore.
+        if hasattr(self.loss_fn, "reduction"):
+            prev = self.loss_fn.reduction
+            try:
+                self.loss_fn.reduction = "none"
+                return self.loss_fn(predictions, labels)
+            finally:
+                self.loss_fn.reduction = prev
+        # Functional / lambda loss: try kwarg, fall back to CE/MSE shape-guess.
+        try:
+            return self.loss_fn(predictions, labels, reduction="none")
+        except TypeError:
+            if predictions.dim() == 2 and predictions.shape[1] > 1:
+                return F.cross_entropy(predictions, labels, reduction="none")
+            return F.mse_loss(predictions, labels, reduction="none")
+
     def _compute_weighted_loss(self, predictions: torch.Tensor, labels: torch.Tensor, sample_weight: Optional[torch.Tensor]) -> torch.Tensor:
         """Compute loss with optional sample weighting.
 
@@ -422,17 +446,30 @@ class MLPTorchModel(L.LightningModule):
         if sample_weight is None:
             return self.loss_fn(predictions, labels)
 
-        # Per-sample losses via functional API: cross_entropy for multi-class logits, MSE for regression.
-        if predictions.dim() == 2 and predictions.shape[1] > 1:
-            loss_unreduced = F.cross_entropy(predictions, labels, reduction="none")
-        else:
-            loss_unreduced = F.mse_loss(predictions, labels, reduction="none")
+        # Honour self.loss_fn if it supports reduction='none' (every
+        # torch.nn.*Loss does); the previous hard-coded CE/MSE branch silently
+        # switched a BCE binary classifier (with sample_weight) to MSE,
+        # producing a degenerate gradient.
+        loss_unreduced = self._loss_unreduced(predictions, labels)
 
         weight_sum = sample_weight.sum()
         if weight_sum > 0:
             weighted_loss = (loss_unreduced * sample_weight).sum() / weight_sum
         else:
-            # All weights zero: this batch contributes nothing; avoid division by zero.
+            # All weights zero: this batch contributes nothing and the
+            # gradient is identically zero. Silently returning 0.0 here
+            # masks the upstream bug (whoever produced these weights
+            # almost certainly intended at least one non-zero weight);
+            # log a once-per-process WARN so the operator sees it. We
+            # still return a zero tensor on the correct device to keep
+            # the loss differentiable (raising would break Lightning's
+            # train_step contract on the first batch).
+            if not getattr(self, "_zero_weight_warned", False):
+                logger.warning(
+                    "_compute_weighted_loss: batch with sample_weight.sum()=0 "
+                    "yields zero gradient -- check upstream weight generation"
+                )
+                self._zero_weight_warned = True
             weighted_loss = torch.tensor(0.0, device=predictions.device, dtype=predictions.dtype)
         return weighted_loss
 
@@ -450,7 +487,11 @@ class MLPTorchModel(L.LightningModule):
         loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
 
         if self.hparams.l1_alpha > 0:
-            l1_norm = sum(p.abs().sum() for p in self.network.parameters())
+            # Python sum() forces a host-side reduction per parameter tensor,
+            # so each .abs().sum() implicitly syncs the GPU. Stack the per-
+            # tensor scalars first and sum once on-device to amortise the sync.
+            _abs_sums = [p.abs().sum().unsqueeze(0) for p in self.network.parameters()]
+            l1_norm = torch.cat(_abs_sums).sum() if _abs_sums else torch.tensor(0.0, device=loss.device)
             loss = loss + self.hparams.l1_alpha * l1_norm
             # self.log raises RuntimeError when the module is detached from a Trainer (unit-test usage).
             try:

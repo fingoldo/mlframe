@@ -56,9 +56,9 @@ math is O(n log n) at worst (sort for AD, sort for Spearman); sampling
 to 50k makes the audit sub-second for any practical N. Plot uses its
 own (smaller) sample independently."""
 
-SKEW_MODERATE: float = 0.3   # 2026-05-11: tightened from 0.5 -> 0.3
-SKEW_HIGH: float = 0.8       # 2026-05-11: tightened from 1.0 -> 0.8
-# 2026-05-11: thresholds significantly tightened after a user-reported
+SKEW_MODERATE: float = 0.3   # tightened from 0.5 -> 0.3
+SKEW_HIGH: float = 0.8       # tightened from 1.0 -> 0.8
+# Thresholds significantly tightened after a user-reported
 # case where the audit verdict said "Gaussian (well-behaved)" for a
 # histogram with excess_kurt=+2.40 -- the threshold was set at the
 # LAPLACE excess kurt level (3.0), so anything Logistic-like or peakier
@@ -217,7 +217,7 @@ def _diagnose(
         )
         return "Laplace / Student-t", "MAE (Laplace-MLE) or Huber as a compromise", rationale
 
-    # 2026-05-11: intermediate verdict for mildly leptokurtic residuals
+    # Intermediate verdict for mildly leptokurtic residuals
     # (excess_kurt in [0.5, 1.5]). Previously these silently passed
     # as "Gaussian (well-behaved)" -- the user flagged this on a
     # histogram with kurt=+2.40 that visibly showed a sharp peak at 0.
@@ -462,7 +462,7 @@ def plot_residual_diagnostics(
     Returns the audit (computed if not supplied) so callers can use
     its diagnostic fields without computing twice.
     """
-    # 2026-05-08: opt-in DSL render path (matplotlib + plotly via the
+    # Opt-in DSL render path (matplotlib + plotly via the
     # spec pipeline). When ``plot_outputs`` + ``base_path`` are set,
     # bypass the in-place axes path and emit a full figure via the
     # shared renderer. Default behaviour preserved for callers that
@@ -538,7 +538,7 @@ def plot_residual_diagnostics(
         ax_hist.axvline(0, color="green", linestyle=":", linewidth=1.0, alpha=0.7)
         ax_hist.set_xlabel("Residual (y_true - y_pred)")
         ax_hist.set_ylabel("Density")
-        # 2026-05-08: residual hypothesis + suggested loss now live on the
+        # Residual hypothesis + suggested loss now live on the
         # histogram title (was previously appended to the scatter title,
         # crowding it). Self-contained: skew/kurt -> hypothesis -> suggested
         # loss reads top-to-bottom on the same panel that visualises the

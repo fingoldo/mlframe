@@ -40,12 +40,16 @@ Robustness:
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
+import tempfile
 import warnings
 from typing import TYPE_CHECKING, Any, List, Optional, Sequence
 
 import numpy as np
 
+from mlframe.training.feature_handling.locking import PIDAwareFileLock
 from mlframe.training.feature_handling.providers import EmbeddingProvider
 from mlframe.training.feature_handling.system import (
     CudaErrorClass,
@@ -67,6 +71,33 @@ _E5_FAMILY_MARKERS = ("-e5-", "/e5-", "_e5_")
 def _needs_e5_prefix(model_name: str) -> bool:
     name = model_name.lower()
     return any(m in name for m in _E5_FAMILY_MARKERS)
+
+
+def _hf_cache_lock_path(model_name: str, revision: Optional[str]) -> str:
+    """Build a stable cross-process lock path keyed on the HF model
+    signature. Two processes that both call ``AutoTokenizer.from_pretrained``
+    on a fresh HF cache directory can race on partial-download writes
+    (``transformers`` does NOT serialise cache writes across processes);
+    serialising them here turns the race into a download-then-reuse.
+    The lock lives under the HF cache root so it follows the user's
+    ``HF_HOME`` / ``TRANSFORMERS_CACHE`` settings.
+    """
+    # Resolve the HF cache root. ``HF_HOME`` is the modern var;
+    # ``TRANSFORMERS_CACHE`` is legacy; finally fall back to OS tmp so
+    # the lock still lives somewhere even if the HF env is unset.
+    root = (
+        os.environ.get("HF_HOME")
+        or os.environ.get("TRANSFORMERS_CACHE")
+        or os.path.join(tempfile.gettempdir(), "mlframe-hf-locks")
+    )
+    sig = f"{model_name}@{revision or 'main'}"
+    sig_hash = hashlib.blake2b(sig.encode("utf-8"), digest_size=12).hexdigest()
+    lock_dir = os.path.join(root, ".mlframe-fhc-locks")
+    try:
+        os.makedirs(lock_dir, exist_ok=True)
+    except OSError:
+        lock_dir = tempfile.gettempdir()
+    return os.path.join(lock_dir, f"hf_{sig_hash}.lock")
 
 
 def _resolve_device(device_param: str) -> str:
@@ -176,20 +207,28 @@ class HuggingFaceProvider:
             model_name, revision, device, dtype_str,
         )
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            model_name, revision=revision, trust_remote_code=trust_remote,
-        )
-        # Some tokenizers don't have a pad token (e.g. GPT-2 family);
-        # falling back to eos_token is the standard fix for embedding.
-        if self._tokenizer.pad_token is None and self._tokenizer.eos_token is not None:
-            self._tokenizer.pad_token = self._tokenizer.eos_token
+        # Serialise the ``from_pretrained`` downloads behind a
+        # per-(model, revision) cross-process lock. Without it two
+        # processes targeting an empty HF cache both race to fill the
+        # shard files; the second sees half-written blobs and either
+        # crashes or - worse - silently loads truncated weights.
+        # PIDAwareFileLock + StaleLockReclaimed keep the safety net.
+        lock_path = _hf_cache_lock_path(model_name, revision)
+        with PIDAwareFileLock(lock_path, timeout=600.0):
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                model_name, revision=revision, trust_remote_code=trust_remote,
+            )
+            # Some tokenizers don't have a pad token (e.g. GPT-2 family);
+            # falling back to eos_token is the standard fix for embedding.
+            if self._tokenizer.pad_token is None and self._tokenizer.eos_token is not None:
+                self._tokenizer.pad_token = self._tokenizer.eos_token
 
-        self._model = AutoModel.from_pretrained(
-            model_name,
-            revision=revision,
-            torch_dtype=torch_dtype,
-            trust_remote_code=trust_remote,
-        )
+            self._model = AutoModel.from_pretrained(
+                model_name,
+                revision=revision,
+                torch_dtype=torch_dtype,
+                trust_remote_code=trust_remote,
+            )
         self._model = self._model.to(device).eval()
         self._device = device
 
@@ -288,7 +327,19 @@ class HuggingFaceProvider:
         outputs: List[np.ndarray] = []
         i = 0
         n = len(texts)
-        current_batch = max(1, batch_size)
+        original_batch = max(1, batch_size)
+        current_batch = original_batch
+        # Number of consecutive successful batches required before
+        # attempting to grow back toward the caller-requested batch
+        # size. A transient OOM (other process briefly spiked VRAM)
+        # shouldn't permanently halve us, so once we've seen
+        # ``_recover_after_n_ok`` batches succeed at the reduced size
+        # we double the batch (capped at the original). This stops the
+        # pathological "halved-once, halved-forever" mode the legacy
+        # loop locked into for the remainder of a multi-million-row
+        # transform call.
+        _recover_after_n_ok = 8
+        consecutive_ok = 0
         while i < n:
             batch = texts[i: i + current_batch]
             try:
@@ -305,6 +356,20 @@ class HuggingFaceProvider:
                     pooled = self._pool(model_out, enc["attention_mask"], pool)
                     outputs.append(pooled.cpu().numpy())
                 i += current_batch
+                consecutive_ok += 1
+                if (
+                    current_batch < original_batch
+                    and consecutive_ok >= _recover_after_n_ok
+                ):
+                    new_batch = min(original_batch, current_batch * 2)
+                    if new_batch != current_batch:
+                        logger.info(
+                            "[fhc] HuggingFaceProvider batch_size recovering "
+                            "from %d -> %d after %d ok batches",
+                            current_batch, new_batch, consecutive_ok,
+                        )
+                        current_batch = new_batch
+                    consecutive_ok = 0
             except Exception as exc:
                 cls = classify_cuda_error(exc)
                 if cls == CudaErrorClass.OUT_OF_MEMORY:
@@ -320,6 +385,7 @@ class HuggingFaceProvider:
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     current_batch = new_batch
+                    consecutive_ok = 0
                     continue
                 if cls == CudaErrorClass.CONTEXT_LOST:
                     raise RuntimeError(

@@ -48,6 +48,17 @@ from mlframe.config import CATBOOST_MODEL_TYPES
 logger = logging.getLogger(__name__)
 
 
+class NanGuardNotPrimedError(RuntimeError):
+    """Raised when ``_apply_nan_guard`` encounters NaN at predict time
+    on a model whose imputer/scaler statistics were never primed at
+    fit time. Per audit 2026-05-17 (C10) the legacy fall-through that
+    fit imputer+scaler on the current frame was a silent leakage
+    vector: test-set statistics ended up persisted on the model and
+    applied to every subsequent call. Callers that want that legacy
+    behaviour must opt in explicitly via ``fit_at_predict=True``.
+    """
+
+
 # ── Lazy Polars reference (avoids import if not installed) ────────────────
 
 
@@ -289,26 +300,32 @@ def _apply_nan_guard(
             model, X, fn, n_rows, _persisted_imp, _persisted_scl,
         )
 
-    # No persisted stats: fit on current frame, persist, transform.
+    # No persisted stats. Per audit 2026-05-17 (C10) the legacy
+    # warn-and-fit-on-predict behaviour was a silent leakage path
+    # whenever ``prime_nan_guard_stats`` wasn't called at fit time. We
+    # now REFUSE by default: callers that want the legacy semantics
+    # must opt in via ``fit_at_predict=True``.
     if not fit_at_predict:
-        logger.warning(
-            "[NaN-guard] %s X contains NaN AND no persisted "
-            "_mlframe_nan_imputer / _mlframe_nan_scaler on model "
-            "(n_rows=%s).  Fitting NEW imputer/scaler on the current "
-            "frame -- this is correct ONLY if this is the first call "
-            "and the frame is the training tail; if the current frame "
-            "is the predict frame, the statistics are biased to "
-            "predict-time data (leakage).  Production training MUST "
-            "prime these attrs at fit time.",
-            type(model).__name__, n_rows,
+        raise NanGuardNotPrimedError(
+            f"[NaN-guard] {type(model).__name__} X contains NaN AND no "
+            f"persisted _mlframe_nan_imputer / _mlframe_nan_scaler on "
+            f"model (n_rows={n_rows}). Refusing to fit imputer/scaler "
+            "on the current frame -- when the current frame is the "
+            "predict frame, test-set statistics would leak into the "
+            "model state. Call mlframe.training._predict_guards."
+            "prime_nan_guard_stats(model, X_train) at fit time, or "
+            "pass fit_at_predict=True to opt in to the legacy "
+            "fit-on-current-frame behaviour."
         )
-    else:
-        logger.warning(
-            "[NaN-guard] %s fit_at_predict=True explicitly requested; "
-            "fitting imputer/scaler on current frame and persisting "
-            "for future calls (n_rows=%s).",
-            type(model).__name__, n_rows,
-        )
+
+    logger.warning(
+        "[NaN-guard] %s fit_at_predict=True explicitly requested; "
+        "fitting imputer/scaler on current frame and persisting "
+        "for future calls (n_rows=%s). Statistics derived from the "
+        "current frame will be applied to all future calls -- ensure "
+        "this is the training tail, not predict data.",
+        type(model).__name__, n_rows,
+    )
 
     return _fit_persist_and_transform(model, X, fn, n_rows)
 
@@ -400,11 +417,16 @@ def _fit_persist_and_transform(
         # so the result matches sklearn StandardScaler(SimpleImputer.fit_transform(X)) bit-for-bit. The
         # post-imputation std is strictly LESS than the drop_nans std (mean-filling reduces variance), and
         # sklearn uses the post-imputation values.
-        zero_std = 0.0
         df_imp = X.with_columns([
             pl.col(c).fill_nan(pl.col(c).drop_nans().mean()) for c in cols
         ])
-        # Compute post-imputation per-column means and stds in one pass for persistence.
+        # Compute post-imputation per-column means and stds in one pass for
+        # persistence. We then re-use these scalars - via pl.lit constants -
+        # to do the (x - mean) / std rewrite. The previous implementation
+        # called ``pl.col(c).std(ddof=0)`` twice in the standardize step AND
+        # ``pl.col(c).mean()`` again, so each column triggered three extra
+        # full-column aggregations on top of the persistence scan. Broadcasting
+        # pre-computed scalars cuts the aggregations from 4N to N per fit.
         _stats = df_imp.select(
             [pl.col(c).mean().alias(f"_mean_{c}") for c in cols] +
             [pl.col(c).std(ddof=0).alias(f"_std_{c}") for c in cols]
@@ -413,8 +435,8 @@ def _fit_persist_and_transform(
         _stds_post = np.asarray(_stats[len(cols):], dtype=np.float64)
         _stds_safe = np.where(_stds_post == 0.0, 1.0, _stds_post)
         df_std = df_imp.with_columns([
-            (pl.col(c) - pl.col(c).mean()) / pl.when(pl.col(c).std(ddof=0) == zero_std).then(1.0).otherwise(pl.col(c).std(ddof=0))
-            for c in cols
+            (pl.col(c) - pl.lit(float(_means_post[_i]))) / pl.lit(float(_stds_safe[_i]))
+            for _i, c in enumerate(cols)
         ])
         # Persist as sklearn-compatible objects so the NEXT call hits the transform-only fastpath.
         # The imputer's statistics_ holds the imputation mean (== drop_nans mean == post-fill mean).

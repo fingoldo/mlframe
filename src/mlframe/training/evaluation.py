@@ -30,12 +30,12 @@ import pandas as pd
 DEFAULT_RANDOM_SEED = 42
 DEFAULT_BINARY_THRESHOLD = 0.5
 DEFAULT_PLOT_SAMPLE_SIZE = 500
-# 2026-05-11 (user request): default tightened from 4 to 2 d.p. With adaptive widening on sub-1 values (see ``_format.format_metric``), 2 keeps headers short for typical metrics like RMSE=11497.47 while still rendering small values like 0.0034 correctly.
+# Default tightened from 4 to 2 d.p. With adaptive widening on sub-1 values (see ``_format.format_metric``), 2 keeps headers short for typical metrics like RMSE=11497.47 while still rendering small values like 0.0034 correctly.
 DEFAULT_REPORT_NDIGITS = 2
 DEFAULT_CALIB_REPORT_NDIGITS = 2
 DEFAULT_NBINS = 10
 DEFAULT_FIGSIZE = (15, 5)
-# 2026-05-13 (user request): FI plot figsize is half the perf-chart figsize.
+# FI plot figsize is half the perf-chart figsize.
 # Pre-fix it was 15x5, which still dominated the suite report.
 DEFAULT_FI_FIGSIZE = (7.5, 2.5)
 
@@ -44,7 +44,7 @@ DEFAULT_FI_FIGSIZE = (7.5, 2.5)
 # rebuilding the RNG and resampling each call.
 _PLOT_IDX_CACHE: "dict[tuple, np.ndarray]" = {}
 
-# 2026-05-11 (user request): suite-level override for the residual_audit block. Set by ``train_mlframe_models_suite`` from ``behavior_config.report_residual_audit``. None means "use default True" so direct callers of ``report_model_perf`` outside the suite keep the historical behaviour.
+# Suite-level override for the residual_audit block. Set by ``train_mlframe_models_suite`` from ``behavior_config.report_residual_audit``. None means "use default True" so direct callers of ``report_model_perf`` outside the suite keep the historical behaviour.
 _RESIDUAL_AUDIT_OVERRIDE: "Optional[bool]" = None
 
 
@@ -83,7 +83,7 @@ from sklearn.metrics import (
     classification_report,
 )
 
-# 2026-05-09: numba-accelerated drop-ins for the regression metrics.
+# Numba-accelerated drop-ins for the regression metrics.
 # Used on 1-D float arrays (the common case in report_regression_model_perf);
 # 6-23x faster than sklearn at N=1M (sklearn's input validation overhead
 # dominates the tiny reductions). Multioutput / sample_weight paths still
@@ -348,7 +348,7 @@ def post_calibrate_model(
     if calib_probs is not None and calib_target is None:
         raise ValueError("post_calibrate_model: calib_probs supplied without calib_target; both required.")
 
-    # 2026-04-24 Session 4: multi-output path (MULTICLASS / MULTILABEL).
+    # Multi-output path (MULTICLASS / MULTILABEL).
     # When probs are (N, K) with K != 2, route through per-class isotonic
     # calibration (K independent IsotonicRegression fits) instead of the
     # univariate meta-model path. The multi-output branch returns the same
@@ -441,9 +441,10 @@ def post_calibrate_model(
     # Final leak assertion at the fit boundary: when an explicit calib_idx was passed, the disjointness check above
     # already cleared this. When (calib_probs, calib_target) were passed instead, the caller asserted independence at
     # source. Here we double-check the shape contract before letting any data hit ``meta_model.fit``.
-    assert _binary_fit_X.shape[0] == _binary_fit_y.shape[0], (
-        f"calibration X / y row counts diverge: X.shape[0]={_binary_fit_X.shape[0]} vs y.shape[0]={_binary_fit_y.shape[0]}"
-    )
+    if _binary_fit_X.shape[0] != _binary_fit_y.shape[0]:
+        raise ValueError(
+            f"calibration X / y row counts diverge: X.shape[0]={_binary_fit_X.shape[0]} vs y.shape[0]={_binary_fit_y.shape[0]}"
+        )
 
     meta_model.fit(_binary_fit_X, _binary_fit_y, **fit_params)
 

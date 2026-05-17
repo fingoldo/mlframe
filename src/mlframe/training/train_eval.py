@@ -319,11 +319,11 @@ def select_target(
     TypeError
         If target is not a supported type (np.ndarray, pd.Series, pl.Series).
     """
-    # 2026-04-26 Session 7: per-split target summary. Previously the BT=
+    # Per-split target summary. Previously the BT=
     # / MT= / ML= summary was computed on the FULL target (train+val+test),
     # which masked split-specific drift in forward-mode runs (one user's
     # log showed BT=74% as the only number, but actual splits were
-    # train=74 / val=86 / test=83 — selection bias hiding in plain sight).
+    # train=74 / val=86 / test=83 - selection bias hiding in plain sight).
     #
     # New format: model_name carries ONLY the train-side rate as
     # ``BTTR=`` / ``MTTR=`` / ``MLTR=`` (TR for "train"). The per-split
@@ -361,7 +361,7 @@ def select_target(
     train_t = _to_arr(_select(target, train_idx))
 
     if target_type == TargetTypes.REGRESSION:
-        # 2026-05-11 (user request): adaptive metric format (2 d.p. by default, widening for sub-1 values) instead of fixed :.4f.
+        # Adaptive metric format (2 d.p. by default, widening for sub-1 values) instead of fixed :.4f.
         from ._format import format_metric as _fmt
         from .composite_transforms import is_composite_target_name
         # For composite targets the train mean is the T-scale residual
@@ -376,7 +376,7 @@ def select_target(
         else:
             model_name += f" MT={_fmt(target.mean())}"
     elif target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
-        # 2026-04-24 Session 5: multilabel has 2-D target (N, K). Skip
+        # Multilabel has 2-D target (N, K). Skip
         # the binary value_counts / positive-rate path (would raise
         # "Data must be 1-dimensional" on pandas.Series construction).
         target_arr = target if isinstance(target, np.ndarray) else np.asarray(target)
@@ -514,16 +514,16 @@ def select_target(
         "enable_crash_reporting",
         "continue_on_model_failure",
         "align_polars_categorical_dicts",
-        # 2026-04-21 Fix 8: save-time filename policy; not consumed by
+        # Save-time filename policy; not consumed by
         # configure_training_params, so mask from the downstream kwarg set.
         "model_file_hash_suffix",
-        # 2026-04-26 Session 7: temporal-audit knobs are consumed by
+        # Temporal-audit knobs are consumed by
         # train_mlframe_models_suite directly (in the per-target loop),
         # not by configure_training_params.
         "target_temporal_audit_column",
         "target_temporal_audit_granularity",
         "target_temporal_audit_save_plot",
-        # 2026-05-11 (user request): suite-level reporting knobs consumed directly by ``train_mlframe_models_suite`` (residual-audit thread-local override and the score_ensemble ``uncertainty_quantile`` arg) — never passed down to ``configure_training_params``.
+        # Suite-level reporting knobs consumed directly by ``train_mlframe_models_suite`` (residual-audit thread-local override and the score_ensemble ``uncertainty_quantile`` arg) - never passed down to ``configure_training_params``.
         "report_residual_audit",
         "confidence_ensemble_quantile",
     }
@@ -815,11 +815,11 @@ def process_model(
             else:
                 model_obj = loaded_model.model
                 pre_pipeline = loaded_model.pre_pipeline
-                # Restore the Polars-fastpath sticky flag (2026-04-23 fix).
+                # Restore the Polars-fastpath sticky flag.
                 # CB's pickle/joblib serialization writes through CatBoost's
                 # native ``save_model``, which doesn't preserve arbitrary
-                # Python attributes set on the estimator (verified by the
-                # 2026-04-23 prod log: ``cb_recency`` reload still hit the
+                # Python attributes set on the estimator (verified by a
+                # prod log: ``cb_recency`` reload still hit the
                 # ``predict_proba RAISED TypeError`` polars-fastpath miss
                 # despite the original CB instance having had the flag set
                 # at fit time). Set it defensively for any reloaded CB --

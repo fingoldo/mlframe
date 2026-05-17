@@ -66,7 +66,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     Returns ``(train_df, val_df, test_df)`` -- frames are copied
     in-place when an alignment happens, otherwise returned unchanged.
     """
-    # 2026-04-28: alignment runs for ALL pandas frames regardless of
+    # Alignment runs for ALL pandas frames regardless of
     # model_type_name. Rationale: XGB-on-multilabel wrappers
     # (MultiOutputClassifier / _ChainEnsemble / ClassifierChain) hide
     # the inner XGB fit behind the wrapper's type-name; trying to
@@ -86,7 +86,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     # in ``training.core`` (built once from the train+val union, leak-free).
     # Doing it again here would, for non-XGB models in mixed suites, undo
     # the CB-specific ``Enum->String`` text-feature cast that core.py
-    # applies at line ~3466 -- surfaced 2026-04-28 as fuzz c0025
+    # applies at line ~3466 -- surfaced by fuzz c0025
     # (cb_hgb_lgb_xgb / pl_enum) failing with
     # ``Unsupported data type Enum(...) for a text feature column``.
     if isinstance(train_df, pl.DataFrame):
@@ -104,7 +104,7 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
         if isinstance(_dt, pd.CategoricalDtype):
             cat_cols_to_align.append(_col)
 
-    # DIAG (2026-04-28): print full cat layout to localise c0060 flake.
+    # DIAG: print full cat layout to localise c0060 flake.
     if os.environ.get("MLFRAME_CAT_DIAG"):
         try:
             for _df_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
@@ -281,13 +281,13 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
 # (``evaluation.py`` lazy-imports ``_predict_with_fallback`` /
 # ``_PerClassIsotonicCalibrator`` / ``_PostHocMultiCalibratedModel``
 # from this module -- making the top-level edge here the cycle's only
-# unconditional link). Surfaced 2026-04-28 by ``test_no_import_cycles``.
+# unconditional link). Surfaced by ``test_no_import_cycles``.
 # Each of the two callsites does its own lazy import so the runtime
 # cost is paid once per fit.
 
 
 _BTTR_RE = re.compile(r"BTTR=(\d+%)")
-# C1 (2026-05-11): also match MTRESID= (the composite-target rename
+# Also match MTRESID= (the composite-target rename
 # from MTTR; same numeric format).
 _MTTR_RE = re.compile(r"(MTTR|MTRESID)=(-?\d+\.\d+)")
 _MLTR_RE = re.compile(r"MLTR=([\d,]+%)")
@@ -327,7 +327,7 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
 
     short = "V" if split_name == "val" else "TS"
 
-    # 2026-04-27 Session 7 batch 8 (user feedback): splice the per-split
+    # Splice the per-split
     # value INSIDE the train-rate token so the title reads
     # ``BTTR/BTV=78%/39%`` instead of the previous separated form
     # ``... BTTR=78% ... /BTV=39%`` which spread the two numbers
@@ -345,7 +345,7 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
             return model_name
         _tag = mttr_match.group(1)  # "MTTR" or "MTRESID"
         train_val = mttr_match.group(2)
-        # 2026-05-11 (user request): adaptive format -- 2 d.p. for typical magnitudes (MTV/MTTS for raw TVT ~ 11556), more decimals for tiny magnitudes (composite residual MTV ~ -1.17). The split-suffix carries the same tag prefix as train so composite shows ``MTRESID/MRV=...``, mirroring the existing BTTR/BTV / MTTR/MTV pattern.
+        # Adaptive format -- 2 d.p. for typical magnitudes (MTV/MTTS for raw TVT ~ 11556), more decimals for tiny magnitudes (composite residual MTV ~ -1.17). The split-suffix carries the same tag prefix as train so composite shows ``MTRESID/MRV=...``, mirroring the existing BTTR/BTV / MTTR/MTV pattern.
         from ._format import format_metric as _fmt
 
         # Split-suffix: keep the trailing letter pair as-is (BTTR -> BTV, MTTR -> MTV); for MTRESID use MR* (MRV / MRTS) to stay under 8 chars on chart titles.
@@ -418,7 +418,7 @@ def _compute_split_metrics(
     if preds is None and probs is None and (df is None or model is None):
         return preds, probs, columns
 
-    # Historical 0-row split skip removed 2026-04-28 (batch 4). The
+    # Historical 0-row split skip removed. The
     # original empty-split window came from outlier detection (val-side)
     # or splitter edge cases; both are now guarded at the source. If a
     # 0-row split still arrives here, the metrics layer would crash with
@@ -431,7 +431,7 @@ def _compute_split_metrics(
     effective_show_fi = show_fi and not has_other_splits
     split_plot_file = f"{plot_file}_{split_name}" if plot_file else ""
 
-    # 2026-04-26 Session 7: splice the split-specific target rate into
+    # Splice the split-specific target rate into
     # model_name for THIS split's report only. ``select_target`` stamped
     # the train rate as ``BTTR=`` / ``MTTR=`` / ``MLTR=`` on the
     # canonical model_name; here we splice the val/test rate inline
@@ -516,7 +516,7 @@ def run_confidence_analysis(
     if confidence_model_kwargs is None:
         confidence_model_kwargs = {}
 
-    # 2026-04-26 Session 7 batch 5: bound the confidence model's
+    # Bound the confidence model's
     # iteration budget so the CPU fallback can't spin indefinitely.
     # Without a cap CB defaults to iterations=1000, which on the rich
     # feature schema typical for the suite (50+ cols) translates to
@@ -537,7 +537,7 @@ def run_confidence_analysis(
         if "eval_set" in fit_params_copy:
             del fit_params_copy["eval_set"]
 
-    # 2026-04-28: drop text / embedding columns from test_df upfront.
+    # Drop text / embedding columns from test_df upfront.
     # SHAP's TreeExplainer rebuilds a CatBoost Pool using ONLY
     # ``cat_features`` from the model (no text awareness), so text
     # columns reaching Pool as numeric raise ``Bad value for
@@ -571,14 +571,14 @@ def run_confidence_analysis(
             # type ``object`` (it's a numpy dtype wrapper). Identity check
             # always returned False; the regression test
             # ``test_confidence_analysis_pandas_object_dtype_still_dropped``
-            # surfaced this 2026-05-16 by feeding an explicit object-dtype
+            # surfaced this by feeding an explicit object-dtype
             # text column - it bypassed the drop and reached CatBoost Pool
             # which crashed on 'Cannot convert s_0 to float'. Use the dtype
             # kind code instead (``"O"`` for object, ``"U"`` for unicode str).
             if getattr(_dt, "kind", None) in ("O", "U") or str(_dt) in ("object", "string", "string[python]", "string[pyarrow]"):
                 _drop_for_conf.append(_c)
     elif isinstance(test_df, pl.DataFrame):
-        # 2026-04-26 Session 7 batch 5: polars-side auto-detect. The
+        # Polars-side auto-detect. The
         # earlier pandas-only branch missed:
         #   - pl.Utf8 / pl.String text columns (default-seed c0056:
         #     cb+hgb+xgb pl_nullable n=5000 -> CB Pool crash on ``text_0``)
@@ -655,7 +655,7 @@ def run_confidence_analysis(
                 test_target_arr.dtype,
             )
         return None
-    # 2026-04-28: when test_df, test_target, and test_probs disagree on
+    # When test_df, test_target, and test_probs disagree on
     # row count (an upstream filter dropped rows from one but not the
     # others), the confidence model fits with mismatched lengths and
     # CB raises ``Length of label=N1 and length of data=N2 is
@@ -680,7 +680,7 @@ def run_confidence_analysis(
         return None
     confidence_targets = test_probs[np.arange(test_probs.shape[0]), test_target_arr]
 
-    # 2026-04-26 Session 7 batch 5: degenerate confidence_targets.
+    # Degenerate confidence_targets.
     # When all rows in test happen to land in the same predicted-
     # probability bucket (small test sets, severely-miscalibrated /
     # constant-output models), every confidence_target is identical
@@ -726,7 +726,7 @@ def run_confidence_analysis(
             shap.utils.transformers.is_transformers_lm = lambda model: False
         except (ImportError, AttributeError):
             pass
-        # 2026-04-28: shap.plots.beeswarm internals do ``features[:, i]``
+        # shap.plots.beeswarm internals do ``features[:, i]``
         # with ``i`` typed as numpy.int64. Polars 1.x rejects numpy
         # integer indices on DataFrame ``__getitem__`` with
         # ``cannot select columns using key of type 'numpy.int64'``.

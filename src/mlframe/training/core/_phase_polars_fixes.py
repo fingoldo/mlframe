@@ -14,9 +14,25 @@ val rows carrying those categories silently cast to null.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 import polars as pl
+
+
+class PolarsCategoricalFixesResult(NamedTuple):
+    """Return shape for ``apply_polars_categorical_fixes`` (H-CORE-20).
+
+    NamedTuple stays iterable + indexable so positional tuple-unpack callers keep working; new code
+    can read ``.train_df_pd`` etc. and future field additions won't silently shift positions.
+    """
+    train_df_polars: Any
+    val_df_polars: Any
+    test_df_polars: Any
+    train_df_pd: Any
+    val_df_pd: Any
+    test_df_pd: Any
+    filtered_train_df: Any
+    filtered_val_df: Any
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +65,7 @@ def apply_polars_categorical_fixes(
     was_polars_input: bool,
     verbose: bool,
     precomputed_category_union: Optional[Dict[str, List[str]]] = None,
-) -> tuple:
+) -> PolarsCategoricalFixesResult:
     """Apply null-fill + dict alignment + utf8 cast to Polars cat features.
 
     ``precomputed_category_union`` (optional): per-column list of category
@@ -58,6 +74,12 @@ def apply_polars_categorical_fixes(
     Mitigates the silent val->null cast that happens when OD filtered out
     the only row in train carrying a rare category level.
     """
+    # Track which cat columns got null-filled with __MISSING__ so phase-2 Enum union below can include
+    # the sentinel in the union -- without that, ``pl.col(c).cast(Enum(union))`` silently casts every
+    # __MISSING__ back to null for any split that didn't contribute __MISSING__ to the union, which
+    # re-introduces the CatBoost crash this phase is supposed to prevent.
+    _filled_with_missing_sentinel: set[str] = set()
+
     # 1. Null-fill. Null values in Polars Categorical cat_features trip CatBoost 1.2.10's fused-cpdef dispatcher.
     if train_df_polars is not None:
         from mlframe.training.trainer import (
@@ -75,6 +97,7 @@ def apply_polars_categorical_fixes(
             test_df_polars, cat_features=cat_features,
         )) if test_df_polars is not None else set()
         nullable_cats = sorted(train_null_cats | val_null_cats | test_null_cats)
+        _filled_with_missing_sentinel = set(nullable_cats)
         if nullable_cats:
             val_only = sorted((val_null_cats | test_null_cats) - train_null_cats)
             if verbose:
@@ -130,6 +153,12 @@ def apply_polars_categorical_fixes(
                     union = set(tr_u.to_list())
                     if v_u is not None:
                         union |= set(v_u.to_list())
+                # If phase-1 null-filled this column with __MISSING__, the sentinel MUST be in the Enum
+                # union; otherwise ``cast(Enum(union))`` silently casts every __MISSING__ row back to null
+                # and re-introduces the CatBoost crash phase-1 just fixed. Also covers test-only nulls
+                # filled by phase-1 even when train+val had no nulls.
+                if col in _filled_with_missing_sentinel:
+                    union.add("__MISSING__")
                 if len(union) > _DICT_ALIGN_SKIP_CARD:
                     skipped_cols.append((col, len(union)))
                     continue
@@ -191,8 +220,13 @@ def apply_polars_categorical_fixes(
             if test_df_polars is not None:
                 test_df_pd = test_df_polars
 
-    return (
-        train_df_polars, val_df_polars, test_df_polars,
-        train_df_pd, val_df_pd, test_df_pd,
-        filtered_train_df, filtered_val_df,
+    return PolarsCategoricalFixesResult(
+        train_df_polars=train_df_polars,
+        val_df_polars=val_df_polars,
+        test_df_polars=test_df_polars,
+        train_df_pd=train_df_pd,
+        val_df_pd=val_df_pd,
+        test_df_pd=test_df_pd,
+        filtered_train_df=filtered_train_df,
+        filtered_val_df=filtered_val_df,
     )

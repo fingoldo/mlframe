@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import warnings
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Tuple, Dict, Any
 
@@ -86,6 +87,40 @@ from .base import _ensure_numpy  # noqa: E402,F401  shared with _recurrent_data
 from ._recurrent_config import RNNType, InputMode, RecurrentConfig  # noqa: E402,F401
 from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule  # noqa: E402,F401
 from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead  # noqa: E402,F401
+
+
+# Substring-match on the monitor name was buggy: "val_log_likelihood" contains
+# "loss" -> wrong "min" direction (likelihood is max-better). Explicit table
+# of base-metric -> direction, matched on whitespace/underscore-delimited
+# tokens of the trailing component.
+_MONITOR_MIN_KEYS: frozenset[str] = frozenset({
+    "loss", "mse", "mae", "rmse", "mape", "smape", "logloss", "log_loss",
+    "huber", "kl", "kl_div", "perplexity", "nll", "error", "err",
+})
+_MONITOR_MAX_KEYS: frozenset[str] = frozenset({
+    "acc", "accuracy", "f1", "auroc", "auc", "roc_auc", "pr_auc", "ap",
+    "precision", "recall", "iou", "r2", "score", "likelihood", "log_likelihood",
+    "ndcg", "map", "mrr",
+})
+
+
+def _monitor_mode(monitor: str) -> str:
+    """Return 'min' or 'max' for a metric name without substring traps.
+
+    Splits on '_' / '/' and inspects suffix tokens against an explicit
+    min/max table. Falls back to 'max' (the historical default for non-loss
+    names); unknown names emit a warning so the caller can extend the table
+    rather than silently misdirect EarlyStopping.
+    """
+    _tokens = [t for t in monitor.replace("/", "_").split("_") if t]
+    # Walk suffix-first so 'val_log_likelihood' -> 'likelihood' wins over 'log'.
+    for tok in reversed(_tokens):
+        if tok in _MONITOR_MIN_KEYS:
+            return "min"
+        if tok in _MONITOR_MAX_KEYS:
+            return "max"
+    logger.warning("_monitor_mode: unknown monitor %r; defaulting to 'max'", monitor)
+    return "max"
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -414,24 +449,37 @@ class RecurrentTorchModel(L.LightningModule):
         Multilabel ``BCEWithLogitsLoss`` requires labels of dtype float32 (matching logits).
         The DataModule prepares 2-D labels for multilabel; cast here defensively in case caller passes int dtypes.
         """
+        # Weighted reduction MUST divide by sum-of-weights, not N -- the
+        # former is the unbiased weighted mean; the latter inflates the
+        # loss by ``N / sum(w)`` whenever weights aren't uniform-mean-1.
+        # Pre-fix all three branches used ``.mean()`` which divided by
+        # ``N`` (or ``N*K`` for multilabel); with ``weights=[10, 0, 0]``
+        # and ``losses=[1, 1, 1]`` that produced 10/3 ≈ 3.33 instead of
+        # the only-non-zero-weight sample's 1.0.
+        _w_eps = torch.tensor(1e-12, dtype=logits.dtype, device=logits.device)
         if self.is_regression:
             preds = logits.squeeze(-1)
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(preds, labels)
-                return (losses * sample_weights).mean()
+                w_sum = sample_weights.sum().clamp(min=_w_eps)
+                return (losses * sample_weights).sum() / w_sum
             return self._loss_fn_mean(preds, labels)
         elif self.task_type == "multilabel":
             # BCEWithLogitsLoss expects float labels (same dtype as logits).
             labels_f = labels.to(logits.dtype)
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(logits, labels_f)
-                # losses shape: (N, K); broadcast sample_weights (N,) -> (N, 1)
-                return (losses * sample_weights.unsqueeze(-1)).mean()
+                # losses shape: (N, K); broadcast sample_weights (N,) -> (N, 1).
+                # Per-label mean across K, then weighted mean across N.
+                per_sample = losses.mean(dim=-1)
+                w_sum = sample_weights.sum().clamp(min=_w_eps)
+                return (per_sample * sample_weights).sum() / w_sum
             return self._loss_fn_mean(logits, labels_f)
         else:
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(logits, labels)
-                return (losses * sample_weights).mean()
+                w_sum = sample_weights.sum().clamp(min=_w_eps)
+                return (losses * sample_weights).sum() / w_sum
             return self._loss_fn_mean(logits, labels)
 
     def configure_optimizers(self):
@@ -483,7 +531,7 @@ class _RecurrentWrapperBase(BaseEstimator):
         self._aux_input_size: int = 0
         self._seq_input_size: int = 4
         self._feature_scaler: StandardScaler | None = None
-        self._prediction_cache: dict[int, np.ndarray] = {}
+        self._prediction_cache: dict[bytes, np.ndarray] = {}
 
     def _validate_inputs(
         self,
@@ -510,12 +558,18 @@ class _RecurrentWrapperBase(BaseEstimator):
         """Create dataset with proper preprocessing."""
         processed_seqs = None
         if sequences is not None:
-            if len(sequences) > 10_000:
-                from concurrent.futures import ThreadPoolExecutor
-                with ThreadPoolExecutor() as executor:
-                    processed_seqs = list(executor.map(self._preprocess_sequence, sequences))
+            mode = getattr(self.config, "sequence_preprocessing", "none")
+            if mode == "none":
+                # Fast-path: cast to float32 and pass through unchanged.
+                processed_seqs = [np.asarray(s, dtype=np.float32) for s in sequences]
             else:
-                processed_seqs = [self._preprocess_sequence(seq) for seq in sequences]
+                _preprocess = lambda s: _RecurrentWrapperBase._preprocess_sequence(s, mode=mode)
+                if len(sequences) > 10_000:
+                    from concurrent.futures import ThreadPoolExecutor
+                    with ThreadPoolExecutor() as executor:
+                        processed_seqs = list(executor.map(_preprocess, sequences))
+                else:
+                    processed_seqs = [_preprocess(seq) for seq in sequences]
 
         scaled_features = _ensure_numpy(features)
         if scaled_features is not None and self._feature_scaler is not None:
@@ -544,19 +598,40 @@ class _RecurrentWrapperBase(BaseEstimator):
     _STD_EPSILON: float = 1e-8
 
     @staticmethod
-    def _preprocess_sequence(seq: np.ndarray) -> np.ndarray:
-        """Preprocess a single sequence with proper normalization."""
+    def _preprocess_sequence(seq: np.ndarray, mode: str = "none") -> np.ndarray:
+        """Preprocess a single sequence.
+
+        ``mode``:
+          * ``"none"``: cast to float32 and return -- magnitude preserved.
+          * ``"per_sequence_zscore"``: independent z-score per channel per
+            sequence. Destroys cross-sequence magnitude information; use
+            only when each sequence is a standalone series whose
+            absolute scale is irrelevant.
+          * ``"astronomy_mjd_delta"``: legacy compat for in-house
+            astronomy datasets -- column 0 delta-encoded + /10 scale,
+            columns 1+ per-sequence z-score. Provided so existing
+            astronomy callers don't break after the default flip.
+        """
         result = seq.astype(np.float32)
+        if mode == "none":
+            return result
+
         n_cols = result.shape[1]
+        if mode == "astronomy_mjd_delta":
+            if n_cols > 0:
+                delta = np.zeros(len(result), dtype=np.float32)
+                delta[1:] = np.diff(seq[:, 0])
+                result[:, 0] = delta / _RecurrentWrapperBase._DELTA_MJD_SCALE
+            start_col = 1
+        elif mode == "per_sequence_zscore":
+            start_col = 0
+        else:
+            raise ValueError(
+                f"_preprocess_sequence: unknown mode {mode!r}; expected one of "
+                "{'none', 'per_sequence_zscore', 'astronomy_mjd_delta'}"
+            )
 
-        # Column 0: Delta encode and scale
-        if n_cols > 0:
-            delta = np.zeros(len(result), dtype=np.float32)
-            delta[1:] = np.diff(seq[:, 0])
-            result[:, 0] = delta / _RecurrentWrapperBase._DELTA_MJD_SCALE
-
-        # Column 1+: Z-score normalize
-        for col_idx in range(1, n_cols):
+        for col_idx in range(start_col, n_cols):
             col = seq[:, col_idx]
             col_mean = np.mean(col)
             col_std = np.std(col)
@@ -581,10 +656,13 @@ class _RecurrentWrapperBase(BaseEstimator):
         _is_multilabel_ds = (dataset.labels.ndim == 2)
         if shuffle and self.config.use_stratified_sampler and not self._is_regression and not _is_multilabel_ds:
             labels = dataset.labels.numpy()
-            class_counts = np.bincount(labels)
-            if len(class_counts) > 1 and all(c > 0 for c in class_counts):
-                class_weights = 1.0 / class_counts
-                sample_weights = class_weights[labels]
+            # np.bincount needs non-negative contiguous integer labels and
+            # silently misreports for non-contiguous label sets ({0,5} ->
+            # length-6 array with zeros); use np.unique for correctness.
+            unique_labels, class_counts = np.unique(labels, return_counts=True)
+            if len(unique_labels) > 1 and (class_counts > 0).all():
+                label_to_weight = {int(lbl): 1.0 / int(cnt) for lbl, cnt in zip(unique_labels, class_counts)}
+                sample_weights = np.array([label_to_weight[int(lbl)] for lbl in labels], dtype=np.float64)
                 sampler = WeightedRandomSampler(
                     weights=sample_weights,
                     num_samples=len(dataset),
@@ -635,7 +713,7 @@ class _RecurrentWrapperBase(BaseEstimator):
 
         if has_validation:
             monitor = self.config.early_stopping_monitor
-            mode = "min" if "loss" in monitor or "mse" in monitor else "max"
+            mode = _monitor_mode(monitor)
 
             callbacks.append(
                 L.pytorch.callbacks.EarlyStopping(
@@ -673,59 +751,121 @@ class _RecurrentWrapperBase(BaseEstimator):
     def _compute_cache_key(
         features: np.ndarray | None,
         sequences: list[np.ndarray] | None,
-    ) -> int:
-        """Compute cache key from input arrays."""
-        parts: list = []
+    ) -> bytes:
+        """Compute content-hash cache key from input arrays.
+
+        Sampling 3 scalars + shape and hashing the tuple-of-str was
+        collision-prone: any two predict-batches that agreed on (shape,
+        dtype, first/middle/last value) returned the cached prediction of
+        the first, which silently mis-predicted on near-duplicate inputs.
+
+        Hash full ``tobytes()`` payload (xxhash if available, blake2b
+        otherwise) keyed on shape+dtype to make sub-cell changes always
+        invalidate the cache.
+        """
+        import hashlib
+        try:
+            import xxhash
+            _hasher = xxhash.xxh3_128()
+            _update = _hasher.update
+            _digest = _hasher.digest
+        except ImportError:
+            _hasher = hashlib.blake2b(digest_size=16)
+            _update = _hasher.update
+            _digest = _hasher.digest
 
         if features is not None:
-            parts.append(features.shape)
-            parts.append(features.dtype.str)
-            if features.size > 0:
-                flat = features.ravel()
-                indices = [0, len(flat) // 2, -1] if len(flat) > 2 else list(range(len(flat)))
-                parts.append(tuple(float(flat[i]) for i in indices))
-
+            _update(b"FEAT")
+            _update(str(features.shape).encode())
+            _update(features.dtype.str.encode())
+            _arr = np.ascontiguousarray(features)
+            _update(_arr.tobytes())
         if sequences is not None:
-            parts.append(len(sequences))
-            if sequences:
-                sample_indices = [0, len(sequences) // 2, -1] if len(sequences) > 2 else list(range(len(sequences)))
-                for idx in sample_indices:
-                    seq = sequences[idx]
-                    parts.append(seq.shape)
-                    if seq.size > 0:
-                        flat = seq.ravel()
-                        parts.append((float(flat[0]), float(flat[-1])))
-
-        return hash(tuple(map(str, parts)))
+            _update(b"SEQ")
+            _update(str(len(sequences)).encode())
+            for seq in sequences:
+                _arr = np.ascontiguousarray(seq)
+                _update(str(seq.shape).encode())
+                _update(seq.dtype.str.encode())
+                _update(_arr.tobytes())
+        return _digest()
 
     def save(self, path: str | Path) -> None:
-        """Save model to disk."""
+        """Save model to disk.
+
+        Config is serialised as a primitive dict (Enum values -> .value
+        strings) so the file loads under ``torch.load(weights_only=True)``;
+        the prior format pickled the ``RecurrentConfig`` dataclass directly,
+        which weights_only=True rejects as an unsafe global. feature_scaler
+        likewise pickled to disk; we store its key attributes only.
+        """
         if self.model is None:
             raise RuntimeError("No model to save. Call fit() first.")
 
+        from dataclasses import fields
+
+        _cfg = self.config
+        config_dict: dict[str, Any] = {}
+        for f in fields(_cfg):
+            v = getattr(_cfg, f.name)
+            if isinstance(v, Enum):
+                v = v.value
+            config_dict[f.name] = v
+
+        scaler_dict: dict[str, Any] | None = None
+        if self._feature_scaler is not None:
+            scaler_dict = {
+                "mean_": np.asarray(self._feature_scaler.mean_) if self._feature_scaler.mean_ is not None else None,
+                "scale_": np.asarray(self._feature_scaler.scale_) if self._feature_scaler.scale_ is not None else None,
+                "var_": np.asarray(self._feature_scaler.var_) if self._feature_scaler.var_ is not None else None,
+                "n_features_in_": int(self._feature_scaler.n_features_in_),
+                "with_mean": bool(self._feature_scaler.with_mean),
+                "with_std": bool(self._feature_scaler.with_std),
+            }
+
         state = {
-            "config": self.config,
+            "config_dict": config_dict,
             "model_state_dict": self.model.state_dict(),
             "random_state": self.random_state,
             "aux_input_size": self._aux_input_size,
             "seq_input_size": self._seq_input_size,
-            "feature_scaler": self._feature_scaler,
+            "feature_scaler_dict": scaler_dict,
             "is_regression": self._is_regression,
         }
         torch.save(state, path)
 
     @classmethod
     def load(cls, path: str | Path) -> _RecurrentWrapperBase:
-        """Load model from disk."""
+        """Load model from disk (weights_only=True safe)."""
         state = torch.load(path, map_location="cpu", weights_only=True)
 
-        wrapper = cls(config=state["config"], random_state=state["random_state"])
+        # Reconstruct config from dict; coerce Enum string values back.
+        _raw = state["config_dict"]
+        _cfg_kwargs = dict(_raw)
+        if isinstance(_cfg_kwargs.get("input_mode"), str):
+            _cfg_kwargs["input_mode"] = InputMode(_cfg_kwargs["input_mode"])
+        if isinstance(_cfg_kwargs.get("rnn_type"), str):
+            _cfg_kwargs["rnn_type"] = RNNType(_cfg_kwargs["rnn_type"])
+        config = RecurrentConfig(**_cfg_kwargs)
+
+        wrapper = cls(config=config, random_state=state["random_state"])
         wrapper._aux_input_size = state.get("aux_input_size", 0)
         wrapper._seq_input_size = state.get("seq_input_size", 4)
-        wrapper._feature_scaler = state.get("feature_scaler", None)
+
+        _sd = state.get("feature_scaler_dict")
+        if _sd is not None:
+            scaler = StandardScaler(with_mean=_sd["with_mean"], with_std=_sd["with_std"])
+            if _sd["mean_"] is not None:
+                scaler.mean_ = np.asarray(_sd["mean_"])
+            if _sd["scale_"] is not None:
+                scaler.scale_ = np.asarray(_sd["scale_"])
+            if _sd["var_"] is not None:
+                scaler.var_ = np.asarray(_sd["var_"])
+            scaler.n_features_in_ = int(_sd["n_features_in_"])
+            wrapper._feature_scaler = scaler
 
         wrapper.model = RecurrentTorchModel(
-            config=state["config"],
+            config=config,
             seq_input_size=wrapper._seq_input_size,
             aux_input_size=wrapper._aux_input_size,
             is_regression=state.get("is_regression", wrapper._is_regression),
@@ -1069,13 +1209,19 @@ def extract_sequences(
         df = df[indices]
 
     n_rows = len(df)
-    n_cols = len(columns)
 
-    col_data = [df[col].to_list() for col in columns]
+    # Convert each column's per-row list to a numpy array once. The previous
+    # implementation did n_rows * n_cols Python list-lookups in a comprehension
+    # then column_stack'd per row, materialising n_rows separate small (k, n_cols)
+    # arrays via Python-level loops. Casting per column first lets each row's
+    # stack use ndarray slicing rather than nested-list indexing.
+    col_arrays: list[list[np.ndarray]] = [
+        [np.asarray(v, dtype=np.float32) for v in df[col].to_list()]
+        for col in columns
+    ]
 
-    # Vectorized: use np.column_stack to avoid nested Python loop
     result: list[np.ndarray] = [
-        np.column_stack([col_data[j][i] for j in range(n_cols)]).astype(np.float32)
+        np.stack([col_arrays[j][i] for j in range(len(columns))], axis=-1)
         for i in range(n_rows)
     ]
 

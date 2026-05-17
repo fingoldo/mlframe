@@ -37,7 +37,8 @@ from ._pipeline_helpers import _passthrough_cols_fit_transform
 from ._predict_guards import _recover_cb_feature_names
 from .helpers import CB_DEFAULT_OCCURRENCE_LOWER_BOUND, compute_cb_text_processing
 from .phases import phase
-from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
+from .pipeline import prepare_df_for_catboost as _prep_cb
+from .utils import get_pandas_view_of_polars_df, maybe_clean_ram_adaptive as _maybe_clean_ram
 
 logger = logging.getLogger(__name__)
 
@@ -742,8 +743,9 @@ def _train_model_with_fallback(
                 text_features=fit_params.get("text_features"),
             )
             logger.warning("CB Polars fastpath failure -- schema context:\n%s", schema_dump)
-            from mlframe.training.utils import get_pandas_view_of_polars_df
-            from mlframe.training.pipeline import prepare_df_for_catboost as _prep_cb
+            # ``get_pandas_view_of_polars_df`` and ``prepare_df_for_catboost`` (as _prep_cb) are now
+            # imported at module top; re-importing them on every retry inside the exception handler
+            # paid sys.modules lookup cost N times per training session.
 
             cat_feat = list(fit_params.get("cat_features") or [])
             text_feat = list(fit_params.get("text_features") or [])
@@ -872,25 +874,36 @@ def _ensure_xgb_classification_objective(model, train_target) -> None:
     XGB sklearn wrapper auto-fills binary:logistic; for multiclass/multilabel that
     produces N*K preds vs N labels -> Invalid shape. No-op when objective already
     multiclass/multilabel, model isn't XGB classifier, or target inspection fails."""
-    if model is None: return
+    if model is None:
+        return
     _mt = type(model).__name__
-    if "XGB" not in _mt or "Classifier" not in _mt: return
-    try: params = model.get_params() if hasattr(model, "get_params") else {}
-    except Exception: return
+    if "XGB" not in _mt or "Classifier" not in _mt:
+        return
+    try:
+        params = model.get_params() if hasattr(model, "get_params") else {}
+    except Exception as _params_exc:
+        logger.debug("_ensure_xgb_classification_objective: get_params() raised %s; skipping objective adjust.", _params_exc)
+        return
     obj = params.get("objective")
-    if isinstance(obj, str) and ("multi" in obj or "multilabel" in obj): return
+    if isinstance(obj, str) and ("multi" in obj or "multilabel" in obj):
+        return
     arr = np.asarray(train_target) if train_target is not None else None
-    if arr is None: return
+    if arr is None:
+        return
     if arr.dtype == object and arr.ndim == 1 and arr.shape[0] > 0:
         _first = arr[0]
         if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
-            try: arr = np.stack([np.asarray(c) for c in arr], axis=0)
-            except Exception: return
+            try:
+                arr = np.stack([np.asarray(c) for c in arr], axis=0)
+            except Exception as _stack_exc:
+                logger.debug("_ensure_xgb_classification_objective: object-dtype stack raised %s; skipping.", _stack_exc)
+                return
     if arr.ndim == 2 and arr.shape[1] >= 2:
         model.set_params(objective="binary:logistic", eval_metric="logloss")
     elif arr.ndim == 1:
         n_unique = len(np.unique(arr))
-        if n_unique > 2: model.set_params(objective="multi:softprob", num_class=n_unique)
+        if n_unique > 2:
+            model.set_params(objective="multi:softprob", num_class=n_unique)
 
 def _maybe_wrap_for_2d_target(model, train_target):
     """When ``train_target`` is 2-D ``(N, K)`` but ``model`` is a single-

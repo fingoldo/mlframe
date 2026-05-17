@@ -371,9 +371,32 @@ class _DatasetReuseMixin:
         train_key = _signature_of(X, categorical_feature)
         if self._cached_train_key == train_key and self._cached_train_dataset is not None:
             dtrain = self._cached_train_dataset
-            dtrain.set_label(np.asarray(y_for_fit))
+            # Validate that label cardinality matches the cached Dataset
+            # before any set_label/set_weight: cache hit on ``X`` does NOT
+            # guarantee ``y`` has the same length (caller can pass a
+            # filtered y while keeping the cached frame). Without this
+            # guard, LightGBM accepts the mismatched label silently and
+            # downstream set_weight(ones(num_data)) crashes - or worse,
+            # produces aligned-by-position garbage when sample_weight is
+            # supplied at the wrong length.
+            _y_arr = np.asarray(y_for_fit)
+            if _y_arr.shape[0] != dtrain.num_data():
+                raise ValueError(
+                    f"lgb_shim: cached train Dataset has "
+                    f"{dtrain.num_data()} rows but y has "
+                    f"{_y_arr.shape[0]} rows. Invalidate the cache before "
+                    f"refitting (call ._init_cache())."
+                )
+            dtrain.set_label(_y_arr)
             if sample_weight is not None:
-                dtrain.set_weight(np.asarray(sample_weight))
+                _w_arr = np.asarray(sample_weight)
+                if _w_arr.shape[0] != dtrain.num_data():
+                    raise ValueError(
+                        f"lgb_shim: sample_weight length "
+                        f"{_w_arr.shape[0]} != Dataset.num_data() "
+                        f"{dtrain.num_data()}"
+                    )
+                dtrain.set_weight(_w_arr)
             else:
                 # When sample_weight was set previously and now None is
                 # passed, "uniform weights" is the desired semantic. We
@@ -415,6 +438,21 @@ class _DatasetReuseMixin:
             # (DataFrame / ndarray / similar) is the bare-tuple form.
             if len(eval_set) in (2, 3) and not isinstance(eval_set[0], (list, tuple)):
                 eval_set = [eval_set]
+        # Same bare-2/3-LIST form ``[X_val, y_val]``: iterating yields X then
+        # y, and ``pair_seq[0]`` then returns the first column of the DataFrame
+        # (label-name aliasing). Detect by checking the first element is
+        # array-like rather than a (X, y) tuple/list-pair.
+        if eval_set is not None and isinstance(eval_set, list) and len(eval_set) in (2, 3):
+            _first = eval_set[0]
+            # A real list-of-pairs has tuple/list items; a bare list-pair has
+            # array-like items (DataFrame, ndarray, polars frame, Series).
+            if not isinstance(_first, (list, tuple)) and hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)):
+                _looks_like_pair_item = (
+                    hasattr(_first, "shape") or hasattr(_first, "columns")
+                    or hasattr(_first, "iloc") or hasattr(_first, "dtypes")
+                )
+                if _looks_like_pair_item:
+                    eval_set = [tuple(eval_set)]
         valid_sets: list[Any] = []
         valid_names: list[str] = []
         if eval_set:

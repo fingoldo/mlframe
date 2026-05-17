@@ -79,14 +79,41 @@ from __future__ import annotations
 #      paths; treating logical-count as physical-count is a benign
 #      approximation that avoids the wmic round trip entirely.
 import os as _os
+
+# Audit 2026-05-17 (Wave 1.5): the loky physical-core count override
+# was originally applied at import time as a global side effect, which
+# affected any joblib consumer in the same Python process even when the
+# user only imported mlframe for a single helper. We now expose it as an
+# opt-in idempotent function ``apply_loky_cpu_count_override()`` and the
+# suite entrypoint (``train_mlframe_models_suite``) calls it once on the
+# first invocation. ``LOKY_MAX_CPU_COUNT`` env var is still set at
+# import time -- it's a single env-var write, easy to reverse, and the
+# wmic-spawn-on-Windows perf hit only triggers when something actually
+# probes physical cores.
 if not _os.environ.get("LOKY_MAX_CPU_COUNT"):
     _os.environ["LOKY_MAX_CPU_COUNT"] = str(_os.cpu_count() or 1)
-try:
-    from joblib.externals.loky.backend import context as _loky_ctx
-    _MLFRAME_CPU_COUNT_CACHED = (_os.cpu_count() or 1, _os.cpu_count() or 1)
-    _loky_ctx._count_physical_cores = lambda: _MLFRAME_CPU_COUNT_CACHED
-except Exception:
-    pass
+
+_loky_override_applied = False
+
+
+def apply_loky_cpu_count_override() -> None:
+    """Patch ``loky.backend.context._count_physical_cores`` to return
+    the result of ``os.cpu_count()`` (logical = physical approximation).
+
+    Idempotent. Originally applied at import time -- per the 2026-05-17
+    audit we made this opt-in: the suite entrypoint invokes it, but
+    bare ``import mlframe.training`` no longer mutates joblib state.
+    """
+    global _loky_override_applied
+    if _loky_override_applied:
+        return
+    try:
+        from joblib.externals.loky.backend import context as _loky_ctx
+        _count = _os.cpu_count() or 1
+        _loky_ctx._count_physical_cores = lambda: (_count, _count)
+        _loky_override_applied = True
+    except Exception:
+        pass
 
 
 # Lazy imports via __getattr__ — deferred until actually accessed (kept for

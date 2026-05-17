@@ -71,11 +71,17 @@ def _process_special_values(
         if drop_columns:
             # For constant column detection
             if "numeric" in kind:
-                # Numeric constants: min == max. Per-column loop measured faster than
-                # a single df.agg(['min','max']) pass on both narrow-tall and wide-short
-                # shapes (benchmark 2026-04-14: 10x slower on 1000x200, 0.74x on 100k x 50).
-                # NaN-skipping min/max preserves Polars semantics ([1.0, NaN, 1.0] constant).
-                constant_cols = [col for col in df.select_dtypes(include="number").columns if df[col].min() == df[col].max()]
+                # Numeric constants: min == max would miss all-NaN columns
+                # (``NaN == NaN`` is False under IEEE-754 semantics, so the
+                # comparison silently treats an all-NaN column as non-constant
+                # and leaves it in the frame). Use ``nunique(dropna=False)``
+                # which counts NaN as its own bucket: pure-NaN -> 1, mixed
+                # NaN+value -> 2+, all-equal numeric -> 1. Matches the polars
+                # branch which treats all-NaN columns as constant.
+                constant_cols = [
+                    col for col in df.select_dtypes(include="number").columns
+                    if df[col].nunique(dropna=False) <= 1
+                ]
             else:
                 # Categorical constants: n_unique == 1
                 constant_cols = [col for col in df.select_dtypes(exclude="number").columns if df[col].nunique() == 1]

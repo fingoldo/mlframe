@@ -62,6 +62,14 @@ class PositionalEncoding(nn.Module):
 
     def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.1) -> None:
         super().__init__()
+        # Sinusoidal PE requires interleaved sin/cos pairs; d_model<2 has no cos
+        # channel and silently degrades to single-component encoding. Refuse
+        # rather than emit a half-encoded buffer the caller can't detect.
+        if d_model < 2:
+            raise ValueError(
+                f"PositionalEncoding requires d_model >= 2 (got {d_model}); "
+                "sinusoidal encoding needs sin+cos channel pair."
+            )
         self.dropout = nn.Dropout(p=dropout)
 
         # Precompute sin/cos positional encodings (Vaswani et al., 2017)
@@ -70,8 +78,7 @@ class PositionalEncoding(nn.Module):
 
         pe = torch.zeros(max_len, d_model)
         pe[:, 0::2] = torch.sin(position * div_term)
-        if d_model > 1:
-            pe[:, 1::2] = torch.cos(position * div_term[: d_model // 2])
+        pe[:, 1::2] = torch.cos(position * div_term[: d_model // 2])
 
         self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_len, d_model)
 

@@ -186,7 +186,7 @@ def compute_label_distribution_drift(
             "target_type": target_type,
             "splits": {},
             "drifts": {},
-            "warnings": ["train_target is None — no drift report computed."],
+            "warnings": ["train_target is None - no drift report computed."],
             "warn_threshold_pp": warn_threshold_pp,
         }
 
@@ -303,7 +303,7 @@ def compute_label_distribution_drift(
                 warnings.append(
                     f"{split_name.upper()} P(y=1)={split_p:.3f} vs train "
                     f"{train_p:.3f} (Δ={delta_pp:+.1f}pp); selection-bias / "
-                    f"prior-shift suspected — model will be miscalibrated on "
+                    f"prior-shift suspected - model will be miscalibrated on "
                     f"{split_name}."
                 )
         # Track val-vs-test as a separate diagnostic (val-test mismatch
@@ -386,6 +386,6 @@ def format_drift_report(report: dict[str, Any], target_name: str = "") -> str:
         for w in warnings:
             lines.append(f"  WARN: {w}")
     else:
-        lines.append("  (no drift warnings — splits within threshold)")
+        lines.append("  (no drift warnings - splits within threshold)")
 
     return "\n".join(lines)

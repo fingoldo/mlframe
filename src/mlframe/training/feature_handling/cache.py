@@ -197,9 +197,16 @@ class FeatureCache:
         if self._cfg.persistence != "off" and disk_key is not None:
             disk_value = self._read_from_disk(disk_key)
             if disk_value is not None:
+                # FH-XREF-NO-EVICT: write xref under the same lock that
+                # owns ``_mem`` insertion + eviction so a concurrent
+                # eviction can't strand the xref while the mem entry is
+                # gone. Pre-fix the xref write was outside the lock and
+                # ran AFTER ``_insert_in_memory`` already released the
+                # lock -- a parallel get_or_compute could trigger
+                # eviction in the gap.
                 self._insert_in_memory(in_mem_key, disk_value, recompute_time_s=0.5,
-                                        size_estimator=size_estimator)
-                self._key_xref[in_mem_key] = disk_key
+                                        size_estimator=size_estimator,
+                                        disk_key=disk_key)
                 with self._lock:
                     self._hits_disk += 1
                 return disk_value
@@ -212,13 +219,17 @@ class FeatureCache:
         recompute_time_s = max(0.001, time.monotonic() - t0)
 
         # 4. Store
+        write_xref = (
+            self._cfg.persistence in ("auto", "read_write")
+            and disk_key is not None
+        )
+        if write_xref:
+            self._write_to_disk(disk_key, value)
         self._insert_in_memory(
             in_mem_key, value, recompute_time_s=recompute_time_s,
             size_estimator=size_estimator,
+            disk_key=disk_key if write_xref else None,
         )
-        if self._cfg.persistence in ("auto", "read_write") and disk_key is not None:
-            self._write_to_disk(disk_key, value)
-            self._key_xref[in_mem_key] = disk_key
 
         return value
 
@@ -232,6 +243,7 @@ class FeatureCache:
         value: Any,
         recompute_time_s: float,
         size_estimator: Optional[Callable[[Any], int]],
+        disk_key: Optional[DiskKey] = None,
     ) -> None:
         size = (size_estimator or _default_size_estimator)(value)
         entry = _CacheEntry(
@@ -242,6 +254,8 @@ class FeatureCache:
         with self._lock:
             self._mem[key] = entry
             self._mem.move_to_end(key)
+            if disk_key is not None:
+                self._key_xref[key] = disk_key
             self._evict_if_needed_locked()
 
     def _evict_if_needed_locked(self) -> None:
@@ -326,16 +340,24 @@ class FeatureCache:
         path = self._path_for(disk_key)
         if not os.path.exists(path):
             return None
+        allow_pickle = bool(getattr(self._cfg, "allow_pickle", False))
         try:
-            return _deserialize(path)
+            return _deserialize(path, allow_pickle=allow_pickle)
+        except CachePickleRefusedError:
+            # Surface the refusal up to the caller -- silent miss would
+            # hide a security policy decision the operator must see.
+            raise
         except Exception as e:  # pragma: no cover
             logger.warning("disk cache read of %s failed: %s; treating as miss", path, e)
             return None
 
     def _write_to_disk(self, disk_key: DiskKey, value: Any) -> None:
         path = self._path_for(disk_key)
+        allow_pickle = bool(getattr(self._cfg, "allow_pickle", False))
         try:
-            atomic_write_bytes(path, lambda f: _serialize(value, f))
+            atomic_write_bytes(path, lambda f: _serialize(value, f, allow_pickle=allow_pickle))
+        except CachePickleRefusedError:
+            raise
         except Exception as e:  # pragma: no cover
             logger.warning("disk cache write to %s failed: %s; in-memory still populated", path, e)
 
@@ -390,21 +412,40 @@ def _default_size_estimator(value: Any) -> int:
     return sys.getsizeof(value)
 
 
-def _serialize(value: Any, fileobj: Any) -> None:
+class CachePickleRefusedError(RuntimeError):
+    """Raised when a payload would require pickle (de)serialisation but
+    ``CacheConfig.allow_pickle`` is False. Cache directories with write
+    access by other principals make ``pickle.load`` an arbitrary-code
+    execution vector; we refuse by default and require explicit opt-in.
+    """
+
+
+def _serialize(value: Any, fileobj: Any, *, allow_pickle: bool = False) -> None:
     """Serialise to disk via numpy ``.npz``. Round-3 R3-10: dtype
     preserved exactly via ``np.save`` so fp16 stored = fp16 loaded
-    (no silent fp32 promotion via pickle pathways)."""
+    (no silent fp32 promotion via pickle pathways).
+
+    When ``allow_pickle=False`` (default) and ``value`` is not ndarray /
+    scipy-sparse, refuses rather than falling through to pickle. Set
+    ``allow_pickle=True`` via :class:`CacheConfig` only when the cache
+    directory is trusted (no concurrent write access by other
+    principals)."""
     if isinstance(value, np.ndarray):
-        # Wrap a dict so we can detect the format on load.
-        np.savez(fileobj, kind=np.array(["ndarray"], dtype=object), value=value)
+        # Encode the "kind" sentinel as a uint8 array of ASCII bytes
+        # rather than an object-dtype array -- object dtype requires
+        # ``allow_pickle=True`` on the load side, which we now refuse
+        # by default for security. ``np.frombuffer`` keeps it numeric.
+        kind_bytes = np.frombuffer(b"ndarray", dtype=np.uint8)
+        np.savez(fileobj, kind=kind_bytes, value=value)
         return
     try:
         import scipy.sparse as sp
         if sp.issparse(value):
             csr = value.tocsr()
+            kind_bytes = np.frombuffer(b"csr", dtype=np.uint8)
             np.savez(
                 fileobj,
-                kind=np.array(["csr"], dtype=object),
+                kind=kind_bytes,
                 data=csr.data,
                 indices=csr.indices,
                 indptr=csr.indptr,
@@ -413,24 +454,43 @@ def _serialize(value: Any, fileobj: Any) -> None:
             return
     except ImportError:  # pragma: no cover
         pass
-    # Last resort: pickle. Round-3 chaos C24 says joblib pickle is
-    # fragile, but for a cache miss we'd rather have it work than
-    # always fail.
+    if not allow_pickle:
+        raise CachePickleRefusedError(
+            f"FeatureCache: cannot serialise {type(value).__name__!r} without "
+            "pickle, and CacheConfig.allow_pickle is False. Pickle is an RCE "
+            "vector on attacker-controlled cache files; set allow_pickle=True "
+            "only when the cache directory is trusted."
+        )
+    # Opt-in pickle path.
     import pickle
     pickle.dump(value, fileobj, protocol=5)
 
 
-def _deserialize(path: str) -> Any:
+def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
     """Inverse of :func:`_serialize`. Memmap on read for ndarray
-    payloads (round-3 P8: fp16 memmap saves 5-10 GB peak RAM)."""
-    # Open .npz once -- numpy figures out the format from header.
+    payloads (round-3 P8: fp16 memmap saves 5-10 GB peak RAM).
+
+    ``np.load`` is opened with ``allow_pickle=allow_pickle``; the
+    pickle-file fallback (legacy from the old write path) is only
+    reached when ``allow_pickle=True``. With the default False, a
+    pickle-only payload on disk raises :class:`CachePickleRefusedError`
+    instead of executing the pickle stream."""
     try:
-        npz = np.load(path, allow_pickle=True, mmap_mode="r")
+        npz = np.load(path, allow_pickle=allow_pickle, mmap_mode="r")
     except Exception:
-        # Could be a pickle file from the last-resort path above.
+        if not allow_pickle:
+            raise CachePickleRefusedError(
+                f"FeatureCache: failed to read {path!r} via numpy and "
+                "CacheConfig.allow_pickle is False; refusing pickle fallback."
+            )
         with open(path, "rb") as f:
             import pickle
             return pickle.load(f)
+    # ``np.load`` with ``allow_pickle=True`` on a pure-pickle file (no
+    # npy / npz magic header) returns the unpickled object directly.
+    # NpzFile exposes ``.files``; anything else is already the value.
+    if not isinstance(npz, np.lib.npyio.NpzFile):
+        return npz
     kind_arr = npz.get("kind") if "kind" in npz.files else None
     if kind_arr is None:
         # Older format without sentinel -- assume single array stored
@@ -439,7 +499,12 @@ def _deserialize(path: str) -> Any:
             return npz["value"]
         # fall through to first key
         return npz[npz.files[0]]
-    kind = str(kind_arr[0])
+    # ``kind`` is a uint8 ASCII-byte vector (post-audit format) OR a
+    # legacy object-dtype length-1 array. Decode both.
+    if kind_arr.dtype == np.uint8:
+        kind = bytes(kind_arr).decode("ascii")
+    else:
+        kind = str(kind_arr[0])
     if kind == "ndarray":
         return npz["value"]
     if kind == "csr":

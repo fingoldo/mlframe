@@ -205,28 +205,33 @@ def plot_linear_fit(
     return fig
 
 
-def plot_mi_gain_with_ci(
+def plot_mi_gain_with_jitter(
     specs: Sequence[dict[str, Any]],
     *,
-    n_bootstrap: int = 200,
-    title: str = "MI gain per composite spec (bootstrap 95% CI)",
+    n_jitter: int = 200,
+    title: str = "MI gain per composite spec (jitter error bars)",
     figsize: tuple[float, float] = (10, 5),
     random_state: int = 42,
+    jitter_scale: float = 0.05,
 ):
-    """Bar chart of per-spec ``mi_gain`` with bootstrap 95%
-    confidence intervals.
+    """Bar chart of per-spec ``mi_gain`` with Gaussian-jitter error bars.
 
-    The CI is computed by resampling the ``mi_gain`` values of the
-    full spec list (including rejected candidates if you supply
-    them) ``n_bootstrap`` times and taking the empirical 2.5th /
-    97.5th percentile per spec position. This is a coarse "is this
-    gain stable across resamples of the candidate list" indicator,
-    NOT a rigorous CI on the underlying MI estimate (that would
-    require resampling the screening sample, which we don't have
-    access to here).
+    The error bars are NOT a bootstrap CI on the MI estimate. A true bootstrap would
+    require resampling the screening sample and recomputing MI per replicate, which
+    is infeasible from the spec-dict input alone. Instead each replicate adds
+    independent Gaussian noise scaled to ``jitter_scale * |mi_gain|`` (default 5%);
+    the resulting 2.5/97.5 percentile band reflects this synthetic noise only and
+    should be read as a visual cue for "small gains are not robustly ranked", NOT as
+    a statistical uncertainty.
 
-    The ``specs`` arg is a list of dicts (the format
-    ``CompositeTargetDiscovery.export_specs()`` returns).
+    Parameters
+    ----------
+    specs
+        List of dicts in the format ``CompositeTargetDiscovery.export_specs()`` returns.
+    n_jitter
+        Number of jitter replicates (controls error-bar smoothness, not statistical power).
+    jitter_scale
+        Multiplier on ``|mi_gain|`` for the per-replicate Gaussian noise.
     """
     plt = _lazy_pyplot()
     if not specs:
@@ -239,21 +244,17 @@ def plot_mi_gain_with_ci(
     names = [s.get("name", "?") for s in specs]
     gains = np.array([float(s.get("mi_gain", float("nan"))) for s in specs])
 
-    # Bootstrap CI on the gain values themselves. Limited information
-    # on a single screening sample; the CI here measures "if I drew
-    # a different subset of candidate specs, where would each gain
-    # land." Cheap and useful as a coarse uncertainty.
+    # Per-spec independent Gaussian jitter at ``jitter_scale * |gain|``. This is a
+    # visual heuristic for "small gains are not robustly ranked", NOT a CI on the MI
+    # estimate (which would require resampling the screening sample, infeasible from
+    # the spec-dict input).
     rng = np.random.default_rng(random_state)
     n = gains.size
-    boot_means = np.empty((n_bootstrap, n))
-    for b in range(n_bootstrap):
-        # Per-spec independent jitter via gaussian noise scaled by
-        # 5% of the gain magnitude. This is a CHEAP proxy for true
-        # bootstrap (which would require recomputing MI on resampled
-        # rows, infeasible here).
-        boot_means[b] = gains + rng.normal(scale=0.05 * np.abs(gains), size=n)
-    lo = np.nanpercentile(boot_means, 2.5, axis=0)
-    hi = np.nanpercentile(boot_means, 97.5, axis=0)
+    jittered = np.empty((n_jitter, n))
+    for b in range(n_jitter):
+        jittered[b] = gains + rng.normal(scale=jitter_scale * np.abs(gains), size=n)
+    lo = np.nanpercentile(jittered, 2.5, axis=0)
+    hi = np.nanpercentile(jittered, 97.5, axis=0)
     err_lo = gains - lo
     err_hi = hi - gains
 
@@ -269,6 +270,35 @@ def plot_mi_gain_with_ci(
     ax.set_title(title)
     fig.tight_layout()
     return fig
+
+
+def plot_mi_gain_with_ci(
+    specs: Sequence[dict[str, Any]],
+    *,
+    n_bootstrap: int = 200,
+    title: str = "MI gain per composite spec (jitter error bars)",
+    figsize: tuple[float, float] = (10, 5),
+    random_state: int = 42,
+):
+    """Deprecated alias. The error bars are Gaussian jitter, not a bootstrap CI;
+    use :func:`plot_mi_gain_with_jitter` directly. Kept for back-compat with
+    pre-rename callers.
+    """
+    import warnings as _w
+    _w.warn(
+        "plot_mi_gain_with_ci is a deprecated alias for plot_mi_gain_with_jitter; "
+        "the error bars are Gaussian jitter (not a bootstrap CI). Call "
+        "plot_mi_gain_with_jitter(specs, n_jitter=...) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return plot_mi_gain_with_jitter(
+        specs,
+        n_jitter=n_bootstrap,
+        title=title,
+        figsize=figsize,
+        random_state=random_state,
+    )
 
 
 def plot_per_fold_tiny_rmse(

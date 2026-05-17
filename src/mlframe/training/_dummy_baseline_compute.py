@@ -240,7 +240,7 @@ def _per_group_predict(
 
 
 # ---------------------------------------------------------------------
-# Per-cell metric computation with isolated try/except (D1)
+# Per-cell metric computation with isolated try/except
 # ---------------------------------------------------------------------
 
 
@@ -312,7 +312,7 @@ def _compute_regression_baselines(
         val_preds[q_label] = np.full(n_val, c)
         test_preds[q_label] = np.full(n_test, c)
 
-    # --- per_group_mean (D1) ---
+    # --- per_group_mean ---
     cat_col = _pick_per_group_categorical(
         train_X, cat_features, len(train_y), config.per_group_max_cardinality_ratio,
     )
@@ -329,7 +329,7 @@ def _compute_regression_baselines(
                 and _is_temporally_monotonic(timestamps_train, timestamps_val, timestamps_test)
             )
             label = "per_group_historical_mean (ts)" if ts_active else "per_group_mean"
-            # Annotate row label with high-overlap warning (D1)
+            # Annotate row label with high-overlap warning
             if pg_diag["repeat_entity_rate"] >= config.per_group_high_overlap_threshold:
                 label = f"{label} (high_entity_overlap={pg_diag['repeat_entity_rate']:.2f})"
             val_preds[label] = val_pg
@@ -358,7 +358,7 @@ def _compute_regression_baselines(
             target_name, cat_features, len(train_y), config.per_group_max_cardinality_ratio,
         )
 
-    # --- TS baselines (D17 + round-3 A#2 prediction rules) ---
+    # --- TS baselines (prediction rules) ---
     if (
         timestamps_train is not None
         and timestamps_val is not None
@@ -386,7 +386,7 @@ def _compute_regression_baselines(
                 ts_diag.get("using"),
             )
 
-            # naive_last (round-3 A#2: suppress when n_val > inferred_period to avoid mean-rebrand)
+            # naive_last (suppress when n_val > inferred_period to avoid mean-rebrand)
             min_period = min(periods) if periods else 0
             if n_val > 0 and (min_period == 0 or n_val <= min_period):
                 # Single-constant prediction = last train value
@@ -515,7 +515,7 @@ def _compute_classification_baselines(
         val_probs["all_ones"] = np.tile(o_row, (n_val, 1))
         test_probs["all_ones"] = np.tile(o_row, (n_test, 1))
 
-    # stratified: n_repeats over different seeds (D-inline / round-3 C#2)
+    # stratified: n_repeats over different seeds
     # Predicted class sampled from prior; probs = one-hot of sampled class.
     n_repeats = config.stratified_n_repeats
     val_strat_runs: list[np.ndarray] = []
@@ -632,7 +632,7 @@ def compute_dummy_baselines(
         from .configs import DummyBaselinesConfig
         config = DummyBaselinesConfig()
 
-    # Coerce y to 1D / 2D numpy as appropriate (D8 object-dtype gate).
+    # Coerce y to 1D / 2D numpy as appropriate (object-dtype gate).
     train_y_arr = _coerce_y(train_y, target_type, target_name)
     val_y_arr = _coerce_y(val_y, target_type, target_name) if val_y is not None else None
     test_y_arr = _coerce_y(test_y, target_type, target_name) if test_y is not None else None
@@ -647,7 +647,7 @@ def compute_dummy_baselines(
     n_val_finite = int(_is_finite_mask(val_y_arr).sum()) if val_y_arr is not None and val_y_arr.ndim == 1 else n_val
     n_test_finite = int(_is_finite_mask(test_y_arr).sum()) if test_y_arr is not None and test_y_arr.ndim == 1 else n_test
 
-    # D9: skip block if both val and test are uninformative
+    # Skip block if both val and test are uninformative
     if n_val_finite < 2 and n_test_finite < 2:
         logger.warning(
             "[DUMMY_BASELINES] FAILED target='%s' - both val (%d/%d finite) and "
@@ -656,7 +656,7 @@ def compute_dummy_baselines(
         )
         return _empty_report(target_type, target_name, t0, reason="both-splits-uninformative")
 
-    # D4: multi-output regression. For 2D y in regression / quantile_regression,
+    # Multi-output regression. For 2D y in regression / quantile_regression,
     # run the dispatcher per output and aggregate per-output strongest +
     # cross-output normalized strongest. Headline emission stays one verdict
     # block per target (not K verdicts).
@@ -681,7 +681,7 @@ def compute_dummy_baselines(
             n_test_finite=n_test_finite,
         )
 
-    # Normalize timestamps once (round-3 A#4 mixed-tz handling).
+    # Normalize timestamps once (mixed-tz handling).
     ts_train = _normalize_timestamps(timestamps_train)
     ts_val = _normalize_timestamps(timestamps_val)
     ts_test = _normalize_timestamps(timestamps_test)
@@ -750,15 +750,15 @@ def compute_dummy_baselines(
         extras=extras,
     )
 
-    # Strongest-pick (D2): non-degeneracy gate + paired-bootstrap
+    # Strongest-pick: non-degeneracy gate + paired-bootstrap
     strongest, ts_period_used = _pick_strongest(
         target_type, table, val_y_arr, test_y_arr, primary_metric, extras, config,
     )
 
-    # D2 (paired-bootstrap robustness): compute delta vs runner-up + 95% CI +
+    # Paired-bootstrap robustness: compute delta vs runner-up + 95% CI +
     # P(strongest beats runner-up). Below `strongest_min_beat_runner_up_prob`
     # the strongest is annotated as TIE and the overlay plot is skipped.
-    # Gated on the same n-threshold as bootstrap CI (D16) -- at large n the
+    # Gated on the same n-threshold as bootstrap CI -- at large n the
     # point-estimate signal-to-noise is high enough that paired bootstrap
     # is just expensive ceremony (~3-4s on n=10^5).
     n_ref_for_paired = min(
@@ -789,7 +789,7 @@ def compute_dummy_baselines(
                 target_name, e,
             )
 
-    # D16: bootstrap CI for strongest baseline when min(n_val, n_test) < 2000.
+    # Bootstrap CI for strongest baseline when min(n_val, n_test) < 2000.
     # Below that threshold the noise floor on RMSE / log_loss / NDCG is non-
     # trivial (>1%), so a CI grounds the verdict line. Above 2000, point
     # estimate is accurate to <1% and CI is suppressed to keep output compact.
@@ -818,7 +818,7 @@ def compute_dummy_baselines(
                 target_name, e,
             )
 
-    # 2026-05-10: dummy-baselines overlay plot REMOVED per user feedback.
+    # Dummy-baselines overlay plot REMOVED.
     # The standard ``report_regression_model_perf`` / ``report_probabilistic_model_perf``
     # already produce per-model scatter + residual + calibration charts
     # with full title-metric headers. Re-rendering a separate
@@ -828,7 +828,7 @@ def compute_dummy_baselines(
     # verdict line) remains the actionable artifact.
     plot_path = None
 
-    # 2026-05-11: expose strongest-baseline val/test predictions via
+    # Expose strongest-baseline val/test predictions via
     # ``extras`` so a downstream consumer (core.py, between
     # dummy-baselines computation and the per-target model-training
     # loop) can render the "best-baseline-overlay" pre-training chart

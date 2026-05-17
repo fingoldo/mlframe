@@ -491,20 +491,38 @@ def _ranks_within_group(scores: np.ndarray, group_starts: np.ndarray, *, descend
     input index).
 
     Returns a 1-D ``(n_rows,)`` array of int ranks (1-indexed).
+
+    Vectorised via a single lexsort over (-score, group_id_proxy): the
+    per-group Python loop with argsort-per-group was O(n_groups) Python
+    calls and dominated wall-clock on >50k-query workloads.
     """
     n = len(scores)
-    ranks = np.empty(n, dtype=np.float64)
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
     n_groups = len(group_starts) - 1
-    for i in range(n_groups):
-        s, e = group_starts[i], group_starts[i + 1]
-        slice_scores = scores[s:e]
-        if descending:
-            order = np.argsort(-slice_scores, kind="stable")
-        else:
-            order = np.argsort(slice_scores, kind="stable")
-        local_ranks = np.empty(len(slice_scores), dtype=np.float64)
-        local_ranks[order] = np.arange(1, len(slice_scores) + 1, dtype=np.float64)
-        ranks[s:e] = local_ranks
+    if n_groups == 0:
+        return np.empty(0, dtype=np.float64)
+
+    # Build a per-row group_id proxy: repeat group index by group size.
+    group_sizes = np.diff(group_starts)
+    group_ids = np.repeat(np.arange(n_groups, dtype=np.intp), group_sizes)
+
+    # lexsort sorts by LAST key as primary; sort by (group_id asc, score)
+    # so within-group ordering is score-desc (or asc).
+    if descending:
+        primary = -scores
+    else:
+        primary = scores
+    order = np.lexsort((primary, group_ids))  # group asc, then score
+
+    # Position within group = (cumulative count) - (group start) after order.
+    # Each element's group_id appears `group_sizes[g]` times; in `order`,
+    # the i-th element of each group lands at position group_starts[g] + i.
+    # So rank = (its index in order) - group_starts[group_id] + 1.
+    # Inverse permutation: pos[order[k]] = k.
+    pos = np.empty(n, dtype=np.intp)
+    pos[order] = np.arange(n, dtype=np.intp)
+    ranks = (pos - group_starts[group_ids] + 1).astype(np.float64)
     return ranks
 
 

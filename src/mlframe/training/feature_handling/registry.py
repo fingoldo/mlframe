@@ -181,15 +181,26 @@ def acquire_provider(
     signature = provider.signature
     entry = _register_or_get(signature, lambda: provider)
 
+    # Bump the LRU strong-keep tier BEFORE the refcount goes back to
+    # zero on the matching release-side path. The pre-fix order was:
+    #   (a) entry.lock -> refcount += 1
+    #   (b) drop entry.lock
+    #   (c) _REGISTRY_LOCK -> bump LRU
+    # Between (b) and (c) a sibling acquire-then-release could drop
+    # refcount to zero and, finding ``signature not in _LRU_HARD``,
+    # call ``release()`` on the very provider we still intend to use.
+    # By inserting into ``_LRU_HARD`` first, the release-side guard
+    # ``signature not in _LRU_HARD`` keeps the provider alive across
+    # the window. The double-checked-lock for is_loaded follows.
+    keep_n = _resolve_keep_n(cache_cfg)
+    with _REGISTRY_LOCK:
+        _bump_lru(signature, entry, keep_n)
+
     with entry.lock:
         if entry.refcount == 0 and not entry.is_loaded:
             entry.provider.acquire()
             entry.is_loaded = True
         entry.refcount += 1
-
-    keep_n = _resolve_keep_n(cache_cfg)
-    with _REGISTRY_LOCK:
-        _bump_lru(signature, entry, keep_n)
 
     try:
         yield entry.provider
@@ -239,10 +250,31 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
         # yet). Call provider.acquire() under the registry lock
         # directly.
         entry = _register_or_get(signature, lambda: provider)
-        with entry.lock:
-            if not entry.is_loaded:
-                entry.provider.acquire()
-                entry.is_loaded = True
+        try:
+            with entry.lock:
+                if not entry.is_loaded:
+                    entry.provider.acquire()
+                    entry.is_loaded = True
+        except BaseException:
+            # Prewarm failure leaves the entry in a half-broken state:
+            # ``refcount=0``, ``is_loaded=False``, but the registry
+            # still has a weakref to the provider object whose
+            # ``acquire()`` we know to fail. Pre-fix the next
+            # ``acquire_provider`` blindly re-called ``acquire()`` and
+            # got the same failure - without the Future visible to
+            # surface the original traceback. Drop the entry so the
+            # next caller constructs a fresh provider (or fails fast
+            # with the original exception once they call
+            # ``wait_prewarm``).
+            with _REGISTRY_LOCK:
+                cur = _REGISTRY.get(signature)
+                if cur is entry:
+                    try:
+                        del _REGISTRY[signature]
+                    except KeyError:
+                        pass
+                _LRU_HARD.pop(signature, None)
+            raise
         return signature
 
     new_fut = _PREWARM_EXECUTOR.submit(_do_load)

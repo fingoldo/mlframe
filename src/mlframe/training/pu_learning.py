@@ -199,8 +199,7 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
         self,
         X: Any,
         y: np.ndarray,
-        *,
-        is_unbiased: np.ndarray,
+        is_unbiased: np.ndarray | None = None,
         **fit_params: Any,
     ) -> PULearningWrapper:
         """Fit the PU classifier.
@@ -213,12 +212,20 @@ class PULearningWrapper(BaseEstimator, ClassifierMixin):
             Observed labels. In biased periods (``is_unbiased=False``)
             every observed row is positive, so y must be 1. In unbiased
             periods, y is the TRUE label (0 or 1).
-        is_unbiased : ndarray of bool, shape (n_samples,)
+        is_unbiased : ndarray of bool, shape (n_samples,), optional
             True for rows from a period where both classes were observed
             (so y is reliable). False for biased / positive-only rows.
+            Accepted positionally so sklearn's ``clone() + fit(X, y, ub)``
+            chain works without requiring keyword routing. Missing /
+            ``None`` raises a clear ValueError - it has no sane default.
         **fit_params
             Forwarded to ``base_estimator.fit``.
         """
+        if is_unbiased is None:
+            raise ValueError(
+                "PULearningWrapper.fit requires ``is_unbiased`` (bool array "
+                "per sample). Pass positionally or as keyword."
+            )
         y = np.asarray(y).astype(np.int8, copy=False)
         is_unbiased = np.asarray(is_unbiased).astype(bool, copy=False)
 

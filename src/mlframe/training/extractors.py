@@ -124,20 +124,31 @@ def get_sample_weights_by_recency(
     Returns:
         Array of sample weights (all finite, no NaN / +inf).
     """
-    span_days = (date_series.max() - date_series.min()).days
-    # Zero-span guard: all dates equal → uniform weighting. No log needed.
+    # Use total_seconds() / 86400 instead of .days: ``.days`` floors to integer
+    # days and returns 0 for intraday-only datasets (e.g. a single trading day
+    # of tick data), which then triggers the uniform-weight branch even though
+    # the data has meaningful sub-day age structure.
+    span_days = (date_series.max() - date_series.min()).total_seconds() / 86400.0
+    # Zero-span guard: all dates equal -> uniform weighting. No log needed.
     if span_days <= 0:
         return np.full(len(date_series), float(min_weight))
 
-    # Clip to >= 1 so log never hits 0. One-day resolution is the
-    # finest datetime arithmetic exposes for this column anyway.
-    days_from_max = np.maximum((date_series.max() - date_series).dt.days, 1).to_numpy()
-    max_drop = np.log(span_days) * weight_drop_per_year
+    # Sub-day resolution preserved via total_seconds(). Floor at one
+    # second (~ 1/86400 day) so log never hits zero -- the previous
+    # one-day floor erased intraday gradient by clamping every row to
+    # log(1)=0.
+    _delta_secs = (date_series.max() - date_series).dt.total_seconds().to_numpy()
+    _min_age_days = 1.0 / 86400.0  # one-second floor
+    days_from_max = np.maximum(_delta_secs / 86400.0, _min_age_days)
+    # log(span_days) for span<1 day is negative -> max_drop negative.
+    # Use log(span_in_seconds) baseline so the gradient stays positive
+    # for sub-day spans too.
+    max_drop = (np.log(span_days) - np.log(_min_age_days)) * weight_drop_per_year
 
     sample_weight = (
         min_weight
         + max_drop
-        - np.log(days_from_max) * weight_drop_per_year
+        - (np.log(days_from_max) - np.log(_min_age_days)) * weight_drop_per_year
     )
 
     return sample_weight
@@ -147,6 +158,7 @@ def showcase_features_and_targets(
     df: Union[pd.DataFrame, pl.DataFrame],
     target_by_type: Dict[str, Dict[str, Any]],
     max_hist_samples: int = 100_000,
+    random_seed: int = 42,
 ) -> None:
     """Show distribution of features and targets.
 
@@ -184,10 +196,14 @@ def showcase_features_and_targets(
             else:
                 print(line)
             if target_type == TargetTypes.REGRESSION:
-                # Subsample if target is large to speed up histogram
+                # Subsample if target is large to speed up histogram. Use a
+                # local seeded Generator instead of the global numpy RNG so
+                # histograms shown to the user are reproducible across runs
+                # and don't depend on whatever else mutated np.random state.
+                _hist_rng = np.random.default_rng(random_seed)
                 if len(target) > max_hist_samples:
                     if isinstance(target, (pl.Series, pd.Series)):
-                        sample_idx = np.random.choice(
+                        sample_idx = _hist_rng.choice(
                             len(target), max_hist_samples, replace=False
                         )
                         sample = (
@@ -196,7 +212,7 @@ def showcase_features_and_targets(
                             else target[sample_idx].to_numpy()
                         )
                     else:
-                        sample_idx = np.random.choice(
+                        sample_idx = _hist_rng.choice(
                             len(target), max_hist_samples, replace=False
                         )
                         sample = target[sample_idx]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, NamedTuple, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -47,6 +47,61 @@ _DEFAULT_VAL_SIZE = 0.15
 _DEFAULT_LTR_ITER = 200
 _DEFAULT_LTR_LR = 0.1
 _DEFAULT_LTR_ES = 30
+
+
+# Backward-compatible named-tuple wrappers for the large positional return shapes that used to be
+# bare tuples (H-CORE-19/20/21). NamedTuple stays iterable + indexable so existing
+# ``(a, b, ...) = func()`` and ``func()[i]`` callers keep working; new callers can read ``.field``
+# names for clarity and any future field addition does not silently shift existing positions.
+class TrainValTestSplitResult(NamedTuple):
+    """Return shape for ``_phase_train_val_test_split``."""
+    train_idx: Any
+    val_idx: Any
+    test_idx: Any
+    train_details: Any
+    val_details: Any
+    test_details: Any
+    train_df: Any
+    val_df: Any
+    test_df: Any
+    fairness_subgroups: Any
+    fairness_features: Any
+    train_sequences: Any
+    val_sequences: Any
+    test_sequences: Any
+    baseline_rss_mb: Any
+
+
+class FitPipelineResult(NamedTuple):
+    """Return shape for ``_phase_fit_pipeline``."""
+    train_df: Any
+    val_df: Any
+    test_df: Any
+    pipeline: Any
+    extensions_pipeline: Any
+    cat_features: Any
+    cat_features_polars: Any
+    was_polars_input: Any
+    all_models_polars_native: Any
+    polars_pipeline_applied: Any
+    train_df_polars_pre: Any
+    val_df_polars_pre: Any
+    test_df_polars_pre: Any
+    pipeline_config: Any
+    preprocessing_extensions: Any
+    train_df_pandas_pre_meta: Any
+
+
+class PolarsCategoricalFixesResult(NamedTuple):
+    """Return shape for ``apply_polars_categorical_fixes`` (H-CORE-20)."""
+    train_df_polars: Any
+    val_df_polars: Any
+    test_df_polars: Any
+    train_df_pd: Any
+    val_df_pd: Any
+    test_df_pd: Any
+    filtered_train_df: Any
+    filtered_val_df: Any
 
 def _apply_plot_style_overrides(
     *,
@@ -743,7 +798,7 @@ def _phase_fit_pipeline(
     verbose: bool,
     target_by_type: Any = None,
     train_idx: np.ndarray | None = None,
-) -> tuple:
+) -> "FitPipelineResult":
     """Pipeline fitting and transformation.
 
     Decomposes datetime columns BEFORE the pre-pipeline clone (otherwise the cloned frames
@@ -1185,14 +1240,23 @@ def _phase_fit_pipeline(
             logger.info("  Pre-pipeline Polars cat_features: %s", cat_features_polars)
         logger.info("  PHASE 3 total: %s", _elapsed_str(t0_phase3))
 
-    return (
-        train_df, val_df, test_df,
-        pipeline, extensions_pipeline,
-        cat_features, cat_features_polars,
-        was_polars_input, all_models_polars_native, polars_pipeline_applied,
-        train_df_polars_pre, val_df_polars_pre, test_df_polars_pre,
-        pipeline_config, preprocessing_extensions,
-        train_df_pandas_pre_meta,
+    return FitPipelineResult(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        pipeline=pipeline,
+        extensions_pipeline=extensions_pipeline,
+        cat_features=cat_features,
+        cat_features_polars=cat_features_polars,
+        was_polars_input=was_polars_input,
+        all_models_polars_native=all_models_polars_native,
+        polars_pipeline_applied=polars_pipeline_applied,
+        train_df_polars_pre=train_df_polars_pre,
+        val_df_polars_pre=val_df_polars_pre,
+        test_df_polars_pre=test_df_polars_pre,
+        pipeline_config=pipeline_config,
+        preprocessing_extensions=preprocessing_extensions,
+        train_df_pandas_pre_meta=train_df_pandas_pre_meta,
     )
 
 
@@ -1214,7 +1278,7 @@ def _phase_train_val_test_split(
     model_name: str,
     df_size_mb: float,
     verbose: bool,
-) -> tuple:
+) -> "TrainValTestSplitResult":
     """Train/val/test splitting with auto-stratification + group-aware splitting.
 
     Mutates ``metadata`` in-place with split sizes + per-split details.
@@ -1375,13 +1439,22 @@ def _phase_train_val_test_split(
     if verbose:
         log_ram_usage()
 
-    return (
-        train_idx, val_idx, test_idx,
-        train_details, val_details, test_details,
-        train_df, val_df, test_df,
-        fairness_subgroups, fairness_features,
-        train_sequences, val_sequences, test_sequences,
-        baseline_rss_mb,
+    return TrainValTestSplitResult(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        train_details=train_details,
+        val_details=val_details,
+        test_details=test_details,
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        fairness_subgroups=fairness_subgroups,
+        fairness_features=fairness_features,
+        train_sequences=train_sequences,
+        val_sequences=val_sequences,
+        test_sequences=test_sequences,
+        baseline_rss_mb=baseline_rss_mb,
     )
 
 

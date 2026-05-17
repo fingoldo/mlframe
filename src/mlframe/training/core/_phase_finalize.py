@@ -101,9 +101,11 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
             if not isinstance(_entries, list) or not _entries:
                 continue
             _tt_slug = slugify(str(_tt).lower())
-            # Preserve the literal "_CT_ENSEMBLE__<orig>" key as the directory name; slugify drops the leading
-            # underscore so we splice the prefix back on. The predict loader keys models by the raw directory name.
-            _dir_name = "_CT_ENSEMBLE__" + _tname[len("_CT_ENSEMBLE__"):]
+            # The outer guard already enforces ``_tname.startswith("_CT_ENSEMBLE__")``, so the value IS
+            # the literal directory name we want. (The earlier slice-and-splice was a no-op rewrite of the
+            # same string -- the comment about slugify dropping the leading underscore did not match the
+            # actual code.)
+            _dir_name = _tname
             _target_dir = join(_base, _tt_slug, _dir_name)
             try:
                 os.makedirs(_target_dir, exist_ok=True)

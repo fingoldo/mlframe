@@ -464,6 +464,18 @@ if _XGB_AVAILABLE:
             on label cardinality. Mirrors XGBClassifier.fit() internal
             handling."""
             y_arr = np.asarray(y)
+            # 2-D y is multilabel/multioutput; ``np.unique`` would flatten
+            # across all label columns and report a bogus class count. The
+            # XGBClassifier multilabel path uses a different objective
+            # (binary per-output) and reaches a different code path - if a
+            # 2-D y arrives here, it's a routing bug upstream.
+            if y_arr.ndim > 1:
+                raise ValueError(
+                    f"_finalize_native_params expects 1-D y for "
+                    f"single-output classification; got y of shape "
+                    f"{y_arr.shape}. Multilabel/multi-output must use the "
+                    f"per-output classifier path, not this code path."
+                )
             unique = np.unique(y_arr)
             n_classes = len(unique)
             params = dict(params)  # avoid mutating shared dict

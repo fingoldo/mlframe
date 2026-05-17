@@ -875,12 +875,14 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     models = ctx.models
     slug_to_original_target_type = ctx.slug_to_original_target_type
     slug_to_original_target_name = ctx.slug_to_original_target_name
-    # Identity assignment is intentional: keep the slug key registered even when it equals the original name,
-    # so downstream lookups via slug never KeyError on round-trip identity targets.
-    slug_to_original_target_name[slugify(cur_target_name)] = cur_target_name
     # Initialised pre-conditional so a later reference doesn't NameError when mlframe_models is empty.
     rfecv_models_params = {}
     if mlframe_models:
+        # Identity assignment is intentional: keep the slug key registered even when it equals the original name,
+        # so downstream lookups via slug never KeyError on round-trip identity targets.
+        # Registered ONLY when at least one model is trained -- otherwise the predict-time loader would resolve
+        # this slug to a target name that has no corresponding model on disk.
+        slug_to_original_target_name[slugify(cur_target_name)] = cur_target_name
         plot_file, model_file = _setup_model_directories(
             target_name=target_name,
             model_name=model_name,
@@ -1040,22 +1042,27 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             multilabel_dispatch_config=multilabel_dispatch_config,
         )
 
-    if verbose:
-        logger.info("  select_target done in %s", _elapsed_str(t0_select_target))
-        log_ram_usage()
+        if verbose:
+            logger.info("  select_target done in %s", _elapsed_str(t0_select_target))
+            log_ram_usage()
 
-    pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
-        use_ordinary_models=use_ordinary_models,
-        rfecv_models=rfecv_models,
-        rfecv_models_params=rfecv_models_params,
-        use_mrmr_fs=use_mrmr_fs,
-        mrmr_kwargs=mrmr_kwargs,
-        custom_pre_pipelines=custom_pre_pipelines,
-        rfecv_leakage_corr_threshold=feature_selection_config.rfecv_leakage_corr_threshold,
-        rfecv_mbh_adaptive_threshold=feature_selection_config.rfecv_mbh_adaptive_threshold,
-        use_boruta_shap=feature_selection_config.use_boruta_shap,
-        boruta_shap_kwargs=feature_selection_config.boruta_shap_kwargs,
-    )
+        pre_pipelines, pre_pipeline_names = _build_pre_pipelines(
+            use_ordinary_models=use_ordinary_models,
+            rfecv_models=rfecv_models,
+            rfecv_models_params=rfecv_models_params,
+            use_mrmr_fs=use_mrmr_fs,
+            mrmr_kwargs=mrmr_kwargs,
+            custom_pre_pipelines=custom_pre_pipelines,
+            rfecv_leakage_corr_threshold=feature_selection_config.rfecv_leakage_corr_threshold,
+            rfecv_mbh_adaptive_threshold=feature_selection_config.rfecv_mbh_adaptive_threshold,
+            use_boruta_shap=feature_selection_config.use_boruta_shap,
+            boruta_shap_kwargs=feature_selection_config.boruta_shap_kwargs,
+        )
+    else:
+        # No mlframe_models means the downstream pre_pipeline loop must be a no-op; bind empty sequences
+        # so callers that iterate ``zip(pre_pipelines, pre_pipeline_names)`` see zero iterations rather
+        # than NameError on the unbound names.
+        pre_pipelines, pre_pipeline_names = [], []
 
     # Custom transformers run AFTER preprocessing, so the preprocessing output is shared across
     # pre_pipelines of the same model-type bucket; one cache instance covers the whole sweep. Hoist

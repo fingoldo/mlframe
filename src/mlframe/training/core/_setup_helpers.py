@@ -117,7 +117,10 @@ def _apply_outlier_detection_global(
     try:
         outlier_detector.fit(_train_numeric)
         is_inlier = outlier_detector.predict(_train_numeric)
-    except Exception as _od_exc:
+    except (ValueError, TypeError, ImportError, RuntimeError, MemoryError, AttributeError) as _od_exc:
+        # Narrowed from bare ``Exception`` so typo/programmer-error attributes raise loudly. The
+        # graceful-skip rationale only applies to runtime data issues (NaN inputs, dtype, missing
+        # dep, OOM) - not to misconfigured detector classes that should fail fast at fit time.
         logger.error(
             "Outlier detector %s raised during fit/predict on train: %s. Skipping outlier "
             "detection for this run; train_df / val_df returned unfiltered. Wrap the detector "
@@ -692,19 +695,28 @@ def _finalize_and_save_metadata(ctx: TrainingContext, *, verbose: int | None = N
     if ctx.data_dir and ctx.models_dir:
         metadata_dir = join(ctx.data_dir, ctx.models_dir, slugify(ctx.target_name), slugify(ctx.model_name))
         metadata_file = join(metadata_dir, "metadata.pkl.zst")
+        from mlframe.training.io import atomic_write_bytes
+        import pickle as _pickle
+        # Probe zstandard FIRST so the optional-dep choice is decoupled from IO failure handling.
+        # Previously a missing zstandard was caught alongside genuine atomic_write_bytes IO errors,
+        # which made it confusing whether the fallback fired because of missing dep or disk error.
         try:
-            from mlframe.training.io import atomic_write_bytes
-            import pickle as _pickle
-            try:
-                import zstandard as _zstd
-                _cctx = _zstd.ZstdCompressor(level=3)
-                def _writer(f):
-                    f.write(_cctx.compress(_pickle.dumps(metadata, protocol=5)))
-            except ImportError:
-                # Fallback: uncompressed pickle. .pkl extension lets the reader's magic-byte sniff route it.
-                metadata_file = join(metadata_dir, "metadata.pkl")
-                def _writer(f):
-                    _pickle.dump(metadata, f, protocol=5)
+            import zstandard as _zstd
+            _have_zstd = True
+        except ImportError:
+            _have_zstd = False
+
+        if _have_zstd:
+            _cctx = _zstd.ZstdCompressor(level=3)
+            def _writer(f):
+                f.write(_cctx.compress(_pickle.dumps(metadata, protocol=5)))
+        else:
+            # Fallback: uncompressed pickle. .pkl extension lets the reader's magic-byte sniff route it.
+            metadata_file = join(metadata_dir, "metadata.pkl")
+            def _writer(f):
+                _pickle.dump(metadata, f, protocol=5)
+
+        try:
             atomic_write_bytes(metadata_file, _writer)
             if _verbose:
                 logger.info("Saved metadata to %s", metadata_file)

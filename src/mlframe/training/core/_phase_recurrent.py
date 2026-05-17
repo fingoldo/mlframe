@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+import pandas as pd
 from pyutilz.system import tqdmu_lazy_start
 from sklearn.base import clone
 
@@ -215,9 +216,20 @@ def _apply_recurrent_to_ensemble(
     from mlframe.models.ensembling import score_ensemble
 
     try:
-        train_target = _coerce_to_numpy(target_values[ctx.train_idx] if ctx.train_idx is not None and hasattr(target_values, "__getitem__") else None)
-        val_target = _coerce_to_numpy(target_values[ctx.val_idx] if ctx.val_idx is not None and hasattr(target_values, "__getitem__") else None)
-        test_target = _coerce_to_numpy(target_values[ctx.test_idx] if ctx.test_idx is not None and hasattr(target_values, "__getitem__") else None)
+        # pandas Series ``[positional_idx]`` is LABEL-indexed, so for a non-default Series index this returns
+        # the wrong rows. Route Series through .iloc for positional semantics; ndarray / pl.Series keep
+        # __getitem__ semantics which ARE positional. Mirrors the guard in _phase_train_one_target:895-899.
+        def _slice_positional(values, idx):
+            if values is None or idx is None:
+                return None
+            if isinstance(values, pd.Series):
+                return values.iloc[idx]
+            if hasattr(values, "__getitem__"):
+                return values[idx]
+            return None
+        train_target = _coerce_to_numpy(_slice_positional(target_values, ctx.train_idx))
+        val_target = _coerce_to_numpy(_slice_positional(target_values, ctx.val_idx))
+        test_target = _coerce_to_numpy(_slice_positional(target_values, ctx.test_idx))
     except Exception as exc:
         logger.warning("apply_recurrent_to_ensemble: failed to slice targets for %s (%s); returning prior ensemble.", target_name, exc)
         return ensemble_dict
@@ -375,9 +387,20 @@ def train_recurrent_models(
                 if verbose:
                     logger.info("Training %s for target %s...", recurrent_model_name, cur_target_name)
 
-                train_target = _coerce_to_numpy(target_values[train_idx] if hasattr(target_values, "__getitem__") else target_values.iloc[train_idx])
-                val_target = _coerce_to_numpy(target_values[val_idx]) if (val_idx is not None and hasattr(target_values, "__getitem__")) else None
-                test_target = _coerce_to_numpy(target_values[test_idx] if hasattr(target_values, "__getitem__") else target_values.iloc[test_idx])
+                # ``hasattr(pd.Series, "__getitem__")`` is True but Series[positional] is LABEL-indexed --
+                # mirror the isinstance(...) guard used in _phase_train_one_target:895-899 so non-default
+                # indices don't silently produce label-indexed (wrong-row) slices.
+                def _pos_slice(values, idx):
+                    if values is None or idx is None:
+                        return None
+                    if isinstance(values, pd.Series):
+                        return values.iloc[idx]
+                    if hasattr(values, "__getitem__"):
+                        return values[idx]
+                    return None
+                train_target = _coerce_to_numpy(_pos_slice(target_values, train_idx))
+                val_target = _coerce_to_numpy(_pos_slice(target_values, val_idx))
+                test_target = _coerce_to_numpy(_pos_slice(target_values, test_idx))
 
                 model_clone = clone(recurrent_model)
 

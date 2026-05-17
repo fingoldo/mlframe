@@ -178,9 +178,15 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
         if n_jobs == 1 or len(self.alphas) <= 1:
             self.estimators_ = [_fit_one(a) for a in self.alphas]
         else:
-            self.estimators_ = Parallel(n_jobs=n_jobs)(
-                delayed(_fit_one)(a) for a in self.alphas
-            )
+            # Use Parallel as a context manager so the worker pool is torn
+            # down deterministically when fit returns - on Windows joblib's
+            # loky backend keeps worker processes resident otherwise, which
+            # leaks memory across many fits (see user note on quantile
+            # wrappers consuming RAM in long-running search loops).
+            with Parallel(n_jobs=n_jobs) as par:
+                self.estimators_ = par(
+                    delayed(_fit_one)(a) for a in self.alphas
+                )
         # sklearn convention: expose feature info from the first fitted
         # estimator (all are fit on identical X).
         if self.estimators_ and hasattr(self.estimators_[0], "n_features_in_"):

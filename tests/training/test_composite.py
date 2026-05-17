@@ -550,12 +550,18 @@ class TestDelegation:
         assert wrapper.n_features_in_ == len(df.columns)
 
     def test_unfitted_attributes_return_none_or_raise(self) -> None:
+        # Audit 2026-05-17 H-COMP-14: ``feature_importances_`` /
+        # ``coef_`` / ``intercept_`` now raise NotFittedError on unfit
+        # wrappers (sklearn convention) instead of returning None.
+        from sklearn.exceptions import NotFittedError
+
         wrapper = CompositeTargetEstimator(
             base_estimator=lgb.LGBMRegressor(n_estimators=30, verbose=-1),
             transform_name="diff",
             base_column="base",
         )
-        assert wrapper.feature_importances_ is None
+        with pytest.raises(NotFittedError):
+            _ = wrapper.feature_importances_
         assert wrapper.n_features_in_ is None
 
 

@@ -408,14 +408,21 @@ class CompositeTargetDiscovery:
                     )
                     n_screen = int(valid_screen.sum())
                     boot_gains = np.empty(bootstrap_n)
+                    # Hoist the valid_screen slices once. The pre-fix re-sliced
+                    # ``y_screen[valid_screen]`` and ``_x_prebinned[valid_screen]`` per replicate
+                    # even though they are constants across replicates.
+                    _y_screen_valid = y_screen[valid_screen]
+                    _x_pb_valid_const = (
+                        _x_prebinned[valid_screen] if _x_prebinned is not None else None
+                    )
                     for b in range(bootstrap_n):
                         idx_b = boot_rng.integers(0, n_screen, size=n_screen)
                         x_boot = x_screen_valid[idx_b]
                         t_boot = t_screen[idx_b]
-                        y_boot = y_screen[valid_screen][idx_b]
+                        y_boot = _y_screen_valid[idx_b]
                         try:
-                            if _x_prebinned is not None:
-                                _x_pb_boot = _x_prebinned[valid_screen][idx_b]
+                            if _x_pb_valid_const is not None:
+                                _x_pb_boot = _x_pb_valid_const[idx_b]
                                 mi_t_b = _mi_to_target_prebinned(
                                     _x_pb_boot, t_boot, **_mi_kwargs,
                                 )
@@ -1215,12 +1222,21 @@ class CompositeTargetDiscovery:
             # All three must hold; otherwise the group is preserved.
             X_screen = x_matrix[finite]
             n_feats = X_screen.shape[1]
+            # Vectorised |corr|: centre each column, normalise to unit-L2, then take Gram matrix
+            # (~12x over the nested ``_safe_corr`` loop on 25 features x 50k rows). Constant
+            # columns (zero variance) map to all-zero correlations, matching ``_safe_corr``'s
+            # degenerate-input contract.
             corr_matrix = np.zeros((n_feats, n_feats))
-            for j in range(n_feats):
-                for k in range(j + 1, n_feats):
-                    c = abs(_safe_corr(X_screen[:, j], X_screen[:, k]))
-                    corr_matrix[j, k] = c
-                    corr_matrix[k, j] = c
+            if n_feats >= 2 and X_screen.shape[0] >= 3:
+                Xc = X_screen - X_screen.mean(axis=0)
+                norms = np.sqrt((Xc ** 2).sum(axis=0))
+                live = norms > 1e-12
+                if live.sum() >= 2:
+                    live_idx = np.where(live)[0]
+                    Xn = Xc[:, live_idx] / norms[live_idx]
+                    gram = np.abs(Xn.T @ Xn)
+                    np.fill_diagonal(gram, 0.0)
+                    corr_matrix[np.ix_(live_idx, live_idx)] = gram
             spatial_demoted: list[str] = []
             # For each feature j, find its "tight neighbourhood":
             # features k where |corr(j, k)| > 0.75. If that
@@ -1398,8 +1414,11 @@ class CompositeTargetDiscovery:
             # already established and shouldn't be filtered by
             # raw-feature redundancy.
             hint_set = set(hint_kept)
+            # Pre-compute column-name -> matrix-index lookup once. ``usable_features.index(col)``
+            # inside the loop was O(n) per iteration, O(n^2) over ``ranked``.
+            _name_to_col_idx = {name: i for i, name in enumerate(usable_features)}
             for mi_score, col in ranked:
-                col_arr = x_matrix[finite, usable_features.index(col)]
+                col_arr = x_matrix[finite, _name_to_col_idx[col]]
                 drop_due_to: tuple[str, float] | None = None
                 if col in hint_set:
                     # Hint features always pass dedup.
@@ -1877,7 +1896,6 @@ class CompositeTargetDiscovery:
                             and spec.base_column in raw_per_bin_per_base):
                         spec_pb = spec_per_bin_rmse[spec.name]
                         raw_pb = raw_per_bin_per_base[spec.base_column]
-                        per_bin_threshold = raw_pb * per_bin_tol  # noqa: F841 -- !TODO! threshold is computed but the per-bin comparison below uses raw_ratio against per_bin_tol directly; either drop this or wire it into the comparison.
                         # Element-wise compare, ignoring NaN bins.
                         worst_ratio = 0.0
                         worst_bin_idx = -1

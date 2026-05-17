@@ -215,10 +215,14 @@ class RecurrentDataModule(LightningDataModule):
         # sampler is mutually exclusive with shuffle=True in PyTorch DataLoader, hence shuffle=False when sampler is set.
         if self.use_stratified_sampler and not self.is_regression:
             labels = dataset.labels.numpy()
-            class_counts = np.bincount(labels)
-            if len(class_counts) > 1 and all(c > 0 for c in class_counts):
-                class_weights = 1.0 / class_counts
-                sample_weights = class_weights[labels]
+            # np.bincount requires non-negative contiguous integer labels and
+            # returns length max+1 with zeros for any missing label in [0, max].
+            # Use np.unique to handle negative labels and non-contiguous label
+            # sets ({0, 5}, {-1, 1}) correctly.
+            unique_labels, class_counts = np.unique(labels, return_counts=True)
+            if len(unique_labels) > 1 and (class_counts > 0).all():
+                label_to_weight = {int(lbl): 1.0 / int(cnt) for lbl, cnt in zip(unique_labels, class_counts)}
+                sample_weights = np.array([label_to_weight[int(lbl)] for lbl in labels], dtype=np.float64)
                 sampler = WeightedRandomSampler(
                     weights=sample_weights,
                     num_samples=len(dataset),
@@ -285,7 +289,13 @@ class RecurrentDataModule(LightningDataModule):
         if self.predict_sequences is None and self.predict_features is None:
             raise RuntimeError("Call setup_predict() first")
 
-        n_samples = len(self.predict_sequences) if self.predict_sequences else len(self.predict_features)
+        # Explicit `is not None` check: an empty list is falsy but legitimate
+        # (e.g. zero-row predict batch), and falling through to predict_features
+        # in that case returns the wrong length or AttributeError when features is None.
+        if self.predict_sequences is not None:
+            n_samples = len(self.predict_sequences)
+        else:
+            n_samples = len(self.predict_features)
         dummy_labels = np.zeros(n_samples, dtype=np.float32 if self.is_regression else np.int64)
 
         dataset = RecurrentDataset(

@@ -369,10 +369,7 @@ class DiscoveryCache:
 
     def _path(self, key: str) -> str:
         import os
-        # Basic sanitisation: only allow hex keys (or alphanumeric); reject path-traversal attempts.
-        safe_key = "".join(c for c in key if c.isalnum())
-        if not safe_key:
-            raise ValueError(f"DiscoveryCache: empty / unsafe key {key!r}")
+        safe_key = self._safe_key(key)
         return os.path.join(self.cache_dir, f"{safe_key}.pkl")
 
     def __contains__(self, key: str) -> bool:
@@ -410,8 +407,22 @@ class DiscoveryCache:
         return value
 
     def _safe_key(self, key: str) -> str:
-        """Sanitised key (matches the on-disk filename stem)."""
-        return "".join(c for c in key if c.isalnum())
+        """Sanitised key (matches the on-disk filename stem).
+
+        Collision-proof: pure-hex keys (the format ``make_discovery_cache_key`` emits)
+        pass through unchanged. Any other key is hashed via blake2b and tagged with
+        ``__h`` plus the BYTE length of the original; this prevents the old
+        "strip non-alnum" sanitiser collapsing ``abc-def`` and ``abcdef`` (or
+        ``abc/../def`` and ``abcdef``) to the same filename.
+        """
+        import hashlib
+        if not key:
+            raise ValueError(f"DiscoveryCache: empty key {key!r}")
+        # Pure-hex (the format make_discovery_cache_key emits) passes through unchanged.
+        if all(c in "0123456789abcdefABCDEF" for c in key):
+            return key.lower()
+        digest = hashlib.blake2b(key.encode("utf-8"), digest_size=16).hexdigest()
+        return f"{digest}__h{len(key.encode('utf-8'))}"
 
     def _entry_size_bytes(self, safe_key: str) -> int:
         import os

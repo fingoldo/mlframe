@@ -124,6 +124,19 @@ class CacheConfig(BaseConfig):
     # Backend abstraction
     backend: Literal["local_disk"] = "local_disk"
 
+    # Security: opt-in for pickle in the disk-tier serialise / deserialise
+    # paths. Pickle is a known RCE vector on attacker-controlled cache
+    # files; we therefore default to refusing pickle and only allowing
+    # the strict numpy / scipy-CSR codecs. Users with trusted cache
+    # directories may opt in to the broader codec set with
+    # ``allow_pickle=True``. The flag covers BOTH the fallback pickle
+    # write in :func:`_serialize` (for opaque values like arbitrary
+    # Python objects) and the ``allow_pickle=True`` flag in
+    # :func:`np.load`. When False, unserialisable payloads raise rather
+    # than fall through to pickle; when False, ``np.load`` is opened
+    # with ``allow_pickle=False``.
+    allow_pickle: bool = False
+
 
 class PricingConfig(BaseConfig):
     """Cost gates for paid embedding providers (OpenAI / Cohere /
@@ -360,6 +373,55 @@ class FeatureHandlingConfig(BaseConfig):
         self._resolved_cache_ram_max_gb = self.cache.ram_max_gb
         self._resolved_cache_ram_reserve_gb = self.cache.ram_reserve_gb
 
+        return self
+
+    @model_validator(mode="after")
+    def _validate_per_target_consistency(self) -> FeatureHandlingConfig:
+        """Surface silent cross-target cache mismatches early.
+
+        A per-target child FHC inherits its parent's cache directory by
+        construction (the suite plumbs the parent's ``cache.dir`` into
+        every handler); a child that names a *different* directory,
+        namespace, or dataset_id is almost always a copy-paste bug
+        (e.g. ``cache=CacheConfig(dir='/A')`` then per-target accidently
+        ``cache=CacheConfig(dir='/B')``). The two children then write
+        to different disk caches without coordination, so a "cache
+        hit" against the wrong directory replays stale state into the
+        wrong target's predictions. We raise loudly instead of
+        documenting-and-hoping.
+
+        Three slots checked: ``cache.dir``, ``cache.namespace``,
+        ``cache.dataset_id``. Other CacheConfig fields are tuning
+        knobs that may legitimately differ per target (e.g. the
+        per-target child wants a bigger ``ram_max_gb``).
+        """
+        mismatches: List[str] = []
+        parent_cache = self.cache
+        for target_name, child in self.per_target.items():
+            # Child must itself be a FeatureHandlingConfig; pydantic
+            # already ensures that, so we go straight to field checks.
+            if child.cache.dir != parent_cache.dir:
+                mismatches.append(
+                    f"per_target[{target_name!r}].cache.dir={child.cache.dir!r} "
+                    f"!= parent cache.dir={parent_cache.dir!r}"
+                )
+            if child.cache.namespace != parent_cache.namespace:
+                mismatches.append(
+                    f"per_target[{target_name!r}].cache.namespace={child.cache.namespace!r} "
+                    f"!= parent cache.namespace={parent_cache.namespace!r}"
+                )
+            if child.cache.dataset_id != parent_cache.dataset_id:
+                mismatches.append(
+                    f"per_target[{target_name!r}].cache.dataset_id={child.cache.dataset_id!r} "
+                    f"!= parent cache.dataset_id={parent_cache.dataset_id!r}"
+                )
+        if mismatches:
+            raise ValueError(
+                "FeatureHandlingConfig.per_target has inconsistent cache identity "
+                "settings vs the parent FHC; this silently splits the cache and "
+                "replays stale state. Mismatches:\n  - "
+                + "\n  - ".join(mismatches)
+            )
         return self
 
     # ------------------------------------------------------------------

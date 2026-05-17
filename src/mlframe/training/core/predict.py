@@ -656,7 +656,10 @@ def predict_mlframe_models_suite(
                     try:
                         check_is_fitted(model_obj.pre_pipeline)
                         _pp_fitted = True
-                    except (NotFittedError, Exception):
+                    except Exception:
+                        # ``Exception`` already subsumes NotFittedError; listing both is redundant. The
+                        # broad catch is intentional - any check_is_fitted internal raise means "not safely
+                        # fitted; skip transform".
                         _pp_fitted = False
                     if _pp_fitted:
                         try:
@@ -1065,7 +1068,6 @@ def predict_from_models(
                         # Cached per-(input_for_model, _expected) set-diff. Multiple models in one suite often
                         # carry identical feature_names_in_; this reuses the computed missing / drop lists.
                         _cache_key = (id(input_for_model), id(_expected))
-                        _cached_diff = _col_diff_cache.get(_cache_key)
                         # Normalise column name dtypes to plain ``str`` so numpy.str_
                         # (the dtype LGBMClassifier.feature_names_in_ carries when fit on a
                         # pandas DataFrame) compares equal to the Python str a polars/pandas
@@ -1154,11 +1156,12 @@ def predict_from_models(
                             # the frame. Surfaced by fuzz iter#79
                             # (regression x lgb,hgb x polars).
                             from sklearn.utils.validation import check_is_fitted
-                            from sklearn.exceptions import NotFittedError
                             try:
                                 check_is_fitted(model_obj.pre_pipeline)
                                 _pp_fitted = True
-                            except (NotFittedError, Exception):
+                            except Exception:
+                                # ``Exception`` subsumes NotFittedError; broad catch is intentional - any
+                                # check_is_fitted internal raise means "not safely fitted; skip transform".
                                 _pp_fitted = False
                             if _pp_fitted:
                                 # Double-encoding guard. When the main polars-ds

@@ -22,6 +22,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import threading
 from typing import ContextManager, List, Protocol, runtime_checkable
 
 from mlframe.training.feature_handling.locking import PIDAwareFileLock
@@ -93,6 +94,18 @@ class LocalDiskBackend:
         self.max_entries = max_entries
         self.max_size_mb = max_size_mb
         self._lru_path = os.path.join(self.root, ".lru")
+        # In-process serialisation for the ``.lru`` sidecar: every
+        # mutation reads the JSON, modifies it, and atomic-writes back.
+        # Without a lock, two threads racing on ``_touch_lru`` /
+        # ``_evict_to_caps`` can load the same snapshot, mutate
+        # independently, then sequentially clobber each other's update.
+        # Cross-process safety is layered via ``PIDAwareFileLock`` on
+        # the sidecar path so concurrent writers from sibling processes
+        # observe the same critical section.
+        self._lru_mem_lock = threading.Lock()
+        self._lru_cross_proc_lock_path = os.path.join(
+            self._locks_dir, ".lru.lock"
+        )
 
     # ---- path helpers ------------------------------------------------
 
@@ -124,8 +137,9 @@ class LocalDiskBackend:
         # zero-config workload pays nothing.
         if self.max_entries is not None or self.max_size_mb is not None:
             try:
-                self._touch_lru(key)
-                self._evict_to_caps()
+                with self._lru_locked():
+                    self._touch_lru(key)
+                    self._evict_to_caps()
             except Exception:
                 pass
 
@@ -140,15 +154,38 @@ class LocalDiskBackend:
             pass
         if self.max_entries is not None or self.max_size_mb is not None:
             try:
-                lru = self._load_lru()
-                if lru.pop(key, None) is not None:
-                    self._save_lru(lru)
+                with self._lru_locked():
+                    lru = self._load_lru()
+                    if lru.pop(key, None) is not None:
+                        self._save_lru(lru)
             except Exception:
                 pass
 
     # ---- LRU sidecar -------------------------------------------------
     # Mirrors DiscoveryCache's sidecar: NTFS / noatime mounts make atime
     # unreliable, so a separate ledger gives portable access tracking.
+
+    @contextlib.contextmanager
+    def _lru_locked(self):
+        """Serialise sidecar read-modify-write across threads and
+        processes. The in-process ``threading.Lock`` is the fast path;
+        the ``PIDAwareFileLock`` covers sibling processes. Falls back
+        to the in-process lock alone if the cross-process layer cannot
+        be acquired (filelock missing on minimal installs).
+        """
+        with self._lru_mem_lock:
+            file_lock = PIDAwareFileLock(self._lru_cross_proc_lock_path, timeout=30.0)
+            try:
+                file_lock.__enter__()
+            except Exception:
+                # Cross-process layer unavailable; in-process lock
+                # still protects this interpreter's threads.
+                yield
+                return
+            try:
+                yield
+            finally:
+                file_lock.__exit__(None, None, None)
 
     def _load_lru(self) -> "dict[str, float]":
         import json

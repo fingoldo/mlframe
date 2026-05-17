@@ -5,12 +5,19 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from numba.cuda import is_available as is_cuda_available
-
 logger = logging.getLogger(__name__)
 
+# numba is an optional dep: probing CUDA via numba.cuda is convenient but the
+# training package must still import on machines without numba (or without a
+# working CUDA driver). Wrap both the import and the call so any failure -
+# ImportError, OSError on missing libcuda, runtime probe errors - degrades
+# silently to CPU-only mode.
 try:
-    CUDA_IS_AVAILABLE = is_cuda_available()
+    from numba.cuda import is_available as is_cuda_available
+    try:
+        CUDA_IS_AVAILABLE = bool(is_cuda_available())
+    except Exception:
+        CUDA_IS_AVAILABLE = False
 except Exception:
     CUDA_IS_AVAILABLE = False
 

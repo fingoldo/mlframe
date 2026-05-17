@@ -79,7 +79,81 @@ def _patch_lgb_feature_names_in_setter() -> None:
     _model_cls._mlframe_feature_names_setter_installed = True
 
 
-_patch_lgb_feature_names_in_setter()
+# Audit 2026-05-17 (Wave 1.5): the LightGBM feature_names_in_ setter
+# patch was originally applied at import time as a global side effect.
+# We now expose it via ``apply_third_party_patches_once()`` (idempotent)
+# which the suite entrypoint + the dataset factories below call lazily.
+# Bare ``import mlframe.training`` no longer mutates lightgbm internals.
+_THIRD_PARTY_PATCHES_APPLIED = False
+
+
+def apply_third_party_patches_once() -> None:
+    """Apply the third-party patches mlframe relies on, exactly once.
+
+    Composes:
+
+    * :func:`_patch_lgb_feature_names_in_setter` -- defensive setter for
+      ``LGBMModel.feature_names_in_`` (sklearn 1.8 + LightGBM 4.6
+      compat).
+    * :func:`_patch_dataset_constructors_with_logging` -- INFO-level
+      build-event logging around ``catboost.Pool``, ``xgboost.DMatrix``,
+      ``lightgbm.Dataset``.
+
+    Idempotent. Pre-audit these ran at import time; now they're
+    deferred until the suite entrypoint or a dataset factory actually
+    needs them.
+    """
+    global _THIRD_PARTY_PATCHES_APPLIED
+    if _THIRD_PARTY_PATCHES_APPLIED:
+        return
+    _patch_lgb_feature_names_in_setter()
+    _patch_dataset_constructors_with_logging()
+    _THIRD_PARTY_PATCHES_APPLIED = True
+
+
+# ---------------------------------------------------------------------------
+# Public factories for third-party dataset constructors. mlframe-internal
+# code SHOULD prefer these over directly constructing ``catboost.Pool``,
+# ``xgboost.DMatrix``, ``lightgbm.Dataset`` -- the factories ensure the
+# patches are applied lazily and centralise the construction surface so
+# future migration to a pure-factory architecture has a single seam.
+# Existing direct constructor calls inside mlframe continue to work
+# because the suite entrypoint also calls
+# ``apply_third_party_patches_once()``.
+# ---------------------------------------------------------------------------
+
+
+def make_pool(*args, **kwargs):
+    """Construct a ``catboost.Pool`` with mlframe build-event logging.
+
+    Identical signature to ``catboost.Pool(...)`` -- a thin factory
+    that lazily applies the third-party patches the first time it's
+    called.
+    """
+    apply_third_party_patches_once()
+    import catboost as _cb  # local import keeps cb optional
+    return _cb.Pool(*args, **kwargs)
+
+
+def make_dmatrix(*args, **kwargs):
+    """Construct an ``xgboost.DMatrix`` with mlframe build-event logging."""
+    apply_third_party_patches_once()
+    import xgboost as _xgb
+    return _xgb.DMatrix(*args, **kwargs)
+
+
+def make_quantile_dmatrix(*args, **kwargs):
+    """Construct an ``xgboost.QuantileDMatrix`` with mlframe build-event logging."""
+    apply_third_party_patches_once()
+    import xgboost as _xgb
+    return _xgb.QuantileDMatrix(*args, **kwargs)
+
+
+def make_lgb_dataset(*args, **kwargs):
+    """Construct a ``lightgbm.Dataset`` with mlframe build-event logging."""
+    apply_third_party_patches_once()
+    import lightgbm as _lgb
+    return _lgb.Dataset(*args, **kwargs)
 
 
 def _patch_dataset_constructors_with_logging() -> None:
@@ -217,7 +291,8 @@ def _patch_dataset_constructors_with_logging() -> None:
         pass
 
 
-_patch_dataset_constructors_with_logging()
+# Pre-audit: this ran at import time. Post-audit: lazy via
+# apply_third_party_patches_once(). See module-level comment above.
 
 try:
     from xgboost import XGBClassifier, XGBRegressor

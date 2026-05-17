@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------
 
 
+_RANKNET_MAX_PAIRS_PER_QUERY: int = 2_000_000  # ~16MB float32 per (i,j) tensor
+
+
 def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torch.Tensor:
     """RankNet pairwise loss for one query.
 
@@ -55,12 +58,26 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
     BCE-with-logits at target=1 reduces algebraically to softplus(-x) = log(1 + exp(-x)),
     so softplus is applied to the masked 1-D score-diff vector directly. Same gradients
     (verified to ~3e-8 max-abs) and numerical stability as the (N, N) BCE form.
+
+    Queries larger than ``sqrt(_RANKNET_MAX_PAIRS_PER_QUERY)`` (~1414 docs) are
+    randomly subsampled to that doc count for this loss call; the (N,N) pair
+    tensor would otherwise allocate quadratically (10k docs ~> 400MB).
     """
     if scores.dim() != 1:
         scores = scores.view(-1)
     n = scores.shape[0]
     if n < 2:
         return scores.new_zeros(())
+
+    # Cap quadratic blowup: 10k docs -> 100M pairs ~> 400MB float32 alloc.
+    _max_n = int(_RANKNET_MAX_PAIRS_PER_QUERY ** 0.5)
+    if n > _max_n:
+        # torch.randperm picks a unique-index subsample on-device; uniform
+        # over docs preserves the pair-distribution in expectation.
+        idx = torch.randperm(n, device=scores.device)[:_max_n]
+        scores = scores[idx]
+        relevance = relevance[idx]
+        n = _max_n
 
     rel = relevance.view(-1).to(scores.dtype)
     # Pairwise diff matrices (N, N) required to identify informative pairs; N^2 in N (small per-query).

@@ -261,17 +261,37 @@ def make_train_test_split(
                 val_list.append(val_seq)
                 remaining = remaining[:-n_val_seq]
 
-        # Shuffled test from remaining
+        # Shuffled test from remaining. rng.choice(N, k, replace=False) raises
+        # when k > N; that surfaces as a ValueError far from the cause (e.g.
+        # when the sequential test block already consumed most of the input,
+        # or test_size + val_size jointly exceed n_total). Clamp with a WARN
+        # so the caller sees the issue and the split still produces a result.
         if n_test_shuf > 0:
-            test_shuf_idx = rng.choice(len(remaining), n_test_shuf, replace=False)
-            test_list.append(remaining[test_shuf_idx])
-            remaining = np.delete(remaining, test_shuf_idx)
+            _eff_test_shuf = min(n_test_shuf, len(remaining))
+            if _eff_test_shuf < n_test_shuf:
+                logger.warning(
+                    "Shuffled test size %d exceeds remaining pool %d after "
+                    "sequential allocation; clamping to %d.",
+                    n_test_shuf, len(remaining), _eff_test_shuf,
+                )
+            if _eff_test_shuf > 0:
+                test_shuf_idx = rng.choice(len(remaining), _eff_test_shuf, replace=False)
+                test_list.append(remaining[test_shuf_idx])
+                remaining = np.delete(remaining, test_shuf_idx)
 
-        # Shuffled val from remaining
+        # Shuffled val from remaining (same clamp rationale).
         if n_val_shuf > 0:
-            val_shuf_idx = rng.choice(len(remaining), n_val_shuf, replace=False)
-            val_list.append(remaining[val_shuf_idx])
-            remaining = np.delete(remaining, val_shuf_idx)
+            _eff_val_shuf = min(n_val_shuf, len(remaining))
+            if _eff_val_shuf < n_val_shuf:
+                logger.warning(
+                    "Shuffled val size %d exceeds remaining pool %d after "
+                    "sequential / test allocation; clamping to %d.",
+                    n_val_shuf, len(remaining), _eff_val_shuf,
+                )
+            if _eff_val_shuf > 0:
+                val_shuf_idx = rng.choice(len(remaining), _eff_val_shuf, replace=False)
+                val_list.append(remaining[val_shuf_idx])
+                remaining = np.delete(remaining, val_shuf_idx)
 
         test_items = np.concatenate(test_list) if test_list else np.array([], dtype=remaining.dtype)
         val_items = np.concatenate(val_list) if val_list else np.array([], dtype=remaining.dtype)
@@ -376,8 +396,10 @@ def make_train_test_split(
         test_details = _build_details(timestamps, test_idx, test_seq_idx, n_test_shuf, "D")
 
     elif timestamps is not None:
-        # Row-based splitting with timestamps
-        sorted_idx = np.argsort(timestamps.values)
+        # Row-based splitting with timestamps. Use ``kind="stable"`` so that
+        # ties keep their original positional order; default quicksort
+        # reshuffles ties run-to-run which makes seeded splits non-reproducible.
+        sorted_idx = np.argsort(timestamps.values, kind="stable")
         train_idx, val_idx, test_idx, val_idx_seq, test_idx_seq = _perform_split(
             sorted_idx, n_test_seq, n_test_shuf, n_val_seq, n_val_shuf
         )
@@ -576,17 +598,29 @@ def make_train_test_split(
                 val_idx = np.flatnonzero(_new_val_mask).astype(np.intp)
                 test_idx = np.flatnonzero(_new_test_mask).astype(np.intp)
 
+                # Bucket the promote_to_test set by origin for the operator
+                # message: groups that previously spanned train+test go from
+                # the train side, while groups spanning val+test only leave
+                # val. ``train_test_overlap`` and ``val_test_overlap`` can
+                # intersect (3-way span) - count those as ``train+val->test``.
+                _three_way = train_test_overlap & val_test_overlap
+                _train_only_to_test = train_test_overlap - val_test_overlap
+                _val_only_to_test = val_test_overlap - train_test_overlap
                 logger.warning(
                     "Group-spanning cutoff resolution: %d row(s) from %d "
                     "spanning group(s) reassigned to the later split "
-                    "(train->val: %d groups, train+val->test: %d groups). "
+                    "(train->val: %d groups, train->test: %d groups, "
+                    "val->test: %d groups, train+val->test: %d groups). "
                     "This preserves group integrity for LTR / per-group "
                     "metrics. To eliminate spanning, widen aging_limit so "
                     "the cutoff falls outside any group's timespan, or "
                     "drop spanning groups before calling the splitter.",
                     n_reassigned,
                     len(promote_to_val) + len(promote_to_test),
-                    len(promote_to_val), len(promote_to_test),
+                    len(promote_to_val),
+                    len(_train_only_to_test),
+                    len(_val_only_to_test),
+                    len(_three_way),
                 )
 
     # Silent-empty-split warning: user requested a non-zero val/test fraction

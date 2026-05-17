@@ -70,14 +70,25 @@ def _process_special_values(
             cs.numeric().is_nan().sum().name.prefix("nans_"),
             cs.numeric().is_infinite().sum().name.prefix("infs_"),
         )
-        # Only inf is rewritten -> NaN so the downstream imputer sees a real missing marker. Lazy single .with_columns(); diagnostic scan above is the only eager work.
-        df = df.with_columns(cs.numeric().replace([float("inf"), float("-inf")], float("nan")))
+        # Only inf is rewritten -> NaN so the downstream imputer sees a real
+        # missing marker. Restrict to float columns: integer columns cannot
+        # hold inf, and polars raises (or silently no-ops depending on
+        # version) when ``.replace([inf, -inf], nan)`` is targeted at integer
+        # dtypes because ``nan`` is not representable as an integer.
+        df = df.with_columns(cs.float().replace([float("inf"), float("-inf")], float("nan")))
         if verbose and diag.height > 0:
             row = diag.row(0)
             parts = []
-            for kind, vals in [("null", row[:len(row)//3]), ("NaN", row[len(row)//3:2*len(row)//3]), ("inf", row[2*len(row)//3:])]:
-                if hasattr(vals, 'max') and vals.max() > 0:
-                    parts.append(f"{kind}={vals.max()}")
+            # ``row`` is a tuple of scalar counts (one per numeric column per
+            # kind); tuples have no ``.max()``. Use the builtin ``max`` on
+            # the slice, and only when non-empty.
+            for kind, vals in [
+                ("null", row[:len(row)//3]),
+                ("NaN", row[len(row)//3:2*len(row)//3]),
+                ("inf", row[2*len(row)//3:]),
+            ]:
+                if vals and max(vals) > 0:
+                    parts.append(f"{kind}={max(vals)}")
             if parts:
                 logger.info("Preprocessing: %s", ", ".join(parts))
     else:

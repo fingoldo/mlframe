@@ -474,6 +474,12 @@ class PytorchLightningEstimator(BaseEstimator):
             # Create a minimal datamodule for prediction if not available
             logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
             datamodule = self.datamodule_class(**self.datamodule_params)
+        else:
+            # Pre-fix this else-branch was missing and ``datamodule`` was
+            # left unbound; line 522 ``datamodule.setup_predict(...)`` then
+            # raised ``UnboundLocalError`` whenever a training-time
+            # datamodule was retained on the estimator.
+            datamodule = self.prediction_datamodule
 
         # Determine batch size for prediction. Three layers of precedence:
         #   1. ``batch_size`` arg explicitly passed to predict() - always wins.

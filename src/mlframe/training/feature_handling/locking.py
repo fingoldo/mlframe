@@ -105,24 +105,42 @@ class PIDAwareFileLock:
                     "PIDAwareFileLock: lock %s held by dead PID %d; reclaiming",
                     self.path, holder_pid,
                 )
-                # NOTE: this race is acceptable -- if a third process
-                # reclaims simultaneously we'd just retry-acquire below
-                # and get a fresh lock. The danger would be reclaiming
-                # a LIVE PID's lock; the pid_exists check guards against it.
-                try:
-                    os.unlink(self.path)
-                except FileNotFoundError:
-                    pass
-                # Surface to callers via Python warnings so test fixtures
-                # can `pytest.warns(StaleLockReclaimed)`.
+                # Surface to callers via Python warnings BEFORE the unlink
+                # attempt -- on Windows a still-open exclusive handle from
+                # a third process can make unlink raise PermissionError;
+                # the warning is the load-bearing signal for test
+                # fixtures (``pytest.warns(StaleLockReclaimed)``) so it
+                # must fire regardless of unlink success.
                 import warnings
                 warnings.warn(
                     f"reclaimed lock {self.path} from dead PID {holder_pid}",
                     StaleLockReclaimed,
                     stacklevel=2,
                 )
-                # Retry once with the grace timeout.
-                self._lock.acquire(timeout=self.reclaim_grace_timeout)
+                # Race: a third process may unlink + re-acquire in the
+                # window between our unlink and our retry-acquire. We
+                # tolerate that by building a fresh FileLock object
+                # (the stale ``self._lock`` may hold a closed-fd
+                # reference to the unlinked path on Windows) and using
+                # the full ``self.timeout`` for the retry, not the
+                # 5-second grace window. The pre-fix grace timeout
+                # could fire as a plain Timeout when the third
+                # reclaimer was mid-work, masking the situation as
+                # "lock contention" instead of "stale-then-re-held".
+                try:
+                    os.unlink(self.path)
+                except (FileNotFoundError, PermissionError):
+                    # Windows: file in use by another handle. The fresh
+                    # FileLock retry below will still produce the right
+                    # behaviour (Timeout if contention, success if free).
+                    pass
+                # Fresh lock object so any closed-handle state from the
+                # earlier failed acquire doesn't bleed into the retry.
+                self._lock = _BaseFileLock(self.path)
+                # Retry with the full configured timeout; the grace
+                # variable stays as the floor.
+                retry_timeout = max(self.reclaim_grace_timeout, self.timeout)
+                self._lock.acquire(timeout=retry_timeout)
             else:
                 raise  # holder is alive (or no PID written) -- propagate timeout
 

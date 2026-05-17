@@ -184,6 +184,16 @@ def train_mlframe_models_suite(
     if verbose:
         _ensure_logging_visible()
 
+    # Audit 2026-05-17 (Wave 1.5): apply the third-party patches the
+    # suite relies on (LGBMModel.feature_names_in_ setter; dataset-build
+    # logging) lazily at suite entry. Previously these ran as import-
+    # time side effects of ``mlframe.training``; now bare imports leave
+    # joblib / lightgbm / catboost / xgboost untouched.
+    from .. import apply_loky_cpu_count_override as _apply_loky
+    from .._model_factories import apply_third_party_patches_once
+    _apply_loky()
+    apply_third_party_patches_once()
+
     # Module-global registry; not safe to invoke concurrent training suites from the same process.
     reset_phase_registry()
     # Rotate the FH InMemoryKey session token alongside the phase registry. Without this, two

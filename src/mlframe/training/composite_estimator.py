@@ -13,6 +13,7 @@ from typing import (
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.exceptions import NotFittedError
 
 try:
     import polars as pl  # type: ignore
@@ -453,6 +454,12 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # Apply domain check before fitting transform params: invalid
         # rows must NOT bias the OLS / MAD computation.
         valid = transform.domain_check(y_arr, base_arr)
+        valid = np.asarray(valid)
+        if valid.ndim != 1:
+            raise ValueError(
+                f"CompositeTargetEstimator.fit: transform '{self.transform_name}' "
+                f"domain_check returned ndim={valid.ndim}; expected 1-D boolean mask."
+            )
         n_invalid = int((~valid).sum())
         if n_invalid > 0:
             if not self.drop_invalid_rows:
@@ -487,7 +494,6 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # transform requires_groups=True, extract group labels from the
         # configured group_column and pass them as kwargs through fit/
         # forward. The transform's own fit signature enforces presence.
-        groups_full: np.ndarray | None = None
         groups_train: np.ndarray | None = None
         if transform.requires_groups:
             if not self.group_column:
@@ -495,8 +501,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
                     f"CompositeTargetEstimator: transform '{self.transform_name}' "
                     f"requires groups; configure ``group_column`` on the wrapper."
                 )
-            groups_full = _extract_groups(X, self.group_column)
-            groups_train = groups_full[valid]
+            groups_train = _extract_groups(X, self.group_column)[valid]
         # transform_fit_kwargs is separate from fit_kwargs (which is
         # the caller's pass-through to the inner estimator's .fit() at
         # the bottom of this method). Only ``groups`` flows into the
@@ -560,7 +565,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             # For multiplicative DGP, residual variance scales with
             # |base|. Weight ~ 1/|base| (capped at the 5th percentile
             # to avoid blow-up on near-zero base) flattens it.
-            base_valid = base_train[valid].astype(np.float64)
+            # ``base_train`` is already filtered to valid rows (line 471);
+            # re-applying the full-length ``valid`` mask here would either
+            # IndexError (when some rows were dropped) or be a misleading
+            # no-op (when none were).
+            base_valid = base_train.astype(np.float64)
             abs_base = np.abs(base_valid)
             floor_q = float(np.quantile(
                 abs_base[abs_base > 0], 0.05,
@@ -877,17 +886,29 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
     # Delegation
     # ------------------------------------------------------------------
 
+    def _require_fitted(self, attr: str) -> Any:
+        """sklearn convention: pre-fit access to ``feature_importances_``/``coef_``/
+        ``intercept_`` raises ``NotFittedError`` (was: silent ``None`` return).
+        """
+        est = getattr(self, "estimator_", None)
+        if est is None:
+            raise NotFittedError(
+                f"CompositeTargetEstimator has no fitted ``estimator_``; "
+                f"call .fit(...) before accessing .{attr}."
+            )
+        return est
+
     @property
     def feature_importances_(self) -> np.ndarray | None:
-        return getattr(getattr(self, "estimator_", None), "feature_importances_", None)
+        return getattr(self._require_fitted("feature_importances_"), "feature_importances_", None)
 
     @property
     def coef_(self) -> np.ndarray | None:
-        return getattr(getattr(self, "estimator_", None), "coef_", None)
+        return getattr(self._require_fitted("coef_"), "coef_", None)
 
     @property
     def intercept_(self) -> float | None:
-        return getattr(getattr(self, "estimator_", None), "intercept_", None)
+        return getattr(self._require_fitted("intercept_"), "intercept_", None)
 
     def get_booster(self):
         """XGBoost shim."""
@@ -1126,37 +1147,46 @@ def predict_quantile_ensemble(
     # at the wrong nominal coverage.
     per_member: list[np.ndarray] = []
     expected_shape: Optional[Tuple[int, int]] = None
+    quantiles_list = [float(v) for v in quantiles_arr]
     for idx, m in enumerate(members):
         if not hasattr(m, "predict_quantile"):
             raise ValueError(
                 f"predict_quantile_ensemble: member {idx} ({type(m).__name__!r}) lacks predict_quantile(X, alpha); "
                 "wrap each member in CompositeTargetEstimator or another quantile-aware estimator."
             )
-        # Per-alpha calls: portable across libraries whose native multi-quantile signature differs
-        # (CB MultiQuantile takes alpha=[...], LightGBM scalar-only, sklearn QuantileRegressor scalar-only).
-        cols: list[np.ndarray] = []
-        for alpha_v in quantiles_arr:
-            try:
-                pred = m.predict_quantile(X, float(alpha_v))
-            except TypeError:
-                pred = m.predict_quantile(X, alpha=float(alpha_v))
-            pred_arr = np.asarray(pred, dtype=np.float64)
-            if pred_arr.ndim == 2:
-                # Member already returned multi-quantile; pick the column matching this alpha.
-                # Members that natively emit multi-quantile must expose the same quantile set we asked for;
-                # if shapes do not match the requested 1-D contract treat as a mis-aligned member.
-                if pred_arr.shape[1] != 1:
+        # Single batched call when the member's ``predict_quantile`` accepts a sequence
+        # (e.g. CatBoost MultiQuantile, CompositeTargetEstimator). We attempt one batched
+        # call and fall back to per-alpha scalar calls only on TypeError / ValueError /
+        # mismatched-shape -- LightGBM and sklearn QuantileRegressor are scalar-only.
+        member_mat: Optional[np.ndarray] = None
+        try:
+            batched = m.predict_quantile(X, quantiles_list)
+            batched_arr = np.asarray(batched, dtype=np.float64)
+            if batched_arr.ndim == 2 and batched_arr.shape[1] == len(quantiles_list):
+                member_mat = batched_arr
+        except (TypeError, ValueError):
+            member_mat = None
+        if member_mat is None:
+            cols: list[np.ndarray] = []
+            for alpha_v in quantiles_arr:
+                try:
+                    pred = m.predict_quantile(X, float(alpha_v))
+                except TypeError:
+                    pred = m.predict_quantile(X, alpha=float(alpha_v))
+                pred_arr = np.asarray(pred, dtype=np.float64)
+                if pred_arr.ndim == 2:
+                    if pred_arr.shape[1] != 1:
+                        raise ValueError(
+                            f"predict_quantile_ensemble: member {idx} returned shape {pred_arr.shape!r} for scalar alpha={alpha_v}; "
+                            "expected (n_samples,) or (n_samples, 1)."
+                        )
+                    pred_arr = pred_arr[:, 0]
+                elif pred_arr.ndim != 1:
                     raise ValueError(
-                        f"predict_quantile_ensemble: member {idx} returned shape {pred_arr.shape!r} for scalar alpha={alpha_v}; "
-                        "expected (n_samples,) or (n_samples, 1)."
+                        f"predict_quantile_ensemble: member {idx} predict_quantile returned ndim={pred_arr.ndim} (expected 1 or 2)"
                     )
-                pred_arr = pred_arr[:, 0]
-            elif pred_arr.ndim != 1:
-                raise ValueError(
-                    f"predict_quantile_ensemble: member {idx} predict_quantile returned ndim={pred_arr.ndim} (expected 1 or 2)"
-                )
-            cols.append(pred_arr)
-        member_mat = np.column_stack(cols)
+                cols.append(pred_arr)
+            member_mat = np.column_stack(cols)
         if expected_shape is None:
             expected_shape = member_mat.shape
         elif member_mat.shape != expected_shape:
