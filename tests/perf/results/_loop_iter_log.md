@@ -1302,3 +1302,35 @@ Other hotspots all previously surveyed:
 
 **Verdict: REJECT.** No actionable mlframe-side hotspot above
 the 1.2x gate. Streak counter: 2/100.
+
+## Iter 31 -- 2026-05-18 -- REJECTED (streak 3/100)
+
+Cell: `c0023_4a56c9f7-cb_linear_xgb-pl_utf8-n600` (3-model
+multiclass classification on pl_utf8, n=600, no MRMR, no
+ensembles). Test passed under cProfile in 102.46 s.
+
+**mlframe-OWN tottime (>15ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `_data_helpers.py:230(_validate_target_values)` | 135 ms | 12 | 11 ms |
+| `preprocessing.py:230(preprocess_dataframe)` | 57 ms | 1 | 57 ms |
+| `io.py:39(atomic_write_bytes)` | 19 ms | 8 | 2.5 ms |
+
+`_validate_target_values` per-call cost is 11 ms post the iter-15
+1.58x fix (pre-fix would have been ~17 ms/call). Below 1.2x gate.
+
+`preprocess_dataframe` is a thin Python wrapper that dispatches
+to `remove_constant_columns` + `ensure_dataframe_float32_convertability`
++ `process_infinities` (all polars/pandas C-ext). The 57 ms own
+is wrapper conditional / attribute access / verbose log calls;
+cumtime 6.56 s is all in the C-ext subcalls.
+
+`atomic_write_bytes` 19 ms across 8 calls is model save IO (pickle
++ zstd C-ext).
+
+No actionable mlframe-Python-side hotspot above the 1.2x gate.
+Counts as the cleanest profile of the entire loop run -- 211 ms
+total mlframe-OWN tottime out of 102 s wall = 0.2 %.
+
+**Verdict: REJECT.** Streak counter: 3/100.
