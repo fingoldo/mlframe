@@ -1225,3 +1225,37 @@ zero EOL drift. Future batch-edit scripts should `read_bytes()`
 
 Counted as the loop's twelfth RESOLVED. Streak counter:
 **0/100** (RESOLVED resets). Commits `9d8b050`, `1a3cbe0`.
+
+## Iter 29 -- 2026-05-18 -- REJECTED (streak 1/100)
+
+Cell: `c0015_abb14985-hgb_lgb-pl_nullable-n300` (LTR target, HGB
+filtered out, LGB-only, pl_nullable dtype, n=300). Validates the
+iter-26 fix on a different dtype (pl_nullable vs the iter-26
+combo's pl_utf8). Test passed under cProfile in 39.94 s.
+
+**mlframe-OWN tottime breakdown (>10ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `utils.py:395(get_pandas_view_of_polars_df)` | 368 ms | 1 | 368 ms |
+
+Cleanest profile yet -- nothing else above 10 ms own time. The
+368 ms is cProfile attribution noise on a thin polars Arrow-bridge
+wrapper; real per-call cost ~1.18 ms per the iter-16 bench (n=5000
+pl_enum frame). For this combo's n=300 pl_nullable input the
+absolute real cost is well under 1 ms.
+
+**Top cumtime sinks**:
+
+- 17 s cold-start imports (one-shot per process)
+- 13.12 s `train_mlframe_ranker_suite` cumtime (CB / LGB / XGB
+  native fits + dummy-baselines compute)
+
+The iter-26 + iter-27/28 fixes are validated end-to-end: no
+crashes, no warnings beyond the documented FigureCanvasAgg
+matplotlib notice. The iter-28 numba cache=True flips wrote to
+`__pycache__/` on this run for any kernel that fires; subsequent
+processes will deserialize from disk.
+
+**Verdict: REJECT.** No actionable mlframe-side hotspot above the
+1.2x gate. Streak counter: 1/100.
