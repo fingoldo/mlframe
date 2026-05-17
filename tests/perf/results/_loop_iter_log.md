@@ -672,3 +672,62 @@ with no measurable wall-time payoff (the entire surface is 53 ms).
 21.7 s MRMR work is in numba kernels (correct optimization tier);
 the 37 s model fit is CatBoost C++; the 17 s cold-start is
 import-time and one-shot. Streak counter: 2/100.
+
+## Iter 18 -- 2026-05-17 -- RESOLVED (streak resets 0/100)
+
+Cell: `c0115_0c091590-hgb_linear_xgb-pl_utf8-n5000` (3-model binary
+suite on pl_utf8 dtype, no MRMR, no ensembles).
+
+Picked for profile coverage of the pl_utf8 input path. The cProfile
+run aborted at 31s with `numba.core.targetconfig.py:296 MemoryError:
+Can't allocate memory for compression object` -- a cProfile-induced
+heap fragmentation symptom (same family as iter 14's BrokenProcessPool).
+The NATIVE run (no cProfile) hit a real bug instead.
+
+**Real bug surfaced:** `run_confidence_analysis` crashed on the
+polars test_df during the HGB-weight=uniform call. Three failure
+modes observed by successive narrowing:
+
+1. First native run (this iter): `TypeError: No matching signature
+   found` in `_set_features_order_data_polars_categorical_column.process`.
+   Diagnosis: pipeline upgraded `cat_0` from pl.Utf8 to pl.Categorical
+   between fit and confidence-analysis time
+   (`align_polars_categorical_dicts=True` on this combo); CB's polars
+   Pool path for Categorical-with-nulls is broken.
+2. After casting Categorical -> Utf8: `Error while processing column
+   for feature 'cat_0'`. Diagnosis: pl.Utf8 with null cells still
+   broke CB's polars Pool.
+3. After routing to pandas Arrow-bridge view: `Invalid type for
+   cat_feature[...]=NaN`. Diagnosis: CB rejects NaN cells in
+   cat_features.
+
+**Fix landed in two parts of `_eval_helpers.py:run_confidence_analysis`:**
+
+1. When `test_df` arrives as a polars DataFrame, route through
+   `get_pandas_view_of_polars_df()` before the confidence Pool is
+   built. The pandas Pool path handles Categorical+NaN and object+NaN
+   cleanly (the existing pandas branch already relied on this).
+2. After the cat_features list is resolved (caller-passed OR
+   auto-detected by `get_categorical_columns` -- the HGB call passes
+   `cat_features=None` so the auto-detect branch fires), fill every
+   NaN cell in a kept cat column with the sentinel string `_NULL_`.
+   CB then treats missing as a distinct category.
+
+The cat_features-resolution-then-fillna ordering matters: HGB callers
+pass `cat_features=None` and the auto-detect block on the post-conversion
+pandas frame is what discovers `cat_0`. Placing the fillna BEFORE the
+auto-detect ran fine for CB-caller paths but silently no-op'd for HGB.
+The bug only manifests when null_fraction_cats > 0 AND the model is
+not CB itself.
+
+**6-test regression suite at**
+`tests/training/test_audit_2026_05_17_loop_18_confidence_polars_cat.py`:
+- 4 parametrize cells: polars {with-null, no-null} x {Categorical,
+  Utf8-string}
+- 1 HGB-style call (cat_features=None, auto-detect path)
+- 1 pandas Categorical+NaN baseline
+
+All 6 green in 24 s. c0115 fuzz cell now passes natively in 23 s
+(vs full pytest timeout pre-fix).
+
+Streak counter: **0/100** (RESOLVED resets). Commit `84dd611`.
