@@ -2045,6 +2045,19 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     multi_base_max_k: int = 3
     multi_base_min_marginal_rmse_gain: float = 0.02
 
+    # Pack #3: stacked 2-pass composite discovery. When True the suite calls
+    # ``CompositeTargetDiscovery.fit_stacked`` instead of plain ``fit``. Pass 1
+    # is the normal discovery; for the top ``stacked_max_pass1_specs`` specs
+    # we compute OOF predictions on the train rows, append them as new feature
+    # columns, and re-run discovery on the augmented feature set. Pass-2 specs
+    # may absorb residual-of-residual structure that the first pass missed
+    # (e.g. y = f(x_a) + g(x_b): pass 1 takes f(x_a), pass 2 finds g(x_b) on
+    # the leftover). Default False so the path is opt-in until measured
+    # on real data; switch to True after biz_val on your target.
+    use_stacked_discovery: bool = False
+    stacked_n_oof_folds: int = 3
+    stacked_max_pass1_specs: int = 3
+
     # MI screening. Sample to keep the diagnostic under one minute on
     # 4M-row datasets; mi_sample_n=None uses full train.
     mi_sample_n: Optional[int] = 200_000

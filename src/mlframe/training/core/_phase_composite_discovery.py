@@ -379,12 +379,34 @@ def run_composite_target_discovery(
                     _disc_instance = CompositeTargetDiscovery(_disc_cfg)
                     if _use_hint and _diag is not None and _hint_strengths:
                         _disc_instance._hint_strengths_pct = _hint_strengths
-                    _disc = _disc_instance.fit(
-                        df=_disc_df,
-                        target_col=_tname_disc,
-                        feature_cols=_disc_feature_cols,
-                        train_idx=_disc_train_idx,
-                    )
+                    # Pack #3 wiring: stacked 2-pass discovery (OOF predictions
+                    # from pass 1 augment feature_cols for pass 2). Wraps the
+                    # standard ``fit()`` so the rest of the phase code path is
+                    # unchanged. Opt-in via config; default False keeps the
+                    # historical single-pass behaviour.
+                    _use_stacked = bool(getattr(
+                        _disc_cfg, "use_stacked_discovery", False,
+                    ))
+                    if _use_stacked:
+                        _disc = _disc_instance.fit_stacked(
+                            df=_disc_df,
+                            target_col=_tname_disc,
+                            feature_cols=_disc_feature_cols,
+                            train_idx=_disc_train_idx,
+                            n_oof_folds=int(getattr(
+                                _disc_cfg, "stacked_n_oof_folds", 3,
+                            )),
+                            max_pass1_specs_to_stack=int(getattr(
+                                _disc_cfg, "stacked_max_pass1_specs", 3,
+                            )),
+                        )
+                    else:
+                        _disc = _disc_instance.fit(
+                            df=_disc_df,
+                            target_col=_tname_disc,
+                            feature_cols=_disc_feature_cols,
+                            train_idx=_disc_train_idx,
+                        )
                 except Exception as _disc_err:
                     logger.warning(
                         "[CompositeTargetDiscovery] fit failed for target='%s': %s. "
