@@ -413,3 +413,52 @@ appears exhausted on the archived baselines. The pattern across all six:
 Loop continues per the 100-consecutive-reject policy, but each subsequent
 iteration is expected to follow one of these four patterns until an
 unprofiled code path surfaces.
+
+## Iter 12 -- 2026-05-17 -- RESOLVED (streak resets 0/100)
+
+Picked random fuzz cell:
+`c0097_867cf5d3-cb_hgb_lgb_mlp_xgb-pl_utf8-n1000` (5-model suite, polars
+utf8, n=1000, binary classification with MRMR + ensembles).
+
+cProfile run via pytest `-k "c0097_867cf5d3"` hit `pytest.mark.timeout(300)`
+**before any model fit started**, hanging inside `_cb_pool._cb_gpu_usable`
+on the very first GPU probe. Traceback bottom:
+
+```
+helpers.py:293  _cb_task = "GPU" if _cb_gpu_probe() else "CPU"
+_cb_pool.py:532   if not _cached_gpu_info():
+_cb_pool.py:494     with _GPU_PROBE_LOCK:      <-- HANG
++++ Timeout +++
+```
+
+**Root cause: reentrant deadlock.** `_cb_gpu_usable()` acquires
+`_GPU_PROBE_LOCK` (line 529), then while still holding it calls
+`_cached_gpu_info()` which tries to acquire the same lock (line 494).
+With `threading.Lock()` (non-reentrant) the second acquire blocks
+forever. The bug surfaced only on the very first GPU probe in a process
+(when `_GPU_INFO_PROBED` is still False so `_cached_gpu_info` cannot
+short-circuit on its pre-lock fast path).
+
+Fix: `threading.Lock()` -> `threading.RLock()` at module load. Single
+line + 4-line WHY comment.
+
+Concurrent landing: a sibling fix-agent committed the same RLock change
+in `dcd9270` 45s before this iter's commit; my `git commit -o` ended
+up only contributing the regression test (since the source diff against
+the new HEAD was already zero). Test still locks in the requirement.
+
+Regression test (3 sub-tests, all green in 7.4s):
+
+| Test | What it asserts |
+|---|---|
+| `test_gpu_probe_lock_is_reentrant` | Module-level lock is an `RLock` instance |
+| `test_reentrant_acquire_does_not_deadlock` | Same-thread double-acquire succeeds within 1s timeout — would fail on plain `Lock` |
+| `test_cb_gpu_usable_then_cached_gpu_info_no_hang` | Worker thread completes `_cb_gpu_usable` within 30s with `_GPU_INFO_PROBED` reset — direct repro of the deadlocking call chain |
+
+cProfile baseline-vs-after measurement skipped: the bug was a hang
+(infinity vs `<10ms`), not a perf tradeoff. The 5-min timeout is the
+"baseline", the RLock fix turns it into the millisecond-scale GPU probe
+the function was always meant to do.
+
+Streak counter: **0/100** (RESOLVED resets the consecutive-reject count).
+Commit: `ca67aa9`. Loop continues.
