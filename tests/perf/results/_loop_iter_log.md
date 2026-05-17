@@ -947,3 +947,64 @@ regression targets, so no separate axis is needed -- every
 regression combo exercises it. Pack ab43d58 (Linear -> Ridge for
 collinear) is exercised through the existing `inject_rank_deficient`
 axis.
+
+## Iter 24 -- 2026-05-18 -- RESOLVED (streak resets 0/100)
+
+**First profile run of the new fuzz axes** (commit `7b79ba0`).
+Picked `c0116_9ab4b3e3-cb_lgb_xgb-pl_enum-n600` (3-booster
+regression on pl_enum, n=600, composite discovery enabled,
+transforms_mode=None = full 14-transform palette).
+
+**Test FAILED** with:
+
+```
+File "src/mlframe/training/composite_transforms.py", line 458
+    raise ValueError(
+ValueError: linear_residual_multi: base has 1 columns but
+fitted alphas has 2 entries
+```
+
+Traceback:
+
+```
+core/main.py:597          train_mlframe_models_suite
+core/_phase_composite_discovery.py:445  run_composite_target_discovery
+composite_transforms.py:458             _linear_residual_multi_forward
+```
+
+**Root cause:** the post-discovery integration step at
+`_phase_composite_discovery.py:436-447` called
+`_build_full_column_from_splits(_spec.base_column, ...)` which
+returns ONLY the primary base column as a 1-D array. Multi-base
+specs (`linear_residual_multi`, produced when the forward-stepwise
+auto-promoter picks 2+ bases) store the additional column names in
+`CompositeSpec.extra_base_columns`, but the integration code
+**ignored that field**. So `transform.forward` was called with a
+1-D base while alphas had K>=2 entries.
+
+Verified the failure is NOT cProfile-induced: c0116 also crashes
+natively in 23 s with the same stack.
+
+**Fix landed in `_phase_composite_discovery.py`:**
+
+When `_spec.extra_base_columns` is non-empty, fetch each extra
+column via `_build_full_column_from_splits` and `column_stack`
+them with the primary into a `(n_total, 1+K)` matrix. Single-base
+specs keep the 1-D fast path. `transform.forward` receives a
+row-sliced 2-D matrix when multi-base, 1-D otherwise.
+
+**3-test regression suite at**
+`tests/training/test_audit_2026_05_18_loop_24_multibase_spec_integration.py`:
+- multi-base spec: stack 1+K, forward succeeds with finite output
+- pre-fix simulation: 1-D base + multi-alphas raises ValueError
+  (locks in the bug surface)
+- single-base baseline: 1-D base + single alpha still works
+
+All 3 green in 12 s. c0116 fuzz cell now passes natively in 78 s.
+
+**This is exactly what the iter-23.5 fuzz-axis extension was
+designed for**: surface bugs in the new Pack J/K + multi-base
+auto-promotion code paths that the prior fuzz axis space did not
+reach. Counted as the loop's eighth RESOLVED.
+
+Streak counter: **0/100** (RESOLVED resets). Commit `06a6b01`.
