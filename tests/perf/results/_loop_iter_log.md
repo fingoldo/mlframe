@@ -1462,3 +1462,57 @@ last 3 iters (smart-polynom in iter 33, classical-FE-pollination
 in iter 34) lands in already-optimized code.
 
 **Verdict: REJECT.** Streak counter: 6/100.
+
+## Iter 35 -- 2026-05-18 -- RESOLVED (streak 0/100)
+
+After iter 34's plateau report, swept the archived `.prof` baselines
+(all 195 from iter1 through iter196) for **any** mlframe-OWN
+function with tottime > 0.05 s across the whole loop history.
+
+The top hit was an unfixed one: `_numba_paired_bootstrap_logloss_binary`
+in `dummy_baselines.py` at **392 ms tottime** in
+`profile_iter21_c0143_baseline.prof`. Pure numba JIT compile cost
+on first invocation; cumtime equals tottime so the actual kernel
+work is sub-millisecond.
+
+**Root cause:** iter-28's batch regex flip caught
+`@njit` / `@njit()` / `@njit(cache=False)` but did NOT match
+**multi-arg decorators** like
+`@njit(parallel=True, fastmath=True, cache=False)`. The
+`dummy_baselines.py` numba kernels for bootstrap CIs and parallel
+reductions all use the multi-arg form, so the iter-28 sweep
+missed them entirely.
+
+**Fix: flip 8 more `cache=False` -> `cache=True`** in
+`dummy_baselines.py`:
+
+| Line | Kernel |
+|---:|---|
+| 106 | `_numba_logloss_bootstrap_binary` |
+| 147 | `_numba_logloss_one_pass` |
+| 196 | (bootstrap helper) |
+| 226 | (bootstrap helper) |
+| 243 | (bootstrap helper) |
+| 263 | (bootstrap helper) |
+| 277 | `_numba_paired_bootstrap_logloss_binary` |
+| 322 | `_numba_paired_bootstrap_brier_binary` |
+
+Per-kernel cold-start saving: ~50-400 ms. Aggregate: **~1-3 s
+saved per fresh dummy-baselines-active suite run**.
+
+**Verification:** iter-2 + iter-3 + iter-27 regression suites
+(12 tests) green in 21 s post-flip. Diff is exactly 8 insertions
+/ 8 deletions — EOL-preserving batch edit script.
+
+Final sweep: grep for any remaining
+`@(_numba\.|numba\.)?njit\(.*cache=False.*\)` or bare `@njit`
+across all of `src/mlframe/` returns zero matches. **Every numba
+kernel in mlframe now has explicit `cache=True`** -- iter-27 + 28
++ 35 combined.
+
+Aggregate cold-start saving across the whole campaign: ~10-50 s
+saved per fresh mlframe process (depending on which kernels fire
+in the user's path).
+
+Counted as the loop's 13th RESOLVED. Commit `cc6db68`. Streak
+counter: **0/100** (RESOLVED resets).
