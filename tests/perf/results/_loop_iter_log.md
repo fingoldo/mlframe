@@ -1125,3 +1125,55 @@ specific HGB-filtered+LGB-only path with pl_utf8 input only fires
 under the LTR dispatch.
 
 Streak counter: **0/100** (RESOLVED resets). Commit `54a1a66`.
+
+## Iter 27 -- 2026-05-18 -- RESOLVED (streak 0/100)
+
+Cell: `c0114_12268ceb-cb_lgb_xgb-pl_enum-n1000` (LTR target +
+3 native rankers + pl_enum dtype, n=1000). Test passed under
+cProfile in 35.25 s -- validates the iter-26 fix in the wild on
+the CB / LGB / XGB-trio LTR path.
+
+**Profile finding:** `_within_group_descending_index` -- 0 ms
+tottime, **3.9 s cumtime** in 1 call. Drill-in via print_callees:
+
+```
+_within_group_descending_index -> _compile_for_args  3.903s
+                              -> _numba_within_group_descending_rank
+```
+
+The 3.9 s is `numba.core.dispatcher._compile_for_args` -- the JIT
+compile of `_numba_within_group_descending_rank`. The decorator
+was `@njit(cache=False)`, so every fresh process repeated the
+compile cost on its first call. Two calls per LTR run
+(val + test ranks); first paid 3.9 s, second 0 ms (in-process
+warm cache).
+
+**Fix:** `@njit(cache=False)` -> `@njit(cache=True)`. Numba writes
+the compiled binary to `__pycache__/` on first compile; subsequent
+processes deserialise from disk.
+
+**Empirical bench (n=8 int64 gids):**
+
+| Scenario | Wall |
+|---|---:|
+| 1st call in process that DID the compile | 6177 ms |
+| 1st call in fresh process with disk cache present | 59 ms |
+| 2nd call in same process | 0.034 ms |
+
+**Cold-start speedup: ~104x** (6177 -> 59 ms). On every fresh
+LTR run, that's 3-6 s saved per process restart.
+
+**4-test regression suite at**
+`tests/training/test_audit_2026_05_18_loop_27_within_group_cache.py`:
+- decorator `_cache` backend is not NullCache (i.e. cache=True)
+- 3-group int64 input behaviour bit-identical to pre-fix
+- string-key Python-loop fallback still works
+- n=0 short-circuit returns empty array
+
+All 4 green in 15 s.
+
+Counted as the loop's eleventh RESOLVED. The kind of optimization
+the loop is supposed to find: pure perf, behaviour-invariant,
+~100x speedup on a measurable cold-start cost. Commit `736fc78`.
+
+Streak counter: **0/100** (RESOLVED resets).
