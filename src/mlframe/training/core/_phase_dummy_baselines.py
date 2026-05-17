@@ -206,6 +206,16 @@ def run_dummy_baselines(
                 _tf = get_transform(_matching_spec["transform_name"])
                 _fp = _matching_spec["fitted_params"]
                 _base_col = _matching_spec["base_column"]
+                # Multi-base specs (linear_residual_multi from forward-stepwise
+                # auto-promotion) store the extra base columns alongside the
+                # primary; transform.inverse needs the FULL (n, 1+K) matrix
+                # whose alpha count matches fitted_params['alphas']. Without
+                # this the inverse raises "base has 1 columns but fitted
+                # alphas has K entries" -- caught by the outer try/except as
+                # a WARNING, but the y-scale dummy metric is then missing
+                # from metadata. Reproduced by fuzz c0047 (mode=legacy,
+                # multi-base auto-promoted to linresM-num_1+num_dep).
+                _extra_bases = tuple(_matching_spec.get("extra_base_columns") or ())
                 _raw_target_col = _matching_spec["target_col"]
                 _raw_y_full = target_by_type.get(target_type, {}).get(_raw_target_col)
                 _y_scale_dummy_metrics: dict[str, dict[str, float]] = {}
@@ -219,7 +229,17 @@ def run_dummy_baselines(
                             or _raw_y_full is None
                             or _base_col not in _split_df.columns):
                         continue
-                    _base_split = np.asarray(_split_df[_base_col], dtype=np.float64)
+                    # Skip cleanly when any extra base is missing from this
+                    # split (avoid a deep traceback inside the inverse).
+                    if any(_eb not in _split_df.columns for _eb in _extra_bases):
+                        continue
+                    if _extra_bases:
+                        _base_split = np.column_stack(
+                            [np.asarray(_split_df[_base_col], dtype=np.float64)]
+                            + [np.asarray(_split_df[_eb], dtype=np.float64) for _eb in _extra_bases]
+                        )
+                    else:
+                        _base_split = np.asarray(_split_df[_base_col], dtype=np.float64)
                     _y_dummy_split = _tf.inverse(
                         np.asarray(_T_preds, dtype=np.float64),
                         _base_split, _fp,
