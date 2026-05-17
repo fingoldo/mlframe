@@ -631,3 +631,44 @@ ensemble metrics) are both genuine third-party C-ext work that
 mlframe orchestrates, not Python overhead we can vectorise.
 
 Streak counter: **1/100**.
+
+## Iter 17 -- 2026-05-17 -- REJECTED (streak 2/100)
+
+Cell: `c0089_8e2f42eb-cb-pl_nullable-n5000` -- single CB model on
+polars-nullable n=5000 with MRMR + LOF outlier detection (no
+ensembles, no MLP, slim profile). Test passed under cProfile in
+76.33s.
+
+**mlframe-OWN tottime breakdown (>10ms only):**
+
+| Function | tottime | ncalls | per-call | disposition |
+|---|---:|---:|---:|---|
+| `cat_interactions.py:1014(_shuffle_and_compute_three_mis)` | 53 ms | 1300 | 41 us | REJECT (numba dispatch overhead) |
+| `utils.py:395(get_pandas_view_of_polars_df)` | 44 ms | 8 | 5 ms | REJECT (at-floor) |
+| `cat_interactions.py:578(_confirm_pairs_bandit_ucb1)` | 23 ms | 1 | 23 ms | REJECT (one-shot) |
+| `cat_interactions.py:634(_step_pair)` | 9 ms | 1300 | 7 us | REJECT (dispatcher) |
+
+**Top mlframe cumtime sinks:**
+
+| Function | cumtime | Owner |
+|---|---:|---|
+| `train_and_evaluate_model` | 37 s | CatBoost native fit |
+| `mrmr.fit` / `_fit_impl` | 21.7 s | numba kernels (invisible in mlframe filter) |
+| `_apply_pre_pipeline_transforms` | 21.7 s | same MRMR work via pipeline wrapper |
+| cold-start imports (core/feature_engineering) | 17 s | one-shot |
+
+**Total mlframe-OWN tottime: ~150 ms out of 76 s wall = 0.2%.**
+
+The 1300-call kernel `_shuffle_and_compute_three_mis` is already
+`@njit(cache=True)` with in-place Fisher-Yates shuffle + single-pass
+joint count + closed-form MI summation. The 41us/call is numba-
+dispatch attribution under cProfile; the kernel itself runs in
+microseconds. To reduce dispatch cost we'd have to vectorise the
+caller-side loop INTO numba, which means rewriting the
+bandit-UCB1 outer loop in numba too -- a non-trivial scope change
+with no measurable wall-time payoff (the entire surface is 53 ms).
+
+**Verdict: REJECT.** No actionable mlframe-side optimization. The
+21.7 s MRMR work is in numba kernels (correct optimization tier);
+the 37 s model fit is CatBoost C++; the 17 s cold-start is
+import-time and one-shot. Streak counter: 2/100.
