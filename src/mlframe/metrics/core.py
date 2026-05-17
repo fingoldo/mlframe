@@ -4140,6 +4140,23 @@ def compute_fairness_metrics(
     to identify potential bias or discrimination. * is added to the bin name
     if bin's metric is an outlier (computed using Tukey's fence & IQR)."""
 
+    # Signature declares np.ndarray for y_true / y_pred but upstream
+    # report_regression_model_perf threads through whatever the model
+    # returned, which can be a polars Series for native polars-fastpath
+    # models. The bin loop below builds idx as a pandas boolean Series
+    # (when `bins` is a pandas Series) and then does y_pred[idx]; polars
+    # Series.__getitem__ rejects pandas-Series keys with TypeError. Coerce
+    # to numpy at the boundary so the bin loop sees a uniform indexable
+    # surface regardless of caller-side carrier type.
+    if hasattr(y_true, "to_numpy"):
+        y_true = np.asarray(y_true.to_numpy())
+    else:
+        y_true = np.asarray(y_true)
+    if hasattr(y_pred, "to_numpy"):
+        y_pred = np.asarray(y_pred.to_numpy())
+    else:
+        y_pred = np.asarray(y_pred)
+
     if subgroups:
 
         res = []
@@ -4166,7 +4183,7 @@ def compute_fairness_metrics(
                 else:
                     unique_bins = np.unique(bins)
             for bin_name in unique_bins:
-                idx = bins == bin_name
+                idx = np.asarray(bins == bin_name)
                 n_points = idx.sum()
                 if n_points:
                     npoints.append(n_points)
