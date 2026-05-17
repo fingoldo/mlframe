@@ -1068,3 +1068,60 @@ issue).
 
 Streak counter: **0/100** (RESOLVED resets). Commits `9289849`,
 `e061556`.
+
+## Iter 26 -- 2026-05-18 -- RESOLVED (streak 0/100)
+
+Cell: `c0102_55b75e82-hgb_lgb-pl_utf8-n1000` (LTR target, 2 models
+with HGB filtered out by the LTR-supported-models gate, n=1000,
+pl_utf8 dtype). **First profile of the `train_mlframe_ranker_suite`
+code path** in this loop session.
+
+**Test FAILED** under cProfile AND natively (18s) with:
+
+```
+ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: cat_0: object, cat_1: object, ...,
+cat_7: object
+```
+
+at `lightgbm/basic.py:805 _pandas_to_numpy`. Traceback root:
+`ranker_suite.py:487 predict_ranker_scores(fitted, X_va)` ->
+`ranking.py:549 model.predict(X)`.
+
+**Root cause:** `train_mlframe_ranker_suite` consumes the
+FTE-emitted frame directly, bypassing the
+classifier/regressor pre-pipeline's CatBoostEncoder cast of
+object -> CategoricalDtype. Result: object-dtype string
+categorical columns reach LGB which rejects them at both fit and
+predict time.
+
+**Fix exploration (3 attempts, smaller -> larger blast radius):**
+
+1. Cast object -> pd.Categorical inside `_fit_lgb_ranker`. Failed
+   because `predict_ranker_scores` is called AFTER fit with the
+   ORIGINAL X_va, hitting the same error post-fit.
+2. Shared `CategoricalDtype` across train/val for the fit. Failed
+   with "train and valid dataset categorical_feature do not match"
+   -- LGB ranker's internal binding check still flagged a mismatch
+   despite identical dtypes (independent astype path's known
+   weak-equality bug).
+3. **Label-encode to int32 ONCE at the ranker_suite layer**, BEFORE
+   any downstream consumer fires. Shared train+val+test vocabulary
+   produces identical codes across splits; NaN -> -1 (LGB missing
+   sentinel). Covers fit + predict + dummy_baselines uniformly.
+
+c0102 fuzz cell now passes natively in 28 s.
+
+**3-test regression suite at**
+`tests/training/test_audit_2026_05_18_loop_26_ranker_object_cat_encode.py`:
+- shared-vocab encoding: same string -> same int across splits
+- unseen-value -> -1 mapping
+- LGBMRanker end-to-end smoke (skips on synthetic FTE plumbing)
+
+Counted as the loop's tenth RESOLVED -- and the second time the
+new fuzz-axis space (the LTR target_type+model combo) surfaced a
+real bug the prior axis space hadn't reached: this combo's
+specific HGB-filtered+LGB-only path with pl_utf8 input only fires
+under the LTR dispatch.
+
+Streak counter: **0/100** (RESOLVED resets). Commit `54a1a66`.
