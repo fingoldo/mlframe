@@ -806,3 +806,58 @@ the next iter. Going to switch back to smaller-N cells from here
 to ride out the pressure.
 
 **Verdict: REJECT.** Streak counter: 2/100.
+
+## Iter 21 -- 2026-05-18 -- RESOLVED (streak resets 0/100)
+
+Cell: `c0143_276cf2b5-cb_hgb_xgb-pl_nullable-n1000` -- 3-booster
+regression on pl_nullable, n=1000, MRMR (no ensembles), parquet
+storage. Picked small-N to ride out the cProfile memory pressure
+from iter 20.
+
+**cProfile run aborted at 165s with**:
+
+```
+File "polars/_utils/getitem.py", line 90, in get_series_item_by_key
+    raise TypeError(msg)
+TypeError: cannot select elements using key of type
+'pandas.core.series.Series': 800 True 801 False ... Name: cat_0,
+Length: 200, dtype: bool
+```
+
+Failure inside ``report_regression_model_perf -> compute_fairness_metrics``
+(`_reporting.py:686` -> `metrics/core.py:4177`).
+
+**Real bug:** `compute_fairness_metrics` declares
+`y_true: np.ndarray, y_pred: np.ndarray` but the caller
+`report_regression_model_perf` threads through whatever the model
+returned, which for the CB native-polars-fastpath is a polars Series.
+The bin loop builds
+``idx = bins == bin_name`` where `bins` is a pandas Series sliced by
+subset_index, so `idx` is a pandas boolean Series. The subsequent
+``y_pred[idx]`` invokes polars Series.__getitem__, which rejects
+pandas-Series keys.
+
+Verified the failure is NOT cProfile-induced: the same test crashes
+natively in 25s with the same stack.
+
+**Fix landed in `metrics/core.py:compute_fairness_metrics`:**
+
+1. Coerce `y_true` / `y_pred` to `np.asarray` at function entry
+   (uniform indexable surface regardless of caller-side carrier
+   type).
+2. Wrap the per-bin mask in `np.asarray(bins == bin_name)` for
+   symmetry.
+
+Zero impact on plain-numpy callers (np.asarray on an ndarray is a
+no-op view).
+
+**4-test regression suite at**
+`tests/training/test_audit_2026_05_17_loop_21_fairness_polars.py`:
+- polars Series y_pred (the crashing path)
+- polars Series y_true (symmetric variant)
+- pandas Series y_pred (legacy)
+- plain np.ndarray (declared contract)
+
+All 4 green in 2.9 s. c0143 fuzz cell passes natively in 86 s.
+
+Streak counter: **0/100** (RESOLVED resets). Commit `c02b1d9`.
