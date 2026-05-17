@@ -152,42 +152,40 @@ def test_config_preset_default_is_none():
 
 
 def test_maybe_set_pysr_thread_env_sets_both_vars(monkeypatch):
-    """The PySR upgrade research surfaced that under juliacall the right env var is
-    PYTHON_JULIACALL_THREADS, not JULIA_NUM_THREADS (gh discussion #873). pipeline.py
-    defers the env-set into ``_maybe_set_pysr_thread_env`` (called lazily from
-    ``_apply_pysr_fe``) so importers who never touch PySR don't get their env mutated.
-    This test calls the helper explicitly and asserts both vars land.
+    """PYTHON_JULIACALL_THREADS gets the literal string 'auto' (PySR's juliacall expected value;
+    a numeric value emits UserWarning 'PYTHON_JULIACALL_THREADS ... was not able to set it'
+    from pysr/julia_import.py:27 and disables PySR's own auto-thread routing). JULIA_NUM_THREADS
+    gets a numeric value for the legacy manually-launched-Julia path.
     """
-    # Clear any pre-existing values so we see the helper's own write, not stale state.
     monkeypatch.delenv("PYTHON_JULIACALL_THREADS", raising=False)
     monkeypatch.delenv("JULIA_NUM_THREADS", raising=False)
 
     from mlframe.training.pipeline import _maybe_set_pysr_thread_env
     _maybe_set_pysr_thread_env()
 
-    assert os.environ.get("PYTHON_JULIACALL_THREADS") is not None, (
-        "PYTHON_JULIACALL_THREADS not set -- juliacall will run single-threaded"
+    assert os.environ.get("PYTHON_JULIACALL_THREADS") == "auto", (
+        "PYTHON_JULIACALL_THREADS must be the literal 'auto' so PySR's juliacall sets the "
+        "actual thread count itself; numeric values block PySR's own auto-setup"
     )
     assert os.environ.get("JULIA_NUM_THREADS") is not None, (
         "JULIA_NUM_THREADS not set -- legacy Julia start path will run single-threaded"
     )
-    # Both vars must agree -- they were just written from the same _suggested_threads value.
-    assert os.environ["PYTHON_JULIACALL_THREADS"] == os.environ["JULIA_NUM_THREADS"]
-    # Sanity: at least 2 threads on any machine with >= 4 cores.
+    # JULIA_NUM_THREADS is numeric. At least 2 threads on any machine with >= 4 cores.
     if (os.cpu_count() or 0) >= 4:
-        assert int(os.environ["PYTHON_JULIACALL_THREADS"]) >= 2
+        assert int(os.environ["JULIA_NUM_THREADS"]) >= 2
 
 
 def test_maybe_set_pysr_thread_env_respects_pre_set_values(monkeypatch):
-    """When the user pre-set either env var (e.g. for CI thread caps), the helper
-    must NOT overwrite -- preserves user intent.
+    """When the user pre-set either env var (e.g. for CI thread caps), the helper must NOT
+    overwrite -- preserves user intent. A user setting PYTHON_JULIACALL_THREADS=4 trades
+    PySR's auto-routing for a hard cap, which is a legitimate CI configuration.
     """
-    monkeypatch.setenv("PYTHON_JULIACALL_THREADS", "1")
-    monkeypatch.setenv("JULIA_NUM_THREADS", "1")
+    monkeypatch.setenv("PYTHON_JULIACALL_THREADS", "4")
+    monkeypatch.setenv("JULIA_NUM_THREADS", "4")
     from mlframe.training.pipeline import _maybe_set_pysr_thread_env
     _maybe_set_pysr_thread_env()
-    assert os.environ["PYTHON_JULIACALL_THREADS"] == "1"
-    assert os.environ["JULIA_NUM_THREADS"] == "1"
+    assert os.environ["PYTHON_JULIACALL_THREADS"] == "4"
+    assert os.environ["JULIA_NUM_THREADS"] == "4"
 
 
 # ---------------------------------------------------------------------------

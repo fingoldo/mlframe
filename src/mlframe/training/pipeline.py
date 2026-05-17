@@ -25,20 +25,23 @@ logger = logging.getLogger(__name__)
 # Thread-count env vars must be set BEFORE Julia/PySR boots; we defer the set until the first
 # ``_apply_pysr_fe`` call so importers who never touch PySR don't get their env mutated.
 def _maybe_set_pysr_thread_env() -> None:
-    """Set PYTHON_JULIACALL_THREADS / JULIA_NUM_THREADS if either is unset.
+    """Set PYTHON_JULIACALL_THREADS=auto + JULIA_NUM_THREADS=<num> if unset.
 
-    Both vars are honoured: PYTHON_JULIACALL_THREADS by the juliacall bridge PySR>=1.0 uses,
-    JULIA_NUM_THREADS by manually-launched Julia processes (forward/backward compat per PySR
-    discussion #873). ``os.cpu_count() // 2`` is the safe default: PySR's GA scales across cores
-    but the other half stays free for sklearn/CB/LGB/XGB inner threads + the OS. Caller may pin
-    either var before this is called.
+    PYTHON_JULIACALL_THREADS gets the literal string ``"auto"`` (not a number): PySR's
+    juliacall bridge auto-detects core count when this is "auto", and emits a
+    ``UserWarning: PYTHON_JULIACALL_THREADS environment variable is set to something other than
+    'auto', so PySR was not able to set it`` when a numeric value blocks PySR's own auto-setup
+    (pysr/julia_import.py:27). JULIA_NUM_THREADS still gets a numeric value for the legacy
+    manually-launched-Julia path that doesn't read the juliacall var.
+
+    Caller may pin either var before this is called -- pre-set values are preserved.
     """
     try:
-        _ncpu = os.cpu_count() or 4
-        _suggested_threads = str(max(2, _ncpu // 2))
-        for _env_name in ("PYTHON_JULIACALL_THREADS", "JULIA_NUM_THREADS"):
-            if _env_name not in os.environ:
-                os.environ[_env_name] = _suggested_threads
+        if "PYTHON_JULIACALL_THREADS" not in os.environ:
+            os.environ["PYTHON_JULIACALL_THREADS"] = "auto"
+        if "JULIA_NUM_THREADS" not in os.environ:
+            _ncpu = os.cpu_count() or 4
+            os.environ["JULIA_NUM_THREADS"] = str(max(2, _ncpu // 2))
     except Exception:
         pass
 
