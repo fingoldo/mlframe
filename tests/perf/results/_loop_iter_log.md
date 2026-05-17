@@ -530,3 +530,52 @@ cProfile wrap, OR force sequential joblib via
 `JOBLIB_MULTIPROCESSING=0` env. Going with the former for simplicity.
 
 **Verdict: REJECT.** Streak counter: 2/100.
+
+## Iter 15 -- 2026-05-17 -- RESOLVED (streak resets 0/100)
+
+Cell: `c0108_fb3805ed-cb_xgb-pandas-n5000` (slim 2-booster binary
+combo, no MRMR, no ensembles, no MLP, no PySR -- profile-friendly).
+cProfile completed cleanly in 35.6s.
+
+**mlframe-OWN tottime breakdown:**
+
+| Function | tottime | ncalls | per-call | disposition |
+|---|---:|---:|---:|---|
+| `_data_helpers.py:230(_validate_target_values)` | 269 ms | 4 | 67 ms | **OPTIMIZED -> 1.58x** |
+| `target_temporal_audit.py:270(_pick_granularity)` | 101 ms | 1 | 101 ms | REJECT (one-time pandas datetime conv, no clean alt) |
+| `target_temporal_audit.py:148(<listcomp>)` | 60 ms | 1 | 60 ms | REJECT (sub-noise) |
+| Everything else | < 6 ms | -- | -- | noise |
+
+`target_temporal_audit.audit_targets_over_time` carries 5.25 s
+cumtime (37 % of the 14 s suite cumulative) but the OWN time is
+near-zero on every entry: 2.78 s is the one-time `ruptures` library
+import (already lazy via `_import_ruptures` -- the cold-start cost
+is unavoidable on first audit), 2.85 s is in `_audit_from_agg`'s
+`find_change_points_pelt` which delegates to ruptures' Pelt
+algorithm in C. No actionable mlframe-side speedup.
+
+**Optimization applied:** `_validate_target_values` rewrite from
+two full-array passes (`isnan().sum()` + `isinf().sum()`) to one
+`isfinite()` pass with a short-circuit on the all-finite common
+case. Behaviour preserved across every input shape (all-finite,
+NaN-only, inf-only, mixed, pd.Series, object-dtype, single-class,
+empty).
+
+Micro-bench (n=5000 float64 binary target, 20 trials of 10 calls):
+- baseline: 37.4 us median
+- optimized: 23.6 us median
+- **speedup: 1.58x**
+
+9-test regression suite at
+`tests/training/test_audit_2026_05_17_loop_15_validate_target.py`
+(green in 15.29 s). Commit `68ff923`.
+
+**Suite-level wall-time impact:** sub-millisecond (function-level
+gain is real but the function is fast; cProfile attribution
+inflates per-call cost ~1800x on the profile, so the absolute
+saving is well below visible suite-level noise). Counted as
+RESOLVED because the code is unambiguously cleaner (one pass vs
+two) AND measurably faster at the hot boundary -- both legs of the
+`feedback_perf_measure_first` gate met.
+
+Streak counter: **0/100** (RESOLVED resets).
