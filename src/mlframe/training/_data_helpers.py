@@ -113,10 +113,10 @@ def _extract_target_subset(
     if idx is None:
         return target
     if isinstance(target, pd.Series):
-        # 2026-05-12 Wave 32: ``.values[idx]`` (np take) is 9x faster than
-        # ``.iloc[idx]`` for numeric targets (bench: 0.036s vs 0.324s per
-        # 100k-row subset on 1M-row Series x 100 iterations). Wrap the
-        # result back in a pd.Series so the contract documented in the
+        # ``.values[idx]`` (np take) is 9x faster than ``.iloc[idx]`` for
+        # numeric targets (bench: 0.036s vs 0.324s per 100k-row subset on
+        # 1M-row Series x 100 iterations). Wrap the result back in a
+        # pd.Series so the contract documented in the
         # return-annotation stays intact - the wrap is a thin view, costs
         # ~10 us vs the 290 ms saved on subset itself.
         return pd.Series(
@@ -248,8 +248,17 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
     """
     arr = target.values if isinstance(target, pd.Series) else target
     try:
-        nan_count = int(np.isnan(arr).sum())
-        inf_count = int(np.isinf(arr).sum())
+        # Single-pass finiteness check; only re-scan the (typically empty)
+        # non-finite subset to split nan_count vs inf_count. Two separate
+        # isnan/isinf .sum() calls walked the full array twice on the
+        # common all-finite case.
+        finite_mask = np.isfinite(arr)
+        if finite_mask.all():
+            nan_count = inf_count = 0
+        else:
+            non_finite = arr[~finite_mask]
+            nan_count = int(np.isnan(non_finite).sum())
+            inf_count = int(np.isinf(non_finite).sum())
     except TypeError:
         nan_count = inf_count = 0  # non-numeric target (e.g., categorical)
     if nan_count > 0 or inf_count > 0:
