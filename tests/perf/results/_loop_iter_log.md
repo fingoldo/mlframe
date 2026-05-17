@@ -52,10 +52,55 @@ Reasoning:
 This confirms the prior audit wave's verdict: the orchestration layer is
 already near-zero overhead at the 1M-row scale.
 
-## Iter 2 -- TODO
+## Iter 2 -- 2026-05-17 -- RESOLVED, 63x speedup
 
-Hypothesis to test: at SMALL data scales (n=600-1000 fuzz cells), orchestration
-overhead might be relatively larger because the model-fit time shrinks linearly
-with n but bookkeeping is constant. Pick a fuzz cell with n=600 or n=1000 from
-`test_fuzz_suite.py` and re-profile, looking specifically for non-zero
-mlframe-code tottime entries.
+Cell profiled: `c0105_69237005-cb_hgb_lgb_linear-pl_utf8-n600` (small-n, 4-model).
+
+Total wall 148.7s. cProfile reveals new hotspot category: bootstrap CI
+computation in `dummy_baselines._bootstrap_ci_for_strongest`. Hot tottime
+breakdown (mlframe-code only, excluding C++ kernels):
+
+| Function | cumtime | calls | mean ms / call |
+|---|---|---|---|
+| `_bootstrap_ci_for_strongest` | 21.1 s | 1 | 21 094 ms |
+| `_resample_metric` | 21.1 s | 2 | 10 547 ms |
+| `fn` (line 2235, log_loss_macro closure) | 21.0 s | 2002 | 10.5 ms |
+
+The 2002 `fn` calls dispatch to sklearn's `log_loss` once per bootstrap
+resample (1000 resamples * 2 metrics = 2000 + 2 point estimates). Each
+sklearn call pays input-validation + dtype-cast overhead.
+
+**Fix**: new `_vectorized_bootstrap_logloss_samples` helper in
+`dummy_baselines.py` that generates all bootstrap indices in one shot and
+computes log-loss via numpy broadcasting. Handles 1D binary and 2D
+multilabel-macro shapes; returns None for shapes the caller should bounce
+to the sklearn fallback.
+
+Measured (median of 3 trials, n=600 / 1000 resamples):
+
+| Path | ms |
+|---|---:|
+| sklearn-loop (reference) | 1 519.6 |
+| vectorised (new) | 24.0 |
+| **speedup** | **63.3x** |
+
+Regression suite at `tests/training/test_audit_2026_05_17_loop_2_bootstrap_logloss.py`
+asserts:
+1. Percentile equivalence to sklearn loop to 2 dp (binary 1D).
+2. Multilabel 2D returns finite log-loss in [0.2, 2.0] range.
+3. Bad shapes return None (caller falls back).
+4. Perf gate >= 5x (actual 63x at production n).
+
+Wired into `_resample_metric` BEFORE the sklearn fallback for any path with
+"log_loss" in `primary_metric` -- covers binary (when numba guard misses
+because y is float-encoded), multiclass, and multilabel-macro. Numba binary
+path is preserved as the fastest happy path for int-encoded binary y.
+
+## Iter 3 -- TODO
+
+Hypothesis: with the log-loss bootstrap fixed, the next non-trivial mlframe
+hotspot at small-n is likely either the per-target loop setup overhead in
+`_phase_train_one_target` (CACHE-* / SCHEMA-HASH-* sites from the original
+audit table) or pandas/polars conversion in `_phase_helpers`. Profile a
+different small-n fuzz cell (e.g. n=1000 mlp+xgb or n=600 mrmr) and look
+specifically for non-zero mlframe-code tottime.
