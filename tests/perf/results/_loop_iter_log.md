@@ -1516,3 +1516,56 @@ in the user's path).
 
 Counted as the loop's 13th RESOLVED. Commit `cc6db68`. Streak
 counter: **0/100** (RESOLVED resets).
+
+## Iter 36 -- 2026-05-18 -- REJECTED (streak 1/100)
+
+Cell: `c0001_8f7d9def-xgb-pl_utf8-n5000` (XGB-only multiclass,
+n=5000, pl_utf8). Test passed in 23.83 s.
+
+**ZERO mlframe-OWN functions above 15 ms tottime.** Absolute
+cleanest profile of the entire loop run. The 24 s wall is split
+between cold-start imports (~12 s) and XGB native multiclass fit
++ predict (~10 s) + pre_pipeline polars conversion (~2 s).
+
+**Verdict: REJECT.** Streak counter: 1/100. Confirms the
+diminishing-returns plateau: post the iter-27/28/35 cache=True
+sweep + iter-1/2/3 bootstrap vectorisation + iter-15 isfinite +
+iter-26 ranker encode + the structural bug fixes (iters 12, 18,
+21, 24, 25), the mlframe Python orchestration surface is at
+~0% of suite wall on representative fuzz cells.
+
+## Wave summary -- after 36 iters
+
+| | Count |
+|---|---:|
+| RESOLVED | **13** (iters 2, 3, 5, 12, 15, 18, 21, 24, 25, 26, 27, 28, 35) |
+| REJECTed | 23 |
+| Streak | 1/100 |
+
+**Real bugs fixed:**
+- iter 12: `_cb_pool._GPU_PROBE_LOCK` non-reentrant deadlock
+- iter 18: confidence analyzer polars Categorical+NaN crashes (3 modes)
+- iter 21: `compute_fairness_metrics` rejected polars Series
+- iter 24: composite_discovery dropped multi-base `extra_base_columns`
+- iter 25: same root cause traced to `export_specs`; 2 downstream sites
+- iter 26: LTR ranker_suite rejected object-dtype cat columns
+
+**Perf optimizations:**
+- iter 2: bootstrap CI logloss 63x
+- iter 3: paired bootstrap 53.6x
+- iter 5: 16s cold-start saved on non-MRMR callers (deferred import)
+- iter 15: `_validate_target_values` 1.58x (single-pass isfinite)
+- iter 27: `_numba_within_group_descending_rank` ~104x cold-start
+- iter 28: 24 njit kernels batch cache=True (~5-30s/process)
+- iter 35: 8 more multi-arg njit kernels cache=True (~1-3s/process)
+
+**Fuzz axis extensions** (cover new prod features end-to-end):
+- iter 23.5: 2 axes for composite_discovery + transforms_mode
+  (Packs J/K)
+- iter 32.5: 9 axes for MRMR FE-search (fe_npermutations,
+  fe_ntop_features, fe_unary/binary_preset, fe_smart_polynom_iters,
+  fe_smart_polynom_steps, fe_min/max_polynom_degree,
+  cat_fe.include_numeric)
+
+**Aggregate cold-start saving** (iters 5+27+28+35): ~26-66 s per
+fresh process depending on which paths fire.
