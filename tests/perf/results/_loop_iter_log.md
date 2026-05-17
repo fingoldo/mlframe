@@ -1399,3 +1399,34 @@ passes natively in 42 s. Enumerator-meta tests stay green.
 
 `fe_polynomial_basis` was commented out in the user's example
 spec; not added as a new axis pending explicit signal.
+
+## Iter 33 -- 2026-05-18 -- REJECTED (streak 5/100)
+
+Cell: `c0095_df48dc89-hgb_lgb-pl_utf8-n300` (2-model binary
+classification with MRMR + the new smart_polynom_iters=1 axis
+active + min/max_polynom_degree=(3, 5)). Test passed in 60.73 s.
+
+**FIRST PROFILE of the iter-32.5 fuzz axes' smart-polynom path:**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `hermite_fe.py:165(_plugin_mi_classif_batch_njit)` | 71 ms | 561 | 0.13 ms |
+| `hermite_fe.py:872(_eval_coef_pair)` | 33 ms | 561 | 0.06 ms |
+
+**561 numba-kernel calls** = the Optuna study's 1 iter x ~56 trials
+x 10 evaluations per trial (smart_polynom_iters=1,
+smart_polynom_optimization_steps=10 from the fuzz pin). This is
+end-to-end validation that the new fuzz axis successfully fires
+the smart-polynom code path.
+
+`hermite_fe.py` audit: all 13 `@njit` decorators are already
+`@njit(cache=True, fastmath=True)`, several with `parallel=True`.
+Iter-28's batch cache=True hygiene was already done here. No
+further perf hygiene available.
+
+Total mlframe-OWN tottime ~120 ms / 60.7 s wall = 0.2 %. No
+actionable mlframe-Python hotspot above the 1.2x gate.
+
+**Verdict: REJECT.** Streak counter: 5/100. Validates that the
+iter-32.5 fuzz axes do reach the smart-polynom Optuna study (not
+a dead axis).
