@@ -32,7 +32,14 @@ from sklearn.preprocessing import StandardScaler
 
 import category_encoders as ce
 
-from mlframe.feature_selection.filters import MRMR
+# Mirrors the BorutaShap pattern below at line ~416 -- MRMR transitively pulls in
+# the entire mlframe.feature_selection package (numba kernels + filter wrappers
+# + sklearn estimators), which adds ~10-25s to first-call import time even when
+# the suite doesn't opt into MRMR. Module-level import is deferred to the single
+# call site (``_build_pre_pipelines`` below); other helpers in this module that
+# only need the class for typing use TYPE_CHECKING-guarded references.
+if TYPE_CHECKING:
+    from mlframe.feature_selection.filters import MRMR  # noqa: F401
 
 from ..configs import TargetTypes
 from .._ram_helpers import maybe_clean_ram_and_gpu
@@ -407,6 +414,9 @@ def _build_pre_pipelines(
         # instead of imputing them; see MRMR._validate_inputs). Wrapping
         # in SimpleImputer would discard that signal and silently degrade
         # downstream NaN-aware backends (catboost / lgb / xgb).
+        # Deferred import: see module-level comment for the ~10-25s cold-
+        # import cost reason. Same pattern as BorutaShap a few lines below.
+        from mlframe.feature_selection.filters import MRMR
         _mrmr = MRMR(**mrmr_kwargs)
         setattr(_mrmr, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
         pre_pipelines.append(_mrmr)

@@ -182,13 +182,69 @@ sklearn / SHAP / matplotlib C++ or third-party kernels. Iter 2 + iter 3
 fixed the only two mlframe hotspots visible in cProfile across iters 1-4
 (both bootstrap CI sites, ~56x combined speedup).
 
-## Iter 5 -- TODO
+## Iter 5 -- 2026-05-17 -- RESOLVED, 16s cold-start saved for non-MRMR suites
 
-Hypothesis: with 4 iters showing all non-rejected hotspots already optimised,
-the search is approaching diminishing returns. For iter 5, try a fundamentally
-DIFFERENT axis: profile the **import-time overhead** (cProfile shows ~230 s in
-`io.BufferedReader.read` per fuzz run, all from module imports) by inspecting
-which mlframe submodules dominate the import cost. If a single submodule has
-a lazy-import opportunity that shaves seconds off first-call time, it's worth
-the same blast-radius as iter 2/3 fixes. Otherwise, document the import tax
-as a known constant and stop the loop early at iter 5.
+Angle: import-time overhead. cProfile (iter 3 c0036) showed
+`mlframe/training/core/_setup_helpers.py:1(<module>)` 25.6s cumtime spent in
+the module body's eager imports.
+
+Inspecting the imports:
+- `sklearn.impute / pipeline / preprocessing` -- expected cost (~5s).
+- `category_encoders` -- pulls statsmodels (~5s).
+- `from mlframe.feature_selection.filters import MRMR` -- 16s in isolation
+  (3-trial median in a fresh process with mlframe.training pre-loaded so the
+  filters subgraph is the only new work).
+- `mlframe.configs` -- pydantic transit (~3s).
+
+The MRMR eager import is the actionable one: ~16s on every first call to
+`train_mlframe_models_suite`, even when the caller passes `use_mrmr_fs=False`
+(which is the FeatureSelectionConfig default -- so MOST users pay this tax).
+
+**Fix**: deferred the import from module top to inside the
+`if use_mrmr_fs:` branch in `_build_pre_pipelines`. Mirrors the pre-existing
+BorutaShap pattern in the same function (a few lines below) that gates the
+shap+matplotlib+seaborn import behind `use_boruta_shap`. Module-level
+reference is preserved as a `TYPE_CHECKING`-guarded stub for static checkers.
+
+Measured (3-trial median, fresh subprocess with mlframe.training pre-loaded):
+
+| Path | seconds |
+|---|---:|
+| Before: `from mlframe.feature_selection.filters import MRMR` | 15.9 |
+| After (non-MRMR caller): no MRMR import fires | 0 |
+| **Cold-start saving (non-MRMR caller)** | **~16s** |
+
+Default `FeatureSelectionConfig.use_mrmr_fs = False`, so opt-out is the
+common path. Opt-in callers (`use_mrmr_fs=True`) pay the 16s once when the
+import fires lazily inside `_build_pre_pipelines`; subsequent calls share
+Python's module cache, so the cost amortises to zero.
+
+Regression suite at
+`tests/training/test_audit_2026_05_17_loop_5_lazy_mrmr_import.py` asserts:
+1. `_setup_helpers` no longer re-exports `MRMR` at module top
+   (TYPE_CHECKING-guarded references are invisible at runtime).
+2. After fresh import of `_setup_helpers`, `mlframe.feature_selection.filters`
+   stays out of `sys.modules`.
+3. `_build_pre_pipelines(use_mrmr_fs=False, ...)` does NOT trigger the import
+   (opt-out path cheap).
+4. `_build_pre_pipelines(use_mrmr_fs=True, ...)` DOES trigger the import
+   (opt-in path correct).
+4/4 pass in 16s.
+
+## Final wrap-up
+
+5/5 iterations complete:
+- Iter 1: REJECT -- 1M-row orchestration < 0.05 % of wall, no mlframe hotspot.
+- Iter 2: 63x on `_resample_metric` log_loss bootstrap CI (commit 4c2574e).
+- Iter 3: 53.6x on `_paired_bootstrap_vs_runner_up` log_loss bootstrap
+  (commit 57736a1).
+- Iter 4: REJECT -- all measurable hotspots third-party-dominated (CB / SHAP /
+  matplotlib) on small-n cells; iters 2+3 already covered the only two
+  mlframe-owned hotspots cProfile surfaced (commit 2c88fe4).
+- Iter 5: 16s cold-start saved on non-MRMR suites by deferring the MRMR
+  import from `_setup_helpers` module top to its single call site.
+
+Combined wins across the loop session:
+- Bootstrap CI surface (iters 2+3): ~28s -> ~0.5s on small-n cells = ~56x.
+- Cold-start (iter 5): -16s on every first call where `use_mrmr_fs=False`
+  (the default).
