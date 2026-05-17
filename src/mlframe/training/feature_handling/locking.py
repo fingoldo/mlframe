@@ -172,14 +172,28 @@ class PIDAwareFileLock:
         return self.path + ".pid"
 
     def _write_holder_pid(self) -> None:
+        # Atomic via temp-file + os.replace so a SIGKILL between create
+        # and write cannot leave an empty PID file (which would make
+        # ``_read_holder_pid`` return None, breaking stale-lock reclaim).
         try:
-            with open(self._meta_path(), "w") as f:
+            target = self._meta_path()
+            tmp = target + ".tmp"
+            with open(tmp, "w") as f:
                 f.write(str(os.getpid()))
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp, target)
         except OSError:
             # If we can't write the meta, accept that future contenders
             # won't be able to detect our liveness -- they'll just wait
             # the full timeout and never reclaim. Better than crashing.
-            pass
+            try:
+                os.unlink(target + ".tmp")
+            except OSError:
+                pass
 
     def _read_holder_pid(self) -> Optional[int]:
         try:
