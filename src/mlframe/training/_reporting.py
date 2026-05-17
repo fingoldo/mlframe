@@ -323,12 +323,12 @@ def report_model_perf(
             )
 
     if show_fi:
-        n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
+        n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
         with phase(
             "plot_feature_importances",
             model=type(model).__name__,
-            n_cols=len(columns) if columns else 0,
+            n_cols=len(columns) if columns is not None and len(columns) > 0 else 0,
         ):
             # Lazy import: _reporting <- evaluation <- _reporting cycle (see comment at top of file).
             from .evaluation import plot_model_feature_importances
@@ -515,7 +515,7 @@ def report_regression_model_perf(
         # - residual hypothesis (formerly tacked onto scatter) -> moved
         #   entirely to the histogram (middle) panel by
         #   ``plot_residual_diagnostics``.
-        n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
+        n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
         header_str = (
             report_title + " " + model_name +
@@ -983,7 +983,7 @@ def report_probabilistic_model_perf(
             title += "-" + str_class_name
 
         class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
-        n_cols = n_features if n_features is not None else (len(columns) if columns else 0)
+        n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
         title += f" [{nfeatures}{get_human_readable_set_size(len(y_true))} rows]"
         if custom_rice_metric and custom_rice_metric != custom_ice_metric:

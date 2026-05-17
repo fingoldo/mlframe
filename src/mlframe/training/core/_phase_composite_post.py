@@ -18,6 +18,7 @@ import numpy as np
 from .._format import format_metric as _fmt, short_model_tag as _short_tag_fn, strip_shim_suffix as _strip
 from ..composite import CompositeCrossTargetEnsemble as _CrossEns, CompositeTargetEstimator
 from ..composite import compute_oof_holdout_predictions, get_transform
+from ..composite_post_shim import PrePipelinePredictShim
 from ..composite_transforms import is_composite_target_name
 from ..dummy_baselines import format_suite_end_summary
 from ..evaluation import report_model_perf
@@ -410,28 +411,6 @@ def run_composite_post_processing(
             and composite_specs_by_target_type):
         from ..composite import CompositeCrossTargetEnsemble as _CrossEns
 
-        # Raw components need entry.pre_pipeline applied before inner.predict (linear models with NaN-imputer pipelines).
-        class _PrePipelinePredictShim:
-            __slots__ = ("_model", "_pre_pipeline", "_name")
-
-            def __init__(self, model, pre_pipeline, name):
-                self._model = model
-                self._pre_pipeline = pre_pipeline
-                self._name = name
-
-            def predict(self, X):
-                X_in = X
-                if self._pre_pipeline is not None:
-                    try:
-                        X_in = self._pre_pipeline.transform(X)
-                    except Exception:
-                        # Fall through so inner.predict raises the more descriptive error on pd/pl boundary mismatches.
-                        X_in = X
-                return self._model.predict(X_in)
-
-            def __repr__(self):
-                return f"_PrePipelinePredictShim({self._name})"
-
         for _tt_e, _tt_specs in composite_specs_by_target_type.items():
             if not _tt_specs:
                 continue
@@ -454,7 +433,7 @@ def run_composite_post_processing(
                     _pp = getattr(_entry, "pre_pipeline", None)
                     _name = f"raw#{_i}"
                     _components.append(
-                        _PrePipelinePredictShim(_inner, _pp, _name)
+                        PrePipelinePredictShim(_inner, _pp, _name)
                     )
                     _component_names.append(_name)
                 for _spec in _spec_list:
@@ -469,7 +448,7 @@ def run_composite_post_processing(
                         _pp = getattr(_entry, "pre_pipeline", None)
                         _name = f"{_spec['name']}#{_i}"
                         _components.append(
-                            _PrePipelinePredictShim(_inner, _pp, _name)
+                            PrePipelinePredictShim(_inner, _pp, _name)
                         )
                         _component_names.append(_name)
                 if len(_components) < 2:
@@ -487,7 +466,7 @@ def run_composite_post_processing(
                     for _comp, _name in zip(_components, _component_names):
                         try:
                             # Cache key is the INNER model id; shims are built per-pass so id(_comp) never hits the wrap-pass cache.
-                            _inner_for_cache = getattr(_comp, "_model", _comp)
+                            _inner_for_cache = getattr(_comp, "model", _comp)
                             _pred = _train_pred_cache.get(id(_inner_for_cache))
                             if _pred is None:
                                 _pred = _train_pred_cache.get(id(_comp))
@@ -677,7 +656,7 @@ def run_composite_post_processing(
                             _pred_matrix_cols = []
                             for _comp, _name in zip(_oof_components, _oof_names):
                                 # Inner-keyed cache lookup (shim ids are per-pass and never hit the wrap-pass cache).
-                                _inner_for_cache = getattr(_comp, "_model", _comp)
+                                _inner_for_cache = getattr(_comp, "model", _comp)
                                 _pred = _train_pred_cache.get(id(_inner_for_cache))
                                 if _pred is None:
                                     _pred = _train_pred_cache.get(id(_comp))
@@ -806,9 +785,9 @@ def run_composite_post_processing(
                             f"CT_ENSEMBLE[{_ce_strategy}] {target_name} "
                             f"{model_name} {_orig_tname}"
                         )
-                        _ens_columns = (
-                            list(getattr(filtered_train_df, "columns", []) or [])
-                        )
+                        # ``or []`` on a pandas Index raises ``The truth value of a Index is ambiguous``; explicit None+len check keeps both pandas Index and plain lists safe.
+                        _cols_attr = getattr(filtered_train_df, "columns", None)
+                        _ens_columns = list(_cols_attr) if _cols_attr is not None and len(_cols_attr) > 0 else []
                         _ens_common = dict(
                             columns=_ens_columns,
                             df=None, model=None,

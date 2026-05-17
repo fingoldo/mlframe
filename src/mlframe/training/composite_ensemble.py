@@ -36,7 +36,31 @@ def _is_polars_df(x: Any) -> bool:
 
 
 from .composite_estimator import CompositeTargetEstimator
+from .composite_post_shim import PrePipelinePredictShim
 from .composite_transforms import get_transform
+
+
+def _unwrap_shim(model: Any) -> tuple[Any, Any]:
+    """Return ``(inner, pre_pipeline)`` for a possibly shim-wrapped component.
+
+    For ``PrePipelinePredictShim`` returns its fitted ``pre_pipeline`` and the inner model (which may itself be a ``CompositeTargetEstimator``). For any other estimator the pre_pipeline is ``None`` and the model is returned unchanged. Used by the OOF refit path to detect shim wrappers and apply ``pre_pipeline.transform`` to the stack/holdout slices before refitting -- without this, the OOF path would call ``sklearn.clone(shim)`` which (pre-fix) raised ``Cannot clone object ... not a scikit-learn estimator`` for every shim-wrapped component.
+    """
+    if isinstance(model, PrePipelinePredictShim):
+        return model.model, model.pre_pipeline
+    return model, None
+
+
+def _transform_via(pp: Any, X: Any) -> Any:
+    """Apply a fitted pre_pipeline to ``X`` or return ``X`` unchanged when ``pp is None``.
+
+    Falls back to ``X`` on ``transform`` exceptions so the inner ``fit``/``predict`` raises the more descriptive boundary-mismatch error (mirrors ``PrePipelinePredictShim._transform``).
+    """
+    if pp is None:
+        return X
+    try:
+        return pp.transform(X)
+    except Exception:
+        return X
 
 logger = logging.getLogger(__name__)
 
@@ -302,7 +326,10 @@ def compute_oof_holdout_predictions(
             fold_cols: dict[str, np.ndarray] = {}
             for model, name, spec in zip(component_models, component_names, component_specs):
                 try:
-                    if isinstance(model, CompositeTargetEstimator):
+                    inner, pp = _unwrap_shim(model)
+                    X_stack_t = _transform_via(pp, X_stack)
+                    X_holdout_t = _transform_via(pp, X_holdout)
+                    if isinstance(inner, CompositeTargetEstimator):
                         if spec is None:
                             raise ValueError("composite component with no spec")
                         base_full = base_train_full_per_spec.get(spec["base_column"])
@@ -318,13 +345,13 @@ def compute_oof_holdout_predictions(
                         t_stack = transform.forward(
                             y_stack[valid], base_stack[valid], spec["fitted_params"],
                         )
-                        inner_clone = clone(model.estimator_)
-                        if isinstance(X_stack, pd.DataFrame):
-                            X_stack_valid = X_stack.iloc[valid].reset_index(drop=True)
-                        elif _is_polars_df(X_stack):
-                            X_stack_valid = X_stack.filter(pl.Series(valid))
+                        inner_clone = clone(inner.estimator_)
+                        if isinstance(X_stack_t, pd.DataFrame):
+                            X_stack_valid = X_stack_t.iloc[valid].reset_index(drop=True)
+                        elif _is_polars_df(X_stack_t):
+                            X_stack_valid = X_stack_t.filter(pl.Series(valid))
                         else:
-                            X_stack_valid = X_stack[valid]
+                            X_stack_valid = X_stack_t[valid]
                         _sw_stack_valid = None if sample_weight is None else sample_weight[fold_train_idx][valid]
                         _maybe_pass_sample_weight(inner_clone, X_stack_valid, t_stack, _sw_stack_valid)
                         wrapped = CompositeTargetEstimator.from_fitted_inner(
@@ -334,12 +361,12 @@ def compute_oof_holdout_predictions(
                             transform_fitted_params=spec["fitted_params"],
                             y_train=y_stack[valid],
                         )
-                        preds = wrapped.predict(X_holdout)
+                        preds = wrapped.predict(X_holdout_t)
                     else:
-                        inner_clone = clone(model)
+                        inner_clone = clone(inner)
                         _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
-                        _maybe_pass_sample_weight(inner_clone, X_stack, y_stack, _sw_stack)
-                        preds = inner_clone.predict(X_holdout)
+                        _maybe_pass_sample_weight(inner_clone, X_stack_t, y_stack, _sw_stack)
+                        preds = inner_clone.predict(X_holdout_t)
                     preds = np.asarray(preds).reshape(-1).astype(np.float64)
                     if not np.all(np.isfinite(preds)):
                         raise ValueError("non-finite holdout predictions")
@@ -432,7 +459,10 @@ def compute_oof_holdout_predictions(
     surviving_names: list[str] = []
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
-            if isinstance(model, CompositeTargetEstimator):
+            inner, pp = _unwrap_shim(model)
+            X_stack_t = _transform_via(pp, X_stack)
+            X_holdout_t = _transform_via(pp, X_holdout)
+            if isinstance(inner, CompositeTargetEstimator):
                 # Composite-target wrapper. Re-fit the inner on
                 # stack_train T values, then re-wrap and predict.
                 if spec is None:
@@ -452,13 +482,13 @@ def compute_oof_holdout_predictions(
                 t_stack = transform.forward(
                     y_stack[valid], base_stack[valid], spec["fitted_params"],
                 )
-                inner_clone = clone(model.estimator_)
-                if isinstance(X_stack, pd.DataFrame):
-                    X_stack_valid = X_stack.iloc[valid].reset_index(drop=True)
-                elif _is_polars_df(X_stack):
-                    X_stack_valid = X_stack.filter(pl.Series(valid))
+                inner_clone = clone(inner.estimator_)
+                if isinstance(X_stack_t, pd.DataFrame):
+                    X_stack_valid = X_stack_t.iloc[valid].reset_index(drop=True)
+                elif _is_polars_df(X_stack_t):
+                    X_stack_valid = X_stack_t.filter(pl.Series(valid))
                 else:
-                    X_stack_valid = X_stack[valid]
+                    X_stack_valid = X_stack_t[valid]
                 _sw_stack_valid = None if sample_weight is None else sample_weight[train_idx][valid]
                 _maybe_pass_sample_weight(inner_clone, X_stack_valid, t_stack, _sw_stack_valid)
                 wrapped = CompositeTargetEstimator.from_fitted_inner(
@@ -468,14 +498,14 @@ def compute_oof_holdout_predictions(
                     transform_fitted_params=spec["fitted_params"],
                     y_train=y_stack[valid],
                 )
-                preds = wrapped.predict(X_holdout)
+                preds = wrapped.predict(X_holdout_t)
             else:
                 # Raw-target component. Re-fit the inner on
                 # (X_stack, y_stack) and predict on X_holdout.
-                inner_clone = clone(model)
+                inner_clone = clone(inner)
                 _sw_stack = None if sample_weight is None else sample_weight[train_idx]
-                _maybe_pass_sample_weight(inner_clone, X_stack, y_stack, _sw_stack)
-                preds = inner_clone.predict(X_holdout)
+                _maybe_pass_sample_weight(inner_clone, X_stack_t, y_stack, _sw_stack)
+                preds = inner_clone.predict(X_holdout_t)
             preds = np.asarray(preds).reshape(-1).astype(np.float64)
             if not np.all(np.isfinite(preds)):
                 # NaN preds on holdout -- exclude from ensemble.
