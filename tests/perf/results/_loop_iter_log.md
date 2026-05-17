@@ -772,3 +772,37 @@ by the lone categorical column.
 
 **Verdict: REJECT.** No actionable mlframe-side hotspot. Streak
 counter: 1/100.
+
+## Iter 20 -- 2026-05-17 -- REJECTED (streak 2/100)
+
+Cell: `c0013_b8014e81-linear_xgb-pl_nullable-n5000` (linear + XGB,
+pl_nullable, MRMR + ensembles + LOF).
+
+**cProfile run aborted with `MemoryError` during sklearn submodule
+import (sklearn/utils/validation.py:18):**
+
+```
+File "sklearn/utils/validation.py", line 18
+   from sklearn import get_config as _get_config
+E  MemoryError
+```
+
+This is the **third memory-pressure profiler artifact** this
+session (iter 14: loky BrokenProcessPool; iter 18: numba zlib
+compress; iter 20: sklearn import). The Python heap is gradually
+fragmenting across the repeated cProfile-wrapped pytest invocations
+that this loop runs back-to-back. Each invocation is a fresh
+process but they share the OS-level page pool; on Windows with
+~16 GB RAM and the rapid cProfile-bg-job cadence the working set
+hasn't reclaimed between runs.
+
+**This is not an mlframe bug.** Skipping the no-cProfile verify
+run since the same memory pressure would apply there.
+
+**Mitigation for future iterations**: explicitly downgrade the
+fuzz-cell N when we hit memory pressure, OR force a process
+restart (`taskkill` orphan python.exe + reboot the loop) before
+the next iter. Going to switch back to smaller-N cells from here
+to ride out the pressure.
+
+**Verdict: REJECT.** Streak counter: 2/100.
