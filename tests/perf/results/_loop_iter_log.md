@@ -1259,3 +1259,46 @@ processes will deserialize from disk.
 
 **Verdict: REJECT.** No actionable mlframe-side hotspot above the
 1.2x gate. Streak counter: 1/100.
+
+## Iter 30 -- 2026-05-18 -- REJECTED (streak 2/100)
+
+Cell: `c0112_afb21626-cb_hgb_linear_xgb-pandas-n1000` (4-model
+regression + MRMR + ensembles + pandas + isolation_forest,
+n=1000). Test passed under cProfile in 76.08 s.
+
+**mlframe-OWN tottime breakdown (>20ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `_setup_helpers.py:682(_finalize_and_save_metadata)` | 253 ms | 2 | 126 ms |
+| `target_temporal_audit.py:148(<listcomp>)` | 110 ms | 1 | 110 ms |
+| `splitting.py:79(make_train_test_split)` | 62 ms | 1 | 62 ms |
+| `io.py:39(atomic_write_bytes)` | 28 ms | 11 | 2.5 ms |
+| `target_temporal_audit.py:270(_pick_granularity)` | 22 ms | 1 | 22 ms |
+
+**Top hotspot analysis -- `_finalize_and_save_metadata`:**
+Called twice (partial save after outlier-detection + final save
+after train). Per-call 126 ms is cProfile-attributed to the closure
+body but the actual work is in the inner `pickle.dumps(metadata,
+protocol=5)` + `zstd.compress(...)` C-ext calls -- both attributed
+to the parent frame in cProfile. The mlframe-OWN Python work is
+3 dict updates + closure construction + atomic_write_bytes
+dispatch -- micros, not millis. Not actionable from mlframe side.
+
+The double-save is intentional crash-resilience (documented in
+the function docstring): if the suite crashes mid-train, the
+partial metadata is on disk. Collapsing to one save would
+regress that property.
+
+Other hotspots all previously surveyed:
+- `:148 listcomp` rejected in iter 22 (JSON-safe bin-dict listcomp
+  with `isoformat()` per bin, cProfile-inflated)
+- `_pick_granularity` rejected in iter 15 + iter 22 (pandas
+  datetime conversion, no clean polars alternative for the bin
+  picker)
+- `make_train_test_split` is one-shot per suite call; 62 ms is
+  acceptable on n=1000 with the OD + aging-limit + wholeday
+  fanout this combo exercises
+
+**Verdict: REJECT.** No actionable mlframe-side hotspot above
+the 1.2x gate. Streak counter: 2/100.
