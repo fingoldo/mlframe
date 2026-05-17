@@ -78,20 +78,30 @@ def _content_fingerprint_for_cache(arr) -> tuple:
         if pl is not None and isinstance(arr, pl.DataFrame):
             n_rows, n_cols = int(arr.height), int(arr.width)
             col_names = tuple(str(c) for c in arr.columns)
-            dtypes = tuple(str(dt) for dt in arr.dtypes)
+            dtypes_str = tuple(str(dt) for dt in arr.dtypes)
+            # Nested dtypes (List / Array / Struct) yield Python list/dict cells inside `arr.row(i)`;
+            # lists are unhashable, so the fingerprint tuple cannot be used as a dict key. Force-uncached
+            # on detection -- embedding columns are the common trigger (warning fired in
+            # get_pandas_view_of_polars_df) and the cache contract is content-isolated regardless.
+            if any(s.startswith(("List", "Array", "Struct")) for s in dtypes_str):
+                return ("uncached", id(arr))
             if n_rows == 0:
-                return ("pl", (n_rows, n_cols), col_names, dtypes, ())
+                return ("pl", (n_rows, n_cols), col_names, dtypes_str, ())
             sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
             try:
                 rows = tuple(arr.row(i) for i in sample_idx)
             except Exception:
                 return ("uncached", id(arr))
-            return ("pl", (n_rows, n_cols), col_names, dtypes, rows)
+            return ("pl", (n_rows, n_cols), col_names, dtypes_str, rows)
 
         # Polars Series: iloc-equivalent is ``arr[i]`` -- O(1), no full materialisation.
         if pl is not None and isinstance(arr, pl.Series):
             n = int(arr.len())
             dtype_str = str(arr.dtype)
+            # List / Array / Struct dtypes yield Python list/dict cells; lists are unhashable so the
+            # fingerprint tuple cannot be used as a dict key. Force-uncached on detection.
+            if dtype_str.startswith(("List", "Array", "Struct")):
+                return ("uncached", id(arr))
             if n == 0:
                 return ("pls", (n,), dtype_str, ())
             sample_idx = (0, min(8, n - 1), n // 2, n - 1)
@@ -110,7 +120,17 @@ def _content_fingerprint_for_cache(arr) -> tuple:
                 return ("pd", (n_rows, n_cols), col_names, dtypes, ())
             sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
             try:
-                rows = tuple(tuple(arr.iloc[i].values.tolist()) for i in sample_idx)
+                # object-dtype cells from pyarrow ListArray materialise as Python lists -- unhashable.
+                # Coerce row cells to a hashable form: leave scalars alone, repr() any list/dict/ndarray.
+                def _row_to_hashable(r):
+                    out = []
+                    for v in r.values.tolist():
+                        if isinstance(v, (list, dict)) or hasattr(v, "tolist"):
+                            out.append(repr(v))
+                        else:
+                            out.append(v)
+                    return tuple(out)
+                rows = tuple(_row_to_hashable(arr.iloc[i]) for i in sample_idx)
             except Exception:
                 return ("uncached", id(arr))
             return ("pd", (n_rows, n_cols), col_names, dtypes, rows)
