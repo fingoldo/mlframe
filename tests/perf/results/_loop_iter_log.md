@@ -140,14 +140,55 @@ path: ~28s -> ~0.5s (~56x at n=600/1000), about 14% wall on small-n cells
 where dummy baselines fire. No correctness regressions in 8/8 unit tests
 across both iters.
 
-## Iter 4 -- TODO
+## Iter 4 -- 2026-05-17 -- REJECTED
 
-Hypothesis: with the bootstrap CI paths now near-zero, the next non-trivial
-small-n mlframe hotspot is likely either:
-  (a) the per-target loop setup overhead (CACHE-KEY / SCHEMA-HASH / strategy
-      lookup sites flagged by the original audit table for hoisting), OR
-  (b) pandas <-> polars conversion at the input gates (apply_preprocessing_
-      extensions / _phase_helpers passthrough cols).
-Profile a fresh small-n cell from a different model family (e.g. MRMR-heavy
-or ensembling-heavy) and look specifically for non-zero mlframe-code
-**tottime** entries above 1s.
+Cell profiled: `c0070_21030005-cb_hgb_lgb_linear_mlp-pandas-n5000` (5-model,
+n=5000, pandas).
+
+Total wall 142.6s. Three angles examined:
+
+1. **Largest cumtime mlframe hotspot**: `_eval_helpers.run_confidence_analysis`
+   22.5s (5 calls x 4.5s avg). Callees breakdown:
+   - `catboost.core.fit` 8.4s (10 calls — 2 per call due to GPU-then-CPU
+     fallback path; CB C++ kernel, not optimisable from Python).
+   - SHAP `TreeExplainer + beeswarm plot` ~14s (third-party).
+   - mlframe-owned glue: < 50 ms across all 5 calls.
+   The 200-iteration default for the confidence regressor was considered for
+   reduction to 50 (the file's own comment says 50 is "serviceable"), but the
+   estimated 1.4x speedup on the function (6.5s saved out of 22.5s) sits at
+   the user's REJECT threshold (perf gain < 1.2x is a hard reject; 1.4x with
+   a documented quality reduction is borderline). Deferred to a separate
+   diagnostic-quality discussion, not a /loop optimisation.
+
+2. **Second cumtime mlframe hotspot**: `_reporting.report_probabilistic_model_perf`
+   4.9s (10 calls x 0.49s). Callees:
+   - `metrics.fast_calibration_report` 2.8s — already heavily vectorised
+     ("fast_" prefix; calls fast_brier_score_loss, fast_calibration_binning,
+     fast_aucs_per_group_optimized internally + matplotlib plotting).
+   - `compute_batch_aucs` 0.65s — already GPU-dispatched.
+   - `_cb_pool._predict_with_fallback` 0.65s — CB predict + cache lookup.
+   No further mlframe-side computation to remove; the elapsed time is split
+   across matplotlib drawing + GPU AUC calls already at their performance
+   ceiling.
+
+3. **TOTTIME (own CPU) on mlframe code**: every entry < 0.1 s except the
+   already-resolved `_resample_metric` (iter 2) and `_paired_bootstrap_vs_runner_up`
+   (iter 3). Top non-resolved entry: `atomic_write_bytes` 0.007 s tottime
+   (file I/O for model save). Even 100% removal would buy ~7 ms.
+
+**Verdict: REJECT.** No mlframe-owned hot computation surfaces above the 1.2x
+gate on this profile. All measured elapsed time at small-n is in torch / CB /
+sklearn / SHAP / matplotlib C++ or third-party kernels. Iter 2 + iter 3
+fixed the only two mlframe hotspots visible in cProfile across iters 1-4
+(both bootstrap CI sites, ~56x combined speedup).
+
+## Iter 5 -- TODO
+
+Hypothesis: with 4 iters showing all non-rejected hotspots already optimised,
+the search is approaching diminishing returns. For iter 5, try a fundamentally
+DIFFERENT axis: profile the **import-time overhead** (cProfile shows ~230 s in
+`io.BufferedReader.read` per fuzz run, all from module imports) by inspecting
+which mlframe submodules dominate the import cost. If a single submodule has
+a lazy-import opportunity that shaves seconds off first-call time, it's worth
+the same blast-radius as iter 2/3 fixes. Otherwise, document the import tax
+as a known constant and stop the loop early at iter 5.
