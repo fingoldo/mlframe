@@ -731,3 +731,44 @@ All 6 green in 24 s. c0115 fuzz cell now passes natively in 23 s
 (vs full pytest timeout pre-fix).
 
 Streak counter: **0/100** (RESOLVED resets). Commit `84dd611`.
+
+## Iter 19 -- 2026-05-17 -- REJECTED (streak 1/100)
+
+Cell: `c0111_4a09493a-cb_lgb-pandas-n5000` -- CB + LGB binary on
+**parquet-stored** pandas frame, n=5000, MRMR + ensembles +
+isolation_forest. cProfile completed in 164.89s.
+
+**Wall breakdown:**
+
+| Component | Cumtime | % of wall | Owner |
+|---|---:|---:|---|
+| `train_and_evaluate_model` (CB + LGB native fits) | 75.78 s | 46 % | C-ext |
+| `run_confidence_analysis` (CB + SHAP per-model) | 31.81 s | 19 % | C-ext via mlframe orchestration |
+| MRMR fit (numba) | 29.51 s | 18 % | numba kernels |
+| `score_ensemble` (12 methods x metric+confidence) | 22.65 s | 14 % | C-ext per iter 16 finding |
+| `load_and_prepare_dataframe` (pl.read_parquet) | 16.15 s | 10 % | polars C-ext |
+
+**mlframe-OWN tottime breakdown (>20 ms only):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `preprocessing.py:160(load_and_prepare_dataframe)` | 320 ms | 1 | 320 ms |
+| `metrics/core.py:2616(_batch_per_class_ice_kernel)` | 39 ms | 364 | 0.1 ms |
+| `metrics/core.py:4127(compute_fairness_metrics)` | 27 ms | 56 | 0.5 ms |
+| `metrics/core.py:2868(compute_probabilistic_multiclass_error)` | 22 ms | 364 | 0.1 ms |
+
+`load_and_prepare_dataframe` 320 ms own time is cProfile attribution
+noise on a thin Python wrapper: callee breakdown shows
+`pl.read_parquet` (via deprecation wrapper) consumes 14.67 s + a
+secondary 1.16 s for tail / collect. Net own-time is the
+isinstance/lower/endswith chain and a logger.info call -- inflated
+~600x under attribution; not actionable.
+
+iter-18 confidence-analyzer fix VERIFIED in the wild: the
+`run_confidence_analysis` for the LGB and CB members of this combo
+completed cleanly despite this combo also having
+`null_fraction_cats > 0`. The pandas-route fillna gate is exercised
+by the lone categorical column.
+
+**Verdict: REJECT.** No actionable mlframe-side hotspot. Streak
+counter: 1/100.
