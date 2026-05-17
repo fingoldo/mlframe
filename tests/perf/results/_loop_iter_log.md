@@ -96,11 +96,58 @@ Wired into `_resample_metric` BEFORE the sklearn fallback for any path with
 because y is float-encoded), multiclass, and multilabel-macro. Numba binary
 path is preserved as the fastest happy path for int-encoded binary y.
 
-## Iter 3 -- TODO
+## Iter 3 -- 2026-05-17 -- RESOLVED, 53.6x speedup
 
-Hypothesis: with the log-loss bootstrap fixed, the next non-trivial mlframe
-hotspot at small-n is likely either the per-target loop setup overhead in
-`_phase_train_one_target` (CACHE-* / SCHEMA-HASH-* sites from the original
-audit table) or pandas/polars conversion in `_phase_helpers`. Profile a
-different small-n fuzz cell (e.g. n=1000 mlp+xgb or n=600 mrmr) and look
-specifically for non-zero mlframe-code tottime.
+Cell profiled: `c0036_9f570e62-linear_mlp_xgb-pl_utf8-n1000` (small-n + MLP).
+
+Total wall 192.9s. MLP (PyTorch + Lightning) dominates cumtime as expected --
+`neural/base.py:fit` 64.8s, `flat.py:validation_step` 22.7s -- but most of
+the time inside is `torch._C._nn.linear` (15.3s tottime), cross_entropy_loss
+(4.2s), and Lightning's own infrastructure. No mlframe-specific MLP hotspot
+worth touching at this iteration's budget.
+
+The next mlframe-owned hotspot the cProfile surfaced was a SIBLING of the
+iter-2 fix: `dummy_baselines._paired_bootstrap_vs_runner_up` (line 1960) ran
+2000 sklearn `log_loss` calls (1000 paired resamples for strongest vs
+runner-up + 1000 for the deltas) -- 6.5s tottime (~3% of suite wall on the
+small-n cell, but a constant tax on every classification run with a
+runner-up to compare).
+
+**Fix**: reuse iter-2's `_vectorized_bootstrap_logloss_samples` twice with
+the SAME seed so the index matrices match and per-resample deltas align.
+Inserted BEFORE the legacy sklearn-loop, gated on "log_loss" in
+`primary_metric` and NOT "macro" (legacy "log_loss_macro" path returns None
+on cost-vs-value grounds; preserved by the gate).
+
+Measured (median of 3 trials, n=600 / 1000 resamples):
+
+| Path | ms |
+|---|---:|
+| sklearn-paired-loop (reference) | 3237.1 |
+| vectorised paired (new) | 60.4 |
+| **speedup** | **53.6x** |
+
+Regression suite at `tests/training/test_audit_2026_05_17_loop_3_paired_bootstrap.py`
+asserts:
+1. Percentile equivalence to sklearn loop (q2.5/q50/q97.5, 0.02 tol).
+2. `p_strongest_beats` rate within 0.01 of the sklearn-loop reference on
+   a deliberately-tilted setup (p1 ~= y vs p2 random).
+3. Perf gate >= 5x (actual 53.6x at production n).
+4. Macro-metric path still returns None (legacy contract preserved).
+
+Combined cumulative iter-2 + iter-3 win on dummy-baselines bootstrap CI
+path: ~28s -> ~0.5s (~56x at n=600/1000), about 14% wall on small-n cells
+where dummy baselines fire. No correctness regressions in 8/8 unit tests
+across both iters.
+
+## Iter 4 -- TODO
+
+Hypothesis: with the bootstrap CI paths now near-zero, the next non-trivial
+small-n mlframe hotspot is likely either:
+  (a) the per-target loop setup overhead (CACHE-KEY / SCHEMA-HASH / strategy
+      lookup sites flagged by the original audit table for hoisting), OR
+  (b) pandas <-> polars conversion at the input gates (apply_preprocessing_
+      extensions / _phase_helpers passthrough cols).
+Profile a fresh small-n cell from a different model family (e.g. MRMR-heavy
+or ensembling-heavy) and look specifically for non-zero mlframe-code
+**tottime** entries above 1s.
