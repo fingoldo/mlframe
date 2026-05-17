@@ -1008,3 +1008,63 @@ auto-promotion code paths that the prior fuzz axis space did not
 reach. Counted as the loop's eighth RESOLVED.
 
 Streak counter: **0/100** (RESOLVED resets). Commit `06a6b01`.
+
+## Iter 25 -- 2026-05-18 -- RESOLVED (streak 0/100)
+
+Cell: `c0047_701a2067-cb_hgb_lgb_linear-pl_enum-n600` (4-model
+regression with composite discovery on, mode=legacy, MRMR off).
+Test FAILED under cProfile and natively with the SAME multi-base
+spec stub pattern that iter 24 fixed -- but in TWO MORE call sites
+that the iter-24 fix didn't reach.
+
+**Root cause traced:** `CompositeTargetDiscovery.export_specs`
+(composite_discovery.py:1062) snapshotted CompositeSpec to a plain
+dict for `metadata["composite_target_specs"]` storage but DROPPED
+the `extra_base_columns` field. Every downstream consumer that
+reads specs from metadata (rather than the live spec objects
+in `_disc.specs_`) then saw a stub. The iter-24 fix worked because
+that path read `_disc.specs_` directly; the dummy_baselines and
+composite_post paths read from metadata.
+
+**Three call sites touched in this iter:**
+
+1. `composite_discovery.export_specs` -- include `extra_base_columns`
+   in the dict so downstream consumers see the full tuple.
+2. `_phase_dummy_baselines.py:208/222` -- read the new field and
+   build a (n, 1+K) matrix when non-empty; skip cleanly when any
+   extra column is missing from the split frame.
+3. `_phase_composite_post.py:518` -- rebuild the OOF-helper's
+   `_base_full_per_spec` entry as a 2-D column-stack when
+   extra_base_columns is non-empty.
+
+**Concurrent commit collision:** the sibling agent's `e061556`
+("9-pack composite-mechanism wave + biz_val tests") landed the
+composite_discovery + composite_post fixes simultaneously with my
+work; my own commit `9289849` ended up only contributing the
+dummy_baselines patch + the regression test (since composite_discovery
+and composite_post diffs were already in HEAD via the sibling).
+The fix is in HEAD; the regression test pins it.
+
+**3-test regression suite at**
+`tests/training/test_audit_2026_05_18_loop_25_multibase_export_specs.py`:
+- multi-base spec round-trips through export_specs with
+  extra_base_columns intact
+- legacy single-base spec exports the empty tuple
+- downstream `dict.get(...) or ()` idiom yields the expected shape
+  for both new and old-format dicts
+
+All 6 regression tests (iter 24 + 25) green in 12 s. The
+`linear_residual_multi: base has 1 columns but fitted alphas has K
+entries` warning that iter 24 surfaced is **GONE** everywhere.
+
+**Remaining failure on c0047:** category-encoder dim mismatch
+(`Unexpected input dimension 6, expected 7` from
+`category_encoders/utils.py:514`) in the linear-model path. This is
+a separate bug -- the composite-target pipeline excludes the base
+column at fit time but the cached encoder expects all features at
+transform. Out of scope for this iter (the multi-base spec stub
+contract is now fully clean; the encoder-cache wiring is a distinct
+issue).
+
+Streak counter: **0/100** (RESOLVED resets). Commits `9289849`,
+`e061556`.
