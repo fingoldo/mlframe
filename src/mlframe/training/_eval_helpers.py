@@ -615,11 +615,70 @@ def run_confidence_analysis(
         if cat_features is not None:
             cat_features = [c for c in cat_features if c not in _drop_for_conf]
 
+    # CatBoost's polars Pool path is fragile when a kept column is
+    # pl.Categorical or pl.Enum AND has nulls (`null_fraction_cats > 0`)
+    # or was upgraded by the upstream pipeline (e.g. via
+    # align_polars_categorical_dicts) between fit and confidence-analysis
+    # time: it raises either ``No matching signature found`` in
+    # _set_features_order_data_polars_categorical_column.process OR a
+    # generic ``Error while processing column for feature 'X'``. The
+    # CatBoost pandas Pool path handles pd.Categorical / object dtypes
+    # with nulls cleanly (the pandas branch above already relies on
+    # this). When the polars frame carries Categorical/Enum kept columns,
+    # convert the WHOLE frame to a pandas Arrow-bridge view so the
+    # confidence regressor exercises the rock-solid pandas path. Tiny
+    # cost vs full crash on the entire confidence step.
+    if isinstance(test_df, pl.DataFrame):
+        # CatBoost's polars Pool path is fragile across several axes when
+        # the frame carries categorical-typed columns:
+        #   - pl.Categorical / pl.Enum with nulls raises a generic
+        #     "Error while processing column" on null cells
+        #   - pl.Categorical upgraded between fit and confidence-analysis
+        #     time (e.g. via align_polars_categorical_dicts) raises
+        #     "TypeError: No matching signature found" in
+        #     _set_features_order_data_polars_categorical_column
+        #   - pl.Utf8 with nulls raises the same NaN-in-cat error
+        # The pandas Pool path handles all three cleanly (Categorical
+        # + NaN, object + NaN). Convert to a pandas Arrow-bridge view
+        # so the post-conversion fillna gate below has a uniform
+        # surface to operate on. The polars fastpath gain on a 5-row
+        # confidence analyzer is in the noise.
+        from .utils import get_pandas_view_of_polars_df
+        test_df = get_pandas_view_of_polars_df(test_df)
+
     if cat_features is not None:
         fit_params_copy["cat_features"] = cat_features
     elif "cat_features" not in fit_params_copy:
         from ._nan_processing import get_categorical_columns  # lazy import: circular load with .utils
         fit_params_copy["cat_features"] = get_categorical_columns(test_df, include_string=False)
+
+    # CatBoost rejects NaN in cat_feature cells with
+    # ``cat_features must be integer or string, real number values and
+    # NaN values should be converted to string``. The combo enum's
+    # `null_fraction_cats > 0` axis routinely produces null cells in
+    # categorical columns; the upstream trainer fills them with a
+    # sentinel for the main fit, but the confidence analyzer instantiates
+    # a fresh CB pool from the post-pipeline test_df where the nulls
+    # remain (and surface as NaN after the polars->pandas Arrow bridge).
+    # Fill with the literal string "_NULL_" so CB treats missing as a
+    # distinct category rather than crashing. Read cat_features from
+    # fit_params_copy (covers both the caller-passed and auto-detected
+    # cases) so HGB-side calls (which pass cat_features=None and rely
+    # on the auto-detect block above) are not skipped.
+    _resolved_cat_features = fit_params_copy.get("cat_features")
+    if _resolved_cat_features and isinstance(test_df, pd.DataFrame):
+        _cat_in_df = [c for c in _resolved_cat_features if c in test_df.columns]
+        if _cat_in_df:
+            test_df = test_df.copy()
+            for _c in _cat_in_df:
+                _col = test_df[_c]
+                if _col.isna().any():
+                    if isinstance(_col.dtype, pd.CategoricalDtype):
+                        if "_NULL_" not in _col.cat.categories:
+                            _col = _col.cat.add_categories(["_NULL_"])
+                        test_df[_c] = _col.fillna("_NULL_")
+                    else:
+                        test_df[_c] = _col.fillna("_NULL_").astype(str)
 
     fit_params_copy["plot"] = False
 
