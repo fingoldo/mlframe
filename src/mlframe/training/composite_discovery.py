@@ -31,6 +31,7 @@ from .composite_cache import (
 )
 from .composite_ensemble import (
     CompositeCrossTargetEnsemble,
+    _is_monotone_nondecreasing,
     compute_oof_holdout_predictions,
     derive_seeds,
     detect_gpu_in_use,
@@ -841,6 +842,223 @@ class CompositeTargetDiscovery:
                 )
             yield spec.name, t
 
+    # TODO(per-cluster composite, follow-up):
+    # When the dataset has 50+ entities (well_id, customer_id, segment, ...)
+    # with >= 200 rows per entity, discovery COULD run per-cluster and pick
+    # a per-entity spec + a global fallback. The infrastructure piece
+    # ``linear_residual_grouped`` already exists in the registry (PCHIP-fit
+    # per-group alpha with James-Stein shrinkage toward global). Integration
+    # needs:
+    #   1. Auto-detect: ``n_groups <= 50 AND min_group_size >= 200``.
+    #   2. Per-group ``CompositeTargetDiscovery.fit`` (small-N regime).
+    #   3. Aggregate: keep per-group spec when its tiny CV-RMSE beats the
+    #      global spec by >= 5%.
+    #   4. Predict path: route each row through its cluster's spec, fall
+    #      back to global when cluster unknown.
+    # User judgement (2026-05-18): SKIP for now -- "10-15 values per
+    # cluster too few for stable per-cluster discovery". Revisit when the
+    # dataset has 500+ rows per cluster on average.
+
+    def fit_stacked(
+        self,
+        df: Any,
+        target_col: str,
+        feature_cols: Sequence[str],
+        train_idx: np.ndarray,
+        val_idx: np.ndarray | None = None,
+        test_idx: np.ndarray | None = None,
+        *,
+        n_oof_folds: int = 3,
+        max_pass1_specs_to_stack: int = 3,
+    ) -> CompositeTargetDiscovery:
+        """2-pass stacked composite discovery (Pack #3).
+
+        Pass 1 runs the standard :meth:`fit`. For each of the top
+        ``max_pass1_specs_to_stack`` specs (ranked by tiny CV-RMSE),
+        compute OOF predictions on the train rows via
+        :func:`composite_oof_predictions` and append them as new feature
+        columns to ``df``. Pass 2 calls :meth:`fit` again on the
+        augmented feature set; it may find composites where the
+        residual-of-residual structure becomes the new dominant base
+        (e.g. ``y = f(x_a) + g(x_b)``: pass 1 absorbs ``f(x_a)`` via
+        ``linres-x_a``, pass 2 then finds ``linres-x_b`` on the
+        leftover residual).
+
+        Resulting ``self.specs_`` = pass1_specs UNION pass2_specs
+        (collisions dropped, pass-1 wins).
+        """
+        from sklearn.base import clone as _sk_clone
+
+        self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
+        pass1_specs = list(self.specs_) if self.specs_ else []
+        if not pass1_specs:
+            logger.info("[CompositeTargetDiscovery.stacked] pass1 yielded 0 specs; skipping pass 2.")
+            return self
+
+        # Rank by tiny CV-RMSE if available; else by spec order.
+        rank_by_tiny = getattr(self, "tiny_rerank_scores_", None) or {}
+        ranked = sorted(
+            pass1_specs,
+            key=lambda s: rank_by_tiny.get(s.name, float("inf")),
+        )
+        top_specs = ranked[: int(max_pass1_specs_to_stack)]
+
+        # Build OOF preds for each top spec.
+        from .composite_feature_stacking import composite_oof_predictions
+        from .composite_estimator import CompositeTargetEstimator
+
+        # Use a lightweight Ridge inner so pass 2 cost stays small.
+        from sklearn.linear_model import Ridge
+        _train_idx_arr = np.asarray(train_idx)
+        y_full = _extract_column_array(df, target_col)
+        y_train = y_full[_train_idx_arr]
+        oof_cols: dict[str, np.ndarray] = {}
+        for spec in top_specs:
+            def _factory(_s=spec):  # bind spec
+                return CompositeTargetEstimator(
+                    base_estimator=Ridge(alpha=1e-3),
+                    transform_name=_s.transform_name,
+                    base_column=_s.base_column,
+                )
+            # Slice df on train_idx.
+            if hasattr(df, "iloc"):
+                X_train = df.iloc[_train_idx_arr].reset_index(drop=True)
+            else:
+                # polars: filter via boolean mask
+                try:
+                    import polars as _pl  # type: ignore
+                    if isinstance(df, _pl.DataFrame):
+                        mask = np.zeros(df.height, dtype=bool)
+                        mask[_train_idx_arr] = True
+                        X_train = df.filter(_pl.Series(mask))
+                    else:
+                        raise TypeError(type(df).__name__)
+                except Exception:
+                    logger.warning(
+                        "[CompositeTargetDiscovery.stacked] cannot slice df type=%s; skipping pass 2.",
+                        type(df).__name__,
+                    )
+                    return self
+            try:
+                preds = composite_oof_predictions(
+                    _factory, X_train, y_train,
+                    n_splits=int(n_oof_folds),
+                    random_state=int(self.config.random_state),
+                )
+                oof_cols[f"_oof_{spec.name}"] = preds
+            except Exception as _oof_err:
+                logger.warning(
+                    "[CompositeTargetDiscovery.stacked] OOF for spec=%s failed: %s",
+                    spec.name, _oof_err,
+                )
+
+        if not oof_cols:
+            return self
+
+        # Augment df: write OOF cols on TRAIN rows only; NaN on val/test rows
+        # (pass 2 only inspects train_idx so val/test fill is irrelevant).
+        df_aug = df
+        new_feature_cols = list(feature_cols)
+        try:
+            if hasattr(df_aug, "assign"):
+                _full_cols: dict[str, np.ndarray] = {}
+                _n_total = len(df_aug)
+                for col_name, train_vec in oof_cols.items():
+                    _v = np.full(_n_total, np.nan, dtype=np.float64)
+                    _v[_train_idx_arr] = train_vec
+                    _full_cols[col_name] = _v
+                    new_feature_cols.append(col_name)
+                df_aug = df_aug.assign(**_full_cols)
+            else:
+                import polars as _pl
+                if isinstance(df_aug, _pl.DataFrame):
+                    _n_total = df_aug.height
+                    for col_name, train_vec in oof_cols.items():
+                        _v = np.full(_n_total, np.nan, dtype=np.float64)
+                        _v[_train_idx_arr] = train_vec
+                        df_aug = df_aug.with_columns(_pl.Series(col_name, _v))
+                        new_feature_cols.append(col_name)
+        except Exception as _aug_err:
+            logger.warning(
+                "[CompositeTargetDiscovery.stacked] could not augment df: %s. Returning pass-1 only.",
+                _aug_err,
+            )
+            return self
+
+        # Pass 2: rerun fit on augmented df. Keep the union of specs.
+        try:
+            self.fit(df_aug, target_col, new_feature_cols, train_idx, val_idx, test_idx)
+        except Exception as _p2_err:
+            logger.warning(
+                "[CompositeTargetDiscovery.stacked] pass 2 failed: %s. Returning pass-1 specs.",
+                _p2_err,
+            )
+            self.specs_ = pass1_specs
+            return self
+        pass2_specs = list(self.specs_) if self.specs_ else []
+        existing_names = {s.name for s in pass1_specs}
+        merged = pass1_specs + [s for s in pass2_specs if s.name not in existing_names]
+        self.specs_ = merged
+        logger.info(
+            "[CompositeTargetDiscovery.stacked] pass1=%d specs, pass2=%d new specs, total=%d",
+            len(pass1_specs),
+            len([s for s in pass2_specs if s.name not in existing_names]),
+            len(merged),
+        )
+        return self
+
+    def fit_with_stability_check(
+        self,
+        df: Any,
+        target_col: str,
+        feature_cols: Sequence[str],
+        train_idx: np.ndarray,
+        val_idx: np.ndarray | None = None,
+        test_idx: np.ndarray | None = None,
+        *,
+        n_bootstrap_runs: int = 5,
+        min_keep_fraction: float = 0.6,
+    ) -> CompositeTargetDiscovery:
+        """Run :meth:`fit` ``n_bootstrap_runs`` times with different random seeds and keep only specs that survive in at least ``min_keep_fraction * n_bootstrap_runs`` runs.
+
+        Filters "lucky split" wins where a single seed happens to find a spec that does not generalise. Default thresholds (5 runs, 60% majority) match the standard stability-selection literature (Meinshausen-Buhlmann).
+
+        Returns ``self``. After the call, ``self.specs_`` is the stable subset and ``self.stability_counts_`` maps each name to its survival count.
+        """
+        if n_bootstrap_runs <= 1:
+            return self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
+        from collections import Counter
+
+        base_seed = int(self.config.random_state)
+        keep_counter: Counter = Counter()
+        spec_by_name: dict[str, CompositeSpec] = {}
+        for i in range(int(n_bootstrap_runs)):
+            self.config.random_state = base_seed + i * 7919
+            try:
+                self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
+            except Exception as _exc:
+                logger.warning(
+                    "[CompositeTargetDiscovery.stability] bootstrap run %d failed: %s",
+                    i, _exc,
+                )
+                continue
+            for spec in self.specs_:
+                keep_counter[spec.name] += 1
+                spec_by_name.setdefault(spec.name, spec)
+        # Restore base seed and write the stable spec set.
+        self.config.random_state = base_seed
+        threshold = max(1, int(min_keep_fraction * n_bootstrap_runs))
+        stable_names = [n for n, c in keep_counter.items() if c >= threshold]
+        self.specs_ = [spec_by_name[n] for n in stable_names if n in spec_by_name]
+        self.stability_counts_ = dict(keep_counter)
+        logger.info(
+            "[CompositeTargetDiscovery.stability] n_runs=%d, threshold=%d/%d. "
+            "Kept %d spec(s); counts: %s",
+            n_bootstrap_runs, threshold, n_bootstrap_runs,
+            len(self.specs_), dict(keep_counter),
+        )
+        return self
+
     def export_specs(self) -> list[dict[str, Any]]:
         """Plain-dict snapshot of discovered specs for ``metadata`` storage."""
         return [
@@ -855,6 +1073,16 @@ class CompositeTargetDiscovery:
                 "mi_t": s.mi_t,
                 "valid_domain_frac": s.valid_domain_frac,
                 "n_train_rows": s.n_train_rows,
+                # Multi-base specs (linear_residual_multi from forward-stepwise
+                # auto-promotion): omitting this field stranded every
+                # downstream consumer with only the primary base column,
+                # causing transform.forward/inverse to raise "base has 1
+                # columns but fitted alphas has K entries" in
+                # _phase_dummy_baselines, _phase_composite_post (OOF holdout),
+                # and any post-train wrapping path that re-applies the
+                # transform. Reproduced by fuzz c0047 (multi-base
+                # auto-promoted to linresM-num_1+num_dep).
+                "extra_base_columns": tuple(getattr(s, "extra_base_columns", ()) or ()),
             }
             for s in getattr(self, "specs_", [])
         ]
@@ -1593,6 +1821,11 @@ class CompositeTargetDiscovery:
             use_wilcoxon = bool(getattr(
                 self.config, "use_wilcoxon_gate", False,
             ))
+            # Auto-detect monotone base (lag features, timestamps) and switch
+            # this spec's tiny-CV to TimeSeriesSplit. Random K-fold on a lag
+            # base leaks future->past, over-rating ``linres-TVT_prev``-style
+            # specs.
+            _base_t_aware = bool(_is_monotone_nondecreasing(base_screen))
             for family in families:
                 # ENS-P2-5: capture per-bin alongside RMSE in the SAME pass
                 # for the first family only (per-bin breakdown only checks
@@ -1620,6 +1853,7 @@ class CompositeTargetDiscovery:
                         return_per_seed=True,
                         return_per_bin=want_per_bin,
                         n_bins=per_bin_n_bins_pre or 5,
+                        time_aware=_base_t_aware,
                     )
                     if want_per_bin:
                         # (rmse, per_bin, per_seed)
@@ -1656,6 +1890,7 @@ class CompositeTargetDiscovery:
                         base_random_state=self.config.random_state,
                         return_per_bin=want_per_bin,
                         n_bins=per_bin_n_bins_pre or 5,
+                        time_aware=_base_t_aware,
                     )
                     if want_per_bin and isinstance(result, tuple):
                         rmse, per_bin_first = result[0], result[1]
@@ -1775,6 +2010,17 @@ class CompositeTargetDiscovery:
             use_wilcoxon = bool(getattr(
                 self.config, "use_wilcoxon_gate", False,
             ))
+            # Time-aware raw-y baseline: switch to TimeSeriesSplit folds
+            # iff any spec's base is monotone-non-decreasing. Keeps
+            # raw-vs-composite tiny-CVs apples-to-apples when a lag base
+            # already forced time-aware folds on the composite side.
+            _any_base_monotone = any(
+                _is_monotone_nondecreasing(
+                    _per_base_cache.get(spec.base_column, (None, None))[0]
+                )
+                for spec in kept_specs
+                if _per_base_cache.get(spec.base_column, (None, None))[0] is not None
+            )
             raw_per_seed_per_family: dict[str, np.ndarray] = {}
             for family in families:
                 if use_wilcoxon:
@@ -1793,6 +2039,7 @@ class CompositeTargetDiscovery:
                         n_seed_repeats=n_seed_repeats_raw,
                         base_random_state=self.config.random_state,
                         return_per_seed=True,
+                        time_aware=_any_base_monotone,
                     )
                     raw_rmse_per_family[family] = res[0]
                     raw_per_seed_per_family[family] = res[-1]
@@ -1811,6 +2058,7 @@ class CompositeTargetDiscovery:
                         ),
                         n_seed_repeats=n_seed_repeats_raw,
                         base_random_state=self.config.random_state,
+                        time_aware=_any_base_monotone,
                     )
             # Per-base raw-y per-bin breakdown for the regime gate.
             # Cached by base column so multiple specs sharing a base

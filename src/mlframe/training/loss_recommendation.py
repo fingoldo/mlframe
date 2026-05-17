@@ -57,20 +57,57 @@ def _safe_moments(y: np.ndarray) -> tuple[int, float, float, float]:
     return n, mean, std, excess_kurt
 
 
-def recommend_boosting_regression_loss(y_target: Any) -> Dict[str, Any]:
+def recommend_boosting_regression_loss(
+    y_target: Any,
+    *,
+    target_quantile: float | None = None,
+) -> Dict[str, Any]:
     """Recommend per-backend regression loss based on target tail shape.
 
     Parameters
     ----------
     y_target : 1-D array-like
         The target distribution the inner boosting will FIT (raw ``y`` for raw-target, residual ``T`` for composite-target). NaN / Inf values are ignored.
+    target_quantile : float in (0, 1), optional
+        When supplied, OVERRIDES the kurt-based heuristic and returns a
+        quantile loss configured at this alpha for all three backends.
+        Use for asymmetric-cost regression (e.g. user prefers
+        under-prediction over over-prediction): ``alpha=0.7`` puts 70%
+        of the penalty weight on over-prediction.
 
     Returns
     -------
     dict
-        Keys: ``cb`` (CatBoost ``loss_function``), ``lgb`` (LightGBM ``objective``), ``xgb`` (XGBoost ``objective``), ``rationale``, ``excess_kurt``, ``n_finite``. Use ``cb``/``lgb``/``xgb`` to override the corresponding model param; ``rationale`` is a one-line human-readable explanation for logging.
+        Keys: ``cb`` (CatBoost ``loss_function``), ``lgb`` (LightGBM ``objective``), ``xgb`` (XGBoost ``objective``), ``rationale``, ``excess_kurt``, ``n_finite``. When ``target_quantile`` is set, also includes ``quantile_alpha`` and the per-backend value strings carry the alpha (e.g. ``Quantile:alpha=0.7``).
     """
     n_finite, _, _, excess_kurt = _safe_moments(np.asarray(y_target))
+
+    # Quantile-loss override: when caller specifies an asymmetric cost,
+    # ignore the kurt-based heuristic. Quantile loss IS robust to heavy
+    # tails (it's a quantile estimator, not a mean estimator) so the
+    # heavy-tail switch would be redundant.
+    if target_quantile is not None:
+        alpha = float(target_quantile)
+        if not (0.0 < alpha < 1.0):
+            raise ValueError(
+                f"target_quantile must be in (0, 1); got {alpha}"
+            )
+        return {
+            "cb": f"Quantile:alpha={alpha:.3f}",
+            "lgb": "quantile",
+            "lgb_extra_params": {"alpha": alpha},
+            # XGBoost >=2.0 introduces ``reg:quantileerror`` with ``quantile_alpha`` kwarg.
+            "xgb": "reg:quantileerror",
+            "xgb_extra_params": {"quantile_alpha": alpha},
+            "quantile_alpha": alpha,
+            "rationale": (
+                f"target_quantile={alpha:.3f} -- asymmetric-cost regression, "
+                f"using quantile loss with alpha={alpha:.3f}."
+            ),
+            "excess_kurt": excess_kurt,
+            "n_finite": n_finite,
+        }
+
     if n_finite < _MIN_SAMPLE_N or not np.isfinite(excess_kurt):
         return {
             "cb": "RMSE",

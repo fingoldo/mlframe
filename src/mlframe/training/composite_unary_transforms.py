@@ -287,6 +287,69 @@ def chain_bivariate_then_unary_inverse(
     return bivariate_inverse(t1_hat, base, params["bivariate_params"])
 
 
+# ----------------------------------------------------------------------
+# Multi-stage chains (Pack K extension): bivariate + 2+ unary stages.
+# E.g. chain([linres, cbrt, quantile_normal]) for very heavy-tail
+# residuals where a single unary does not bring the distribution close
+# to Gaussian. The composer applies stages in order at forward time
+# and in reverse order at inverse time.
+# ----------------------------------------------------------------------
+
+
+def chain_multi_stage_fit(
+    y: np.ndarray,
+    base: np.ndarray,
+    *,
+    bivariate_fit: Callable[[np.ndarray, np.ndarray], Dict[str, Any]],
+    bivariate_forward: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
+    unary_stages: list[UnaryFns],
+) -> Dict[str, Any]:
+    """Fit a bivariate composite + N unary stages sequentially.
+
+    Returns ``{"bivariate_params": ..., "unary_stage_params": [params_1, params_2, ...]}``.
+    Each unary's ``fit`` runs on the OUTPUT of the previous stage so the per-stage params reflect the actual distribution that stage sees.
+    """
+    bi_params = bivariate_fit(y, base)
+    t = bivariate_forward(y, base, bi_params)
+    stage_params: list[Dict[str, Any]] = []
+    for fit_fn, forward_fn, _inv_fn in unary_stages:
+        p = fit_fn(t)
+        stage_params.append(p)
+        t = forward_fn(t, p)
+    return {"bivariate_params": bi_params, "unary_stage_params": stage_params}
+
+
+def chain_multi_stage_forward(
+    y: np.ndarray,
+    base: np.ndarray,
+    params: Dict[str, Any],
+    *,
+    bivariate_forward: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
+    unary_stages: list[UnaryFns],
+) -> np.ndarray:
+    t = bivariate_forward(y, base, params["bivariate_params"])
+    for (_fit, forward_fn, _inv), p in zip(unary_stages, params["unary_stage_params"]):
+        t = forward_fn(t, p)
+    return t
+
+
+def chain_multi_stage_inverse(
+    t_final: np.ndarray,
+    base: np.ndarray,
+    params: Dict[str, Any],
+    *,
+    bivariate_inverse: Callable[[np.ndarray, np.ndarray, Dict[str, Any]], np.ndarray],
+    unary_stages: list[UnaryFns],
+) -> np.ndarray:
+    t = t_final
+    # Unary stages: reverse order at inverse time.
+    for (_fit, _forward, inv_fn), p in zip(
+        reversed(unary_stages), reversed(params["unary_stage_params"]),
+    ):
+        t = inv_fn(t, p)
+    return bivariate_inverse(t, base, params["bivariate_params"])
+
+
 __all__ = [
     "cbrt_y_fit", "cbrt_y_forward", "cbrt_y_inverse", "cbrt_y_domain",
     "log_y_fit", "log_y_forward", "log_y_inverse", "log_y_domain",
@@ -295,4 +358,7 @@ __all__ = [
     "chain_bivariate_then_unary_fit",
     "chain_bivariate_then_unary_forward",
     "chain_bivariate_then_unary_inverse",
+    "chain_multi_stage_fit",
+    "chain_multi_stage_forward",
+    "chain_multi_stage_inverse",
 ]

@@ -2751,9 +2751,98 @@ def format_suite_end_summary(
     return "\n".join(lines)
 
 
+def format_unified_target_verdict_table(
+    dummy_baselines_metadata: dict[str, Any],
+    best_model_metrics_by_target: dict[tuple[str, str], dict[str, float]] | None = None,
+    composite_to_raw_target_map: dict[tuple[str, str], str] | None = None,
+    cross_target_ensemble_metrics: dict[tuple[str, str], dict[str, float]] | None = None,
+) -> str:
+    """Build a single per-original-target consolidated verdict row.
+
+    Side-by-side: ``target | raw_best | composite_best | CT_ensemble | lift_vs_raw% | verdict``. Different from ``format_suite_end_summary`` which emits ONE row per composite spec; this groups composites under their parent raw target and exposes the head-to-head improvement.
+
+    Inputs:
+    - ``dummy_baselines_metadata``: per-target dummy data (same shape as ``format_suite_end_summary``).
+    - ``best_model_metrics_by_target``: ``{(target_type, target_name): {metric: value}}`` keyed by EACH model the suite trained (raw + per-composite).
+    - ``composite_to_raw_target_map``: ``{(target_type, composite_name): raw_name}``. Used to group composites under raw.
+    - ``cross_target_ensemble_metrics``: ``{(target_type, raw_target_name): {metric: value}}`` for the NNLS-stack ensemble.
+
+    Empty string when no data is available.
+    """
+    if not dummy_baselines_metadata or not best_model_metrics_by_target:
+        return ""
+
+    lines: list[str] = ["[DUMMY_BASELINES] UNIFIED PER-TARGET VERDICT"]
+    lines.append(
+        f"{'target':<24} {'raw_best':<14} {'composite_best':<16} "
+        f"{'CT_ensemble':<14} {'lift_vs_raw_%':<14} verdict"
+    )
+
+    # Group rows: {(target_type, raw_name): {'raw_metric': ..., 'composite_specs': [(name, metric), ...]}}.
+    composite_to_raw = composite_to_raw_target_map or {}
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for (tt, tname), m in best_model_metrics_by_target.items():
+        raw_name = composite_to_raw.get((str(tt), str(tname))) or str(tname)
+        slot = grouped.setdefault(
+            (str(tt), raw_name),
+            {"raw": None, "composites": []},
+        )
+        if str(tname) == raw_name:
+            slot["raw"] = m
+        else:
+            slot["composites"].append((str(tname), m))
+
+    for (tt, raw_name), slot in grouped.items():
+        raw_metric = slot["raw"] or {}
+        comp_specs = slot["composites"]
+        # Prefer val_RMSE; fall back to whatever the slot has.
+        raw_val = raw_metric.get("val_RMSE") or raw_metric.get("RMSE")
+        best_comp = min(
+            (c for c in comp_specs
+             if (c[1].get("val_RMSE") or c[1].get("RMSE")) is not None),
+            key=lambda c: c[1].get("val_RMSE") or c[1].get("RMSE"),
+            default=None,
+        )
+        comp_val = (
+            best_comp[1].get("val_RMSE") or best_comp[1].get("RMSE")
+            if best_comp else None
+        )
+        ct_val = None
+        if cross_target_ensemble_metrics:
+            ct_entry = cross_target_ensemble_metrics.get((str(tt), raw_name))
+            if ct_entry:
+                ct_val = ct_entry.get("val_RMSE") or ct_entry.get("RMSE")
+        lift = (
+            (float(raw_val) / float(comp_val)) if (raw_val and comp_val and comp_val > 0)
+            else None
+        )
+        verdict_parts = []
+        if lift is not None and lift > 1.05:
+            verdict_parts.append("COMPOSITE_WINS")
+        elif lift is not None and lift < 0.95:
+            verdict_parts.append("RAW_WINS")
+        else:
+            verdict_parts.append("TIE")
+        if ct_val is not None and raw_val is not None and ct_val < raw_val * 0.95:
+            verdict_parts.append("CT_ENSEMBLE_HELPS")
+        verdict = " ".join(verdict_parts) or "-"
+
+        lines.append(
+            f"{raw_name[:24]:<24} "
+            f"{('-' if raw_val is None else f'{raw_val:.4f}'):<14} "
+            f"{('-' if comp_val is None else f'{comp_val:.4f}'):<16} "
+            f"{('-' if ct_val is None else f'{ct_val:.4f}'):<14} "
+            f"{('-' if lift is None else f'{(lift-1)*100:+.1f}%'):<14} "
+            f"{verdict}"
+        )
+
+    return "\n".join(lines)
+
+
 __all__ = [
     "compute_dummy_baselines",
     "format_suite_end_summary",
+    "format_unified_target_verdict_table",
     "BaselineReport",
     "SCHEMA_VERSION",
     "_baseline_inputs_hash",

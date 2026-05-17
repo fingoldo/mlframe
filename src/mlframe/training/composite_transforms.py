@@ -318,6 +318,62 @@ def _linear_residual_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarra
 
 
 # ----------------------------------------------------------------------
+# linear_residual_robust: trimmed-LS (M-estimator with 3*MAD hard threshold).
+# Bench (benchmarks/bench_robust_linres_1M.py): 0.12s on 1M rows with 5%
+# Cauchy outliers; alpha error 0.01% vs OLS 0.51%, beta error 2.40% vs
+# OLS 95.25%. Beats sklearn HuberRegressor (3.28s), RANSACRegressor
+# (4.53s), TheilSenRegressor (O(n^2), MemoryError on 1M), statsmodels
+# QuantReg L1 (9.81s) on time-vs-accuracy. Implementation: OLS first
+# pass, drop rows where |residual| > 3 * MAD (robust scale via
+# 1.4826 * MAD = sigma-equivalent under Normality), refit OLS on the
+# survivors. Two passes total.
+# ----------------------------------------------------------------------
+
+_LINRES_ROBUST_MAD_K: float = 3.0
+"""Hard threshold: rows with |residual| > k * sigma_MAD are dropped before the second-pass OLS. k=3 keeps ~99.7% of inliers under Normality and drops outliers heavier than 3-sigma."""
+
+_LINRES_ROBUST_MIN_KEEP_FRAC: float = 0.5
+"""Safety: if the MAD-trim would drop more than (1 - this) of rows, fall back to plain OLS. Protects against pathological all-outlier targets where MAD is too small and trimming becomes destructive."""
+
+
+def _linear_residual_robust_fit(
+    y: np.ndarray, base: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Trimmed-LS fit: OLS -> drop |resid|>3*MAD -> refit OLS.
+
+    Returns the same ``{"alpha", "beta"}`` dict as :func:`_linear_residual_fit` so the existing forward / inverse functions work unchanged. ``sample_weight`` is honoured in BOTH passes.
+    """
+    n = len(y)
+    if n < 2:
+        return {"alpha": 0.0, "beta": float(np.mean(y)) if n > 0 else 0.0}
+
+    # Pass 1: standard OLS.
+    first_pass = _linear_residual_fit(y, base, sample_weight=sample_weight)
+    alpha1 = float(first_pass["alpha"])
+    beta1 = float(first_pass["beta"])
+
+    # Residuals + robust scale via MAD (sigma-equivalent multiplier 1.4826).
+    resid = y.astype(np.float64) - alpha1 * base.astype(np.float64) - beta1
+    if not np.all(np.isfinite(resid)):
+        return first_pass
+    med = float(np.median(resid))
+    mad = float(np.median(np.abs(resid - med)))
+    sigma_mad = mad * 1.4826
+    if sigma_mad <= 0.0 or not np.isfinite(sigma_mad):
+        # Constant residual or numerical pathology -- OLS already covers it.
+        return first_pass
+
+    keep = np.abs(resid - med) <= _LINRES_ROBUST_MAD_K * sigma_mad
+    if keep.sum() < max(2, int(_LINRES_ROBUST_MIN_KEEP_FRAC * n)):
+        return first_pass
+
+    # Pass 2: OLS on the inlier set.
+    sw2 = None if sample_weight is None else np.asarray(sample_weight)[keep]
+    return _linear_residual_fit(y[keep], base[keep], sample_weight=sw2)
+
+
+# ----------------------------------------------------------------------
 # linear_residual_multi (#1 from R10c brainstorm).
 # T = y - Σⱼ αⱼ·baseⱼ - β. Joint OLS on (n, K) base matrix.
 #
@@ -1313,6 +1369,9 @@ from .composite_unary_transforms import (  # noqa: E402
     chain_bivariate_then_unary_fit as _chain_fit_raw,
     chain_bivariate_then_unary_forward as _chain_forward_raw,
     chain_bivariate_then_unary_inverse as _chain_inverse_raw,
+    chain_multi_stage_fit as _chain_multi_fit_raw,
+    chain_multi_stage_forward as _chain_multi_forward_raw,
+    chain_multi_stage_inverse as _chain_multi_inverse_raw,
 )
 
 
@@ -1416,6 +1475,53 @@ def _make_chain_transform(
     )
 
 
+def _make_multi_chain_transform(
+    *, name: str, short_name: str,
+    bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
+    unary_stages: list,
+    description: str,
+):
+    """Pack K multi-stage chain: bivariate + N unary stages.
+
+    ``unary_stages`` is a list of ``(fit, forward, inverse)`` tuples; each runs in order at forward, in reverse at inverse. Used to register e.g. ``chain([linres, cbrt, quantile_normal])`` for very heavy-tail residuals.
+    """
+
+    def _fit(y, base):
+        return _chain_multi_fit_raw(
+            y=y, base=base,
+            bivariate_fit=bivariate_fit,
+            bivariate_forward=bivariate_forward,
+            unary_stages=unary_stages,
+        )
+
+    def _forward(y, base, params):
+        return _chain_multi_forward_raw(
+            y=y, base=base, params=params,
+            bivariate_forward=bivariate_forward,
+            unary_stages=unary_stages,
+        )
+
+    def _inverse(t_hat, base, params):
+        return _chain_multi_inverse_raw(
+            t_final=t_hat, base=base, params=params,
+            bivariate_inverse=bivariate_inverse,
+            unary_stages=unary_stages,
+        )
+
+    def _domain(y, base):
+        return bivariate_domain(y, base)
+
+    return Transform(
+        name=name,
+        forward=_forward,
+        inverse=_inverse,
+        fit=_fit,
+        domain_check=_domain,
+        description=description,
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    )
+
+
 _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     "diff": Transform(
         name="diff",
@@ -1461,6 +1567,22 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "Inverse y_hat = T_hat + alpha*base + beta."
         ),
         tags=frozenset({TAG_CORE, TAG_REGRESSION}),
+    ),
+    "linear_residual_robust": Transform(
+        name="linear_residual_robust",
+        forward=_linear_residual_forward,
+        inverse=_linear_residual_inverse,
+        fit=_linear_residual_robust_fit,
+        domain_check=_linear_residual_domain,
+        description=(
+            "Outlier-robust variant of linear_residual via trimmed-LS: OLS first "
+            "pass -> drop rows where |resid| > 3 * sigma_MAD -> refit OLS on the "
+            "inlier set. Forward / inverse identical to linear_residual once "
+            "(alpha, beta) are fitted. Bench (1M rows, 5% Cauchy outliers): "
+            "0.12s, alpha err 0.01%, beta err 2.40% -- vs plain OLS 95% beta err "
+            "and Huber/RANSAC/LAD 30-80x slower for similar accuracy."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
     "linear_residual_multi": Transform(
         name="linear_residual_multi",
@@ -1677,6 +1799,31 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "Chain: monotonic_residual + Yeo-Johnson power transform."
         ),
     ),
+    # Pack K extension: 3-stage chain. For VERY heavy-tail residuals
+    # where a single unary still leaves leptokurtosis, follow up with
+    # quantile-normalisation to map any remaining structure to a
+    # standard Normal. Lossy on absolute scale (quantile_normal forgets
+    # the original units) but RMSE on the doubly-compressed T is
+    # cleaner for boosting inners.
+    "chain_linres_cbrt_qn": _make_multi_chain_transform(
+        name="chain_linres_cbrt_qn", short_name="linresCbrtQn",
+        bivariate_fit=_linear_residual_fit,
+        bivariate_forward=_linear_residual_forward,
+        bivariate_inverse=_linear_residual_inverse,
+        bivariate_domain=_linear_residual_domain,
+        unary_stages=[
+            (_cbrt_y_fit_raw, _cbrt_y_forward_raw, _cbrt_y_inverse_raw),
+            (_qn_y_fit_raw, _qn_y_forward_raw, _qn_y_inverse_raw),
+        ],
+        description=(
+            "3-stage chain: T1 = y - alpha*base - beta (linear_residual); "
+            "T2 = sign(T1) * |T1|^(1/3) (signed cbrt); "
+            "T3 = Phi^-1(rank(T2) / (n+1)) (quantile-normal). "
+            "For VERY heavy-tail residuals where a single unary still leaves "
+            "leptokurtosis. Lossy on absolute scale; RMSE on T3 cleaner for "
+            "boosting inners."
+        ),
+    ),
 }
 
 
@@ -1704,6 +1851,7 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "ratio": "ratio",
     "logratio": "logr",
     "linear_residual": "linres",
+    "linear_residual_robust": "linresR",
     "linear_residual_multi": "linresM",
     "linear_residual_grouped": "linresG",
     "quantile_residual": "qres",
@@ -1721,6 +1869,7 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "chain_linres_yj": "linresYj",
     "chain_monres_cbrt": "monresCbrt",
     "chain_monres_yj": "monresYj",
+    "chain_linres_cbrt_qn": "linresCbrtQn",
 }
 
 

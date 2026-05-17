@@ -826,11 +826,16 @@ def _tiny_cv_rmse_y_scale(
     deterministic: bool = False,
     return_per_bin: bool = False,
     n_bins: int = 5,
+    time_aware: bool = False,
 ):
     """Compute CV-RMSE of a tiny model on the y-scale (after inverse).
 
     1. Apply ``transform.forward`` to (y_train, base_train) -> T.
-    2. K-fold split on the train rows.
+    2. K-fold split on the train rows. With ``time_aware=True`` the split
+       is a sklearn ``TimeSeriesSplit`` -- past-only train / future
+       holdout for each fold -- which matches the production ordering
+       for autoregressive bases (``TVT_prev``, lag features). Random
+       K-fold on a lag base leaks future->past and over-rates the spec.
     3. For each fold: fit tiny model on T_train_fold, predict T_hat
        on the held-out fold, apply transform.inverse to recover
        y_hat in the original scale, score against y_held.
@@ -841,7 +846,7 @@ def _tiny_cv_rmse_y_scale(
     so the inner LightGBM doesn't oversubscribe. NaN if anything
     degenerates so callers can deprioritise.
     """
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import KFold, TimeSeriesSplit
     n = len(y_train)
     if n < cv_folds * 10:
         return float("nan")
@@ -855,7 +860,10 @@ def _tiny_cv_rmse_y_scale(
     if not np.all(np.isfinite(t_clean)):
         return float("nan")
 
-    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+    if time_aware:
+        kf = TimeSeriesSplit(n_splits=cv_folds)
+    else:
+        kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
 
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,

@@ -207,6 +207,53 @@ def _run_composite_target_wrapping(
                             "MAE_raw": _mae_raw,
                             "MAE_wrapped": _mae_wrapped,
                         }
+                        # Pack G runtime watchdog: for an additive-invertible
+                        # transform (``linear_residual``, ``diff``) the error
+                        # on T equals the error on y exactly. If wrapper math
+                        # silently breaks (entry-mutation cache stale, inner
+                        # double-scaled, etc.), y-scale MAE diverges from the
+                        # T-scale MAE computed off the SAME inner preds. Warn
+                        # loudly when the divergence exceeds 1% relative.
+                        try:
+                            _spec_t_name = _spec.get("transform_name") if isinstance(_spec, dict) else None
+                            if _spec_t_name in {"linear_residual", "diff"}:
+                                _wi = getattr(_wrapper_for_score, "estimator_", None)
+                                _base_col = _spec.get("base_column") if isinstance(_spec, dict) else None
+                                if _wi is not None and _base_col and _base_col in _split_df:
+                                    _bivar = get_transform(_spec_t_name)
+                                    _base_arr = np.asarray(_split_df[_base_col]).astype(np.float64)
+                                    _t_true = _bivar.forward(
+                                        _y_split.astype(np.float64),
+                                        _base_arr,
+                                        _spec.get("fitted_params", {}),
+                                    )
+                                    _t_pred = np.asarray(
+                                        _wi.predict(_split_df), dtype=np.float64,
+                                    ).reshape(-1)
+                                    _dt = _t_pred - _t_true
+                                    _ft = np.isfinite(_dt)
+                                    if int(_ft.sum()) > 0:
+                                        _mae_t = float(np.mean(np.abs(_dt[_ft])))
+                                        _drel = abs(_mae_t - _mae_wrapped) / max(_mae_t, 1e-9)
+                                        if _drel > 0.01:
+                                            logger.warning(
+                                                "[CompositeTargetEstimator.watchdog] "
+                                                "composite='%s' split='%s' inner=%s: "
+                                                "y-MAE=%.4f diverges from T-MAE=%.4f "
+                                                "by %.1f%% (>1%%). Additive-invertible "
+                                                "transform should give identical errors "
+                                                "-- entry mutation / cache regression "
+                                                "likely.",
+                                                _composite_name, _split_name,
+                                                type(_wi).__name__,
+                                                _mae_wrapped, _mae_t, _drel * 100.0,
+                                            )
+                        except Exception as _watchdog_err:
+                            logger.debug(
+                                "[CompositeTargetEstimator.watchdog] check failed for "
+                                "composite='%s' split='%s': %s",
+                                _composite_name, _split_name, _watchdog_err,
+                            )
                     except Exception:
                         continue
                 _metrics_dict.append({
@@ -512,18 +559,41 @@ def run_composite_post_processing(
                 _oof_rmses = _rmse_arr  # train-RMSE proxy by default
                 if _oof_frac > 0.0 and _oof_y_full is not None:
                     from ..composite import compute_oof_holdout_predictions
-                    # Per-spec base column on filtered_train_df rows for transform.forward inside the OOF helper.
+                    # Per-spec base matrix on filtered_train_df rows for
+                    # transform.forward inside the OOF helper. Multi-base
+                    # specs (linear_residual_multi from forward-stepwise
+                    # auto-promotion) need the FULL (n, 1+K) matrix whose
+                    # column count matches the fitted alphas. Building the
+                    # primary column only crashes inside the OOF helper's
+                    # transform.forward with "base has 1 columns but fitted
+                    # alphas has K entries". Reproduced by fuzz c0047
+                    # (multi-base auto-promoted to linresM-num_1+num_dep).
                     _base_full_per_spec: dict[str, np.ndarray] = {}
                     for _spec_for_oof in _spec_list:
-                        _b = _build_full_column_from_splits(
+                        _b_primary = _build_full_column_from_splits(
                             _spec_for_oof["base_column"],
                             train_df_pd, val_df_pd, test_df_pd,
                             train_idx, val_idx, test_idx,
                             n_total=len(_oof_y_full),
                         )
-                        _base_full_per_spec[_spec_for_oof["base_column"]] = (
-                            _b[filtered_train_idx]
+                        _extra_for_oof = tuple(
+                            _spec_for_oof.get("extra_base_columns") or ()
                         )
+                        if _extra_for_oof:
+                            _b_cols = [_b_primary]
+                            for _eb_oof in _extra_for_oof:
+                                _b_cols.append(
+                                    _build_full_column_from_splits(
+                                        _eb_oof,
+                                        train_df_pd, val_df_pd, test_df_pd,
+                                        train_idx, val_idx, test_idx,
+                                        n_total=len(_oof_y_full),
+                                    )
+                                )
+                            _b_filtered = np.column_stack(_b_cols)[filtered_train_idx]
+                        else:
+                            _b_filtered = _b_primary[filtered_train_idx]
+                        _base_full_per_spec[_spec_for_oof["base_column"]] = _b_filtered
                     # Build the spec-or-None list parallel to components.
                     _component_specs: list[dict[str, Any] | None] = []
                     for _name in _component_names:

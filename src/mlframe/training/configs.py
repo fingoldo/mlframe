@@ -2028,6 +2028,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     transforms: List[str] = Field(
         default_factory=lambda: [
             "diff", "ratio", "logratio", "linear_residual",
+            "linear_residual_robust",  # trimmed-LS variant; safe on outlier-contaminated bases.
             "quantile_residual", "monotonic_residual",
             # Pack J unary y-transforms (``requires_base=False`` -- tried once across all bases via the discovery loop's per-transform dedup).
             "cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y",
