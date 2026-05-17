@@ -263,6 +263,26 @@ AXES: dict[str, tuple[Any, ...]] = {
     "multilabel_allow_uncalibrated_cfg": (True, False),
     "report_residual_audit_cfg": (True, False),
     "ltr_assume_comparable_scales_cfg": (True, False),
+    # 2026-05-18 — composite-target discovery (Packs J + K end-to-end).
+    # When enabled the CompositeTargetDiscovery searches for a transform
+    # T = f(y, base) such that the model on T outperforms the model on
+    # raw y. Default OFF; the fuzz axis turns it on for regression
+    # combos so the discovery loop + per-base scoring + auto-promotion
+    # actually run end-to-end inside the suite. Canonicalised to False
+    # for non-regression targets (the discovery is regression-only).
+    "composite_discovery_enabled_cfg": (False, True),
+    # 2026-05-18 — composite-discovery transform palette. ``None`` =
+    # the full default 14 (6 legacy + 4 Pack J unary + 4 Pack K chain).
+    # ``unary_only`` restricts to the Pack J unary transforms (cbrt_y,
+    # log_y, yeo_johnson_y, quantile_normal_y) — exercises the
+    # ``requires_base=False`` path and the discovery-loop dedup that
+    # evaluates each unary once across all bases. ``chain_only``
+    # restricts to the Pack K bivariate+unary chains
+    # (chain_linres_cbrt, chain_linres_yj, chain_monres_cbrt,
+    # chain_monres_yj) — exercises the chain composer. ``legacy``
+    # restricts to the pre-Pack-J/K set so dedup-vs-default regressions
+    # surface. Canonicalised to None when discovery is disabled.
+    "composite_transforms_mode_cfg": (None, "unary_only", "chain_only", "legacy"),
 }
 
 
@@ -371,6 +391,11 @@ class FuzzCombo:
     multilabel_allow_uncalibrated_cfg: bool = False
     report_residual_audit_cfg: bool = True
     ltr_assume_comparable_scales_cfg: bool = False
+    # 2026-05-18 — composite-target discovery (Packs J + K) fuzz axes.
+    # Defaulted False / None so existing pinned sensor combos and
+    # archived ``_fuzz_results.jsonl`` rows keep deserialising.
+    composite_discovery_enabled_cfg: bool = False
+    composite_transforms_mode_cfg: "str | None" = None
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -634,6 +659,23 @@ class FuzzCombo:
             self.ltr_assume_comparable_scales_cfg if (
                 self.target_type == "learning_to_rank"
             ) else False,
+            # composite-discovery only fires on regression targets and
+            # only when at least 2 numeric base candidates exist. For
+            # non-regression / no-numeric-bases combos collapse to the
+            # disabled variant so dedup absorbs identical-behaviour
+            # combos.
+            self.composite_discovery_enabled_cfg if (
+                self.target_type == "regression"
+                # require enough columns for a base candidate pool (the
+                # frame builder emits ``num_0..num_3`` for n_rows >= 300
+                # so this is always satisfied when target=regression;
+                # the gate is here for future shrinkage).
+            ) else False,
+            # composite_transforms_mode is a no-op when discovery is off.
+            self.composite_transforms_mode_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else None,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -1192,6 +1234,8 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         multilabel_allow_uncalibrated_cfg=axes.get("multilabel_allow_uncalibrated_cfg", False),
         report_residual_audit_cfg=axes.get("report_residual_audit_cfg", True),
         ltr_assume_comparable_scales_cfg=axes.get("ltr_assume_comparable_scales_cfg", False),
+        composite_discovery_enabled_cfg=axes.get("composite_discovery_enabled_cfg", False),
+        composite_transforms_mode_cfg=axes.get("composite_transforms_mode_cfg", None),
     )
 
 

@@ -114,7 +114,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     Matches the prod idiom: callers who turn off auto-detection
     typically do so BECAUSE they're declaring the lists manually."""
     from mlframe.training import (
-    
+
         PreprocessingBackendConfig,
         FeatureTypesConfig,
         TrainingBehaviorConfig,
@@ -126,6 +126,10 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     OutlierDetectionConfig,
     OutputConfig
 )
+    # 2026-05-18 — composite-target discovery (Packs J + K) wiring.
+    # Imported lazily inside the function so the top of the file
+    # doesn't grow another mandatory import.
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
     # Mirror the ``want_text`` / ``want_embedding`` gates in
     # ``build_frame_for_combo`` so the declared column lists exactly
     # match what the frame actually contains — no false positives,
@@ -239,6 +243,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             cat_text_cardinality_threshold=combo.cat_text_card_threshold_cfg,
         ),
         "behavior_config": TrainingBehaviorConfig(**behavior_kwargs),
+        # 2026-05-18 — composite-target discovery axes. The dict is splatted
+        # into the suite call, so when discovery is enabled this routes the
+        # config through. Disabled-config still passes through so the suite
+        # path is exercised symmetrically.
+        "composite_target_discovery_config": _composite_discovery_config_for_combo(combo),
         # PreprocessingExtensionsConfig — sklearn-bridge transforms applied
         # once and reused per model. Mirror FuzzCombo._canonical_prep_ext
         # so combos with NaN-injecting axes or unencoded categoricals
@@ -262,6 +271,64 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             allow_uncalibrated_multi=combo.multilabel_allow_uncalibrated_cfg,
         ),
     }
+
+
+def _composite_discovery_config_for_combo(combo: FuzzCombo):
+    """Build a CompositeTargetDiscoveryConfig from the combo axes.
+
+    Returns None when the combo's canonical key says discovery is
+    off (regression-only + base-candidate-pool check). When on, the
+    transforms list narrows to a subset depending on
+    ``composite_transforms_mode_cfg``:
+
+    - ``None``  -> library default (all 14: 6 legacy + 4 unary + 4 chain)
+    - ``"unary_only"``  -> Pack J unary transforms only
+    - ``"chain_only"``  -> Pack K chain transforms only
+    - ``"legacy"``      -> pre-Pack-J/K set (6 legacy)
+    """
+    # Replay canonical_key's enable gate so we only emit a config when
+    # the combo would actually run discovery (regression target).
+    enabled = (
+        combo.composite_discovery_enabled_cfg
+        and combo.target_type == "regression"
+    )
+    if not enabled:
+        return None
+
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+    mode = combo.composite_transforms_mode_cfg
+    if mode == "unary_only":
+        transforms = ["cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"]
+    elif mode == "chain_only":
+        transforms = [
+            "chain_linres_cbrt", "chain_linres_yj",
+            "chain_monres_cbrt", "chain_monres_yj",
+        ]
+    elif mode == "legacy":
+        transforms = ["diff", "ratio", "logratio", "linear_residual",
+                      "quantile_residual", "monotonic_residual"]
+    else:
+        transforms = None  # let the library default kick in (all 14)
+
+    kwargs: dict = {
+        "enabled": True,
+        # base_candidates="auto" exercises the MI-gain ranking + filter
+        # path (the production code path). Pin a small top_k so the
+        # discovery loop stays under the per-fuzz-test budget.
+        "base_candidates": "auto",
+        "auto_base_top_k": 3,
+        # Cap the multi-base auto-promotion search so fuzz doesn't
+        # explode runtime on rich numeric column sets.
+        "multi_base_enabled": True,
+        "multi_base_max_k": 2,
+        # MI sampling -- small frames are well under the default cap;
+        # leave the library default in place by not overriding.
+    }
+    if transforms is not None:
+        kwargs["transforms"] = transforms
+
+    return CompositeTargetDiscoveryConfig(**kwargs)
 
 
 def _recurrent_sequences_for_combo(combo: FuzzCombo, df=None):
