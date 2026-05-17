@@ -888,3 +888,62 @@ Total mlframe-OWN tottime ~300 ms out of 122 s suite = 0.25%. No
 actionable hotspot above the 1.2x gate.
 
 **Verdict: REJECT.** Streak counter: 1/100.
+
+## Iter 23 -- 2026-05-18 -- REJECTED (streak 2/100)
+
+Cell: `c0009_f5db22ca-cb_linear-pandas-n300` -- 2-model regression
+combo (CB + linear, pandas-in-memory, MRMR + ensembles +
+isolation_forest, n=300). Test passed under cProfile in 105.49s.
+
+**mlframe-OWN tottime (>15ms):**
+
+| Function | tottime | ncalls |
+|---|---:|---:|
+| `io.py:39(atomic_write_bytes)` | 18 ms | 7 |
+
+Total mlframe-OWN tottime ~25 ms out of 105 s = 0.024%. Cleanest
+profile this loop has produced: nothing above 20 ms tottime in
+mlframe source. The 7 atomic_write_bytes calls are pickle+zstd
+model save (C-ext).
+
+**Verdict: REJECT.** Streak counter: 2/100.
+
+## Iter 23.5 (interlude) -- 2026-05-18 -- fuzz axis extension
+
+User directive: "update axes/params/configs in fuzz combo, we
+added new features (see git commits)".
+
+Recent feature commits surveyed:
+- 650a39b: Packs H + J + K end-to-end wiring (composite y-transforms,
+  chain composer, auto-loss recommendation)
+- 0cf4d30: Pack J + K transforms
+- bd28896: auto-loss recommend MAE/Huber for heavy-tail residuals
+- ab43d58: 'linear' model_type routes to Ridge(alpha=1e-3) for
+  collinear stability
+
+Added two new fuzz axes in commit `7b79ba0`:
+
+| Axis | Values | Purpose |
+|---|---|---|
+| `composite_discovery_enabled_cfg` | (False, True) | Toggle CompositeTargetDiscoveryConfig.enabled |
+| `composite_transforms_mode_cfg` | (None, "unary_only", "chain_only", "legacy") | Narrow transform palette to exercise Pack J / Pack K / legacy paths |
+
+Wiring: FuzzCombo dataclass + canonical_key gating
+(regression-only collapse) + `_composite_discovery_config_for_combo`
+helper in `test_fuzz_suite.py` that builds the typed config and
+splats it into the suite call.
+
+Coverage delta on the default master_seed=20260422:
+- 68 / 150 combos carry the axis flag (45%)
+- 13 / 150 are actually-enabled (regression + flag on) -- 8.6% real
+  new coverage of Pack J / Pack K paths
+
+Smoke test: `c0087_824b010e-cb_lgb-pl_enum-n600` with
+`mode=unary_only` passes natively in 66 s. All 4 enumerator-meta
+tests stay green.
+
+Pack H (auto-loss for heavy-tail) runs unconditionally for
+regression targets, so no separate axis is needed -- every
+regression combo exercises it. Pack ab43d58 (Linear -> Ridge for
+collinear) is exercised through the existing `inject_rank_deficient`
+axis.
