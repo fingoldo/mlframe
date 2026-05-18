@@ -1569,3 +1569,49 @@ iter-26 ranker encode + the structural bug fixes (iters 12, 18,
 
 **Aggregate cold-start saving** (iters 5+27+28+35): ~26-66 s per
 fresh process depending on which paths fire.
+
+## Iter 37 -- 2026-05-18 -- REJECTED (streak 2/100)
+
+**First profile of `test_fuzz_3way_suite.py`** (the 3-way pairwise
+coverage variant with 400 combos, master_seed=20260424). Picked
+`c0392_70b72094-cb_hgb_linear_xgb-pl_enum-n600` (4-model
+multiclass, pl_enum, n=600). Test passed under cProfile in 206.82 s
+(3way suite has the full BaselineDiagnostics + extra reporting
+that the pairwise suite often skips, hence the longer wall).
+
+**mlframe-OWN tottime breakdown (>20ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `utils.py:395(get_pandas_view_of_polars_df)` | 519 ms | 6 | 86 ms |
+| `metrics/core.py:3342(fast_brier_score_loss)` | 270 ms | 102 | 2.6 ms |
+| `_setup_helpers.py:682(_finalize_and_save_metadata)` | 237 ms | 2 | 118 ms |
+| `_phase_train_one_target.py:470(_compute_pipeline_cache_key)` | 190 ms | 4 | 47 ms |
+| `baseline_diagnostics.py:147(_coerce_to_pandas)` | 167 ms | 1 | 167 ms |
+| `_dummy_baseline_compute.py:460(_compute_classification_baselines)` | 128 ms | 1 | 128 ms |
+
+**Analysis:**
+
+- `get_pandas_view_of_polars_df`: 86 ms/call cProfile-attributed; real
+  ~1-2 ms/call (per iter-16 bench). At-floor per 2026-04-14 1.16x
+  ceiling note.
+- `fast_brier_score_loss`: 2.6 ms/call is the numba-kernel-dispatch
+  cProfile attribution; the kernel itself runs in microseconds on
+  n=600. 102 calls = 34 reports x 3 splits or per-class × per-split
+  fan-out. Vectorising across calls would require API change.
+- `_finalize_and_save_metadata`: already analysed in iter 30 (118 ms is
+  the closure dispatching pickle.dumps + zstd.compress C-ext calls).
+- `_compute_pipeline_cache_key`: 47 ms/call cProfile-attributed on a
+  function whose real work is ~350 us (3 sorts + repr + blake2b
+  + polars dtype iter). Below 1.2x gate.
+- `_coerce_to_pandas` + `_compute_classification_baselines`: one-shot
+  polars->pandas + per-class baseline math, all polars/numpy C-ext.
+
+Total mlframe-OWN tottime ~1.6 s out of 207 s wall = **0.77%**.
+Slightly higher than 2-way fuzz cells (3way has BaselineDiagnostics
+fanning more reports), but still no Python-side hotspot above the
+1.2x gate.
+
+**Verdict: REJECT.** Streak counter: 2/100. The 3way suite is
+useful for cross-axis coverage but its mlframe-Python share is
+similarly thin to the 2way suite.
