@@ -49,8 +49,8 @@ class TestMRMRIdentityCache:
         df_b = pd.DataFrame({"x": np.array([1.0, 2.0, 3.0], dtype=np.float64)})
         assert _mrmr_compute_x_fingerprint(df_a) != _mrmr_compute_x_fingerprint(df_b)
 
-    def test_default_no_skip(self) -> None:
-        """Default ``mrmr_skip_when_prior_was_identity=False`` keeps legacy behaviour. Even if cache has identity flag, a fresh fit runs normally."""
+    def test_default_skip_flag_is_true_post_flip(self) -> None:
+        """Default ``mrmr_skip_when_prior_was_identity`` flipped False -> True on 2026-05-18 (Accuracy/perf over legacy). Set explicitly to False to restore historical "always re-fit"."""
         from time import perf_counter
         rng = np.random.default_rng(0)
         n = 1000
@@ -60,10 +60,30 @@ class TestMRMRIdentityCache:
         })
         y1 = rng.normal(size=n)
         m = MRMR(verbose=0)
+        # The default flag is now True (post-flip).
+        assert m.mrmr_skip_when_prior_was_identity is True
         t0 = perf_counter()
         m.fit(X, y1)
         elapsed_first = perf_counter() - t0
         assert hasattr(m, "support_")
+
+    def test_explicit_false_disables_skip(self) -> None:
+        """Setting ``mrmr_skip_when_prior_was_identity=False`` explicitly restores the historical "no short-circuit" behaviour. Even if cache has an identity flag, the fit runs normally."""
+        rng = np.random.default_rng(0)
+        n = 500
+        X = pd.DataFrame({
+            "a": rng.normal(size=n), "b": rng.normal(size=n),
+            "c": rng.normal(size=n),
+        })
+        y = rng.normal(size=n)
+        # Pre-populate cache as if a previous fit returned identity.
+        fp = _mrmr_compute_x_fingerprint(X)
+        _MRMR_IDENTITY_FP_CACHE[fp] = True
+        m = MRMR(verbose=0, mrmr_skip_when_prior_was_identity=False)
+        m.fit(X, y)
+        # support_ from a REAL fit (not shortcut) exists; signature attribute is None or a non-shortcut marker.
+        assert hasattr(m, "support_")
+        assert not str(getattr(m, "signature", "")).startswith("_mrmr_identity_shortcut")
 
     def test_identity_skip_short_circuits_second_call(self) -> None:
         """When prior fit was identity AND ``mrmr_skip_when_prior_was_identity=True``, the second fit on the SAME X with a different y returns identity output in O(microseconds), not O(seconds)."""

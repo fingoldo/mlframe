@@ -534,8 +534,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         cat_fe_config=None,
         # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
-        # 2026-05-18 #2: cross-target identity cache. When True and a prior fit on the SAME X-fingerprint produced an identity result (all input columns selected, zero engineered features), subsequent calls with a different y short-circuit the entire FE pipeline. Production TVT log showed 88 min of MRMR work that produced identity output, then ANOTHER MRMR call on the same X for a composite target -- second call would also be 88 min wasted. Default False keeps the historical behaviour; flip True on multi-target suites where the first MRMR call already returned identity.
-        mrmr_skip_when_prior_was_identity: bool = False,
+        # 2026-05-18 #2: cross-target identity cache. When True and a prior fit on the SAME X-fingerprint produced an identity result (all input columns selected, zero engineered features), subsequent calls with a different y short-circuit the entire FE pipeline. Production TVT log showed 88 min of MRMR work that produced identity output, then ANOTHER MRMR call on the same X for a composite target -- second call would also be 88 min wasted.
+        #
+        # Default flipped False -> True 2026-05-18 (Accuracy/perf over legacy): on multi-target suites the second MRMR call on the same X usually hits the cache and saves the full FE pipeline run-time. The conservative case (prior identity result was wrong for the new target) is rare in practice because composite-target y values are highly correlated with the raw y -- if MRMR found nothing on raw y, it almost never finds something on the residual.
+        mrmr_skip_when_prior_was_identity: bool = True,
         # hidden
         stop_file: str = "stop",
     ):

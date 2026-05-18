@@ -14,10 +14,10 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 class TestComposiSkipConfig:
-    def test_config_flag_exists_with_zero_default(self) -> None:
-        """``composite_skip_when_raw_dominates_ratio`` MUST default to 0.0 (off / back-compat)."""
+    def test_config_flag_default(self) -> None:
+        """``composite_skip_when_raw_dominates_ratio`` default flipped 0.0 -> 0.02 on 2026-05-18 (Accuracy/perf over legacy); explicit 0.0 restores historical "never skip"."""
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.composite_skip_when_raw_dominates_ratio == 0.0
+        assert cfg.composite_skip_when_raw_dominates_ratio == 0.02
 
     def test_config_flag_accepts_positive_ratio(self) -> None:
         cfg = CompositeTargetDiscoveryConfig(composite_skip_when_raw_dominates_ratio=0.05)

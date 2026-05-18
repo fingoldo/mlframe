@@ -2060,16 +2060,20 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
 
     # 2026-05-18 #10: skip the entire composite-target training block
     # when the raw model already dominates the dummy-baseline ceiling.
-    # The discovery's raw-y baseline RMSE / dummy RMSE ratio is a cheap
+    # The discovery's raw-y baseline RMSE / y_std ratio is a cheap
     # proxy for "raw is already near-perfect": when ratio <
     # ``composite_skip_when_raw_dominates_ratio``, composite training
     # is unlikely to add measurable lift. Production TVT log: Ridge on
     # raw TVT achieved MAE=7.89 (better than CB / XGB / LGB); the two
     # discovered composites (monres-Y, monresYj-Y) produced IDENTICAL
-    # metrics to raw -- pure compute loss. Default 0.0 (off); set to
-    # e.g. 0.02 to skip composite block when raw is 50x better than
-    # dummy.
-    composite_skip_when_raw_dominates_ratio: float = 0.0
+    # metrics to raw -- pure compute loss.
+    #
+    # Default flipped 0.0 -> 0.02 2026-05-18 (Accuracy/perf over legacy):
+    # 0.02 means "raw explains >= 98% of y's variance" -- a regime where
+    # composites genuinely have no headroom. The conservative case
+    # (composite captures the last 2%) is rare in practice on residual-
+    # structure datasets. Set 0.0 to restore historical "never skip".
+    composite_skip_when_raw_dominates_ratio: float = 0.02
 
     # 2026-05-18: skip the wrap-pass y-scale predict() calls per composite
     # entry per split (train+val+test = 3 predict calls). For wide model
@@ -2080,7 +2084,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # inner with ``CompositeTargetEstimator`` (so downstream consumers
     # see y-scale predict output) but does NOT call predict to compute
     # y-scale metrics; metadata["composite_target_y_scale_metrics"]
-    # stays empty. Safe when:
+    # stays empty. Safe because:
     # 1. Pack A watchdog covers the transform (T-MAE == y-MAE for
     #    additive-invertible transforms), so the y-scale numbers add
     #    no information beyond the T-scale numbers already logged in
@@ -2088,9 +2092,12 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # 2. Cross-target NNLS-stack will lazy-compute the predictions it
     #    needs from the wrapped entries -- the empty train_pred_cache
     #    just means no warm starts.
-    # Default False keeps the historical behaviour; flip True on long
-    # training runs where wrap-pass dominates wall time.
-    skip_wrap_pass_predict: bool = False
+    #
+    # Default flipped False -> True 2026-05-18 (Accuracy/perf over legacy):
+    # the metadata block is recoverable on demand and the 5-15 min saving
+    # is real on every multi-million-row suite. Flip back to False
+    # explicitly if you depend on metadata["composite_target_y_scale_metrics"].
+    skip_wrap_pass_predict: bool = True
 
     # MI screening. Sample to keep the diagnostic under one minute on
     # 4M-row datasets; mi_sample_n=None uses full train.
