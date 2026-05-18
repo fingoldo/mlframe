@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-05-18 — Iter 109: iter69 on Higgs 98k binary - lift STABLE at ~0.65pp; binary signal doesn't amplify with N
+
+Tested iter69 mechanism on Higgs 98k binary (signal vs background, 28 numeric features), CB and LGB target models, 3 seeds each.
+
+### Results
+- CB AUC: median **+0.67%** (range +0.63% / +0.70%, IQR 0.0003)
+- LGB AUC: median **-0.13%** (range -0.32% / -0.09%, all 3 negative)
+
+### Findings
+- iter69 binary CB lift is STABLE across datasets, NOT amplifying with N. Adult 49k +0.63% ~= Higgs 98k +0.67%. Contrast regression: abalone 4k +2.26% -> CA 20k +1.15% -> Year-100k +4.92%. Binary has a different (capped) lift envelope.
+- iter69 is BINARY-CB-SPECIALIST: LGB barely benefits on Adult, actively hurts on Higgs. CB is the only target_model that exploits iter69's per-row baseline-disagreement on binary tasks.
+- "iter69 generalises everywhere" claim needs caveats: REGRESSION (both LGB + CB benefit; lift amplifies with N), BINARY (only CB benefits; lift capped ~0.7pp).
+
+### Updated provisional best-of-breed (post-iter109)
+- abalone 4k:    iter102 (+2.74% CB R2)
+- CA 20k:        iter69  (+1.15% CB R2)
+- Year-100k:     iter104 (+5.25% CB R2)
+- Adult 49k:     iter69  (+0.63% CB AUC)
+- Higgs 98k:     iter69  (+0.67% CB AUC)  NEW
+
+Next (iter110+): iter69 + class_balanced_hard_row stacking on Adult binary -- can it push past the +0.7% binary ceiling?
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter109_higgs_*`.
+
 ## 2026-05-18 — Iter 108: iter69 on Adult 49k BINARY - NEW Adult-binary record CB AUC +0.63%
 
 Tested iter69 mechanism (baseline_disagreement + cdist) on Adult 49k binary classification (>50k income), categoricals one-hot encoded -> ~97 numeric features.

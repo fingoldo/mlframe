@@ -375,3 +375,75 @@ def test_iter108_adult_lgb_auc():
 def test_iter108_adult_cb_auc():
     """iter69 on Adult 49k binary classification (CB AUC)."""
     _validate_scale(_load_adult_binary, _build_iter69, "cb", "AUC", 0.0, "iter108_iter69_Adult49k_cb")
+
+
+# ---------- iter109 - iter69 on Higgs 98k binary (scale-up of iter108) ----------
+
+
+def _load_higgs_binary():
+    """Higgs (~98k rows, 28 numeric features, binary signal vs background)."""
+    from sklearn.datasets import fetch_openml
+    ds = fetch_openml(data_id=23512, as_frame=False, parser="liac-arff")
+    X = np.asarray(ds.data, dtype=np.float32)
+    # Higgs target is string-encoded class label
+    y = (np.asarray(ds.target) == "1").astype(np.int32)
+    if y.sum() == 0:
+        # alternative encoding
+        unique_targets = np.unique(ds.target)
+        y = (np.asarray(ds.target) == unique_targets[-1]).astype(np.int32)
+    # Drop rows with any NaN
+    mask = ~np.isnan(X).any(axis=1)
+    return X[mask], y[mask], "binary"
+
+
+def test_iter109_higgs_cb_auc():
+    """iter69 on Higgs 98k binary (CB AUC). Scale-up of iter108's Adult 49k +0.63%."""
+    _validate_scale(_load_higgs_binary, _build_iter69, "cb", "AUC", 0.0063, "iter109_iter69_Higgs98k_cb")
+
+
+def test_iter109_higgs_lgb_auc():
+    """iter69 on Higgs 98k binary (LGB AUC). LGB barely benefited on Adult; does it scale?"""
+    _validate_scale(_load_higgs_binary, _build_iter69, "lgb", "AUC", 0.0006, "iter109_iter69_Higgs98k_lgb")
+
+
+# ---------- iter110 - iter69 + iter66 (class_balanced_hard_row + RFF) on Adult binary ----------
+# Test whether iter66's retracted-on-mammography mechanism adds value as additive component
+# at Adult 49k scale (4x the mammography 11k).
+
+
+def _build_iter110(X_tr, X_te, y_tr, task, seed):
+    """iter69 (baseline_disagreement + cdist) + iter66 (class_balanced_hard_row + RFF)."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import (
+        _features_cdist_seeded, _features_rff_seeded, _strip,
+    )
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_features,
+        compute_class_balanced_hard_row_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cb_tr = compute_class_balanced_hard_row_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
+        seed=seed, task=task_str, n_hard_per_side=8, temp=1.0,
+    ).to_numpy()
+    cb_te = compute_class_balanced_hard_row_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
+        seed=seed, task=task_str, n_hard_per_side=8, temp=1.0,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    rf_tr, rf_te = _features_rff_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, cb_tr, _strip(cd_tr, X_tr.shape[1]), _strip(rf_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, cb_te, _strip(cd_te, X_te.shape[1]), _strip(rf_te, X_te.shape[1])], axis=1))
+
+
+def test_iter110_adult_cb_auc():
+    """iter110 = iter69 + iter66 on Adult 49k binary (was iter69 alone +0.63%)."""
+    _validate_scale(_load_adult_binary, _build_iter110, "cb", "AUC", 0.0063, "iter110_iter69+iter66_Adult49k_cb")

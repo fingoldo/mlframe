@@ -3302,6 +3302,34 @@ Tested iter69 mechanism (baseline_disagreement + cdist) on Adult 49k binary (>50
 - **iter109**: try iter69 + iter66 (class_balanced_hard_row, retracted on mammography 11k but maybe survives at Adult 49k scale) on Adult binary — does class-balanced anchor mechanism stack with iter69 baseline-disagreement on binary?
 - **iter110**: test iter108 mechanism on Higgs 100k subsample to confirm binary lift scales (analogous to Year-100k for regression).
 
+## iter109 — iter69 on Higgs 98k binary — binary lift is STABLE not scaling
+
+| # | Model | iter109 Higgs 98k | iter108 Adult 49k | Pattern |
+|---|---|---|---|---|
+| 1 | CB AUC | **+0.67%** (range +0.63% / +0.70%, IQR 0.0003) | +0.63% | **iter69 binary CB lift is stable ~0.6-0.7pp** |
+| 2 | LGB AUC | -0.13% (range -0.32% / -0.09%, all 3 negative) | +0.06% (near-noise) | LGB on binary HURTS or noise |
+
+### Findings
+
+- **iter69 binary CB lift is STABLE across datasets, NOT amplifying with N.** Adult 49k +0.63% ≈ Higgs 98k +0.67% (delta 0.04pp). Contrast with regression: abalone 4k +2.26% → CA 20k +1.15% → Year-100k +4.92% (lift amplifies on harder targets). Binary classification has a fundamentally different lift envelope.
+- **iter69 is BINARY-CB-SPECIALIST**: LGB barely benefits on Adult (+0.06%), actively hurts on Higgs (-0.13%). CatBoost is the only target_model that exploits iter69's per-row baseline-disagreement on binary, likely because of CB's per-row symmetric oblivious-tree encoding which can directly absorb pre-row scalar features.
+- **The "iter69 generalises everywhere" claim needs caveats**: REGRESSION (both LGB + CB benefit; lift amplifies with N), BINARY (only CB benefits; lift capped ~0.7pp).
+
+### Updated provisional best-of-breed (post-iter109)
+
+| Dataset | Best mechanism | Median lift | Task / Model |
+|---|---|---|---|
+| abalone 4k | iter102 | +2.74% | regression CB R2 |
+| California 20k | iter69 | +1.15% | regression CB R2 |
+| Year-100k | iter104 | +5.25% | regression CB R2 |
+| Adult 49k | iter69 | +0.63% | binary CB AUC |
+| Higgs 98k | iter69 | +0.67% | binary CB AUC |
+
+### Next (iter110+)
+
+- **iter110**: try iter69 + iter66 (class_balanced_hard_row + RFF) stacking on Adult 49k binary. iter66 was FOLD-NOISE alone at mammography 11k single-seed, but as additive component to iter69 at Adult 49k might add the +0.1-0.3pp needed to push past the +0.7% binary ceiling.
+- Alternative: explore **class-conditional attention** or **Bayesian decision-boundary-distance** features as binary-specific mechanism — current iter69-derived family is mapped on binary too.
+
 ## Reproducibility
 
 ```
