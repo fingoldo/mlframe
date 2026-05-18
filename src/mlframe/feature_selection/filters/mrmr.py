@@ -534,6 +534,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         cat_fe_config=None,
         # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
+        # 2026-05-18 #5: adaptive FE threshold relaxation. When the first-pass
+        # FE produces 0 engineered features (typically because pair-level MI
+        # is near the individual-MI sum on heavily-correlated features and
+        # the engineered candidate cannot clear the strict
+        # ``fe_min_engineered_mi_prevalence=0.98`` gate), retry ONCE with
+        # thresholds scaled by ``fe_adaptive_relax_factor``. Default True
+        # (Accuracy/perf over legacy) -- the retry adds at most ~10% to FE
+        # wall time and skips the expensive Hermite Optuna re-run because
+        # those results are already cached / injected from the first pass.
+        # Set False to restore the historical "0 features = give up" path.
+        fe_adaptive_threshold_relax: bool = True,
+        fe_adaptive_relax_factor: float = 0.9,
         # 2026-05-18 #2: cross-target identity cache. When True and a prior fit on the SAME X-fingerprint produced an identity result (all input columns selected, zero engineered features), subsequent calls with a different y short-circuit the entire FE pipeline. Production TVT log showed 88 min of MRMR work that produced identity output, then ANOTHER MRMR call on the same X for a composite target -- second call would also be 88 min wasted.
         #
         # Default flipped False -> True 2026-05-18 (Accuracy/perf over legacy): on multi-target suites the second MRMR call on the same X usually hits the cache and saves the full FE pipeline run-time. The conservative case (prior identity result was wrong for the new target) is rare in practice because composite-target y values are highly correlated with the raw y -- if MRMR found nothing on raw y, it almost never finds something on the residual.
@@ -1341,6 +1353,81 @@ class MRMR(BaseEstimator, TransformerMixin):
             if fe_result is None:
                 break  # FE skip: empty screening + fe_fallback_to_all=False
             data, cols, nbins, X, selected_vars, n_recommended_features = fe_result
+
+            # Pack #5 2026-05-18: adaptive threshold relaxation. When the
+            # first-pass FE produces 0 engineered features, the most likely
+            # culprit on heavily-correlated feature sets is the strict
+            # ``fe_min_engineered_mi_prevalence`` gate -- pair-level MI is
+            # near the individual-MI sum and the engineered candidate
+            # cannot beat 98% of pair MI. Retry ONCE with relaxed
+            # thresholds (and fe_smart_polynom_iters=0 to skip the
+            # already-completed expensive Hermite Optuna phase).
+            _adaptive = bool(getattr(self, "fe_adaptive_threshold_relax", True))
+            _relax_factor = float(getattr(self, "fe_adaptive_relax_factor", 0.9))
+            if (
+                n_recommended_features == 0
+                and _adaptive
+                and fe_max_steps > 0
+                and num_fs_steps == 0   # only on the very first FE step
+            ):
+                _relaxed_engineered = fe_min_engineered_mi_prevalence * _relax_factor
+                _relaxed_pair = max(1.001, fe_min_pair_mi_prevalence * _relax_factor)
+                if verbose:
+                    logger.info(
+                        "MRMR FE: first pass found 0 engineered features; "
+                        "retrying with relaxed thresholds "
+                        "(engineered_mi_prevalence: %.3f -> %.3f, "
+                        "pair_mi_prevalence: %.3f -> %.3f). "
+                        "Skipping Hermite Optuna re-run (already cached in "
+                        "_hermite_features_).",
+                        fe_min_engineered_mi_prevalence, _relaxed_engineered,
+                        fe_min_pair_mi_prevalence, _relaxed_pair,
+                    )
+                fe_result_retry = self._run_fe_step(
+                    data=data, cols=cols, nbins=nbins, X=X,
+                    target_names=target_names, target_indices=target_indices,
+                    selected_vars=selected_vars,
+                    categorical_vars=categorical_vars,
+                    classes_y=classes_y, classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs,
+                    unary_transformations=unary_transformations,
+                    binary_transformations=binary_transformations,
+                    engineered_features=engineered_features,
+                    engineered_recipes=engineered_recipes,
+                    checked_pairs=set(),  # reset so pairs re-evaluated under new threshold
+                    times_spent=times_spent,
+                    num_fs_steps=num_fs_steps,
+                    n_jobs=n_jobs, prefetch_factor=prefetch_factor,
+                    parallel_kwargs=parallel_kwargs,
+                    _is_polars_input=_is_polars_input,
+                    verbose=verbose,
+                    fe_max_steps=fe_max_steps,
+                    fe_npermutations=fe_npermutations,
+                    fe_max_pair_features=fe_max_pair_features,
+                    fe_print_best_mis_only=fe_print_best_mis_only,
+                    fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                    fe_min_engineered_mi_prevalence=_relaxed_engineered,
+                    fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
+                    fe_max_external_validation_factors=fe_max_external_validation_factors,
+                    fe_min_pair_mi=fe_min_pair_mi,
+                    fe_min_pair_mi_prevalence=_relaxed_pair,
+                    fe_smart_polynom_iters=0,  # already ran in first pass
+                    fe_smart_polynom_optimization_steps=fe_smart_polynom_optimization_steps,
+                    fe_min_polynom_degree=fe_min_polynom_degree,
+                    fe_max_polynom_degree=fe_max_polynom_degree,
+                    fe_min_polynom_coeff=fe_min_polynom_coeff,
+                    fe_max_polynom_coeff=fe_max_polynom_coeff,
+                    fe_unary_preset=fe_unary_preset,
+                    fe_binary_preset=fe_binary_preset,
+                )
+                if fe_result_retry is not None:
+                    data, cols, nbins, X, selected_vars, n_recommended_features = fe_result_retry
+                    if verbose:
+                        logger.info(
+                            "MRMR FE adaptive retry produced %d engineered features.",
+                            n_recommended_features,
+                        )
 
             if n_recommended_features == 0:
                 break
