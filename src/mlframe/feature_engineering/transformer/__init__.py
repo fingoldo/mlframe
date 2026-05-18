@@ -110,7 +110,13 @@ from .smote_distance import compute_smote_distance_features
 from .row_attention import attend, build_key_bank, compute_row_attention
 from .spectral_attention import compute_spectral_attention
 from .stacked_attention import compute_stacked_row_attention
+from .apriori_itemsets import compute_apriori_itemsets_features
 from .conformal_coverage_failure import compute_conformal_coverage_failure_features
+from .conformal_locally_adaptive import compute_conformal_locally_adaptive_features
+from .distributional_moments import compute_distributional_moments_features
+from .fca_closed_concepts import compute_fca_closed_concepts_features
+from .jackknife_endpoint_stability import compute_jackknife_endpoint_stability_features
+from .mdl_binning_pairwise import compute_mdl_binning_pairwise_features
 from .cross_feature_reconstruction import compute_cross_feature_reconstruction_features
 from .multi_threshold_ordinal import compute_multi_threshold_ordinal_features
 from .target_kmeans_codebook import compute_target_kmeans_codebook_features
@@ -196,7 +202,13 @@ __all__ = [
     "compute_quantile_band_attention_features",
     "compute_quantile_neighbours",
     "compute_quantile_spread_fan_features",
+    "compute_apriori_itemsets_features",
     "compute_conformal_coverage_failure_features",
+    "compute_conformal_locally_adaptive_features",
+    "compute_distributional_moments_features",
+    "compute_fca_closed_concepts_features",
+    "compute_jackknife_endpoint_stability_features",
+    "compute_mdl_binning_pairwise_features",
     "compute_cross_feature_reconstruction_features",
     "compute_multi_threshold_ordinal_features",
     "compute_target_kmeans_codebook_features",
