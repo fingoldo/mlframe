@@ -2054,6 +2054,13 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # (e.g. y = f(x_a) + g(x_b): pass 1 takes f(x_a), pass 2 finds g(x_b) on
     # the leftover). Default False so the path is opt-in until measured
     # on real data; switch to True after biz_val on your target.
+    # T3#20 2026-05-18 default-flip eval: measured on
+    # ``profiling/bench_stacked_discovery_default_flip.py`` (residual-of-
+    # residual synthetic problem y = 1.5*x_a + 2*x_b + noise). On the
+    # measured config the feature-stack pass discovered the SAME
+    # specs as single-pass and yielded NO holdout-RMSE improvement.
+    # Verdict: keep default False. Re-run the benchmark on a problem
+    # closer to your production target before opting in.
     use_stacked_discovery: bool = False
     stacked_n_oof_folds: int = 3
     stacked_max_pass1_specs: int = 3
