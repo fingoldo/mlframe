@@ -1,0 +1,56 @@
+# 1M-row e2e profile (n_rows=80_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_const', 'c_low', 'c_mid', 'y']
+  built frame: 80_000 rows x 10 cols
+  axes: mrmr_fs=False outlier=none ensembles=False cat_enc=ordinal scaler=standard dim_reducer=none boruta_shap=False poly_deg=2 predict_batch_rows=0 n_targets=2 mix_target_types=False weight=uniform_only
+  axes2: composite_disc=False transforms_mode=off mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=False
+  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_const', 'c_low', 'c_mid', 'y', 'y2']
+  rebuilt frame with extras: targets=['y2'] add_ts=False
+target:   0%|          | 0/2 [00:00<?, ?it/s]target:   0%|          | 0/2 [00:00<?, ?it/s]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+target:  50%|#####     | 1/2 [00:03<00:03,  3.88s/it][phase] process_model RAISED ValueError after 0.02s model=cb weight=uniform
+target:  50%|#####     | 1/2 [00:03<00:03,  3.91s/it]
+  train wall: 4.1s  status: ValueError: train target contains 3_300 NaN value(s). Clean the target before training.
+         140438 function calls (136374 primitive calls) in 4.109 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2568 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    4.103    4.103 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
+        2    0.001    0.000    3.910    1.955 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
+        2    0.000    0.000    3.626    1.813 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        2    0.000    0.000    3.626    1.813 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        2    0.000    0.000    3.625    1.813 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:425(train_and_evaluate_model)
+        1    0.000    0.000    3.495    3.495 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:348(_train_model_with_fallback)
+        2    0.000    0.000    3.478    1.739 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
+        2    0.000    0.000    3.477    1.739 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        2    3.455    1.727    3.455    1.728 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+        2    0.000    0.000    0.257    0.129 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
+        2    0.000    0.000    0.256    0.128 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1317(configure_training_params)
+        4    0.000    0.000    0.254    0.063 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:156(get_training_configs)
+        2    0.000    0.000    0.253    0.127 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:516(_cb_gpu_usable)
+        3    0.000    0.000    0.250    0.083 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:479(_cached_gpu_info)
+        1    0.000    0.000    0.240    0.240 D:\Upd\Programming\PythonCodeRepository\pyutilz\src\pyutilz\system\system.py:1599(get_gpuutil_gpu_info)
+    70/14    0.001    0.000    0.214    0.015 <frozen importlib._bootstrap>:1165(_find_and_load)
+     62/6    0.001    0.000    0.214    0.036 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
+     55/6    0.000    0.000    0.211    0.035 <frozen importlib._bootstrap>:666(_load_unlocked)
+     50/6    0.000    0.000    0.211    0.035 <frozen importlib._bootstrap_external>:934(exec_module)
+   125/10    0.000    0.000    0.210    0.021 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
+    101/6    0.008    0.000    0.208    0.035 {built-in method builtins.exec}
+    59/14    0.001    0.000    0.192    0.014 <frozen importlib._bootstrap>:1054(_find_spec)
+        1    0.000    0.000    0.188    0.188 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\__init__.py:1(<module>)
+        1    0.000    0.000    0.187    0.187 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\GPUtil.py:1(<module>)
+     13/9    0.000    0.000    0.186    0.021 D:\ProgramData\anaconda3\Lib\importlib\__init__.py:108(import_module)
+    61/14    0.000    0.000    0.186    0.013 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:101(find_spec)
+     14/9    0.000    0.000    0.186    0.021 <frozen importlib._bootstrap>:1192(_gcd_import)
+      2/1    0.000    0.000    0.186    0.186 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:111(spec_for_distutils)
+        1    0.000    0.000    0.184    0.184 D:\ProgramData\anaconda3\Lib\site-packages\setuptools\__init__.py:1(<module>)
+    18/10    0.000    0.000    0.136    0.014 {built-in method builtins.__import__}
+
+
+
+
+# Wall-time summary:
+  regression x cb                                         train=    4.1s  predict=---     save=---             load=---         predict_loaded=---   parity=skip  ValueError: train target contains 3_300 NaN value(s). Clean the target before training.
