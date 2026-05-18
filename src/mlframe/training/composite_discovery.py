@@ -354,6 +354,27 @@ class CompositeTargetDiscovery:
                     continue
 
                 fitted_params = transform.fit(y_train[valid], base_train[valid])
+                # Pack D 2026-05-18: reject identity / near-identity transforms early.
+                # Some bivariate transforms can collapse to a constant residual
+                # (T = y - const) when the base does not actually carry the
+                # signal -- e.g. ``monotonic_residual`` on a base where the
+                # fitted PCHIP knots are essentially flat. Discovery then
+                # spends 5+ minutes training models that produce IDENTICAL
+                # predictions to raw-y (production TVT-monres-Y log). The
+                # transform's ``fit`` flags this via ``is_degenerate=True``
+                # on the returned params dict; reject the spec here.
+                if isinstance(fitted_params, dict) and fitted_params.get("is_degenerate"):
+                    _ve = fitted_params.get("var_explained", float("nan"))
+                    candidates.append(self._reject(
+                        base, transform_name, mi_y_for_base, valid_frac,
+                        reason=(
+                            f"transform fitted to a near-identity function: "
+                            f"var_explained={_ve:.4f} -- T == y up to noise, "
+                            f"downstream models will produce SAME predictions "
+                            f"as on raw y"
+                        ),
+                    ))
+                    continue
                 # T on the screening sample (which is a subset of train).
                 valid_screen = transform.domain_check(y_screen, base_screen)
                 if valid_screen.sum() < 50:

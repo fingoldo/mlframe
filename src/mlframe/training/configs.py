@@ -2215,10 +2215,16 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Optionally repeat the K-fold split with multiple seeds and take
     # the MEDIAN across (folds × seeds) for both raw-y and per-spec
     # CV-RMSE. The gate then compares median composite vs median raw,
-    # which is more stable than the mean. Default 1 = backwards-
-    # compatible (single-seed). Set to e.g. 3 or 5 on small screening
-    # samples where gate decisions are noisy. Compute scales linearly.
-    tiny_model_n_seed_repeats: int = 1
+    # which is more stable than the mean. Compute scales linearly.
+    #
+    # Default flipped 1 -> 3 (2026-05-18): production TVT run showed
+    # the previously-winning ``linres-TVT_prev`` spec getting displaced
+    # by ``monres-Y`` chain variants because the single-seed rerank
+    # had high variance; with n_seed_repeats=3 the rerank picks the
+    # spec that wins on the MEDIAN of 3 splits instead of one unlucky
+    # split. 3x compute on screening sample is cheap (sub-minute) vs
+    # losing the actual winning spec.
+    tiny_model_n_seed_repeats: int = 3
 
     # R10b statistician #4: paired one-sided Wilcoxon signed-rank
     # test on per-fold-pair RMSE differences (composite minus raw).

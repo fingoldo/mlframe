@@ -208,15 +208,29 @@ def _run_composite_target_wrapping(
                             "MAE_wrapped": _mae_wrapped,
                         }
                         # Pack G runtime watchdog: for an additive-invertible
-                        # transform (``linear_residual``, ``diff``) the error
-                        # on T equals the error on y exactly. If wrapper math
-                        # silently breaks (entry-mutation cache stale, inner
-                        # double-scaled, etc.), y-scale MAE diverges from the
-                        # T-scale MAE computed off the SAME inner preds. Warn
-                        # loudly when the divergence exceeds 1% relative.
+                        # transform the error on T equals the error on y
+                        # exactly (y = T + g(base), so y_hat - y = T_hat - T).
+                        # If wrapper math silently breaks (entry-mutation
+                        # cache stale, inner double-scaled, etc.), y-scale
+                        # MAE diverges from the T-scale MAE computed off the
+                        # SAME inner preds. Warn loudly when the divergence
+                        # exceeds 1% relative.
+                        #
+                        # Additive transforms covered: linear_residual,
+                        # linear_residual_robust, diff, monotonic_residual,
+                        # quantile_residual, ewma_residual, linear_residual_multi,
+                        # linear_residual_grouped. NOT covered: ratio,
+                        # logratio, frac_diff, rolling_quantile_ratio (these
+                        # are multiplicative -- error_y != error_T).
                         try:
                             _spec_t_name = _spec.get("transform_name") if isinstance(_spec, dict) else None
-                            if _spec_t_name in {"linear_residual", "diff"}:
+                            _ADDITIVE_TRANSFORMS = {
+                                "linear_residual", "linear_residual_robust",
+                                "linear_residual_multi", "linear_residual_grouped",
+                                "diff", "monotonic_residual", "quantile_residual",
+                                "ewma_residual",
+                            }
+                            if _spec_t_name in _ADDITIVE_TRANSFORMS:
                                 _wi = getattr(_wrapper_for_score, "estimator_", None)
                                 _base_col = _spec.get("base_column") if isinstance(_spec, dict) else None
                                 if _wi is not None and _base_col and _base_col in _split_df:

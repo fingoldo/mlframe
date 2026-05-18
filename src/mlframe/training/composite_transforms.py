@@ -966,6 +966,15 @@ def _quantile_residual_domain(
 _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS: int = 12
 _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N: int = 30
 
+# Pack D 2026-05-18: degeneracy threshold for the fitted PCHIP g(base).
+# When ``(knots_y.max() - knots_y.min()) / std(y_train) < this``, the
+# spline is essentially a constant -- the transform T = y - g(base)
+# collapses to ``T = y - const`` (identity up to a global shift) and
+# downstream models on T produce SAME predictions as on raw y. 0.05
+# = the spline must capture at least 5% of y's std to count as non-
+# trivial; below that the discovery loop must reject the spec.
+_MONOTONIC_DEGENERACY_RATIO: float = 0.05
+
 
 def _monotonic_residual_fit(
     y: np.ndarray, base: np.ndarray,
@@ -1036,12 +1045,42 @@ def _monotonic_residual_fit(
         knots_y = np.maximum.accumulate(knots_y)
     else:
         knots_y = np.minimum.accumulate(knots_y)
+    # Degeneracy detection (Pack D 2026-05-18): measure the actual
+    # variance reduction g(base) provides on the TRAIN sample. The
+    # composite T = y - g(base) is useful iff g captures a non-trivial
+    # fraction of y's variance. ``var_explained = 1 - var(T) / var(y)``.
+    # When < ``_MONOTONIC_DEGENERACY_RATIO`` the spline is noise / a
+    # near-constant fit -- downstream models on T produce SAME
+    # predictions as on raw y (production TVT-monres-Y log: CB/XGB/LGB
+    # MAE identical to raw). Surface the degeneracy so discovery can
+    # drop the spec early instead of paying for full training that
+    # produces no win.
+    _y_var = float(np.var(y_clean)) if y_clean.size > 1 else 0.0
+    if _y_var > 0.0:
+        # Reconstruct g(base_clean) via PCHIP and measure var(y - g).
+        # Use the same PCHIP helper the inverse path uses to keep semantics
+        # aligned with the actual transform.
+        _g_train = _monotonic_residual_g(
+            base_clean,
+            {
+                "knots_x": knots_x, "knots_y": knots_y,
+                "y_train_mean": float(np.mean(y_clean)),
+                "monotone_direction": direction,
+            },
+        )
+        _t_train = y_clean - _g_train
+        _var_explained = max(0.0, 1.0 - float(np.var(_t_train)) / _y_var)
+    else:
+        _var_explained = 0.0
+    _is_degenerate = _var_explained < _MONOTONIC_DEGENERACY_RATIO
     return {
         "knots_x": knots_x,
         "knots_y": knots_y,
         "y_train_mean": float(np.mean(y_clean)),
         "monotone_direction": direction,
         "n_knots_effective": int(n_eff),
+        "is_degenerate": _is_degenerate,
+        "var_explained": _var_explained,
     }
 
 
