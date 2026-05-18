@@ -158,7 +158,19 @@ def _canonicalise_dtype_str(dt) -> str:
 
 
 def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
-    """Cheap fingerprint of y's first ``max_sample`` values. Used by the identity cache when ``mrmr_identity_cache_include_y=True`` to distinguish legitimately different targets on the same X. Sample-based to keep the cost O(max_sample) even on 4M-row y."""
+    """Cheap fingerprint of y's first ``max_sample`` values. Used by the identity cache when ``mrmr_identity_cache_include_y=True`` to distinguish legitimately different targets on the same X. Sample-based to keep the cost O(max_sample) even on 4M-row y.
+
+    T2#11 2026-05-18 ``max_sample=1000`` rationale: on a 4M-row y with
+    ``blake2b`` of a 1000-element float64 buffer the hash cost is
+    O(8KB) ~= 5us, which is well below the >88-min cost of a single MRMR
+    fit (the cache hit avoids). Collision probability across distinct
+    targets on the same X is dominated by the y-distribution stride
+    pattern - 1000 evenly-spaced samples capture both the head and tail
+    of a 4M-row y so two truly different targets reliably hash apart.
+    Raise if you observe spurious cache hits across distinct targets in
+    your data (consult the cache HIT/STORED log line for collision
+    diagnostics).
+    """
     try:
         arr = np.asarray(y).reshape(-1)
         n = arr.shape[0]
@@ -578,6 +590,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         # those results are already cached / injected from the first pass.
         # Set False to restore the historical "0 features = give up" path.
         fe_adaptive_threshold_relax: bool = True,
+        # T2#12 2026-05-18 default 0.9 rationale: the strict gates sit at
+        # ``fe_min_engineered_mi_prevalence=0.98`` and
+        # ``fe_min_pair_mi_prevalence=1.05``. A retry factor of 0.9
+        # brings those to 0.882 and 0.945 respectively - just under the
+        # baseline-MI sum, where many tightly-correlated engineered
+        # features land. Smaller factors (0.7-0.8) flood the FE pool
+        # with low-uplift engineered cols and slow downstream MRMR
+        # screening with no measurable gain. Larger (>=0.95) are
+        # indistinguishable from no retry. Tune only after observing
+        # the per-pass engineered count in your data.
         fe_adaptive_relax_factor: float = 0.9,
         # 2026-05-18 T3#18: when ``mrmr_skip_when_prior_was_identity=True``
         # and you want STRICTER cache semantics (different y on same X must

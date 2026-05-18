@@ -28,6 +28,24 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_OOF_RANDOM_STATE = 42
 _PROB_NORM_EPS = 1e-12
+# T2#10 2026-05-18 Pack G universal watchdog threshold. ``wrapper.predict(X)``
+# is compared against ``transform.inverse(inner.predict(X), base, params)``;
+# divergence beyond this fraction of ``y_std`` fires a WARNING.
+#
+# Choice of 1%: the wrapper applies a y-train clip on inverse() output, so
+# out-of-envelope rows can show tiny per-row differences (clip pulled the
+# extreme back inside [y_min, y_max] while the reconstructed path didn't).
+# 1% of y_std is well below the float64 round-off floor accumulated across
+# a typical (n=10^5, transform=linear_residual) split, AND well above the
+# clip-induced noise on a normally-distributed y (clip would have to bite
+# ~3 sigma rows AND the inverse path miss them, both rare). Wrapper-math
+# bugs (entry-mutation cache stale, double-inverse, base mismatch) produce
+# divergence in the 5-50% range, comfortably above this threshold.
+#
+# Tune by raising if a healthy wrapper fires this warning in your data
+# (consult the watchdog log line; %_of_y_std is included so the threshold
+# can be set just above the observed noise floor).
+_WATCHDOG_RELATIVE_THRESHOLD = 0.01
 
 
 def _run_composite_target_wrapping(
@@ -271,8 +289,8 @@ def _run_composite_target_wrapping(
                                         _max_dev = float(np.max(np.abs(_ru[_fu])))
                                         _y_scale = float(np.std(_y_split[np.isfinite(_y_split)])) or 1.0
                                         _rel = _max_dev / _y_scale
-                                        # Relative tolerance 1% of y_std -- clip path can cause small differences on out-of-envelope rows; >1% is wrapper math broken.
-                                        if _rel > 0.01:
+                                        # ``_WATCHDOG_RELATIVE_THRESHOLD`` (module-level) carries the rationale; tune there.
+                                        if _rel > _WATCHDOG_RELATIVE_THRESHOLD:
                                             logger.warning(
                                                 "[CompositeTargetEstimator.watchdog.universal] "
                                                 "composite='%s' split='%s' transform=%s inner=%s: "
