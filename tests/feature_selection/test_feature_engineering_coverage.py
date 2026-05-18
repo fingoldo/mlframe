@@ -333,6 +333,91 @@ class TestComputePairsMis:
         for k in cached_MIs:
             assert not isinstance(k, tuple) or len(k) == 1
 
+    @pytest.mark.fast
+    def test_pair_mi_cached_regardless_of_prevalence_gate(self, synthetic_dataset):
+        """T3#24 Pack #5 pair-MI cache regression.
+
+        When the computed pair-MI fails the prevalence gate, pre-fix code dropped it on the floor.
+        Pack #5's adaptive retry with relaxed ``fe_min_pair_mi_prevalence`` then RE-COMPUTED the same pair.
+        Post-fix: every computed pair MI is cached so retry sees a hit.
+
+        Reproduction strategy: monkey-patch ``mi_direct`` to count calls. Run pass 1 with
+        impossibly-high prevalence (every pair fails the gate). Then run pass 2 with prevalence=0
+        on the SAME cache and verify NO additional pair-MI calls happened.
+        """
+        from mlframe.feature_selection.filters import feature_engineering as fe_mod
+        from mlframe.feature_selection.filters.info_theory import merge_vars
+
+        data = synthetic_dataset
+        nbins = np.array([4, 4, 4, 4], dtype=np.int64)
+        target_indices = np.array([3], dtype=np.int64)
+
+        classes_y, freqs_y, _ = merge_vars(
+            factors_data=data, vars_indices=target_indices,
+            var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+        )
+        classes_y_safe = classes_y.copy()
+
+        # Wrap ``mi_direct`` to count invocations.
+        call_counts = {"pair": 0, "singleton": 0}
+        real_mi_direct = fe_mod.mi_direct
+
+        def counting_mi_direct(data, x, y, **kw):
+            if isinstance(x, tuple) and len(x) == 2:
+                call_counts["pair"] += 1
+            else:
+                call_counts["singleton"] += 1
+            return real_mi_direct(data, x=x, y=y, **kw)
+
+        fe_mod.mi_direct = counting_mi_direct
+        try:
+            cached_MIs: dict = {}
+            cached_confident_MIs: dict = {}
+            pairs = [(0, 1), (0, 2), (1, 2)]
+
+            # Pass 1: huge prevalence so EVERY pair MI fails the gate.
+            compute_pairs_mis(
+                all_pairs=pairs,
+                data=data, target_indices=target_indices, nbins=nbins,
+                classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
+                fe_min_nonzero_confidence=0.0,
+                fe_npermutations=1,
+                cached_confident_MIs=cached_confident_MIs,
+                cached_MIs=cached_MIs,
+                fe_min_pair_mi=-1.0,             # admit every pair to MI compute
+                fe_min_pair_mi_prevalence=1e9,   # reject every pair from prevalence
+            )
+            pair_calls_pass1 = call_counts["pair"]
+            # All 3 pair MIs must have been COMPUTED.
+            assert pair_calls_pass1 == 3, f"expected 3 pair-MI computes, got {pair_calls_pass1}"
+            # Post-fix: every pair MI is cached even though prevalence rejected.
+            for p in pairs:
+                assert p in cached_MIs, (
+                    f"pair {p} MI must be cached after compute regardless of prevalence; "
+                    f"got cached_MIs keys: {sorted(cached_MIs.keys())}"
+                )
+
+            # Pass 2: relaxed prevalence on same cache. Pre-fix code would recompute;
+            # post-fix code hits cache and does NO new pair-MI calls.
+            compute_pairs_mis(
+                all_pairs=pairs,
+                data=data, target_indices=target_indices, nbins=nbins,
+                classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
+                fe_min_nonzero_confidence=0.0,
+                fe_npermutations=1,
+                cached_confident_MIs=cached_confident_MIs,
+                cached_MIs=cached_MIs,
+                fe_min_pair_mi=-1.0,
+                fe_min_pair_mi_prevalence=0.0,
+            )
+            pair_calls_pass2 = call_counts["pair"] - pair_calls_pass1
+            assert pair_calls_pass2 == 0, (
+                f"adaptive retry must reuse cached pair MIs (Pack #5 T3#24); "
+                f"observed {pair_calls_pass2} new pair-MI computes"
+            )
+        finally:
+            fe_mod.mi_direct = real_mi_direct
+
 
 # ---------------------------------------------------------------------------
 # check_prospective_fe_pairs

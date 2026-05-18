@@ -399,8 +399,10 @@ def compute_pairs_mis(
                     npermutations=fe_npermutations,
                 )
 
-                if mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
-                    cached_MIs[raw_vars_pair] = mi
+                # T3#24 2026-05-18 Pack #5 pair-MI cache: ALWAYS cache the computed pair MI, not only when it passes ``fe_min_pair_mi_prevalence``.
+                # Pre-fix this branch dropped sub-threshold MIs on the floor; adaptive retry with relaxed prevalence (Pack #5) then re-computed them.
+                # The downstream consumer in MRMR.fit applies the prevalence gate on the cached value, so caching unconditionally preserves filtering behaviour.
+                cached_MIs[raw_vars_pair] = mi
 
     return cached_MIs
 
