@@ -1330,6 +1330,165 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
     )
 
 
+# ---------------------------------------------------------------------------
+# Shared suite-config builders (2026-05-18 refactor)
+# ---------------------------------------------------------------------------
+#
+# Goal: adding a new axis = one edit (here), not N edits across the pytest
+# suite call site + the 1M harness. Both call sites consume these builders
+# either via a FuzzCombo instance (pytest suite) OR via flat keyword args
+# (1M harness which randomises axes via its own _axis_rng).
+#
+# Pattern: the "_from_flat" function takes named primitives (no FuzzCombo
+# dependency); the FuzzCombo-aware wrapper just forwards combo.* attrs.
+
+def build_cat_fe_config_from_flat(
+    *, use_mrmr_fs: bool, cat_fe_enable: bool, cat_fe_include_numeric: bool,
+):
+    """Return a CatFEConfig honoring the cat-FE enable + include_numeric
+    axes. None when use_mrmr_fs=False OR when defaults are fine (library
+    default already has enable=True, include_numeric=False)."""
+    if not use_mrmr_fs:
+        return None
+    from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+    if not cat_fe_enable:
+        return CatFEConfig(enable=False)
+    if cat_fe_include_numeric:
+        return CatFEConfig(enable=True, include_numeric=True)
+    return None  # library default
+
+
+def build_mrmr_kwargs_from_flat(
+    *,
+    use_mrmr_fs: bool,
+    interactions_max_order: int = 1,
+    fe_max_steps: int = 1,
+    cat_fe_config: Any = None,
+    fe_npermutations: int = 0,
+    fe_ntop_features: int = 0,
+    fe_unary_preset: str = "minimal",
+    fe_binary_preset: str = "minimal",
+    fe_smart_polynom_iters: int = 0,
+    fe_smart_polynom_optimization_steps: int = 1000,
+    fe_min_polynom_degree: int = 3,
+    fe_max_polynom_degree: int = 3,
+    # Suite-side fuzz-speed pins. Callers can override.
+    verbose: int = 0,
+    max_runtime_mins: int = 1,
+    n_workers: int = 1,
+    quantization_nbins: int = 5,
+    use_simple_mode: bool = True,
+    min_nonzero_confidence: float = 0.9,
+    max_consec_unconfirmed: int = 2,
+    full_npermutations: int = 2,
+) -> Optional[Dict[str, Any]]:
+    """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
+    Returns None when use_mrmr_fs=False so the FS step is a no-op.
+
+    Single-edit point: every MRMR knob (existing iter-32.5 axes + any
+    future axis) flows through these named params. Both
+    test_fuzz_suite.py and _profile_fuzz_1m.py call this so adding a
+    new MRMR axis only touches this function (plus the AXES dict +
+    FuzzCombo dataclass for the pytest fuzz space).
+    """
+    if not use_mrmr_fs:
+        return None
+    kwargs: Dict[str, Any] = {
+        "verbose": verbose,
+        "max_runtime_mins": max_runtime_mins,
+        "n_workers": n_workers,
+        "quantization_nbins": quantization_nbins,
+        "use_simple_mode": use_simple_mode,
+        "min_nonzero_confidence": min_nonzero_confidence,
+        "max_consec_unconfirmed": max_consec_unconfirmed,
+        "full_npermutations": full_npermutations,
+        "interactions_max_order": interactions_max_order,
+        "fe_max_steps": fe_max_steps,
+        "fe_npermutations": fe_npermutations,
+        "fe_ntop_features": fe_ntop_features,
+        "fe_unary_preset": fe_unary_preset,
+        "fe_binary_preset": fe_binary_preset,
+        "fe_smart_polynom_iters": fe_smart_polynom_iters,
+        "fe_smart_polynom_optimization_steps": fe_smart_polynom_optimization_steps,
+        "fe_min_polynom_degree": fe_min_polynom_degree,
+        "fe_max_polynom_degree": fe_max_polynom_degree,
+    }
+    if cat_fe_config is not None:
+        kwargs["cat_fe_config"] = cat_fe_config
+    return kwargs
+
+
+def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
+    """FuzzCombo-aware wrapper around build_mrmr_kwargs_from_flat."""
+    cat_fe = build_cat_fe_config_from_flat(
+        use_mrmr_fs=combo.use_mrmr_fs,
+        cat_fe_enable=combo.mrmr_cat_fe_enable_cfg,
+        cat_fe_include_numeric=combo.mrmr_cat_fe_include_numeric_cfg,
+    )
+    return build_mrmr_kwargs_from_flat(
+        use_mrmr_fs=combo.use_mrmr_fs,
+        interactions_max_order=combo.mrmr_interactions_max_order_cfg,
+        fe_max_steps=combo.mrmr_fe_max_steps_cfg,
+        cat_fe_config=cat_fe,
+        fe_npermutations=combo.mrmr_fe_npermutations_cfg,
+        fe_ntop_features=combo.mrmr_fe_ntop_features_cfg,
+        fe_unary_preset=combo.mrmr_fe_unary_preset_cfg,
+        fe_binary_preset=combo.mrmr_fe_binary_preset_cfg,
+        fe_smart_polynom_iters=combo.mrmr_fe_smart_polynom_iters_cfg,
+        fe_smart_polynom_optimization_steps=combo.mrmr_fe_smart_polynom_steps_cfg,
+        fe_min_polynom_degree=combo.mrmr_fe_min_polynom_degree_cfg,
+        fe_max_polynom_degree=combo.mrmr_fe_max_polynom_degree_cfg,
+    )
+
+
+def build_composite_discovery_config_from_flat(
+    *, enabled: bool, transforms_mode: Optional[str] = None,
+):
+    """Build a CompositeTargetDiscoveryConfig honoring the discovery
+    enable + transforms_mode axes. transforms_mode in
+    {None, "all", "unary_only", "chain_only", "legacy"}: None and "all"
+    keep the library-default 14-transform palette; the others narrow."""
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+    if not enabled:
+        return CompositeTargetDiscoveryConfig(enabled=False)
+    if transforms_mode == "unary_only":
+        transforms = ["cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"]
+    elif transforms_mode == "chain_only":
+        transforms = [
+            "chain_linres_cbrt", "chain_linres_yj",
+            "chain_monres_cbrt", "chain_monres_yj",
+        ]
+    elif transforms_mode == "legacy":
+        transforms = [
+            "diff", "ratio", "logratio", "linear_residual",
+            "quantile_residual", "monotonic_residual",
+        ]
+    else:
+        transforms = None
+    kw: Dict[str, Any] = {
+        "enabled": True,
+        "base_candidates": "auto",
+        "auto_base_top_k": 3,
+        "multi_base_enabled": True,
+        "multi_base_max_k": 2,
+    }
+    if transforms is not None:
+        kw["transforms"] = transforms
+    return CompositeTargetDiscoveryConfig(**kw)
+
+
+def build_composite_discovery_config(combo: "FuzzCombo"):
+    """FuzzCombo-aware wrapper."""
+    enabled = (
+        combo.composite_discovery_enabled_cfg
+        and combo.target_type == "regression"
+    )
+    return build_composite_discovery_config_from_flat(
+        enabled=enabled,
+        transforms_mode=combo.composite_transforms_mode_cfg if enabled else None,
+    )
+
+
 def _all_axis_pairs() -> set[tuple[str, Any, str, Any]]:
     pairs: set[tuple[str, Any, str, Any]] = set()
     # Also include model-count ("n_models" pseudo-axis) to balance single vs

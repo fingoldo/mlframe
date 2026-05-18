@@ -23,6 +23,9 @@ from ._fuzz_combo import (
     enumerate_combos,
     log_combo_outcome,
     xfail_reason,
+    # 2026-05-18 shared builders (refactor: single-edit point for new axes)
+    build_mrmr_kwargs,
+    build_composite_discovery_config,
 )
 from .shared import SimpleFeaturesAndTargetsExtractor
 
@@ -49,27 +52,12 @@ _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
 COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_SEED)
 
 
-def _make_cat_fe_config_for_fuzz(combo: FuzzCombo):
-    """Build a ``CatFEConfig`` honoring the combo's
-    ``mrmr_cat_fe_enable_cfg`` + ``mrmr_cat_fe_include_numeric_cfg``
-    axes. Returns ``None`` when cat-FE should keep its full default-on
-    behavior (no override needed); returns an explicit ``CatFEConfig``
-    when any axis demands a non-default value.
-
-    Keeping the cheap-default knobs (top_k_pairs=32,
-    full_npermutations=100, etc.) on the enabled path so the cat-FE
-    algorithm runs with realistic settings rather than a degenerate
-    small-sample config.
-    """
-    from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
-    if not combo.mrmr_cat_fe_enable_cfg:
-        return CatFEConfig(enable=False)
-    # 2026-05-18 -- include_numeric axis. When True, MRMR's cat-FE
-    # pulls in discretized numeric columns alongside categoricals.
-    # Default False (avoid spurious aliasing from noisy floats).
-    if combo.mrmr_cat_fe_include_numeric_cfg:
-        return CatFEConfig(enable=True, include_numeric=True)
-    return None  # full library default (enable=True, include_numeric=False)
+# Obsolete (2026-05-18 refactor): _make_cat_fe_config_for_fuzz +
+# _composite_discovery_config_for_combo have been folded into the
+# shared builders ``build_mrmr_kwargs`` / ``build_composite_discovery_config``
+# in ``_fuzz_combo.py``. Adding a new MRMR or composite-discovery axis
+# now only edits build_mrmr_kwargs_from_flat / build_composite_discovery_-
+# config_from_flat there (plus the AXES dict + FuzzCombo dataclass).
 
 
 def _config_for_models(
@@ -255,7 +243,7 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # into the suite call, so when discovery is enabled this routes the
         # config through. Disabled-config still passes through so the suite
         # path is exercised symmetrically.
-        "composite_target_discovery_config": _composite_discovery_config_for_combo(combo),
+        "composite_target_discovery_config": build_composite_discovery_config(combo),
         # PreprocessingExtensionsConfig — sklearn-bridge transforms applied
         # once and reused per model. Mirror FuzzCombo._canonical_prep_ext
         # so combos with NaN-injecting axes or unencoded categoricals
@@ -281,62 +269,9 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     }
 
 
-def _composite_discovery_config_for_combo(combo: FuzzCombo):
-    """Build a CompositeTargetDiscoveryConfig from the combo axes.
-
-    Returns None when the combo's canonical key says discovery is
-    off (regression-only + base-candidate-pool check). When on, the
-    transforms list narrows to a subset depending on
-    ``composite_transforms_mode_cfg``:
-
-    - ``None``  -> library default (all 14: 6 legacy + 4 unary + 4 chain)
-    - ``"unary_only"``  -> Pack J unary transforms only
-    - ``"chain_only"``  -> Pack K chain transforms only
-    - ``"legacy"``      -> pre-Pack-J/K set (6 legacy)
-    """
-    # Replay canonical_key's enable gate so we only emit a config when
-    # the combo would actually run discovery (regression target).
-    enabled = (
-        combo.composite_discovery_enabled_cfg
-        and combo.target_type == "regression"
-    )
-    if not enabled:
-        return None
-
-    from mlframe.training.configs import CompositeTargetDiscoveryConfig
-
-    mode = combo.composite_transforms_mode_cfg
-    if mode == "unary_only":
-        transforms = ["cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"]
-    elif mode == "chain_only":
-        transforms = [
-            "chain_linres_cbrt", "chain_linres_yj",
-            "chain_monres_cbrt", "chain_monres_yj",
-        ]
-    elif mode == "legacy":
-        transforms = ["diff", "ratio", "logratio", "linear_residual",
-                      "quantile_residual", "monotonic_residual"]
-    else:
-        transforms = None  # let the library default kick in (all 14)
-
-    kwargs: dict = {
-        "enabled": True,
-        # base_candidates="auto" exercises the MI-gain ranking + filter
-        # path (the production code path). Pin a small top_k so the
-        # discovery loop stays under the per-fuzz-test budget.
-        "base_candidates": "auto",
-        "auto_base_top_k": 3,
-        # Cap the multi-base auto-promotion search so fuzz doesn't
-        # explode runtime on rich numeric column sets.
-        "multi_base_enabled": True,
-        "multi_base_max_k": 2,
-        # MI sampling -- small frames are well under the default cap;
-        # leave the library default in place by not overriding.
-    }
-    if transforms is not None:
-        kwargs["transforms"] = transforms
-
-    return CompositeTargetDiscoveryConfig(**kwargs)
+# (Removed 2026-05-18: ``_composite_discovery_config_for_combo`` folded
+# into the shared builder ``build_composite_discovery_config`` in
+# ``_fuzz_combo.py`` — see comment above _make_cat_fe_config_for_fuzz.)
 
 
 def _recurrent_sequences_for_combo(combo: FuzzCombo, df=None):
@@ -892,28 +827,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             ),
             feature_selection_config=FeatureSelectionConfig(
                 use_mrmr_fs=combo.use_mrmr_fs,
-                mrmr_kwargs=({
-                    "verbose": 0, "max_runtime_mins": 1, "n_workers": 1,
-                    "quantization_nbins": 5, "use_simple_mode": True,
-                    "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 2,
-                    "full_npermutations": 2,
-                    # 2026-05-11 Wave 15 -- fuzz-driven MRMR internals.
-                    "interactions_max_order": combo.mrmr_interactions_max_order_cfg,
-                    "fe_max_steps": combo.mrmr_fe_max_steps_cfg,
-                    "cat_fe_config": _make_cat_fe_config_for_fuzz(combo),
-                    # 2026-05-18 -- MRMR feature-engineering FE-search
-                    # knobs. Each axis toggles a distinct code path
-                    # inside mrmr.fit (classical unary/binary FE,
-                    # smart orthogonal-polynom FE via Optuna).
-                    "fe_npermutations": combo.mrmr_fe_npermutations_cfg,
-                    "fe_ntop_features": combo.mrmr_fe_ntop_features_cfg,
-                    "fe_unary_preset": combo.mrmr_fe_unary_preset_cfg,
-                    "fe_binary_preset": combo.mrmr_fe_binary_preset_cfg,
-                    "fe_smart_polynom_iters": combo.mrmr_fe_smart_polynom_iters_cfg,
-                    "fe_smart_polynom_optimization_steps": combo.mrmr_fe_smart_polynom_steps_cfg,
-                    "fe_min_polynom_degree": combo.mrmr_fe_min_polynom_degree_cfg,
-                    "fe_max_polynom_degree": combo.mrmr_fe_max_polynom_degree_cfg,
-                } if combo.use_mrmr_fs else None),
+                # 2026-05-18 -- delegate to shared builder. Adding a new
+                # MRMR axis now only edits build_mrmr_kwargs_from_flat in
+                # _fuzz_combo.py; the pytest suite + 1M harness both
+                # consume the same builder.
+                mrmr_kwargs=build_mrmr_kwargs(combo),
                 # rfecv_models: pass exactly the canonical estimator (None when
                 # the combo would mis-use it) — wrap in a single-element list
                 # because the field expects List[str].
