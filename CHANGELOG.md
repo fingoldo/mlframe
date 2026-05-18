@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-05-18 — Iter 104: iter69 + iter103 additive - NEW Year-100k record +0.33pp over iter69
+
+Test the hypothesis "negative-alone features can be useful additively". Concatenate iter69 features (baseline_disagreement 8 + cdist 12 = 20) with iter103 (residual_stratified_distance 11) -> 31 transformer-FE features.
+
+### Multi-seed-from-start results (3 seeds, CB target_model)
+
+| Dataset | iter69 | iter102 | iter103 alone | **iter104** | Verdict |
+|---|---|---|---|---|---|
+| abalone 4k | +2.26% | **+2.74%** | -1.39% | +2.31% | TIE (iter102 still best) |
+| California 20k | +1.15% | +1.19% | -0.48% | +0.94% | slightly worse |
+| Year-100k | +4.92% | +4.93% | +0.96% | **+5.25%** (range +5.03/+5.58, IQR 0.0028) | **NEW record** +0.33pp |
+
+### Findings
+- iter103's "negative alone" features add real value at Year-100k when stacked with iter69. Geometric easy/hard density complements per-row prediction signal at large N.
+- Different mechanisms win different N regimes: small-N -> iter102 (ExtraTrees +0.48pp on abalone), large-N -> iter104 (geometric density +0.33pp on Year-100k).
+- California 20k is sat-edge - neither iter102 nor iter104 meaningfully improves.
+
+### Provisional best-of-breed (post-iter104)
+- abalone 4k: iter102 (+2.74%)
+- California 20k: iter69 (+1.15%, no enhancement helps)
+- Year-100k: iter104 (+5.25%)
+
+Next (iter105): TRIPLE combination - does abalone-helper + Year-helper compose?
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter104_*_cb_r2`. Full disposition in RESULTS.md under "iter104 - iter69 + iter103 additive".
+
 ## 2026-05-18 — Iter 103: residual_stratified_distance - NEGATIVE result, all 3 seeds NEGATIVE on small-N
 
 Structural-shift mechanism vs iter69/102's "more baselines". Source: `residual_stratified_distance.py`. Splits training set into easy / hard halves via median |OOF residual| of a single LGB d=5 baseline; for each query exposes 11 features (kNN distances to each half + log-ratios + mean-residual stats).

@@ -3158,6 +3158,38 @@ NEW mechanism shipped under multi-seed-from-start protocol. Source: `residual_st
 - **iter104**: try iter69 + iter103 ADDITIVELY — does the geometric easy/hard density signal complement iter69's per-row predictions, even if neither alone is enough?
 - Alternative: **target-conditioned disagreement** — compute baseline statistics restricted to query's top-y vs bottom-y neighbours (closer to iter27's class_distance structure but with baselines).
 
+## iter104 — iter69 + iter103 additive — NEW Year-100k record (+0.33pp)
+
+Test the hypothesis "negative-alone features can be useful additively". Concatenate iter69 (baseline_disagreement + cdist, 20 features) with iter103 (residual_stratified_distance alone, 11 features) → 31 transformer-FE features total per row.
+
+### Results (3 seeds, CB target_model)
+
+| # | Dataset | iter69 | iter102 (+ExtraTrees) | iter103 alone | **iter104 (iter69+iter103)** | Δ vs iter69 | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1 | abalone 4k | +2.26% | +2.74% | -1.39% | **+2.31%** | +0.05pp | TIE (worse than iter102) |
+| 2 | California 20k | +1.15% | +1.19% | -0.48% | +0.94% | -0.21pp | slightly worse |
+| 3 | Year-100k | +4.92% | +4.93% | +0.96% | **+5.25%** | **+0.33pp** | **NEW Year-100k record** (range +5.03% / +5.58%, IQR 0.0028) |
+
+### Findings
+
+- **iter103's "negative alone" features add real value at Year-100k when stacked with iter69.** The geometric easy/hard density signal complements iter69's per-row prediction signal — different aspects of the data structure that downstream CatBoost can exploit jointly but neither alone is useful at large N.
+- **Different mechanisms win different N regimes**: small-N (abalone 4k) wants extra orthogonal-baseline disagreement (iter102's ExtraTrees +0.48pp); large-N (Year-100k 100k) wants geometric easy/hard density additive (iter104 +0.33pp).
+- **California 20k is sat-edge for both new mechanisms** — neither iter102 nor iter104 meaningfully improves over iter69. California's R2 ceiling with default LGB/CB is already high (~0.85); little headroom for additive features.
+- **Multi-seed-from-start protocol continues to deliver** — all 3 iter104 records pass the SURVIVES rule (median > 0, min > -0.3 * median); IQR ranges 0.0022-0.0051 (tight) on 3 datasets.
+
+### Provisional best-of-breed table (post-iter104)
+
+| Dataset | Best mechanism | Median lift | Source |
+|---|---|---|---|
+| abalone 4k | iter102 (iter69 + ExtraTrees) | +2.74% | baseline_disagreement_v2 + cdist |
+| California 20k | iter69 (baseline_disagreement + cdist) | +1.15% | no enhancement helps |
+| Year-100k | iter104 (iter69 + iter103) | +5.25% | baseline_disagreement + cdist + residual_stratified_distance |
+
+### Next (iter105+)
+
+- **iter105: TRIPLE combination** — iter69 + iter102's ExtraTrees + iter103's RSD. Does the abalone-helper + Year-100k-helper compose to a single-best-of-breed mechanism that wins everywhere?
+- Alternative: **iter106 target-conditioned disagreement** — compute baseline statistics restricted to high-y / low-y neighbours of each query (different signal source from the y-distribution side).
+
 ## Reproducibility
 
 ```
