@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-05-18 — Iter 107: BGM quantile-bands alone - NEGATIVE on regression; binary-vs-regression regime hypothesis
+
+Tested existing `bgmm_quantile_bands` (iter56 mechanism) alone under multi-seed-from-start protocol.
+
+### Multi-seed results (3 seeds, CB target_model)
+- abalone 4k: median +0.51% (range -1.02% / +1.10%, mixed) FOLD-NOISE
+- California 20k: median **-0.81%** (all 3 negative) HURTS
+- Year-100k: ALL 3 SEEDS OOM (BGM 5-components fit on 100k×90 is memory-prohibitive)
+
+### Key insight
+Re-reading the original loop directive, the top historical records mentioned ("iter 45 BGM LGB PR_AUC +18.81%" and "iter 53 Set Transformer CB PR_AUC +8.41%") were BOTH **PR_AUC** = BINARY classification. Our entire iter69-106 scale validation has been REGRESSION-only. BGM's historical strength may be binary-classification-specific.
+
+### Pivot
+iter108+: test iter69 mechanism on BINARY classification (Adult 49k) to determine whether iter69 generalises across task types, or is regression-specific. If iter69 works on binary too, the +4.92% Year-100k record is the start of a general mechanism. If it doesn't, separate binary-FE strategies needed.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter107_*_cb_r2`.
+
 ## 2026-05-18 — Iter 106: y-quintile-conditioned baseline-pred-at-kNN - NEGATIVE everywhere; pivot to structural family shift
 
 Per-query: for each y-stratum q∈{0..4}, find k=8 nearest training neighbours within stratum, return mean + std of baseline's predictions there. 10 features per row. Hypothesis: "Where does the baseline predict things at NN of each y-stratum?"

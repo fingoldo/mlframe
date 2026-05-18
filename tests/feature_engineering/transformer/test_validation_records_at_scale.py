@@ -308,3 +308,40 @@ def test_iter106_california_cb_r2():
 def test_iter106_year_100k_cb_r2():
     """iter106 on year-prediction 100k (best so far iter104 +5.25%)."""
     _validate_scale(_load_year_100k, _build_iter106, "cb", "R2", 0.0525, "iter106_yqbk_Year100k")
+
+
+# ---------- iter107 - bgmm_quantile_bands alone (existing iter56 mechanism, untested under multi-seed-from-start) ----------
+# Structural family shift: Bayesian GMM density features instead of baseline-prediction or kNN-residual.
+
+
+def _build_iter107(X_tr, X_te, y_tr, task, seed):
+    """bgmm_quantile_bands alone (iter107)."""
+    from sklearn.model_selection import KFold
+    from mlframe.feature_engineering.transformer import compute_bgmm_quantile_bands_features
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bqb_tr = compute_bgmm_quantile_bands_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bqb_te = compute_bgmm_quantile_bands_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    return (np.concatenate([X_tr, bqb_tr], axis=1),
+            np.concatenate([X_te, bqb_te], axis=1))
+
+
+def test_iter107_abalone_cb_r2():
+    """iter107 BGM alone on abalone."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter107, "cb", "R2", 0.0274, "iter107_bgm_abalone")
+
+
+def test_iter107_california_cb_r2():
+    """iter107 BGM alone on California 20k."""
+    _validate_scale(_load_california, _build_iter107, "cb", "R2", 0.0115, "iter107_bgm_CA20k")
+
+
+def test_iter107_year_100k_cb_r2():
+    """iter107 BGM alone on year-prediction 100k."""
+    _validate_scale(_load_year_100k, _build_iter107, "cb", "R2", 0.0525, "iter107_bgm_Year100k")
