@@ -53,6 +53,7 @@ from .composite_screening import (
     _extract_column_array,
     _is_numeric_column,
     _mi_pair_bin,
+    _mi_per_feature_y_fixed,
     _mi_to_target,
     _mi_to_target_prebinned,
     _prebin_feature_columns,
@@ -1582,13 +1583,16 @@ class CompositeTargetDiscovery:
             )
             return list(usable_features)[: self.config.auto_base_top_k]
         # Per-feature MI honours config.mi_estimator: bin-based when
-        # the screening pipeline opted for the fast estimator.
+        # the screening pipeline opted for the fast estimator. Hoist the
+        # y-binning out of the per-feature loop -- y is fixed across all
+        # candidate columns, so re-quantiling it inside ``_mi_pair_bin``
+        # is wasted work.  See ``_mi_per_feature_y_fixed`` docstring for
+        # the 1.67x bit-exact benchmark.
         if self.config.mi_estimator == "bin":
-            mi_per_feature = np.array([
-                _mi_pair_bin(x_matrix[finite, j], y_screen[finite],
-                             nbins=self.config.mi_nbins)
-                for j in range(x_matrix.shape[1])
-            ])
+            mi_per_feature = _mi_per_feature_y_fixed(
+                x_matrix[finite], y_screen[finite],
+                nbins=self.config.mi_nbins,
+            )
         else:
             from sklearn.feature_selection import mutual_info_regression
             mi_per_feature = mutual_info_regression(
@@ -2312,10 +2316,14 @@ class CompositeTargetDiscovery:
                             getattr(self, "_target_col", "?"),
                             raw_baseline, _y_std, _ratio, _raw_skip_ratio,
                         )
-                        self.specs_ = []
-                        self.report_ = [self._entry_to_report(e) for e in candidates]
-                        self.tiny_rerank_scores_ = {}
-                        return self
+                        # FIX 2026-05-18 (pytest caught): pre-fix code referenced two non-
+                        # available names: ``candidates`` (lives in fit, not _tiny_model_rerank)
+                        # and ``tiny_rerank_scores_`` (read-only property; underlying attr is
+                        # ``_tiny_rerank_scores``). Returning an empty kept-spec list signals
+                        # to the caller that the composite block is skipped; fit's existing
+                        # empty-handling path produces the final ``specs_=[]`` state.
+                        self._tiny_rerank_scores = {}
+                        return []
             self._raw_y_baseline_rmse = (
                 float(raw_baseline) if math.isfinite(raw_baseline)
                 else float("nan")
