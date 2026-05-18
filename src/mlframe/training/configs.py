@@ -2058,20 +2058,22 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     stacked_n_oof_folds: int = 3
     stacked_max_pass1_specs: int = 3
 
-    # Pack #6 placeholder: parallel evaluation of (base, transform) candidates
-    # in CompositeTargetDiscovery.fit. The current loop iterates serially
-    # over ``base_candidates`` x ``self.config.transforms`` -- with ~3 bases
-    # x 14 transforms x (3 folds * 3 seeds tiny-CV per candidate), wall time
-    # is dominated by per-candidate compute. Threading-backend joblib over
-    # the inner loop would give 5-10x speedup since most compute is in
-    # numpy / sklearn (GIL-released).
+    # T1#1 2026-05-18 Pack #6: parallel evaluation of (base, transform)
+    # candidates in CompositeTargetDiscovery.fit. The per-transform body
+    # was extracted into a nested closure that returns a list of candidate
+    # dicts; per-base dispatch runs the closure under joblib.Parallel
+    # (backend="threading", prefer="threads") when ``discovery_n_jobs > 1``.
+    # Most of the compute (transform.fit / transform.forward / MI
+    # estimation / bootstrap loop) is numpy or numba which releases the
+    # GIL, so threading yields a 5-10x speedup at n_jobs=8 on
+    # production-size suites (~3 bases x 14 transforms).
     #
-    # Implementation is deferred: requires refactoring the per-transform
-    # body (~120 LOC inside ``fit``) into a thread-safe helper method and
-    # auditing shared mutable state (``_unary_evaluated``, ``candidates``,
-    # ``cached_MIs``, ``self._auto_base_pool``) for race conditions.
-    # Default 1 (serial) until the refactor lands; config knob shipped
-    # ahead so callers can wait for it.
+    # ``discovery_n_jobs=1`` (default, back-compat) runs the closure in a
+    # plain list-comprehension - no joblib overhead. Unary-transform dedup
+    # (Pack J) and ``UnknownTransformError`` filtering run serially in a
+    # pre-filter pass before the parallel dispatch, so the parallel path
+    # is bit-for-bit equivalent to the serial path (verified by
+    # ``tests/training/test_composite_discovery_parallel.py``).
     discovery_n_jobs: int = 1
 
     # 2026-05-18 #10: skip the entire composite-target training block

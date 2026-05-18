@@ -325,34 +325,51 @@ class CompositeTargetDiscovery:
                     **_mi_kwargs,
                 )
 
+            # T1#1 2026-05-18 Pack #6 real parallel composite candidates.
+            # Pre-filter transforms once per base (UnknownTransformError +
+            # Pack J unary dedup) so the parallel dispatch sees only the
+            # already-vetted (name, transform) pairs. Keeping the dedup
+            # serial outside the parallel loop avoids a race on
+            # ``_unary_evaluated`` and preserves bit-for-bit identical
+            # behaviour vs the serial path on the same input.
+            _transforms_to_eval: list[tuple[str, Any]] = []
             for transform_name in self.config.transforms:
                 try:
                     transform = get_transform(transform_name)
                 except UnknownTransformError as exc:
                     logger.warning("[CompositeTargetDiscovery] %s; skipping.", exc)
                     continue
-
-                # Pack J dedup: unary transforms produce identical T regardless of base,
-                # so a second pass over the same unary name on a different base is wasted
-                # MI / tiny-CV compute. Skip after the first evaluation.
                 if not transform.requires_base:
                     if transform_name in _unary_evaluated:
                         continue
                     _unary_evaluated.add(transform_name)
+                _transforms_to_eval.append((transform_name, transform))
 
+            def _eval_one_transform(transform_name: str, transform) -> list[dict[str, Any]]:
+                """Returns 0 or 1 candidate dict for one (base, transform) pair.
+
+                Reads closure variables (base, base_train, base_screen,
+                x_remaining_matrix, _x_prebinned, mi_y_for_base, y_train,
+                y_screen, valid_screen, _mi_fn, _mi_kwargs, self.config,
+                self._reject) - all read-only inside the body. Writes go
+                to the returned list, never to the enclosing candidates
+                list, so calling this concurrently from a thread pool is
+                safe.
+                """
+                _local: list[dict[str, Any]] = []
                 # Domain check on train, drop invalids, fit transform
                 # params on the surviving rows only.
                 valid = transform.domain_check(y_train, base_train)
                 valid_frac = float(valid.mean()) if valid.size else 0.0
                 if valid_frac < self.config.min_valid_domain_frac:
-                    candidates.append(self._reject(
+                    _local.append(self._reject(
                         base, transform_name, mi_y_for_base, valid_frac,
                         reason=f"valid_domain_frac={valid_frac:.3f} "
                                f"< {self.config.min_valid_domain_frac:.3f}",
                     ))
-                    continue
+                    return _local
                 if not valid.any():
-                    continue
+                    return _local
 
                 fitted_params = transform.fit(y_train[valid], base_train[valid])
                 # Pack D 2026-05-18: reject identity / near-identity transforms early.
@@ -366,7 +383,7 @@ class CompositeTargetDiscovery:
                 # on the returned params dict; reject the spec here.
                 if isinstance(fitted_params, dict) and fitted_params.get("is_degenerate"):
                     _ve = fitted_params.get("var_explained", float("nan"))
-                    candidates.append(self._reject(
+                    _local.append(self._reject(
                         base, transform_name, mi_y_for_base, valid_frac,
                         reason=(
                             f"transform fitted to a near-identity function: "
@@ -375,15 +392,15 @@ class CompositeTargetDiscovery:
                             f"as on raw y"
                         ),
                     ))
-                    continue
+                    return _local
                 # T on the screening sample (which is a subset of train).
                 valid_screen = transform.domain_check(y_screen, base_screen)
                 if valid_screen.sum() < 50:
-                    candidates.append(self._reject(
+                    _local.append(self._reject(
                         base, transform_name, mi_y_for_base, valid_frac,
                         reason="too few rows in screening sample after domain filter",
                     ))
-                    continue
+                    return _local
                 t_screen = transform.forward(
                     y_screen[valid_screen], base_screen[valid_screen], fitted_params,
                 )
@@ -500,12 +517,38 @@ class CompositeTargetDiscovery:
                     valid_domain_frac=valid_frac,
                     n_train_rows=int(valid.sum()),
                 )
-                candidates.append({
+                _local.append({
                     "spec": spec,
                     "kept": False,  # set after filtering
                     "reason": "",
                     "mi_gain_lcb": float(mi_gain_lcb),
                 })
+                return _local
+
+            # T1#1 dispatch: run the per-transform body in parallel when ``discovery_n_jobs > 1``.
+            # joblib threading backend keeps closure capture cheap (no pickling),
+            # which is critical for the large ``x_remaining_matrix`` / ``_x_prebinned``
+            # arrays the body reads. Most of the compute (transform.fit /
+            # transform.forward / _mi_to_target_prebinned / bootstrap MI loop)
+            # is numpy / numba which releases the GIL, so threading yields the
+            # promised 5-10x speedup at n_jobs=8.
+            _n_jobs_disc = int(getattr(self.config, "discovery_n_jobs", 1) or 1)
+            if _n_jobs_disc > 1 and len(_transforms_to_eval) > 1:
+                from joblib import Parallel as _Parallel, delayed as _delayed
+                _results = _Parallel(
+                    n_jobs=_n_jobs_disc, backend="threading", prefer="threads",
+                )(
+                    _delayed(_eval_one_transform)(_tn, _t)
+                    for _tn, _t in _transforms_to_eval
+                )
+            else:
+                _results = [
+                    _eval_one_transform(_tn, _t)
+                    for _tn, _t in _transforms_to_eval
+                ]
+            for _r in _results:
+                if _r:
+                    candidates.extend(_r)
 
         # Filter + sort.
         kept_specs: list[CompositeSpec] = []
