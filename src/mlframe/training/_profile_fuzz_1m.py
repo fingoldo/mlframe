@@ -645,9 +645,14 @@ def _run_suite_profiled(
                 # aren't in ``BorutaShap.__init__``'s signature -- removed. The
                 # surrogate-model iteration count is controlled via the suite-level
                 # ``model_kwargs`` (CatBoost iterations) when needed.
+                # iter-99 fix: BorutaShap default ``classification=True`` paired with
+                # a regression target raises ``ValueError: Unknown label type:
+                # continuous``. Thread the target_type-driven flag so the surrogate
+                # picks the right RandomForest{Classifier,Regressor}.
                 boruta_shap_kwargs=({
                     "n_trials": 5,
                     "verbose": 0,
+                    "classification": target_type != "regression",
                 } if _use_boruta_shap else None),
             )
         )
