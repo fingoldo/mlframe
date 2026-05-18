@@ -116,10 +116,24 @@ def _run_composite_target_wrapping(
                 if isinstance(_inner, CompositeTargetEstimator):
                     continue
                 try:
+                    # Multi-base specs (linear_residual_multi / future
+                    # multi-base transforms) carry extra base columns
+                    # alongside the primary. Build the full base_columns
+                    # tuple so the wrapper's predict() reconstructs the
+                    # (n, K) base matrix to match the K alphas saved in
+                    # fitted_params. Without this the wrapper defaults to
+                    # base_columns=None and _resolve_base_columns()
+                    # falls back to (base_column,) -> predict raises
+                    # "base has 1 columns but fitted alphas has K entries".
+                    _extra = tuple(_spec.get("extra_base_columns") or ())
+                    _base_columns = (
+                        (_spec["base_column"], *_extra) if _extra else None
+                    )
                     _wrapper = CompositeTargetEstimator.from_fitted_inner(
                         fitted_inner=_inner,
                         transform_name=_spec["transform_name"],
                         base_column=_spec["base_column"],
+                        base_columns=_base_columns,
                         transform_fitted_params=_spec["fitted_params"],
                         y_train=_y_train_for_wrap,
                     )

@@ -354,10 +354,18 @@ def compute_oof_holdout_predictions(
                             X_stack_valid = X_stack_t[valid]
                         _sw_stack_valid = None if sample_weight is None else sample_weight[fold_train_idx][valid]
                         _maybe_pass_sample_weight(inner_clone, X_stack_valid, t_stack, _sw_stack_valid)
+                        # Multi-base parity with _phase_composite_post: pass
+                        # the full base_columns tuple so predict reconstructs
+                        # the K-column base matrix matching the K alphas.
+                        _extra = tuple(spec.get("extra_base_columns") or ())
+                        _base_columns = (
+                            (spec["base_column"], *_extra) if _extra else None
+                        )
                         wrapped = CompositeTargetEstimator.from_fitted_inner(
                             fitted_inner=inner_clone,
                             transform_name=spec["transform_name"],
                             base_column=spec["base_column"],
+                            base_columns=_base_columns,
                             transform_fitted_params=spec["fitted_params"],
                             y_train=y_stack[valid],
                         )
@@ -491,10 +499,18 @@ def compute_oof_holdout_predictions(
                     X_stack_valid = X_stack_t[valid]
                 _sw_stack_valid = None if sample_weight is None else sample_weight[train_idx][valid]
                 _maybe_pass_sample_weight(inner_clone, X_stack_valid, t_stack, _sw_stack_valid)
+                # Multi-base parity: same fix as the kfold OOF branch
+                # above. Without base_columns, predict reconstructs only
+                # the primary base column and trips the K-alphas shape check.
+                _extra = tuple(spec.get("extra_base_columns") or ())
+                _base_columns = (
+                    (spec["base_column"], *_extra) if _extra else None
+                )
                 wrapped = CompositeTargetEstimator.from_fitted_inner(
                     fitted_inner=inner_clone,
                     transform_name=spec["transform_name"],
                     base_column=spec["base_column"],
+                    base_columns=_base_columns,
                     transform_fitted_params=spec["fitted_params"],
                     y_train=y_stack[valid],
                 )
