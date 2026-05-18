@@ -785,3 +785,17 @@ def test_iter117_year100k_lgb_r2_iter104():
 def test_iter117_kin8nm_cb_r2_iter102():
     """iter102 on kin8nm 8k CB R2 (ExtraTrees abalone-helper; does it generalise to kin8nm CB?)."""
     _validate_scale(_load_kin8nm, _build_iter102, "cb", "R2", 0.0, "iter117_iter102_kin8nm_cb")
+
+
+# ---------- iter118 - cross-scale boundary test: iter102 large-N, iter104 small-N ----------
+
+
+def test_iter118_year100k_cb_r2_iter102():
+    """iter102 (+ExtraTrees) on Year-100k CB R2 (does it beat iter104's +5.25% at large N?)."""
+    _validate_scale(_load_year_100k, _build_iter102, "cb", "R2", 0.0525, "iter118_iter102_Year100k_cb")
+
+
+def test_iter118_abalone_cb_r2_iter104():
+    """iter104 (+RSD) on abalone 4k CB R2 (does it beat iter102's +2.74% at small N?)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter104, "cb", "R2", 0.0274, "iter118_iter104_abalone_cb")

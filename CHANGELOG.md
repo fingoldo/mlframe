@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-05-18 — Iter 118: cross-mechanism scale boundary partly tested; iter102 on Year-100k OOM (Windows paging)
+
+Cross-mechanism scale-boundary test: iter102 (+ExtraTrees CB-helper) at large N and iter104 (+RSD LGB-helper) at small N.
+
+### Results
+- iter102 on Year-100k CB R2: BOTH attempts OOM during dataset load (354 MiB for 90 x 515k float64 array). Windows paging-file boundary, NOT mechanism failure. Untestable in this session.
+- iter104 on abalone CB R2: SURVIVES median +2.31% (range +2.25 / +2.68, IQR 0.0022)
+  - vs iter102 record +2.74%, iter69 baseline +2.26%
+  - iter104 between iter69 and iter102 -- RSD adds tiny value over iter69 but doesn't reach iter102's ExtraTrees gain
+
+### Confirmed pattern
+abalone CB R2: iter102 +2.74% > iter104 +2.31% > iter69 +2.26%
+  - iter102 dominates iter104 on small-N CB regression
+  - iter104 wins large-N LGB regression (+0.31pp on Year-100k)
+
+Each enhancement targets specific (dataset-N, target-model) regime; they don't compose universally (iter105 triple failed) and don't dominate each other globally.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter118_*`.
+
 ## 2026-05-18 — Iter 117: 2 NEW records (kin8nm CB R2 iter102 +6.57%, Year-100k LGB R2 iter104 +3.09%); pattern firmly confirmed
 
 Confirmed the iter116 cross-mechanism pattern on additional datasets/target_models. 5 tests × 3 seeds.
