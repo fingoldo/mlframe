@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-05-18 — Iter 127: iter69 + local_intrinsic_dim - marginal helper on abalone, Year-50k untestable (OOM)
+
+Tested compute_local_intrinsic_dim_features as additive component to iter69. Manifold-dimensionality signal at each row, conceptually orthogonal to baseline-prediction features.
+
+### Results (3 seeds)
+- iter69 + lid on abalone CB R2: median **+2.56%** (2 valid seeds + 1 OOM, range +2.50% / +2.62%, IQR 0.0006)
+  - vs iter69 alone +2.26%: +0.30pp gain
+  - vs iter102 record +2.74%: -0.18pp behind
+- iter69 + lid on Year-50k CB R2: BOTH attempts OOM at dataset load. Windows paging fragmentation after 26 iterations.
+
+### Verdict
+local_intrinsic_dim is a marginal additive helper (+0.30pp on abalone CB), but doesn't reach iter102's ExtraTrees record. Another niche-only enhancement, similar pattern to iter104/iter121/iter68.
+
+After 26 iterations (iter102-127), Windows paging fragmentation has reached the point where even previously-successful datasets OOM. The session has hit infrastructure-bound diminishing returns. Further variant testing would require:
+- Wait extended period for paging recovery
+- Move to GPU/Linux environment for memory headroom
+- Or commit to fundamentally different mechanism families with O(n*k) bounded memory
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter127_*`.
+
 ## 2026-05-18 — Iter 126: decision_region_depth (probe-based boundary distance) - NEGATIVE alone, doesn't help additive
 
 Tested compute_decision_region_depth_features (iter83 source, 5 features per row via 8 random-direction probes measuring distance to prediction flip).

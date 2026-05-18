@@ -1049,3 +1049,45 @@ def test_iter126_abalone_cb_r2_with_iter69():
 def test_iter126_kin8nm_cb_r2_with_iter69():
     """iter69 + decision_region_depth on kin8nm 8k CB R2 (vs iter121 +7.01%)."""
     _validate_scale(_load_kin8nm, _build_iter126_with_iter69, "cb", "R2", 0.0701, "iter126_iter69+drd_kin8nm_cb")
+
+
+# ---------- iter127 - local_intrinsic_dim (geometric manifold-dim signal, orthogonal to predictions) ----------
+
+
+def _build_iter127_with_iter69(X_tr, X_te, y_tr, task, seed):
+    """iter69 + local_intrinsic_dim additive."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_features,
+        compute_local_intrinsic_dim_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    li_tr = compute_local_intrinsic_dim_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    li_te = compute_local_intrinsic_dim_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, li_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, li_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def test_iter127_abalone_cb_r2_with_iter69():
+    """iter69 + local_intrinsic_dim on abalone 4k CB R2 (vs iter102 record +2.74%)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter127_with_iter69, "cb", "R2", 0.0274, "iter127_iter69+lid_abalone_cb")
+
+
+def test_iter127_year50k_cb_r2_with_iter69():
+    """iter69 + local_intrinsic_dim on Year-50k CB R2 (vs iter104 +4.32%)."""
+    _validate_scale(_load_year_50k, _build_iter127_with_iter69, "cb", "R2", 0.0432, "iter127_iter69+lid_Year50k_cb")
