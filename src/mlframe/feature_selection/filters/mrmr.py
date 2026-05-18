@@ -112,6 +112,85 @@ from .screen import postprocess_candidates, screen_predictors
 logger = logging.getLogger(__name__)
 
 
+# 2026-05-18 #2: cross-target identity cache for MRMR.fit. Production
+# TVT log showed MRMR running 88 min on the SAME X for two composite
+# targets (TVT raw + TVT-monres-Y) -- both calls returned identity
+# (no features dropped, no engineered features added). The second
+# 88 min was pure loss because the result was already determined by
+# the first call. With ``mrmr_skip_when_prior_was_identity=True``,
+# subsequent fits on the same X-fingerprint short-circuit to identity
+# output without running screen / FE / Hermite.
+#
+# X-fingerprint: blake2b hash of (sorted col names, n_rows, dtype repr).
+# Cheap to compute. Process-level cache, not persisted across processes.
+_MRMR_IDENTITY_FP_CACHE: dict[str, bool] = {}
+
+
+def _canonicalise_dtype_str(dt) -> str:
+    """Polars / pandas-agnostic dtype canonical form.
+
+    Mirrors the table in
+    ``mlframe.training.core._phase_train_one_target._canonicalise_dtype``;
+    duplicated here to avoid the import-time cycle (mrmr -> training).
+    Same on-disk dtype yields the same canonical form across polars / pandas; identity-cache hits work irrespective of which backend the call site uses.
+    """
+    s = str(dt).strip().lower()
+    if s.startswith("int"):
+        return "i" + s[len("int"):]
+    if s.startswith("uint"):
+        return "u" + s[len("uint"):]
+    if s.startswith("float"):
+        return "f" + s[len("float"):]
+    if s in ("boolean", "bool"):
+        return "b"
+    if s in ("utf8", "string", "object", "str"):
+        return "s"
+    if s in ("categorical", "category"):
+        return "c"
+    return s
+
+
+def _mrmr_compute_x_fingerprint(X) -> str:
+    """Stable per-process fingerprint of the X argument used to key the identity-cache.
+
+    Captures column names, row count, and CANONICAL dtype repr so two structurally-equivalent frames -- one polars, one pandas -- produce the SAME fingerprint. We don't hash CELL CONTENT (too expensive on 4M-row frames); cell-level changes are rare across composite-target loops since the same X is reused throughout the suite.
+    """
+    try:
+        if hasattr(X, "columns"):
+            cols = tuple(sorted(str(c) for c in X.columns))
+        elif hasattr(X, "shape"):
+            cols = tuple(str(i) for i in range(X.shape[1] if X.ndim > 1 else 1))
+        else:
+            cols = ()
+        n_rows = int(X.shape[0]) if hasattr(X, "shape") else 0
+        # Polars: ``X.schema[c]`` is the canonical accessor; ``X.dtypes`` is a
+        # positional LIST so name-indexing fails. Pandas: ``X.dtypes`` is a
+        # Series indexable by column name. Check ``schema`` first to route
+        # polars correctly.
+        if hasattr(X, "schema") and hasattr(X, "columns"):
+            try:
+                dtypes_repr = tuple(
+                    (str(c), _canonicalise_dtype_str(X.schema[c]))
+                    for c in X.columns
+                )
+            except Exception:
+                dtypes_repr = ()
+        elif hasattr(X, "dtypes") and hasattr(X, "columns"):
+            try:
+                dtypes_repr = tuple(
+                    (str(c), _canonicalise_dtype_str(X.dtypes[c]))
+                    for c in X.columns
+                )
+            except Exception:
+                dtypes_repr = ()
+        else:
+            dtypes_repr = ()
+        payload = repr((cols, n_rows, dtypes_repr)).encode()
+        return hashlib.blake2b(payload, digest_size=12).hexdigest()
+    except Exception:
+        return f"fp_id{id(X):x}"
+
+
 def _hashable_params_signature(params: dict) -> tuple:
     """Build a hashable tuple-of-(key, value) signature from ``get_params`` output.
 
@@ -455,6 +534,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         cat_fe_config=None,
         # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
+        # 2026-05-18 #2: cross-target identity cache. When True and a prior fit on the SAME X-fingerprint produced an identity result (all input columns selected, zero engineered features), subsequent calls with a different y short-circuit the entire FE pipeline. Production TVT log showed 88 min of MRMR work that produced identity output, then ANOTHER MRMR call on the same X for a composite target -- second call would also be 88 min wasted. Default False keeps the historical behaviour; flip True on multi-target suites where the first MRMR call already returned identity.
+        mrmr_skip_when_prior_was_identity: bool = False,
         # hidden
         stop_file: str = "stop",
     ):
@@ -757,16 +838,54 @@ class MRMR(BaseEstimator, TransformerMixin):
         the resampled distribution converges to the weighted bincount target distribution as N grows,
         so MI relevance / redundancy (computed downstream via binned joint histograms) becomes
         weight-aware without modifying screen / info_theory internals. sample_weight=None retains the
-        old code path byte-for-byte (regression sentry)."""
+        old code path byte-for-byte (regression sentry).
+
+        2026-05-18 #2: cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
+
+        # 2026-05-18 #2 cross-target identity cache.
+        _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
+        _x_fp = None
+        if _identity_skip:
+            _x_fp = _mrmr_compute_x_fingerprint(X)
+            _prior_was_identity = _MRMR_IDENTITY_FP_CACHE.get(_x_fp)
+            if _prior_was_identity is True:
+                logger.info(
+                    "[MRMR] cross-target identity cache HIT for X fingerprint=%s -- "
+                    "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
+                    _x_fp,
+                )
+                self._fit_identity_shortcut(X)
+                self._fit_sample_weight_ = None
+                return self
+
         # Persist user-supplied weights so cached _cat_fe_state_ / FE replay can introspect; cache key
         # below already excludes weights so the FS-cache reuse contract stays intact when the suite
         # caller decides to gate weight-aware MRMR behind FeatureSelectionConfig.use_sample_weights_in_fs.
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
         try:
-            return self._fit_impl(X, y, groups, **fit_params)
+            result = self._fit_impl(X, y, groups, **fit_params)
+            # Stash X-fingerprint -> identity-bool in cross-target cache so a SUBSEQUENT fit (different y, same X) can early-skip the FE pipeline.
+            if _identity_skip and _x_fp is not None:
+                try:
+                    _is_id = (
+                        getattr(self, "support_", None) is not None
+                        and len(self.support_) == X.shape[1]
+                        and len(getattr(self, "_engineered_features_", []) or []) == 0
+                    )
+                    _MRMR_IDENTITY_FP_CACHE[_x_fp] = bool(_is_id)
+                    if _is_id:
+                        logger.info(
+                            "[MRMR] cross-target identity cache STORED for X fingerprint=%s "
+                            "(no features dropped, no engineered features); subsequent "
+                            "fits on this X will short-circuit.",
+                            _x_fp,
+                        )
+                except Exception:
+                    pass
+            return result
         finally:
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
             names = getattr(self, "_target_names_for_cleanup", None)
@@ -780,6 +899,24 @@ class MRMR(BaseEstimator, TransformerMixin):
                         pass
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None
+
+    def _fit_identity_shortcut(self, X) -> None:
+        """Populate the fit-result attributes as if MRMR returned the input X unchanged.
+
+        Used by the cross-target identity cache (2026-05-18 #2): when a previous fit on the SAME X returned identity (all input columns selected, zero engineered features), subsequent calls with a different y can skip the entire FE pipeline since the only y-dependent thing -- the selected feature subset -- is forced to "all input columns".
+        """
+        n_cols = X.shape[1] if X.ndim > 1 else 1
+        self.support_ = np.arange(n_cols, dtype=np.int64)
+        self.feature_names_in_ = (
+            X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
+            if hasattr(X, "columns") else [f"f{i}" for i in range(n_cols)]
+        )
+        self._engineered_features_ = []
+        self._engineered_recipes_ = {}
+        self.n_features_in_ = int(n_cols)
+        self.fallback_used_ = False
+        # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
+        self.signature = f"_mrmr_identity_shortcut_n{n_cols}"
 
     def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
         """We run N selections on data subsets, and pick only features that appear in all selections"""

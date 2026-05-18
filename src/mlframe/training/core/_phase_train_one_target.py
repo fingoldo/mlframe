@@ -501,16 +501,68 @@ def _compute_pipeline_cache_key(
         tuple(sorted(embedding_features or ())),
     ))
     _feats_suffix = f"_feats{hashlib.blake2b(_feats_repr.encode(), digest_size=8).hexdigest()}"
+    # 2026-05-18: canonical dtype suffix that's POLARS / PANDAS AGNOSTIC.
+    # Pre-fix: only polars frames got the ``_dt`` suffix, pandas frames
+    # got nothing. Production TVT log: same logical (CB, tier, feats)
+    # cached under TWO different keys -- one with _dt suffix (polars
+    # call) and one without (pandas call after polars->pandas
+    # conversion). Result: cache MISS on the second call even though
+    # the work was identical. The new normalized form canonicalises
+    # both polars ``Int32`` / pandas ``int32`` to ``i32``, etc., so
+    # identical column dtypes produce identical suffixes regardless
+    # of which DataFrame backend the call site happened to use.
     _dtype_suffix = ""
-    if train_df is not None and pl is not None and isinstance(train_df, pl.DataFrame):
+    if train_df is not None:
         try:
-            _dtype_pairs = tuple((c, str(train_df.schema[c])) for c in train_df.columns)
-            _dtype_suffix = f"_dt{hashlib.blake2b(repr(_dtype_pairs).encode(), digest_size=6).hexdigest()}"
+            _canon_pairs = _canonical_dtype_pairs(train_df)
+            if _canon_pairs:
+                _dtype_suffix = f"_dt{hashlib.blake2b(repr(_canon_pairs).encode(), digest_size=6).hexdigest()}"
         except Exception:
             _dtype_suffix = ""
     if pre_pipeline_name:
         return f"{strategy_cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
     return f"{strategy_cache_key}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
+
+
+def _canonical_dtype_pairs(train_df) -> tuple:
+    """Polars / pandas-agnostic ``((col, canonical_dtype), ...)`` for cache-key hashing.
+
+    Canonical mapping (the ones we hit in practice):
+    - ``Int8/16/32/64`` / ``int8/16/32/64`` -> ``i8/i16/i32/i64``
+    - ``UInt8/16/32/64`` / ``uint8/16/32/64`` -> ``u8/u16/u32/u64``
+    - ``Float32/64`` / ``float32/64`` -> ``f32/f64``
+    - ``Boolean`` / ``bool`` -> ``b``
+    - ``Utf8`` / ``String`` / ``object`` (str-ish) -> ``s``
+    - ``Categorical`` / ``category`` -> ``c``
+    - Other / unknown -> str(dtype).lower()
+    Same on-disk dtype yields the same canonical form across polars / pandas; cache reuse works irrespective of which backend the call site uses.
+    """
+    if pl is not None and isinstance(train_df, pl.DataFrame):
+        items = [(c, str(train_df.schema[c])) for c in train_df.columns]
+    elif hasattr(train_df, "dtypes") and hasattr(train_df, "columns"):
+        # pandas
+        items = [(c, str(train_df.dtypes[c])) for c in train_df.columns]
+    else:
+        return ()
+    return tuple((c, _canonicalise_dtype(dt)) for c, dt in items)
+
+
+def _canonicalise_dtype(dt: str) -> str:
+    """Map polars / pandas dtype strings to a single canonical form (see ``_canonical_dtype_pairs`` docstring for table)."""
+    s = str(dt).strip().lower()
+    if s.startswith("int"):
+        return "i" + s[len("int"):]
+    if s.startswith("uint"):
+        return "u" + s[len("uint"):]
+    if s.startswith("float"):
+        return "f" + s[len("float"):]
+    if s in ("boolean", "bool"):
+        return "b"
+    if s in ("utf8", "string", "object", "str"):
+        return "s"
+    if s in ("categorical", "category"):
+        return "c"
+    return s
 
 
 # XGB DMatrix / LGB Dataset reuse cache attribute names: forwarded across sklearn.clone() in both

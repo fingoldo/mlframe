@@ -981,7 +981,19 @@ def _monotonic_residual_fit(
     n_knots: int = _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
     min_knot_n: int = _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N,
 ) -> dict[str, Any]:
-    """Fit a monotone PCHIP spline g(base) via per-quantile-knot medians and orient by the sign of the global Spearman correlation between y and base. Stores the knot x/y arrays + the global y mean as a fallback. Domain at predict time: base values outside [knots_x[0], knots_x[-1]] are clipped to the edge knots (PCHIP extrapolation is not safe -- it can run off to +/- inf rapidly)."""
+    """Fit a monotone PCHIP spline g(base) via per-quantile-knot medians and orient by the sign of the global Spearman correlation between y and base. Stores the knot x/y arrays + the global y mean as a fallback. Domain at predict time: base values outside [knots_x[0], knots_x[-1]] are clipped to the edge knots (PCHIP extrapolation is not safe -- it can run off to +/- inf rapidly).
+
+    Pack #3 2026-05-18 auto-knot tuning: when ``base`` has few unique
+    values (categorical / discrete), 12 default knots oversmooth -- many
+    knots collapse to identical x positions, leaving < n_eff effective
+    knots and a wobbly spline that often goes degenerate. Auto-cap
+    ``n_knots`` at ``min(12, max(3, n_unique_base // 200))`` so the
+    knot count scales with the base's effective cardinality.
+    """
+    base_f_for_unique = np.asarray(base, dtype=np.float64).reshape(-1)
+    _n_unique_base = int(np.unique(base_f_for_unique[np.isfinite(base_f_for_unique)]).size)
+    _auto_knots = max(3, _n_unique_base // 200) if _n_unique_base else n_knots
+    n_knots = min(int(n_knots), _auto_knots)
     n_knots = max(3, int(n_knots))
     min_knot_n = max(2, int(min_knot_n))
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
