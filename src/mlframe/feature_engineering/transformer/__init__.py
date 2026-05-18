@@ -110,7 +110,11 @@ from .smote_distance import compute_smote_distance_features
 from .row_attention import attend, build_key_bank, compute_row_attention
 from .spectral_attention import compute_spectral_attention
 from .stacked_attention import compute_stacked_row_attention
+from .quantile_spread_fan import compute_quantile_spread_fan_features
+from .sign_residual_baseline import compute_sign_residual_baseline_features
 from .target_quantile import compute_target_quantile_attention
+from .trust_score_oof import compute_trust_score_oof_features
+from .variance_baseline import compute_variance_baseline_features
 
 __all__ = [
     "attend",
@@ -186,6 +190,10 @@ __all__ = [
     "compute_pure_pos_smote_features",
     "compute_quantile_band_attention_features",
     "compute_quantile_neighbours",
+    "compute_quantile_spread_fan_features",
+    "compute_sign_residual_baseline_features",
+    "compute_trust_score_oof_features",
+    "compute_variance_baseline_features",
     "compute_residual_attention",
     "compute_residual_band_attention_features",
     "compute_rf_proximity_attention",

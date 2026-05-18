@@ -108,6 +108,10 @@ from mlframe.feature_engineering.transformer import (
     compute_pure_pos_smote_features,
     compute_quantile_band_attention_features,
     compute_quantile_neighbours,
+    compute_quantile_spread_fan_features,
+    compute_sign_residual_baseline_features,
+    compute_trust_score_oof_features,
+    compute_variance_baseline_features,
     compute_residual_attention,
     compute_residual_band_attention_features,
     compute_rf_proximity_attention,
@@ -7477,6 +7481,194 @@ def test_iter86_mammography():
 
 def test_iter86_diabetes():
     _run_iter86_test(_load_diabetes_classification, "diabetes_iter86")
+
+
+# ========== iter 87: Variance baseline (predict squared residual, C3) ==========
+
+
+def _features_varbase(X_tr, X_te, y_tr, task):
+    splitter = KFold(n_splits=5, shuffle=True, random_state=42)
+    task_str = "binary" if task == "binary" else "regression"
+    v_te = compute_variance_baseline_features(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
+    v_tr = compute_variance_baseline_features(X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str).to_numpy()
+    return np.concatenate([X_tr, v_tr], axis=1), np.concatenate([X_te, v_te], axis=1)
+
+
+def _features_varbase_plus_rff(X_tr, X_te, y_tr, task):
+    rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
+    v_tr, v_te = _features_varbase(X_tr, X_te, y_tr, task)
+    only = lambda f, n: f[:, n:]
+    return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(v_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(v_te, X_te.shape[1])], axis=1))
+
+
+def _features_varbase_plus_cdist(X_tr, X_te, y_tr, task):
+    cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
+    v_tr, v_te = _features_varbase(X_tr, X_te, y_tr, task)
+    only = lambda f, n: f[:, n:]
+    return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(v_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(v_te, X_te.shape[1])], axis=1))
+
+
+FEATURE_BUILDERS_ITER87: Dict[str, Callable] = {
+    "raw": _features_raw, "+varbase": _features_varbase,
+    "+varbase+rff": _features_varbase_plus_rff, "+varbase+cdist": _features_varbase_plus_cdist,
+}
+
+
+def _run_iter87_test(loader, name):
+    try: X, y, task = loader()
+    except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+    X, y = _cap_rows(X, y)
+    print(f"\n[iter87-varbase] {name}: X.shape={X.shape}, task={task}")
+    _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER87))
+
+
+def test_iter87_kin8nm(): _run_iter87_test(_load_kin8nm, "kin8nm_iter87")
+def test_iter87_abalone(): _run_iter87_test(_load_abalone, "abalone_iter87")
+def test_iter87_mammography(): _run_iter87_test(_load_mammography, "mammography_iter87")
+def test_iter87_diabetes(): _run_iter87_test(_load_diabetes_classification, "diabetes_iter87")
+
+
+# ========== iter 88: Sign-of-residual baseline (C5) ==========
+
+
+def _features_signres(X_tr, X_te, y_tr, task):
+    splitter = KFold(n_splits=5, shuffle=True, random_state=42)
+    task_str = "binary" if task == "binary" else "regression"
+    s_te = compute_sign_residual_baseline_features(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
+    s_tr = compute_sign_residual_baseline_features(X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str).to_numpy()
+    return np.concatenate([X_tr, s_tr], axis=1), np.concatenate([X_te, s_te], axis=1)
+
+
+def _features_signres_plus_rff(X_tr, X_te, y_tr, task):
+    rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
+    s_tr, s_te = _features_signres(X_tr, X_te, y_tr, task)
+    only = lambda f, n: f[:, n:]
+    return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(s_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(s_te, X_te.shape[1])], axis=1))
+
+
+def _features_signres_plus_cdist(X_tr, X_te, y_tr, task):
+    cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
+    s_tr, s_te = _features_signres(X_tr, X_te, y_tr, task)
+    only = lambda f, n: f[:, n:]
+    return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(s_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(s_te, X_te.shape[1])], axis=1))
+
+
+FEATURE_BUILDERS_ITER88: Dict[str, Callable] = {
+    "raw": _features_raw, "+signres": _features_signres,
+    "+signres+rff": _features_signres_plus_rff, "+signres+cdist": _features_signres_plus_cdist,
+}
+
+
+def _run_iter88_test(loader, name):
+    try: X, y, task = loader()
+    except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+    X, y = _cap_rows(X, y)
+    print(f"\n[iter88-signres] {name}: X.shape={X.shape}, task={task}")
+    _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER88))
+
+
+def test_iter88_kin8nm(): _run_iter88_test(_load_kin8nm, "kin8nm_iter88")
+def test_iter88_abalone(): _run_iter88_test(_load_abalone, "abalone_iter88")
+def test_iter88_mammography(): _run_iter88_test(_load_mammography, "mammography_iter88")
+def test_iter88_diabetes(): _run_iter88_test(_load_diabetes_classification, "diabetes_iter88")
+
+
+# ========== iter 89: Quantile-spread fan (C1) ==========
+
+
+def _features_qfan(X_tr, X_te, y_tr, task):
+    splitter = KFold(n_splits=5, shuffle=True, random_state=42)
+    task_str = "binary" if task == "binary" else "regression"
+    q_te = compute_quantile_spread_fan_features(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
+    q_tr = compute_quantile_spread_fan_features(X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str).to_numpy()
+    return np.concatenate([X_tr, q_tr], axis=1), np.concatenate([X_te, q_te], axis=1)
+
+
+def _features_qfan_plus_rff(X_tr, X_te, y_tr, task):
+    rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
+    q_tr, q_te = _features_qfan(X_tr, X_te, y_tr, task)
+    only = lambda f, n: f[:, n:]
+    return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(q_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(q_te, X_te.shape[1])], axis=1))
+
+
+def _features_qfan_plus_cdist(X_tr, X_te, y_tr, task):
+    cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
+    q_tr, q_te = _features_qfan(X_tr, X_te, y_tr, task)
+    only = lambda f, n: f[:, n:]
+    return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(q_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(q_te, X_te.shape[1])], axis=1))
+
+
+FEATURE_BUILDERS_ITER89: Dict[str, Callable] = {
+    "raw": _features_raw, "+qfan": _features_qfan,
+    "+qfan+rff": _features_qfan_plus_rff, "+qfan+cdist": _features_qfan_plus_cdist,
+}
+
+
+def _run_iter89_test(loader, name):
+    try: X, y, task = loader()
+    except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+    X, y = _cap_rows(X, y)
+    print(f"\n[iter89-qfan] {name}: X.shape={X.shape}, task={task}")
+    _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER89))
+
+
+def test_iter89_kin8nm(): _run_iter89_test(_load_kin8nm, "kin8nm_iter89")
+def test_iter89_abalone(): _run_iter89_test(_load_abalone, "abalone_iter89")
+def test_iter89_mammography(): _run_iter89_test(_load_mammography, "mammography_iter89")
+def test_iter89_diabetes(): _run_iter89_test(_load_diabetes_classification, "diabetes_iter89")
+
+
+# ========== iter 90: Trust score via OOF correctness density (B2) ==========
+
+
+def _features_trust(X_tr, X_te, y_tr, task):
+    splitter = KFold(n_splits=5, shuffle=True, random_state=42)
+    task_str = "binary" if task == "binary" else "regression"
+    t_te = compute_trust_score_oof_features(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
+    t_tr = compute_trust_score_oof_features(X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str).to_numpy()
+    return np.concatenate([X_tr, t_tr], axis=1), np.concatenate([X_te, t_te], axis=1)
+
+
+def _features_trust_plus_rff(X_tr, X_te, y_tr, task):
+    rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
+    t_tr, t_te = _features_trust(X_tr, X_te, y_tr, task)
+    only = lambda f, n: f[:, n:]
+    return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(t_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(t_te, X_te.shape[1])], axis=1))
+
+
+def _features_trust_plus_cdist(X_tr, X_te, y_tr, task):
+    cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
+    t_tr, t_te = _features_trust(X_tr, X_te, y_tr, task)
+    only = lambda f, n: f[:, n:]
+    return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(t_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(t_te, X_te.shape[1])], axis=1))
+
+
+FEATURE_BUILDERS_ITER90: Dict[str, Callable] = {
+    "raw": _features_raw, "+trust": _features_trust,
+    "+trust+rff": _features_trust_plus_rff, "+trust+cdist": _features_trust_plus_cdist,
+}
+
+
+def _run_iter90_test(loader, name):
+    try: X, y, task = loader()
+    except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+    X, y = _cap_rows(X, y)
+    print(f"\n[iter90-trust] {name}: X.shape={X.shape}, task={task}")
+    _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER90))
+
+
+def test_iter90_kin8nm(): _run_iter90_test(_load_kin8nm, "kin8nm_iter90")
+def test_iter90_abalone(): _run_iter90_test(_load_abalone, "abalone_iter90")
+def test_iter90_mammography(): _run_iter90_test(_load_mammography, "mammography_iter90")
+def test_iter90_diabetes(): _run_iter90_test(_load_diabetes_classification, "diabetes_iter90")
 
 
 # ---------- structural-signal hard test ----------
