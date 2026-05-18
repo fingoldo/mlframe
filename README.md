@@ -11,6 +11,10 @@ A production-grade machine-learning framework for tabular data. One uniform entr
 
 ## Recent changes
 
+2026-05-18 audit-fixes wave (`audit-fixes-2026-05-16`). Closes the 13-item honest gaps list from the TVT production log analysis. Highlights: Pack #10 NameError fix, Pack G universal watchdog (now catches multiplicative-transform divergence), real parallel composite-candidate evaluation (`discovery_n_jobs > 1`, 5-10x speedup via joblib threading), Hermite EngineeredRecipe + predict-time replay (closes the "88-min Optuna found but transform couldn't reproduce" gap), `recover_composite_y_scale_metrics` lazy-recovery helper for `skip_wrap_pass_predict=True` callers, `use_stacked_discovery_residual` flag wiring `fit_stacked_on_residual` into the suite, MRMR identity-cache thread-safety, opt-in y-fingerprint cache mode. New benchmarks: `profiling/bench_stacked_discovery_default_flip.py` (verdict: keep False), `profiling/bench_hermite_ram_and_df_mutation.py` (pandas vs polars memory equivalent).
+
+2026-05-17 new `mlframe.feature_engineering.transformer` subpackage. Three frozen "transformer-style" FE blocks for tabular models (CatBoost / LightGBM / XGBoost / linear): Random Fourier Features (`compute_rff_features`), sinusoidal positional encoding (`compute_positional_encoding` + `positions_within_group`), and multi-head softmax-weighted kNN-target-encoding over random subspaces (`compute_row_attention`). The pipeline scales to 1-10M rows by 10k-20k cols via a mandatory random-projection front-end and an hnswlib ANN backend; GPU (cupy) accelerates the two stages where it actually wins on this scale (RFF matmul with pinned-memory streaming, row-attention stage-4 fused RawKernel). All other stages (projection in Mode A, ANN build/query, standardisation, positional encoding) are CPU only by design — H2D bandwidth at d=20k dominates GPU compute and cuVS has no Windows wheel. Honest framing: without backprop, "attention" here is (a) random-projection nonlinear feature maps (RFF), (b) softmax-weighted kNN-target-encoding (row-attn) — useful techniques for trees / linear, but the "transformer" name is structural, not algorithmic. Strict OOF discipline on train (mirrors `bruteforce._kfold_target_encode`); train-only key-bank for val / test / OOS / holdout; `seed` is a required positional argument so derived-from-data seeds can't silently leak. Three biz_value harnesses with hard-pass lift thresholds (RFF >= 0.30 R² lift for Ridge; row-attention >= 0.03 AUC lift vs raw AND >= 0.01 lift vs plain kNN-target-encoding) gate the block's "is this theatre?" question. New extras `mlframe[transformer]`, `mlframe[transformer_ann]` (hnswlib), `mlframe[transformer_gpu]` (cupy-cuda12x), `mlframe[transformer_full]`.
+
 2026-05-16 multi-agent audit overhaul of `train_mlframe_models_suite` (branch `audit-fixes-2026-05-16`, 83 commits). User-facing highlights:
 
 - **Honest stacking and calibration.** Level-1 stacking now consumes K-fold OOF predictions instead of in-sample train_preds; val rows are reserved for early stopping only; opt-in `TrainingSplitConfig.calib_size` carves a dedicated calibration slice so `post_calibrate_model` never fits on test rows.
@@ -57,6 +61,10 @@ pip install mlframe[signal]               # antropy + astropy + pywavelets + rup
 pip install mlframe[unsupervised]         # hdbscan + umap-learn
 pip install mlframe[stats]                # statsmodels
 pip install mlframe[gpu]                  # cupy + gpu-info (match your CUDA build)
+pip install mlframe[transformer]          # transformer-style FE: numba-only CPU path (RFF + PE + row-attention without ANN)
+pip install mlframe[transformer_ann]      # adds hnswlib so compute_row_attention can use approximate-NN at N >= 500k
+pip install mlframe[transformer_gpu]      # adds cupy-cuda12x for the two GPU stages (RFF matmul + row-attention stage 4)
+pip install mlframe[transformer_full]     # transformer + ann + gpu (recommended for production boxes)
 pip install mlframe[all]                  # all runtime extras above
 pip install mlframe[dev]                  # pytest + coverage + ruff + black + mypy + bandit + pre-commit
 ```
