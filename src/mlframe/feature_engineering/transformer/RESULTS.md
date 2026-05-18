@@ -2626,6 +2626,56 @@ Per user "тестируй все их находки", 6 ideas remain — sched
 - iter 85 geom #3 geodesic distance via kNN graph — mammography
 - iter 86 geom #4 persistence diagram features — kin8nm topology
 
+## Iter 87-101: 15 mechanisms from new 3-agent synthesis (symbolic / conformal / multi-task)
+
+Per user request after iter 86, 3 new agents were spawned with new angles (symbolic-rule extraction
+A, conformal/UQ B, multi-task/auxiliary C). Each proposed 5 ideas. All 15 implemented in compact
+modules and tested on 4 datasets.
+
+### Iter 87-90 (batch 1, tested earlier):
+- iter 87 `variance_baseline` (C3): 2-stage OOF, predict (y-ŷ)² as target. Modest.
+- iter 88 `sign_residual_baseline` (C5): classify sign(y-ŷ). Modest.
+- iter 89 `quantile_spread_fan` (C1): 3 LGB quantile losses {0.1, 0.5, 0.9}. abalone XGB R² +2.76% under iter 61.
+- iter 90 `trust_score_oof` (B2): kNN distance to OOF-correct rows. mammography +cdist LGB PR_AUC +15.76% under iter-45 +18.81%.
+
+### Iter 91-101 (batch 2-3, this run, 44 tests, ~12 min):
+- iter 91 `conformal_coverage_failure` (B5): fraction-covered in kNN neighbors. mammography +cdist LGB PR_AUC +12.01% under iter-45.
+- iter 92 `tree_path_boolean` (A1): top-8 LGB root→leaf paths as booleans. mammography +cdist LGB PR_AUC +12.12% under iter-45; LGB AUC +7.41% under iter-66 +14.46%.
+- iter 93 `conformal_locally_adaptive` (B1): kNN-MAD local sigma + α-quantile interval width. mammography +cdist LGB PR_AUC +13.13%; diabetes alone CB PR_AUC +3.99% under iter-77 +6.75%.
+- iter 94 `distributional_moments` (B3): 7 quantile LGBs → skew + kurtosis + tail-mass. mammography +rff LGB AUC +11.15% under iter-66; diabetes alone CB PR_AUC +4.64%.
+- iter 95 `cross_feature_reconstruction` (C2): leave-one-feature-out reconstruction residuals. kin8nm +rff XGB R² +13.78% under iter-5 +14.01% by 0.23pp.
+- iter 96 `multi_threshold_ordinal` (C4): K binary classifiers at y-quintile thresholds. abalone alone XGB R² +2.68% under iter-61.
+- iter 97 `mdl_binning_pairwise` (A2): Fayyad-Irani MDL bin edges + pairwise co-occurrence. mammography +cdist LGB PR_AUC +12.99% under iter-45.
+- iter 98 `apriori_itemsets` (A3): mlxtend FP-growth with lift-ranking. diabetes alone CB PR_AUC +3.46%; mammography +cdist LGB PR_AUC +13.45% under iter-45.
+- iter 99 `target_kmeans_codebook` (A4): MiniBatchKMeans on [X, ŷ_baseline] joint space. mammography +cdist LGB PR_AUC **+14.00%** (highest in batch, still under iter-45 +18.81% by 4.81pp).
+- iter 100 `fca_closed_concepts` (A5): Formal Concept Analysis via `concepts` lib. Modest, no records.
+- iter 101 `jackknife_endpoint_stability` (B4): K=10 bagged baselines, spread of quantile endpoints. kin8nm +rff XGB R² +12.48%; mammography +cdist LGB PR_AUC under records.
+
+### Verdict on 2nd 3-agent synthesis
+
+**0 records across 15 new mechanisms.**
+
+15/15 = **0% record rate** — the existing 7 standing records (iter 61, 66, 68 marginal, 69, 72, 77
+marginal) all survived. Hybrid features from "novel angles" consistently produce modest lifts
+(0-5% range) but cannot exceed:
+- mammography LGB AUC +14.46% (iter 66)
+- abalone XGB R² +4.05% (iter 61)
+- abalone LGB R² +3.19% (iter 72 — pure density gradient, no baseline)
+- diabetes CB PR_AUC +6.75% (iter 77 — local curvature, no baseline)
+
+**Convergent observation**: the **lower-bound record-holders** (iter 72 + iter 77) use **NO baseline
+at all** — pure-input-X geometric mechanisms (density gradient + local curvature on kNN
+neighborhoods). The 15 new mechanisms all use baselines (stacking) and none beat the no-baseline
+geometric mechanisms on their respective dataset.
+
+**Hypothesis**: stacking-based features saturate at moderate lift (~5-15%) because the downstream
+boosting can partially recover their signal from raw X. Pure-X geometric mechanisms encode
+information the downstream boosting cannot reconstruct (density gradient is not a function of any
+finite tree depth) and so contribute marginal records.
+
+**Practical takeaway**: future record-hunting should prioritize pure-input-X geometric / topological
+invariants over baseline-driven stacking variants.
+
 ## All 15 agent ideas tested — final session verdict
 
 Per user "тестируй все их находки", all 15 ideas from 3-agent synthesis (iter 72-86) implemented and tested. Iter 79-86 covered: adversarial flip distance, gradient direction agreement, Fisher-weighted residual band, predictive info delta, decision region depth probes, IB-quantized baseline codes, geodesic distance via kNN graph, persistence diagram via gudhi (installed).

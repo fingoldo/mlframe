@@ -33,6 +33,41 @@ Closes the honest-gaps list from the TVT production log analysis. 21 distinct T-
 - **y-fingerprint `max_sample=1000`** (T2#11) - docstring expanded.
 - **`fe_adaptive_relax_factor=0.9`** (T2#12) - rationale captured in init docstring.
 
+## 2026-07-28 — Iter 87-101: 15 NEW mechanisms from 2nd 3-agent synthesis (symbolic / conformal / multi-task) — 0 records
+
+Per user "тестируй все находки", spawned 3 new agents (symbolic-rule A, conformal/UQ B, multi-task C)
+after iter 86; each proposed 5 ideas. All 15 implemented in compact modules (~80-120 LOC each):
+
+- iter 87 variance_baseline (C3): predict (y-ŷ)² as target → σ²(x) feature.
+- iter 88 sign_residual_baseline (C5): classify sign(y-ŷ) → asymmetric bias.
+- iter 89 quantile_spread_fan (C1): 3 LGB with quantile losses {0.1, 0.5, 0.9}.
+- iter 90 trust_score_oof (B2): kNN to OOF-correct rows of each class.
+- iter 91 conformal_coverage_failure (B5): split-conformal coverage in kNN neighbors.
+- iter 92 tree_path_boolean (A1): top-K LGB root→leaf paths as boolean conjunctions.
+- iter 93 conformal_locally_adaptive (B1): kNN-MAD local σ + α-quantile interval widths.
+- iter 94 distributional_moments (B3): 7 quantile LGBs → skew + kurtosis + tail-mass.
+- iter 95 cross_feature_reconstruction (C2): leave-one-feature-out reconstruction residuals.
+- iter 96 multi_threshold_ordinal (C4): K binary classifiers at y-quantile thresholds.
+- iter 97 mdl_binning_pairwise (A2): Fayyad-Irani MDL bin edges + pairwise co-occurrence.
+- iter 98 apriori_itemsets (A3): mlxtend FP-growth itemsets with lift ranking.
+- iter 99 target_kmeans_codebook (A4): MiniBatchKMeans on [X, ŷ_baseline] joint space.
+- iter 100 fca_closed_concepts (A5): Formal Concept Analysis via `concepts` lib.
+- iter 101 jackknife_endpoint_stability (B4): K bagged baselines, spread of quantile endpoints.
+
+Test runs: 44 tests (11 mechanisms × 4 datasets) in ~12 minutes on Windows + LGB CPU.
+
+**0 records broken**. Best lifts: mammography +cdist LGB PR_AUC +14.00% (iter 99) under iter-45 +18.81%;
+kin8nm +rff XGB R² +13.78% (iter 95) under iter-5 +14.01%; diabetes alone CB PR_AUC +4.64% (iter 94)
+under iter-77 +6.75%.
+
+**Convergent observation across 30 total agent-suggested mechanisms (iter 72-101)**: the 2 records
+that emerged (iter 72 ldgrad density gradient + iter 77 curv local curvature) both use NO baseline —
+pure input-X geometry on kNN neighborhoods. The other 28 mechanisms use baselines/stacking and
+produce 0-15% lifts but cannot beat the no-baseline geometric mechanisms. Hypothesis: pure-X
+geometric invariants encode information downstream boosting cannot reconstruct from raw X.
+
+Optional libs installed: ngboost, mlxtend (with numpy>=2 monkey-patch for np.in1d), concepts.
+
 ## 2026-07-27 — Iter 78-86: All 15 ideas from 3-agent synthesis tested
 
 Per user "тестируй все их находки", all 15 ideas from 3-agent synthesis (info-theoretic / geometric / adversarial) implemented and tested:

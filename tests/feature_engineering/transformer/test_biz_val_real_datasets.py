@@ -107,8 +107,19 @@ from mlframe.feature_engineering.transformer import (
     compute_pseudo_smote_features,
     compute_pure_pos_smote_features,
     compute_quantile_band_attention_features,
+    compute_apriori_itemsets_features,
+    compute_conformal_coverage_failure_features,
+    compute_conformal_locally_adaptive_features,
+    compute_cross_feature_reconstruction_features,
+    compute_distributional_moments_features,
+    compute_fca_closed_concepts_features,
+    compute_jackknife_endpoint_stability_features,
+    compute_mdl_binning_pairwise_features,
+    compute_multi_threshold_ordinal_features,
     compute_quantile_neighbours,
     compute_quantile_spread_fan_features,
+    compute_target_kmeans_codebook_features,
+    compute_tree_path_boolean_features,
     compute_sign_residual_baseline_features,
     compute_trust_score_oof_features,
     compute_variance_baseline_features,
@@ -7669,6 +7680,132 @@ def test_iter90_kin8nm(): _run_iter90_test(_load_kin8nm, "kin8nm_iter90")
 def test_iter90_abalone(): _run_iter90_test(_load_abalone, "abalone_iter90")
 def test_iter90_mammography(): _run_iter90_test(_load_mammography, "mammography_iter90")
 def test_iter90_diabetes(): _run_iter90_test(_load_diabetes_classification, "diabetes_iter90")
+
+
+# ========== iter 91-101: 11 mechanisms from 3-agent synthesis batch 2+3 ==========
+
+
+def _make_builders(compute_fn, prefix: str):
+    """Factory: produces 4 builder funcs (alone/+rff/+cdist) + FEATURE_BUILDERS dict."""
+    def _alone(X_tr, X_te, y_tr, task):
+        splitter = KFold(n_splits=5, shuffle=True, random_state=42)
+        task_str = "binary" if task == "binary" else "regression"
+        te = compute_fn(X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=42, task=task_str).to_numpy()
+        tr = compute_fn(X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=42, task=task_str).to_numpy()
+        return np.concatenate([X_tr, tr], axis=1), np.concatenate([X_te, te], axis=1)
+    def _plus_rff(X_tr, X_te, y_tr, task):
+        rff_tr, rff_te = _features_rff(X_tr, X_te, y_tr, task)
+        m_tr, m_te = _alone(X_tr, X_te, y_tr, task)
+        only = lambda f, n: f[:, n:]
+        return (np.concatenate([X_tr, only(rff_tr, X_tr.shape[1]), only(m_tr, X_tr.shape[1])], axis=1),
+                np.concatenate([X_te, only(rff_te, X_te.shape[1]), only(m_te, X_te.shape[1])], axis=1))
+    def _plus_cdist(X_tr, X_te, y_tr, task):
+        cd_tr, cd_te = _features_cdist(X_tr, X_te, y_tr, task)
+        m_tr, m_te = _alone(X_tr, X_te, y_tr, task)
+        only = lambda f, n: f[:, n:]
+        return (np.concatenate([X_tr, only(cd_tr, X_tr.shape[1]), only(m_tr, X_tr.shape[1])], axis=1),
+                np.concatenate([X_te, only(cd_te, X_te.shape[1]), only(m_te, X_te.shape[1])], axis=1))
+    builders = {"raw": _features_raw, f"+{prefix}": _alone,
+                f"+{prefix}+rff": _plus_rff, f"+{prefix}+cdist": _plus_cdist}
+    return builders
+
+
+def _make_runner(iter_n: int, prefix: str, builders: Dict[str, Callable]):
+    def _run(loader, name):
+        try: X, y, task = loader()
+        except Exception as exc: print(f"\n[skip] {name}: {exc}"); return
+        X, y = _cap_rows(X, y)
+        print(f"\n[iter{iter_n}-{prefix}] {name}: X.shape={X.shape}, task={task}")
+        _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=builders))
+    return _run
+
+
+_BUILDERS_91 = _make_builders(compute_conformal_coverage_failure_features, "ccf")
+_RUN_91 = _make_runner(91, "ccf", _BUILDERS_91)
+def test_iter91_kin8nm(): _RUN_91(_load_kin8nm, "kin8nm_iter91")
+def test_iter91_abalone(): _RUN_91(_load_abalone, "abalone_iter91")
+def test_iter91_mammography(): _RUN_91(_load_mammography, "mammography_iter91")
+def test_iter91_diabetes(): _RUN_91(_load_diabetes_classification, "diabetes_iter91")
+
+
+_BUILDERS_92 = _make_builders(compute_tree_path_boolean_features, "tpath")
+_RUN_92 = _make_runner(92, "tpath", _BUILDERS_92)
+def test_iter92_kin8nm(): _RUN_92(_load_kin8nm, "kin8nm_iter92")
+def test_iter92_abalone(): _RUN_92(_load_abalone, "abalone_iter92")
+def test_iter92_mammography(): _RUN_92(_load_mammography, "mammography_iter92")
+def test_iter92_diabetes(): _RUN_92(_load_diabetes_classification, "diabetes_iter92")
+
+
+_BUILDERS_93 = _make_builders(compute_conformal_locally_adaptive_features, "cla")
+_RUN_93 = _make_runner(93, "cla", _BUILDERS_93)
+def test_iter93_kin8nm(): _RUN_93(_load_kin8nm, "kin8nm_iter93")
+def test_iter93_abalone(): _RUN_93(_load_abalone, "abalone_iter93")
+def test_iter93_mammography(): _RUN_93(_load_mammography, "mammography_iter93")
+def test_iter93_diabetes(): _RUN_93(_load_diabetes_classification, "diabetes_iter93")
+
+
+_BUILDERS_94 = _make_builders(compute_distributional_moments_features, "distmom")
+_RUN_94 = _make_runner(94, "distmom", _BUILDERS_94)
+def test_iter94_kin8nm(): _RUN_94(_load_kin8nm, "kin8nm_iter94")
+def test_iter94_abalone(): _RUN_94(_load_abalone, "abalone_iter94")
+def test_iter94_mammography(): _RUN_94(_load_mammography, "mammography_iter94")
+def test_iter94_diabetes(): _RUN_94(_load_diabetes_classification, "diabetes_iter94")
+
+
+_BUILDERS_95 = _make_builders(compute_cross_feature_reconstruction_features, "xfeat")
+_RUN_95 = _make_runner(95, "xfeat", _BUILDERS_95)
+def test_iter95_kin8nm(): _RUN_95(_load_kin8nm, "kin8nm_iter95")
+def test_iter95_abalone(): _RUN_95(_load_abalone, "abalone_iter95")
+def test_iter95_mammography(): _RUN_95(_load_mammography, "mammography_iter95")
+def test_iter95_diabetes(): _RUN_95(_load_diabetes_classification, "diabetes_iter95")
+
+
+_BUILDERS_96 = _make_builders(compute_multi_threshold_ordinal_features, "multthr")
+_RUN_96 = _make_runner(96, "multthr", _BUILDERS_96)
+def test_iter96_kin8nm(): _RUN_96(_load_kin8nm, "kin8nm_iter96")
+def test_iter96_abalone(): _RUN_96(_load_abalone, "abalone_iter96")
+def test_iter96_mammography(): _RUN_96(_load_mammography, "mammography_iter96")
+def test_iter96_diabetes(): _RUN_96(_load_diabetes_classification, "diabetes_iter96")
+
+
+_BUILDERS_97 = _make_builders(compute_mdl_binning_pairwise_features, "mdlbin")
+_RUN_97 = _make_runner(97, "mdlbin", _BUILDERS_97)
+def test_iter97_kin8nm(): _RUN_97(_load_kin8nm, "kin8nm_iter97")
+def test_iter97_abalone(): _RUN_97(_load_abalone, "abalone_iter97")
+def test_iter97_mammography(): _RUN_97(_load_mammography, "mammography_iter97")
+def test_iter97_diabetes(): _RUN_97(_load_diabetes_classification, "diabetes_iter97")
+
+
+_BUILDERS_98 = _make_builders(compute_apriori_itemsets_features, "apri")
+_RUN_98 = _make_runner(98, "apri", _BUILDERS_98)
+def test_iter98_kin8nm(): _RUN_98(_load_kin8nm, "kin8nm_iter98")
+def test_iter98_abalone(): _RUN_98(_load_abalone, "abalone_iter98")
+def test_iter98_mammography(): _RUN_98(_load_mammography, "mammography_iter98")
+def test_iter98_diabetes(): _RUN_98(_load_diabetes_classification, "diabetes_iter98")
+
+
+_BUILDERS_99 = _make_builders(compute_target_kmeans_codebook_features, "tkmc")
+_RUN_99 = _make_runner(99, "tkmc", _BUILDERS_99)
+def test_iter99_kin8nm(): _RUN_99(_load_kin8nm, "kin8nm_iter99")
+def test_iter99_abalone(): _RUN_99(_load_abalone, "abalone_iter99")
+def test_iter99_mammography(): _RUN_99(_load_mammography, "mammography_iter99")
+def test_iter99_diabetes(): _RUN_99(_load_diabetes_classification, "diabetes_iter99")
+
+
+_BUILDERS_100 = _make_builders(compute_fca_closed_concepts_features, "fca")
+_RUN_100 = _make_runner(100, "fca", _BUILDERS_100)
+def test_iter100_kin8nm(): _RUN_100(_load_kin8nm, "kin8nm_iter100")
+def test_iter100_abalone(): _RUN_100(_load_abalone, "abalone_iter100")
+def test_iter100_mammography(): _RUN_100(_load_mammography, "mammography_iter100")
+def test_iter100_diabetes(): _RUN_100(_load_diabetes_classification, "diabetes_iter100")
+
+
+_BUILDERS_101 = _make_builders(compute_jackknife_endpoint_stability_features, "jkep")
+_RUN_101 = _make_runner(101, "jkep", _BUILDERS_101)
+def test_iter101_kin8nm(): _RUN_101(_load_kin8nm, "kin8nm_iter101")
+def test_iter101_abalone(): _RUN_101(_load_abalone, "abalone_iter101")
+def test_iter101_mammography(): _RUN_101(_load_mammography, "mammography_iter101")
+def test_iter101_diabetes(): _RUN_101(_load_diabetes_classification, "diabetes_iter101")
 
 
 # ---------- structural-signal hard test ----------
