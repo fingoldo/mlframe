@@ -865,13 +865,51 @@ def _run_suite_profiled(
         try:
             _save_tmpdir_obj = tempfile.mkdtemp(prefix="mlframe_prof_save_")
             _save_root = Path(_save_tmpdir_obj)
+            # Mirror production's _persist_ct_ensemble_entries slug-map
+            # registration. Production only runs that finalize step when
+            # output_config (data_dir/models_dir) is set; the harness
+            # trains WITHOUT output_config, so trained_metadata's
+            # slug_to_original_target_name lacks entries for the auto-
+            # generated ``_CT_ENSEMBLE__*`` target_names. Without these,
+            # load_mlframe_suite reads slug "CT_ENSEMBLE__y" (slugify
+            # stripped the leading underscore) and falls back to the
+            # slug itself -- the in-memory dict key becomes
+            # "CT_ENSEMBLE__y" instead of "_CT_ENSEMBLE__y", and the
+            # predict-from-loaded result keys diverge from the
+            # predict-from-memory keys. iter-66 surfaced this as a
+            # parity diff:
+            #   preds_missing_after_load=['regression__CT_ENSEMBLE__y']
+            #   preds_extra_after_load=['regression_CT_ENSEMBLE__y']
+            _meta_for_save = dict(trained_metadata) if isinstance(trained_metadata, dict) else trained_metadata
+            try:
+                _sttn = dict(_meta_for_save.get("slug_to_original_target_name") or {})
+                for _tt_key, _by_name in (trained_models or {}).items():
+                    if not isinstance(_by_name, dict):
+                        continue
+                    for _tname in _by_name.keys():
+                        if not isinstance(_tname, str):
+                            continue
+                        if _tname.startswith("_CT_ENSEMBLE__"):
+                            _sttn[_tname] = _tname
+                            _sttn[_slugify(_tname)] = _tname
+                _meta_for_save["slug_to_original_target_name"] = _sttn
+                # Also stamp slug_to_original_target_type defensively.
+                _sttt = dict(_meta_for_save.get("slug_to_original_target_type") or {})
+                for _tt_key in (trained_models or {}).keys():
+                    if isinstance(_tt_key, str):
+                        _sttt[_slugify(str(_tt_key).lower())] = _tt_key
+                _meta_for_save["slug_to_original_target_type"] = _sttt
+            except Exception:
+                # Best-effort -- if metadata is non-dict for some exotic
+                # reason, fall through and save as-is.
+                pass
             # Suite-level metadata. load_mlframe_suite reads metadata.pkl.zst
             # first; zstd-compressed pickle for compatibility with the loader.
             try:
                 _meta_path = _save_root / "metadata.pkl.zst"
                 _cctx = _zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1)
                 with open(_meta_path, "wb") as _mf:
-                    _mf.write(_cctx.compress(_pickle.dumps(trained_metadata)))
+                    _mf.write(_cctx.compress(_pickle.dumps(_meta_for_save)))
                 if _meta_path.exists():
                     save_total_bytes += _meta_path.stat().st_size
             except Exception as _meta_err:
