@@ -315,13 +315,27 @@ def make_train_test_split(
         45k val rows from outside the Jan-Apr 2014 window were shuffled in
         on top of the sequential 45k that fell inside the window.
         """
+        def _fmt_ts(value):
+            """Format a single timestamp for log lines. Datetime-typed
+            values use ``%Y-%m-%d``; numeric (int/float epoch-seconds or
+            generic numeric proxy) values fall back to ``repr(value)``
+            because the ``%Y-%m-%d`` format-spec raises
+            ``ValueError: Invalid format specifier '%Y-%m-%d' for object
+            of type 'int'`` on non-datetime inputs (the FTE's ``ts_field``
+            plumbing accepts any monotone numeric column).
+            """
+            try:
+                return format(value, "%Y-%m-%d")
+            except (ValueError, TypeError):
+                return str(value)
+
         if sequential_idx is not None and len(sequential_idx) > 0:
-            details = f"{timestamps.iloc[sequential_idx].min():%Y-%m-%d}/{timestamps.iloc[sequential_idx].max():%Y-%m-%d}"
+            details = f"{_fmt_ts(timestamps.iloc[sequential_idx].min())}/{_fmt_ts(timestamps.iloc[sequential_idx].max())}"
             if n_shuffled > 0:
                 details += f" +{n_shuffled}{unit}"
         else:
             if len(idx) > 0:
-                details = f"{timestamps.iloc[idx].min():%Y-%m-%d}/{timestamps.iloc[idx].max():%Y-%m-%d}"
+                details = f"{_fmt_ts(timestamps.iloc[idx].min())}/{_fmt_ts(timestamps.iloc[idx].max())}"
             else:
                 details = ""
         return details
@@ -406,8 +420,17 @@ def make_train_test_split(
 
         # Build detail strings. ``.min()`` on empty index yields NaT, which
         # then crashes the ``:%Y-%m-%d`` formatter. Guard for empty train.
+        # Numeric ts also crashes ``:%Y-%m-%d`` formatter -- reuse the
+        # ``_fmt_ts`` helper defined inside ``_build_details``. (Promoted
+        # to module-private if more sites grow this need; for now inline.)
+        def _fmt_ts(value):
+            try:
+                return format(value, "%Y-%m-%d")
+            except (ValueError, TypeError):
+                return str(value)
+
         if len(train_idx) > 0:
-            train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+            train_details = f"{_fmt_ts(timestamps.iloc[train_idx].min())}/{_fmt_ts(timestamps.iloc[train_idx].max())}"
         else:
             train_details = "(empty)"
 
@@ -427,9 +450,16 @@ def make_train_test_split(
         if trainset_aging_limit:
             train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)):]
 
-        # Build detail strings (same NaT-on-empty guard as above).
+        # Build detail strings (same NaT-on-empty guard as above; also
+        # numeric-ts safe via the inline ``_fmt_ts`` fallback).
+        def _fmt_ts(value):
+            try:
+                return format(value, "%Y-%m-%d")
+            except (ValueError, TypeError):
+                return str(value)
+
         if len(train_idx) > 0:
-            train_details = f"{timestamps.iloc[train_idx].min():%Y-%m-%d}/{timestamps.iloc[train_idx].max():%Y-%m-%d}"
+            train_details = f"{_fmt_ts(timestamps.iloc[train_idx].min())}/{_fmt_ts(timestamps.iloc[train_idx].max())}"
         else:
             train_details = "(empty)"
         val_details = _build_details(timestamps, val_idx, val_idx_seq, n_val_shuf, "R")
