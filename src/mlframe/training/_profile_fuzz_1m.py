@@ -224,17 +224,21 @@ def _make_synthetic_frame(
     # Sibling targets (multi-target / mixed-type fuzz extension). The base ``y`` was
     # already built per ``target_type`` above; here we add ``y2`` (and any future names)
     # using the same numeric features so the model has a chance to learn each one.
+    # iter-141 fix: use only NaN-clean columns (x0/x1/x3) -- x4 and x5 may have NaN
+    # injected at the lines above, which propagates into y2 and trips the
+    # production NaN-target guard at process_model. Observed many times
+    # (iter-77/81/108/136/137/140); see commit log.
     for _name, _kind in (extra_targets or []):
         if _kind == "reg":
             _y2 = (
                 1.2 * cols["x1"]
-                - 0.7 * cols["x2"]
-                + 0.4 * cols["x4"]
+                - 0.7 * cols["x0"]
+                + 0.4 * cols["x3"]
                 + rng.normal(0, 0.5, n_rows).astype("float32")
             )
             cols[_name] = _y2.astype("float32")
         elif _kind == "bin":
-            _logit = -1.0 * cols["x1"] + 0.5 * cols["x3"] + 0.3 * cols["x4"]
+            _logit = -1.0 * cols["x1"] + 0.5 * cols["x3"] + 0.3 * cols["x0"]
             _prob = 1.0 / (1.0 + np.exp(-_logit))
             cols[_name] = (rng.uniform(0, 1, n_rows) < _prob).astype("int32")
         else:
