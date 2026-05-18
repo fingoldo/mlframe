@@ -61,6 +61,7 @@ def _run_composite_target_wrapping(
     test_idx,
     test_df_pd,
     skip_predict: bool = False,
+    enable_watchdog: bool = True,
 ) -> dict[int, np.ndarray]:
     """Wrap T-scale inner models in CompositeTargetEstimator so predict() returns y-scale; record y-scale RMSE/MAE/R2 per split.
 
@@ -244,6 +245,12 @@ def _run_composite_target_wrapping(
                             "MAE_raw": _mae_raw,
                             "MAE_wrapped": _mae_wrapped,
                         }
+                        # HIGH#4 2026-05-18: watchdog short-circuit when caller disabled it.
+                        # The check below does an extra wrapper.predict + inner.predict
+                        # per (entry, split) so a wide model zoo can pay 10s+ on 4M-row
+                        # frames. Caller passes ``enable_watchdog=False`` to skip.
+                        if not enable_watchdog:
+                            continue
                         # Pack G runtime watchdog: detects when wrapper math
                         # silently breaks. Pre-fix this covered only additive
                         # transforms via the ``error_T == error_y`` invariant.
@@ -420,6 +427,7 @@ def recover_composite_y_scale_metrics(
     filtered_val_df,
     test_idx,
     test_df_pd,
+    enable_watchdog: bool = True,
 ) -> dict[int, np.ndarray]:
     """T1#7 2026-05-18 lazy recovery of composite-target y-scale metrics.
 
@@ -451,6 +459,7 @@ def recover_composite_y_scale_metrics(
         test_idx=test_idx,
         test_df_pd=test_df_pd,
         skip_predict=False,
+        enable_watchdog=enable_watchdog,
     )
 
 
@@ -589,6 +598,9 @@ def run_composite_post_processing(
         _skip_predict = bool(getattr(
             composite_target_discovery_config, "skip_wrap_pass_predict", False,
         ))
+        _enable_watchdog = bool(getattr(
+            composite_target_discovery_config, "enable_wrap_pass_watchdog", True,
+        ))
         _train_pred_cache = _run_composite_target_wrapping(
             models=models,
             metadata=metadata,
@@ -601,6 +613,7 @@ def run_composite_post_processing(
             test_idx=test_idx,
             test_df_pd=test_df_pd,
             skip_predict=_skip_predict,
+            enable_watchdog=_enable_watchdog,
         )
 
     # Cross-target ensemble (opt-in). Stored as a SimpleNamespace under models[type][f"_CT_ENSEMBLE__{original_target}"].

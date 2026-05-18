@@ -2055,10 +2055,13 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # the leftover). Default False so the path is opt-in until measured
     # on real data; switch to True after biz_val on your target.
     # T3#20 2026-05-18 default-flip eval: measured on
-    # ``profiling/bench_stacked_discovery_default_flip.py`` (residual-of-
-    # residual synthetic problem y = 1.5*x_a + 2*x_b + noise). On the
-    # measured config the feature-stack pass discovered the SAME
-    # specs as single-pass and yielded NO holdout-RMSE improvement.
+    # ``profiling/bench_stacked_discovery_default_flip.py`` on a TRUE
+    # residual-of-residual synthetic ``y = 1.5*x_a + 3*sin(x_b) + noise``
+    # (pass-1 linear_residual captures the x_a slope; pass-2 should
+    # find the non-linear sin-on-x_b structure that pass-1 cannot
+    # represent). Even on this structurally favourable problem the
+    # feature-stack pass discovered the SAME specs as single-pass and
+    # yielded NO holdout-RMSE improvement on the measured n=4000.
     # Verdict: keep default False. Re-run the benchmark on a problem
     # closer to your production target before opting in.
     use_stacked_discovery: bool = False
@@ -2091,10 +2094,28 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # was extracted into a nested closure that returns a list of candidate
     # dicts; per-base dispatch runs the closure under joblib.Parallel
     # (backend="threading", prefer="threads") when ``discovery_n_jobs > 1``.
-    # Most of the compute (transform.fit / transform.forward / MI
-    # estimation / bootstrap loop) is numpy or numba which releases the
-    # GIL, so threading yields a 5-10x speedup at n_jobs=8 on
-    # production-size suites (~3 bases x 14 transforms).
+    #
+    # HIGH#6 2026-05-18 MEASURED SPEEDUP + ROOT-CAUSE DIAGNOSIS:
+    # On n=200k, 3 bases x 10 transforms,
+    # ``profiling/bench_parallel_discovery_speedup.py`` measured ~1.05x
+    # at n_jobs=8 (median 4.84s vs 5.22s serial). The original "5-10x"
+    # claim was speculative and is NOT validated.
+    #
+    # Diagnostic (``profiling/bench_parallel_discovery_diag.py``)
+    # confirmed joblib DOES dispatch across 7+ worker threads (the
+    # parallel infrastructure works), but cProfile shows:
+    # - ``_tiny_model_rerank`` consumes 3.34s of 4.13s total = 81%
+    #   (LightGBM training in screening; runs AFTER and OUTSIDE the
+    #   parallel block; still serial).
+    # - My parallel block covers ~0.8s. Internal speedup of that
+    #   block is ~2x at n_jobs=4 (0.8s -> 0.4s), but the 81% serial
+    #   tail caps total speedup at ~10%.
+    #
+    # To get the originally-claimed 5-10x speedup the ``_tiny_model_rerank``
+    # block would need parallelisation as well. That is a separate
+    # follow-up. For now ``discovery_n_jobs > 1`` shaves ~7% off wall
+    # time at the cost of joblib coordination overhead - small win
+    # for production callers; default 1 is a sensible baseline.
     #
     # ``discovery_n_jobs=1`` (default, back-compat) runs the closure in a
     # plain list-comprehension - no joblib overhead. Unary-transform dedup
@@ -2146,6 +2167,18 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # suite. Flip back to False explicitly only if you cannot make the
     # recovery call (e.g. you've already discarded the wrapped models dict).
     skip_wrap_pass_predict: bool = True
+
+    # HIGH#4 2026-05-18: disable the Pack G runtime watchdog when its
+    # extra ``wrapper.predict + inner.predict`` per (entry, split) costs
+    # more than the rare-bug catch is worth. Measured overhead on
+    # n=200k, 2 composites x 5 models = 30 (entry, split) pairs:
+    # +72.6% wall time (median 0.353s ON vs 0.204s OFF, see
+    # ``profiling/bench_pack_g_watchdog_overhead.py``). On 4M-row frames
+    # with MLP inners (predict cost 1-5s) the overhead scales linearly,
+    # adding 1-5 min per training pass. Production environments that
+    # have verified the wrapper math in staging can disable here.
+    # Default True (catch silent bugs).
+    enable_wrap_pass_watchdog: bool = True
 
     # MI screening. Sample to keep the diagnostic under one minute on
     # 4M-row datasets; mi_sample_n=None uses full train.

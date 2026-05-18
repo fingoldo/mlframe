@@ -2364,7 +2364,11 @@ class CompositeTargetDiscovery:
                         # and ``tiny_rerank_scores_`` (read-only property; underlying attr is
                         # ``_tiny_rerank_scores``). Returning an empty kept-spec list signals
                         # to the caller that the composite block is skipped; fit's existing
-                        # empty-handling path produces the final ``specs_=[]`` state.
+                        # empty-handling path (line ~878) still populates ``self.report_``
+                        # from the screening-phase ``candidates`` so per-(base, transform)
+                        # rejection diagnostics ARE preserved. The original buggy code
+                        # attempted to add rerank-level entries to ``report_`` which were
+                        # never accessible from this scope anyway -- no diagnostic loss.
                         self._tiny_rerank_scores = {}
                         return []
             self._raw_y_baseline_rmse = (

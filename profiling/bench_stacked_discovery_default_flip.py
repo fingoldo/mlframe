@@ -42,11 +42,27 @@ import pandas as pd
 
 
 def _build_residual_of_residual_problem(n: int = 4000, seed: int = 17):
+    """HIGH#5 2026-05-18: TRUE residual-of-residual structure.
+
+    Pre-fix this used ``y = 1.5*x_a + 2*x_b + noise`` (purely additive
+    linear) which pass-1 linear-residual discovery already captures fully -
+    a zero-lift result was uninformative because the benchmark itself was
+    badly designed.
+
+    True residual-of-residual: pass 1 captures the LINEAR part on x_a;
+    the remaining residual has a NON-LINEAR structure on x_b (here:
+    ``sin(2*pi*x_b/scale)``) that pass-1 linear-residual cannot model
+    directly. Pass 2 should then discover the non-linear composite on
+    the augmented feature set (OOF preds of pass 1 + raw cols).
+    """
     rng = np.random.default_rng(seed)
     x_a = rng.normal(50.0, 10.0, n)
-    x_b = rng.normal(0.0, 5.0, n)
-    noise = rng.normal(0.0, 1.5, n)
-    y = 1.5 * x_a + 2.0 * x_b + noise
+    x_b = rng.normal(0.0, 3.0, n)
+    noise = rng.normal(0.0, 0.3, n)
+    # Linear-on-x_a + sinusoidal-on-x_b. The sin part is invisible to
+    # pass-1 linear_residual on either base; pass 2 should pick it up
+    # after the linear-on-x_a component is OOF-projected out.
+    y = 1.5 * x_a + 3.0 * np.sin(x_b) + noise
 
     df = pd.DataFrame({
         "x_a": x_a, "x_b": x_b,
@@ -96,7 +112,8 @@ def main() -> int:
     print("use_stacked_discovery default-flip evaluation (T3#20)")
     print("=" * 70)
     print()
-    print(f"Problem: y = 1.5*x_a + 2*x_b + noise (n={n})")
+    print(f"Problem: y = 1.5*x_a + 3.0*sin(x_b) + noise (n={n})")
+    print(f"  (true residual-of-residual: linear on x_a + non-linear on x_b)")
     print(f"Feature cols: {feature_cols}")
     print()
 
