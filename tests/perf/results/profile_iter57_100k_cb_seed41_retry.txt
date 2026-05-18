@@ -1,0 +1,50 @@
+# 1M-row e2e profile (n_rows=100_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_low', 'cat_mid', 'text_col', 'y']
+  built frame: 100_000 rows x 12 cols
+  axes: mrmr_fs=True outlier=isolation_forest ensembles=True cat_enc=ordinal scaler=none dim_reducer=none boruta_shap=False poly_deg=0 predict_batch_rows=0 n_targets=1 mix_target_types=False weight=uniform_only
+  axes2: composite_disc=False transforms_mode=off mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=True
+  train wall: 1.6s  status: AttributeError: module 'numpy' has no attribute 'in1d'
+         6416 function calls (6257 primitive calls) in 1.613 seconds
+
+   Ordered by: cumulative time
+   List reduced from 322 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     21/1    0.000    0.000    1.613    1.613 <frozen importlib._bootstrap>:1165(_find_and_load)
+     19/1    0.000    0.000    1.613    1.613 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
+     43/1    0.000    0.000    1.613    1.613 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
+      7/1    0.000    0.000    1.613    1.613 {built-in method builtins.__import__}
+     18/1    0.000    0.000    1.612    1.612 <frozen importlib._bootstrap>:666(_load_unlocked)
+     18/1    0.000    0.000    1.612    1.612 <frozen importlib._bootstrap_external>:934(exec_module)
+       18    0.000    0.000    1.600    0.089 <frozen importlib._bootstrap_external>:1007(get_code)
+       18    0.000    0.000    1.596    0.089 <frozen importlib._bootstrap_external>:1127(get_data)
+       18    1.278    0.071    1.278    0.071 {method 'read' of '_io.BufferedReader' objects}
+     18/1    0.000    0.000    1.208    1.208 {built-in method builtins.exec}
+        1    0.000    0.000    1.208    1.208 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\__init__.py:1(<module>)
+        1    0.000    0.000    0.649    0.649 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\_legacy.py:1(<module>)
+       18    0.317    0.018    0.317    0.018 {built-in method io.open_code}
+        1    0.000    0.000    0.013    0.013 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\discretization.py:1(<module>)
+        1    0.000    0.000    0.012    0.012 D:\ProgramData\anaconda3\Lib\site-packages\astropy\stats\__init__.py:1(<module>)
+     19/6    0.000    0.000    0.012    0.002 <frozen importlib._bootstrap>:1207(_handle_fromlist)
+        1    0.000    0.000    0.011    0.011 D:\ProgramData\anaconda3\Lib\site-packages\astropy\stats\biweight.py:1(<module>)
+        1    0.000    0.000    0.010    0.010 D:\ProgramData\anaconda3\Lib\site-packages\astropy\stats\nanfunctions.py:1(<module>)
+        1    0.000    0.000    0.009    0.009 D:\ProgramData\anaconda3\Lib\site-packages\astropy\units\__init__.py:1(<module>)
+        1    0.000    0.000    0.008    0.008 D:\ProgramData\anaconda3\Lib\site-packages\astropy\units\astrophys.py:1(<module>)
+        1    0.000    0.000    0.008    0.008 D:\ProgramData\anaconda3\Lib\site-packages\astropy\constants\__init__.py:1(<module>)
+        1    0.000    0.000    0.007    0.007 D:\ProgramData\anaconda3\Lib\site-packages\astropy\constants\cgs.py:1(<module>)
+        3    0.000    0.000    0.006    0.002 D:\ProgramData\anaconda3\Lib\importlib\__init__.py:108(import_module)
+        3    0.000    0.000    0.006    0.002 <frozen importlib._bootstrap>:1192(_gcd_import)
+        1    0.000    0.000    0.006    0.006 D:\ProgramData\anaconda3\Lib\site-packages\astropy\constants\config.py:1(<module>)
+        1    0.000    0.000    0.005    0.005 D:\ProgramData\anaconda3\Lib\site-packages\astropy\constants\codata2018.py:1(<module>)
+       18    0.000    0.000    0.005    0.000 <frozen importlib._bootstrap>:1054(_find_spec)
+        1    0.000    0.000    0.005    0.005 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\_numba_utils.py:1(<module>)
+       18    0.000    0.000    0.004    0.000 <frozen importlib._bootstrap_external>:1496(find_spec)
+       18    0.000    0.000    0.004    0.000 <frozen importlib._bootstrap_external>:1464(_get_spec)
+
+
+
+
+# Wall-time summary:
+  regression x cb                                         train=    1.6s  predict=---     save=---             AttributeError: module 'numpy' has no attribute 'in1d'

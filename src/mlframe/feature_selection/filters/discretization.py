@@ -18,10 +18,28 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from astropy.stats import histogram
 from joblib import delayed
 from numba import jit, njit, prange
 from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
+
+try:
+    from astropy.stats import histogram as _astropy_histogram
+except (ImportError, AttributeError):
+    # astropy may be wedged by transitive numpy-API removal (e.g. np.in1d
+    # gone in numpy 2.x while older astropy still imports it). Fall back
+    # to np.histogram — same (hist, edges) contract for string-rule and
+    # integer ``bins`` values; the astropy-specific features (Bayesian
+    # blocks etc.) aren't used in this module.
+    _astropy_histogram = None
+
+
+def histogram(a, bins="auto", **kwargs):
+    """Astropy histogram with np.histogram fallback. See
+    ``mlframe.feature_engineering.numerical.histogram`` for the rationale.
+    """
+    if _astropy_histogram is not None:
+        return _astropy_histogram(a, bins=bins, **kwargs)
+    return np.histogram(a, bins=bins, **kwargs)
 
 from mlframe.core.arrays import arrayMinMax
 from pyutilz.parallel import parallel_run

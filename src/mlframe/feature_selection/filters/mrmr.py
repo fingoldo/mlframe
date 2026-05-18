@@ -36,7 +36,24 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
 
-from astropy.stats import histogram
+try:
+    from astropy.stats import histogram as _astropy_histogram
+except (ImportError, AttributeError):
+    # astropy may be wedged by transitive numpy-API removal (e.g. np.in1d
+    # gone in numpy 2.x while older astropy still imports it). Fall back
+    # to np.histogram — same contract for the bins shapes mrmr uses.
+    _astropy_histogram = None
+
+
+def histogram(a, bins="auto", **kwargs):
+    """Astropy histogram with np.histogram fallback. See
+    ``mlframe.feature_engineering.numerical.histogram`` for the rationale.
+    """
+    if _astropy_histogram is not None:
+        return _astropy_histogram(a, bins=bins, **kwargs)
+    return np.histogram(a, bins=bins, **kwargs)
+
+
 from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 from scipy.stats import mode
