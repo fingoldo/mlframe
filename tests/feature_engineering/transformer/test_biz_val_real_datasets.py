@@ -1069,8 +1069,11 @@ def _print_matrix_multi_metric(records: List[Dict]) -> None:
             print(f"| {dataset} | {boosting} | {score_strs} | {' | '.join(lifts)} |")
 
 
-def _cap_rows(X: np.ndarray, y: np.ndarray, cap: int = 4000, seed: int = 0) -> Tuple[np.ndarray, np.ndarray]:
-    if X.shape[0] <= cap:
+def _cap_rows(X: np.ndarray, y: np.ndarray, cap: Optional[int] = None, seed: int = 0) -> Tuple[np.ndarray, np.ndarray]:
+    # Cap removed: previous default cap=4000 truncated mammography (loss of 64% of positives)
+    # and kin8nm (half the data), turning records into noisy single-seed point estimates.
+    # Default is now no cap; tests run on full datasets. Pass an explicit cap if needed.
+    if cap is None or X.shape[0] <= cap:
         return X, y
     rng = np.random.default_rng(seed)
     idx = rng.choice(X.shape[0], cap, replace=False)

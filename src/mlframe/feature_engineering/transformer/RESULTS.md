@@ -3038,6 +3038,35 @@ If the goal is closing the diabetes/mammography ~0.4pp gap with minimum effort:
 
 The combination Cluster-A1 + Cluster-B1 alone — contrastive projection feeding a meta-temperature row-attention — is the single most-likely-to-close-+5%-gap experiment. Both are minimal-backprop (single linear layer + 1-dim BO), so the Phase 1 budget (~1 week) is realistic.
 
+## Multi-seed honesty pass (2026-05-18) — most records were fold-luck
+
+Per user critique "так на таких маленьких датасетах какой смысл вообще имеют наши измеренные метрики??", we re-ran the 6 standing records on 5 random seeds {0, 7, 17, 42, 99}, full-N (4000-row cap removed in `_cap_rows`), each test in its own pytest invocation for memory isolation. Same 70/30 train_test_split + KFold(5) inside the FE builders, but with seed-parameterized `random_state` everywhere. Verdict rule: SURVIVES iff `median > 0 AND min > -0.3 * median`; FOLD-NOISE? otherwise. Driver in `tests/feature_engineering/transformer/test_validation_records.py`.
+
+| # | Iter | Mechanism | Dataset/Model/Metric | Claimed (single seed=42) | Median 5 seeds | IQR | Min/Max | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 61 | multi_temp_residual_band + cdist | abalone XGB R2 | +4.05% | **-0.26%** | 0.0160 | -1.62% / +1.86% | **FOLD-NOISE** |
+| 2 | 66 | class_balanced_hard_row + RFF | mammography LGB AUC | +14.46% | **-0.77%** | 0.0109 | -1.31% / +0.49% | **FOLD-NOISE** |
+| 3 | 68 | multi_baseline_hard_row + RFF | kin8nm LGB R2 | +11.91% | **+11.42%** | 0.0175 | +9.98% / +12.62% | **SURVIVES** |
+| 4 | 69 | baseline_disagreement + cdist | abalone CB R2 | +3.84% | **+2.26%** | 0.0031 | +1.33% / +2.66% | **SURVIVES** |
+| 5 | 72 | local_density_gradient alone | abalone LGB R2 | +3.19% | **+0.37%** | 0.0119 | -0.71% / +1.26% | **FOLD-NOISE** |
+| 6 | 77 | local_curvature alone | diabetes CB PR_AUC | +6.75% | **-2.10%** | 0.0036 | -5.71% / +4.11% | **FOLD-NOISE** |
+
+### What survived
+
+- **iter68 kin8nm `multi_baseline_hard_row + RFF` LGB R2 +11.42% median, tight IQR=0.0175.** Same mechanism that already shows on raw vs +rff (+11.4% LGB, +13.5% XGB, +6.9% CB) above; consistent with kin8nm's smooth-manifold structure being captured by RFF in one shot. The multi_baseline_hard_row stacking adds nothing measurable over RFF alone, so the credit is RFF's.
+- **iter69 abalone `baseline_disagreement + cdist` CB R2 +2.26% median, very tight IQR=0.0031.** Smallest spread of any record - the ensemble-disagreement-as-meta-feature is genuinely picking up CatBoost's per-row uncertainty in a way that improves the CB target_model. Direction-of-effect consistent across all 5 seeds (range +1.33% to +2.66%).
+
+### What was fold-luck
+
+- **iter61 / iter66 / iter72 / iter77**: claimed lifts of +4-14% on seed=42 dissolved to negative or near-zero medians with min ranges crossing 0 by wide margins. iter77's +6.75% became -2.10% with min=-5.71%, meaning local_curvature actively HURTS diabetes on most seeds. iter66's mammography +14.46% became -0.77% — the most inflated single-seed result in the entire log.
+- Diagnosis: 70/30 split on N=4000 (now full-N) with a single seed is genuinely noisy. The 5-seed median + IQR + min/max disclosure is the minimum honest reporting unit for any future record.
+
+### Next steps
+
+1. **Surviving records (iter68, iter69) need OpenML-scale verification.** California Housing (20k), Adult (49k), Higgs subset (250k), Forest Cover (580k). Until then, even SURVIVES is a 4k-11k-row claim. See VALIDATION_TODO.md.
+2. **Retract / annotate iter61, iter66, iter72, iter77 in CHANGELOG.md.** Don't delete the mechanism code (per rule "никогда не удаляй feature-computing код"); the mechanisms can still be useful on other datasets — but the specific record claims are withdrawn.
+3. **New mechanism testing protocol: require 5-seed median + IQR before any record claim.** Single-seed numbers go in the dev log, not the records table.
+
 ## Reproducibility
 
 ```
@@ -3045,4 +3074,7 @@ The combination Cluster-A1 + Cluster-B1 alone — contrastive projection feeding
 pytest tests/feature_engineering/transformer/test_biz_val_real_datasets.py::test_matrix_kin8nm -s --no-cov
 pytest tests/feature_engineering/transformer/test_biz_val_real_datasets.py::test_matrix_california -s --no-cov
 # ... etc per the test_matrix_* function list
+
+# Multi-seed validation of standing records:
+pytest tests/feature_engineering/transformer/test_validation_records.py -s --no-cov
 ```

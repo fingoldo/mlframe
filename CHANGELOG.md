@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-05-18 — Transformer FE multi-seed honesty pass: 4 of 6 standing records retracted as fold-noise
+
+Per user critique that single-seed records on N=4000 are not real signal. Re-ran the 6 standing records on seeds {0, 7, 17, 42, 99}, full-N (4000-row cap removed in `tests/feature_engineering/transformer/test_biz_val_real_datasets.py::_cap_rows`), each test in its own pytest invocation for memory isolation.
+
+### SURVIVES (median > 0, min > -0.3 * median across 5 seeds)
+- **iter68 kin8nm LGB R2 +11.42% median** (claimed +11.91%) — `multi_baseline_hard_row + RFF`. IQR 0.0175, range +9.98% / +12.62%. Credit goes to the RFF half; smooth-manifold structure of kin8nm.
+- **iter69 abalone CB R2 +2.26% median** (claimed +3.84%) — `baseline_disagreement + cdist`. Tightest IQR of any record (0.0031), range +1.33% / +2.66%, direction-of-effect consistent across all 5 seeds.
+
+### FOLD-NOISE - record retracted, mechanism kept
+- **iter61 abalone XGB R2** — claimed +4.05%, median -0.26%, range -1.62% / +1.86%.
+- **iter66 mammography LGB AUC** — claimed +14.46%, median -0.77%, range -1.31% / +0.49%. Most-inflated single-seed result in the entire record log.
+- **iter72 abalone LGB R2** — claimed +3.19%, median +0.37%, range -0.71% / +1.26%.
+- **iter77 diabetes CB PR_AUC** — claimed +6.75%, median -2.10%, range -5.71% / +4.11%. `local_curvature` actively hurts diabetes on most seeds.
+
+### Process changes
+- Driver: `tests/feature_engineering/transformer/test_validation_records.py` runs builder x 5 seeds, reports median + IQR + min/max + SURVIVES/FOLD-NOISE verdict.
+- `_cap_rows` in `test_biz_val_real_datasets.py` now defaults to `cap=None` (no truncation). Previous 4000-row cap had truncated mammography (loss of 64% positives) and kin8nm (half the data).
+- New protocol: all future record claims require 5-seed median + IQR + min/max disclosure before entry in records table. Single-seed numbers go in the dev log only.
+- Mechanism source code retained per rule "никогда не удаляй feature-computing код"; only the record claims are withdrawn.
+
+Full disposition in `src/mlframe/feature_engineering/transformer/RESULTS.md` under "Multi-seed honesty pass (2026-05-18)".
+
 ## 2026-05-18 — Audit-fixes wave (T1+T2+T3): MRMR thread-safety, parallel composite discovery, Hermite recipe replay, residual-stacking suite wiring
 
 Closes the honest-gaps list from the TVT production log analysis. 21 distinct T-IDs (T1#1, T1#3, T1#4, T1#5, T1#6, T1#7, T1#9, T2#8, T2#10, T2#11, T2#12, T2#13, T2#16, T3#14, T3#18, T3#19, T3#20, T3#22, T3#23, T3#24, T3#25) plus a follow-up correction wave (HIGH#1/#2/#4/#5/#6 + MEDIUM#7/#8/#9/#10/#11/#12 + LOWER#13/#14/#15) addressing honest gaps found during self-audit of the first wave.
