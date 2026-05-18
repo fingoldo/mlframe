@@ -80,12 +80,19 @@ def test_scale_iter69_california_cb_r2():
 def _load_year_100k():
     """Year-prediction-MSD subsampled to 100k. Audio features (90) → song year (regression).
 
-    Cached after first download (OpenML cache). Subsample with fixed seed for reproducibility.
+    Loads from local npz cache to avoid repeated OpenML ARFF-parser OOM.
     """
-    from sklearn.datasets import fetch_openml
-    ds = fetch_openml(data_id=44027, as_frame=False, parser="liac-arff")
-    X = np.asarray(ds.data, dtype=np.float32)
-    y = np.asarray(ds.target, dtype=np.float32)
+    import os
+    cache_path = "D:/Temp/year_prediction_cache.npz"
+    if os.path.exists(cache_path):
+        d = np.load(cache_path)
+        X = d["X"]
+        y = d["y"]
+    else:
+        from sklearn.datasets import fetch_openml
+        ds = fetch_openml(data_id=44027, as_frame=False, parser="liac-arff")
+        X = np.asarray(ds.data, dtype=np.float32)
+        y = np.asarray(ds.target, dtype=np.float32)
     rng = np.random.default_rng(2026)
     idx = rng.choice(X.shape[0], 100_000, replace=False)
     return X[idx], y[idx], "regression"
@@ -918,11 +925,18 @@ def test_iter121_kin8nm_cb_r2():
 
 
 def _load_year_50k():
-    """Year-prediction subsampled to 50k. Memory-safer alternative to 100k for BGM mechanisms."""
-    from sklearn.datasets import fetch_openml
-    ds = fetch_openml(data_id=44027, as_frame=False, parser="liac-arff")
-    X = np.asarray(ds.data, dtype=np.float32)
-    y = np.asarray(ds.target, dtype=np.float32)
+    """Year-prediction subsampled to 50k. Loads from local npz cache."""
+    import os
+    cache_path = "D:/Temp/year_prediction_cache.npz"
+    if os.path.exists(cache_path):
+        d = np.load(cache_path)
+        X = d["X"]
+        y = d["y"]
+    else:
+        from sklearn.datasets import fetch_openml
+        ds = fetch_openml(data_id=44027, as_frame=False, parser="liac-arff")
+        X = np.asarray(ds.data, dtype=np.float32)
+        y = np.asarray(ds.target, dtype=np.float32)
     rng = np.random.default_rng(2026)
     idx = rng.choice(X.shape[0], 50_000, replace=False)
     return X[idx], y[idx], "regression"
@@ -1280,3 +1294,19 @@ def test_iter132_abalone_cb_r2_triple():
 def test_iter132_year50k_cb_r2_triple():
     """iter130 triple on Year-50k CB R2 (vs iter104 record +4.32%)."""
     _validate_scale(_load_year_50k, _build_iter130, "cb", "R2", 0.0432, "iter132_triple_Year50k_cb")
+
+
+# ---------- iter133 - iter130 triple on Year-100k CB R2 ----------
+
+
+def test_iter133_year100k_cb_r2_triple():
+    """iter130 triple on Year-100k CB R2 (vs iter104 record +5.25%)."""
+    _validate_scale(_load_year_100k, _build_iter130, "cb", "R2", 0.0525, "iter133_triple_Year100k_cb")
+
+
+# ---------- iter134 - iter128 (iter69+local_lift, NO BGM) on Year-100k CB R2 ----------
+
+
+def test_iter134_year100k_cb_r2_iter128():
+    """iter128 (iter69+local_lift, no BGM) on Year-100k CB R2 (vs iter104 +5.25%; memory-lighter than iter130 triple)."""
+    _validate_scale(_load_year_100k, _build_iter128_with_iter69, "cb", "R2", 0.0525, "iter134_iter128_Year100k_cb")

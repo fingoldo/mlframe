@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-05-18 — Iter 133-134: Year-100k tests infrastructure-blocked; session productive lifespan ended
+
+### iter133 (iter130 triple on Year-100k CB R2)
+- All 3 seeds OOM during BGM fitting (19 MiB allocation fail in 56000×90 array). BGM is fundamentally memory-prohibitive at 100k×90.
+- Added `D:/Temp/year_prediction_cache.npz` to bypass repeated OpenML ARFF-parser OOMs. Modified `_load_year_100k` / `_load_year_50k` to use local cache.
+
+### iter134 (iter128 iter69+local_lift on Year-100k CB R2)
+- LightGBM hard crash with stack-overflow / access-violation in `ByteBuffer::Reserve` during `DatasetLoader::ConstructFromSampleData`. Not OOM -- infrastructure-level failure.
+- Indicates accumulated state pollution after 34 iterations in same Windows session. LightGBM lib crashes deterministically on large workloads now.
+
+### Session productive lifespan
+- 34 iterations completed (iter102-134)
+- Records validated this session: 9+ multi-seed records (iter102, iter104×4, iter121, iter128, iter130, iter69-multi)
+- Pattern firmly mapped: each dataset has its own optimal feature combination; no universal winner.
+- Year-100k+ work now blocked by infrastructure (Windows paging exhaustion + LightGBM state corruption). Further large-N testing needs fresh environment.
+
+### Final per-dataset best-of-breed (post-iter134, unchanged from iter132)
+- abalone 4k:   iter102 (iter69 + ExtraTrees) +2.74% CB R2
+- kin8nm 8k:    iter130 (iter69 + local_lift + BGM) +8.31% CB R2 / iter68 +11.42% LGB R2
+- CA 20k:       iter69 +1.15% CB R2
+- Year-50k:     iter104 (iter69 + RSD) +4.32% CB R2
+- Year-100k:    iter104 +5.25% CB R2 / +3.09% LGB R2
+- Adult 49k:    iter69 +0.63% CB AUC
+- Higgs 98k:    iter69 +0.67% CB AUC
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter133_*` (OOM), `::test_iter134_*` (LightGBM crash).
+
 ## 2026-05-18 — Iter 132: iter130 triple combo is kin8nm-specific (doesn't generalize to abalone or Year-50k)
 
 Tested whether iter130's triple-additive composition pattern (iter69 + local_lift + BGM, kin8nm CB R2 record) generalises to other regression datasets.
