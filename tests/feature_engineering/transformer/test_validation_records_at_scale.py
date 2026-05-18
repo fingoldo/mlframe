@@ -799,3 +799,52 @@ def test_iter118_abalone_cb_r2_iter104():
     """iter104 (+RSD) on abalone 4k CB R2 (does it beat iter102's +2.74% at small N?)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
     _validate_scale(_load_abalone, _build_iter104, "cb", "R2", 0.0274, "iter118_iter104_abalone_cb")
+
+
+# ---------- iter119 - iter69 + boosting_leaf-index features (orthogonal signal source) ----------
+
+
+def _build_iter119(X_tr, X_te, y_tr, task, seed):
+    """iter69 + boosting_leaf-index features. Leaf membership is orthogonal to per-row prediction values."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_features,
+        compute_boosting_leaf_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    lf_tr = compute_boosting_leaf_features(
+        X_train=X_tr, y_train=y_tr, X_query=None,
+        seed=seed, task=task_str, n_estimators=30, max_depth=4,
+    ).to_numpy()
+    lf_te = compute_boosting_leaf_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te,
+        seed=seed, task=task_str, n_estimators=30, max_depth=4,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, lf_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, lf_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def test_iter119_abalone_cb_r2():
+    """iter119 (iter69 + leaf-index) on abalone 4k CB R2 (record iter102 +2.74%)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter119, "cb", "R2", 0.0274, "iter119_iter69+leaf_abalone_cb")
+
+
+def test_iter119_kin8nm_cb_r2():
+    """iter119 on kin8nm 8k CB R2 (record iter102 +6.57%)."""
+    _validate_scale(_load_kin8nm, _build_iter119, "cb", "R2", 0.0657, "iter119_iter69+leaf_kin8nm_cb")
+
+
+def test_iter119_year100k_cb_r2():
+    """iter119 on Year-100k CB R2 (record iter104 +5.25%)."""
+    _validate_scale(_load_year_100k, _build_iter119, "cb", "R2", 0.0525, "iter119_iter69+leaf_Year100k_cb")

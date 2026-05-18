@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-05-18 — Iter 119: iter69 + boosting_leaf-index features — NEGATIVE on all 3 datasets (leaf-index dilutes iter69 signal)
+
+Tested whether tree-leaf-membership features (orthogonal to per-row prediction values) add value when concatenated with iter69 backbone.
+
+### Results (3 seeds, CB R2)
+- abalone 4k:   iter119 +1.51% vs iter69 +2.26% (-0.75pp) -- far behind iter102 +2.74%
+- kin8nm 8k:    iter119 +5.25% vs iter69 +6.18% (-0.93pp) -- far behind iter102 +6.57%
+- Year-100k:    iter119 +4.90% vs iter104 +5.25% (-0.35pp) -- slightly behind
+
+### Diagnosis
+Leaf-index features (from internal LGB d=4, n_est=30) are NOT orthogonal to iter69 -- both signals come from boosted trees trained on the same training fold. Concatenating leaf indices adds dimensions without information, diluting split budget. Same pattern as iter103/105/106.
+
+iter69-backbone family is mapped; orthogonal-seeming variants either help marginally in specific regimes (iter102/104) or actively hurt (most others, incl iter119).
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter119_*`.
+
 ## 2026-05-18 — Iter 118: cross-mechanism scale boundary partly tested; iter102 on Year-100k OOM (Windows paging)
 
 Cross-mechanism scale-boundary test: iter102 (+ExtraTrees CB-helper) at large N and iter104 (+RSD LGB-helper) at small N.
