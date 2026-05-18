@@ -1694,3 +1694,51 @@ Total mlframe-OWN tottime ~175 ms / 65.5 s suite wall = **0.27%**.
 **Verdict: REJECT.** Streak counter: 4/100. The mlframe sklearn-
 bridge fixture is appropriately thin -- it dispatches to sklearn
 and gets out of the way.
+
+## Iter 40 -- 2026-05-18 -- REJECTED (streak 5/100)
+
+Cell: `c0064_f03e0c62-cb_linear_xgb-pandas-n1000` (3-model
+multiclass with **adversarial axes active**: `inject_test_drift=
+shifted_distribution` + `imbalance_ratio=rare_5pct`). Test
+passed under cProfile in 68.69 s.
+
+**mlframe-OWN tottime (>15 ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `cat_interactions.py:578(_confirm_pairs_bandit_ucb1)` | 132 ms | 1 | 132 ms |
+| `dummy_baselines.py:2258(_resample_metric)` | 75 ms | 2 | 38 ms |
+| `dummy_baselines.py:1985(_paired_bootstrap_vs_runner_up)` | 56 ms | 1 | 56 ms |
+| `cat_interactions.py:1014(_shuffle_and_compute_three_mis)` | 43 ms | 1600 | 27 us |
+| `io.py:39(atomic_write_bytes)` | 25 ms | 9 | 2.8 ms |
+| `cat_interactions.py:634(_step_pair)` | 16 ms | 1600 | 10 us |
+| `feature_selection/filters/screen.py:143(screen_predictors)` | 16 ms | 1 | 16 ms |
+
+UCB1 bandit confirmation already analysed in iter 17. The 1600
+calls of `_shuffle_and_compute_three_mis` and `_step_pair` sit at
+the numba-dispatch hardware floor (10-27 us each).
+
+Adversarial axes (drift + rare_5pct) don't surface new bugs OR
+new hotspots -- the canonicalisation logic + min-row guards from
+prior waves handle them cleanly.
+
+Total mlframe-OWN tottime ~363 ms / 68.69 s = **0.53%**.
+
+**Verdict: REJECT.** Streak counter: 5/100.
+
+## Plateau status -- after iter 40
+
+Last 7 iters in a row (34-40) have rejected. The unprofiled-path
+exploration has exhausted: LTR dispatch + recurrent torch path +
+classical FE-pollination + smart-polynom Optuna + max prep_ext
+sklearn-bridge + 3way fuzz suite + adversarial axes + 5-model
+suites at n=600/1000 + composite-discovery multi-base. Every probe
+landed at 0.06-0.77 % mlframe-OWN tottime with all hot paths in
+C-ext, numba, or already-optimized.
+
+Productive yield curve is clearly flat. Continuing per the 100-
+consecutive-reject policy will burn cycles for ~0-2 more RESOLVED
+findings at best. Recommended pause until:
+1. Production-scale workloads land (n >> 5000)
+2. A different profiler granularity (line_profiler / py-spy) is used
+3. New code paths land (next feature wave)
