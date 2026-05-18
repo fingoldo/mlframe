@@ -3190,6 +3190,37 @@ Test the hypothesis "negative-alone features can be useful additively". Concaten
 - **iter105: TRIPLE combination** — iter69 + iter102's ExtraTrees + iter103's RSD. Does the abalone-helper + Year-100k-helper compose to a single-best-of-breed mechanism that wins everywhere?
 - Alternative: **iter106 target-conditioned disagreement** — compute baseline statistics restricted to high-y / low-y neighbours of each query (different signal source from the y-distribution side).
 
+## iter105 — triple combination (baseline_disagreement_v2 + cdist + RSD) — composition FAILS
+
+Test whether the abalone-helper (ExtraTrees orthogonal-baseline, iter102) and the Year-100k-helper (residual_stratified_distance, iter103) compose into a single best-of-breed mechanism. 34 features per row: 11 from baseline_disagreement_v2 + 12 from cdist + 11 from RSD.
+
+### Results (3 seeds, CB target_model; Year-100k seeds 17/42 OOM both attempts)
+
+| # | Dataset | Best prior (mechanism) | iter105 triple | Δ vs best | Verdict |
+|---|---|---|---|---|---|
+| 1 | abalone 4k | iter102 +2.74% (+ExtraTrees) | +2.60% (range +2.59% / +2.92%) | -0.14pp | slightly worse |
+| 2 | California 20k | iter69 +1.15% | +0.99% (range +0.90% / +1.88%) | -0.16pp | slightly worse |
+| 3 | Year-100k | iter104 +5.25% (+RSD additive) | +5.11% (1 seed only, 2x OOM) | -0.14pp | worse + unstable memory-wise |
+
+### Findings
+
+- **Triple combination is WORSE on every dataset than the dataset-specific best.** Composition hypothesis fails: more features dilute split budget; orthogonal-baseline gain on abalone gets diluted by geometric features (which aren't useful at small-N), and vice versa.
+- **34-feature stack is memory-heavy at Year-100k**: 2 of 3 seeds OOM both attempts. Mechanism unstable at scale.
+- **Lesson**: orthogonal-information hypothesis is not sufficient — features need to be both orthogonal AND boost-friendly at the target N. The "kitchen-sink" approach of concatenating all helpers ignores that each helper has a target N regime where it adds signal, and using it outside that regime adds noise.
+
+### Provisional best-of-breed (post-iter105, unchanged)
+
+| Dataset | Best mechanism | Median lift | Source |
+|---|---|---|---|
+| abalone 4k | iter102 | +2.74% | baseline_disagreement_v2 + cdist |
+| California 20k | iter69 | +1.15% | baseline_disagreement + cdist |
+| Year-100k | iter104 | +5.25% | baseline_disagreement + cdist + RSD |
+
+### Next (iter106+)
+
+- **iter106: y-quintile-conditioned baseline disagreement** — compute iter69's baseline preds, but THEN restrict subsequent statistics to query's k=8 nearest neighbours in top-y-quintile and bottom-y-quintile separately. Captures: "in which y-region do baselines disagree about THIS query?"
+- Alternative: **STACKED RSD** — run iter103 with multiple baselines (LGB d=3 + LGB d=7) and stack their per-baseline easy/hard partitions as separate kNN signal sources.
+
 ## Reproducibility
 
 ```

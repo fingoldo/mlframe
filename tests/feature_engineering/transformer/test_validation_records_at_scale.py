@@ -223,3 +223,52 @@ def test_iter104_california_cb_r2():
 def test_iter104_year_100k_cb_r2():
     """iter104 on year-prediction 100k (was iter69 +4.92%, iter103 +0.96% alone)."""
     _validate_scale(_load_year_100k, _build_iter104, "cb", "R2", 0.0492, "iter104_iter69+iter103_Year100k")
+
+
+# ---------- iter105 - triple: baseline_disagreement_v2 + cdist + residual_stratified_distance ----------
+# Does abalone-helper (ExtraTrees baseline) compose with Year-100k-helper (RSD geometric density)?
+# = best-of-breed across N regimes?
+
+
+def _build_iter105(X_tr, X_te, y_tr, task, seed):
+    """baseline_disagreement_v2 (iter102) + cdist + residual_stratified_distance (iter103)."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_v2_features,
+        compute_residual_stratified_distance_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_v2_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_v2_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    rsd_tr = compute_residual_stratified_distance_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    rsd_te = compute_residual_stratified_distance_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, rsd_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, rsd_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def test_iter105_abalone_cb_r2():
+    """iter105 triple on abalone (best was iter102 +2.74%)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter105, "cb", "R2", 0.0274, "iter105_triple_abalone")
+
+
+def test_iter105_california_cb_r2():
+    """iter105 triple on California 20k (best was iter69 +1.15%)."""
+    _validate_scale(_load_california, _build_iter105, "cb", "R2", 0.0115, "iter105_triple_CA20k")
+
+
+def test_iter105_year_100k_cb_r2():
+    """iter105 triple on year-prediction 100k (best was iter104 +5.25%)."""
+    _validate_scale(_load_year_100k, _build_iter105, "cb", "R2", 0.0525, "iter105_triple_Year100k")

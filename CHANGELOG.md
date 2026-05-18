@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-05-18 — Iter 105: triple combination - composition FAILS on all 3 datasets
+
+Test whether abalone-helper (iter102 ExtraTrees) and Year-100k-helper (iter103 RSD) compose into a single best-of-breed mechanism. 34 features = 11 baseline_disagreement_v2 + 12 cdist + 11 RSD.
+
+### Results (3 seeds, CB target_model; Year-100k 2 of 3 seeds OOM both attempts)
+
+| Dataset | Best prior | iter105 triple | Δ vs best |
+|---|---|---|---|
+| abalone 4k | iter102 +2.74% | +2.60% | -0.14pp |
+| California 20k | iter69 +1.15% | +0.99% | -0.16pp |
+| Year-100k | iter104 +5.25% | +5.11% (1 seed, 2 OOM) | -0.14pp |
+
+### Findings
+- Composition hypothesis fails: more features dilute split budget. Orthogonal-baseline gain on abalone diluted by geometric features (no signal at small-N), and vice versa.
+- 34-feature stack is memory-heavy at Year-100k: 2 of 3 seeds OOM both attempts. Unstable at scale.
+- Lesson: features need to be both orthogonal AND boost-friendly at the target N. Kitchen-sink concatenation ignores N-regime dependence.
+
+### Provisional best-of-breed (unchanged)
+- abalone 4k: iter102 (+2.74%)
+- California 20k: iter69 (+1.15%)
+- Year-100k: iter104 (+5.25%)
+
+Next direction (iter106+): y-quintile-conditioned baseline disagreement, or stacked RSD with multiple baselines.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter105_*_cb_r2`.
+
 ## 2026-05-18 — Iter 104: iter69 + iter103 additive - NEW Year-100k record +0.33pp over iter69
 
 Test the hypothesis "negative-alone features can be useful additively". Concatenate iter69 features (baseline_disagreement 8 + cdist 12 = 20) with iter103 (residual_stratified_distance 11) -> 31 transformer-FE features.
