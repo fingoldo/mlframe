@@ -1266,3 +1266,17 @@ def test_iter131_abalone_cb_r2_iter102plusloclift():
     """iter102 + local_lift on abalone CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
     _validate_scale(_load_abalone, _build_iter131_iter102_plus_loclift, "cb", "R2", 0.0274, "iter131_iter102+loclift_abalone_cb")
+
+
+# ---------- iter132 - does iter130's triple combo generalise beyond kin8nm? ----------
+
+
+def test_iter132_abalone_cb_r2_triple():
+    """iter130 triple (iter69+loclift+BGM) on abalone CB R2 (vs iter102 record +2.74%)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter130, "cb", "R2", 0.0274, "iter132_triple_abalone_cb")
+
+
+def test_iter132_year50k_cb_r2_triple():
+    """iter130 triple on Year-50k CB R2 (vs iter104 record +4.32%)."""
+    _validate_scale(_load_year_50k, _build_iter130, "cb", "R2", 0.0432, "iter132_triple_Year50k_cb")

@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-05-18 — Iter 132: iter130 triple combo is kin8nm-specific (doesn't generalize to abalone or Year-50k)
+
+Tested whether iter130's triple-additive composition pattern (iter69 + local_lift + BGM, kin8nm CB R2 record) generalises to other regression datasets.
+
+### Multi-seed results (3 seeds, CB R2)
+- abalone 4k: median +2.56% (range +2.46% / +2.61%, IQR 0.0008)
+  - vs iter102 record +2.74%: -0.18pp (worse)
+  - vs iter69 alone +2.26%: +0.30pp (better)
+  - Triple is BETTER than iter69 alone on abalone but WORSE than iter102 -- composition adds marginal value but local_lift/BGM doesn't beat ExtraTrees on abalone
+- Year-50k CB R2: BOTH attempts OOM (dataset-load infrastructure issue persisting)
+
+### Conclusion
+Composition pattern is kin8nm-specific. abalone's optimum is iter102 (with ExtraTrees), not local_lift+BGM combo. Each dataset has its own optimal feature combination.
+
+Final per-dataset best-of-breed mechanism map (post-iter132):
+- abalone 4k:   iter102 (iter69 + ExtraTrees) +2.74% CB R2
+- kin8nm 8k:    iter130 (iter69 + local_lift + BGM) +8.31% CB R2 / iter68 +11.42% LGB R2
+- CA 20k:       iter69 +1.15% CB R2
+- Year-50k:     iter104 (iter69 + RSD) +4.32% CB R2
+- Year-100k:    iter104 +5.25% CB R2 / +3.09% LGB R2
+- Adult 49k:    iter69 +0.63% CB AUC
+- Higgs 98k:    iter69 +0.67% CB AUC
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter132_*`.
+
 ## 2026-05-18 — Iter 131: quadruple kin8nm marginal-but-OOM; iter102+local_lift on abalone TIE (local_lift doesn't help abalone)
 
 Tested further composition: quadruple (iter69_v2 with ExtraTrees + local_lift + BGM) on kin8nm CB R2, and iter102+local_lift on abalone.
