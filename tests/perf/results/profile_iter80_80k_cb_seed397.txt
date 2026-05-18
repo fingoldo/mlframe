@@ -1,0 +1,18 @@
+# 1M-row e2e profile (n_rows=80_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 1248, in <module>
+    main()
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 1192, in main
+    ) = _run_suite_profiled(
+        ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 345, in _run_suite_profiled
+    df = _make_synthetic_frame(target_type, n_rows, seed=seed)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 163, in _make_synthetic_frame
+    cols["cat_mid"] = _labels[rng.integers(0, 50, n_rows)]
+                      ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+numpy._core._exceptions._ArrayMemoryError: Unable to allocate 625. KiB for an array with shape (80000,) and data type object
