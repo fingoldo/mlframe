@@ -1,0 +1,59 @@
+# 1M-row e2e profile (n_rows=300_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_low', 'cat_mid', 'y']
+  built frame: 300_000 rows x 11 cols
+  axes: mrmr_fs=False outlier=none ensembles=False cat_enc=ordinal scaler=robust dim_reducer=none boruta_shap=False poly_deg=0 predict_batch_rows=0 n_targets=1 mix_target_types=False weight=recency_only
+  axes2: composite_disc=False transforms_mode=off mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=False
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_low', 'cat_mid', 'y', 'ts']
+  rebuilt frame with extras: targets=[] add_ts=True
+val_size=0.1 requested but val split is empty (possibly because wholeday_splitting collapsed to a single date, or n_rows*val_size<1).
+test_size=0.1 requested but test split is empty (possibly because wholeday_splitting collapsed to a single date, or n_rows*test_size<1).
+  CatBoost in mlframe_models + categorical_encoding='ordinal' + 2 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
+  Failed to align category dict for cat_mid: unable to find column "cat_mid"; valid columns: []. XGB/CB may crash on val-DMatrix if val has unseen categories.
+  Failed to align category dict for cat_low: unable to find column "cat_low"; valid columns: []. XGB/CB may crash on val-DMatrix if val has unseen categories.
+[phase] model.fit RAISED CatBoostError after 0.10s model=CatBoostRegressor n_rows=300000 n_cols=11
+[phase] process_model RAISED CatBoostError after 0.24s model=cb weight=recency
+  train wall: 4.8s  status: CatBoostError: Input data must have at least one feature
+         80257 function calls (76210 primitive calls) in 4.766 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2335 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    4.761    4.761 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
+        1    0.000    0.000    2.163    2.163 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_temporal_audit.py:20(run_temporal_audit_batch)
+        1    0.001    0.001    2.161    2.161 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\target_temporal_audit.py:926(audit_targets_over_time)
+        3    0.000    0.000    1.803    0.601 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\accessor.py:111(f)
+        3    0.001    0.000    1.803    0.601 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\indexes\accessors.py:126(_delegate_method)
+        1    0.002    0.002    1.645    1.645 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\target_temporal_audit.py:416(_aggregate_by_time_pandas)
+        2    0.000    0.000    1.478    0.739 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\indexes\extension.py:92(method)
+        1    0.001    0.001    1.079    1.079 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1270(_phase_train_val_test_split)
+        1    0.002    0.002    1.073    1.073 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\splitting.py:79(make_train_test_split)
+       34    0.000    0.000    0.953    0.028 D:\ProgramData\anaconda3\Lib\site-packages\polars\_utils\deprecation.py:84(wrapper)
+       34    0.000    0.000    0.953    0.028 D:\ProgramData\anaconda3\Lib\site-packages\polars\lazyframe\opt_flags.py:314(wrapper)
+       34    0.000    0.000    0.952    0.028 D:\ProgramData\anaconda3\Lib\site-packages\polars\lazyframe\frame.py:2176(collect)
+       34    0.951    0.028    0.951    0.028 {method 'collect' of 'builtins.PyLazyFrame' objects}
+        1    0.000    0.000    0.839    0.839 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\arrays\datetimes.py:1178(to_period)
+        1    0.000    0.000    0.839    0.839 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\arrays\period.py:314(_from_datetime64)
+        3    0.009    0.003    0.657    0.219 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\tools\datetimes.py:678(to_datetime)
+        3    0.023    0.008    0.643    0.214 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\tools\datetimes.py:316(_convert_listlike_datetimes)
+        1    0.000    0.000    0.639    0.639 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\arrays\datetimelike.py:2260(floor)
+        1    0.638    0.638    0.639    0.639 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\arrays\datetimelike.py:2229(_round)
+        3    0.520    0.173    0.520    0.173 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\arrays\datetimes.py:2371(objects_to_datetime64)
+        1    0.000    0.000    0.467    0.467 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:785(_phase_fit_pipeline)
+        1    0.000    0.000    0.467    0.467 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\pipeline.py:1242(fit_and_transform_pipeline)
+        1    0.000    0.000    0.463    0.463 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\pipeline.py:979(create_polarsds_pipeline)
+        2    0.118    0.059    0.459    0.229 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\dtypes\dtypes.py:990(__new__)
+        1    0.000    0.000    0.443    0.443 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
+        9    0.000    0.000    0.421    0.047 D:\ProgramData\anaconda3\Lib\site-packages\polars\dataframe\frame.py:9920(select)
+        1    0.380    0.380    0.380    0.380 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\arrays\period.py:1176(dt64arr_to_periodarr)
+        1    0.000    0.000    0.355    0.355 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\pipeline.py:853(_select_scalable_numeric_columns)
+  841/833    0.341    0.000    0.341    0.000 {built-in method __new__ of type object at 0x00007FF8280CA4B0}
+        1    0.201    0.201    0.323    0.323 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\target_temporal_audit.py:270(_pick_granularity)
+
+
+
+
+# Wall-time summary:
+  regression x cb                                         train=    4.8s  predict=---     save=---             CatBoostError: Input data must have at least one feature

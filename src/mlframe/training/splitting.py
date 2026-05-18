@@ -348,9 +348,59 @@ def make_train_test_split(
         # ``DatetimeIndex`` (no ``.dt`` accessor); on a pandas Series it returns
         # a Series (has ``.dt``). FTE.transform may pass either shape -- wrap
         # in pd.Series first so ``.dt.floor`` works uniformly.
-        dates = pd.to_datetime(pd.Series(timestamps)).dt.floor("D")
-        unique_dates = dates.unique()
-        n_total = len(unique_dates)
+        # Numeric ts (epoch-seconds int64) can't be ``pd.to_datetime``'d
+        # without a unit hint and isn't a meaningful date axis for the
+        # wholeday-splitter; route those to the row-based path. Surfaced by
+        # iter-48 300k seed=7 cb-regression where a fuzz-axis combo passed
+        # int64 ts AND wholeday_splitting=True; pd.to_datetime then
+        # collapsed every row into the 1970-01-01 epoch single date and
+        # the splitter produced empty val/test, leading to
+        # ``CatBoostError: Input data must have at least one feature``.
+        _ts_series = pd.Series(timestamps)
+        _kind = getattr(_ts_series.dtype, "kind", None)
+        if _kind in {"i", "u", "f"}:
+            logger.warning(
+                "wholeday_splitting=True requested but timestamps dtype "
+                "is numeric (%s); falling back to row-based split. "
+                "Numeric ts has no calendar-day semantics for the "
+                "wholeday-splitter.",
+                _ts_series.dtype,
+            )
+            wholeday_splitting = False
+            n_total = len(df)
+        else:
+            dates = pd.to_datetime(_ts_series).dt.floor("D")
+            unique_dates = dates.unique()
+            n_total_days = len(unique_dates)
+            # Iter-48 guard: predict the actual val/test day counts
+            # ``_calculate_split_sizes`` would produce (floor on int(n *
+            # frac)) and fall back to row-based if any REQUESTED non-zero
+            # split would come out as 0 days. Examples that trigger:
+            #   - n_days=1, any val_size>0 or test_size>0 (collapses)
+            #   - n_days=3, val_size=0.34, test_size=0.34
+            #     -> int(3*0.34)=1 test, then int(2*0.34)=0 val (empty)
+            # Empty val/test then crash downstream model.fit
+            # (CatBoost: "Input data must have at least one feature").
+            _predicted_n_test = int(n_total_days * test_size)
+            _predicted_n_val = int(
+                (n_total_days - _predicted_n_test) * val_size,
+            )
+            _val_empty_wrongly = val_size > 0 and _predicted_n_val == 0
+            _test_empty_wrongly = test_size > 0 and _predicted_n_test == 0
+            if _val_empty_wrongly or _test_empty_wrongly:
+                logger.warning(
+                    "wholeday_splitting=True requested but only %d "
+                    "unique day(s) found, which yields "
+                    "predicted_n_val=%d, predicted_n_test=%d at "
+                    "val_size=%s, test_size=%s; falling back to "
+                    "row-based split so val/test stay non-empty.",
+                    n_total_days, _predicted_n_val, _predicted_n_test,
+                    val_size, test_size,
+                )
+                wholeday_splitting = False
+                n_total = len(df)
+            else:
+                n_total = n_total_days
     else:
         n_total = len(df)
 
