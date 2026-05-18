@@ -75,3 +75,26 @@ def test_scale_iter68_california_lgb_r2():
 def test_scale_iter69_california_cb_r2():
     """iter69 (baseline_disagreement + cdist) was +2.26% median on abalone 4k. Does it hold on California 20k?"""
     _validate_scale(_load_california, _build_iter69, "cb", "R2", 0.0226, "iter69_blagreement+cdist_CA20k")
+
+
+def _load_year_100k():
+    """Year-prediction-MSD subsampled to 100k. Audio features (90) → song year (regression).
+
+    Cached after first download (OpenML cache). Subsample with fixed seed for reproducibility.
+    """
+    from sklearn.datasets import fetch_openml
+    ds = fetch_openml(data_id=44027, as_frame=False, parser="liac-arff")
+    X = np.asarray(ds.data, dtype=np.float32)
+    y = np.asarray(ds.target, dtype=np.float32)
+    rng = np.random.default_rng(2026)
+    idx = rng.choice(X.shape[0], 100_000, replace=False)
+    return X[idx], y[idx], "regression"
+
+
+def test_scale_iter69_year_100k_cb_r2():
+    """iter69 (baseline_disagreement + cdist) survives at California 20k. Does it scale to year-prediction 100k?
+
+    25x larger than abalone (the small-N record dataset). If iter69 still shows positive
+    lift at 100k, the mechanism is genuinely general regression-FE, not a small-N artifact.
+    """
+    _validate_scale(_load_year_100k, _build_iter69, "cb", "R2", 0.0115, "iter69_blagreement+cdist_Year100k")

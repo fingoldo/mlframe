@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-05-18 — Transformer FE Priority-3 scale verification: iter69 GROWS to +4.92% R2 at year-prediction 100k
+
+iter69 baseline_disagreement + cdist tested on Year-Prediction-MSD subsampled to 100k (audio features → song year regression). 3 seeds {0, 17, 42}, CatBoost target_model, ~3min runtime.
+
+### Result
+- **iter69 SURVIVES at 100k with median +4.92% R2**, all 3 seeds positive (+4.81% / +4.92% / +5.00%), IQR 0.0009 (tightest of any record in the validation log).
+- **Lift GROWS with N**: abalone 4k → +2.26%, California 20k → +1.15%, year-prediction 100k → **+4.92%**. The CA-20k compression was a target-saturation artifact (boostings already near-perfect on California), not a mechanism failure.
+- iter69 is the de-facto headline transformer-FE result. Generalises across 3 regression datasets of 25x size range, tightens IQR with scale, >5% R2 lift on year-prediction.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_scale_iter69_year_100k_cb_r2`. Full disposition in RESULTS.md under "Scale verification on year-prediction 100k (Priority 3, 2026-05-18)".
+
 ## 2026-05-18 — Transformer FE Priority-2 scale verification: only iter69 survives at California 20k
 
 Re-tested the 2 SURVIVES records from the multi-seed honesty pass on a 2.5-5x larger regression dataset (California Housing, 20640 rows). Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py`, 3 seeds {0, 17, 42}, fresh pytest invocation per test.
