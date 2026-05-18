@@ -35,6 +35,7 @@ from .autoencoder import compute_autoencoder_features
 from .band_conditional_anchor import compute_band_conditional_anchor_features
 from .baseline_disagreement import compute_baseline_disagreement_features
 from .baseline_disagreement_v2 import compute_baseline_disagreement_v2_features
+from .baseline_disagreement_balanced import compute_baseline_disagreement_balanced_features
 from .residual_stratified_distance import compute_residual_stratified_distance_features
 from .y_quintile_baseline_knn import compute_y_quintile_baseline_knn_features
 from .baseline_surprise import compute_baseline_surprise_features
@@ -143,6 +144,7 @@ __all__ = [
     "compute_band_conditional_anchor_features",
     "compute_baseline_disagreement_features",
     "compute_baseline_disagreement_v2_features",
+    "compute_baseline_disagreement_balanced_features",
     "compute_residual_stratified_distance_features",
     "compute_y_quintile_baseline_knn_features",
     "compute_baseline_surprise_features",

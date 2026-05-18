@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-05-18 — Iter 113: class_weight='balanced' baselines DON'T rescue rare-positive binary either
+
+New mechanism `compute_baseline_disagreement_balanced_features` (iter69 clone but with `class_weight='balanced'` for binary baselines). Source: `src/mlframe/feature_engineering/transformer/baseline_disagreement_balanced.py`. 8 features per row, identical structure to iter69.
+
+### Results (3 seeds, with StratifiedKFold for binary)
+
+| Test | iter112 (Strat+iter69) | iter113 (Strat+balanced) | Change |
+|---|---|---|---|
+| mammography CB AUC | -0.70% | **-0.55%** (range -2.43% / -0.52%, all 3 neg) | +0.15pp but still HURTS |
+| mammography LGB AUC | -1.84% | **-1.57%** (range -3.65% / +0.04%, IQR 0.0185) | Slightly less negative |
+| Adult 49k CB AUC | +0.62% | **+0.58%** | Slightly DEGRADED |
+
+### Conclusion (post-iter113)
+
+class_weight='balanced' provides a tiny improvement on rare-positive (CB AUC mammography from -0.70 to -0.55), insufficient to flip the sign. Slightly degrades balanced binary (Adult -0.05pp).
+
+The iter69-mechanism family is genuinely incompatible with rare-positive binary. Multiple fixes attempted (StratifiedKFold splits, class-balanced loss weighting) only marginally affect the negative outcome. The mechanism's signal sources (3 LGB/Ridge baselines + cdist kNN) all fail at <2% positive rate.
+
+### Final mechanism boundary map (iter102-113)
+
+| Regime | iter69-family | Source of failure on rare-positive |
+|---|---|---|
+| Regression (small N -> large N) | WORKS, +1-5% (amplifies) | n/a |
+| Balanced binary (CB target) | WORKS, +0.6-0.7% (capped) | n/a |
+| Balanced binary (LGB target) | barely positive / noise | LGB doesn't reuse iter69's CB-specific structure |
+| Rare-positive binary (<2% pos) | HURTS | Too few positives per fold; baseline reweighting and stratified splits insufficient |
+
+Code retained per "never delete FE code". Rare-positive mechanism would need different signal source: SMOTE-augmented positives, anomaly detection, or class-prior-aware density estimation.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter113_*`.
+
 ## 2026-05-18 — Iter 111-112: iter69 fails on rare-positive binary (mammography 1.3% pos); StratifiedKFold fix isn't enough
 
 ### iter111: iter69 on mammography 11k as-is (regular KFold)

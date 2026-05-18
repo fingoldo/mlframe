@@ -547,3 +547,61 @@ def test_iter112_mammography_lgb_auc():
 def test_iter112_adult_cb_auc():
     """iter69 with StratifiedKFold on Adult 49k (was iter108 +0.63%). Should match or beat."""
     _validate_scale(_load_adult_binary, _build_iter69_stratified, "cb", "AUC", 0.0063, "iter112_iter69strat_Adult49k_cb")
+
+
+# ---------- iter113 - class-balanced baseline disagreement + cdist on rare-positive binary ----------
+
+
+def _build_iter113(X_tr, X_te, y_tr, task, seed):
+    """class-balanced baseline_disagreement (iter113) + cdist; with StratifiedKFold for binary."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_balanced_features,
+        compute_class_distance_features,
+    )
+
+    if task == "binary":
+        splitter = _StratifiedKFoldYBound(n_splits=5, shuffle=True, random_state=seed, y=y_tr)
+        task_str = "binary"
+    else:
+        splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+        task_str = "regression"
+
+    bl_tr = compute_baseline_disagreement_balanced_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_balanced_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    if task == "binary":
+        cd_tr = compute_class_distance_features(
+            X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
+            seed=seed, task=task_str, standardize=True,
+        ).to_numpy()
+        cd_te = compute_class_distance_features(
+            X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
+            seed=seed, task=task_str, standardize=True,
+        ).to_numpy()
+    else:
+        cd_tr_full, cd_te_full = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+        cd_tr = _strip(cd_tr_full, X_tr.shape[1])
+        cd_te = _strip(cd_te_full, X_te.shape[1])
+
+    return (np.concatenate([X_tr, bl_tr, cd_tr], axis=1),
+            np.concatenate([X_te, bl_te, cd_te], axis=1))
+
+
+def test_iter113_mammography_cb_auc():
+    """iter113 (class-balanced baselines) on mammography 11k (was iter112 -0.70%)."""
+    _validate_scale(_load_mammography, _build_iter113, "cb", "AUC", -0.0070, "iter113_balanced_Mammog11k_cb")
+
+
+def test_iter113_mammography_lgb_auc():
+    """iter113 on mammography 11k LGB AUC."""
+    _validate_scale(_load_mammography, _build_iter113, "lgb", "AUC", -0.0184, "iter113_balanced_Mammog11k_lgb")
+
+
+def test_iter113_adult_cb_auc():
+    """iter113 on Adult 49k (was iter108 +0.63%); regression test that fix doesn't break balanced binary."""
+    _validate_scale(_load_adult_binary, _build_iter113, "cb", "AUC", 0.0063, "iter113_balanced_Adult49k_cb")
