@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-05-18 — Iter 126: decision_region_depth (probe-based boundary distance) - NEGATIVE alone, doesn't help additive
+
+Tested compute_decision_region_depth_features (iter83 source, 5 features per row via 8 random-direction probes measuring distance to prediction flip).
+
+### Results (3 seeds, CB R2)
+- drd alone on abalone CB R2: median -1.05% (all 3 negative -1.34% / -0.34%) HURTS
+- iter69 + drd on abalone CB R2: median +2.20% (range +2.17 / +2.39) vs iter102 record +2.74% (-0.54pp)
+- iter69 + drd on kin8nm CB R2: median +5.92% (range +4.62 / +6.18) vs iter121 record +7.01% (-1.09pp)
+
+### Verdict
+Decision-boundary probe features don't add value alone or as additive component. Add dimensions without orthogonal information.
+
+After 25 iterations (iter102-126), niche map is robust:
+- iter69 backbone + iter102 (abalone CB) / iter104 (CA, Year-50k, Year-100k CB; Year-100k LGB; kin8nm LGB) / iter121 (kin8nm CB) / iter68 (kin8nm LGB) cover all winning regimes.
+- All other tested variants: marginal, neutral, or actively harmful.
+- Rare-positive binary still uncovered (mammography).
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter126_*`.
+
 ## 2026-05-18 — Iter 125: row_attention infeasible on Windows paging budget (O(n²) memory)
 
 Tested compute_row_attention (original transformer-FE backbone, never validated under multi-seed) on kin8nm 8k + Year-50k CB R2.
