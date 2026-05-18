@@ -1,0 +1,169 @@
+# 1M-row e2e profile (n_rows=500_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_low', 'emb', 'y']
+  built frame: 500_000 rows x 11 cols
+  axes: mrmr_fs=False outlier=none ensembles=False cat_enc=ordinal scaler=standard dim_reducer=none boruta_shap=False poly_deg=3 predict_batch_rows=0 n_targets=2 mix_target_types=True weight=both
+  axes2: composite_disc=False transforms_mode=off mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=False
+  row cap: n_rows=500_000 -> 300_000 (reasons: polynomial_degree=3)
+  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_low', 'emb', 'y', 'y2', 'ts']
+  rebuilt frame with extras: targets=['y2'] add_ts=True
+wholeday_splitting=True requested but timestamps dtype is numeric (int64); falling back to row-based split. Numeric ts has no calendar-day semantics for the wholeday-splitter.
+  CatBoost in mlframe_models + categorical_encoding='ordinal' + 2 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
+apply_preprocessing_extensions: dropped 2 non-numeric column(s) before the sklearn-bridge pipeline (kbins / polynomial / scaler / dim_reducer all reject object dtype): ['cat_low', 'emb']. Encode these upstream (e.g. via OrdinalEncoder / OneHotEncoder in the suite's cat-encoder pre-pipeline) if you want them to participate in the extension transforms.
+target type:   0%|          | 0/2 [00:00<?, ?it/s]target type:   0%|          | 0/2 [00:00<?, ?it/s]
+weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][A
+weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][AD:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2702: UserWarning:
+
+Can't optimze method "evaluate" because self argument is used
+
+MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+weighting schema:  50%|#####     | 1/2 [00:29<00:29, 29.12s/it][AD:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2702: UserWarning:
+
+Can't optimze method "evaluate" because self argument is used
+
+MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+weighting schema: 100%|##########| 2/2 [00:46<00:00, 22.30s/it][Aweighting schema: 100%|##########| 2/2 [00:46<00:00, 23.32s/it]
+target type:  50%|#####     | 1/2 [00:48<00:48, 48.03s/it]
+weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][A
+weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+weighting schema:  50%|#####     | 1/2 [00:19<00:19, 19.36s/it][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+weighting schema: 100%|##########| 2/2 [00:38<00:00, 19.32s/it][Aweighting schema: 100%|##########| 2/2 [00:38<00:00, 19.32s/it]
+target type: 100%|##########| 2/2 [01:26<00:00, 42.58s/it]target type: 100%|##########| 2/2 [01:26<00:00, 43.40s/it]
+Input-schema drift for cb__sch_8315e1bfb8 (pipeline-internal casts on numeric-role columns and/or width-only changes). Accepting; trained pipeline is responsible for casting the serving df: c_low: trained='float32' (float) serving='int32' (int) (numeric role); c_mid: trained='float32' (float) serving='int32' (int) (numeric role); ts: trained='float32' (float) serving='int64' (int) (numeric role)
+Input-schema drift for cb_recency__sch_8315e1bfb8 (pipeline-internal casts on numeric-role columns and/or width-only changes). Accepting; trained pipeline is responsible for casting the serving df: c_low: trained='float32' (float) serving='int32' (int) (numeric role); c_mid: trained='float32' (float) serving='int32' (int) (numeric role); ts: trained='float32' (float) serving='int64' (int) (numeric role)
+  train wall: 93.2s  status: OK
+         1500939 function calls (1439315 primitive calls) in 93.164 seconds
+
+   Ordered by: cumulative time
+   List reduced from 5378 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.005    0.005   92.804   92.804 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
+        2    0.002    0.001   86.809   43.404 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
+        4    0.000    0.000   85.299   21.325 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        4    0.000    0.000   85.298   21.324 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        4    0.001    0.000   85.296   21.324 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:425(train_and_evaluate_model)
+        4    0.000    0.000   81.403   20.351 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:348(_train_model_with_fallback)
+        5    0.001    0.000   80.799   16.160 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        5   71.624   14.325   80.608   16.122 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+        2    0.000    0.000   43.302   21.651 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:5529(fit)
+        3    0.000    0.000   37.497   12.499 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
+      741    0.017    0.000    8.814    0.012 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3154(evaluate)
+      749    0.115    0.000    6.461    0.009 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2868(compute_probabilistic_multiclass_error)
+      741    0.028    0.000    6.452    0.009 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:400(integral_calibration_error)
+      749    5.971    0.008    5.973    0.008 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2616(_batch_per_class_ice_kernel)
+       28    0.001    0.000    3.639    0.130 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+    31/28    0.001    0.000    3.632    0.130 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+       89    2.919    0.033    2.919    0.033 {method 'read' of '_io.BufferedReader' objects}
+  202/146    0.002    0.000    2.500    0.017 <frozen importlib._bootstrap>:1165(_find_and_load)
+     65/9    0.001    0.000    2.499    0.278 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
+        1    0.000    0.000    2.497    2.497 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1468(_phase_load_and_preprocess)
+     58/9    0.001    0.000    2.494    0.277 <frozen importlib._bootstrap>:666(_load_unlocked)
+     52/8    0.001    0.000    2.412    0.301 <frozen importlib._bootstrap_external>:934(exec_module)
+      741    0.013    0.000    2.344    0.003 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:341(cb_logits_to_probs_binary)
+       52    0.002    0.000    2.325    0.045 <frozen importlib._bootstrap_external>:1007(get_code)
+       52    0.001    0.000    2.303    0.044 <frozen importlib._bootstrap_external>:1127(get_data)
+        8    0.000    0.000    2.131    0.266 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:371(_compute_split_metrics)
+        8    0.000    0.000    2.129    0.266 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
+   133/15    0.000    0.000    2.080    0.139 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
+    110/9    0.009    0.000    1.925    0.214 {built-in method builtins.exec}
+        4    0.002    0.001    1.841    0.460 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
+
+
+
+
+--- PREDICT phase (same input frame, predict_from_models) ---
+  predict wall: 3.9s
+         42440 function calls (42117 primitive calls) in 3.873 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1078 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.007    0.007    3.873    3.873 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\predict.py:843(predict_from_models)
+        4    0.000    0.000    2.604    0.651 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\predict.py:1296(_try_predict)
+        4    0.000    0.000    2.604    0.651 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:326(_predict_with_fallback)
+        4    0.000    0.000    2.532    0.633 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:3014(_predict)
+        4    0.000    0.000    1.901    0.475 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2992(_process_predict_input_data)
+        4    0.000    0.000    1.901    0.475 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_model_factories.py:229(_logged_init)
+        4    0.000    0.000    1.900    0.475 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:608(__init__)
+        4    1.856    0.464    1.900    0.475 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1444(_init)
+        2    0.032    0.016    1.374    0.687 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:5646(predict)
+        2    0.029    0.014    1.219    0.609 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6279(predict)
+        4    0.632    0.158    0.632    0.158 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1950(_base_predict)
+       13    0.601    0.046    0.601    0.046 {method 'copy' of 'numpy.ndarray' objects}
+        2    0.000    0.000    0.599    0.299 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\reshape\concat.py:157(concat)
+        2    0.000    0.000    0.599    0.299 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\reshape\concat.py:622(get_result)
+        6    0.000    0.000    0.599    0.100 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:317(apply)
+        8    0.000    0.000    0.598    0.075 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\blocks.py:816(copy)
+        1    0.000    0.000    0.598    0.598 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\concat.py:94(concatenate_managers)
+        4    0.000    0.000    0.598    0.150 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:576(copy)
+        1    0.000    0.000    0.598    0.598 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\concat.py:202(_maybe_reindex_columns_na_proxy)
+        1    0.000    0.000    0.420    0.420 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\predict.py:73(_apply_extensions_pipeline)
+        1    0.002    0.002    0.413    0.413 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\pipeline.py:1002(transform)
+        2    0.001    0.000    0.411    0.205 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\_set_output.py:314(wrapped)
+        1    0.363    0.363    0.368    0.368 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\preprocessing\_polynomial.py:393(transform)
+        3    0.000    0.000    0.117    0.039 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:642(reindex_indexer)
+        3    0.000    0.000    0.117    0.039 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\managers.py:727(_slice_take_blocks_ax0)
+        8    0.000    0.000    0.116    0.015 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\internals\blocks.py:1353(take_nd)
+       16    0.000    0.000    0.116    0.007 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\array_algos\take.py:59(take_nd)
+       16    0.114    0.007    0.116    0.007 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\array_algos\take.py:120(_take_nd_ndarray)
+       15    0.000    0.000    0.104    0.007 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\frame.py:4073(__getitem__)
+        1    0.000    0.000    0.102    0.102 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\generic.py:4164(_take_with_is_copy)
+
+
+
+
+--- SAVE phase (dill + zstd, tempdir) ---
+  save wall: 2.83s  models_saved=4  total_bytes_on_disk=7.59 MB
+         1539498 function calls (1312709 primitive calls) in 2.832 seconds
+
+   Ordered by: cumulative time
+   List reduced from 221 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        4    0.000    0.000    2.829    0.707 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\io.py:157(save_mlframe_model)
+        4    0.014    0.004    2.829    0.707 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\io.py:39(atomic_write_bytes)
+        4    0.092    0.023    1.437    0.359 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\io.py:189(_writer)
+        4    1.374    0.343    1.374    0.343 {built-in method nt.fsync}
+        4    0.002    0.000    1.250    0.312 D:\ProgramData\anaconda3\Lib\site-packages\dill\_dill.py:225(dump)
+        4    0.000    0.000    1.248    0.312 D:\ProgramData\anaconda3\Lib\site-packages\dill\_dill.py:392(dump)
+        4    0.000    0.000    1.248    0.312 D:\ProgramData\anaconda3\Lib\pickle.py:476(dump)
+ 112814/4    0.120    0.000    1.223    0.306 D:\ProgramData\anaconda3\Lib\site-packages\dill\_dill.py:343(save)
+ 112814/4    0.338    0.000    1.223    0.306 D:\ProgramData\anaconda3\Lib\pickle.py:535(save)
+    654/4    0.003    0.000    1.223    0.306 D:\ProgramData\anaconda3\Lib\pickle.py:621(save_reduce)
+     90/4    0.000    0.000    1.222    0.305 D:\ProgramData\anaconda3\Lib\site-packages\dill\_dill.py:1164(save_module_dict)
+     88/4    0.000    0.000    1.222    0.305 D:\ProgramData\anaconda3\Lib\pickle.py:965(save_dict)
+     88/4    0.001    0.000    1.222    0.305 D:\ProgramData\anaconda3\Lib\pickle.py:978(_batch_setitems)
+    50/42    0.000    0.000    0.960    0.023 D:\ProgramData\anaconda3\Lib\pickle.py:925(save_list)
+    50/42    0.047    0.001    0.960    0.023 D:\ProgramData\anaconda3\Lib\pickle.py:938(_batch_appends)
+      572    0.027    0.000    0.264    0.000 {method '__reduce_ex__' of 'object' objects}
+        4    0.034    0.009    0.237    0.059 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1827(__getstate__)
+        4    0.203    0.051    0.203    0.051 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2027(_serialize_model)
+   108134    0.101    0.000    0.199    0.000 D:\ProgramData\anaconda3\Lib\pickle.py:782(save_float)
+   116008    0.058    0.000    0.101    0.000 D:\ProgramData\anaconda3\Lib\pickle.py:241(write)
+        4    0.095    0.024    0.095    0.024 {method '__exit__' of 'zstd.ZstdCompressionWriter' objects}
+   112850    0.074    0.000    0.092    0.000 D:\ProgramData\anaconda3\Lib\pickle.py:217(commit_frame)
+  832/590    0.003    0.000    0.051    0.000 D:\ProgramData\anaconda3\Lib\pickle.py:874(save_tuple)
+   111262    0.029    0.000    0.030    0.000 D:\ProgramData\anaconda3\Lib\site-packages\dill\_dill.py:299(get)
+   110976    0.028    0.000    0.028    0.000 {built-in method _struct.pack}
+      164    0.028    0.000    0.028    0.000 {method 'write' of 'zstd.ZstdCompressionWriter' objects}
+   116004    0.019    0.000    0.019    0.000 {method 'write' of '_io.BytesIO' objects}
+   119676    0.018    0.000    0.018    0.000 {built-in method builtins.id}
+   113493    0.018    0.000    0.018    0.000 {built-in method builtins.getattr}
+   113441    0.017    0.000    0.017    0.000 {method 'get' of 'dict' objects}
+
+
+
+
+# Wall-time summary:
+  regression x cb                                         train=   93.2s  predict=   3.9s  save= 2.83s (4m,7.6MB)  OK
