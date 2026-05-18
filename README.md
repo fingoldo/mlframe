@@ -11,6 +11,32 @@ A production-grade machine-learning framework for tabular data. One uniform entr
 
 ## Recent changes
 
+2026-07-27 transformer FE subpackage grew to **86 mechanisms across 86 iterations**, with 6 standing records on the four breakthrough-candidate datasets (kin8nm regression / abalone regression / mammography 1.3%-positive binary / diabetes balanced binary). All mechanisms are stateless, OOF-disciplined, reproducible from seed; downstream consumers are CatBoost / LightGBM / XGBoost (single-iter to 300-iter, depth 3-6, default sklearn-API hyperparams).
+
+**Iter records (lift over raw baseline; same KFold seed / harness across all iters)**:
+
+| Dataset | Metric | Lift | Iter | Mechanism |
+|---|---|---|---|---|
+| **abalone** | XGB R² | **+4.05%** | iter 61 | multi-temp residual-bands + cdist |
+| **abalone** | CB R² | **+3.84%** | iter 69 | baseline-disagreement-as-feature + cdist |
+| **abalone** | LGB R² | **+3.19%** | iter 72 | local density gradient ‖∇log p̂(x)‖ alone (pure-X, no baseline) |
+| **mammography** | LGB AUC | **+14.46%** | iter 66 | class-balanced hard-row anchors + RFF |
+| **kin8nm** | LGB R² | +11.91% (marginal) | iter 68 | multi-baseline (LGB d=3 + LGB d=5 + Ridge) hard rows + RFF |
+| **diabetes** | CB PR_AUC | **+6.75%** (marginal) | iter 77 | local curvature via K=40 NN quadratic fit alone |
+
+Also iter 77 hit **ALL-5-metrics × ALL-3-boostings positive on diabetes** (AUC + Brier + PR_AUC + LogLoss + Accuracy), only the 2nd such achievement (1st was iter 17 rfprox+multitemp).
+
+**The recipe that worked**: small per-fold-trained baselines (50-iter LGB d=3 + LGB d=5 + Ridge / LogReg) produce residuals / predictions / disagreement statistics; those become bands (iter 60-63 residual-quintile-bands), anchors (iter 65 hard-rows by `|residual|`, iter 66 class-balanced hardest pos+neg, iter 68 multi-baseline-z-residual), or direct features (iter 69 3-baseline preds + std + range + pair-diffs = 8 features). Standard Kaggle terminology: **OOF predictions as level-1 features / stacked generalization** (Wolpert 1992).
+
+**Pure-input-X geometric mechanisms (iter 72-86) dominated the final session** (2/15 ideas from a 3-agent synthesis set records): density gradient + local curvature on kNN neighborhoods are the structurally cleanest signals, completely orthogonal to residual-based mechanisms. Hybrid features (per-row baseline surprise, pairwise KL divergence, local intrinsic dimension via PCA spectrum, robustness budget under noise injection, prediction-quintile bands, counterfactual feature substitution, adversarial flip distance, gradient direction agreement via Jacobian cosine, Fisher-weighted residual bands, predictive info delta, decision region depth via isotropic probes, IB-quantized baseline codes, geodesic distance via kNN-graph Dijkstra, persistence diagram via gudhi RipsComplex) gave modest signal but no records.
+
+Honest negatives documented in `RESULTS.md`:
+- Iter 71 NN-target-mean in OOF embedding (Home Credit 1st-place pattern): K=200/500 optimized for 300k-row competitions catastrophically over-smoothed on diabetes 614-row train fold (small-N is a different regime).
+- Iter 62 signed-residual bands: heavy-tailed regression residuals (abalone) collapsed Q1 band centroid into outlier region; -22 to -32% R² standalone.
+- Iter 64 prediction-quintile bands: ŷ is a function of X, so bands carry signal partially redundant with the downstream booster's own splits — residuals beat predictions.
+
+See `src/mlframe/feature_engineering/transformer/RESULTS.md` for the full 86-iter narrative.
+
 2026-05-18 audit-fixes wave (`audit-fixes-2026-05-16`). Closes the 13-item honest gaps list from the TVT production log analysis. Highlights: Pack #10 NameError fix, Pack G universal watchdog (now catches multiplicative-transform divergence), real parallel composite-candidate evaluation (`discovery_n_jobs > 1`, 5-10x speedup via joblib threading), Hermite EngineeredRecipe + predict-time replay (closes the "88-min Optuna found but transform couldn't reproduce" gap), `recover_composite_y_scale_metrics` lazy-recovery helper for `skip_wrap_pass_predict=True` callers, `use_stacked_discovery_residual` flag wiring `fit_stacked_on_residual` into the suite, MRMR identity-cache thread-safety, opt-in y-fingerprint cache mode. New benchmarks: `profiling/bench_stacked_discovery_default_flip.py` (verdict: keep False), `profiling/bench_hermite_ram_and_df_mutation.py` (pandas vs polars memory equivalent).
 
 2026-05-17 new `mlframe.feature_engineering.transformer` subpackage. Three frozen "transformer-style" FE blocks for tabular models (CatBoost / LightGBM / XGBoost / linear): Random Fourier Features (`compute_rff_features`), sinusoidal positional encoding (`compute_positional_encoding` + `positions_within_group`), and multi-head softmax-weighted kNN-target-encoding over random subspaces (`compute_row_attention`). The pipeline scales to 1-10M rows by 10k-20k cols via a mandatory random-projection front-end and an hnswlib ANN backend; GPU (cupy) accelerates the two stages where it actually wins on this scale (RFF matmul with pinned-memory streaming, row-attention stage-4 fused RawKernel). All other stages (projection in Mode A, ANN build/query, standardisation, positional encoding) are CPU only by design — H2D bandwidth at d=20k dominates GPU compute and cuVS has no Windows wheel. Honest framing: without backprop, "attention" here is (a) random-projection nonlinear feature maps (RFF), (b) softmax-weighted kNN-target-encoding (row-attn) — useful techniques for trees / linear, but the "transformer" name is structural, not algorithmic. Strict OOF discipline on train (mirrors `bruteforce._kfold_target_encode`); train-only key-bank for val / test / OOS / holdout; `seed` is a required positional argument so derived-from-data seeds can't silently leak. Three biz_value harnesses with hard-pass lift thresholds (RFF >= 0.30 R² lift for Ridge; row-attention >= 0.03 AUC lift vs raw AND >= 0.01 lift vs plain kNN-target-encoding) gate the block's "is this theatre?" question. New extras `mlframe[transformer]`, `mlframe[transformer_ann]` (hnswlib), `mlframe[transformer_gpu]` (cupy-cuda12x), `mlframe[transformer_full]`.
