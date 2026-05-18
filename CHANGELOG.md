@@ -2,7 +2,7 @@
 
 ## 2026-05-18 — Audit-fixes wave (T1+T2+T3): MRMR thread-safety, parallel composite discovery, Hermite recipe replay, residual-stacking suite wiring
 
-Closes the honest-gaps list from the TVT production log analysis. 13 shipped items across critical bugs, perf wins, and observability.
+Closes the honest-gaps list from the TVT production log analysis. 21 distinct T-IDs (T1#1, T1#3, T1#4, T1#5, T1#6, T1#7, T1#9, T2#8, T2#10, T2#11, T2#12, T2#13, T2#16, T3#14, T3#18, T3#19, T3#20, T3#22, T3#23, T3#24, T3#25) plus a follow-up correction wave (HIGH#1/#2/#4/#5/#6 + MEDIUM#7/#8/#9/#10/#11/#12 + LOWER#13/#14/#15) addressing honest gaps found during self-audit of the first wave.
 
 ### Critical fixes
 - **Pack #10 NameError/AttributeError** (`_tiny_model_rerank` dead-code path) - caught only by pytest, would have crashed on the first composite-skip-when-raw-dominates trigger. Fix returns an empty kept-spec list so the existing empty-handling path in `fit()` produces `specs_=[]`.

@@ -188,6 +188,67 @@ def _skipped_then_recovered_run(problem):
     return models, metadata, skipped_metadata_snapshot, train_idx, val_idx
 
 
+class TestRecoveryNoDoubleWrap:
+    """MEDIUM#11 2026-05-18: the wrap step inside ``_run_composite_target_wrapping`` is idempotent against entries whose inner is already a CompositeTargetEstimator. Pre-fix the recovery helper would have double-wrapped, feeding y-scale predictions back through transform.inverse a second time and producing garbage. This test pins the idempotency by inspecting the entry's inner BEFORE and AFTER the recovery call."""
+
+    def test_inner_not_double_wrapped_after_recovery(self) -> None:
+        from mlframe.training.composite_estimator import CompositeTargetEstimator
+        from mlframe.training.core._phase_composite_post import (
+            recover_composite_y_scale_metrics,
+        )
+
+        problem = _build_problem()
+        models, metadata, _, train_idx, val_idx = _skipped_then_recovered_run(problem)
+
+        entry = models["regression"]["y-linres-base"][0]
+        inner_before = getattr(entry, "model", entry)
+        assert isinstance(inner_before, CompositeTargetEstimator), (
+            "after skip_predict=True wrap, inner must already be a "
+            "CompositeTargetEstimator (wrap step succeeded)"
+        )
+        # The inner of THAT wrapper must be the original raw model (not a
+        # nested CompositeTargetEstimator).
+        nested = getattr(inner_before, "estimator_", None)
+        assert not isinstance(nested, CompositeTargetEstimator), (
+            "wrapper.estimator_ is already a CompositeTargetEstimator - "
+            "wrap was double-applied even on the first pass"
+        )
+
+        # Now call the recovery helper. It must NOT double-wrap.
+        recover_composite_y_scale_metrics(
+            models=models,
+            metadata=metadata,
+            target_by_type={"regression": {"y": problem["y"]}},
+            composite_specs_by_target_type={
+                "regression": {"y": [problem["spec"]]},
+            },
+            filtered_train_idx=train_idx,
+            filtered_train_df=problem["df"].iloc[train_idx].reset_index(drop=True),
+            filtered_val_idx=val_idx,
+            filtered_val_df=problem["df"].iloc[val_idx].reset_index(drop=True),
+            test_idx=None,
+            test_df_pd=None,
+        )
+
+        inner_after = getattr(entry, "model", entry)
+        assert isinstance(inner_after, CompositeTargetEstimator), (
+            "after recovery, inner is still a CompositeTargetEstimator"
+        )
+        nested_after = getattr(inner_after, "estimator_", None)
+        assert not isinstance(nested_after, CompositeTargetEstimator), (
+            "recovery double-wrapped! wrapper.estimator_ became a "
+            "CompositeTargetEstimator instead of the original raw model. "
+            "This would feed y-scale predictions through transform.inverse "
+            "a second time and produce garbage on transform() calls."
+        )
+
+        # Pre-fix detection: the IDENTITY of the wrapper instance must not
+        # change across the recovery call (idempotent at the object level).
+        assert inner_before is inner_after, (
+            "recovery replaced the wrapper instance (id-level non-idempotency)"
+        )
+
+
 class TestSkipPredictLeavesMetricsEmpty:
     """Regression guard: ``skip_predict=True`` leaves the metric dict empty
     (this is the documented contract that motivates the lazy recovery helper)."""

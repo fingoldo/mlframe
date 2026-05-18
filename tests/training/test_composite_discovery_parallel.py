@@ -130,11 +130,17 @@ class TestParallelDiscoveryBizValue:
         med_serial = float(np.median(serial_times))
         med_parallel = float(np.median(parallel_times))
 
-        # 1.5x slack: joblib thread-pool setup costs ~0.05s. On a workload
-        # that takes 0.5s serial the overhead is ~10%, so we allow parallel
-        # to be at most 1.5x serial. If the refactor regressed (e.g. extra
-        # pickling, allocation), the ratio blows past 2x and this fires.
-        # On larger production workloads the speedup is real (5-10x at n_jobs=8).
+        # LOWER#14 2026-05-18 round-number justification: the 1.5x slack
+        # is derived from measured joblib threading-backend coordination
+        # overhead at small task counts: pool setup + dispatch + join
+        # together ~0.05-0.10s, which is 10-20% of typical wall time on
+        # this test's workload (~0.5s serial). 1.5x covers that with
+        # margin. Larger ratios (>2x) indicate a refactor regression
+        # (extra pickling, lock contention, or accidental serial work).
+        # NOTE 2026-05-18 HIGH#6: real measured speedup on n=200k at
+        # n_jobs=8 is ~1.05x, NOT 5-10x. The serial _tiny_model_rerank
+        # tail dominates total wall time. This test only validates "no
+        # regression vs serial"; it is NOT a positive speedup assertion.
         assert med_parallel <= 1.5 * med_serial, (
             f"parallel discovery wall-time regressed: "
             f"median serial={med_serial:.3f}s, median parallel={med_parallel:.3f}s "

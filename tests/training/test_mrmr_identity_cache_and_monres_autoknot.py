@@ -252,3 +252,36 @@ class TestIdentityCacheThreadSafe:
         # All 50 keys should be present in the cache.
         for k in keys:
             assert k in _MRMR_IDENTITY_FP_CACHE
+
+    def test_lock_serialises_same_key_read_modify_write(self) -> None:
+        """MEDIUM#10 2026-05-18: REAL contention test - 8 threads x 1000
+        iterations all doing read-modify-write on the SAME key under the
+        lock. Without the lock, racing read-then-write would lose
+        updates and the final count would be < 8000. With the lock, the
+        critical section is atomic and the final count equals 8000.
+        """
+        import threading
+        _MRMR_IDENTITY_FP_CACHE.clear()
+        shared_key = "fp_contended"
+        _MRMR_IDENTITY_FP_CACHE[shared_key] = 0
+
+        def _increment_under_lock() -> None:
+            for _ in range(1000):
+                with _MRMR_IDENTITY_FP_LOCK:
+                    val = _MRMR_IDENTITY_FP_CACHE[shared_key]
+                    _MRMR_IDENTITY_FP_CACHE[shared_key] = val + 1
+
+        threads = [
+            threading.Thread(target=_increment_under_lock)
+            for _ in range(8)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert _MRMR_IDENTITY_FP_CACHE[shared_key] == 8000, (
+            f"lock failed to serialise concurrent read-modify-write on "
+            f"the same key; final value "
+            f"{_MRMR_IDENTITY_FP_CACHE[shared_key]} != 8000 (lost "
+            f"updates indicate races)"
+        )

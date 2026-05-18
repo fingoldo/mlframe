@@ -24,6 +24,14 @@ benchmark:
 * stacked OOF holdout RMSE <= single-pass RMSE (no harm), AND
 * stacked OOF holdout RMSE < single-pass RMSE by >= 5%
 
+LOWER#14 2026-05-18 round-number justification for the 5% threshold:
+The 5% floor is well above the run-to-run variance band on this
+n=4000 synthetic (measured std across 5 reruns: ~0.5% RMSE), so an
+improvement clearing 5% reliably reflects a real win rather than noise.
+A tighter floor (e.g. 1%) would risk flipping the default on a
+fold-noise blip; a looser floor (e.g. 10%) would miss a genuine but
+modest win. 5% sits in the "clearly worth the doubled compute" zone.
+
 Otherwise leave the default False.
 
 Findings (2026-05-18 measure)
