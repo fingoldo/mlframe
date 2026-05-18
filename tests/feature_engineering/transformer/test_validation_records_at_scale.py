@@ -1352,3 +1352,16 @@ def test_iter135_abalone_cb_r2():
     """iter102 + local_lift on abalone 4k CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
     _validate_scale(_load_abalone, _build_iter135, "cb", "R2", 0.0274, "iter135_iter102+loclift_abalone_cb")
+
+
+# ---------- iter136 - does iter135 (iter102+loclift) generalise to Year-50k CB R2? ----------
+
+
+def test_iter136_year50k_cb_r2():
+    """iter135 mechanism on Year-50k CB R2 (vs iter104 record +4.32%). Does iter102+loclift beat iter104?"""
+    _validate_scale(_load_year_50k, _build_iter135, "cb", "R2", 0.0432, "iter136_iter102+loclift_Year50k_cb")
+
+
+def test_iter136_california_cb_r2():
+    """iter135 mechanism on California 20k CB R2 (vs iter69 +1.15%). Does iter102+loclift beat iter69 on California?"""
+    _validate_scale(_load_california, _build_iter135, "cb", "R2", 0.0115, "iter136_iter102+loclift_CA20k_cb")

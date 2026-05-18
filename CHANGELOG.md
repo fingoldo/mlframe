@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-05-18 — Iter 136: iter135 generalisation tests — ≈TIE iter104 on Year-50k, marginal +0.09pp on California
+
+Tested whether iter135 (iter102 + local_lift) mechanism that won marginal on kin8nm generalises to other CB R2 regression datasets.
+
+### Results (3 seeds)
+- Year-50k CB R2: median +4.33% (2 valid + 1 OOM, range +4.24% / +4.41%, IQR 0.0008)
+  vs iter104 record +4.32%: +0.01pp **TIE essentially identical**
+- California 20k CB R2: median +1.24% (range +1.09% / +2.01%, IQR 0.0046)
+  vs iter69 +1.15%: +0.09pp (marginal, within noise IQR 0.0046)
+
+### Verdict
+iter135 (iter102+local_lift) doesn't clearly dominate at Year-50k or California. iter104 stays as Year-50k record, iter69 stays as California record. iter135 is plausibly tied or marginal new but +0.01pp / +0.09pp is too small to displace established records.
+
+Pattern firmly: each dataset has its own niche enhancement, no universal best. iter135 is a strong kin8nm-CB candidate, but iter104 (RSD) is the best for Year-50k/100k and iter69 alone for California.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter136_*`.
+
 ## 2026-05-18 — Iter 135: iter102 + local_lift on kin8nm — marginal new candidate +8.42%, saturation territory
 
 Tested iter102 (iter69+ExtraTrees) + local_lift composition (no BGM) on kin8nm + abalone. Lighter than iter130 triple, may give simpler mechanism with same lift.
