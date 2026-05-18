@@ -1652,7 +1652,17 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # check_prospective_fe_pairs pipeline below; we log the gain here for diagnostics only. A tighter
                 # integration that injects best_res.transform(...) directly into data is future work.
 
-        else:
+        # 2026-05-18 fix (production TVT FE dead-code): the standard
+        # check_prospective_fe_pairs path used to live in ``else:`` of the
+        # Hermite block. That meant: enabling ``fe_smart_polynom_iters > 0``
+        # silently DISABLED all standard unary/binary FE (cbrt, sqrt, log,
+        # hypot, atan2, ...). Production TVT log: 88 min on Hermite Optuna,
+        # 0 engineered features, MRMR returned identity (25 cols in, 25 cols
+        # out), full Hermite-FE compute wasted. De-dented the block so the
+        # standard pipeline always runs after the Hermite block; users get
+        # the unary/binary FE they asked for via ``fe_unary_preset='medium'``
+        # regardless of whether Hermite ran.
+        if True:
             original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
             if verbose >= 1:
                 logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
@@ -1831,6 +1841,56 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                 # TODO 2026-05-17: handle factors_to_use / factors_names_to_use threading here.
                 checked_pairs.add(raw_vars_pair)
+
+            # 2026-05-18: surface WHY FE added 0 features when the operator
+            # configured it explicitly. Production TVT log showed 88 min of
+            # Hermite Optuna yielding 0 engineered cols with no visible
+            # explanation (kept 25 cols, returned 25, dedup at downstream
+            # marked MRMR identity-equivalent). The summary below explains:
+            # n_pairs_considered: how many (a, b) pairs were screened
+            # n_pairs_with_additions: how many pairs produced ANY recipe
+            # n_engineered_features: total recipes that survived all gates
+            # If 0 with verbose >= 1, also log the gate thresholds so an
+            # operator can see which knob is too tight (often
+            # ``fe_min_engineered_mi_prevalence=0.98`` is the culprit on
+            # heavily-correlated feature sets).
+            try:
+                _n_pairs_considered = int(len(prospective_pairs))
+            except Exception:
+                _n_pairs_considered = -1
+            try:
+                _n_pairs_with_additions = sum(
+                    1 for v in prospective_additions.values()
+                    if v[0]  # this_pair_features non-empty
+                )
+            except Exception:
+                _n_pairs_with_additions = -1
+            if verbose >= 1:
+                logger.info(
+                    "FE summary: %d pair(s) considered, %d produced engineered cols, "
+                    "n_total_engineered=%d. Gate thresholds: "
+                    "fe_min_pair_mi_prevalence=%.3f, "
+                    "fe_min_engineered_mi_prevalence=%.3f, "
+                    "fe_min_nonzero_confidence=%.3f, "
+                    "fe_good_to_best_feature_mi_threshold=%.3f.",
+                    _n_pairs_considered, _n_pairs_with_additions,
+                    n_recommended_features,
+                    float(fe_min_pair_mi_prevalence),
+                    float(fe_min_engineered_mi_prevalence),
+                    float(fe_min_nonzero_confidence),
+                    float(fe_good_to_best_feature_mi_threshold),
+                )
+                if n_recommended_features == 0 and _n_pairs_considered > 0:
+                    logger.warning(
+                        "FE produced 0 engineered features despite %d pair(s) "
+                        "passing the pair-MI gate. Likely cause: the "
+                        "fe_min_engineered_mi_prevalence=%.3f threshold is "
+                        "tight relative to the pair-level MI. Try lowering "
+                        "to 0.90 (5%% under the default) or set "
+                        "fe_min_pair_mi_prevalence=1.02 to widen the pool.",
+                        _n_pairs_considered,
+                        float(fe_min_engineered_mi_prevalence),
+                    )
 
         return data, cols, nbins, X, selected_vars, n_recommended_features
 
