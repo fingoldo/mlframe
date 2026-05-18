@@ -1,77 +1,0 @@
-# 1M-row e2e profile (n_rows=25_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
-
-=== regression x cb ===
-  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'text_col', 'y']
-  built frame: 25_000 rows x 11 cols
-  axes: mrmr_fs=False outlier=none ensembles=False cat_enc=ordinal scaler=robust dim_reducer=TruncatedSVD boruta_shap=True poly_deg=0 predict_batch_rows=0 n_targets=1 mix_target_types=False weight=both
-  axes2: composite_disc=True transforms_mode=unary_only mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=False
-  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'text_col', 'y', 'ts']
-  rebuilt frame with extras: targets=[] add_ts=True
-wholeday_splitting=True requested but timestamps dtype is numeric (int64); falling back to row-based split. Numeric ts has no calendar-day semantics for the wholeday-splitter.
-  CatBoost in mlframe_models + categorical_encoding='ordinal' + 1 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
-apply_preprocessing_extensions: dropped 1 non-numeric column(s) before the sklearn-bridge pipeline (kbins / polynomial / scaler / dim_reducer all reject object dtype): ['text_col']. Encode these upstream (e.g. via OrdinalEncoder / OneHotEncoder in the suite's cat-encoder pre-pipeline) if you want them to participate in the extension transforms.
-apply_preprocessing_extensions: dropped 2 all-null column(s) before the sklearn-bridge pipeline (SimpleImputer median strategy would silently drop them and shrink the post-imputer n_features below the dim_reducer's n_components clamp, causing a downstream PCA / TruncatedSVD / FastICA ValueError): ['x4', 'x5'].
-apply_preprocessing_extensions: clamped dim_n_components from user-requested value to 7 (= min(n_features-1=7, n_samples-1=20249)) so the TruncatedSVD reducer's n_components stays within the sklearn-required (0, min(n_samples, n_features)) range. Increase the upstream feature count or drop the dim_reducer if you need K=7.
-[CompositeTargetDiscovery] raw-y baseline gate rejected ALL 4 composite candidate(s) (raw_baseline=0.6229, tolerance=1.02). Examples: y-cbrtY-truncatedsvd4=RMSE1.6219>0.6354, y-logY-truncatedsvd4=RMSE1.4481>0.6354, y-yjY-truncatedsvd4=RMSE1.4403>0.6354. Falling back to raw target only -- discovery yields no specs.
-[CompositeTargetDiscovery] no candidate cleared mi_gain > -0.5 on target='y'. (fail_on_no_gain='fallback_raw')
-pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
-weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][A
-weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
-
-weighting schema:  50%|#####     | 1/2 [00:04<00:04,  4.87s/it][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
-
-weighting schema: 100%|##########| 2/2 [00:08<00:00,  4.21s/it][Aweighting schema: 100%|##########| 2/2 [00:08<00:00,  4.31s/it]
-pre_pipeline:  50%|#####     | 1/2 [00:08<00:08,  8.64s/it]
-weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][A
-weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][A
-
-Feature selection:   0%|          | 0/5 [00:00<?, ?it/s][A[AFeature selection:   0%|          | 0/5 [00:00<?, ?it/s]
-[phase] pre_pipeline_fit_transform RAISED ValueError after 0.31s
-[phase] process_model RAISED ValueError after 0.43s model=cb weight=uniform
-weighting schema:   0%|          | 0/2 [00:00<?, ?it/s]
-pre_pipeline:  50%|#####     | 1/2 [00:09<00:09,  9.54s/it]
-  train wall: 35.6s  status: ValueError: Unknown label type: continuous. Maybe you are trying to fit a classifier, which expects discrete classes on 
-         772330 function calls (737679 primitive calls) in 35.601 seconds
-
-   Ordered by: cumulative time
-   List reduced from 4041 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.001    0.001   26.685   26.685 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
-        1    0.000    0.000    9.842    9.842 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:785(_phase_fit_pipeline)
-        1    0.001    0.001    9.701    9.701 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
-   137/23    0.002    0.000    9.506    0.413 <frozen importlib._bootstrap>:1165(_find_and_load)
-   126/12    0.001    0.000    9.505    0.792 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
-   119/13    0.001    0.000    9.499    0.731 <frozen importlib._bootstrap>:666(_load_unlocked)
-   113/12    0.001    0.000    9.496    0.791 <frozen importlib._bootstrap_external>:934(exec_module)
-        3    0.000    0.000    9.061    3.020 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        3    0.000    0.000    9.061    3.020 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-        3    0.000    0.000    9.059    3.020 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:425(train_and_evaluate_model)
-      113    0.003    0.000    9.018    0.080 <frozen importlib._bootstrap_external>:1007(get_code)
-      113    0.001    0.000    8.987    0.080 <frozen importlib._bootstrap_external>:1127(get_data)
-       43    0.000    0.000    8.924    0.208 D:\ProgramData\anaconda3\Lib\site-packages\pydantic\main.py:240(__init__)
-       43    0.001    0.000    8.924    0.208 {method 'validate_python' of 'pydantic_core._pydantic_core.SchemaValidator' objects}
-        1    0.000    0.000    8.918    8.918 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\configs.py:812(_validate_boruta_shap_kwargs)
-   262/22    0.000    0.000    8.917    0.405 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
-   203/12    0.012    0.000    8.911    0.743 {built-in method builtins.exec}
-        1    0.000    0.000    8.800    8.800 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\boruta_shap.py:1(<module>)
-      124    8.744    0.071    8.744    0.071 {method 'read' of '_io.BufferedReader' objects}
-        1    0.000    0.000    8.670    8.670 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\pipeline.py:405(apply_preprocessing_extensions)
-        1    0.000    0.000    8.651    8.651 D:\ProgramData\anaconda3\Lib\site-packages\seaborn\__init__.py:1(<module>)
-        2    0.000    0.000    8.422    4.211 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:348(_train_model_with_fallback)
-        3    0.000    0.000    7.843    2.614 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
-        3    0.001    0.000    7.842    2.614 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
-        3    7.819    2.606    7.820    2.607 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
-      8/7    0.000    0.000    5.872    0.839 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\_set_output.py:314(wrapped)
-      5/3    0.000    0.000    5.644    1.881 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
-        1    0.000    0.000    5.558    5.558 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\pipeline.py:632(fit_transform)
-        1    0.000    0.000    5.542    5.542 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\decomposition\_truncated_svd.py:209(fit_transform)
-        1    0.001    0.001    5.539    5.539 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\extmath.py:556(_randomized_svd)
-
-
-
-
-# Wall-time summary:
-  regression x cb                                         train=   35.6s  predict=---     save=---             load=---         predict_loaded=---   parity=skip  ValueError: Unknown label type: continuous. Maybe you are trying to fit a classifier, which expects discrete classes on 

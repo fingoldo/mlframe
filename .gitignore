@@ -161,3 +161,14 @@ scripts/*.local.py
 # Audit / report outputs
 mlframe_audit_report.txt
 *.audit.txt
+# Perf-loop iteration artifacts: per-iter cProfile snapshots, regenerated
+# every loop run; ~1-30 KB each, currently hundreds in tests/perf/results.
+# Pre-2026-05-18 these were tracked via `git add .` from loop agents;
+# now untracked - regenerate locally via the loop script when needed.
+tests/perf/results/profile_iter*.txt
+tests/perf/results/bench_*.md
+# Loop-agent progress checkpoints: append-only liveness logs from long-
+# running agents (memory rule "Long-running agents: write progress
+# checkpoints"). Not source - the truth lives in CHANGELOG / git log.
+audit/progress/*.progress
+*.progress

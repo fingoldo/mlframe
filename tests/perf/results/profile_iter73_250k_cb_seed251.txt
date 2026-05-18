@@ -1,74 +1,0 @@
-# 1M-row e2e profile (n_rows=250_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
-
-=== regression x cb ===
-  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'cat_low', 'cat_mid', 'text_col', 'y']
-  built frame: 250_000 rows x 13 cols
-  axes: mrmr_fs=True outlier=none ensembles=False cat_enc=ordinal scaler=none dim_reducer=none boruta_shap=False poly_deg=0 predict_batch_rows=250000 n_targets=2 mix_target_types=True weight=recency_only
-  axes2: composite_disc=False transforms_mode=off mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=1 cat_fe_include_numeric=True
-  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'cat_low', 'cat_mid', 'text_col', 'y', 'y2', 'ts']
-  rebuilt frame with extras: targets=['y2'] add_ts=True
-wholeday_splitting=True requested but timestamps dtype is numeric (int64); falling back to row-based split. Numeric ts has no calendar-day semantics for the wholeday-splitter.
-  CatBoost in mlframe_models + categorical_encoding='ordinal' + 3 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
-cat vars stats:   0%|          | 0/2 [00:00<?, ?it/s]cat vars stats:  50%|#####     | 1/2 [00:00<00:00,  6.09it/s]                                                             target type:   0%|          | 0/2 [00:00<?, ?it/s]target type:   0%|          | 0/2 [00:00<?, ?it/s]invalid literal for int() with base 10: "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running. This can also be happening if non-NVIDIA GPU is running
-Traceback (most recent call last):
-  File "D:\Upd\Programming\PythonCodeRepository\pyutilz\src\pyutilz\system\system.py", line 1621, in get_gpuutil_gpu_info
-    for gpu in GPUtil.getGPUs():
-               ^^^^^^^^^^^^^^^^
-  File "D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\GPUtil.py", line 102, in getGPUs
-    deviceIds = int(vals[i])
-                ^^^^^^^^^^^^
-ValueError: invalid literal for int() with base 10: "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running. This can also be happening if non-NVIDIA GPU is running
-
-pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s][A
-pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s][AD:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2702: UserWarning:
-
-Can't optimze method "evaluate" because self argument is used
-
-MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-[phase] model.fit RAISED CatBoostError after 1.20s model=CatBoostClassifier n_rows=202500 n_cols=13
-[phase] process_model RAISED CatBoostError after 1.35s model=cb weight=recency
-pre_pipeline:   0%|          | 0/2 [00:01<?, ?it/s]
-target type:   0%|          | 0/2 [00:01<?, ?it/s]
-  train wall: 5.1s  status: CatBoostError: bad allocation
-         165355 function calls (159540 primitive calls) in 5.080 seconds
-
-   Ordered by: cumulative time
-   List reduced from 2569 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.004    0.004    3.311    3.311 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
-    126/5    0.002    0.000    1.901    0.380 <frozen importlib._bootstrap>:1165(_find_and_load)
-    103/5    0.001    0.000    1.900    0.380 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
-     95/5    0.001    0.000    1.897    0.379 <frozen importlib._bootstrap>:666(_load_unlocked)
-    234/7    0.001    0.000    1.897    0.271 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
-     90/5    0.001    0.000    1.897    0.379 <frozen importlib._bootstrap_external>:934(exec_module)
-    31/11    0.000    0.000    1.858    0.169 {built-in method builtins.__import__}
-        1    0.001    0.001    1.762    1.762 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
-    151/5    0.017    0.000    1.759    0.352 {built-in method builtins.exec}
-       90    0.003    0.000    1.681    0.019 <frozen importlib._bootstrap_external>:1007(get_code)
-        1    0.000    0.000    1.629    1.629 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\__init__.py:1(<module>)
-       91    1.530    0.017    1.530    0.017 {method 'read' of '_io.BufferedReader' objects}
-      106    0.001    0.000    1.526    0.014 <frozen importlib._bootstrap_external>:1127(get_data)
-        1    0.000    0.000    1.348    1.348 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        1    0.000    0.000    1.348    1.348 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-        1    0.000    0.000    1.347    1.347 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:425(train_and_evaluate_model)
-        1    0.000    0.000    1.326    1.326 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:348(_train_model_with_fallback)
-        1    0.000    0.000    1.205    1.205 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:5529(fit)
-        1    0.000    0.000    1.204    1.204 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
-        1    0.000    0.000    1.183    1.183 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\_legacy.py:1(<module>)
-        1    1.162    1.162    1.162    1.162 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
-        1    0.000    0.000    0.476    0.476 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_temporal_audit.py:20(run_temporal_audit_batch)
-        1    0.001    0.001    0.474    0.474 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\target_temporal_audit.py:926(audit_targets_over_time)
-        1    0.000    0.000    0.408    0.408 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
-        1    0.000    0.000    0.407    0.407 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1317(configure_training_params)
-        2    0.000    0.000    0.403    0.202 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:156(get_training_configs)
-        2    0.000    0.000    0.403    0.202 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:479(_cached_gpu_info)
-        1    0.000    0.000    0.403    0.403 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:516(_cb_gpu_usable)
-        1    0.000    0.000    0.387    0.387 D:\Upd\Programming\PythonCodeRepository\pyutilz\src\pyutilz\system\system.py:1599(get_gpuutil_gpu_info)
-        4    0.000    0.000    0.371    0.093 D:\ProgramData\anaconda3\Lib\site-packages\pandas\core\frame.py:3677(memory_usage)
-
-
-
-
-# Wall-time summary:
-  regression x cb                                         train=    5.1s  predict=---     save=---             load=---         predict_loaded=---   parity=skip  CatBoostError: bad allocation

@@ -1,3 +1,0 @@
-2026-05-17T15:20:18Z | START | wave3_core | begin
-2026-05-17T15:24:23Z | FIX | _phase_finalize.py:62 | M1 NaN check replaced with math.isnan
-2026-05-17T15:24:49Z | FIX | _phase_helpers.py:1190 | M2 locals() replaced with explicit dict

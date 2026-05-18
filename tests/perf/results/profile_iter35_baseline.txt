@@ -1,54 +1,0 @@
-# 1M-row e2e profile (n_rows=1_500_000, models=('cb', 'linear'), save_charts=False)
-
-=== binary_classification x cb,linear ===
-  built frame: 1_500_000 rows x 9 cols
-mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2702: UserWarning:
-
-Can't optimze method "evaluate" because self argument is used
-
-MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
-mlframe model:  50%|#####     | 1/2 [00:32<00:32, 32.88s/it]mlframe model: 100%|##########| 2/2 [00:34<00:00, 14.72s/it]mlframe model: 100%|##########| 2/2 [00:34<00:00, 17.45s/it]
-  wall: 38.0s  status: OK
-         751662 function calls (726725 primitive calls) in 38.046 seconds
-
-   Ordered by: cumulative time
-   List reduced from 4402 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.004    0.004   38.042   38.042 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
-        1    0.006    0.006   36.601   36.601 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
-       14    0.002    0.000   36.142    2.582 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
-        2    0.000    0.000   34.878   17.439 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        2    0.000    0.000   34.877   17.439 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-        2    0.000    0.000   33.604   16.802 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
-        2    0.000    0.000   32.127   16.064 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
-        1    0.000    0.000   32.124   32.124 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:5529(fit)
-        2   19.263    9.632   31.998   15.999 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
-      289    0.066    0.000   12.902    0.045 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2858(compute_probabilistic_multiclass_error)
-      233    0.005    0.000   12.648    0.054 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:3144(evaluate)
-      289   12.528    0.043   12.530    0.043 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:2606(_batch_per_class_ice_kernel)
-      233    0.055    0.000   12.311    0.053 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:399(integral_calibration_error)
-       28    0.001    0.000    2.021    0.072 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
-       28    0.006    0.000    2.017    0.072 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
-       28    0.024    0.001    2.001    0.071 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
-      4/2    0.006    0.002    1.728    0.864 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
-        1    0.000    0.000    1.564    1.564 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:1128(score_ensemble)
-        6    0.015    0.003    1.564    0.261 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:782(_process_single_ensemble_method)
-        1    0.000    0.000    1.474    1.474 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_logistic.py:1086(fit)
-       14    0.000    0.000    1.431    0.102 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
-        1    0.009    0.009    1.382    1.382 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_logistic.py:86(_logistic_regression_path)
-        1    0.000    0.000    1.371    1.371 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_minimize.py:54(minimize)
-        1    0.000    0.000    1.371    1.371 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_lbfgsb_py.py:294(_minimize_lbfgsb)
-       10    0.009    0.001    1.369    0.137 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:71(_compute_if_needed)
-        6    0.000    0.000    1.369    0.228 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_differentiable_functions.py:351(_update_fun)
-        5    0.000    0.000    1.369    0.274 D:\ProgramData\anaconda3\Lib\site-packages\scipy\_lib\_util.py:587(__call__)
-        5    0.000    0.000    1.369    0.274 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:78(__call__)
-        5    1.059    0.212    1.361    0.272 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_linear_loss.py:269(loss_gradient)
-        1    0.003    0.003    1.188    1.188 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:1056(_phase_train_val_test_split)
-
-
-
-
-# Wall-time summary:
-  binary_classification x cb,linear                          38.0s  OK

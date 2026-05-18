@@ -1,48 +1,0 @@
-# 1M-row e2e profile (n_rows=500_000, models=('linear', 'ridge'), save_charts=False)
-
-=== regression x linear,ridge ===
-  built frame: 500_000 rows x 9 cols
-mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:  50%|#####     | 1/2 [00:00<00:00,  1.45it/s]mlframe model: 100%|##########| 2/2 [00:01<00:00,  1.47it/s]mlframe model: 100%|##########| 2/2 [00:01<00:00,  1.46it/s]
-  wall: 2.0s  status: OK
-         159034 function calls (154961 primitive calls) in 1.959 seconds
-
-   Ordered by: cumulative time
-   List reduced from 2459 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.003    0.003    1.952    1.952 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
-        1    0.002    0.002    1.777    1.777 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
-        8    0.001    0.000    1.516    0.190 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
-        2    0.000    0.000    1.348    0.674 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        2    0.000    0.000    1.347    0.674 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-      5/3    0.004    0.001    1.020    0.340 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
-        2    0.000    0.000    0.887    0.443 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
-        1    0.001    0.001    0.575    0.575 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_ridge.py:1231(fit)
-        1    0.000    0.000    0.568    0.568 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_ridge.py:925(fit)
-        1    0.000    0.000    0.554    0.554 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_ridge.py:612(_ridge_regression)
-        1    0.000    0.000    0.554    0.554 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_ridge.py:216(_solve_cholesky)
-        2    0.553    0.277    0.553    0.277 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\extmath.py:166(safe_sparse_dot)
-       16    0.001    0.000    0.341    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
-       16    0.001    0.000    0.338    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
-       16    0.002    0.000    0.327    0.020 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
-        1    0.000    0.000    0.307    0.307 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_base.py:602(fit)
-        2    0.000    0.000    0.285    0.142 D:\ProgramData\anaconda3\Lib\site-packages\scipy\_lib\_util.py:1203(wrapper)
-        1    0.280    0.280    0.284    0.284 D:\ProgramData\anaconda3\Lib\site-packages\scipy\linalg\_basic.py:1325(lstsq)
-        1    0.002    0.002    0.216    0.216 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:1128(score_ensemble)
-        8    0.000    0.000    0.214    0.027 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:484(_apply_pre_pipeline_transforms)
-        3    0.001    0.000    0.213    0.071 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:782(_process_single_ensemble_method)
-        8    0.000    0.000    0.211    0.026 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
-       16    0.056    0.003    0.200    0.012 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\regression_residual_audit.py:270(audit_residuals)
-        4    0.000    0.000    0.171    0.043 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:275(_passthrough_cols_fit_transform)
-        4    0.000    0.000    0.171    0.043 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:336(_run_and_empty_check)
-     10/8    0.001    0.000    0.167    0.021 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\_set_output.py:314(wrapped)
-        1    0.000    0.000    0.162    0.162 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
-        1    0.000    0.000    0.157    0.157 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1222(configure_training_params)
-        2    0.000    0.000    0.156    0.078 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:152(get_training_configs)
-        1    0.000    0.000    0.155    0.155 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:499(_cb_gpu_usable)
-
-
-
-
-# Wall-time summary:
-  regression x linear,ridge                                   2.0s  OK

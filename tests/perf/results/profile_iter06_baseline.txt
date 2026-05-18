@@ -1,49 +1,0 @@
-# 1M-row e2e profile (n_rows=200_000, models=('cb', 'lgb'), save_charts=False)
-
-=== regression x cb,lgb ===
-  built frame: 200_000 rows x 9 cols
-mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-mlframe model:  50%|#####     | 1/2 [00:09<00:09,  9.89s/it]mlframe model: 100%|##########| 2/2 [00:15<00:00,  7.11s/it]mlframe model: 100%|##########| 2/2 [00:15<00:00,  7.53s/it]
-  wall: 15.5s  status: OK
-         149964 function calls (145559 primitive calls) in 15.506 seconds
-
-   Ordered by: cumulative time
-   List reduced from 2490 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.002    0.002   15.501   15.501 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
-        1    0.001    0.001   15.379   15.379 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
-        8    0.001    0.000   15.153    1.894 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
-        2    0.000    0.000   15.049    7.525 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        2    0.000    0.000   15.048    7.524 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-        2    0.000    0.000   14.700    7.350 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
-        2    0.000    0.000    9.756    4.878 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
-        2    0.001    0.000    9.756    4.878 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
-        2    9.724    4.862    9.725    4.862 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
-        1    0.000    0.000    4.943    4.943 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
-        1    0.011    0.011    4.939    4.939 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
-      421    4.567    0.011    4.569    0.011 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4092(update)
-       16    0.001    0.000    0.416    0.026 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
-       16    0.001    0.000    0.413    0.026 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
-       16    0.002    0.000    0.401    0.025 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
-        8    0.000    0.000    0.248    0.031 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
-        1    0.043    0.043    0.222    0.222 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:3589(__init__)
-        4    0.000    0.000    0.200    0.050 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:316(_predict_with_fallback)
-      3/2    0.001    0.000    0.189    0.095 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:2517(construct)
-        2    0.000    0.000    0.188    0.094 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:2102(_lazy_init)
-        2    0.000    0.000    0.183    0.092 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:1093(predict)
-        2    0.000    0.000    0.180    0.090 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4701(predict)
-        2    0.000    0.000    0.179    0.090 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1100(predict)
-        2    0.179    0.089    0.179    0.089 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:2305(__init_from_np2d)
-        2    0.000    0.000    0.176    0.088 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1327(__pred_for_np2d)
-        2    0.176    0.088    0.176    0.088 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1286(__inner_predict_np2d)
-        8    0.000    0.000    0.168    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:863(_run_test_metrics)
-        1    0.000    0.000    0.167    0.167 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
-        1    0.000    0.000    0.164    0.164 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1222(configure_training_params)
-        2    0.000    0.000    0.163    0.081 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:152(get_training_configs)
-
-
-
-
-# Wall-time summary:
-  regression x cb,lgb                                        15.5s  OK

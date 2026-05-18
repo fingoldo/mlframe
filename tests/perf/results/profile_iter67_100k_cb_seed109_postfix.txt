@@ -1,31 +1,0 @@
-# 1M-row e2e profile (n_rows=100_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
-
-=== regression x cb ===
-  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'cat_low', 'y']
-  built frame: 100_000 rows x 11 cols
-  axes: mrmr_fs=False outlier=none ensembles=False cat_enc=onehot scaler=standard dim_reducer=none boruta_shap=False poly_deg=0 predict_batch_rows=50000 n_targets=1 mix_target_types=False weight=uniform_only
-  axes2: composite_disc=True transforms_mode=legacy mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=False
-target:   0%|          | 0/4 [00:00<?, ?it/s]target:   0%|          | 0/4 [00:00<?, ?it/s]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
-target:  25%|##5       | 1/4 [00:14<00:44, 14.72s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
-target:  50%|#####     | 2/4 [00:23<00:22, 11.48s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
-target:  75%|#######5  | 3/4 [00:33<00:10, 10.49s/it]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
-target: 100%|##########| 4/4 [00:47<00:00, 11.79s/it]target: 100%|##########| 4/4 [00:47<00:00, 11.76s/it]
-Windows fatal exception: Windows fatal exception: Windows fatal exception: access violationWindows fatal exception: Windows fatal exception: Windows fatal exception: access violationaccess violation
-
-
-
-access violation
-
-
-
-Thread 0x000024a0 (most recent call first):
-Windows fatal exception: access violation
-
-access violation
-
-access violation
-

@@ -1,49 +1,0 @@
-# 1M-row e2e profile (n_rows=1_000_000, models=('lgb', 'xgb'), save_charts=False)
-
-=== binary_classification x lgb,xgb ===
-  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'emb', 'y']
-  built frame: 1_000_000 rows x 10 cols
-mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:  50%|#####     | 1/2 [00:44<00:44, 44.48s/it]mlframe model: 100%|##########| 2/2 [00:53<00:00, 23.42s/it]mlframe model: 100%|##########| 2/2 [00:53<00:00, 26.58s/it]
-  wall: 56.0s  status: OK
-         1116809 function calls (1083128 primitive calls) in 55.983 seconds
-
-   Ordered by: cumulative time
-   List reduced from 3720 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.011    0.011   55.980   55.980 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
-        1    0.004    0.004   54.643   54.643 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
-       14    0.002    0.000   54.247    3.875 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
-        2    0.000    0.000   53.136   26.568 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        2    0.000    0.000   53.135   26.568 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-       28    0.001    0.000   37.428    1.337 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
-       28    0.001    0.000   37.423    1.337 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
-       28    0.015    0.001   37.411    1.336 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
-       14    0.000    0.000   33.775    2.413 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:863(_run_test_metrics)
-       28    0.000    0.000   33.387    1.192 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:774(compute_batch_aucs)
-        8    0.010    0.001   32.677    4.085 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:611(gpu_multiple_roc_auc_scores)
-        8    0.000    0.000   31.408    3.926 D:\ProgramData\anaconda3\Lib\site-packages\cupy\_math\sumprod.py:13(sum)
-        8    0.972    0.121   31.408    3.926 {method 'sum' of 'cupy._core.core._ndarray_base' objects}
-       23    0.001    0.000   22.054    0.959 D:\ProgramData\anaconda3\Lib\site-packages\cupy\cuda\compiler.py:541(_compile_module_with_cache)
-       23    0.003    0.000   22.053    0.959 D:\ProgramData\anaconda3\Lib\site-packages\cupy\cuda\compiler.py:572(_compile_with_cache_cuda)
-        3    0.000    0.000   21.937    7.312 D:\ProgramData\anaconda3\Lib\site-packages\cupy\cuda\compiler.py:496(_preprocess)
-        3    0.000    0.000   21.896    7.299 D:\ProgramData\anaconda3\Lib\site-packages\cupy\cuda\compiler.py:781(compile)
-        3   21.896    7.299   21.896    7.299 {built-in method cupy_backends.cuda.libs.nvrtc.compileProgram}
-        2    0.001    0.001   16.726    8.363 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
-        1    0.000    0.000    9.032    9.032 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
-        1    0.007    0.007    8.997    8.997 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
-        1    0.000    0.000    8.471    8.471 D:\ProgramData\anaconda3\Lib\site-packages\cuda\pathfinder\_dynamic_libs\load_nvidia_dynamic_lib.py:193(load_nvidia_dynamic_lib)
-        1    0.000    0.000    8.471    8.471 D:\ProgramData\anaconda3\Lib\site-packages\cuda\pathfinder\_dynamic_libs\load_nvidia_dynamic_lib.py:154(_load_lib_no_cache)
-        1    8.471    8.471    8.471    8.471 D:\ProgramData\anaconda3\Lib\site-packages\cuda\pathfinder\_dynamic_libs\load_dl_windows.py:118(load_with_system_search)
-     28/9    0.000    0.000    7.684    0.854 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:534(inner_f)
-        1    0.000    0.000    7.678    7.678 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\xgb_shim.py:269(fit)
-        1    0.001    0.001    7.014    7.014 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\training.py:52(train)
-      143    5.883    0.041    5.912    0.041 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:2174(update)
-      192    0.001    0.000    5.205    0.027 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4410(eval_valid)
-      192    0.002    0.000    5.204    0.027 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4442(<listcomp>)
-
-
-
-
-# Wall-time summary:
-  binary_classification x lgb,xgb                            56.0s  OK

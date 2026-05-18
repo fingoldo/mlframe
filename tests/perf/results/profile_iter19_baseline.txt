@@ -1,48 +1,0 @@
-# 1M-row e2e profile (n_rows=250_000, models=('hgb', 'lgb'), save_charts=False)
-
-=== regression x hgb,lgb ===
-  built frame: 250_000 rows x 9 cols
-mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:  50%|#####     | 1/2 [00:10<00:10, 10.44s/it]mlframe model: 100%|##########| 2/2 [00:15<00:00,  7.47s/it]mlframe model: 100%|##########| 2/2 [00:15<00:00,  7.92s/it]
-  wall: 16.8s  status: OK
-         508514 function calls (487193 primitive calls) in 16.773 seconds
-
-   Ordered by: cumulative time
-   List reduced from 2605 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.002    0.002   16.768   16.768 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
-        1    0.001    0.001   16.358   16.358 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
-        8    0.002    0.000   15.936    1.992 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
-        2    0.000    0.000   15.811    7.905 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        2    0.000    0.000   15.810    7.905 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-        2    0.000    0.000   14.698    7.349 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
-        1    0.003    0.003    9.648    9.648 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
-        1    0.189    0.189    9.644    9.644 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\gradient_boosting.py:512(fit)
-        1    0.000    0.000    5.047    5.047 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
-        1    0.014    0.014    5.034    5.034 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
-      536    4.081    0.008    4.083    0.008 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4092(update)
-      291    0.013    0.000    2.728    0.009 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:385(grow)
-     8730    1.998    0.000    2.709    0.000 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\grower.py:488(split_next)
-      292    0.007    0.000    2.566    0.009 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\ensemble\_hist_gradient_boosting\gradient_boosting.py:1167(_check_early_stopping_loss)
-      584    0.073    0.000    2.551    0.004 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\_loss\loss.py:383(__call__)
-      584    2.322    0.004    2.324    0.004 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\_loss\loss.py:160(loss)
-        2    0.000    0.000    1.964    0.982 D:\ProgramData\anaconda3\Lib\subprocess.py:1165(communicate)
-       62    1.902    0.031    1.902    0.031 {method 'acquire' of '_thread.lock' objects}
-        1    0.000    0.000    1.891    1.891 D:\ProgramData\anaconda3\Lib\site-packages\joblib\parallel.py:631(cpu_count)
-        1    0.000    0.000    1.891    1.891 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:78(cpu_count)
-        1    0.000    0.000    1.891    1.891 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:227(_count_physical_cores)
-        1    0.000    0.000    1.891    1.891 D:\ProgramData\anaconda3\Lib\site-packages\joblib\externals\loky\backend\context.py:286(_count_physical_cores_win32)
-        1    0.000    0.000    1.890    1.890 D:\ProgramData\anaconda3\Lib\subprocess.py:506(run)
-        1    0.000    0.000    1.868    1.868 D:\ProgramData\anaconda3\Lib\subprocess.py:1601(_communicate)
-        5    0.000    0.000    1.867    0.373 D:\ProgramData\anaconda3\Lib\threading.py:1080(join)
-        6    0.000    0.000    1.867    0.311 D:\ProgramData\anaconda3\Lib\threading.py:1118(_wait_for_tstate_lock)
-       16    0.001    0.000    1.181    0.074 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
-       16    0.001    0.000    1.178    0.074 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
-       16    0.002    0.000    1.168    0.073 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
-        4    0.000    0.000    0.930    0.232 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:316(_predict_with_fallback)
-
-
-
-
-# Wall-time summary:
-  regression x hgb,lgb                                       16.8s  OK

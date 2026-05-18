@@ -1,50 +1,0 @@
-# 1M-row e2e profile (n_rows=150_000, models=('linear', 'ridge'), save_charts=False)
-
-=== binary_classification x linear,ridge ===
-  built frame: 150_000 rows x 9 cols
-mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:  50%|#####     | 1/2 [00:01<00:01,  1.85s/it]predict_proba not available for RidgeClassifier, using predict() instead: RidgeClassifier has no callable 'predict_proba'
-predict_proba not available for RidgeClassifier, using predict() instead: RidgeClassifier has no callable 'predict_proba'
-mlframe model: 100%|##########| 2/2 [00:02<00:00,  1.04it/s]mlframe model: 100%|##########| 2/2 [00:02<00:00,  1.10s/it]
-  wall: 3.2s  status: OK
-         636205 function calls (614929 primitive calls) in 3.247 seconds
-
-   Ordered by: cumulative time
-   List reduced from 3598 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.001    0.001    3.243    3.243 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
-        1    0.001    0.001    3.085    3.085 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
-       14    0.001    0.000    2.921    0.209 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
-        2    0.000    0.000    2.192    1.096 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        2    0.000    0.000    2.191    1.096 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-       28    0.001    0.000    1.643    0.059 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
-       28    0.001    0.000    1.640    0.059 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
-       28    0.006    0.000    1.630    0.058 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:703(report_probabilistic_model_perf)
-       14    0.000    0.000    1.541    0.110 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
-      6/3    0.001    0.000    1.210    0.403 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
-        2    0.000    0.000    1.169    0.585 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
-        1    0.000    0.000    1.050    1.050 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_logistic.py:1086(fit)
-        1    0.001    0.001    1.038    1.038 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_logistic.py:86(_logistic_regression_path)
-        1    0.000    0.000    1.036    1.036 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_minimize.py:54(minimize)
-        1    0.000    0.000    1.036    1.036 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_lbfgsb_py.py:294(_minimize_lbfgsb)
-       10    0.000    0.000    1.035    0.103 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:71(_compute_if_needed)
-        6    0.000    0.000    1.034    0.172 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_differentiable_functions.py:351(_update_fun)
-        5    0.000    0.000    1.034    0.207 D:\ProgramData\anaconda3\Lib\site-packages\scipy\_lib\_util.py:587(__call__)
-        5    0.000    0.000    1.034    0.207 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:78(__call__)
-        5    0.726    0.145    1.034    0.207 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\linear_model\_linear_loss.py:269(loss_gradient)
-        1    0.000    0.000    1.014    1.014 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:204(_prepare_scalar_function)
-        1    0.000    0.000    1.014    1.014 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_differentiable_functions.py:209(__init__)
-       97    0.002    0.000    0.949    0.010 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
-       97    0.002    0.000    0.926    0.010 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
-       28    0.000    0.000    0.783    0.028 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:774(compute_batch_aucs)
-       28    0.000    0.000    0.782    0.028 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\metrics\core.py:1987(fast_aucs)
-        1    0.000    0.000    0.760    0.760 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:1128(score_ensemble)
-        6    0.001    0.000    0.760    0.127 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:782(_process_single_ensemble_method)
-       43    0.000    0.000    0.733    0.017 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:713(load_overload)
-       43    0.000    0.000    0.714    0.017 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:724(_load_overload)
-
-
-
-
-# Wall-time summary:
-  binary_classification x linear,ridge                        3.2s  OK

@@ -1,49 +1,0 @@
-# 1M-row e2e profile (n_rows=1_000_000, models=('linear', 'ridge'), save_charts=False)
-
-=== regression x linear,ridge ===
-  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'y']
-  built frame: 1_000_000 rows x 9 cols
-mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:  50%|#####     | 1/2 [00:00<00:00,  1.74it/s]mlframe model: 100%|##########| 2/2 [00:00<00:00,  3.13it/s]mlframe model: 100%|##########| 2/2 [00:00<00:00,  2.79it/s]
-  wall: 1.2s  status: OK
-         191179 function calls (186571 primitive calls) in 1.244 seconds
-
-   Ordered by: cumulative time
-   List reduced from 2569 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.001    0.001    1.238    1.238 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
-        1    0.001    0.001    1.092    1.092 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
-        8    0.001    0.000    0.843    0.105 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
-        2    0.000    0.000    0.695    0.348 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        2    0.000    0.000    0.695    0.347 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-       16    0.000    0.000    0.342    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
-       16    0.000    0.000    0.339    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
-       16    0.001    0.000    0.332    0.021 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
-      5/3    0.007    0.001    0.327    0.109 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:1319(wrapper)
-        8    0.000    0.000    0.285    0.036 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:485(_apply_pre_pipeline_transforms)
-        4    0.000    0.000    0.239    0.060 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:275(_passthrough_cols_fit_transform)
-        4    0.000    0.000    0.239    0.060 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:336(_run_and_empty_check)
-     10/8    0.002    0.000    0.234    0.029 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\_set_output.py:314(wrapped)
-        1    0.002    0.002    0.209    0.209 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:1128(score_ensemble)
-        3    0.002    0.001    0.206    0.069 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\models\ensembling.py:782(_process_single_ensemble_method)
-        1    0.000    0.000    0.200    0.200 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:307(_call_fit)
-        1    0.000    0.000    0.198    0.198 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\pipeline.py:632(fit_transform)
-        2    0.000    0.000    0.197    0.099 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:851(fit_transform)
-        8    0.000    0.000    0.181    0.023 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:863(_run_test_metrics)
-        8    0.000    0.000    0.161    0.020 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
-       16    0.055    0.003    0.160    0.010 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\regression_residual_audit.py:270(audit_residuals)
-        7    0.000    0.000    0.140    0.020 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
-        7    0.000    0.000    0.139    0.020 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
-        7    0.000    0.000    0.137    0.020 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:713(load_overload)
-        7    0.000    0.000    0.134    0.019 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:724(_load_overload)
-      866    0.132    0.000    0.132    0.000 {method 'reduce' of 'numpy.ufunc' objects}
-        7    0.000    0.000    0.128    0.018 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\caching.py:477(rebuild)
-        7    0.000    0.000    0.128    0.018 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:227(_rebuild)
-        2    0.000    0.000    0.128    0.064 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
-       22    0.006    0.000    0.128    0.006 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\validation.py:725(check_array)
-
-
-
-
-# Wall-time summary:
-  regression x linear,ridge                                   1.2s  OK

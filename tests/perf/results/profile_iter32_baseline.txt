@@ -1,48 +1,0 @@
-# 1M-row e2e profile (n_rows=1_000_000, models=('xgb', 'lgb'), save_charts=False)
-
-=== regression x xgb,lgb ===
-  built frame: 1_000_000 rows x 9 cols
-mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:   0%|          | 0/2 [00:00<?, ?it/s]mlframe model:  50%|#####     | 1/2 [00:12<00:12, 12.62s/it]mlframe model: 100%|##########| 2/2 [00:23<00:00, 11.45s/it]mlframe model: 100%|##########| 2/2 [00:23<00:00, 11.63s/it]
-  wall: 23.9s  status: OK
-         375980 function calls (372601 primitive calls) in 23.936 seconds
-
-   Ordered by: cumulative time
-   List reduced from 2555 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.005    0.005   23.930   23.930 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:74(train_mlframe_models_suite)
-        1    0.003    0.003   23.678   23.678 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:74(_train_one_target)
-        8    0.001    0.000   23.380    2.922 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:352(train_and_evaluate_model)
-        2    0.000    0.000   23.235   11.618 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        2    0.000    0.000   23.235   11.617 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-        2    0.000    0.000   21.592   10.796 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:355(_train_model_with_fallback)
-     28/9    0.000    0.000   12.372    1.375 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:534(inner_f)
-        1    0.000    0.000   12.076   12.076 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\xgb_shim.py:269(fit)
-        1    0.003    0.003   11.677   11.677 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\training.py:52(train)
-      380   10.328    0.027   10.402    0.027 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:2174(update)
-        1    0.000    0.000    9.514    9.514 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\lgb_shim.py:290(fit)
-        1    0.022    0.022    9.511    9.511 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
-      700    8.982    0.013    8.986    0.013 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4092(update)
-       16    0.001    0.000    1.733    0.108 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_eval_helpers.py:372(_compute_split_metrics)
-       16    0.001    0.000    1.730    0.108 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:115(report_model_perf)
-       16    0.001    0.000    1.719    0.107 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_reporting.py:348(report_regression_model_perf)
-        4    0.000    0.000    1.329    0.332 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:316(_predict_with_fallback)
-      380    0.007    0.000    1.248    0.003 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\callback.py:248(after_iteration)
-      380    1.103    0.003    1.198    0.003 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:2319(eval_set)
-        2    0.000    0.000    1.024    0.512 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:1093(predict)
-        2    0.001    0.001    1.019    0.510 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:4701(predict)
-        2    0.000    0.000    1.018    0.509 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1100(predict)
-        2    0.000    0.000    1.012    0.506 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1327(__pred_for_np2d)
-        2    1.011    0.506    1.012    0.506 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py:1286(__inner_predict_np2d)
-        8    0.000    0.000    0.889    0.111 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:863(_run_test_metrics)
-        8    0.000    0.000    0.844    0.106 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:846(_run_val)
-        4    0.000    0.000    0.391    0.098 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_model_factories.py:155(_logged_init)
-        2    0.000    0.000    0.391    0.196 d:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\xgb_shim.py:128(_build_quantile_dmatrix)
-        2    0.000    0.000    0.391    0.195 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:1477(__init__)
-        2    0.355    0.178    0.391    0.195 D:\ProgramData\anaconda3\Lib\site-packages\xgboost\core.py:1553(_init)
-
-
-
-
-# Wall-time summary:
-  regression x xgb,lgb                                       23.9s  OK

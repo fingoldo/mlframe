@@ -1,66 +1,0 @@
-# 1M-row e2e profile (n_rows=25_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
-
-=== multiclass_classification x cb ===
-  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'cat_low', 'text_col', 'y']
-  built frame: 25_000 rows x 12 cols
-  axes: mrmr_fs=False outlier=none ensembles=True cat_enc=ordinal scaler=robust dim_reducer=none boruta_shap=False poly_deg=0 predict_batch_rows=250000 n_targets=2 mix_target_types=True weight=both
-  axes2: composite_disc=False transforms_mode=off mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=False
-  frame type: PANDAS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'cat_low', 'text_col', 'y', 'y2', 'ts']
-  rebuilt frame with extras: targets=['y2'] add_ts=True
-wholeday_splitting=True requested but timestamps dtype is numeric (int64); falling back to row-based split. Numeric ts has no calendar-day semantics for the wholeday-splitter.
-  CatBoost in mlframe_models + categorical_encoding='ordinal' + 2 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
-cat vars stats:   0%|          | 0/1 [00:00<?, ?it/s]                                                     target type:   0%|          | 0/2 [00:00<?, ?it/s]target type:   0%|          | 0/2 [00:00<?, ?it/s]
-weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][A
-weighting schema:   0%|          | 0/2 [00:00<?, ?it/s][AD:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2702: UserWarning:
-
-Can't optimze method "evaluate" because self argument is used
-
-MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
-Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
-[phase] model.fit RAISED CatBoostError after 1.52s model=CatBoostClassifier n_rows=20250 n_cols=12
-[phase] process_model RAISED CatBoostError after 1.54s model=cb weight=uniform
-weighting schema:   0%|          | 0/2 [00:01<?, ?it/s]
-target type:   0%|          | 0/2 [00:01<?, ?it/s]
-  train wall: 1.9s  status: CatBoostError: bad allocation
-         123367 function calls (118108 primitive calls) in 1.872 seconds
-
-   Ordered by: cumulative time
-   List reduced from 2425 to 30 due to restriction <30>
-
-   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.001    0.001    1.866    1.866 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
-        1    0.000    0.000    1.689    1.689 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
-        1    0.000    0.000    1.535    1.535 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
-        1    0.000    0.000    1.535    1.535 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
-        1    0.000    0.000    1.534    1.534 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:425(train_and_evaluate_model)
-        1    0.000    0.000    1.529    1.529 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:348(_train_model_with_fallback)
-        2    0.000    0.000    1.521    0.760 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
-        1    0.000    0.000    1.517    1.517 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:5529(fit)
-        2    1.499    0.749    1.499    0.749 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
-        1    0.000    0.000    0.150    0.150 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
-        1    0.000    0.000    0.150    0.150 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1317(configure_training_params)
-        2    0.000    0.000    0.148    0.074 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:156(get_training_configs)
-        1    0.000    0.000    0.148    0.148 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:516(_cb_gpu_usable)
-        2    0.000    0.000    0.144    0.072 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:479(_cached_gpu_info)
-        1    0.000    0.000    0.134    0.134 D:\Upd\Programming\PythonCodeRepository\pyutilz\src\pyutilz\system\system.py:1599(get_gpuutil_gpu_info)
-     60/4    0.001    0.000    0.093    0.023 <frozen importlib._bootstrap>:1165(_find_and_load)
-     60/4    0.000    0.000    0.093    0.023 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
-     53/4    0.000    0.000    0.091    0.023 <frozen importlib._bootstrap>:666(_load_unlocked)
-     48/4    0.000    0.000    0.091    0.023 <frozen importlib._bootstrap_external>:934(exec_module)
-    121/6    0.000    0.000    0.091    0.015 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
-     96/4    0.008    0.000    0.088    0.022 {built-in method builtins.exec}
-    57/12    0.001    0.000    0.070    0.006 <frozen importlib._bootstrap>:1054(_find_spec)
-        1    0.000    0.000    0.068    0.068 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\__init__.py:1(<module>)
-        1    0.000    0.000    0.067    0.067 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\GPUtil.py:1(<module>)
-    18/10    0.000    0.000    0.066    0.007 {built-in method builtins.__import__}
-    59/12    0.000    0.000    0.066    0.005 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:101(find_spec)
-      2/1    0.000    0.000    0.066    0.066 D:\ProgramData\anaconda3\Lib\site-packages\_distutils_hack\__init__.py:111(spec_for_distutils)
-      5/1    0.000    0.000    0.066    0.066 D:\ProgramData\anaconda3\Lib\importlib\__init__.py:108(import_module)
-      6/1    0.000    0.000    0.066    0.066 <frozen importlib._bootstrap>:1192(_gcd_import)
-        1    0.000    0.000    0.064    0.064 D:\ProgramData\anaconda3\Lib\site-packages\GPUtil\GPUtil.py:68(getGPUs)
-
-
-
-
-# Wall-time summary:
-  multiclass_classification x cb                          train=    1.9s  predict=---     save=---             load=---         predict_loaded=---   parity=skip  CatBoostError: bad allocation
