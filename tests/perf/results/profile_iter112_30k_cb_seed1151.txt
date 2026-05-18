@@ -1,0 +1,58 @@
+# 1M-row e2e profile (n_rows=30_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'cat_low', 'y']
+  built frame: 30_000 rows x 11 cols
+  axes: mrmr_fs=False outlier=isolation_forest ensembles=False cat_enc=ordinal scaler=standard dim_reducer=none boruta_shap=False poly_deg=0 predict_batch_rows=0 n_targets=2 mix_target_types=False weight=uniform_only
+  axes2: composite_disc=False transforms_mode=off mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=False
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x_corr_x0', 'c_low', 'c_mid', 'cat_low', 'y', 'y2']
+  rebuilt frame with extras: targets=['y2'] add_ts=False
+  CatBoost in mlframe_models + categorical_encoding='ordinal' + 1 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
+target:   0%|          | 0/2 [00:00<?, ?it/s]target:   0%|          | 0/2 [00:00<?, ?it/s]MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+[phase] model.fit RAISED CatBoostError after 4.98s model=CatBoostRegressor n_rows=23085 n_cols=10
+[phase] process_model RAISED CatBoostError after 5.00s model=cb weight=uniform
+target:   0%|          | 0/2 [00:05<?, ?it/s]
+  train wall: 5.6s  status: CatBoostError: bad allocation
+         109136 function calls (105070 primitive calls) in 5.642 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2160 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    5.635    5.635 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
+        1    0.001    0.001    5.194    5.194 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
+        1    0.000    0.000    5.004    5.004 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000    5.004    5.004 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000    5.003    5.003 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:425(train_and_evaluate_model)
+        1    0.000    0.000    4.999    4.999 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:348(_train_model_with_fallback)
+        2    0.000    0.000    4.984    2.492 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
+        2    0.000    0.000    4.984    2.492 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        2    4.962    2.481    4.962    2.481 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+        1    0.000    0.000    0.323    0.323 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_helpers.py:269(_phase_global_outlier_detection)
+        1    0.001    0.001    0.321    0.321 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_setup_helpers.py:73(_apply_outlier_detection_global)
+       47    0.000    0.000    0.210    0.004 D:\ProgramData\anaconda3\Lib\site-packages\polars\_utils\deprecation.py:84(wrapper)
+       47    0.001    0.000    0.210    0.004 D:\ProgramData\anaconda3\Lib\site-packages\polars\lazyframe\opt_flags.py:314(wrapper)
+       47    0.001    0.000    0.209    0.004 D:\ProgramData\anaconda3\Lib\site-packages\polars\lazyframe\frame.py:2176(collect)
+       47    0.206    0.004    0.206    0.004 {method 'collect' of 'builtins.PyLazyFrame' objects}
+        6    0.000    0.000    0.186    0.031 D:\ProgramData\anaconda3\Lib\site-packages\polars\dataframe\frame.py:5101(filter)
+        2    0.000    0.000    0.184    0.092 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_setup_helpers.py:144(_filter_df_by_mask)
+        1    0.000    0.000    0.176    0.176 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:227(select_target)
+        1    0.000    0.000    0.175    0.175 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:1317(configure_training_params)
+        2    0.000    0.000    0.173    0.087 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py:156(get_training_configs)
+        1    0.000    0.000    0.173    0.173 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:516(_cb_gpu_usable)
+        2    0.000    0.000    0.168    0.084 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_cb_pool.py:479(_cached_gpu_info)
+     86/7    0.001    0.000    0.160    0.023 <frozen importlib._bootstrap>:1165(_find_and_load)
+     86/7    0.001    0.000    0.160    0.023 <frozen importlib._bootstrap>:1120(_find_and_load_unlocked)
+        1    0.000    0.000    0.155    0.155 D:\Upd\Programming\PythonCodeRepository\pyutilz\src\pyutilz\system\system.py:1599(get_gpuutil_gpu_info)
+     79/8    0.001    0.000    0.154    0.019 <frozen importlib._bootstrap>:666(_load_unlocked)
+   175/13    0.000    0.000    0.153    0.012 <frozen importlib._bootstrap>:233(_call_with_frames_removed)
+     74/8    0.001    0.000    0.153    0.019 <frozen importlib._bootstrap_external>:934(exec_module)
+    128/8    0.011    0.000    0.147    0.018 {built-in method builtins.exec}
+        4    0.000    0.000    0.112    0.028 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\parallel.py:54(__call__)
+
+
+
+
+# Wall-time summary:
+  regression x cb                                         train=    5.6s  predict=---     save=---             load=---         predict_loaded=---   parity=skip  CatBoostError: bad allocation
