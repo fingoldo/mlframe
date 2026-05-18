@@ -1019,6 +1019,36 @@ def predict_from_models(
             if not df_pre_pipeline.index.equals(_ext_only.index):
                 _ext_only = _ext_only.set_axis(df_pre_pipeline.index)
             df_pre_pipeline = pd.concat([df_pre_pipeline, _ext_only], axis=1)
+    elif (
+        # iter-157: polars-fastpath suites (``_all_polars_native_inmem=True``)
+        # keep df_pre_pipeline as polars (line 996 skips the pandas
+        # conversion). The pandas-only back-merge above skips, leaving
+        # df_pre_pipeline as raw-cols-only polars. Models fit at train
+        # time saw raw+extension cols via the polars-pre back-merge in
+        # ``_phase_helpers``, so model.feature_names_in_ contains BOTH
+        # raw and ext cols. The per-model column subset below then
+        # raises ``expects features missing from input: [x0, x1, ...,
+        # cat_mid]`` because raw cols are missing from df (post-ext)
+        # AND ext cols are missing from df_pre_pipeline (raw-only
+        # polars). Surfaced by iter-110 (polars + TruncatedSVD + MRMR
+        # losing every raw col) and iter-79/105/118/126/146/147/155/156.
+        extensions_pipeline is not None
+        and isinstance(df, pd.DataFrame)
+        and isinstance(df_pre_pipeline, pl.DataFrame)
+    ):
+        _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
+        if _ext_new_cols and df.shape[0] == df_pre_pipeline.shape[0]:
+            try:
+                _ext_only_pl = pl.from_pandas(df[_ext_new_cols])
+                df_pre_pipeline = df_pre_pipeline.hstack(_ext_only_pl)
+            except Exception as _bm_err:
+                logger.warning(
+                    "[predict back-merge] polars hstack of extension cols "
+                    "%s failed: %s. Models trained on the polars-pre + "
+                    "back-merged frame will fall back to raw-only and "
+                    "likely report missing features.",
+                    _ext_new_cols[:5], _bm_err,
+                )
 
     # Cat dtype coercion is PER-MODEL (in the loop below), not global.
     # Different model types need different dtypes for the same cat_low
@@ -1226,8 +1256,70 @@ def predict_from_models(
                                 # pipeline frame produces equivalent output.
                                 # Surfaced by fuzz iter#80 (lgb+hgb on Polars+
                                 # cat: hgb's CatBoostEncoder crashed).
+                                #
+                                # iter-59 (cb-only + MRMR + text_features):
+                                # the saved pre_pipeline's MRMR selector drops
+                                # non-numeric cols (text/embedding) at
+                                # transform-time, but at fit time the trainer
+                                # wrapped pre_pipeline.fit_transform with
+                                # ``_passthrough_cols_fit_transform`` so text/
+                                # embedding cols survived the selector and
+                                # reached CB.fit. CB then stored the integer
+                                # column index for ``text_features`` against
+                                # the re-attached frame. Without the same
+                                # re-attach at predict, CB sees a narrower
+                                # frame and raises ``Invalid text_features[0]
+                                # = N value: index must be < N``.
+                                #
+                                # The fix has to stash the passthrough col
+                                # VALUES from the pre-subset frame (because
+                                # iter-49's expected-cols subset above may
+                                # have dropped them when pre_pipeline.
+                                # feature_names_in_ doesn't include them),
+                                # then re-attach AFTER pre_pipeline.transform.
+                                _meta_text = list(metadata.get("text_features") or [])
+                                _meta_emb = list(metadata.get("embedding_features") or [])
+                                _passthrough_cols = (_meta_text + _meta_emb)
+                                # Source frame for stashing: prefer the raw
+                                # pre-pipeline frame (df_pre_pipeline) which
+                                # carries the un-encoded text/embedding cols
+                                # untouched by any prior column reduction.
+                                _stashed_passthrough: dict[str, Any] = {}
+                                if _passthrough_cols:
+                                    _src_for_stash = None
+                                    for _candidate in (df_pre_pipeline, df, input_for_model):
+                                        if _candidate is None or not hasattr(_candidate, "columns"):
+                                            continue
+                                        _have_all = all(c in _candidate.columns for c in _passthrough_cols)
+                                        if _have_all:
+                                            _src_for_stash = _candidate
+                                            break
+                                    if _src_for_stash is not None:
+                                        for _pc in _passthrough_cols:
+                                            try:
+                                                if isinstance(_src_for_stash, pl.DataFrame):
+                                                    _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
+                                                else:
+                                                    _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
+                                            except Exception:
+                                                pass
                                 try:
                                     input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+                                    # Re-attach stashed passthrough cols so the
+                                    # downstream model sees the same frame
+                                    # width as at fit time (iter-59).
+                                    if _stashed_passthrough and isinstance(input_for_model, pd.DataFrame):
+                                        for _pc, _vals in _stashed_passthrough.items():
+                                            if _pc in input_for_model.columns:
+                                                continue
+                                            try:
+                                                _vals_aligned = _vals
+                                                if hasattr(_vals_aligned, "reset_index"):
+                                                    _vals_aligned = _vals_aligned.reset_index(drop=True)
+                                                input_for_model = input_for_model.reset_index(drop=True)
+                                                input_for_model[_pc] = _vals_aligned
+                                            except Exception:
+                                                pass
                                 except Exception as _pp_exc:
                                     logger.warning(
                                         "predict_from_models: %s pre_pipeline.transform "
