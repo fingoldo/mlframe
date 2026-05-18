@@ -1785,9 +1785,95 @@ class MRMR(BaseEstimator, TransformerMixin):
                         best_res.uplift, best_res.degree_a, best_res.bin_func_name,
                         np.linalg.norm(best_res.coef_a), np.linalg.norm(best_res.coef_b),
                     )
-                # Integration of best_res into data/cols/engineered_features happens via the regular
-                # check_prospective_fe_pairs pipeline below; we log the gain here for diagnostics only. A tighter
-                # integration that injects best_res.transform(...) directly into data is future work.
+                # 2026-05-18 #1: actually USE the best_res. Production
+                # TVT log spent 88 min in this loop and the result was
+                # logged + discarded ("# future work"). Now we inject
+                # best_res.transform(vals_a, vals_b) as a new engineered
+                # column whenever the optimisation cleared the engineered-
+                # MI gate. The column name is unique per pair + basis so
+                # downstream code can identify the source.
+                #
+                # NOTE: predict-time replay via EngineeredRecipe is the
+                # follow-up (the polynom coefficients + bin_func + preprocess
+                # params need to be serialised to a recipe; current
+                # build_unary_binary_recipe handles named unary/binary
+                # transformations only). For now self._hermite_features_
+                # stores (name, src_a, src_b, best_res) so a downstream
+                # caller can rebuild predict-time if needed.
+                if best_res is None:
+                    continue
+                _uplift_gate = float(fe_min_engineered_mi_prevalence)
+                if best_res.mi <= best_res.baseline_mi * _uplift_gate:
+                    continue
+                try:
+                    _t_vals = np.asarray(
+                        best_res.transform(vals_a, vals_b), dtype=np.float64,
+                    ).reshape(-1)
+                    if not np.all(np.isfinite(_t_vals)):
+                        # Skip if the polynom blows up; safer than feeding NaN downstream.
+                        continue
+                    _src_a = (
+                        cols[raw_vars_pair[0]]
+                        if 0 <= raw_vars_pair[0] < len(cols)
+                        else f"col{raw_vars_pair[0]}"
+                    )
+                    _src_b = (
+                        cols[raw_vars_pair[1]]
+                        if 0 <= raw_vars_pair[1] < len(cols)
+                        else f"col{raw_vars_pair[1]}"
+                    )
+                    _new_col_name = (
+                        f"_polynom_{best_res.basis}_{best_res.bin_func_name}"
+                        f"__{_src_a}__{_src_b}"
+                    )
+                    if _new_col_name in cols:
+                        # Already added (defensive against repeat pair eval).
+                        continue
+                    # Add discretized column to ``data`` so screening / downstream code sees it.
+                    _new_binned = discretize_array(
+                        arr=_t_vals,
+                        n_bins=self.quantization_nbins,
+                        method=self.quantization_method,
+                        dtype=self.quantization_dtype,
+                    ).reshape(-1, 1)
+                    data = np.append(data, _new_binned, axis=1)
+                    nbins = np.concatenate([
+                        np.asarray(nbins),
+                        np.asarray([int(self.quantization_nbins)], dtype=nbins.dtype),
+                    ])
+                    cols = cols + [_new_col_name]
+                    # Also add to X so subsequent pipeline operations (check_prospective_fe_pairs below) can read.
+                    if _is_polars_input:
+                        X = X.with_columns(pl.Series(_new_col_name, _t_vals))  # type: ignore[name-defined]
+                    else:
+                        X[_new_col_name] = _t_vals
+                    engineered_features.add(_new_col_name)
+                    if not hasattr(self, "_hermite_features_"):
+                        self._hermite_features_ = []
+                    self._hermite_features_.append({
+                        "name": _new_col_name,
+                        "src_a": _src_a, "src_b": _src_b,
+                        "basis": best_res.basis,
+                        "bin_func_name": best_res.bin_func_name,
+                        "degree_a": int(best_res.degree_a),
+                        "degree_b": int(best_res.degree_b),
+                        "best_mi": float(best_res.mi),
+                        "baseline_mi": float(best_res.baseline_mi),
+                    })
+                    if verbose:
+                        logger.info(
+                            "Polynomial-pair FE injected new feature '%s' "
+                            "(mi=%.4f, baseline_mi=%.4f, uplift=%.2fx).",
+                            _new_col_name, float(best_res.mi),
+                            float(best_res.baseline_mi), float(best_res.uplift),
+                        )
+                except Exception as _inj_err:
+                    if verbose:
+                        logger.warning(
+                            "Polynomial-pair FE injection failed for pair=%s: %s. "
+                            "Standard FE block below still runs.",
+                            raw_vars_pair, _inj_err,
+                        )
 
         # 2026-05-18 fix (production TVT FE dead-code): the standard
         # check_prospective_fe_pairs path used to live in ``else:`` of the
