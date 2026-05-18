@@ -751,6 +751,7 @@ def _run_suite_profiled(
     # that the training-only profile misses entirely.
     predict_wall = 0.0
     predict_profile_text = ""
+    _predict_results = None
     if (
         profile_predict
         and status == "OK"
@@ -826,20 +827,26 @@ def _run_suite_profiled(
 
     # Save-to-disk pass -- exercise the model-serialization path (dill +
     # zstd compression at level=4 with threads=-1) on every trained model
-    # the suite produced. Production callers always save; the harness
-    # previously skipped this (data_dir="" / models_dir="") to measure
-    # the train path proper, but the user explicitly requested adding
-    # save profiling alongside predict. Surfaces hot spots in:
-    #   - dill serialization of CB/LGB/XGB native model objects + their
-    #     surrounding SimpleNamespace metadata
-    #   - zstandard compression at large model sizes (multi-MB pickles
-    #     for 1M-row tree ensembles)
-    #   - atomic-write temp + rename + fsync (Windows AV stat overhead
-    #     calibrated at ~17 ms per file).
+    # the suite produced. iter-60: the SAVE tempdir is now kept alive
+    # across two additional phases (LOAD + PREDICT-LOADED) so the harness
+    # can detect bugs that only surface after a full save/load round trip
+    # (e.g. fitted-state lost in serialization, base-column lists not
+    # persisted, pre_pipeline.feature_names_in_ mismatch on reload, etc.).
+    # Layout matches what ``load_mlframe_suite`` expects:
+    #     <tmpdir>/metadata.pkl.zst
+    #     <tmpdir>/<tt_slug>/<name_slug>/model.dump
     save_wall = 0.0
     save_profile_text = ""
     save_n_models = 0
     save_total_bytes = 0
+    load_wall = 0.0
+    load_profile_text = ""
+    load_n_models = 0
+    predict_loaded_wall = 0.0
+    predict_loaded_profile_text = ""
+    parity_status = "skip"  # "skip" / "ok" / "diff:<summary>"
+    _save_tmpdir_obj = None
+    _save_root: Optional[Path] = None
     if (
         profile_save
         and status.startswith("OK")
@@ -847,30 +854,48 @@ def _run_suite_profiled(
         and any(trained_models.values())
     ):
         import tempfile
+        import pickle as _pickle
+        import zstandard as _zstd
+        from pyutilz.strings import slugify as _slugify
         from mlframe.training.io import save_mlframe_model
 
         save_profiler = cProfile.Profile()
         s0 = time.perf_counter()
         save_profiler.enable()
         try:
-            with tempfile.TemporaryDirectory(prefix="mlframe_prof_save_") as _save_tmpdir:
-                _save_root = Path(_save_tmpdir)
-                for _tt_key, _by_name in trained_models.items():
-                    if not isinstance(_by_name, dict):
+            _save_tmpdir_obj = tempfile.mkdtemp(prefix="mlframe_prof_save_")
+            _save_root = Path(_save_tmpdir_obj)
+            # Suite-level metadata. load_mlframe_suite reads metadata.pkl.zst
+            # first; zstd-compressed pickle for compatibility with the loader.
+            try:
+                _meta_path = _save_root / "metadata.pkl.zst"
+                _cctx = _zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1)
+                with open(_meta_path, "wb") as _mf:
+                    _mf.write(_cctx.compress(_pickle.dumps(trained_metadata)))
+                if _meta_path.exists():
+                    save_total_bytes += _meta_path.stat().st_size
+            except Exception as _meta_err:
+                status = f"{status} | SAVE_META:{type(_meta_err).__name__}: {_meta_err}"[:200]
+            # Per-model dump files under <tt_slug>/<name_slug>/<idx>.dump
+            for _tt_key, _by_name in trained_models.items():
+                if not isinstance(_by_name, dict):
+                    continue
+                _tt_slug = _slugify(str(_tt_key))
+                for _model_name, _entries in _by_name.items():
+                    if not isinstance(_entries, list):
                         continue
-                    for _model_name, _entries in _by_name.items():
-                        if not isinstance(_entries, list):
-                            continue
-                        for _idx, _entry in enumerate(_entries):
-                            _path = _save_root / f"{_tt_key}_{_model_name}_{_idx}.pkl.zst"
-                            try:
-                                save_mlframe_model(_entry, str(_path), verbose=0)
-                                save_n_models += 1
-                                if _path.exists():
-                                    save_total_bytes += _path.stat().st_size
-                            except Exception as _save_one_err:
-                                # Continue -- one failed save shouldn't block the rest.
-                                status = f"{status} | SAVE_ONE:{type(_save_one_err).__name__}: {_save_one_err}"[:200]
+                    _name_slug = _slugify(str(_model_name))
+                    _dir = _save_root / _tt_slug / _name_slug
+                    _dir.mkdir(parents=True, exist_ok=True)
+                    for _idx, _entry in enumerate(_entries):
+                        _path = _dir / f"{_idx}.dump"
+                        try:
+                            save_mlframe_model(_entry, str(_path), verbose=0)
+                            save_n_models += 1
+                            if _path.exists():
+                                save_total_bytes += _path.stat().st_size
+                        except Exception as _save_one_err:
+                            status = f"{status} | SAVE_ONE:{type(_save_one_err).__name__}: {_save_one_err}"[:200]
         except Exception as e:
             status = f"{status} | SAVE:{type(e).__name__}: {e}"[:200]
         finally:
@@ -881,10 +906,144 @@ def _run_suite_profiled(
         pss.print_stats(top_n)
         save_profile_text = ss.getvalue()
 
+    # LOAD phase -- read the persisted suite back via the public
+    # ``load_mlframe_suite`` API. Surfaces bugs in dill/zstd round trips,
+    # pickle protocol drift, missing-dependency import-time errors during
+    # de-serialization, and metadata schema changes between save and load.
+    loaded_models = None
+    loaded_metadata = None
+    if (
+        _save_root is not None
+        and (_save_root / "metadata.pkl.zst").exists()
+        and save_n_models > 0
+    ):
+        from mlframe.training.core.predict import load_mlframe_suite as _load_suite
+        load_profiler = cProfile.Profile()
+        l0 = time.perf_counter()
+        load_profiler.enable()
+        try:
+            loaded_models, loaded_metadata = _load_suite(str(_save_root))
+            load_n_models = sum(
+                len(_entries)
+                for _by_name in (loaded_models or {}).values()
+                if isinstance(_by_name, dict)
+                for _entries in _by_name.values()
+                if isinstance(_entries, list)
+            )
+        except Exception as e:
+            status = f"{status} | LOAD:{type(e).__name__}: {e}"[:200]
+        finally:
+            load_profiler.disable()
+        load_wall = time.perf_counter() - l0
+        ls = io.StringIO()
+        pls = pstats.Stats(load_profiler, stream=ls).sort_stats("cumulative")
+        pls.print_stats(top_n)
+        load_profile_text = ls.getvalue()
+
+    # PREDICT-LOADED phase -- run predict_from_models again against the
+    # disk-roundtripped suite on the SAME input frame. Surfaces bugs that
+    # only fire on the fresh-load path (fitted-state lost on dill round
+    # trip, base_columns serialised wrong, cached attributes not pickled,
+    # FTE-replay drift, etc.) and provides the substrate for the parity
+    # check below.
+    _predict_loaded_results = None
+    if (
+        loaded_models is not None
+        and loaded_metadata is not None
+        and any(loaded_models.values())
+    ):
+        from mlframe.training.core.predict import predict_from_models as _predict_from_models_loaded
+        predict_loaded_profiler = cProfile.Profile()
+        lp0 = time.perf_counter()
+        predict_loaded_profiler.enable()
+        try:
+            predict_loaded_fte = SimpleFeaturesAndTargetsExtractor(**fte_kwargs)
+            _pl_kwargs: dict = dict(
+                df=df,
+                models=loaded_models,
+                metadata=loaded_metadata,
+                features_and_targets_extractor=predict_loaded_fte,
+                return_probabilities=(target_type != "regression"),
+                verbose=0,
+            )
+            if _predict_batch_rows > 0:
+                _pl_kwargs["predict_batch_rows"] = _predict_batch_rows
+            _predict_loaded_results = _predict_from_models_loaded(**_pl_kwargs)
+        except Exception as e:
+            status = f"{status} | PREDICT_LOADED:{type(e).__name__}: {e}"[:200]
+        finally:
+            predict_loaded_profiler.disable()
+        predict_loaded_wall = time.perf_counter() - lp0
+        plps = io.StringIO()
+        ppls = pstats.Stats(predict_loaded_profiler, stream=plps).sort_stats("cumulative")
+        ppls.print_stats(top_n)
+        predict_loaded_profile_text = plps.getvalue()
+
+    # PARITY check -- compare predictions/probabilities BEFORE save vs
+    # AFTER load. If both phases produced results, every shared model key
+    # must yield bit-close output (rtol=1e-7); anything else points to a
+    # serialization-induced silent drift that would silently corrupt
+    # production downstream. Reports ``ok`` / ``diff:<summary>`` /
+    # ``skip`` (insufficient data either side).
+    if (
+        _predict_results is not None
+        and _predict_loaded_results is not None
+    ):
+        _pre_p = (_predict_results or {}).get("predictions") or {}
+        _pre_pr = (_predict_results or {}).get("probabilities") or {}
+        _post_p = (_predict_loaded_results or {}).get("predictions") or {}
+        _post_pr = (_predict_loaded_results or {}).get("probabilities") or {}
+        _shared_pred_keys = set(_pre_p) & set(_post_p)
+        _shared_prob_keys = set(_pre_pr) & set(_post_pr)
+        _diffs: list[str] = []
+        for _k in _shared_pred_keys:
+            try:
+                _a = np.asarray(_pre_p[_k])
+                _b = np.asarray(_post_p[_k])
+                if _a.shape != _b.shape:
+                    _diffs.append(f"preds[{_k}]:shape {_a.shape}!={_b.shape}")
+                elif not np.allclose(_a, _b, rtol=1e-7, atol=1e-7, equal_nan=True):
+                    _max_abs = float(np.nanmax(np.abs(_a - _b))) if _a.size else 0.0
+                    _diffs.append(f"preds[{_k}]:maxabs={_max_abs:.3g}")
+            except Exception as _pcerr:
+                _diffs.append(f"preds[{_k}]:cmp_err={_pcerr}")
+        for _k in _shared_prob_keys:
+            try:
+                _a = np.asarray(_pre_pr[_k])
+                _b = np.asarray(_post_pr[_k])
+                if _a.shape != _b.shape:
+                    _diffs.append(f"probs[{_k}]:shape {_a.shape}!={_b.shape}")
+                elif not np.allclose(_a, _b, rtol=1e-7, atol=1e-7, equal_nan=True):
+                    _max_abs = float(np.nanmax(np.abs(_a - _b))) if _a.size else 0.0
+                    _diffs.append(f"probs[{_k}]:maxabs={_max_abs:.3g}")
+            except Exception as _pcerr:
+                _diffs.append(f"probs[{_k}]:cmp_err={_pcerr}")
+        _missing_post_p = set(_pre_p) - set(_post_p)
+        _missing_pre_p = set(_post_p) - set(_pre_p)
+        if _missing_post_p:
+            _diffs.append(f"preds_missing_after_load={sorted(_missing_post_p)[:5]}")
+        if _missing_pre_p:
+            _diffs.append(f"preds_extra_after_load={sorted(_missing_pre_p)[:5]}")
+        if _diffs:
+            parity_status = "diff:" + "; ".join(_diffs[:8])
+        elif _shared_pred_keys or _shared_prob_keys:
+            parity_status = "ok"
+
+    # Best-effort cleanup of the save tempdir now that LOAD + PARITY are done.
+    if _save_tmpdir_obj is not None:
+        try:
+            import shutil as _shutil
+            _shutil.rmtree(_save_tmpdir_obj, ignore_errors=True)
+        except Exception:
+            pass
+
     return (
         train_wall, status.startswith("OK"), status, train_profile_text,
         predict_wall, predict_profile_text,
         save_wall, save_profile_text, save_n_models, save_total_bytes,
+        load_wall, load_profile_text, load_n_models,
+        predict_loaded_wall, predict_loaded_profile_text,
+        parity_status,
     )
 
 
@@ -934,13 +1093,19 @@ def main():
             train_wall, ok, status, train_prof,
             predict_wall, predict_prof,
             save_wall, save_prof, save_n_models, save_total_bytes,
+            load_wall, load_prof, load_n_models,
+            predict_loaded_wall, predict_loaded_prof,
+            parity_status,
         ) = _run_suite_profiled(
             tt, args.n_rows, models, args.seed, args.top,
             save_charts=args.save_charts,
             profile_predict=not args.no_predict,
             profile_save=not args.no_save,
         )
-        summary.append((label, train_wall, predict_wall, save_wall, save_n_models, save_total_bytes, status))
+        summary.append((
+            label, train_wall, predict_wall, save_wall, save_n_models, save_total_bytes,
+            load_wall, load_n_models, predict_loaded_wall, parity_status, status,
+        ))
         print(f"  train wall: {train_wall:.1f}s  status: {status}")
         print(train_prof[:6000])
         if predict_wall > 0 or predict_prof:
@@ -952,16 +1117,38 @@ def main():
             print(f"\n--- SAVE phase (dill + zstd, tempdir) ---")
             print(f"  save wall: {save_wall:.2f}s  models_saved={save_n_models}  total_bytes_on_disk={_mb:.2f} MB")
             print(save_prof[:6000])
+        if load_wall > 0 or load_prof:
+            print(f"\n--- LOAD phase (load_mlframe_suite from tempdir) ---")
+            print(f"  load wall: {load_wall:.2f}s  models_loaded={load_n_models}")
+            print(load_prof[:6000])
+        if predict_loaded_wall > 0 or predict_loaded_prof:
+            print(f"\n--- PREDICT-LOADED phase (predict_from_models on disk-roundtripped suite) ---")
+            print(f"  predict_loaded wall: {predict_loaded_wall:.2f}s  parity={parity_status}")
+            print(predict_loaded_prof[:6000])
 
     print("\n# Wall-time summary:")
-    for label, t_train, t_pred, t_save, n_save, b_save, status in summary:
+    for (
+        label, t_train, t_pred, t_save, n_save, b_save,
+        t_load, n_load, t_pred_loaded, parity, status,
+    ) in summary:
         _mb = b_save / (1024.0 * 1024.0)
         _pred_str = f"predict={t_pred:>6.1f}s" if t_pred > 0 else "predict=---   "
         _save_str = (
             f"save={t_save:>5.2f}s ({n_save}m,{_mb:.1f}MB)"
             if t_save > 0 else "save=---           "
         )
-        print(f"  {label:<55} train={t_train:>7.1f}s  {_pred_str}  {_save_str}  {status}")
+        _load_str = (
+            f"load={t_load:>5.2f}s ({n_load}m)"
+            if t_load > 0 else "load=---       "
+        )
+        _pl_str = (
+            f"predict_loaded={t_pred_loaded:>5.2f}s parity={parity}"
+            if t_pred_loaded > 0 else f"predict_loaded=---   parity={parity}"
+        )
+        print(
+            f"  {label:<55} train={t_train:>7.1f}s  {_pred_str}  {_save_str}  "
+            f"{_load_str}  {_pl_str}  {status}"
+        )
 
 
 if __name__ == "__main__":
