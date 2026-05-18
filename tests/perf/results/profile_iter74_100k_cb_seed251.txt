@@ -1,0 +1,84 @@
+# 1M-row e2e profile (n_rows=100_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 1247, in <module>
+    main()
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 1191, in main
+    ) = _run_suite_profiled(
+        ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 328, in _run_suite_profiled
+    from mlframe.training.core import train_mlframe_models_suite
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\__init__.py", line 8, in <module>
+    from .main import train_mlframe_models_suite  # noqa: F401
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py", line 43, in <module>
+    from ..helpers import (
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\helpers.py", line 30, in <module>
+    import lightgbm as lgb
+  File "D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\__init__.py", line 11, in <module>
+    from .basic import Booster, Dataset, Sequence, register_logger
+  File "D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\basic.py", line 29, in <module>
+    from .compat import (
+  File "D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\compat.py", line 227, in <module>
+    from dask.array import Array as dask_Array
+  File "D:\ProgramData\anaconda3\Lib\site-packages\dask\array\__init__.py", line 363, in <module>
+    from dask.array import backends, fft, lib, linalg, ma, overlap, random
+  File "D:\ProgramData\anaconda3\Lib\site-packages\dask\array\backends.py", line 8, in <module>
+    from dask.array.core import Array
+  File "D:\ProgramData\anaconda3\Lib\site-packages\dask\array\core.py", line 39, in <module>
+    from dask.array.chunk_types import is_valid_array_chunk, is_valid_chunk_type
+  File "D:\ProgramData\anaconda3\Lib\site-packages\dask\array\chunk_types.py", line 117, in <module>
+    from cupyx.scipy.sparse import spmatrix
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1132, in _find_and_load_unlocked
+  File "<frozen importlib.util>", line 247, in __getattribute__
+  File "D:\ProgramData\anaconda3\Lib\site-packages\cupyx\__init__.py", line 13, in <module>
+    from cupyx import optimizing  # NOQA
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ProgramData\anaconda3\Lib\site-packages\cupyx\optimizing\__init__.py", line 1, in <module>
+    from cupyx.optimizing._optimize import optimize  # NOQA
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ProgramData\anaconda3\Lib\site-packages\cupyx\optimizing\_optimize.py", line 10, in <module>
+    import optuna
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\__init__.py", line 5, in <module>
+    from optuna import multi_objective
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\multi_objective\__init__.py", line 2, in <module>
+    from optuna.multi_objective import samplers
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\multi_objective\samplers\__init__.py", line 1, in <module>
+    from optuna.multi_objective.samplers._adapter import _MultiObjectiveSamplerAdapter
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\multi_objective\samplers\_adapter.py", line 6, in <module>
+    from optuna.samplers import BaseSampler
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\samplers\__init__.py", line 1, in <module>
+    from optuna.samplers import nsgaii
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\samplers\nsgaii\__init__.py", line 1, in <module>
+    from optuna.samplers.nsgaii._crossovers._base import BaseCrossover
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\samplers\nsgaii\_crossovers\_base.py", line 5, in <module>
+    from optuna.study import Study
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\study\__init__.py", line 4, in <module>
+    from optuna.study.study import copy_study
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\study\study.py", line 23, in <module>
+    from optuna import storages
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\storages\__init__.py", line 5, in <module>
+    from optuna.storages._cached_storage import _CachedStorage
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\storages\_cached_storage.py", line 19, in <module>
+    from optuna.storages._rdb.storage import RDBStorage
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\storages\_rdb\storage.py", line 31, in <module>
+    from optuna.storages._rdb.models import TrialValueModel
+  File "D:\ProgramData\anaconda3\Lib\site-packages\optuna\storages\_rdb\models.py", line 8, in <module>
+    from sqlalchemy import asc
+  File "D:\ProgramData\anaconda3\Lib\site-packages\sqlalchemy\__init__.py", line 13, in <module>
+    from .engine import AdaptedConnection as AdaptedConnection
+  File "D:\ProgramData\anaconda3\Lib\site-packages\sqlalchemy\engine\__init__.py", line 29, in <module>
+    from .cursor import CursorResult as CursorResult
+  File "D:\ProgramData\anaconda3\Lib\site-packages\sqlalchemy\engine\cursor.py", line 35, in <module>
+    from .result import IteratorResult
+  File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1147, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 936, in exec_module
+  File "<frozen importlib._bootstrap_external>", line 1032, in get_code
+  File "<frozen importlib._bootstrap_external>", line 1131, in get_data
+MemoryError
