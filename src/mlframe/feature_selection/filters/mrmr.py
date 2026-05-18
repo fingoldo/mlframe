@@ -121,9 +121,16 @@ logger = logging.getLogger(__name__)
 # subsequent fits on the same X-fingerprint short-circuit to identity
 # output without running screen / FE / Hermite.
 #
-# X-fingerprint: blake2b hash of (sorted col names, n_rows, dtype repr).
-# Cheap to compute. Process-level cache, not persisted across processes.
+# X-fingerprint: blake2b hash of (sorted col names, n_rows, canonical
+# dtypes + optional sample-content). Cheap to compute. Process-level
+# cache, not persisted across processes. Reads / writes are guarded by
+# ``_MRMR_IDENTITY_FP_LOCK`` so concurrent fits (multi-target parallel
+# discovery in future / external joblib threading) do not race on the
+# dict mutation.
+import threading as _threading
+
 _MRMR_IDENTITY_FP_CACHE: dict[str, bool] = {}
+_MRMR_IDENTITY_FP_LOCK = _threading.Lock()
 
 
 def _canonicalise_dtype_str(dt) -> str:
@@ -150,10 +157,36 @@ def _canonicalise_dtype_str(dt) -> str:
     return s
 
 
+def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
+    """Cheap fingerprint of y's first ``max_sample`` values. Used by the identity cache when ``mrmr_identity_cache_include_y=True`` to distinguish legitimately different targets on the same X. Sample-based to keep the cost O(max_sample) even on 4M-row y."""
+    try:
+        arr = np.asarray(y).reshape(-1)
+        n = arr.shape[0]
+        if n == 0:
+            return "yfp_empty"
+        # Use first + last + n_strided sample for entropy across the whole y.
+        if n <= max_sample:
+            sample = arr
+        else:
+            step = max(1, n // max_sample)
+            sample = arr[::step][:max_sample]
+        # Round to 6 decimals so floating-noise doesn't cause spurious cache misses.
+        payload = sample.astype(np.float64).round(6).tobytes()
+        return hashlib.blake2b(payload, digest_size=10).hexdigest()
+    except Exception:
+        return f"yfp_id{id(y):x}"
+
+
 def _mrmr_compute_x_fingerprint(X) -> str:
     """Stable per-process fingerprint of the X argument used to key the identity-cache.
 
     Captures column names, row count, and CANONICAL dtype repr so two structurally-equivalent frames -- one polars, one pandas -- produce the SAME fingerprint. We don't hash CELL CONTENT (too expensive on 4M-row frames); cell-level changes are rare across composite-target loops since the same X is reused throughout the suite.
+
+    KNOWN TRADE-OFF: two DIFFERENT X with same column names + dtypes + n_rows
+    but different cell values will collide on the same fingerprint. Acceptable
+    in the production scenario (same X reused across composite targets); a
+    future ``include_cell_sample=True`` mode would mitigate this by mixing in
+    a sample of values from each column.
     """
     try:
         if hasattr(X, "columns"):
@@ -546,6 +579,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Set False to restore the historical "0 features = give up" path.
         fe_adaptive_threshold_relax: bool = True,
         fe_adaptive_relax_factor: float = 0.9,
+        # 2026-05-18 T3#18: when ``mrmr_skip_when_prior_was_identity=True``
+        # and you want STRICTER cache semantics (different y on same X must
+        # produce a separate cache key), set this True. The cache key adds
+        # a fingerprint of y's first-N-rows sample so legitimately distinct
+        # targets get their own cache slot. Default False keeps the
+        # ``X-only`` behaviour from #2 (the user's TVT scenario where
+        # 2 composites on same X both returned identity).
+        mrmr_identity_cache_include_y: bool = False,
         # 2026-05-18 #2: cross-target identity cache. When True and a prior fit on the SAME X-fingerprint produced an identity result (all input columns selected, zero engineered features), subsequent calls with a different y short-circuit the entire FE pipeline. Production TVT log showed 88 min of MRMR work that produced identity output, then ANOTHER MRMR call on the same X for a composite target -- second call would also be 88 min wasted.
         #
         # Default flipped False -> True 2026-05-18 (Accuracy/perf over legacy): on multi-target suites the second MRMR call on the same X usually hits the cache and saves the full FE pipeline run-time. The conservative case (prior identity result was wrong for the new target) is rare in practice because composite-target y values are highly correlated with the raw y -- if MRMR found nothing on raw y, it almost never finds something on the residual.
@@ -860,10 +901,15 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         # 2026-05-18 #2 cross-target identity cache.
         _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
+        _include_y = bool(getattr(self, "mrmr_identity_cache_include_y", False))
         _x_fp = None
         if _identity_skip:
             _x_fp = _mrmr_compute_x_fingerprint(X)
-            _prior_was_identity = _MRMR_IDENTITY_FP_CACHE.get(_x_fp)
+            if _include_y:
+                # T3#18: stricter cache key -- include y-fingerprint so legitimately distinct targets on same X get separate slots.
+                _x_fp = _x_fp + "_yfp_" + _mrmr_compute_y_fingerprint_sample(y)
+            with _MRMR_IDENTITY_FP_LOCK:
+                _prior_was_identity = _MRMR_IDENTITY_FP_CACHE.get(_x_fp)
             if _prior_was_identity is True:
                 logger.info(
                     "[MRMR] cross-target identity cache HIT for X fingerprint=%s -- "
@@ -889,7 +935,8 @@ class MRMR(BaseEstimator, TransformerMixin):
                         and len(self.support_) == X.shape[1]
                         and len(getattr(self, "_engineered_features_", []) or []) == 0
                     )
-                    _MRMR_IDENTITY_FP_CACHE[_x_fp] = bool(_is_id)
+                    with _MRMR_IDENTITY_FP_LOCK:
+                        _MRMR_IDENTITY_FP_CACHE[_x_fp] = bool(_is_id)
                     if _is_id:
                         logger.info(
                             "[MRMR] cross-target identity cache STORED for X fingerprint=%s "
