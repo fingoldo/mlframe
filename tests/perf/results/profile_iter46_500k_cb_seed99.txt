@@ -1,0 +1,59 @@
+# 1M-row e2e profile (n_rows=500_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_low', 'cat_mid', 'y']
+  built frame: 500_000 rows x 11 cols
+  axes: mrmr_fs=False outlier=none ensembles=False cat_enc=onehot scaler=standard dim_reducer=PCA boruta_shap=False poly_deg=0 predict_batch_rows=0 n_targets=1 mix_target_types=False weight=uniform_only
+  axes2: composite_disc=True transforms_mode=all mrmr_fe_ntop=0 mrmr_fe_nperm=0 unary=minimal binary=minimal smart_polynom=0 cat_fe_include_numeric=False
+apply_preprocessing_extensions: dropped 2 non-numeric column(s) before the sklearn-bridge pipeline (kbins / polynomial / scaler / dim_reducer all reject object dtype): ['cat_low', 'cat_mid']. Encode these upstream (e.g. via OrdinalEncoder / OneHotEncoder in the suite's cat-encoder pre-pipeline) if you want them to participate in the extension transforms.
+apply_preprocessing_extensions: dropped 2 all-null column(s) before the sklearn-bridge pipeline (SimpleImputer median strategy would silently drop them and shrink the post-imputer n_features below the dim_reducer's n_components clamp, causing a downstream PCA / TruncatedSVD / FastICA ValueError): ['x4', 'x5'].
+apply_preprocessing_extensions: clamped dim_n_components from user-requested value to 5 (= min(n_features-1=5, n_samples-1=404999)) so the PCA reducer's n_components stays within the sklearn-required (0, min(n_samples, n_features)) range. Increase the upstream feature count or drop the dim_reducer if you need K=5.
+[CompositeTargetDiscovery] raw-y baseline gate rejected ALL 8 composite candidate(s) (raw_baseline=1.5951, tolerance=1.02). Examples: y-monres-pca0=RMSE1.6281>1.6270, y-monresCbrt-pca0=RMSE1.7700>1.6270, y-monresYj-pca0=RMSE1.6285>1.6270. Falling back to raw target only -- discovery yields no specs.
+[CompositeTargetDiscovery] no candidate cleared mi_gain > -0.5 on target='y'. (fail_on_no_gain='fallback_raw')
+MetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+[phase] model.fit RAISED CatBoostError after 65.97s model=CatBoostRegressor n_rows=405000 n_cols=15
+[phase] process_model RAISED CatBoostError after 66.48s model=cb weight=uniform
+  train wall: 100.6s  status: CatBoostError: bad allocation
+         1047277 function calls (996926 primitive calls) in 100.632 seconds
+
+   Ordered by: cumulative time
+   List reduced from 2972 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.003    0.003  100.628  100.628 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
+        1    0.001    0.001   67.117   67.117 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
+        1    0.000    0.000   66.478   66.478 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        1    0.000    0.000   66.478   66.478 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        1    0.000    0.000   66.478   66.478 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:425(train_and_evaluate_model)
+        1    0.000    0.000   66.452   66.452 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:348(_train_model_with_fallback)
+        2    0.000    0.000   66.122   33.061 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
+        2    0.000    0.000   66.122   33.061 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        2   65.961   32.980   65.961   32.980 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+        1    0.011    0.011   31.820   31.820 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_composite_discovery.py:117(run_composite_target_discovery)
+        1    0.297    0.297   31.659   31.659 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_discovery.py:133(fit)
+        3    0.046    0.015   19.008    6.336 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_discovery.py:545(<listcomp>)
+       37    1.029    0.028   18.962    0.512 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_discovery.py:348(_eval_one_transform)
+       12    0.004    0.000   11.743    0.979 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_transforms.py:1493(_fit)
+       12    0.017    0.001   11.740    0.978 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_unary_transforms.py:253(chain_bivariate_then_unary_fit)
+        7    0.038    0.005    8.508    1.215 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_unary_transforms.py:150(yeo_johnson_y_fit)
+        7    0.000    0.000    8.470    1.210 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_minimize.py:831(minimize_scalar)
+        7    0.030    0.004    8.470    1.210 D:\ProgramData\anaconda3\Lib\site-packages\scipy\optimize\_optimize.py:2289(_minimize_scalar_bounded)
+       59    2.373    0.040    8.440    0.143 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_unary_transforms.py:161(neg_loglik)
+        1    0.016    0.016    7.602    7.602 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_discovery.py:1968(_tiny_model_rerank)
+        8    0.001    0.000    6.222    0.778 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_screening.py:690(_tiny_cv_rmse_y_scale_multiseed)
+       24    0.020    0.001    6.209    0.259 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_screening.py:853(_tiny_cv_rmse_y_scale)
+       72    0.067    0.001    6.052    0.084 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_screening.py:910(_one_fold)
+       84    0.001    0.000    5.807    0.069 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:1381(fit)
+       84    0.005    0.000    5.806    0.069 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\sklearn.py:907(fit)
+       72    5.802    0.081    5.802    0.081 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_unary_transforms.py:118(_yj_forward)
+       84    0.079    0.001    5.500    0.065 D:\ProgramData\anaconda3\Lib\site-packages\lightgbm\engine.py:109(train)
+        9    0.356    0.040    4.594    0.510 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_transforms.py:979(_monotonic_residual_fit)
+        1    0.005    0.005    3.929    3.929 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_discovery.py:1468(_resolve_base_candidates)
+        1    0.340    0.340    3.924    3.924 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\composite_discovery.py:1500(_auto_base)
+
+
+
+
+# Wall-time summary:
+  regression x cb                                         train=  100.6s  predict=---     save=---             CatBoostError: bad allocation
