@@ -1615,3 +1615,48 @@ fanning more reports), but still no Python-side hotspot above the
 **Verdict: REJECT.** Streak counter: 2/100. The 3way suite is
 useful for cross-axis coverage but its mlframe-Python share is
 similarly thin to the 2way suite.
+
+## Iter 38 -- 2026-05-18 -- REJECTED (streak 3/100)
+
+Cell: `c0028_d01766bb-cb_hgb_linear-pl_nullable-n300` (3 boosters
++ **transformer recurrent model** -- first profile of
+`mlframe.training.neural.recurrent` -- multiclass on pl_nullable
+n=300 with MRMR FE-pollination active via the iter-32.5 axes).
+Test passed under cProfile in 94.90 s.
+
+**mlframe-OWN tottime breakdown (>20 ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `feature_engineering.py:55(check_prospective_fe_pairs)` | 174 ms | 1 | 174 ms |
+| `permutation.py:193(mi_direct)` | 152 ms | **6980** | **22 us** |
+| `target_temporal_audit.py:148(<listcomp>)` | 96 ms | 1 | 96 ms |
+| `discretization.py:201(discretize_array)` | 63 ms | **6936** | **9 us** |
+| `info_theory.py:26(merge_vars)` | 58 ms | **6981** | **8 us** |
+| `target_temporal_audit.py:270(_pick_granularity)` | 52 ms | 1 | 52 ms |
+| `splitting.py:79(make_train_test_split)` | 38 ms | 1 | 38 ms |
+| `compute_mi_from_classes` | 22 ms | 7049 | 3 us |
+
+**The recurrent path itself does NOT show** in mlframe-OWN tottime
+-- transformer fit is third-party torch + Lightning. mlframe just
+dispatches.
+
+**The interesting signal: MRMR FE-pollination is exercising heavily.**
+6980-7049 calls of `mi_direct` / `discretize_array` / `merge_vars`
+/ `compute_mi_from_classes` -- the FE inner loop pollinating each
+candidate feature pair with permutation-MI confirmation. Per-call
+costs (22 us, 9 us, 8 us, 3 us) are already at the
+**numba-dispatch floor**: each call wraps a numba kernel and the
+Python overhead is ~5 us per cProfile frame + numba arg-passing.
+
+Total Python-dispatch overhead 295 ms / 95 s suite wall = **0.31%**.
+Optimizing this surface would require BATCHING multiple feature
+pairs into a single fused numba kernel that returns an array of MI
+values -- substantial API change (current contract is one-pair
+per call). Not minimum-blast-radius.
+
+**Verdict: REJECT.** Streak counter: 3/100. The recurrent path
+itself is third-party heavy; the only meaningful mlframe-Python
+cost is MRMR's wrapper overhead which sits at the numba-dispatch
+hardware floor. Confirms iter-32.5 fuzz axis successfully exercises
+the FE-pollination path end-to-end.
