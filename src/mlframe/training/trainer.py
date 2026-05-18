@@ -1172,49 +1172,16 @@ def _configure_mlp_params(
         mlp_model = _reg_cls(network_params=mlp_network_params, **mlp_general_params)
         # Auto-standardise the regression target for MLP: a kaiming-init network outputs ~0 at init, so on a target with mean=11500 the network takes many epochs just to learn the constant offset.
         # Stock sklearn ``TransformedTargetRegressor`` standardises ONLY the ``y`` arg of fit(), leaving ``eval_set=(X_val, y_val)`` unchanged; PyTorch-Lightning consumes ``eval_set`` for its val_dataloader and computes ``val_loss`` against RAW y_val while the model predicts on STANDARDISED scale (gap of train_loss=0.16 std-units vs val_loss=1.3e+8 raw-units). The subclass below intercepts ``eval_set`` in fit_kwargs and transforms its y component too, keeping train + val on the same scale so early-stop / val_MSE callbacks see meaningful numbers.
-        from sklearn.compose import TransformedTargetRegressor
+        #
+        # 2026-05-18 Pack #8: ``_TTRWithEvalSetScaling`` lives at module level
+        # (``mlframe.training._ttr_eval_set_scaling``) so dill can serialise
+        # fitted MLP models. Pre-fix the class was defined INSIDE this
+        # function and dill choked on the ABC-metaclass ``_abc._abc_data``
+        # slot through the function closure (production log:
+        # ``Could not save model: cannot pickle '_abc._abc_data' object``).
         from sklearn.preprocessing import StandardScaler
 
-        class _TTRWithEvalSetScaling(TransformedTargetRegressor):
-            """``TransformedTargetRegressor`` extension that ALSO standardises any ``eval_set`` / ``X_val`` + ``y_val`` arrays in fit_params. Required for inner estimators (PyTorch-Lightning MLP, LightGBM, etc.) that consume eval_set for their own val-loss / early-stopping. Without this, train sees standardised y and val sees raw y, making the early-stop metric nonsensical."""
-
-            def fit(self, X, y, **fit_params):
-                # Fit the transformer FIRST on y so we have the same scale to apply to eval_set's y_val. Mirrors what ``TransformedTargetRegressor.fit`` does internally.
-                import numpy as _np
-                from sklearn.base import clone as _clone
-
-                y_arr = _np.asarray(y, dtype=_np.float64)
-                if y_arr.ndim == 1:
-                    y_arr_2d = y_arr.reshape(-1, 1)
-                else:
-                    y_arr_2d = y_arr
-                self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
-                if self.transformer_ is not None:
-                    self.transformer_.fit(y_arr_2d)
-                    # Intercept + transform eval_set's y_val before delegating.
-                    if "eval_set" in fit_params and fit_params["eval_set"] is not None:
-                        es = fit_params["eval_set"]
-                        # eval_set comes as ``(X_val, y_val)`` for MLP / LGB. For XGB / CB it's ``[(X_val, y_val), ...]``.
-                        if isinstance(es, tuple) and len(es) == 2:
-                            X_val, y_val = es
-                            y_val_arr = _np.asarray(y_val, dtype=_np.float64)
-                            y_val_2d = y_val_arr.reshape(-1, 1) if y_val_arr.ndim == 1 else y_val_arr
-                            y_val_scaled = self.transformer_.transform(y_val_2d).reshape(y_val_arr.shape)
-                            fit_params["eval_set"] = (X_val, y_val_scaled)
-                        elif isinstance(es, list):
-                            new_es = []
-                            for entry in es:
-                                if isinstance(entry, tuple) and len(entry) == 2:
-                                    X_v, y_v = entry
-                                    y_v_arr = _np.asarray(y_v, dtype=_np.float64)
-                                    y_v_2d = y_v_arr.reshape(-1, 1) if y_v_arr.ndim == 1 else y_v_arr
-                                    y_v_scaled = self.transformer_.transform(y_v_2d).reshape(y_v_arr.shape)
-                                    new_es.append((X_v, y_v_scaled))
-                                else:
-                                    new_es.append(entry)
-                            fit_params["eval_set"] = new_es
-                # Defer the actual fit to the parent (which will refit transformer + call regressor.fit).
-                return super().fit(X, y, **fit_params)
+        from ._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
         mlp_model = _TTRWithEvalSetScaling(regressor=mlp_model, transformer=StandardScaler())
     else:
