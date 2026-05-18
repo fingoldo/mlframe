@@ -1,0 +1,22 @@
+# 1M-row e2e profile (n_rows=500_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 968, in <module>
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 937, in main
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 328, in _run_suite_profiled
+    train_wall = time.perf_counter() - t0
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\__init__.py", line 8, in <module>
+    from .main import train_mlframe_models_suite  # noqa: F401
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py", line 41, in <module>
+    from ..helpers import (
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\extractors.py", line 29, in <module>
+    from mlframe.feature_engineering.basic import create_date_features
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_engineering\__init__.py", line 49, in <module>
+    __all__ = [
+ImportError: cannot import name 'compute_positional_encoding' from 'mlframe.feature_engineering.transformer' (unknown location)
