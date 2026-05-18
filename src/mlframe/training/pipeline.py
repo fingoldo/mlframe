@@ -109,6 +109,16 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
         or config.dim_reducer is not None
     ):
         from sklearn.impute import SimpleImputer
+        # NOTE: non-numeric columns must be filtered out UPSTREAM (in
+        # ``apply_preprocessing_extensions`` before pipeline construction)
+        # because the downstream sklearn steps (scaler / kbins / poly /
+        # nonlinear / dim_reducer) all reject object dtypes. The previous
+        # attempt to wrap this imputer in a ColumnTransformer + passthrough
+        # left non-numeric columns leaking into the next step, which then
+        # raised ``ValueError: The truth value of an array with more than
+        # one element is ambiguous`` (surfaced by 1M-harness seed=11
+        # where cat_mid='M03' reached the polynomial step). Simpler:
+        # let the apply_preprocessing_extensions front gate handle it.
         steps.append(("imputer", SimpleImputer(strategy="median")))
     if config.scaler is not None:
         steps.append(("scaler", _SCALER_FACTORIES[config.scaler]()))
@@ -538,6 +548,44 @@ def apply_preprocessing_extensions(
                         val = split_df.drop(columns=[col]).join(new_split_df)
                     else:
                         test = split_df.drop(columns=[col]).join(new_split_df)
+
+    # Numeric-only gate for the sklearn-bridge pipeline. The downstream
+    # extensions (scaler / kbins / polynomial / nonlinear / dim_reducer
+    # and the median-imputer in front) all reject object/string dtypes
+    # with errors that range from clear (``Cannot use median strategy
+    # with non-numeric data``) to opaque (``ValueError: The truth value
+    # of an array with more than one element is ambiguous`` from inside
+    # PolynomialFeatures or RobustScaler). The contract is "if you turn
+    # on the sklearn-bridge, your frame should be numeric". When
+    # non-numeric columns survived (unencoded cat_mid, embedding object
+    # dtypes that the upstream cat-encoder skipped, etc.), drop them
+    # here with a single-line WARN. Surfaced by 1M-harness seed=11.
+    #
+    # Note: the cat-encoder pre-pipeline normally runs BEFORE this
+    # function, so under standard configs this drop is a no-op. The
+    # gate exists to keep production callers + the 1M profiler harness
+    # robust against axis combinations where cat_encoding canonicalised
+    # to a path that bypassed the encoder.
+    def _filter_to_numeric(_df):
+        if _df is None or not isinstance(_df, pd.DataFrame):
+            return _df, []
+        _num_cols = _df.select_dtypes(include="number").columns.tolist()
+        _dropped = [c for c in _df.columns if c not in _num_cols]
+        return _df[_num_cols], _dropped
+
+    train, _dropped_train = _filter_to_numeric(train)
+    val, _ = _filter_to_numeric(val)
+    test, _ = _filter_to_numeric(test)
+    if _dropped_train:
+        logger.warning(
+            "apply_preprocessing_extensions: dropped %d non-numeric column(s) "
+            "before the sklearn-bridge pipeline (kbins / polynomial / scaler / "
+            "dim_reducer all reject object dtype): %s. Encode these upstream "
+            "(e.g. via OrdinalEncoder / OneHotEncoder in the suite's cat-encoder "
+            "pre-pipeline) if you want them to participate in the extension "
+            "transforms.",
+            len(_dropped_train), _dropped_train[:8],
+        )
 
     n_features = train.shape[1]
     steps = _build_extension_steps(config, n_features=n_features)
