@@ -3480,6 +3480,46 @@ iter104 saturates with iter69 on CB R2:
 
 This makes iter104 the **regression LGB-target enhancement**, and iter69 the **regression CB-target baseline that iter104 ≈ matches**.
 
+## iter117 — 2 NEW records: kin8nm CB R2 (iter102 +6.57%), Year-100k LGB R2 (iter104 +3.09%)
+
+Confirmed the cross-mechanism pattern from iter116 on additional datasets and target_models. 5 tests × 3 seeds.
+
+### Results
+
+| Test | Mechanism | Target | Median | Range | Verdict |
+|---|---|---|---|---|---|
+| 1 | iter69 alone | California LGB R2 | +0.01% | -0.28% / +0.03% | NEAR-NOISE |
+| 2 | iter104 (iter69+RSD) | California LGB R2 | -0.24% (all 3 neg) | -0.50% / -0.13% | HURTS |
+| 3 | iter69 alone | Year-100k LGB R2 | **+2.78%** | +2.46% / +3.01% | SURVIVES |
+| 4 | iter104 (iter69+RSD) | Year-100k LGB R2 | **+3.09%** (+0.31pp) | +2.76% / +3.45% | **NEW Year-100k LGB R2 record** |
+| 5 | iter102 (iter69+ExtraTrees) | kin8nm CB R2 | **+6.57%** (+0.39pp over iter69 +6.18%) | +5.02% / +6.79% | **NEW kin8nm CB R2 record** (replaces iter116's iter69) |
+
+### Confirmed cross-mechanism pattern
+
+- **iter102 (ExtraTrees orthogonal baseline)** = REGRESSION CB-TARGET ENHANCEMENT for small-medium N:
+  - abalone 4k: iter69 +2.26% → iter102 +2.74% (+0.48pp)
+  - kin8nm 8k: iter69 +6.18% → iter102 +6.57% (+0.39pp)
+- **iter104 (iter69 + RSD additive)** = REGRESSION LGB-TARGET ENHANCEMENT for medium-large N:
+  - kin8nm 8k LGB R2: iter69 +9.46% → iter104 +9.75% (+0.29pp)
+  - Year-100k LGB R2: iter69 +2.78% → iter104 +3.09% (+0.31pp)
+- **California 20k LGB R2** is FLAT — no mechanism helps. California is CB-friendly, LGB-resistant for iter69-family.
+
+### Updated 7-record best-of-breed table (post-iter117)
+
+| Dataset | Best LGB R2 | Best CB R2 |
+|---|---|---|
+| abalone 4k | (untested) | iter102 +2.74% |
+| kin8nm 8k | iter68 +11.42% (RFF, dataset-specific) | **iter102 +6.57%** (NEW) |
+| California 20k | (FLAT, no mechanism helps) | iter69 +1.15% |
+| Year-100k | **iter104 +3.09%** (NEW) | iter104 +5.25% |
+
+For binary classification (CB AUC target):
+| Dataset | Best CB AUC |
+|---|---|
+| Adult 49k | iter69 / iter114 +0.63-0.64% |
+| Higgs 98k | iter69 +0.67% |
+| mammography 11k | NONE — iter69-family fails on rare-positive (1.3% pos) |
+
 ## Reproducibility
 
 ```

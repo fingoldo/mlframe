@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-05-18 — Iter 117: 2 NEW records (kin8nm CB R2 iter102 +6.57%, Year-100k LGB R2 iter104 +3.09%); pattern firmly confirmed
+
+Confirmed the iter116 cross-mechanism pattern on additional datasets/target_models. 5 tests × 3 seeds.
+
+### Results
+- iter69 on California LGB R2:         +0.01%  NEAR-NOISE
+- iter104 on California LGB R2:        -0.24% (all 3 neg)  HURTS
+- iter69 on Year-100k LGB R2:          +2.78%  SURVIVES
+- iter104 on Year-100k LGB R2:         **+3.09%** (+0.31pp)  **NEW Year-100k LGB R2 record**
+- iter102 on kin8nm CB R2:             **+6.57%** (+0.39pp over iter116's iter69 +6.18%)  **NEW kin8nm CB R2 record**
+
+### Confirmed pattern
+- iter102 (+ExtraTrees) = REGRESSION CB-TARGET enhancement on small-medium N
+  - abalone 4k:  iter69 +2.26% -> iter102 +2.74% (+0.48pp)
+  - kin8nm 8k:   iter69 +6.18% -> iter102 +6.57% (+0.39pp)
+- iter104 (+RSD additive) = REGRESSION LGB-TARGET enhancement on medium-large N
+  - kin8nm 8k:   iter69 +9.46% -> iter104 +9.75% (+0.29pp)
+  - Year-100k:   iter69 +2.78% -> iter104 +3.09% (+0.31pp)
+- California 20k LGB R2 is FLAT (CB-friendly, LGB-resistant)
+
+### Updated 7-record best-of-breed (post-iter117)
+Regression:
+  abalone 4k:   (untested LGB) / iter102 +2.74% CB
+  kin8nm 8k:    iter68 +11.42% LGB (RFF-specific) / iter102 +6.57% CB (NEW)
+  CA 20k:       FLAT LGB / iter69 +1.15% CB
+  Year-100k:    iter104 +3.09% LGB (NEW) / iter104 +5.25% CB
+
+Binary CB AUC:
+  Adult 49k:    iter69 / iter114 +0.63-0.64%
+  Higgs 98k:    iter69 +0.67%
+  mammography:  NONE (iter69-family fails on rare-positive)
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter117_*`.
+
 ## 2026-05-18 — Iter 116: NEW kin8nm CB R2 record (iter69 +6.18%); iter104 LGB-target enhancement confirmed
 
 Tested iter69 alone and iter104 (iter69 + RSD additive) on kin8nm 8k (the historical RFF-winning dataset where iter68 had +11.42% LGB R2 median).

@@ -757,3 +757,31 @@ def test_iter116_kin8nm_lgb_r2_iter104():
 def test_iter116_kin8nm_cb_r2_iter104():
     """iter104 on kin8nm 8k CB R2."""
     _validate_scale(_load_kin8nm, _build_iter104, "cb", "R2", 0.0, "iter116_iter104_kin8nm_cb")
+
+
+# ---------- iter117 - confirm iter104 LGB-target enhancement + iter102 generalisation tests ----------
+
+
+def test_iter117_california_lgb_r2_iter69():
+    """iter69 alone on California 20k LGB R2 (baseline; we only had CB R2 +1.15% before)."""
+    _validate_scale(_load_california, _build_iter69, "lgb", "R2", 0.0, "iter117_iter69_CA20k_lgb")
+
+
+def test_iter117_california_lgb_r2_iter104():
+    """iter104 on California 20k LGB R2 (does the LGB-target enhancement pattern hold?)."""
+    _validate_scale(_load_california, _build_iter104, "lgb", "R2", 0.0, "iter117_iter104_CA20k_lgb")
+
+
+def test_iter117_year100k_lgb_r2_iter69():
+    """iter69 alone on Year-100k LGB R2 (Year-100k had +5.25% CB R2; need LGB baseline)."""
+    _validate_scale(_load_year_100k, _build_iter69, "lgb", "R2", 0.0, "iter117_iter69_Year100k_lgb")
+
+
+def test_iter117_year100k_lgb_r2_iter104():
+    """iter104 on Year-100k LGB R2."""
+    _validate_scale(_load_year_100k, _build_iter104, "lgb", "R2", 0.0, "iter117_iter104_Year100k_lgb")
+
+
+def test_iter117_kin8nm_cb_r2_iter102():
+    """iter102 on kin8nm 8k CB R2 (ExtraTrees abalone-helper; does it generalise to kin8nm CB?)."""
+    _validate_scale(_load_kin8nm, _build_iter102, "cb", "R2", 0.0, "iter117_iter102_kin8nm_cb")
