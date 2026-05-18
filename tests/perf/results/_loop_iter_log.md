@@ -1660,3 +1660,37 @@ itself is third-party heavy; the only meaningful mlframe-Python
 cost is MRMR's wrapper overhead which sits at the numba-dispatch
 hardware floor. Confirms iter-32.5 fuzz axis successfully exercises
 the FE-pollination path end-to-end.
+
+## Iter 39 -- 2026-05-18 -- REJECTED (streak 4/100)
+
+Cell: `c0056_2934c829-cb_hgb_lgb_linear_xgb-pl_enum-n300`
+(5-model multiclass + **ALL 5 prep_ext knobs simultaneously
+active**: RobustScaler + KBinsDiscretizer + PolynomialDegree=2 +
+PCA + RBFSampler -- maximum sklearn-bridge stress). Test passed
+under cProfile in 65.54 s.
+
+**mlframe-OWN tottime breakdown (>20 ms):**
+
+| Function | tottime | ncalls | per-call |
+|---|---:|---:|---:|
+| `dummy_baselines.py:2258(_resample_metric)` | 56 ms | 2 | 28 ms |
+| `utils.py:395(get_pandas_view_of_polars_df)` | 44 ms | 7 | 6.3 ms |
+| `dummy_baselines.py:1985(_paired_bootstrap_vs_runner_up)` | 38 ms | 1 | 38 ms |
+| `io.py:39(atomic_write_bytes)` | 35 ms | 12 | 2.9 ms |
+
+**Zero prep_ext functions show.** RobustScaler / KBins / Polynomial /
+PCA / RBFSampler all run in sklearn C-ext (sklearn-bridge
+pre-pipeline is fit ONCE and reused across the 5 models x 2 weight
+schemas). mlframe's role is just instantiation + dispatch -- micros,
+not millis. Even maximum prep_ext stress doesn't surface a Python-
+side hotspot.
+
+`_resample_metric` and `_paired_bootstrap_vs_runner_up` are the
+iter-2/3 vectorised paths' steady-state cost (~28-38 ms each, pure
+attribution overhead on the numpy reduction).
+
+Total mlframe-OWN tottime ~175 ms / 65.5 s suite wall = **0.27%**.
+
+**Verdict: REJECT.** Streak counter: 4/100. The mlframe sklearn-
+bridge fixture is appropriately thin -- it dispatches to sklearn
+and gets out of the way.
