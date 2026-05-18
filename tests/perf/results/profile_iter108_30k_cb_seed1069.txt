@@ -1,0 +1,197 @@
+# 1M-row e2e profile (n_rows=30_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_low', 'text_col', 'y']
+  built frame: 30_000 rows x 11 cols
+  axes: mrmr_fs=True outlier=isolation_forest ensembles=False cat_enc=ordinal scaler=standard dim_reducer=PCA boruta_shap=False poly_deg=0 predict_batch_rows=0 n_targets=2 mix_target_types=False weight=uniform_only
+  axes2: composite_disc=True transforms_mode=unary_only mrmr_fe_ntop=5 mrmr_fe_nperm=0 unary=medium binary=medium smart_polynom=0 cat_fe_include_numeric=False
+  frame type: POLARS  cols: ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'c_low', 'c_mid', 'cat_low', 'text_col', 'y', 'y2']
+  rebuilt frame with extras: targets=['y2'] add_ts=False
+  CatBoost in mlframe_models + categorical_encoding='ordinal' + 2 categorical column(s) detected. Auto-flipping skip_categorical_encoding=True so CB keeps native cat-handling (combinations, target-statistics) and text_features stay string-typed. Set skip_categorical_encoding=False explicitly to restore the previous ordinal-then-CB behaviour.
+apply_preprocessing_extensions: dropped 2 non-numeric column(s) before the sklearn-bridge pipeline (kbins / polynomial / scaler / dim_reducer all reject object dtype): ['cat_low', 'text_col']. Encode these upstream (e.g. via OrdinalEncoder / OneHotEncoder in the suite's cat-encoder pre-pipeline) if you want them to participate in the extension transforms.
+apply_preprocessing_extensions: dropped 2 all-null column(s) before the sklearn-bridge pipeline (SimpleImputer median strategy would silently drop them and shrink the post-imputer n_features below the dim_reducer's n_components clamp, causing a downstream PCA / TruncatedSVD / FastICA ValueError): ['x4', 'x5'].
+apply_preprocessing_extensions: clamped dim_n_components from user-requested value to 5 (= min(n_features-1=5, n_samples-1=24299)) so the PCA reducer's n_components stays within the sklearn-required (0, min(n_samples, n_features)) range. Increase the upstream feature count or drop the dim_reducer if you need K=5.
+[CompositeTargetDiscovery] raw-y baseline gate rejected ALL 4 composite candidate(s) (raw_baseline=0.6469, tolerance=1.02). Examples: y-cbrtY-pca3=RMSE1.7399>0.6598, y-logY-pca3=RMSE1.5949>0.6598, y-yjY-pca3=RMSE1.5866>0.6598. Falling back to raw target only -- discovery yields no specs.
+[CompositeTargetDiscovery] no candidate cleared mi_gain > -0.5 on target='y'. (fail_on_no_gain='fallback_raw')
+[CompositeTargetDiscovery] raw-y baseline gate rejected ALL 4 composite candidate(s) (raw_baseline=0.7132, tolerance=1.02). Examples: y2-cbrtY-pca4=RMSE1.2552>0.7274, y2-logY-pca4=RMSE1.1651>0.7274, y2-yjY-pca4=RMSE1.1588>0.7274. Falling back to raw target only -- discovery yields no specs.
+[CompositeTargetDiscovery] no candidate cleared mi_gain > -0.5 on target='y2'. (fail_on_no_gain='fallback_raw')
+target:   0%|          | 0/2 [00:00<?, ?it/s]target:   0%|          | 0/2 [00:00<?, ?it/s]
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s][A
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s][AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline:  50%|#####     | 1/2 [00:10<00:10, 10.05s/it][A
+
+Interactions order:   0%|          | 0/1 [00:00<?, ?it/s][A[A
+
+1-way interactions:   0%|          | 0/1 [00:00<?, ?it/s][A[A
+
+
+Confirmed predictors:   0%|          | 0/14 [00:00<?, ?it/s][A[A[A
+
+
+Confirmed predictors:   7%|7         | 1/14 [00:00<00:06,  1.99it/s][A[A[A
+
+
+                                                                    [A[A[A
+
+1-way interactions: 100%|##########| 1/1 [00:00<00:00,  1.99it/s][A[A
+
+                                                                 [A[A
+
+getting pairs MIs:   0%|          | 0/10 [00:00<?, ?it/s][A[A
+
+                                                         [A[A
+
+pair:   0%|          | 0/7 [00:00<?, ?it/s][A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+pair:  14%|#4        | 1/7 [00:03<00:21,  3.53s/it][A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+pair:  29%|##8       | 2/7 [00:06<00:17,  3.43s/it][A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+pair:  43%|####2     | 3/7 [00:10<00:13,  3.40s/it][A[A
+
+pair:  57%|#####7    | 4/7 [00:13<00:10,  3.41s/it][A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+pair:  71%|#######1  | 5/7 [00:17<00:06,  3.41s/it][A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+pair:  86%|########5 | 6/7 [00:20<00:03,  3.41s/it][A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+
+external validation factor:   0%|          | 0/3 [00:00<?, ?it/s][A[A[A
+
+
+                                                                 [A[A[A
+
+pair: 100%|##########| 7/7 [00:23<00:00,  3.43s/it][A[A
+
+                                                   [A[AMetricVisualizer(layout=Layout(align_self='stretch', height='500px'))
+Warning: Overfitting detector is active, thus evaluation metric is calculated on every iteration. 'metric_period' is ignored for evaluation metric.
+
+pre_pipeline: 100%|##########| 2/2 [00:47<00:00, 26.09s/it][Apre_pipeline: 100%|##########| 2/2 [00:47<00:00, 23.68s/it]
+target:  50%|#####     | 1/2 [00:47<00:47, 47.59s/it]
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s][A
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s][A[phase] process_model RAISED ValueError after 0.00s model=cb weight=uniform
+pre_pipeline:   0%|          | 0/2 [00:00<?, ?it/s]
+target:  50%|#####     | 1/2 [00:47<00:47, 47.59s/it]
+  train wall: 71.9s  status: ValueError: train target contains 4_596 NaN value(s). Clean the target before training.
+         6489236 function calls (6192287 primitive calls) in 71.862 seconds
+
+   Ordered by: cumulative time
+   List reduced from 6231 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001   65.949   65.949 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py:77(train_mlframe_models_suite)
+        2    0.001    0.001   47.596   23.798 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_train_one_target.py:959(_train_one_target)
+        3    0.000    0.000   47.319   15.773 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:674(process_model)
+        3    0.000    0.000   47.318   15.773 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\train_eval.py:587(_call_train_evaluate_with_configs)
+        3    0.001    0.000   47.316   15.772 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py:425(train_and_evaluate_model)
+     11/9    0.000    0.000   38.303    4.256 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\utils\_set_output.py:314(wrapped)
+        3    0.000    0.000   34.057   11.352 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:558(_apply_pre_pipeline_transforms)
+        2    0.000    0.000   33.974   16.987 D:\ProgramData\anaconda3\Lib\site-packages\sklearn\base.py:851(fit_transform)
+        3    0.000    0.000   33.966   11.322 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:341(_passthrough_cols_fit_transform)
+        1    0.000    0.000   33.961   33.961 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_pipeline_helpers.py:373(_call_fit)
+        1    0.001    0.001   33.910   33.910 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\mrmr.py:981(fit)
+        1    0.006    0.006   33.908   33.908 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\mrmr.py:1078(_fit_impl)
+        1    0.009    0.009   26.179   26.179 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\mrmr.py:1791(_run_fe_step)
+        1    4.151    4.151   26.106   26.106 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\feature_engineering.py:55(check_prospective_fe_pairs)
+        2    0.001    0.000   12.897    6.449 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_training_loop.py:348(_train_model_with_fallback)
+        3    0.000    0.000   12.623    4.208 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:6164(fit)
+        3    0.001    0.000   12.622    4.207 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:2781(_fit)
+        3   12.587    4.196   12.589    4.196 D:\ProgramData\anaconda3\Lib\site-packages\catboost\core.py:1898(_train)
+     8260    0.111    0.000   10.288    0.001 D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\feature_selection\filters\discretization.py:219(discretize_array)
+       22    0.000    0.000    9.821    0.446 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:344(_compile_for_args)
+    52/22    0.001    0.000    9.817    0.446 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:862(compile)
+    16/11    0.000    0.000    9.005    0.819 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:79(compile)
+    16/11    0.000    0.000    9.005    0.819 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:86(_compile_cached)
+    16/11    0.001    0.000    9.005    0.819 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\dispatcher.py:101(_compile_core)
+    16/11    0.000    0.000    9.002    0.818 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:713(compile_extra)
+    24/11    0.000    0.000    8.987    0.817 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:433(compile_extra)
+    24/11    0.000    0.000    8.981    0.816 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:500(_compile_bytecode)
+    25/11    0.001    0.000    8.981    0.816 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler.py:456(_compile_core)
+    25/11    0.003    0.000    8.972    0.816 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_machinery.py:342(run)
+  789/323    0.003    0.000    8.970    0.028 D:\ProgramData\anaconda3\Lib\site-packages\numba\core\compiler_lock.py:32(_acquire_compile_lock)
+
+
+
+
+# Wall-time summary:
+  regression x cb                                         train=   71.9s  predict=---     save=---             load=---         predict_loaded=---   parity=skip  ValueError: train target contains 4_596 NaN value(s). Clean the target before training.
