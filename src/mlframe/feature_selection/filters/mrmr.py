@@ -585,6 +585,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
         fe_print_best_mis_only: bool = True,
+        # 2026-05-18 audit-fixes HIGH#4 default-flip evaluation result:
+        # ``profiling/bench_polynom_fe_default_flip.py`` measured on three
+        # canonical "polynom-FE should help" scenarios (XOR, saddle,
+        # mixed-linear-interaction): 0 / 3 cleared the >= 20% AUC lift
+        # bar within 10x time budget. Reason for the null result is NOT
+        # that polynom-FE is useless - it's that the upstream
+        # screening filter drops one of the interaction features
+        # (support_size=1 in all three runs), so polynom-FE has no
+        # pair to evaluate. Surfaces audit finding #5
+        # (``min_nonzero_confidence`` / ``full_npermutations`` still
+        # over-strict). Until #5 is flipped, polynom-FE default stays 0;
+        # users with verified strong-individual-MI features should
+        # opt in with a positive value.
         fe_smart_polynom_iters: int = 0,
         fe_smart_polynom_optimization_steps: int = 1000,
         # 2026-05-18 audit-fixes flip #3 (``fe_min_polynom_degree`` 3->1):
