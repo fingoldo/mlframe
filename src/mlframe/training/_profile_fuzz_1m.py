@@ -638,15 +638,16 @@ def _run_suite_profiled(
                     **_mrmr_kwargs_extra,
                 } if _use_mrmr_fs else None),
                 # BorutaShap budget tightened after iter#196 OOM (~5 GB on 1M rows): the
-                # 200k row cap above bounds the matrix size; here we also cap trials and
-                # the CatBoost-surrogate iteration count so SHAP TreeExplainer stays small.
-                # n_trials=5 (default 100), max_iter=10 (Boruta loop), and an explicit
-                # surrogate_model_params clamp keep the SHAP+CB working set under ~500 MB.
+                # 200k row cap above bounds the matrix size; here we cap n_trials so
+                # SHAP TreeExplainer stays small. iter-75 fix: ``max_iter`` and
+                # ``surrogate_model_params`` were rejected by the
+                # ``FeatureSelectionConfig.boruta_shap_kwargs`` validator because they
+                # aren't in ``BorutaShap.__init__``'s signature -- removed. The
+                # surrogate-model iteration count is controlled via the suite-level
+                # ``model_kwargs`` (CatBoost iterations) when needed.
                 boruta_shap_kwargs=({
                     "n_trials": 5,
-                    "max_iter": 10,
                     "verbose": 0,
-                    "surrogate_model_params": {"iterations": 50, "thread_count": 1},
                 } if _use_boruta_shap else None),
             )
         )
