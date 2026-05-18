@@ -649,6 +649,78 @@ def apply_preprocessing_extensions(
                 _clamp_max, n_features - 1, n_samples - 1,
                 config.dim_reducer, _clamp_max,
             )
+    # iter-69 byte-aware polynomial auto-tune. ``memory_safety_max_features``
+    # gates by column count alone; on wide post-onehot frames at degree=2
+    # the column count stays under the cap but the dense
+    # (n_samples, projected) float64 array exceeds available RAM
+    # (iter-69 surfaced n=81000, projected=1711 -> 1.03 GiB allocation
+    # MemoryError). When ``memory_safety_max_bytes`` is set, compute the
+    # exact byte-cost via the same shape formula sklearn would use and
+    # auto-tune the polynomial step downward (flip interaction_only ->
+    # decrement degree -> skip) until the projected array fits.
+    _byte_cap = getattr(config, "memory_safety_max_bytes", None)
+    if (
+        config.polynomial_degree is not None
+        and config.polynomial_degree > 0
+        and _byte_cap not in (None, 0)
+        and isinstance(train, pd.DataFrame)
+        and train.shape[0] > 0
+        and n_features > 0
+    ):
+        from mlframe.training.feature_handling.polynomial import _projected_output_cols
+        _n_samples = train.shape[0]
+        _eff_degree = int(config.polynomial_degree)
+        _eff_interaction = bool(config.polynomial_interaction_only)
+        _eff_skip = False
+
+        def _proj_bytes(_d: int, _io: bool) -> int:
+            _p = _projected_output_cols(n_features, _d, _io)
+            return int(_n_samples) * int(_p) * 8
+
+        _bytes = _proj_bytes(_eff_degree, _eff_interaction)
+        if _bytes > _byte_cap and not _eff_interaction:
+            logger.warning(
+                "apply_preprocessing_extensions: polynomial output would "
+                "allocate %.2f MiB at n_samples=%d * projected=%d * 8 bytes; "
+                "cap=%.2f MiB. Flipping polynomial_interaction_only=True "
+                "to drop pure-power terms.",
+                _bytes / (1024 * 1024), _n_samples,
+                _projected_output_cols(n_features, _eff_degree, _eff_interaction),
+                _byte_cap / (1024 * 1024),
+            )
+            _eff_interaction = True
+            _bytes = _proj_bytes(_eff_degree, _eff_interaction)
+        while _bytes > _byte_cap and _eff_degree > 1:
+            logger.warning(
+                "apply_preprocessing_extensions: polynomial output still "
+                "%.2f MiB > cap %.2f MiB at degree=%d, interaction_only=%s; "
+                "decrementing degree -> %d.",
+                _bytes / (1024 * 1024), _byte_cap / (1024 * 1024),
+                _eff_degree, _eff_interaction, _eff_degree - 1,
+            )
+            _eff_degree -= 1
+            _bytes = _proj_bytes(_eff_degree, _eff_interaction)
+        if _bytes > _byte_cap:
+            logger.warning(
+                "apply_preprocessing_extensions: polynomial output still "
+                "%.2f MiB > cap %.2f MiB even at degree=1; skipping the "
+                "polynomial step entirely.",
+                _bytes / (1024 * 1024), _byte_cap / (1024 * 1024),
+            )
+            _eff_skip = True
+        if _eff_skip or _eff_degree != int(config.polynomial_degree) or _eff_interaction != bool(config.polynomial_interaction_only):
+            try:
+                _new_deg = None if _eff_skip else _eff_degree
+                config = config.model_copy(update={
+                    "polynomial_degree": _new_deg,
+                    "polynomial_interaction_only": _eff_interaction,
+                })
+            except AttributeError:
+                import copy as _copy
+                config = _copy.copy(config)
+                config.polynomial_degree = None if _eff_skip else _eff_degree
+                config.polynomial_interaction_only = _eff_interaction
+
     steps = _build_extension_steps(config, n_features=n_features)
     if not steps:
         if tfidf_pipes:

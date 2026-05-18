@@ -533,6 +533,19 @@ class PreprocessingExtensionsConfig(BaseConfig):
     ]] = None
     dim_n_components: int = 50
     memory_safety_max_features: int = 100_000
+    # iter-69 byte-aware guard: PolynomialFeatures' projected column count
+    # alone (memory_safety_max_features) doesn't capture the actual
+    # byte-cost of the dense output array (= n_samples * projected * 8 for
+    # float64). On wide post-onehot frames at modest degree=2 the column
+    # count stays under 100_000 but the dense output is a 1+ GiB ndarray
+    # that the env can't allocate. ``memory_safety_max_bytes`` adds a
+    # bytes-aware soft cap: at fit-time, if n_samples * projected * 8
+    # exceeds this cap, ``apply_preprocessing_extensions`` auto-tunes the
+    # polynomial step downward (flip interaction_only, decrement degree,
+    # skip the step) instead of letting the allocation crash. Default
+    # 500 MB targets a generous CI envelope; lower for tight environments
+    # or raise for fat boxes. ``None`` disables the byte guard entirely.
+    memory_safety_max_bytes: Optional[int] = 500_000_000
     verbose_logging: bool = True
     # PySR symbolic regression -- discovers human-readable equations
     # from the data and adds their output as new numeric features.
