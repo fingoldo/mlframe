@@ -1742,3 +1742,41 @@ findings at best. Recommended pause until:
 1. Production-scale workloads land (n >> 5000)
 2. A different profiler granularity (line_profiler / py-spy) is used
 3. New code paths land (next feature wave)
+
+## Iter 41-43 -- 2026-05-18 -- Production-scale pivot (user-driven)
+
+User directive: "ты что используешь n=5000? ты же должен был
+использовать 1M". Pivoted from `tests/training/test_fuzz_suite.py`
+(n<=5000 fuzz cells) to `src/mlframe/training/_profile_fuzz_1m.py`
+(purpose-built 1M-row e2e harness). The pivot surfaced multiple
+production-scale bugs that the fuzz-cell loop missed:
+
+| Iter | Bug | Fix | Commit |
+|---|---|---|---|
+| 41a | `get_sample_weights_by_recency` AttributeError on numeric ts | dtype-kind detect + numeric-path branch | `3deeecd` |
+| 41b | `splitting.py` ``f"{ts:%Y-%m-%d}"`` crashes on numeric ts | inline `_fmt_ts` fallback at 4 sites | `0c99acb` |
+| 41c | Code-reuse refactor (user ask): adding axes touched 6 sites | shared `build_mrmr_kwargs` / `build_composite_discovery_config` builders | `05166b7` |
+| 41d | 1M harness missed iter-23.5 + iter-32.5 axes + no save phase | wired all axes + added save-to-disk profile block | `0c99acb` |
+| 43 | `apply_preprocessing_extensions` crash on non-numeric leak (cat_mid='M03', emb list-of-float) -- two chained errors (SimpleImputer median + PolynomialFeatures truth-value-ambiguous) | numeric-only filter at extensions-pipeline entry + WARN | `989f9f3` |
+
+**Production-scale profile signal:**
+
+| n_rows | wall | mlframe-OWN tottime | % |
+|---:|---:|---:|---:|
+| 5000 (fuzz) | 25-300 s | ~0.05-0.5 s | 0.1-0.8 % |
+| 200 000 | 224 s (CB OOM) | -- | -- |
+| 500 000 | 793 s (CB OOM at end) | 3.3 s | **0.4%** |
+
+Even at 500k production scale the mlframe Python orchestration
+surface stays at ~0.4% of wall. The only mlframe-OWN function
+above 0.4s tottime at 500k is `hermite_fe._polyeval_cuda`
+(414ms/call, hardware-dependent CUDA dispatch; already env-var
+tunable via `MLFRAME_POLYEVAL_CUDA_THRESHOLD`).
+
+CB `bad_allocation` at 1M and seed-dependent OOMs at 500k indicate
+the machine's 16 GB RAM ceiling is the binding constraint, not
+mlframe code. Loop continues -- 4 RESOLVED in this iter group,
+0 REJECT.
+
+Streak: 0/100. **Cumulative loop wave: 17 RESOLVED, 27 REJECT
+across 43 iterations.**
