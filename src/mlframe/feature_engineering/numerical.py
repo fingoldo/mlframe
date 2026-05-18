@@ -31,8 +31,27 @@ import numpy as np
 import pandas as pd
 import psutil
 from antropy import detrended_fluctuation, katz_fd, perm_entropy, petrosian_fd, sample_entropy, svd_entropy
-from astropy.stats import histogram
 from joblib import delayed
+
+try:
+    from astropy.stats import histogram as _astropy_histogram
+except (ImportError, AttributeError):
+    # astropy may be broken (e.g. numpy 2.x removed np.in1d while older astropy
+    # still imports it at module level). Fall back to np.histogram — equivalent
+    # for the bins="scott"/"auto" string-rule cases this module actually uses.
+    _astropy_histogram = None
+
+
+def histogram(a, bins="auto", **kwargs):
+    """Thin shim over astropy.stats.histogram with numpy fallback.
+
+    Keeps the module importable when astropy is wedged by a transitive
+    numpy-API deprecation; downstream callers see the same (hist, edges)
+    contract for the string-rule bins values cont_entropy / extras rely on.
+    """
+    if _astropy_histogram is not None:
+        return _astropy_histogram(a, bins=bins, **kwargs)
+    return np.histogram(a, bins=bins, **kwargs)
 from scipy import stats
 from scipy.stats import kstest
 from sklearn.feature_selection import mutual_info_regression
