@@ -345,3 +345,33 @@ def test_iter107_california_cb_r2():
 def test_iter107_year_100k_cb_r2():
     """iter107 BGM alone on year-prediction 100k."""
     _validate_scale(_load_year_100k, _build_iter107, "cb", "R2", 0.0525, "iter107_bgm_Year100k")
+
+
+# ---------- iter108 - iter69 on BINARY classification (task-regime generalisation test) ----------
+
+
+def _load_adult_binary():
+    """Adult (49k rows, binary >50k income). Categorical columns one-hot encoded; total ~100 numeric features."""
+    from sklearn.datasets import fetch_openml
+    import pandas as pd
+    ds = fetch_openml(data_id=1590, as_frame=True, parser="liac-arff")
+    # Drop rows with any NaN
+    df = ds.data.copy()
+    df["__y__"] = (ds.target == ">50K").astype(np.int32)
+    df = df.dropna()
+    y = df["__y__"].to_numpy()
+    X_df = df.drop(columns=["__y__"])
+    # One-hot encode categoricals
+    X_oh = pd.get_dummies(X_df, drop_first=True, dummy_na=False)
+    X = X_oh.to_numpy(dtype=np.float32)
+    return X, y, "binary"
+
+
+def test_iter108_adult_lgb_auc():
+    """iter69 on Adult 49k binary classification (LGB AUC). Does iter69 generalise from regression to binary?"""
+    _validate_scale(_load_adult_binary, _build_iter69, "lgb", "AUC", 0.0, "iter108_iter69_Adult49k")
+
+
+def test_iter108_adult_cb_auc():
+    """iter69 on Adult 49k binary classification (CB AUC)."""
+    _validate_scale(_load_adult_binary, _build_iter69, "cb", "AUC", 0.0, "iter108_iter69_Adult49k_cb")

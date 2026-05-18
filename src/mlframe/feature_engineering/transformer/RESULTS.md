@@ -3252,6 +3252,56 @@ Out of 5 new mechanism variants shipped under multi-seed-from-start protocol:
 - **STRUCTURAL FAMILY SHIFT**: stop iterating baseline-disagreement / kNN-density variants. Their landscape is mapped. Explore Bayesian GMM-density features (referenced in original loop directive as "iter 45 BGM" top historical record) or set-transformer-style attention (referenced as "iter 53 Set Transformer"). Different signal source likely needed for next breakthrough.
 - Alternative: **wrap iter69/iter104 in a Bayesian uncertainty quantification layer** — compute baseline disagreement under bootstrap resampling of train; output posterior-variance-style features.
 
+## iter107 — BGM quantile-bands alone — NEGATIVE on regression
+
+Tested existing `compute_bgmm_quantile_bands_features` (iter56 source mechanism, top historical-record family per original loop directive) alone under multi-seed-from-start protocol. 32 features (5 y-bands × 4 k-scales + 3 pairwise log-ratios × 4 k-scales).
+
+### Results (3 seeds, CB target_model)
+
+| # | Dataset | iter107 median | Range | Verdict |
+|---|---|---|---|---|
+| 1 | abalone 4k | +0.51% | -1.02% / +1.10% (mixed signs) | FOLD-NOISE |
+| 2 | California 20k | -0.81% | all 3 negative | HURTS |
+| 3 | Year-100k | ALL 3 SEEDS OOM | BGM 5-comp × 100k×90 memory-prohibitive | UNTESTED |
+
+### Critical insight from this result
+
+Re-reading the original loop directive: top historical records were `LGB PR_AUC +18.81% iter 45 BGM` and `CB PR_AUC +8.41% iter 53 Set Transformer`. Both are **PR_AUC = BINARY classification metrics**. Our entire iter69-106 scale validation has been REGRESSION (kin8nm, abalone, California, Year-prediction). BGM's historical strength may be binary-specific.
+
+Pivot to test iter69 on BINARY classification next.
+
+## iter108 — iter69 on Adult 49k BINARY classification — NEW Adult-binary record (CB AUC)
+
+Tested iter69 mechanism (baseline_disagreement + cdist) on Adult 49k binary (>50k income), one-hot encoded categoricals → ~97 numeric features. 3 seeds {0, 17, 42}, fresh pytest invocation per test.
+
+### Results
+
+| # | Model | iter108 median | Range | IQR | Verdict |
+|---|---|---|---|---|---|
+| 1 | LGB AUC | +0.06% | -0.01% / +0.24% | 0.0012 | NEAR-NOISE (marginal) |
+| 2 | CB AUC | **+0.63%** | +0.62% / +0.65% (2 seeds, 1 OOM) | 0.0003 | **NEW Adult-binary record** |
+
+### Findings
+
+- **iter69 GENERALISES from regression to binary**, with reduced magnitude. The CB AUC lift (+0.63%) is much smaller than CB R2 lifts on regression (+1.15% California to +4.92% Year-100k), but is consistent and positive.
+- **LGB barely benefits on binary (+0.06%)**, while CB does (+0.63%). Different baseline-target interaction: CatBoost's per-row symmetric-tree-encoded uncertainty matches iter69's per-row baseline-disagreement features more usefully than LGB's leaf-wise split selection.
+- **Beats all prior transformer-FE on Adult**: prior matrix showed Adult +rff -1.6% CB, +rowattn -0.7% CB (both NEGATIVE). iter69 +0.63% CB AUC is the first transformer-FE mechanism that doesn't HURT Adult.
+- **One OOM seed at retry**: Adult 49k × 97 features × KFold(5) inner baseline fits + cdist NN search = Windows paging-pressure boundary. 2 valid seeds with delta 0.03pp range is informative but tighter to 3 would strengthen the claim.
+
+### Updated provisional best-of-breed (post-iter108)
+
+| Dataset | Best mechanism | Median lift | Task | Notes |
+|---|---|---|---|---|
+| abalone 4k | iter102 | +2.74% CB R2 | regression | +ExtraTrees orthogonal baseline |
+| California 20k | iter69 | +1.15% CB R2 | regression | baseline_disagreement + cdist |
+| Year-100k | iter104 | +5.25% CB R2 | regression | iter69 + RSD additive |
+| Adult 49k | iter69 | **+0.63%** CB AUC | binary | first transformer-FE that doesn't hurt Adult |
+
+### Next (iter109+)
+
+- **iter109**: try iter69 + iter66 (class_balanced_hard_row, retracted on mammography 11k but maybe survives at Adult 49k scale) on Adult binary — does class-balanced anchor mechanism stack with iter69 baseline-disagreement on binary?
+- **iter110**: test iter108 mechanism on Higgs 100k subsample to confirm binary lift scales (analogous to Year-100k for regression).
+
 ## Reproducibility
 
 ```

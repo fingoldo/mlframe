@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-05-18 — Iter 108: iter69 on Adult 49k BINARY - NEW Adult-binary record CB AUC +0.63%
+
+Tested iter69 mechanism (baseline_disagreement + cdist) on Adult 49k binary classification (>50k income), categoricals one-hot encoded -> ~97 numeric features.
+
+### Results (3 seeds, fresh pytest invocation per test)
+- LGB AUC: median +0.06% (range -0.01% / +0.24%) NEAR-NOISE
+- CB AUC: median **+0.63%** (range +0.62% / +0.65%, IQR 0.0003, 2 seeds + 1 OOM) NEW Adult-binary record
+
+### Findings
+- iter69 GENERALISES from regression to binary, with reduced magnitude. CB AUC +0.63% is positive and consistent across both valid seeds.
+- LGB barely benefits on binary (+0.06%); CB does (+0.63%). CatBoost's per-row symmetric-tree-encoded uncertainty matches iter69's per-row baseline-disagreement features better than LGB's leaf-wise selection.
+- Beats all prior transformer-FE on Adult (prior: +rff -1.6% CB, +rowattn -0.7% CB). iter69 +0.63% CB AUC is the first transformer-FE mechanism that doesn't HURT Adult.
+
+### Updated provisional best-of-breed (post-iter108)
+- abalone 4k: iter102 (+2.74% CB R2)
+- CA 20k: iter69 (+1.15% CB R2)
+- Year-100k: iter104 (+5.25% CB R2)
+- Adult 49k: iter69 (+0.63% CB AUC, NEW)
+
+Next (iter109+): test iter69 + class_balanced_hard_row stacking on Adult binary, or iter69 at Higgs 100k subsample.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter108_adult_*`.
+
 ## 2026-05-18 — Iter 107: BGM quantile-bands alone - NEGATIVE on regression; binary-vs-regression regime hypothesis
 
 Tested existing `bgmm_quantile_bands` (iter56 mechanism) alone under multi-seed-from-start protocol.
