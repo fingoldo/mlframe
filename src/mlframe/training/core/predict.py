@@ -109,6 +109,39 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             df = df.drop(columns=[_col]).join(_new_df)
         return df
     # Pipeline shape -- run .transform on the full frame; reuse fit-time output column names when available.
+    # Subset the predict frame to the fit-time feature set before calling
+    # .transform. The training-side apply_preprocessing_extensions drops
+    # non-numeric cols (iter-43) and all-null cols (iter-44) BEFORE the
+    # sklearn-bridge pipeline gets fit. The fitted pipeline's
+    # feature_names_in_ records the surviving columns; at predict the raw
+    # input frame still carries the pre-filter cat / text / all-null cols
+    # that sklearn's strict feature-name check then rejects with "The
+    # feature names should match those that were passed during fit",
+    # logged + swallowed below -- the downstream model then sees the raw
+    # frame minus the expected pca0..pcaN extension cols and crashes with
+    # "expects features missing from input: ['pca0', ...]". Surfaced by
+    # iter-49 300k seed=13 cb-regression where dim_reducer=PCA was on.
+    _fit_feature_names = getattr(ext_pipeline, "feature_names_in_", None)
+    if _fit_feature_names is not None and isinstance(df, pd.DataFrame):
+        _fit_list = [str(_c) for _c in _fit_feature_names]
+        _fit_set = set(_fit_list)
+        _df_cols = [str(_c) for _c in df.columns]
+        _present_set = _fit_set & set(_df_cols)
+        if len(_present_set) < len(_fit_set):
+            _missing = [c for c in _fit_list if c not in _present_set]
+            logger.warning(
+                "[extensions_pipeline] predict frame is missing %d "
+                "fit-time column(s): %s. Pipeline.transform will likely "
+                "fail; downstream model will see raw input. Restore "
+                "upstream extraction or retrain on the current schema.",
+                len(_missing), _missing[:10],
+            )
+        elif _df_cols != _fit_list:
+            # All fit-time cols present but ORDER (and/or extras like
+            # cat_low/cat_mid/x_null carried over from the pre-filter
+            # frame) doesn't match -- sklearn's strict feature-name
+            # check rejects both. Subset + reorder to the fit-time list.
+            df = df.loc[:, _fit_list]
     try:
         _arr = ext_pipeline.transform(df)
     except Exception as _exc:
