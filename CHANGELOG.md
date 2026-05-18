@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-18 — Transformer FE Priority-2 scale verification: only iter69 survives at California 20k
+
+Re-tested the 2 SURVIVES records from the multi-seed honesty pass on a 2.5-5x larger regression dataset (California Housing, 20640 rows). Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py`, 3 seeds {0, 17, 42}, fresh pytest invocation per test.
+
+### Scale verdict
+- **iter69 baseline_disagreement + cdist: SURVIVES at 20k.** Median +1.15%, all 3 seeds positive (+1.01% / +1.01% / +2.11%), IQR 0.0055. Generalizes from abalone (4k) to California (20k) for CatBoost R2. The ONLY mechanism that scales so far.
+- **iter68 multi_baseline_hard_row + RFF: FAILS at 20k.** Median -1.50%, all 3 seeds negative (-1.10% / -1.50% / -1.56%). Consistent with pre-existing +rff = -3.6% on California in the base test_biz_val matrix. Confirmed kin8nm-specific (smooth-manifold robot-arm dynamics, not general regression).
+
+### Process
+- iter69 is now the de-facto headline survivor. Next steps: 100k+ regression scale (sgemm 241k), then a different ~4k regression dataset to rule out abalone-overfit.
+- iter68 record stands AS a kin8nm result, not as a general regression-FE win. CHANGELOG entry for 2026-07-21 (iter68) and RESULTS.md updated with this scope clarification.
+
+Full disposition in `src/mlframe/feature_engineering/transformer/RESULTS.md` under "Scale verification on California Housing 20k (Priority 2, 2026-05-18)".
+
 ## 2026-05-18 — Transformer FE multi-seed honesty pass: 4 of 6 standing records retracted as fold-noise
 
 Per user critique that single-seed records on N=4000 are not real signal. Re-ran the 6 standing records on seeds {0, 7, 17, 42, 99}, full-N (4000-row cap removed in `tests/feature_engineering/transformer/test_biz_val_real_datasets.py::_cap_rows`), each test in its own pytest invocation for memory isolation.

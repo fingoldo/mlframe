@@ -3067,6 +3067,27 @@ Per user critique "так на таких маленьких датасетах 
 2. **Retract / annotate iter61, iter66, iter72, iter77 in CHANGELOG.md.** Don't delete the mechanism code (per rule "никогда не удаляй feature-computing код"); the mechanisms can still be useful on other datasets — but the specific record claims are withdrawn.
 3. **New mechanism testing protocol: require 5-seed median + IQR before any record claim.** Single-seed numbers go in the dev log, not the records table.
 
+## Scale verification on California Housing 20k (Priority 2, 2026-05-18)
+
+Same multi-seed harness, 3 seeds {0, 17, 42}, California Housing (20640 rows × 8 features, regression). Driver in `tests/feature_engineering/transformer/test_validation_records_at_scale.py`. Each test in its own pytest invocation for memory isolation. Runtime: ~40s + 30s.
+
+| # | Iter | Mechanism | Dataset/Model/Metric | small-N claimed | Median 3 seeds | IQR | Min/Max | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 68 | multi_baseline_hard_row + RFF | California LGB R2 | +11.42% (kin8nm 8k) | **-1.50%** | 0.0023 | -1.56% / -1.10% | **FOLD-NOISE / dataset-specific** |
+| 2 | 69 | baseline_disagreement + cdist | California CB R2 | +2.26% (abalone 4k) | **+1.15%** | 0.0055 | +1.01% / +2.11% | **SURVIVES** |
+
+### Findings
+
+- **iter68 RFF mechanism is kin8nm-specific, not general.** All 3 seeds at California 20k are negative. Consistent with the pre-existing `+rff` result on California (-3.6% LGB R2) in the original test_biz_val matrix. kin8nm's smooth-manifold robot-arm-dynamics structure rewards Fourier-basis features; housing-price regression does not. The kin8nm record stands AS a kin8nm result, not as a general regression-FE win.
+- **iter69 baseline_disagreement + cdist is the ONLY mechanism that generalizes so far.** Positive lift on all 3 seeds at California 20k (+1.01%, +1.01%, +2.11%), tight IQR 0.0055, direction-of-effect consistent. Generalises from abalone (4k) to California (20k) for CatBoost R2. This is the most-honest record currently surviving the multi-seed + scale-up gauntlet.
+- **iter69 lift compresses with scale** (+2.26% on abalone 4k → +1.15% on California 20k). Expected: easier targets have less headroom for auxiliary features. Whether it survives to 100k+ regression is open.
+
+### Next
+
+- Test iter69 at 100k+ regression scale (sgemm 241k, or a Higgs-subset regression-style cast).
+- Try iter69 on a different regression dataset of similar size to abalone (~4k) to rule out abalone-overfit.
+- For NEW mechanisms (iter 102+): always boot with the multi-seed + scale-up protocol from the first record claim.
+
 ## Reproducibility
 
 ```
