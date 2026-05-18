@@ -878,6 +878,16 @@ def predict_from_models(
         "ensemble_probabilities": None,
         "models_used": [],
     }
+    # Track per-model failures so we can raise a single aggregated
+    # RuntimeError when EVERY supplied model failed at predict. Without
+    # this, the per-model ``except Exception: continue`` swallow at the
+    # bottom of the loop hides the root cause behind an empty
+    # ``results["predictions"]`` dict -- surfaced by iter-45 500k
+    # cb-regression run where the only model errored and the harness
+    # only saw "predict_from_models returned empty predictions+
+    # probabilities (per_target_probs keys: [])".
+    _predict_errors: list[tuple[str, str]] = []
+    _models_attempted = 0
 
     if verbose:
         logger.info("Preprocessing input data...")
@@ -1016,6 +1026,7 @@ def predict_from_models(
             for model_obj in model_list:
                 if model_obj is None or not hasattr(model_obj, "model") or model_obj.model is None:
                     continue
+                _models_attempted += 1
 
                 model_name = f"{target_type}_{target_name}"
                 if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
@@ -1366,6 +1377,7 @@ def predict_from_models(
 
                 except Exception as e:
                     logger.error(f"Error predicting with model {model_name}: {e}")
+                    _predict_errors.append((model_name, f"{type(e).__name__}: {e}"))
                     continue
 
     if len(all_probs) > 1:
@@ -1442,6 +1454,30 @@ def predict_from_models(
 
     if verbose:
         logger.info("Generated predictions for %d models", len(results['predictions']))
+
+    # Escalate all-models-failed to a single aggregated RuntimeError.
+    # Previously every per-model failure was logged and swallowed, leaving
+    # the caller to detect "empty results" by hand. This hid the root
+    # cause (the underlying per-model exception) behind a non-actionable
+    # empty dict -- iter-45 500k cb-regression saw the predict swallow
+    # the original error and the harness only got "per_target_probs
+    # keys: []" with no clue what crashed.
+    if (
+        _models_attempted > 0
+        and not results["predictions"]
+        and not results["probabilities"]
+        and _predict_errors
+    ):
+        _summary = "; ".join(
+            f"{_mn}: {_err}" for _mn, _err in _predict_errors[:5]
+        )
+        if len(_predict_errors) > 5:
+            _summary += f"; ... (+{len(_predict_errors) - 5} more)"
+        raise RuntimeError(
+            f"predict_from_models: all {_models_attempted} supplied "
+            f"model(s) failed at predict; producing no predictions or "
+            f"probabilities. Per-model errors: {_summary}"
+        )
 
     return results
 
