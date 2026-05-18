@@ -2058,6 +2058,19 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     stacked_n_oof_folds: int = 3
     stacked_max_pass1_specs: int = 3
 
+    # 2026-05-18 #10: skip the entire composite-target training block
+    # when the raw model already dominates the dummy-baseline ceiling.
+    # The discovery's raw-y baseline RMSE / dummy RMSE ratio is a cheap
+    # proxy for "raw is already near-perfect": when ratio <
+    # ``composite_skip_when_raw_dominates_ratio``, composite training
+    # is unlikely to add measurable lift. Production TVT log: Ridge on
+    # raw TVT achieved MAE=7.89 (better than CB / XGB / LGB); the two
+    # discovered composites (monres-Y, monresYj-Y) produced IDENTICAL
+    # metrics to raw -- pure compute loss. Default 0.0 (off); set to
+    # e.g. 0.02 to skip composite block when raw is 50x better than
+    # dummy.
+    composite_skip_when_raw_dominates_ratio: float = 0.0
+
     # 2026-05-18: skip the wrap-pass y-scale predict() calls per composite
     # entry per split (train+val+test = 3 predict calls). For wide model
     # zoos (CB + XGB + LGB + Ridge + MLP = 5 models × 3 splits = 15

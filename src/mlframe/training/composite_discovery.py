@@ -2123,6 +2123,34 @@ class CompositeTargetDiscovery:
             tol = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
             threshold = (raw_baseline * tol
                          if math.isfinite(raw_baseline) else float("inf"))
+            # Pack #10 2026-05-18: skip the composite-target block when
+            # raw is already SO close to perfect that composite has no
+            # headroom. Compute raw_baseline / dummy_std as a proxy for
+            # "fraction of dummy's variance the raw model could not
+            # explain". If that fraction is below the configured ratio,
+            # short-circuit to "no kept specs" -- this avoids 5+ min per
+            # spec of full per-target training that would produce
+            # composite metrics indistinguishable from raw.
+            _raw_skip_ratio = float(getattr(
+                self.config, "composite_skip_when_raw_dominates_ratio", 0.0,
+            ))
+            if _raw_skip_ratio > 0.0 and math.isfinite(raw_baseline):
+                _y_std = float(np.std(y_screen)) if y_screen.size > 1 else 0.0
+                if _y_std > 0:
+                    _ratio = raw_baseline / _y_std
+                    if _ratio < _raw_skip_ratio:
+                        logger.info(
+                            "[CompositeTargetDiscovery] target='%s' raw model "
+                            "already dominates: raw_baseline=%.4f, y_std=%.4f, "
+                            "ratio=%.4f < %.4f threshold. Composite block "
+                            "skipped (Pack #10).",
+                            getattr(self, "_target_col", "?"),
+                            raw_baseline, _y_std, _ratio, _raw_skip_ratio,
+                        )
+                        self.specs_ = []
+                        self.report_ = [self._entry_to_report(e) for e in candidates]
+                        self.tiny_rerank_scores_ = {}
+                        return self
             self._raw_y_baseline_rmse = (
                 float(raw_baseline) if math.isfinite(raw_baseline)
                 else float("nan")
