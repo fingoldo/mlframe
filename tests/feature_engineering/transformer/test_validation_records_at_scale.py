@@ -848,3 +848,67 @@ def test_iter119_kin8nm_cb_r2():
 def test_iter119_year100k_cb_r2():
     """iter119 on Year-100k CB R2 (record iter104 +5.25%)."""
     _validate_scale(_load_year_100k, _build_iter119, "cb", "R2", 0.0525, "iter119_iter69+leaf_Year100k_cb")
+
+
+# ---------- iter120 - generalisation test of iter68 (multi_baseline_hard_row + RFF) ----------
+# iter68 was the historical kin8nm LGB R2 record (+11.42% multi-seed). Does it generalise?
+
+
+def test_iter120_abalone_lgb_r2_iter68():
+    """iter68 on abalone 4k LGB R2 (test if iter68 generalises beyond kin8nm)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter68, "lgb", "R2", 0.0, "iter120_iter68_abalone_lgb")
+
+
+def test_iter120_california_lgb_r2_iter68():
+    """iter68 on California 20k LGB R2 (test generalisation; LGB is FLAT on CA for iter69-family)."""
+    _validate_scale(_load_california, _build_iter68, "lgb", "R2", 0.0, "iter120_iter68_CA20k_lgb")
+
+
+def test_iter120_year100k_lgb_r2_iter68():
+    """iter68 on Year-100k LGB R2 (vs iter104 +3.09% record)."""
+    _validate_scale(_load_year_100k, _build_iter68, "lgb", "R2", 0.0309, "iter120_iter68_Year100k_lgb")
+
+
+# ---------- iter121 - iter69 + bgmm_quantile_bands additive (BGM as additive, not alone) ----------
+# iter107 tested BGM alone (negative). Does BGM add value as additive component to iter69?
+# This is the loop's original iter56 vision: multi-quantile-band BGM for regression.
+
+
+def _build_iter121(X_tr, X_te, y_tr, task, seed):
+    """iter69 + bgmm_quantile_bands."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_features,
+        compute_bgmm_quantile_bands_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bg_tr = compute_bgmm_quantile_bands_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bg_te = compute_bgmm_quantile_bands_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def test_iter121_abalone_cb_r2():
+    """iter121 (iter69 + BGM) on abalone 4k CB R2 (vs iter102 record +2.74%)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter121, "cb", "R2", 0.0274, "iter121_iter69+bgm_abalone_cb")
+
+
+def test_iter121_kin8nm_cb_r2():
+    """iter121 on kin8nm 8k CB R2 (vs iter102 record +6.57%)."""
+    _validate_scale(_load_kin8nm, _build_iter121, "cb", "R2", 0.0657, "iter121_iter69+bgm_kin8nm_cb")

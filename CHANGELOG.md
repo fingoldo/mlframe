@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-05-18 — Iter 121: NEW kin8nm CB R2 record (iter69 + BGM additive +7.01%); iter56 vision validated as additive
+
+Per the original /loop directive's "iter 56 цель: multi-quantile-band BGM for regression". Combined iter69 (baseline_disagreement + cdist, 20 features) with bgmm_quantile_bands (32 features, 5 y-quintile-band BGMs + cross-band log-ratios). 52 features total.
+
+### Multi-seed results (3 seeds, CB R2)
+- abalone 4k CB R2: median +2.52% (range +2.27% / +2.79%, IQR 0.0026)
+  - vs iter102 record +2.74%: -0.22pp (behind)
+- kin8nm 8k CB R2: median **+7.01%** (range +5.65% / +7.17%, IQR 0.0076)
+  - vs iter102 +6.57%: **+0.44pp** -- **NEW kin8nm CB R2 record**
+
+### Pattern
+- BGM is kin8nm-friendly (like iter68's RFF was kin8nm-friendly).
+- ExtraTrees (iter102) is abalone-friendly.
+- Different enhancement mechanisms suit different datasets even at similar N.
+
+### iter56 vision retrospective
+The original /loop's "fit 5 BGMs одна на квинтиль y, distance-to-each-band-virtual features" was correct in principle, but as ADDITIVE component to iter69 backbone, not alone. iter107 (BGM alone) was negative; iter121 (BGM + iter69) is positive on kin8nm. BGM signal complements iter69's per-row predictions for CB target_model.
+
+### Updated provisional best-of-breed (post-iter121)
+- abalone 4k:    iter102 +2.74% CB R2
+- kin8nm 8k:     iter68 +11.42% LGB R2 (dataset-specific) / **iter121 +7.01% CB R2 (NEW)**
+- CA 20k:        FLAT LGB / iter69 +1.15% CB R2
+- Year-100k:     iter104 +3.09% LGB R2 / iter104 +5.25% CB R2
+- Adult 49k:     iter69 +0.63% CB AUC
+- Higgs 98k:     iter69 +0.67% CB AUC
+- mammography:   NONE
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter121_*`.
+
 ## 2026-05-18 — Iter 119: iter69 + boosting_leaf-index features — NEGATIVE on all 3 datasets (leaf-index dilutes iter69 signal)
 
 Tested whether tree-leaf-membership features (orthogonal to per-row prediction values) add value when concatenated with iter69 backbone.
