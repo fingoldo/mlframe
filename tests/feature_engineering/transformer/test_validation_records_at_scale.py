@@ -912,3 +912,35 @@ def test_iter121_abalone_cb_r2():
 def test_iter121_kin8nm_cb_r2():
     """iter121 on kin8nm 8k CB R2 (vs iter102 record +6.57%)."""
     _validate_scale(_load_kin8nm, _build_iter121, "cb", "R2", 0.0657, "iter121_iter69+bgm_kin8nm_cb")
+
+
+# ---------- iter122 - iter121 (iter69+BGM) scale test to Year-100k ----------
+
+
+def _load_year_50k():
+    """Year-prediction subsampled to 50k. Memory-safer alternative to 100k for BGM mechanisms."""
+    from sklearn.datasets import fetch_openml
+    ds = fetch_openml(data_id=44027, as_frame=False, parser="liac-arff")
+    X = np.asarray(ds.data, dtype=np.float32)
+    y = np.asarray(ds.target, dtype=np.float32)
+    rng = np.random.default_rng(2026)
+    idx = rng.choice(X.shape[0], 50_000, replace=False)
+    return X[idx], y[idx], "regression"
+
+
+def test_iter122_year50k_cb_r2_iter121():
+    """iter121 on Year-50k CB R2 (smaller subsample to avoid BGM OOM at 100k)."""
+    _validate_scale(_load_year_50k, _build_iter121, "cb", "R2", 0.0525, "iter122_iter121_Year50k_cb")
+
+
+# ---------- iter123 - baselines at Year-50k for fair comparison with iter122 ----------
+
+
+def test_iter123_year50k_cb_r2_iter69():
+    """iter69 alone on Year-50k CB R2 (fair scale-baseline for iter122 +4.03%)."""
+    _validate_scale(_load_year_50k, _build_iter69, "cb", "R2", 0.0, "iter123_iter69_Year50k_cb")
+
+
+def test_iter123_year50k_cb_r2_iter104():
+    """iter104 (iter69+RSD) on Year-50k CB R2 (fair scale-baseline for iter122)."""
+    _validate_scale(_load_year_50k, _build_iter104, "cb", "R2", 0.0, "iter123_iter104_Year50k_cb")

@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-05-18 — Iter 122-123: iter121 (BGM additive) is kin8nm-only; iter104 still wins Year-50k+ CB R2
+
+Tested iter121 on Year-50k CB R2 and ran fair baseline comparison with iter69 + iter104.
+
+### Year-50k CB R2 fair comparison (3 seeds each)
+- iter104 (iter69 + RSD): median **+4.32%** (range +4.20% / +4.34%, IQR 0.0007) -- BEST at Year-50k
+- iter69 alone:           median **+4.09%** (range +4.05% / +4.21%, IQR 0.0008) -- strong baseline
+- iter121 (iter69 + BGM): median **+4.03%** (range +4.01% / +4.06%, IQR 0.0002) -- BGM-add DRAGS slightly
+
+### Mechanism niche map (final)
+- iter102 (+ExtraTrees orthogonal baseline): WINS abalone 4k CB (+0.48pp over iter69)
+- iter121 (+BGM quantile bands additive):    WINS kin8nm 8k CB ONLY (+0.44pp over iter69 there, NOT general)
+- iter104 (+RSD additive):                    WINS California 20k / Year-50k / Year-100k CB R2 + Year-100k LGB R2 + kin8nm LGB R2
+- iter69 (baseline_disagreement + cdist):     backbone for all regimes; works alone on California 20k CB R2 and binary CB AUC
+
+No universal "best-of-breed" -- each enhancement is a NICHE that wins in one regime (dataset + target_model + scale) and fails in others. The pattern from iter102-121 is now firm.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter122_*` and `::test_iter123_*`.
+
 ## 2026-05-18 — Iter 121: NEW kin8nm CB R2 record (iter69 + BGM additive +7.01%); iter56 vision validated as additive
 
 Per the original /loop directive's "iter 56 цель: multi-quantile-band BGM for regression". Combined iter69 (baseline_disagreement + cdist, 20 features) with bgmm_quantile_bands (32 features, 5 y-quintile-band BGMs + cross-band log-ratios). 52 features total.

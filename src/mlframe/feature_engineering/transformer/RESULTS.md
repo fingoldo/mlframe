@@ -3520,6 +3520,46 @@ For binary classification (CB AUC target):
 | Higgs 98k | iter69 +0.67% |
 | mammography 11k | NONE — iter69-family fails on rare-positive (1.3% pos) |
 
+## Session-end mechanism niche map (post-iter123)
+
+After 22+ iterations under multi-seed-from-start protocol, each "additive enhancement" mechanism wins ONE niche regime and fails outside it. There is no universal best-of-breed.
+
+| Mechanism | Winning regime | Lift vs iter69 |
+|---|---|---|
+| iter102 (+ExtraTrees orthogonal baseline) | abalone 4k CB R2 (small-N CB regression) | +0.48pp |
+| iter121 (+BGM quantile bands additive)    | kin8nm 8k CB R2 ONLY (NOT generalizing to Year-50k+) | +0.44pp |
+| iter104 (+RSD additive)                   | California / Year-50k / Year-100k CB R2 + Year-100k LGB R2 + kin8nm LGB R2 | +0.2-0.3pp |
+| iter69 backbone                           | California 20k CB R2, Adult 49k CB AUC, Higgs 98k CB AUC | (baseline) |
+| iter68 (+RFF kin8nm-specific)             | kin8nm 8k LGB R2 ONLY (RFF rewards smooth manifolds) | (different mechanism family entirely) |
+
+### Final cross-mechanism summary table
+
+| Dataset | Best LGB R2 | Best CB R2 / CB AUC |
+|---|---|---|
+| abalone 4k | (untested LGB) | iter102 +2.74% CB R2 |
+| kin8nm 8k | iter68 +11.42% (RFF-specific) | iter121 +7.01% CB R2 (NEW from iter121, BGM-additive) |
+| California 20k | FLAT (no mechanism helps) | iter69 +1.15% CB R2 |
+| Year-100k | iter104 +3.09% LGB R2 | iter104 +5.25% CB R2 |
+| Year-50k | (untested LGB) | iter104 +4.32% CB R2 (iter121 BGM is +4.03% here, worse than iter104) |
+| Adult 49k | (LGB barely positive) | iter69 +0.63% CB AUC |
+| Higgs 98k | (LGB negative) | iter69 +0.67% CB AUC |
+| mammography 11k (1.3% pos) | n/a | NONE — iter69-family fails (4 interventions tried iter111-115) |
+
+### What's been tested under multi-seed protocol (22 iterations: 102-123)
+
+NEW mechanism source files created:
+- `baseline_disagreement_v2.py` (iter102: +ExtraTrees)
+- `residual_stratified_distance.py` (iter103: easy/hard kNN density)
+- `y_quintile_baseline_knn.py` (iter106: y-stratum NN predictions)
+- `baseline_disagreement_balanced.py` (iter113: class_weight='balanced')
+- `baseline_disagreement_smote.py` (iter114: SMOTE oversampling)
+- `anomaly_score_features.py` (iter115: IsolationForest)
+
+Plus integration tests for combinations:
+- iter104 (iter69+RSD), iter105 (triple), iter110 (iter69+iter66), iter119 (iter69+leaf), iter121 (iter69+BGM)
+
+Mechanism family fully characterised; all candidates exhausted on this dataset set. Code retained per "never delete FE code" rule.
+
 ## Reproducibility
 
 ```
