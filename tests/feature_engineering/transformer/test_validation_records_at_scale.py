@@ -1133,3 +1133,16 @@ def test_iter128_abalone_cb_r2_with_iter69():
 def test_iter128_kin8nm_cb_r2_with_iter69():
     """iter69 + local_lift on kin8nm 8k CB R2 (vs iter121 record +7.01%)."""
     _validate_scale(_load_kin8nm, _build_iter128_with_iter69, "cb", "R2", 0.0701, "iter128_iter69+loclift_kin8nm_cb")
+
+
+# ---------- iter129 - scale local_lift additive to other datasets/targets ----------
+
+
+def test_iter129_year50k_cb_r2_with_iter69():
+    """iter69 + local_lift on Year-50k CB R2 (vs iter104 +4.32%). Does local_lift scale to medium-N?"""
+    _validate_scale(_load_year_50k, _build_iter128_with_iter69, "cb", "R2", 0.0432, "iter129_iter69+loclift_Year50k_cb")
+
+
+def test_iter129_kin8nm_lgb_r2_with_iter69():
+    """iter69 + local_lift on kin8nm 8k LGB R2 (vs iter68 record +11.42%). Does local_lift help LGB-target too?"""
+    _validate_scale(_load_kin8nm, _build_iter128_with_iter69, "lgb", "R2", 0.1142, "iter129_iter69+loclift_kin8nm_lgb")

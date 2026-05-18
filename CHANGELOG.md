@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-05-18 — Iter 129: iter69 + local_lift on kin8nm LGB R2 — TIE iter68 record (+0.24pp within noise); Year-50k OOM
+
+Scaled iter128 mechanism (iter69 + local_lift additive) to other regimes.
+
+### Results (3 seeds)
+- kin8nm 8k LGB R2: median **+11.66%** (range +9.98% / +11.95%, IQR 0.0099)
+  - vs iter68 record +11.42%: +0.24pp -- TIE within IQR overlap
+  - 2 of 3 seeds beat iter68 (+11.66, +11.95), 1 below (+9.98)
+  - Not a clear new record
+- Year-50k CB R2: OOM at dataset load (358 MiB allocation), untestable in current environment
+
+### Verdict
+local_lift is kin8nm-CB-specific (iter128 +8.06% record). Marginal on kin8nm LGB R2 (within noise of iter68 RFF). Year-50k OOM blocks scale testing.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter129_*`.
+
 ## 2026-05-18 — Iter 128: NEW kin8nm CB R2 record (iter69 + local_lift +8.06%, +1.05pp over iter121)
 
 Tested compute_local_lift_features (kNN target-rate encoding, k=32) as additive to iter69 backbone.
