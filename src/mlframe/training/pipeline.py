@@ -587,7 +587,68 @@ def apply_preprocessing_extensions(
             len(_dropped_train), _dropped_train[:8],
         )
 
+    # All-null column filter. SimpleImputer(strategy="median") silently
+    # drops columns with no observed values
+    # (UserWarning: ``Skipping features without any observed values: ...``)
+    # which silently shrinks n_features BELOW the dim_reducer's clamped
+    # n_components. Surfaced by 1M-harness seed=99: PCA n_components
+    # clamped from 10 -> 7 based on pre-imputer n_features=8, but
+    # imputer then dropped x4 + x5 (both all-null in the synthetic
+    # frame's missingness pattern), leaving 6 features, and PCA's
+    # internal check raised n_components=7 vs n_features=6. Hoist the
+    # all-null drop into our filter so the dim_n_components clamp can
+    # see the post-imputation count up-front.
+    if isinstance(train, pd.DataFrame) and train.shape[1] > 0:
+        _all_null_cols = [c for c in train.columns if train[c].isna().all()]
+        if _all_null_cols:
+            train = train.drop(columns=_all_null_cols)
+            if isinstance(val, pd.DataFrame):
+                val = val.drop(columns=[c for c in _all_null_cols if c in val.columns])
+            if isinstance(test, pd.DataFrame):
+                test = test.drop(columns=[c for c in _all_null_cols if c in test.columns])
+            logger.warning(
+                "apply_preprocessing_extensions: dropped %d all-null "
+                "column(s) before the sklearn-bridge pipeline "
+                "(SimpleImputer median strategy would silently drop them "
+                "and shrink the post-imputer n_features below the "
+                "dim_reducer's n_components clamp, causing a downstream "
+                "PCA / TruncatedSVD / FastICA ValueError): %s.",
+                len(_all_null_cols), _all_null_cols[:8],
+            )
+
     n_features = train.shape[1]
+    # Dim-reducer n_components clamp. PCA / TruncatedSVD / KernelPCA / NMF
+    # / FastICA / LDA etc. raise
+    # ``ValueError: n_components=K must be between 0 and min(n_samples,
+    # n_features)`` when the requested K exceeds the available feature
+    # count. The numeric-only filter above can reduce n_features below
+    # the user's configured dim_n_components (surfaced by 1M-harness
+    # seed=99: PCA n_components=10 on a 9-feature frame after cat_low /
+    # cat_mid were filtered). Clamp to min(n_features, n_samples,
+    # dim_n_components) and emit a WARN; the user explicitly chose
+    # dimensionality reduction, so silently dropping the step would be
+    # worse than running it at a lower K.
+    if config.dim_reducer is not None and config.dim_n_components is not None:
+        n_samples = train.shape[0]
+        _clamp_max = max(1, min(n_features - 1, n_samples - 1))
+        if config.dim_n_components > _clamp_max:
+            try:
+                config = config.model_copy(update={"dim_n_components": _clamp_max})
+            except AttributeError:
+                # Older pydantic / plain-attribute fallback: mutate a shallow copy.
+                import copy as _copy
+                config = _copy.copy(config)
+                config.dim_n_components = _clamp_max
+            logger.warning(
+                "apply_preprocessing_extensions: clamped dim_n_components "
+                "from user-requested value to %d (= min(n_features-1=%d, "
+                "n_samples-1=%d)) so the %s reducer's n_components stays "
+                "within the sklearn-required (0, min(n_samples, n_features)) "
+                "range. Increase the upstream feature count or drop the "
+                "dim_reducer if you need K=%d.",
+                _clamp_max, n_features - 1, n_samples - 1,
+                config.dim_reducer, _clamp_max,
+            )
     steps = _build_extension_steps(config, n_features=n_features)
     if not steps:
         if tfidf_pipes:
