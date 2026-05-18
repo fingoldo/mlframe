@@ -128,7 +128,25 @@ def get_sample_weights_by_recency(
     # days and returns 0 for intraday-only datasets (e.g. a single trading day
     # of tick data), which then triggers the uniform-weight branch even though
     # the data has meaningful sub-day age structure.
-    span_days = (date_series.max() - date_series.min()).total_seconds() / 86400.0
+    #
+    # Polymorphic input: callers historically pass a pandas datetime Series
+    # (where max - min returns a Timedelta with .total_seconds()) but the
+    # FTE also accepts a numeric ts column (int64 / float64 epoch-seconds
+    # or any monotone numeric proxy). Numeric (max - min) returns a scalar
+    # that has no .total_seconds() method and raises
+    # ``AttributeError: 'int' object has no attribute 'total_seconds'``.
+    # Detect the numeric path via dtype kind ('i', 'u', 'f') and interpret
+    # the raw difference as already-seconds; preserve the datetime path
+    # via the original .total_seconds() call.
+    _dtype_kind = getattr(getattr(date_series, "dtype", None), "kind", None)
+    _is_numeric_ts = _dtype_kind in ("i", "u", "f")
+    if _is_numeric_ts:
+        # Numeric ts: treat values as seconds-since-some-epoch. max-min is
+        # already in seconds; just divide by 86400 to get days.
+        span_seconds = float(date_series.max() - date_series.min())
+        span_days = span_seconds / 86400.0
+    else:
+        span_days = (date_series.max() - date_series.min()).total_seconds() / 86400.0
     # Zero-span guard: all dates equal -> uniform weighting. No log needed.
     if span_days <= 0:
         return np.full(len(date_series), float(min_weight))
@@ -137,7 +155,12 @@ def get_sample_weights_by_recency(
     # second (~ 1/86400 day) so log never hits zero -- the previous
     # one-day floor erased intraday gradient by clamping every row to
     # log(1)=0.
-    _delta_secs = (date_series.max() - date_series).dt.total_seconds().to_numpy()
+    if _is_numeric_ts:
+        # Numeric path: max-row is a scalar; subtraction is element-wise
+        # numeric and the result is already seconds-since-row.
+        _delta_secs = np.asarray(date_series.max() - date_series, dtype=np.float64)
+    else:
+        _delta_secs = (date_series.max() - date_series).dt.total_seconds().to_numpy()
     _min_age_days = 1.0 / 86400.0  # one-second floor
     days_from_max = np.maximum(_delta_secs / 86400.0, _min_age_days)
     # log(span_days) for span<1 day is negative -> max_drop negative.
