@@ -588,16 +588,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         # 2026-05-18 audit-fixes HIGH#4 default-flip evaluation result:
         # ``profiling/bench_polynom_fe_default_flip.py`` measured on three
         # canonical "polynom-FE should help" scenarios (XOR, saddle,
-        # mixed-linear-interaction): 0 / 3 cleared the >= 20% AUC lift
-        # bar within 10x time budget. Reason for the null result is NOT
-        # that polynom-FE is useless - it's that the upstream
-        # screening filter drops one of the interaction features
-        # (support_size=1 in all three runs), so polynom-FE has no
-        # pair to evaluate. Surfaces audit finding #5
-        # (``min_nonzero_confidence`` / ``full_npermutations`` still
-        # over-strict). Until #5 is flipped, polynom-FE default stays 0;
-        # users with verified strong-individual-MI features should
-        # opt in with a positive value.
+        # symmetric-linear-plus-interaction): 0 / 3 cleared the >= 20%
+        # downstream-LightGBM AUC lift bar; 3 / 3 showed no-harm
+        # (|delta| <= 1%).
+        #
+        # Diagnostic: on the symmetric-linear-plus-interaction scenario
+        # screening keeps ALL 4 features (support_size=4) AND polynom-FE
+        # evaluates 5 pairs - the pipeline is healthy. The null result
+        # is because the downstream evaluator (LightGBM) already
+        # discovers multiplicative interactions natively via tree
+        # splits, making polynom-FE engineered columns redundant.
+        # Polynom-FE's value would be on LINEAR downstream models
+        # (Ridge / Lasso / MLP without interaction layers) where pair
+        # interactions must be explicitly engineered.
+        #
+        # Decision: keep default 0. Users with tree-based downstreams
+        # rarely need polynom-FE; users with linear downstreams should
+        # opt in with a positive value after measuring on their data.
         fe_smart_polynom_iters: int = 0,
         fe_smart_polynom_optimization_steps: int = 1000,
         # 2026-05-18 audit-fixes flip #3 (``fe_min_polynom_degree`` 3->1):

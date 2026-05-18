@@ -85,11 +85,22 @@ def _saddle_problem(n: int = 2000, seed: int = 42):
 
 
 def _mixed_problem(n: int = 2000, seed: int = 42):
+    """SYMMETRIC linear-plus-interaction. Both x_a AND x_b have non-zero
+    individual MI with y via the linear terms (so screening keeps both)
+    AND a multiplicative interaction adds further lift (so polynom-FE
+    has something to find).
+
+    NOTE 2026-05-18: an earlier version of this function omitted the
+    ``+ x_b`` linear term, making x_b individually invisible to
+    screening. That bench scenario produced a null polynom-FE result
+    not because polynom-FE was useless but because x_b was filtered
+    out before pair evaluation. The current formula matches the
+    biz_val regression test ``test_pair_interaction_features_survive_screening``.
+    """
     rng = np.random.default_rng(seed)
     x_a = rng.normal(size=n).astype(np.float64)
     x_b = rng.normal(size=n).astype(np.float64)
-    # Linear in x_a + multiplicative interaction.
-    z = 1.5 * x_a + 2.0 * x_a * x_b + rng.normal(0, 0.3, n)
+    z = 1.0 * x_a + 1.0 * x_b + 2.0 * x_a * x_b + rng.normal(0, 0.3, n)
     y = (z > np.median(z)).astype(np.int64)
     df = pd.DataFrame({
         "x_a": x_a, "x_b": x_b,
