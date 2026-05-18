@@ -222,21 +222,21 @@ def _run_composite_target_wrapping(
                             "MAE_raw": _mae_raw,
                             "MAE_wrapped": _mae_wrapped,
                         }
-                        # Pack G runtime watchdog: for an additive-invertible
-                        # transform the error on T equals the error on y
-                        # exactly (y = T + g(base), so y_hat - y = T_hat - T).
-                        # If wrapper math silently breaks (entry-mutation
-                        # cache stale, inner double-scaled, etc.), y-scale
-                        # MAE diverges from the T-scale MAE computed off the
-                        # SAME inner preds. Warn loudly when the divergence
-                        # exceeds 1% relative.
+                        # Pack G runtime watchdog: detects when wrapper math
+                        # silently breaks. Pre-fix this covered only additive
+                        # transforms via the ``error_T == error_y`` invariant.
+                        # The extended check below works for ALL transforms
+                        # via the fundamental contract: ``wrapper.predict(X)``
+                        # must equal ``transform.inverse(inner.predict(X),
+                        # base, params)`` modulo y-clip. If they diverge, the
+                        # wrapper's predict path is corrupted (entry-mutation
+                        # cache stale, inner double-scaled via TTR state loss,
+                        # base column mismatch).
                         #
-                        # Additive transforms covered: linear_residual,
-                        # linear_residual_robust, diff, monotonic_residual,
-                        # quantile_residual, ewma_residual, linear_residual_multi,
-                        # linear_residual_grouped. NOT covered: ratio,
-                        # logratio, frac_diff, rolling_quantile_ratio (these
-                        # are multiplicative -- error_y != error_T).
+                        # Additive transforms ALSO get the original
+                        # ``error_T == error_y`` check (legacy) since that's
+                        # a stricter assertion (the MAE numbers must agree,
+                        # not just per-row predictions).
                         try:
                             _spec_t_name = _spec.get("transform_name") if isinstance(_spec, dict) else None
                             _ADDITIVE_TRANSFORMS = {
@@ -245,6 +245,47 @@ def _run_composite_target_wrapping(
                                 "diff", "monotonic_residual", "quantile_residual",
                                 "ewma_residual",
                             }
+                            # Universal predict-vs-inverse-of-inner check (works for ALL transforms including multiplicative).
+                            # If wrapper.predict diverges from manually-reconstructed inverse(inner.predict, base, params), the wrapper math is broken.
+                            try:
+                                _wi_uni = getattr(_wrapper_for_score, "estimator_", None)
+                                _bc_uni = _spec.get("base_column") if isinstance(_spec, dict) else None
+                                if (_wi_uni is not None and _spec_t_name
+                                        and _bc_uni and _bc_uni in _split_df):
+                                    _bivar_uni = get_transform(_spec_t_name)
+                                    _base_uni = np.asarray(_split_df[_bc_uni]).astype(np.float64)
+                                    _t_pred_uni = np.asarray(
+                                        _wi_uni.predict(_split_df), dtype=np.float64,
+                                    ).reshape(-1)
+                                    _y_reconstructed = _bivar_uni.inverse(
+                                        _t_pred_uni, _base_uni,
+                                        _spec.get("fitted_params", {}),
+                                    )
+                                    _ru = _y_pred - _y_reconstructed
+                                    _fu = np.isfinite(_ru)
+                                    if int(_fu.sum()) > 0:
+                                        _max_dev = float(np.max(np.abs(_ru[_fu])))
+                                        _y_scale = float(np.std(_y_split[np.isfinite(_y_split)])) or 1.0
+                                        _rel = _max_dev / _y_scale
+                                        # Relative tolerance 1% of y_std -- clip path can cause small differences on out-of-envelope rows; >1% is wrapper math broken.
+                                        if _rel > 0.01:
+                                            logger.warning(
+                                                "[CompositeTargetEstimator.watchdog.universal] "
+                                                "composite='%s' split='%s' transform=%s inner=%s: "
+                                                "wrapper.predict diverges from "
+                                                "transform.inverse(inner.predict, base, params) "
+                                                "by max abs=%.4f (%.2f%% of y_std). Wrapper "
+                                                "math broken. (additive-error invariant check "
+                                                "may also fire below for additive transforms.)",
+                                                _composite_name, _split_name, _spec_t_name,
+                                                type(_wi_uni).__name__, _max_dev, _rel * 100.0,
+                                            )
+                            except Exception as _uni_err:
+                                logger.debug(
+                                    "[CompositeTargetEstimator.watchdog.universal] check "
+                                    "failed for composite='%s' split='%s': %s",
+                                    _composite_name, _split_name, _uni_err,
+                                )
                             if _spec_t_name in _ADDITIVE_TRANSFORMS:
                                 _wi = getattr(_wrapper_for_score, "estimator_", None)
                                 _base_col = _spec.get("base_column") if isinstance(_spec, dict) else None
