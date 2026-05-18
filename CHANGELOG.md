@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-05-18 — Iter 110: iter69 + iter66 stacking on Adult binary - HURTS vs iter69 alone
+
+Tested whether adding iter66 (class_balanced_hard_row + RFF, retracted on mammography 11k as FOLD-NOISE) as additive component to iter69 helps at Adult 49k scale. Multi-seed (3), CB target_model.
+
+### Result
+- iter110 (iter69 + iter66): median **+0.50%** (range +0.49% / +0.54%, IQR 0.0003)
+- iter69 alone (iter108): **+0.63%**
+- Delta: **-0.13pp** -- iter66 features actively hurt the stack
+
+### Lesson
+iter66's class_balanced_hard_row signal doesn't add value additively even at 4x mammography's scale. The mechanism is genuinely retracted. Binary +0.7% ceiling holds; iter69 alone is the strongest binary mechanism so far.
+
+iter66 source code retained per "never delete FE code" rule.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter110_adult_cb_auc`.
+
 ## 2026-05-18 — Iter 109: iter69 on Higgs 98k binary - lift STABLE at ~0.65pp; binary signal doesn't amplify with N
 
 Tested iter69 mechanism on Higgs 98k binary (signal vs background, 28 numeric features), CB and LGB target models, 3 seeds each.

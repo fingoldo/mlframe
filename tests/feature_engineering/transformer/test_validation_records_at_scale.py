@@ -447,3 +447,22 @@ def _build_iter110(X_tr, X_te, y_tr, task, seed):
 def test_iter110_adult_cb_auc():
     """iter110 = iter69 + iter66 on Adult 49k binary (was iter69 alone +0.63%)."""
     _validate_scale(_load_adult_binary, _build_iter110, "cb", "AUC", 0.0063, "iter110_iter69+iter66_Adult49k_cb")
+
+
+# ---------- iter111 - iter69 on MAMMOGRAPHY 11k full-N (rare-positive binary stress test) ----------
+
+
+def _load_mammography():
+    """Mammography (~11183 rows, 6 numeric features, binary class label, 1.3% positive)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_mammography as _l
+    return _l()
+
+
+def test_iter111_mammography_cb_auc():
+    """iter69 on mammography 11k full-N binary (rare-positive 1.3%, CB AUC)."""
+    _validate_scale(_load_mammography, _build_iter69, "cb", "AUC", 0.0063, "iter111_iter69_Mammog11k_cb")
+
+
+def test_iter111_mammography_lgb_auc():
+    """iter69 on mammography 11k full-N binary (LGB AUC). iter66 retracted on this dataset under multi-seed."""
+    _validate_scale(_load_mammography, _build_iter69, "lgb", "AUC", -0.0077, "iter111_iter69_Mammog11k_lgb")
