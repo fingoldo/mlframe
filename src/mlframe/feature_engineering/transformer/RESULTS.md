@@ -3221,6 +3221,37 @@ Test whether the abalone-helper (ExtraTrees orthogonal-baseline, iter102) and th
 - **iter106: y-quintile-conditioned baseline disagreement** — compute iter69's baseline preds, but THEN restrict subsequent statistics to query's k=8 nearest neighbours in top-y-quintile and bottom-y-quintile separately. Captures: "in which y-region do baselines disagree about THIS query?"
 - Alternative: **STACKED RSD** — run iter103 with multiple baselines (LGB d=3 + LGB d=7) and stack their per-baseline easy/hard partitions as separate kNN signal sources.
 
+## iter106 — y-quintile-conditioned baseline-prediction-at-kNN (alone) — NEGATIVE everywhere
+
+Per-query: for each y-stratum q∈{0..4} (5 quintile bands of y_train), find k=8 nearest training neighbours within that stratum, return mean + std of baseline's predictions across those 8 neighbours. 10 features per row. Hypothesis: "Where does the baseline predict things at the nearest neighbours of each y-stratum?" exposes structured confusion.
+
+### Results (3 seeds, CB target_model)
+
+| # | Dataset | iter106 median | Range | Verdict |
+|---|---|---|---|---|
+| 1 | abalone 4k | -0.32% | -1.80% / +0.38% (mixed signs) | NOISE/HURTS |
+| 2 | California 20k | -1.05% | -1.26% / -0.59% (all 3 negative) | HURTS |
+| 3 | Year-100k | -0.18% | -0.43% / -0.12% (all 3 negative) | HURTS |
+
+### Findings
+
+- **iter106 alone doesn't validate on any dataset.** Active harm on California and Year-100k (all seeds negative), noise on abalone.
+- **Diagnosis**: baseline predictions at NN of similar-y training rows are highly correlated with the baseline's prediction AT the query itself (which iter69 already provides). iter106's features are mostly REDUNDANT with iter69 plus added kNN noise. Adding redundant-with-noise features wastes split budget.
+- **Code retained per rule.** May be useful as a structured component if combined differently — but the simple "alone" test fails.
+
+### Aggregate lesson from iter102-106
+
+Out of 5 new mechanism variants shipped under multi-seed-from-start protocol:
+- 2 NEW records: iter102 (+0.48pp abalone via ExtraTrees), iter104 (+0.33pp Year-100k via additive RSD)
+- 3 NEGATIVES (iter103 alone, iter105 triple, iter106 alone) — multi-seed protocol caught them where single-seed would have falsely claimed records
+
+**Pattern**: variants only work when they add features that capture genuinely NEW info AT the target N regime, AND when stacked with cdist as the irreplaceable backbone. Pure "baseline-prediction-summary" mechanisms alone (without cdist) appear to fail — the y-quintile-stratified-kNN signal is redundant with what target-aware boostings already extract.
+
+### Pivot for iter107+ direction
+
+- **STRUCTURAL FAMILY SHIFT**: stop iterating baseline-disagreement / kNN-density variants. Their landscape is mapped. Explore Bayesian GMM-density features (referenced in original loop directive as "iter 45 BGM" top historical record) or set-transformer-style attention (referenced as "iter 53 Set Transformer"). Different signal source likely needed for next breakthrough.
+- Alternative: **wrap iter69/iter104 in a Bayesian uncertainty quantification layer** — compute baseline disagreement under bootstrap resampling of train; output posterior-variance-style features.
+
 ## Reproducibility
 
 ```

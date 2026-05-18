@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-05-18 — Iter 106: y-quintile-conditioned baseline-pred-at-kNN - NEGATIVE everywhere; pivot to structural family shift
+
+Per-query: for each y-stratum q∈{0..4}, find k=8 nearest training neighbours within stratum, return mean + std of baseline's predictions there. 10 features per row. Hypothesis: "Where does the baseline predict things at NN of each y-stratum?"
+
+### Multi-seed results (3 seeds, CB target_model)
+- abalone 4k: median -0.32% (range -1.80% / +0.38%, mixed signs) NOISE/HURTS
+- California 20k: median **-1.05%** (range -1.26% / -0.59%, ALL 3 NEGATIVE) HURTS
+- Year-100k: median **-0.18%** (range -0.43% / -0.12%, ALL 3 NEGATIVE) HURTS
+
+### Diagnosis
+Baseline predictions at NN of similar-y training rows are highly correlated with the baseline's prediction AT the query itself (iter69 provides this). iter106 features are mostly REDUNDANT with iter69 plus added kNN noise. Adding redundant-with-noise features wastes split budget.
+
+### Aggregate iter102-106 lesson
+Out of 5 new variants under multi-seed-from-start protocol:
+- 2 NEW records: iter102 +0.48pp abalone via ExtraTrees, iter104 +0.33pp Year-100k via additive RSD.
+- 3 NEGATIVES: iter103 alone, iter105 triple, iter106 alone -- protocol caught what single-seed would have falsely claimed.
+
+Pattern: variants only work when they add genuinely NEW info AT the target-N regime AND when stacked with cdist as the irreplaceable backbone. "Baseline-prediction-summary alone" without cdist fails -- redundant with what target-aware boostings already extract.
+
+### Pivot for iter107+
+Structural family shift: stop iterating baseline-disagreement / kNN-density variants. Their landscape is mapped. Original loop directive references "iter 45 BGM" (Bayesian GMM density) and "iter 53 Set Transformer" as top historical records. iter107 should explore those families or a fundamentally different signal source.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter106_*_cb_r2`. Full disposition in RESULTS.md under "iter106 - y-quintile-conditioned baseline-pred-at-kNN".
+
 ## 2026-05-18 — Iter 105: triple combination - composition FAILS on all 3 datasets
 
 Test whether abalone-helper (iter102 ExtraTrees) and Year-100k-helper (iter103 RSD) compose into a single best-of-breed mechanism. 34 features = 11 baseline_disagreement_v2 + 12 cdist + 11 RSD.

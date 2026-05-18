@@ -272,3 +272,39 @@ def test_iter105_california_cb_r2():
 def test_iter105_year_100k_cb_r2():
     """iter105 triple on year-prediction 100k (best was iter104 +5.25%)."""
     _validate_scale(_load_year_100k, _build_iter105, "cb", "R2", 0.0525, "iter105_triple_Year100k")
+
+
+# ---------- iter106 - y-quintile-conditioned baseline-prediction-at-kNN (alone, no cdist) ----------
+
+
+def _build_iter106(X_tr, X_te, y_tr, task, seed):
+    """y_quintile_baseline_knn alone (iter106)."""
+    from sklearn.model_selection import KFold
+    from mlframe.feature_engineering.transformer import compute_y_quintile_baseline_knn_features
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    yq_tr = compute_y_quintile_baseline_knn_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    yq_te = compute_y_quintile_baseline_knn_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    return (np.concatenate([X_tr, yq_tr], axis=1),
+            np.concatenate([X_te, yq_te], axis=1))
+
+
+def test_iter106_abalone_cb_r2():
+    """iter106 on abalone (best so far iter102 +2.74%)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter106, "cb", "R2", 0.0274, "iter106_yqbk_abalone")
+
+
+def test_iter106_california_cb_r2():
+    """iter106 on California 20k (best so far iter69 +1.15%)."""
+    _validate_scale(_load_california, _build_iter106, "cb", "R2", 0.0115, "iter106_yqbk_CA20k")
+
+
+def test_iter106_year_100k_cb_r2():
+    """iter106 on year-prediction 100k (best so far iter104 +5.25%)."""
+    _validate_scale(_load_year_100k, _build_iter106, "cb", "R2", 0.0525, "iter106_yqbk_Year100k")
