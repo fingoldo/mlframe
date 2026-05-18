@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-05-18 — Iter 124: iter121 (BGM additive) on Adult binary -- TIE iter69 alone; BGM confirmed kin8nm-only
+
+Tested iter121 (iter69+BGM additive) on Adult 49k binary CB AUC to determine if BGM enhancement generalises from regression to binary.
+
+### Result (3 seeds)
+- iter121 on Adult 49k CB AUC: median +0.59% (range +0.56% / +0.66%, IQR 0.0005)
+- vs iter69 alone +0.63%: -0.04pp (essentially TIE, slightly drags)
+
+### Conclusion
+BGM additive is **kin8nm-CB-only**. Doesn't help binary classification, regression at Year-50k+, abalone. Same niche-only pattern as iter68's RFF (which is kin8nm-LGB-only).
+
+### Final niche map across 23 iterations (iter102-124)
+
+| Enhancement | Winning regime | Notes |
+|---|---|---|
+| iter69 backbone | California 20k CB R2, Adult 49k CB AUC, Higgs 98k CB AUC | always-on baseline |
+| iter102 (+ExtraTrees) | abalone 4k CB R2 (+0.48pp) | small-N CB only |
+| iter104 (+RSD additive) | California / Year-50k / Year-100k CB R2 + Year-100k LGB R2 + kin8nm LGB R2 | wide regression-LGB and large-N CB winner |
+| iter121 (+BGM additive) | kin8nm 8k CB R2 only (+0.44pp) | kin8nm-specific |
+| iter68 (+RFF) | kin8nm 8k LGB R2 only (+11.42% dataset-specific) | kin8nm-specific |
+
+No universal winner. Each enhancement has a single regime. iter69 backbone is the most general mechanism.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter124_adult_cb_auc_iter121`.
+
 ## 2026-05-18 — Iter 122-123: iter121 (BGM additive) is kin8nm-only; iter104 still wins Year-50k+ CB R2
 
 Tested iter121 on Year-50k CB R2 and ran fair baseline comparison with iter69 + iter104.

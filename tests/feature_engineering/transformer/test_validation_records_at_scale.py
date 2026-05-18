@@ -944,3 +944,11 @@ def test_iter123_year50k_cb_r2_iter69():
 def test_iter123_year50k_cb_r2_iter104():
     """iter104 (iter69+RSD) on Year-50k CB R2 (fair scale-baseline for iter122)."""
     _validate_scale(_load_year_50k, _build_iter104, "cb", "R2", 0.0, "iter123_iter104_Year50k_cb")
+
+
+# ---------- iter124 - does iter121 (iter69+BGM) help binary too? ----------
+
+
+def test_iter124_adult_cb_auc_iter121():
+    """iter121 (iter69+BGM) on Adult 49k binary CB AUC (vs iter69 alone +0.63%). Does BGM generalise to binary?"""
+    _validate_scale(_load_adult_binary, _build_iter121, "cb", "AUC", 0.0063, "iter124_iter121_Adult49k_cb")
