@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-05-18 — Iter 114: SMOTE-augmented baselines also FAIL on rare-positive binary; iter69 family fully mapped
+
+New mechanism `compute_baseline_disagreement_smote_features` with inline SMOTE oversampling (5-NN interpolation) of minority class before fitting binary baselines. 8 features per row, identical structure to iter69/iter113.
+
+### Results (3 seeds, with StratifiedKFold for binary)
+
+| Test | iter113 (balanced) | iter114 (SMOTE) | Change |
+|---|---|---|---|
+| mammography CB AUC | -0.55% | -1.11% (all 3 neg) | WORSE |
+| mammography LGB AUC | -1.57% | -0.71% (all 3 neg) | less neg but still HURTS |
+| Adult 49k CB AUC | +0.58% | **+0.64%** (IQR 0.0001) | matches iter108 with tighter IQR |
+
+### Final rare-positive verdict — 4 interventions all fail on mammography
+
+Tested 4 orthogonal interventions on iter69-family for mammography 11k (1.3% pos):
+  KFold (iter111):                CB AUC -1.05%
+  StratifiedKFold (iter112):      CB AUC -0.70%
+  class_weight='balanced' (113):  CB AUC -0.55%
+  SMOTE oversampling (iter114):   CB AUC -1.11%
+
+ALL FAIL. The iter69-mechanism family is genuinely unsuitable for rare-positive binary classification. Multiple orthogonal interventions only nibble at the margin; none flip the sign. Signal sources (3 LGB/Ridge baselines + cdist kNN to tiny positive class) cannot extract useful info at 1.3% positive rate regardless of intervention.
+
+Rare-positive binary requires different mechanism family: anomaly-detection (isolation forest, LOF, OCSVM), class-prior-aware density estimation, or Bayesian rare-event modeling.
+
+### Bonus: iter114 cleaner measurement of iter108 record
+iter114 on Adult 49k CB AUC = median +0.64% (range +0.61% / +0.64%, IQR 0.0001, all 3 seeds valid) matches iter108 +0.63% with tighter IQR (was 0.0003 with 2 valid seeds + 1 OOM).
+
+### Final 5-record best-of-breed table (post-iter114)
+- abalone 4k:    iter102 (+2.74% CB R2)
+- CA 20k:        iter69  (+1.15% CB R2)
+- Year-100k:     iter104 (+5.25% CB R2)
+- Adult 49k:     iter69 / iter114 (+0.63-0.64% CB AUC, IQR 0.0001)
+- Higgs 98k:     iter69  (+0.67% CB AUC)
+- mammography 11k: (none) -- iter69-family fails
+
+Code retained per "never delete FE code". Mechanism family for rare-positive is the next frontier; current family is fully mapped.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter114_*`.
+
 ## 2026-05-18 — Iter 113: class_weight='balanced' baselines DON'T rescue rare-positive binary either
 
 New mechanism `compute_baseline_disagreement_balanced_features` (iter69 clone but with `class_weight='balanced'` for binary baselines). Source: `src/mlframe/feature_engineering/transformer/baseline_disagreement_balanced.py`. 8 features per row, identical structure to iter69.

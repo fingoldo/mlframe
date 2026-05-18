@@ -3357,6 +3357,50 @@ Tested iter69 mechanism (baseline_disagreement + cdist) on Adult 49k binary (>50
 
 The iter69-family is mapped. Rare-positive binary requires different mechanism family. Candidate: focal-loss-LGB baselines (directly addresses class imbalance at baseline-fit level instead of post-hoc kNN-to-tiny-positive-class). Or: SMOTE-augmented baselines (synthetic positives → richer disagreement structure).
 
+## iter113-114: Two more rare-positive interventions — BOTH FAIL on mammography
+
+### iter113: class_weight='balanced' baselines (`baseline_disagreement_balanced.py`)
+| Test | iter112 | iter113 | Verdict |
+|---|---|---|---|
+| mammography CB AUC | -0.70% | **-0.55%** (range -2.43%/-0.52%, all 3 neg) | +0.15pp but still HURTS |
+| mammography LGB AUC | -1.84% | -1.57% | slightly less negative |
+| Adult CB AUC | +0.62% | +0.58% | slightly degraded |
+
+### iter114: SMOTE-augmented baselines (`baseline_disagreement_smote.py`, inline 5-NN interpolation)
+| Test | iter113 | iter114 | Verdict |
+|---|---|---|---|
+| mammography CB AUC | -0.55% | **-1.11%** (all 3 neg) | WORSE than iter113 |
+| mammography LGB AUC | -1.57% | -0.71% | slightly less negative |
+| Adult CB AUC | +0.58% | **+0.64%** (IQR 0.0001) | matches iter108 with tighter IQR |
+
+### Final rare-positive verdict — 4 interventions tested, ALL FAIL
+
+| Intervention | Mammography CB AUC | Mammography LGB AUC |
+|---|---|---|
+| (none, iter111) | -1.05% | -0.36% |
+| StratifiedKFold (iter112) | -0.70% | -1.84% |
+| class_weight='balanced' (iter113) | -0.55% | -1.57% |
+| SMOTE oversampling (iter114) | -1.11% | -0.71% |
+
+**iter69-mechanism family is genuinely unsuitable for rare-positive binary classification.** Multiple orthogonal interventions only nibble at the margin; none flip the sign on CB AUC. The mechanism's signal sources (3 LGB/Ridge baselines + cdist kNN to tiny positive class) cannot extract useful information at 1.3% positive rate regardless of how the baselines are reweighted, stratified, or oversampled.
+
+Mammography requires a structurally different signal source: anomaly-detection features (isolation forest score, LOF, OCSVM), class-prior-aware density estimation (per-class GMM with prior reweighting), or Bayesian rare-event modeling. NOT the iter69 ensemble-disagreement family.
+
+### iter114 bonus on Adult — cleaner measurement of iter108 record
+
+iter114 on Adult 49k CB AUC: median +0.64% (range +0.61% / +0.64%, IQR 0.0001, all 3 seeds valid). Matches the iter108 +0.63% record with even tighter IQR (was 0.0003 with 2 seeds + 1 OOM). Same mechanism magnitude — SMOTE augmentation neither helps nor hurts balanced binary, but the 3-seed measurement is cleaner.
+
+### Final 5-record best-of-breed table (post-iter114)
+
+| Dataset | Best mechanism | Median lift | Task / Model | Source mechanism |
+|---|---|---|---|---|
+| abalone 4k | iter102 | +2.74% | regression CB R2 | baseline_disagreement_v2 + cdist |
+| California 20k | iter69 | +1.15% | regression CB R2 | baseline_disagreement + cdist |
+| Year-100k | iter104 | +5.25% | regression CB R2 | iter69 + RSD additive |
+| Adult 49k | iter69 / iter114 | +0.63-0.64% | binary CB AUC | baseline_disagreement + cdist (with or without SMOTE) |
+| Higgs 98k | iter69 | +0.67% | binary CB AUC | baseline_disagreement + cdist |
+| mammography 11k | (none) | n/a | binary CB AUC (1.3% pos) | iter69-family fails; needs anomaly-detection family |
+
 ## Reproducibility
 
 ```
