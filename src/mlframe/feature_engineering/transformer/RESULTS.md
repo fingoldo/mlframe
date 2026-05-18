@@ -3106,7 +3106,33 @@ iter69 baseline_disagreement + cdist tested on Year-Prediction-MSD (515k × 90 a
 
 - Test iter69 on Adult (49k binary) to see whether the mechanism extends from regression to classification.
 - Test iter69 on a SECOND large-N regression dataset (full year-prediction 515k, or buzz-twitter 583k) to confirm the +5% lift is not year-prediction-specific.
-- Design iter102 as an iter69 variant — more baseline depths, richer disagreement stats — with multi-seed-from-start protocol.
+- ~~Design iter102 as an iter69 variant~~ — done below.
+
+## iter102 — baseline_disagreement_v2 (iter69 + ExtraTrees orthogonal baseline)
+
+First NEW mechanism shipped under the **multi-seed-from-start** protocol that emerged from the honesty pass. Source: `src/mlframe/feature_engineering/transformer/baseline_disagreement_v2.py`. Adds ExtraTreesRegressor / Classifier (100 estimators, max_depth=8) as 4th baseline to iter69's 3 (LGB d=3, LGB d=5, Ridge/LogReg). Total 11 features (was 8): +1 raw ET prediction, plus +2 new pairwise difference signals (lgb_avg-et, et-linear).
+
+Hypothesis: LGB uses gradient-based splits, ExtraTrees uses randomized splits. Regions where these two tree-structure methods disagree carry information boostings can't reconstruct from raw X via either method alone.
+
+### Results (3 seeds {0, 17, 42}, CatBoost target_model, fresh pytest invocation per test)
+
+| # | Mechanism | Dataset/Model/Metric | iter69 baseline | iter102 median | IQR | Min/Max | Delta vs iter69 | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| 1 | baseline_disagreement_v2 + cdist | abalone CB R2 | +2.26% | **+2.74%** | 0.0009 | +2.63% / +2.80% | **+0.48pp** | **NEW abalone record** (marginal) |
+| 2 | baseline_disagreement_v2 + cdist | California 20k CB R2 | +1.15% | **+1.19%** | 0.0045 | +1.11% / +2.02% | +0.04pp | TIE iter69 |
+| 3 | baseline_disagreement_v2 + cdist | Year-100k CB R2 | +4.92% | **+4.93%** | 0.0015 | +4.77% / +5.06% | +0.01pp | TIE iter69 |
+
+### Findings
+
+- **iter102 is a marginal record on abalone (+0.48pp)** and ties elsewhere. All 3 seeds positive on all 3 datasets. The ExtraTrees 4th-baseline signal adds tiny incremental info on the small dataset (abalone 4k, where 1 extra signal source helps); on larger datasets the existing 3-baseline disagreement already saturates the information value.
+- **First mechanism shipped under multi-seed-from-start protocol.** The IQR 0.0009-0.0045 on all 3 datasets is tighter than any single-seed historical record. This is the new standard for record claims.
+- **Verdict on the "add more baselines" direction: diminishing returns.** Adding +1 orthogonal baseline gave +0.48pp on the smallest dataset and ~zero elsewhere. Adding +2 or +3 more would likely follow the same curve. The next iter should structurally differ from "more baselines", not just extend.
+
+### Next iter103+ direction candidates
+
+- **iter103: TARGET-CONDITIONED disagreement.** Compute baseline disagreement statistics restricted to neighbours-in-high-y-region vs neighbours-in-low-y-region. Captures whether models agree more on extreme-y vs central-y regions. Different signal source from iter69/102's global disagreement.
+- **iter104: cross-baseline RESIDUAL covariance.** Train K baselines, compute K-dim residual vector per row, output top-2 PCA components of the row-residual matrix. Captures dominant disagreement DIRECTIONS, not just magnitudes.
+- **iter105: ITERATIVE residual stacking.** Fit baseline 1 → predict OOF → fit baseline 2 ON RESIDUAL → fit baseline 3 ON residual-of-residual → output 3 sequential predictions + their differences. Sequence captures hierarchical structure that ensemble averaging hides.
 
 ## Reproducibility
 

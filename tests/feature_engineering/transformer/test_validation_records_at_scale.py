@@ -98,3 +98,43 @@ def test_scale_iter69_year_100k_cb_r2():
     lift at 100k, the mechanism is genuinely general regression-FE, not a small-N artifact.
     """
     _validate_scale(_load_year_100k, _build_iter69, "cb", "R2", 0.0115, "iter69_blagreement+cdist_Year100k")
+
+
+# ---------- iter102 - baseline_disagreement_v2 (iter69 + ExtraTrees orthogonal baseline) ----------
+
+
+def _build_iter102(X_tr, X_te, y_tr, task, seed):
+    """baseline_disagreement_v2 + cdist (iter102 - iter69 with ExtraTrees added)."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import compute_baseline_disagreement_v2_features
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_v2_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_v2_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+# iter102 vs iter69 head-to-head: same harness, same datasets, multi-seed-from-start.
+
+def test_iter102_abalone_cb_r2():
+    """iter102 on abalone (was iter69 +2.26% median CB R2). Target: match or beat."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter102, "cb", "R2", 0.0226, "iter102_blagreementv2+cdist_abalone")
+
+
+def test_iter102_california_cb_r2():
+    """iter102 on California (was iter69 +1.15% median CB R2 at 20k). Target: match or beat."""
+    _validate_scale(_load_california, _build_iter102, "cb", "R2", 0.0115, "iter102_blagreementv2+cdist_CA20k")
+
+
+def test_iter102_year_100k_cb_r2():
+    """iter102 on year-prediction 100k (was iter69 +4.92% median CB R2). Target: match or beat."""
+    _validate_scale(_load_year_100k, _build_iter102, "cb", "R2", 0.0492, "iter102_blagreementv2+cdist_Year100k")

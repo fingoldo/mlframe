@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-05-18 — Iter 102: baseline_disagreement_v2 (iter69 + ExtraTrees) - NEW abalone CB R2 record (marginal +0.48pp)
+
+First NEW mechanism shipped under the multi-seed-from-start protocol that emerged from the honesty pass. Source: `src/mlframe/feature_engineering/transformer/baseline_disagreement_v2.py`. Adds ExtraTreesRegressor / Classifier as 4th baseline to iter69's 3 (LGB d=3, LGB d=5, Ridge/LogReg). 11 features total (was 8): +1 raw ET prediction, +2 new pairwise differences (lgb_avg-et, et-linear).
+
+Hypothesis: LGB uses gradient-based splits, ExtraTrees uses randomized splits. Regions where these two tree-structure methods disagree carry information boostings can't reconstruct from raw X via either method alone.
+
+### Multi-seed-from-start results (3 seeds {0, 17, 42}, CB target_model)
+
+| Dataset | iter69 baseline | iter102 median | IQR | Min/Max | Delta | Verdict |
+|---|---|---|---|---|---|---|
+| abalone 4k | +2.26% | +2.74% | 0.0009 | +2.63% / +2.80% | +0.48pp | NEW record (marginal) |
+| California 20k | +1.15% | +1.19% | 0.0045 | +1.11% / +2.02% | +0.04pp | TIE iter69 |
+| Year-100k | +4.92% | +4.93% | 0.0015 | +4.77% / +5.06% | +0.01pp | TIE iter69 |
+
+### Findings
+- Marginal abalone record (+0.48pp). Ties elsewhere. ExtraTrees signal saturates beyond small-N.
+- All 3 seeds positive on all 3 datasets. IQR 0.0009-0.0045 (tighter than any single-seed historical record).
+- "Add more baselines" direction has diminishing returns - 4th baseline gives +0.48pp on abalone 4k, ~zero on larger data.
+
+### Next direction (iter103+)
+Structurally different from "more baselines": target-conditioned disagreement (restrict baselines to neighbours-in-high-y vs low-y), or cross-baseline residual PCA, or iterative residual stacking. Plain ensemble-width is saturated.
+
 ## 2026-05-18 — Transformer FE Priority-3 scale verification: iter69 GROWS to +4.92% R2 at year-prediction 100k
 
 iter69 baseline_disagreement + cdist tested on Year-Prediction-MSD subsampled to 100k (audio features → song year regression). 3 seeds {0, 17, 42}, CatBoost target_model, ~3min runtime.
