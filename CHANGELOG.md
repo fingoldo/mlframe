@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-05-18 — Iter 135: iter102 + local_lift on kin8nm — marginal new candidate +8.42%, saturation territory
+
+Tested iter102 (iter69+ExtraTrees) + local_lift composition (no BGM) on kin8nm + abalone. Lighter than iter130 triple, may give simpler mechanism with same lift.
+
+### Multi-seed results (3 seeds, CB R2)
+- kin8nm 8k:  median +8.42% (range +7.06% / +8.67%, IQR 0.0081)
+  vs iter130 record +8.31%: +0.11pp (marginal new)
+  Per-seed: 2 of 3 favor iter135, 1 (seed 42 +7.06%) below iter130 +7.40%
+- abalone 4k: median +2.63% (range +2.63% / +2.94%, IQR 0.0016)
+  vs iter102 record +2.74%: -0.11pp TIE
+  same as iter131 -- local_lift doesn't help abalone
+
+### Findings
+- iter135 (iter102+loclift) is plausibly a marginal new kin8nm CB R2 record at +8.42% but the median delta +0.11pp is at the noise floor. Per-seed pattern is mixed; we're approaching saturation.
+- Honest interpretation: iter130 +8.31% stands as durable claim. iter135 is "alternative simpler formulation" within IQR of iter130.
+- kin8nm CB R2 ceiling appears to be ~+8-8.5% for the iter69-family with kin8nm-friendly additives (BGM, local_lift, ExtraTrees). Any further variant testing approaches noise.
+
+### kin8nm CB R2 progression (multi-seed)
+- iter69:                       +6.18%
+- iter102 (+ExtraTrees):        +6.57%
+- iter121 (+BGM):               +7.01%
+- iter128 (+local_lift):        +8.06%
+- iter130 (+local_lift +BGM):   +8.31%
+- iter135 (iter102+loclift):    +8.42% (marginal, within seed-42 noise)
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter135_*`.
+
 ## 2026-05-18 — Iter 133-134: Year-100k tests infrastructure-blocked; session productive lifespan ended
 
 ### iter133 (iter130 triple on Year-100k CB R2)
