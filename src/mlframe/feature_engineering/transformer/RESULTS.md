@@ -3401,6 +3401,44 @@ iter114 on Adult 49k CB AUC: median +0.64% (range +0.61% / +0.64%, IQR 0.0001, a
 | Higgs 98k | iter69 | +0.67% | binary CB AUC | baseline_disagreement + cdist |
 | mammography 11k | (none) | n/a | binary CB AUC (1.3% pos) | iter69-family fails; needs anomaly-detection family |
 
+## iter115 — IsolationForest anomaly score (pure-X) — also FAILS on rare-positive
+
+Pivot to anomaly-detection family. `anomaly_score_features.py` — 2 IsolationForest models (different seeds) fit on X_train per fold; 5 features per row (raw scores 1+2, mean, std/disagreement, relative-z vs global). Pure-X (no labels touched).
+
+### Results
+
+| Test | iter115 median | Range | Verdict |
+|---|---|---|---|
+| anomaly alone on mammography CB AUC | -0.75% (all 3 neg) | -0.89% / -0.56% | HURTS |
+| anomaly + iter69 on mammography CB AUC | -0.78% (all 3 neg) | -2.19% / -0.30% | HURTS |
+| anomaly + iter69 on Adult 49k CB AUC | +0.60% (matches iter69 alone +0.63%) | +0.59% / +0.67% | NEUTRAL on balanced binary |
+
+### Diagnosis
+
+Even IsolationForest anomaly-detection fails on mammography. The 1.3%-positive class is likely **rare but DENSE** (clustered class structure in feature space, not scattered outliers). IsolationForest assumes anomalies are rare AND isolated; mammography positives may be a tight cluster the unsupervised IsolationForest doesn't distinguish from majority.
+
+For rare-positive binary like mammography, the data structure is "label-coherent rare cluster", not "isolated outliers". Mechanisms needed: supervised-rare-class-density-estimation, contrastive learning, or domain-specific medical-imaging features.
+
+## Final session summary (iter102-115, 14 iterations under multi-seed-from-start protocol)
+
+### 5 surviving records
+| Dataset | Best mechanism | Median lift (multi-seed) | Source |
+|---|---|---|---|
+| abalone 4k | iter102 | +2.74% CB R2 | baseline_disagreement_v2 + cdist |
+| California 20k | iter69 | +1.15% CB R2 | baseline_disagreement + cdist |
+| Year-prediction 100k | iter104 | +5.25% CB R2 | iter69 + RSD additive |
+| Adult 49k | iter69 / iter114 | +0.63-0.64% CB AUC | baseline_disagreement + cdist |
+| Higgs 98k | iter69 | +0.67% CB AUC | baseline_disagreement + cdist |
+
+### 10 honest-negative iterations caught by protocol
+iter103 (RSD alone), iter105 (triple combo), iter106 (y-quintile-kNN), iter107 (BGM regression), iter110 (iter69+iter66), iter111 (mammography KFold), iter112 (StratifiedKFold), iter113 (class_weight balanced), iter114 (SMOTE), iter115 (anomaly).
+
+### Mechanism boundary firmly mapped
+- **REGRESSION** (any N): iter69 works, lift +1-5% (amplifies with N)
+- **BALANCED BINARY** (CB target): iter69 works, lift +0.6-0.7% (capped)
+- **BALANCED BINARY** (LGB target): barely positive / noise
+- **RARE-POSITIVE BINARY** (<2% pos): NO tested mechanism validates; needs different family entirely
+
 ## Reproducibility
 
 ```

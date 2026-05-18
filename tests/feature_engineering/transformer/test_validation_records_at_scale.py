@@ -663,3 +663,66 @@ def test_iter114_mammography_lgb_auc():
 def test_iter114_adult_cb_auc():
     """iter114 on Adult 49k (regression test that SMOTE doesn't break balanced binary)."""
     _validate_scale(_load_adult_binary, _build_iter114, "cb", "AUC", 0.0063, "iter114_smote_Adult49k_cb")
+
+
+# ---------- iter115 - IsolationForest anomaly-score features (pure-X, no labels) ----------
+
+
+def _build_iter115_alone(X_tr, X_te, y_tr, task, seed):
+    """anomaly_score alone (iter115). Pure-X mechanism."""
+    from sklearn.model_selection import KFold
+    from mlframe.feature_engineering.transformer import compute_anomaly_score_features
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    a_tr = compute_anomaly_score_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    a_te = compute_anomaly_score_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    return (np.concatenate([X_tr, a_tr], axis=1),
+            np.concatenate([X_te, a_te], axis=1))
+
+
+def _build_iter115_with_iter69(X_tr, X_te, y_tr, task, seed):
+    """iter69 + anomaly_score (additive)."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_features,
+        compute_anomaly_score_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    a_tr = compute_anomaly_score_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    a_te = compute_anomaly_score_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, a_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, a_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def test_iter115_mammography_cb_auc_alone():
+    """iter115 anomaly score alone on mammography 11k binary (iter69 family failed here)."""
+    _validate_scale(_load_mammography, _build_iter115_alone, "cb", "AUC", 0.0, "iter115_anom_alone_Mammog11k_cb")
+
+
+def test_iter115_mammography_cb_auc_with_iter69():
+    """iter115 anomaly + iter69 additive on mammography 11k binary."""
+    _validate_scale(_load_mammography, _build_iter115_with_iter69, "cb", "AUC", 0.0, "iter115_anom+iter69_Mammog11k_cb")
+
+
+def test_iter115_adult_cb_auc_with_iter69():
+    """iter115 anomaly + iter69 additive on Adult 49k (does anomaly add to balanced binary?)."""
+    _validate_scale(_load_adult_binary, _build_iter115_with_iter69, "cb", "AUC", 0.0063, "iter115_anom+iter69_Adult49k_cb")

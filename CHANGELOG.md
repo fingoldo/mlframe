@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-05-18 — Iter 115: IsolationForest anomaly score also FAILS on rare-positive; mammography needs different mechanism family
+
+New mechanism `compute_anomaly_score_features` -- 2 IsolationForest models per fold (different seeds), 5 features per row (2 raw scores + mean + std-disagreement + relative-z). Pure-X (no labels touched), task-agnostic.
+
+### Results (3 seeds, CB AUC)
+- anomaly alone on mammography: median -0.75% (all 3 negative) HURTS
+- anomaly + iter69 additive on mammography: median -0.78% HURTS
+- anomaly + iter69 additive on Adult 49k: median +0.60% NEUTRAL on balanced binary
+
+### Diagnosis
+IsolationForest assumes anomalies are rare AND isolated; mammography positives are likely rare-but-DENSE (label-coherent cluster), not scattered outliers. The unsupervised anomaly score can't distinguish them from majority.
+
+For rare-positive binary, the data structure is "label-coherent rare cluster", needing: supervised-rare-class-density-estimation, contrastive learning, or domain-specific features. None of those tested here.
+
+## Session-end consolidation (iter102-115, 14 iterations, multi-seed-from-start protocol)
+
+### 5 surviving records
+- abalone 4k:     iter102 (+2.74% CB R2)
+- CA 20k:         iter69  (+1.15% CB R2)
+- Year-100k:      iter104 (+5.25% CB R2)
+- Adult 49k:      iter69 / iter114 (+0.63-0.64% CB AUC)
+- Higgs 98k:      iter69  (+0.67% CB AUC)
+
+### 10 honest-negative iterations caught by multi-seed protocol
+iter103, 105, 106, 107, 110, 111, 112, 113, 114, 115 — each would have been falsely claimed as a record under single-seed (some did claim it pre-protocol). All retracted or never elevated to records.
+
+### Mechanism boundary firmly mapped
+- REGRESSION (any N):              iter69 works, +1-5% (amplifies with N)
+- BALANCED BINARY (CB):            iter69 works, +0.6-0.7% (capped)
+- BALANCED BINARY (LGB):           barely positive / noise
+- RARE-POSITIVE BINARY (<2% pos):  no mechanism validates; needs different family
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter115_*`.
+
 ## 2026-05-18 — Iter 114: SMOTE-augmented baselines also FAIL on rare-positive binary; iter69 family fully mapped
 
 New mechanism `compute_baseline_disagreement_smote_features` with inline SMOTE oversampling (5-NN interpolation) of minority class before fitting binary baselines. 8 features per row, identical structure to iter69/iter113.
