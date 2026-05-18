@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-05-18 — Iter 125: row_attention infeasible on Windows paging budget (O(n²) memory)
+
+Tested compute_row_attention (original transformer-FE backbone, never validated under multi-seed) on kin8nm 8k + Year-50k CB R2.
+
+### Result
+- kin8nm 8k CB R2: ALL 3 seeds OOM (1147x1147 bool similarity matrix during projection)
+- Year-50k CB R2: ALL 3 seeds OOM (358 MiB dataset load + projection)
+
+### Diagnosis
+row_attention has O(n^2) similarity-matrix overhead during random-projection ANN setup. Even kin8nm 8k exceeds Windows paging budget when combined with KFold(5) inner train sets. Infeasible in current environment - infrastructure-bound, not mechanism-failure.
+
+Mechanism source preserved per "never delete FE code" rule. Would need GPU/Linux environment for proper testing, or a O(n*k) reformulation.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter125_*`.
+
 ## 2026-05-18 — Iter 124: iter121 (BGM additive) on Adult binary -- TIE iter69 alone; BGM confirmed kin8nm-only
 
 Tested iter121 (iter69+BGM additive) on Adult 49k binary CB AUC to determine if BGM enhancement generalises from regression to binary.

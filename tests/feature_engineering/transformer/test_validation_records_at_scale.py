@@ -952,3 +952,35 @@ def test_iter123_year50k_cb_r2_iter104():
 def test_iter124_adult_cb_auc_iter121():
     """iter121 (iter69+BGM) on Adult 49k binary CB AUC (vs iter69 alone +0.63%). Does BGM generalise to binary?"""
     _validate_scale(_load_adult_binary, _build_iter121, "cb", "AUC", 0.0063, "iter124_iter121_Adult49k_cb")
+
+
+# ---------- iter125 - compute_row_attention (original transformer-FE backbone) ----------
+# Never validated under multi-seed-from-start protocol; structurally orthogonal to iter69.
+
+
+def _build_iter125_alone(X_tr, X_te, y_tr, task, seed):
+    """compute_row_attention alone (softmax-weighted kNN-target-encoding over random projections)."""
+    from sklearn.model_selection import KFold
+    from mlframe.feature_engineering.transformer import compute_row_attention
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    ra_tr = compute_row_attention(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed,
+        n_heads=4, head_dim=8, k=32, softmax_temp=1.0, standardize=True,
+    ).to_numpy()
+    ra_te = compute_row_attention(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed,
+        n_heads=4, head_dim=8, k=32, softmax_temp=1.0, standardize=True,
+    ).to_numpy()
+    return (np.concatenate([X_tr, ra_tr], axis=1),
+            np.concatenate([X_te, ra_te], axis=1))
+
+
+def test_iter125_kin8nm_cb_r2_alone():
+    """row_attention alone on kin8nm 8k CB R2 (vs iter121 record +7.01%)."""
+    _validate_scale(_load_kin8nm, _build_iter125_alone, "cb", "R2", 0.0701, "iter125_rowattn_kin8nm_cb")
+
+
+def test_iter125_year50k_cb_r2_alone():
+    """row_attention alone on Year-50k CB R2 (vs iter104 +4.32%)."""
+    _validate_scale(_load_year_50k, _build_iter125_alone, "cb", "R2", 0.0432, "iter125_rowattn_Year50k_cb")
