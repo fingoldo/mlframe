@@ -827,6 +827,7 @@ def _tiny_cv_rmse_y_scale(
     return_per_bin: bool = False,
     n_bins: int = 5,
     time_aware: bool = False,
+    early_stop_threshold: float = float("inf"),
 ):
     """Compute CV-RMSE of a tiny model on the y-scale (after inverse).
 
@@ -944,7 +945,29 @@ def _tiny_cv_rmse_y_scale(
         except ImportError:
             fold_results = [_one_fold(tr, va) for tr, va in splits]
     else:
-        fold_results = [_one_fold(tr, va) for tr, va in splits]
+        # Pack #7 serial early-stop: track partial-sum and break when
+        # the final mean is GUARANTEED to exceed early_stop_threshold,
+        # i.e. ``sum_so_far > early_stop_threshold * cv_folds``. Even if
+        # all remaining folds return 0, the mean = sum / cv_folds > thr.
+        # Saves 30-66% of fold-fit compute on candidates that the gate
+        # will reject anyway.
+        fold_results = []
+        _sum_so_far = 0.0
+        _n_finite_so_far = 0
+        for _fi, (tr, va) in enumerate(splits):
+            _rmse, _pb = _one_fold(tr, va)
+            fold_results.append((_rmse, _pb))
+            if math.isfinite(_rmse):
+                _sum_so_far += _rmse
+                _n_finite_so_far += 1
+            if (
+                math.isfinite(early_stop_threshold)
+                and _n_finite_so_far > 0
+                and _fi < len(splits) - 1
+                and _sum_so_far > early_stop_threshold * cv_folds
+            ):
+                # Final mean cannot reach <= threshold; abort remaining folds.
+                break
 
     fold_rmses = [r for r, _ in fold_results if math.isfinite(r)]
     if not fold_rmses:
