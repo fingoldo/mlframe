@@ -265,17 +265,42 @@ def _run_composite_target_wrapping(
                                         _mae_t = float(np.mean(np.abs(_dt[_ft])))
                                         _drel = abs(_mae_t - _mae_wrapped) / max(_mae_t, 1e-9)
                                         if _drel > 0.01:
+                                            # Pack #9 diagnostic dump: when the watchdog fires we want enough info in the log to ROOT-CAUSE the divergence on the next production run without re-running. Surface first 5 (y_true, y_pred, T_true, T_pred) tuples + per-inner statistics so the operator can see WHERE the divergence enters: the wrapper math (T_pred vs T_true), the inverse path (T_pred -> y_pred), or the post-clip step.
+                                            _n_dbg = min(5, int(_ft.sum()))
+                                            _dbg_rows = []
+                                            _ft_idx = np.flatnonzero(_ft)[:_n_dbg]
+                                            for _i in _ft_idx:
+                                                _dbg_rows.append(
+                                                    f"y={_y_split[_i]:.4f}, "
+                                                    f"y_hat={_y_pred[_i]:.4f}, "
+                                                    f"T={_t_true[_i]:.4f}, "
+                                                    f"T_hat={_t_pred[_i]:.4f}, "
+                                                    f"base={_base_arr[_i]:.4f}"
+                                                )
+                                            _y_resid_sample = _y_pred[_ft_idx] - _y_split[_ft_idx]
+                                            _t_resid_sample = _dt[_ft_idx]
                                             logger.warning(
                                                 "[CompositeTargetEstimator.watchdog] "
                                                 "composite='%s' split='%s' inner=%s: "
                                                 "y-MAE=%.4f diverges from T-MAE=%.4f "
                                                 "by %.1f%% (>1%%). Additive-invertible "
-                                                "transform should give identical errors "
-                                                "-- entry mutation / cache regression "
-                                                "likely.",
+                                                "transform should give identical errors. "
+                                                "Probable causes: (1) inner.predict NOT "
+                                                "returning T-scale (TTR transformer_ "
+                                                "state lost via clone/pickle), (2) "
+                                                "wrapper.predict double-applies inverse, "
+                                                "(3) base column at predict differs from "
+                                                "fit. Diagnostic sample of first %d rows: "
+                                                "%s. y-residuals first %d: %s; T-residuals "
+                                                "first %d: %s.",
                                                 _composite_name, _split_name,
                                                 type(_wi).__name__,
                                                 _mae_wrapped, _mae_t, _drel * 100.0,
+                                                _n_dbg, " | ".join(_dbg_rows),
+                                                _n_dbg,
+                                                ", ".join(f"{v:.4f}" for v in _y_resid_sample.tolist()),
+                                                _n_dbg,
+                                                ", ".join(f"{v:.4f}" for v in _t_resid_sample.tolist()),
                                             )
                         except Exception as _watchdog_err:
                             logger.debug(
