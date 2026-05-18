@@ -979,54 +979,108 @@ def _run_suite_profiled(
         ppls.print_stats(top_n)
         predict_loaded_profile_text = plps.getvalue()
 
-    # PARITY check -- compare predictions/probabilities BEFORE save vs
-    # AFTER load. If both phases produced results, every shared model key
-    # must yield bit-close output (rtol=1e-7); anything else points to a
-    # serialization-induced silent drift that would silently corrupt
+    # PARITY check -- compare every comparable output BEFORE save vs
+    # AFTER load. Covers per-model dicts (``predictions`` /
+    # ``probabilities``) AND ensemble-level aggregates
+    # (``ensemble_predictions`` / ``ensemble_probabilities`` /
+    # ``per_target_predictions`` / ``per_target_probabilities``). Every
+    # shared key must yield bit-close output (rtol=1e-7); anything else
+    # points to a serialization-induced silent drift that would corrupt
     # production downstream. Reports ``ok`` / ``diff:<summary>`` /
-    # ``skip`` (insufficient data either side).
+    # ``skip`` (insufficient data either side). Missing-key surface
+    # (pre-only / post-only) is also reported as a diff -- a model key
+    # disappearing on reload is a real bug class.
     if (
         _predict_results is not None
         and _predict_loaded_results is not None
     ):
-        _pre_p = (_predict_results or {}).get("predictions") or {}
-        _pre_pr = (_predict_results or {}).get("probabilities") or {}
-        _post_p = (_predict_loaded_results or {}).get("predictions") or {}
-        _post_pr = (_predict_loaded_results or {}).get("probabilities") or {}
-        _shared_pred_keys = set(_pre_p) & set(_post_p)
-        _shared_prob_keys = set(_pre_pr) & set(_post_pr)
         _diffs: list[str] = []
-        for _k in _shared_pred_keys:
+
+        def _cmp_array(_label: str, _a: Any, _b: Any) -> None:
             try:
-                _a = np.asarray(_pre_p[_k])
-                _b = np.asarray(_post_p[_k])
+                _a = np.asarray(_a)
+                _b = np.asarray(_b)
                 if _a.shape != _b.shape:
-                    _diffs.append(f"preds[{_k}]:shape {_a.shape}!={_b.shape}")
-                elif not np.allclose(_a, _b, rtol=1e-7, atol=1e-7, equal_nan=True):
+                    _diffs.append(f"{_label}:shape {_a.shape}!={_b.shape}")
+                    return
+                if not np.allclose(_a, _b, rtol=1e-7, atol=1e-7, equal_nan=True):
                     _max_abs = float(np.nanmax(np.abs(_a - _b))) if _a.size else 0.0
-                    _diffs.append(f"preds[{_k}]:maxabs={_max_abs:.3g}")
+                    _diffs.append(f"{_label}:maxabs={_max_abs:.3g}")
             except Exception as _pcerr:
-                _diffs.append(f"preds[{_k}]:cmp_err={_pcerr}")
-        for _k in _shared_prob_keys:
-            try:
-                _a = np.asarray(_pre_pr[_k])
-                _b = np.asarray(_post_pr[_k])
-                if _a.shape != _b.shape:
-                    _diffs.append(f"probs[{_k}]:shape {_a.shape}!={_b.shape}")
-                elif not np.allclose(_a, _b, rtol=1e-7, atol=1e-7, equal_nan=True):
-                    _max_abs = float(np.nanmax(np.abs(_a - _b))) if _a.size else 0.0
-                    _diffs.append(f"probs[{_k}]:maxabs={_max_abs:.3g}")
-            except Exception as _pcerr:
-                _diffs.append(f"probs[{_k}]:cmp_err={_pcerr}")
-        _missing_post_p = set(_pre_p) - set(_post_p)
-        _missing_pre_p = set(_post_p) - set(_pre_p)
-        if _missing_post_p:
-            _diffs.append(f"preds_missing_after_load={sorted(_missing_post_p)[:5]}")
-        if _missing_pre_p:
-            _diffs.append(f"preds_extra_after_load={sorted(_missing_pre_p)[:5]}")
+                _diffs.append(f"{_label}:cmp_err={_pcerr}")
+
+        def _cmp_dict(_kind: str, _pre: dict, _post: dict) -> None:
+            _shared = set(_pre) & set(_post)
+            for _k in _shared:
+                _cmp_array(f"{_kind}[{_k}]", _pre[_k], _post[_k])
+            _missing_post = set(_pre) - set(_post)
+            _missing_pre = set(_post) - set(_pre)
+            if _missing_post:
+                _diffs.append(f"{_kind}_missing_after_load={sorted(_missing_post)[:5]}")
+            if _missing_pre:
+                _diffs.append(f"{_kind}_extra_after_load={sorted(_missing_pre)[:5]}")
+
+        _pre = _predict_results or {}
+        _post = _predict_loaded_results or {}
+        # Per-model dicts (includes the suite-wide "ensemble" key when
+        # the suite trained >1 component; the inner key is kept as part
+        # of the dict comparison so any ensemble drift surfaces here).
+        _cmp_dict("preds", _pre.get("predictions") or {}, _post.get("predictions") or {})
+        _cmp_dict("probs", _pre.get("probabilities") or {}, _post.get("probabilities") or {})
+        # Top-level ensemble aggregates.
+        if _pre.get("ensemble_predictions") is not None or _post.get("ensemble_predictions") is not None:
+            if _pre.get("ensemble_predictions") is None or _post.get("ensemble_predictions") is None:
+                _diffs.append(
+                    "ensemble_predictions_one_sided="
+                    f"pre={_pre.get('ensemble_predictions') is not None}/"
+                    f"post={_post.get('ensemble_predictions') is not None}"
+                )
+            else:
+                _cmp_array(
+                    "ensemble_predictions",
+                    _pre.get("ensemble_predictions"),
+                    _post.get("ensemble_predictions"),
+                )
+        if _pre.get("ensemble_probabilities") is not None or _post.get("ensemble_probabilities") is not None:
+            if _pre.get("ensemble_probabilities") is None or _post.get("ensemble_probabilities") is None:
+                _diffs.append(
+                    "ensemble_probabilities_one_sided="
+                    f"pre={_pre.get('ensemble_probabilities') is not None}/"
+                    f"post={_post.get('ensemble_probabilities') is not None}"
+                )
+            else:
+                _cmp_array(
+                    "ensemble_probabilities",
+                    _pre.get("ensemble_probabilities"),
+                    _post.get("ensemble_probabilities"),
+                )
+        # Per-target ensemble dicts (chosen-flavour aggregates).
+        _cmp_dict(
+            "per_target_preds",
+            _pre.get("per_target_predictions") or {},
+            _post.get("per_target_predictions") or {},
+        )
+        _cmp_dict(
+            "per_target_probs",
+            _pre.get("per_target_probabilities") or {},
+            _post.get("per_target_probabilities") or {},
+        )
+
+        _any_shared = bool(
+            (set(_pre.get("predictions") or {}) & set(_post.get("predictions") or {}))
+            or (set(_pre.get("probabilities") or {}) & set(_post.get("probabilities") or {}))
+            or (_pre.get("ensemble_predictions") is not None
+                and _post.get("ensemble_predictions") is not None)
+            or (_pre.get("ensemble_probabilities") is not None
+                and _post.get("ensemble_probabilities") is not None)
+            or (set(_pre.get("per_target_predictions") or {})
+                & set(_post.get("per_target_predictions") or {}))
+            or (set(_pre.get("per_target_probabilities") or {})
+                & set(_post.get("per_target_probabilities") or {}))
+        )
         if _diffs:
             parity_status = "diff:" + "; ".join(_diffs[:8])
-        elif _shared_pred_keys or _shared_prob_keys:
+        elif _any_shared:
             parity_status = "ok"
 
     # Best-effort cleanup of the save tempdir now that LOAD + PARITY are done.
