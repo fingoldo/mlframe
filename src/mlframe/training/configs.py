@@ -2058,6 +2058,27 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     stacked_n_oof_folds: int = 3
     stacked_max_pass1_specs: int = 3
 
+    # T1#6 2026-05-18 #4: residual-target stacked discovery (alternative to
+    # ``use_stacked_discovery``). When True the suite calls
+    # ``CompositeTargetDiscovery.fit_stacked_on_residual`` instead of
+    # ``fit_stacked``. Pass 1 specs collectively predict ``pass1_pred``;
+    # ``y - pass1_pred`` becomes the new target for pass 2 discovery.
+    # Mathematically the more direct path for residual-of-residual
+    # structure when the feature-stack route blocks at the discovery
+    # gate (pass 1 OOF prediction is too correlated with target so
+    # pass 2 ``mi_gain`` looks marginal).
+    #
+    # Mutual exclusion: if BOTH ``use_stacked_discovery`` and
+    # ``use_stacked_discovery_residual`` are True, residual wins (per
+    # the docstring's "more direct" recommendation) and a warning is
+    # logged. Default False; opt-in after biz_val on your target.
+    use_stacked_discovery_residual: bool = False
+
+    # ``"mean"`` averages OOF predictions across pass-1 specs (robust to a
+    # single overfit spec); ``"first"`` uses the best pass-1 spec only.
+    # Forwarded to ``fit_stacked_on_residual(residual_aggregation=...)``.
+    stacked_residual_aggregation: str = "mean"
+
     # T1#1 2026-05-18 Pack #6: parallel evaluation of (base, transform)
     # candidates in CompositeTargetDiscovery.fit. The per-transform body
     # was extracted into a nested closure that returns a list of candidate

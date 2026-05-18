@@ -384,10 +384,40 @@ def run_composite_target_discovery(
                     # standard ``fit()`` so the rest of the phase code path is
                     # unchanged. Opt-in via config; default False keeps the
                     # historical single-pass behaviour.
+                    #
+                    # T1#6 2026-05-18 Pack #4 wiring: residual-target alt
+                    # (``fit_stacked_on_residual``). Mutually exclusive with
+                    # feature-stack mode -- residual wins if both flags set,
+                    # per its "more direct" docstring recommendation.
                     _use_stacked = bool(getattr(
                         _disc_cfg, "use_stacked_discovery", False,
                     ))
-                    if _use_stacked:
+                    _use_stacked_residual = bool(getattr(
+                        _disc_cfg, "use_stacked_discovery_residual", False,
+                    ))
+                    if _use_stacked and _use_stacked_residual:
+                        logger.warning(
+                            "[CompositeTargetDiscovery] both "
+                            "use_stacked_discovery=True and "
+                            "use_stacked_discovery_residual=True set; "
+                            "residual mode wins (more direct route to "
+                            "residual-of-residual structure). Disable one "
+                            "flag to silence this warning."
+                        )
+                    if _use_stacked_residual:
+                        _disc = _disc_instance.fit_stacked_on_residual(
+                            df=_disc_df,
+                            target_col=_tname_disc,
+                            feature_cols=_disc_feature_cols,
+                            train_idx=_disc_train_idx,
+                            n_oof_folds=int(getattr(
+                                _disc_cfg, "stacked_n_oof_folds", 3,
+                            )),
+                            residual_aggregation=str(getattr(
+                                _disc_cfg, "stacked_residual_aggregation", "mean",
+                            )),
+                        )
+                    elif _use_stacked:
                         _disc = _disc_instance.fit_stacked(
                             df=_disc_df,
                             target_col=_tname_disc,
