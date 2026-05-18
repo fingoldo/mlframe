@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-05-18 — Iter 111-112: iter69 fails on rare-positive binary (mammography 1.3% pos); StratifiedKFold fix isn't enough
+
+### iter111: iter69 on mammography 11k as-is (regular KFold)
+- CB AUC: median -1.05% (all 3 negative -1.86% / -0.96%)
+- LGB AUC: median -0.36% (mixed mostly neg)
+
+Diagnosis hypothesis: KFold may produce folds with 0 positives at 1.3% rate, so internal baselines fit on no-positive data and disagreement statistics become noise.
+
+### iter112: same with StratifiedKFold (y-bound wrapper for existing FE primitives)
+- mammography CB AUC: median **-0.70%** (range -2.43% / +0.46%, IQR 0.0145) -- slightly less negative, high variance
+- mammography LGB AUC: median **-1.84%** (all 3 negative, IQR 0.0029) -- WORSE
+- Adult 49k CB AUC: median **+0.62%** (essentially same as iter108 +0.63%) -- fix doesn't break balanced binary
+
+### Lesson
+StratifiedKFold isn't enough. iter69 mechanism is genuinely broken at 1.3% positive: even with stratified splits, ~30 positives per fold isn't enough for the 3 LGB/Ridge baselines to fit well, and cdist's kNN to the small positive class is too noisy. iter66 retraction on mammography was correct; no transformer-FE variant tested validates on mammography under multi-seed.
+
+### Mechanism boundary map (post-iter112)
+- REGRESSION: iter69 works, lift +1-5% (amplifies with N).
+- BALANCED BINARY: iter69 works, lift +0.6-0.7% CB only (capped, doesn't amplify with N).
+- RARE-POSITIVE BINARY (<2% pos): iter69 HURTS. Mechanism family doesn't work here.
+
+iter113+ direction: try focal-loss LGB baselines (directly addresses class imbalance) for rare-positive, or pivot to mechanisms designed for class imbalance (SMOTE-based augmentation).
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter111_*` and `::test_iter112_*`.
+
 ## 2026-05-18 — Iter 110: iter69 + iter66 stacking on Adult binary - HURTS vs iter69 alone
 
 Tested whether adding iter66 (class_balanced_hard_row + RFF, retracted on mammography 11k as FOLD-NOISE) as additive component to iter69 helps at Adult 49k scale. Multi-seed (3), CB target_model.

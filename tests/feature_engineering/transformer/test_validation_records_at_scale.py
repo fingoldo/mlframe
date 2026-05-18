@@ -466,3 +466,84 @@ def test_iter111_mammography_cb_auc():
 def test_iter111_mammography_lgb_auc():
     """iter69 on mammography 11k full-N binary (LGB AUC). iter66 retracted on this dataset under multi-seed."""
     _validate_scale(_load_mammography, _build_iter69, "lgb", "AUC", -0.0077, "iter111_iter69_Mammog11k_lgb")
+
+
+# ---------- iter112 - iter69 with STRATIFIED KFold for binary (fix rare-positive bug) ----------
+
+
+class _StratifiedKFoldYBound:
+    """Wrapper around StratifiedKFold so its split(X) call (no y) works with existing FE primitives.
+
+    Existing FE primitives call splitter.split(X) without y. This wrapper pre-binds y so the call
+    works for stratified splits too.
+    """
+    def __init__(self, n_splits, shuffle, random_state, y):
+        from sklearn.model_selection import StratifiedKFold
+        self._inner = StratifiedKFold(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
+        self._y = y
+
+    def split(self, X, y=None, groups=None):
+        return self._inner.split(X, self._y if y is None else y)
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        return self._inner.get_n_splits(X, y, groups)
+
+
+def _build_iter69_stratified(X_tr, X_te, y_tr, task, seed):
+    """Same as iter69 but uses StratifiedKFold for binary classification.
+
+    Fixes the rare-positive bug where KFold may produce folds with 0 positives at <2% positive rate,
+    causing baseline disagreement and cdist to compute meaningless statistics.
+    """
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_features,
+        compute_class_distance_features,
+    )
+
+    if task == "binary":
+        splitter = _StratifiedKFoldYBound(n_splits=5, shuffle=True, random_state=seed, y=y_tr)
+        task_str = "binary"
+    else:
+        splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+        task_str = "regression"
+
+    bl_tr = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    # cdist for binary needs stratified splits too.
+    if task == "binary":
+        cd_tr = compute_class_distance_features(
+            X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter,
+            seed=seed, task=task_str, standardize=True,
+        ).to_numpy()
+        cd_te = compute_class_distance_features(
+            X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter,
+            seed=seed, task=task_str, standardize=True,
+        ).to_numpy()
+    else:
+        cd_tr_full, cd_te_full = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+        cd_tr = _strip(cd_tr_full, X_tr.shape[1])
+        cd_te = _strip(cd_te_full, X_te.shape[1])
+
+    return (np.concatenate([X_tr, bl_tr, cd_tr], axis=1),
+            np.concatenate([X_te, bl_te, cd_te], axis=1))
+
+
+def test_iter112_mammography_cb_auc():
+    """iter69 with StratifiedKFold on mammography 11k (was iter111 -1.05% with regular KFold)."""
+    _validate_scale(_load_mammography, _build_iter69_stratified, "cb", "AUC", -0.0105, "iter112_iter69strat_Mammog11k_cb")
+
+
+def test_iter112_mammography_lgb_auc():
+    """iter69 with StratifiedKFold on mammography 11k (was iter111 -0.36% with regular KFold)."""
+    _validate_scale(_load_mammography, _build_iter69_stratified, "lgb", "AUC", -0.0036, "iter112_iter69strat_Mammog11k_lgb")
+
+
+def test_iter112_adult_cb_auc():
+    """iter69 with StratifiedKFold on Adult 49k (was iter108 +0.63%). Should match or beat."""
+    _validate_scale(_load_adult_binary, _build_iter69_stratified, "cb", "AUC", 0.0063, "iter112_iter69strat_Adult49k_cb")

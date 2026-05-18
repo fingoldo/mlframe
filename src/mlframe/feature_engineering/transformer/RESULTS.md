@@ -3330,6 +3330,33 @@ Tested iter69 mechanism (baseline_disagreement + cdist) on Adult 49k binary (>50
 - **iter110**: try iter69 + iter66 (class_balanced_hard_row + RFF) stacking on Adult 49k binary. iter66 was FOLD-NOISE alone at mammography 11k single-seed, but as additive component to iter69 at Adult 49k might add the +0.1-0.3pp needed to push past the +0.7% binary ceiling.
 - Alternative: explore **class-conditional attention** or **Bayesian decision-boundary-distance** features as binary-specific mechanism — current iter69-derived family is mapped on binary too.
 
+## iter110-112 binary boundary map
+
+### iter110: iter69 + iter66 (class_balanced_hard_row + RFF) on Adult — HURTS
+- median +0.50% (vs iter69 alone +0.63%), delta -0.13pp. iter66 features actively hurt the stack.
+
+### iter111: iter69 on mammography 11k (rare-positive 1.3%) — NEGATIVE
+- CB AUC: median **-1.05%** (all 3 negative). LGB AUC: median **-0.36%**.
+- KFold splitter produces folds with very few positives → baselines fit on no-positive data.
+
+### iter112: iter69 with StratifiedKFold (y-bound wrapper for existing FE primitives) — DOESN'T RESCUE MAMMOGRAPHY
+- mammography CB AUC: median -0.70% (range -2.43%/+0.46%, IQR 0.0145), slightly less negative but high variance.
+- mammography LGB AUC: median **-1.84%** (all 3 negative, WORSE than iter111). 
+- Adult CB AUC: median +0.62% (essentially same as iter108 +0.63%) — fix doesn't break balanced binary.
+
+### Mechanism boundary map (post-iter112)
+
+| Regime | iter69 verdict | Notes |
+|---|---|---|
+| Regression (small N → large N) | WORKS, lift +1-5% (amplifies with N) | abalone 4k +2.26%, CA 20k +1.15%, Year-100k +4.92% |
+| Balanced binary (CB target) | WORKS, lift +0.6-0.7% (capped) | Adult 49k +0.63%, Higgs 98k +0.67% |
+| Balanced binary (LGB target) | barely positive / noise | Adult +0.06%, Higgs -0.13% |
+| Rare-positive binary (<2% pos) | HURTS | Mammography -0.70% CB, -1.84% LGB (with stratified) |
+
+### Next (iter113+)
+
+The iter69-family is mapped. Rare-positive binary requires different mechanism family. Candidate: focal-loss-LGB baselines (directly addresses class imbalance at baseline-fit level instead of post-hoc kNN-to-tiny-positive-class). Or: SMOTE-augmented baselines (synthetic positives → richer disagreement structure).
+
 ## Reproducibility
 
 ```
