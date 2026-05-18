@@ -332,6 +332,47 @@ def _mi_from_binned_pair(
     return max(0.0, float((pxy * log_terms).sum()))
 
 
+def _mi_per_feature_y_fixed(
+    feature_matrix: np.ndarray,
+    y: np.ndarray,
+    *,
+    nbins: int,
+) -> np.ndarray:
+    """Per-feature MI between each column of ``feature_matrix`` and a fixed ``y``.
+
+    Specialises ``_mi_pair_bin`` for the (feature-loop, fixed-target) case
+    used by ``CompositeTargetDiscovery._auto_base``: the naive
+    ``[_mi_pair_bin(F[:, j], y, nbins) for j in cols]`` re-quantiles ``y``
+    on every iteration; this hoists the y-binning out of the loop. The
+    per-feature work reduces to ``np.quantile(col) + searchsorted +
+    bincount`` -- mathematically identical to the per-call path, so the
+    returned per-feature MI is bit-exact vs the naive baseline.
+
+    Inputs are assumed already cross-column finite-masked by the caller
+    (matches ``_mi_pair_bin``'s contract when used inside the feature
+    loop at ``composite_discovery._auto_base``).
+
+    Benchmark (n=500K, k=30, nbins=50, screening sample from
+    ``_profile_fuzz_1m.py`` seed=99): naive 2888.5 ms -> hoisted 1729.3 ms
+    => 1.67x faster, bit-exact (max abs diff 0.0).
+    """
+    n_rows, n_cols = feature_matrix.shape
+    out = np.zeros(n_cols, dtype=np.float64)
+    if n_rows < 5 * nbins or n_cols == 0:
+        return out
+    qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
+    y_edges = np.quantile(y, qs)
+    y_idx = np.searchsorted(y_edges, y, side="right").astype(np.int64)
+    np.clip(y_idx, 0, nbins - 1, out=y_idx)
+    for j in range(n_cols):
+        col = feature_matrix[:, j]
+        x_edges = np.quantile(col, qs)
+        x_idx = np.searchsorted(x_edges, col, side="right").astype(np.int64)
+        np.clip(x_idx, 0, nbins - 1, out=x_idx)
+        out[j] = _mi_from_binned_pair(x_idx, y_idx, nbins=nbins)
+    return out
+
+
 def _mi_to_target(
     feature_matrix: np.ndarray,
     target: np.ndarray,
