@@ -1,0 +1,193 @@
+"""Shared utilities for the transformer FE subpackage.
+
+Includes:
+- GPU detection with smoke-call (catches "wheel installs but CUDA driver mismatch" — a cupy-cuda12x install on a CUDA 11.x driver imports OK but crashes inside the first kernel call).
+- VRAM budget helper that accounts for cupy memory-pool retained bytes (``memGetInfo`` returns physical-free only, not pool-free).
+- Input validation that fails fast on NaN / sparse / non-numeric dtype rather than silently coercing — the attention math has no defensible policy for missing values, so callers must impute upstream.
+- Median-heuristic bandwidth estimator for RBF / cosine kernels, capped to a subsample so the O(n^2) pairwise step doesn't dominate for N >> 2048.
+
+All ``logger.*`` and ``print`` output here is ASCII-only by project rule; cp1251 Windows consoles crash on non-ASCII writes from the streams.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+# Per-process cache. ``None`` = not probed yet; True/False = probed result.
+# Module-level (not function attribute) so multiprocessing children inherit the un-probed state and re-probe in their own CUDA context.
+_GPU_AVAILABLE: Optional[bool] = None
+
+
+def is_gpu_available() -> bool:
+    """Return True iff cupy imports AND a 1-element device allocation round-trips successfully.
+
+    Smoke-call (``cp.zeros(1).get()``) is essential: ``cupy-cuda12x`` on a host with only the CUDA 11.x driver imports cleanly but raises ``CUDARuntimeError`` on the
+    first actual kernel call. Without this probe, the dispatcher would route to GPU based on a successful import and then crash mid-pipeline.
+
+    The result is memoised per-process. Children spawned via ``multiprocessing`` re-probe in their own CUDA context (avoids a parent-process detection silently
+    propagating to a child without a usable GPU).
+    """
+    global _GPU_AVAILABLE
+    if _GPU_AVAILABLE is not None:
+        return _GPU_AVAILABLE
+    try:
+        import cupy as cp
+        _ = cp.zeros(1, dtype=cp.float32).get()
+        _GPU_AVAILABLE = True
+        logger.info("GPU (cupy) detected and usable.")
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        # Catch broad Exception so an ImportError, a CUDARuntimeError, or any driver/runtime mismatch all fall back to CPU silently.
+        _GPU_AVAILABLE = False
+        logger.info("GPU (cupy) unavailable, falling back to CPU. Reason: %s: %s", type(exc).__name__, exc)
+    return _GPU_AVAILABLE
+
+
+def reset_gpu_probe() -> None:
+    """Clear the cached GPU-availability flag. Used by tests that want to re-probe after monkeypatching cupy.
+
+    Production callers should not need this; the per-process cache is intentional.
+    """
+    global _GPU_AVAILABLE
+    _GPU_AVAILABLE = None
+
+
+def gpu_available_bytes(safety_fraction: float = 0.6) -> int:
+    """Return usable GPU memory in bytes = ``(memGetInfo_free + pool_free_bytes) * safety_fraction``.
+
+    ``cp.cuda.runtime.memGetInfo`` reports only the physical free VRAM and treats the cupy memory pool's already-allocated chunks as "used" even though the pool
+    can hand them back to the next allocation. Adding ``pool.free_bytes()`` recovers that headroom. The 60% safety multiplier leaves room for cuBLAS workspace
+    (typically 128-256 MB on Ampere+) and pool fragmentation. Tune via ``safety_fraction`` for tight tile-budget sizing.
+
+    Returns 0 if cupy is unavailable; callers must check before treating the result as a real budget.
+    """
+    if not is_gpu_available():
+        return 0
+    import cupy as cp
+    free_phys = int(cp.cuda.runtime.memGetInfo()[0])
+    pool_free = int(cp.get_default_memory_pool().free_bytes())
+    return int((free_phys + pool_free) * safety_fraction)
+
+
+def free_gpu_memory_pool() -> None:
+    """Release all retained blocks from the default cupy memory pool.
+
+    Called at the end of ``compute_row_attention`` / ``compute_rff_features`` when ``release_memory_after=True`` so the next downstream GPU operator (CatBoost-GPU,
+    another mlframe filter) doesn't OOM on residual ~5-10 GB of pool-retained but caller-finished buffers.
+    """
+    if not is_gpu_available():
+        return
+    import cupy as cp
+    cp.get_default_memory_pool().free_all_blocks()
+
+
+def validate_numeric_input(
+    X: np.ndarray,
+    *,
+    name: str = "X",
+    allow_fp16: bool = True,
+) -> None:
+    """Reject inputs that the attention / RFF math has no clean policy for.
+
+    Rules (per ML critic #13, #14, #16, #27):
+    - Must be ndarray, not sparse: scipy.sparse interop with cupy/numba is fragile and one-hot inputs should be re-engineered upstream (use the categorical path).
+    - Must be a numeric dtype: silent coercion of ``pl.Categorical`` / object would produce meaningless distances.
+    - Must contain no NaN / +/-Inf: silent imputation has three defensible policies (mask, fill, ignore-in-softmax) all of which deceive callers; force them to pick.
+    - Hard cap on ``d``: ``> 32_768`` is rejected as a foot-gun (the projection matrix alone is too big and indicates an upstream pre-densification mistake).
+
+    Errors include the dtype, shape, and the count of bad cells so the caller can fix without re-running.
+    """
+    if hasattr(X, "ndim") and not isinstance(X, np.ndarray):
+        # Cheap duck-type check; sparse matrices have ``ndim`` but are not ``np.ndarray``.
+        raise TypeError(f"{name} must be np.ndarray, got {type(X).__name__} (sparse / pandas-extension / polars inputs are not supported; convert upstream).")
+    if not isinstance(X, np.ndarray):
+        raise TypeError(f"{name} must be np.ndarray, got {type(X).__name__}.")
+    if X.ndim != 2:
+        raise ValueError(f"{name} must be 2-D (N, d); got ndim={X.ndim} shape={X.shape}.")
+    if X.dtype.kind not in ("f", "i", "u"):
+        raise TypeError(f"{name} must be a numeric dtype (float / int / uint); got dtype={X.dtype}.")
+    if X.dtype == np.float16 and not allow_fp16:
+        raise TypeError(f"{name} dtype float16 not allowed here; convert to float32 upstream.")
+    n_bad = int(np.count_nonzero(~np.isfinite(X))) if X.dtype.kind == "f" else 0
+    if n_bad > 0:
+        raise ValueError(
+            f"{name} contains {n_bad} non-finite cells (NaN or +/-Inf). Impute upstream via polars.fill_null('mean') or sklearn KNNImputer; "
+            "this module does not silently mask missing values because the three plausible policies (mask, fill, ignore-in-softmax) give different results."
+        )
+    if X.shape[1] > 32_768:
+        raise ValueError(
+            f"{name} has d={X.shape[1]} > 32768 (hard cap). At this width the projection matrix alone exceeds 1 GB and indicates an upstream one-hot / "
+            "pre-densification mistake. Reduce dimensionality first (PCA, feature_selection, polars one-hot to Enum, etc.)."
+        )
+
+
+def sigma_median_heuristic(
+    X: np.ndarray,
+    *,
+    n_sub: int = 2_048,
+    seed: int,
+) -> float:
+    """Median pairwise Euclidean distance on a random subsample - classical RBF-bandwidth heuristic (Garreau et al. 2017 surveys it).
+
+    Subsample cap (default 2048) keeps the pairwise cost at 2048 * 2048 = 4M distance evaluations regardless of input N. The cap is configurable but values
+    above 4096 don't measurably improve the estimate while quadrupling runtime each doubling.
+
+    ``seed`` is required (no default) to keep reproducibility explicit — feeding a derived seed silently changes the bandwidth estimate across runs.
+
+    Reference: Rahimi & Recht 2007 use ``sigma = 1 / median_distance`` as the kernel bandwidth in their RBF feature map; we expose the median distance itself and
+    let the caller convert.
+    """
+    if X.shape[0] == 0:
+        raise ValueError("sigma_median_heuristic: cannot estimate bandwidth on empty X.")
+    rng = np.random.default_rng(seed)
+    n = X.shape[0]
+    if n > n_sub:
+        idx = rng.choice(n, size=n_sub, replace=False)
+        X_sub = X[idx]
+    else:
+        X_sub = X
+    # Always use the block-wise pairwise reduction. The naive broadcast (X_sub[:, None, :] - X_sub[None, :, :]) materialises an n_sub^2 * d float32 cube which
+    # OOMs at d > 16 for n_sub=2048 (e.g. d=50 -> 800 MB). The block-wise path stores only the n_sub^2 distance matrix and one (chunk, d) gemm input at a time -
+    # peak memory ~n_sub^2 * 8 bytes = 32 MB for n_sub=2048, independent of d.
+    return _median_pairwise_chunked(X_sub, chunk=256)
+
+
+def _median_pairwise_chunked(X_sub: np.ndarray, chunk: int) -> float:
+    """Pairwise-distance median via ``scipy.spatial.distance.pdist`` (returns only the upper triangle).
+
+    Memory: ``n_sub * (n_sub - 1) / 2 * 8 bytes`` ~~ 16 MB for n_sub=2048. Half the cost of materialising the full n_sub^2 distance matrix and avoids the
+    Windows page-file pressure that the full-matrix path hit under repeated calls in the same process.
+
+    ``chunk`` is accepted for back-compat but ignored (scipy's C implementation handles its own blocking internally).
+    """
+    from scipy.spatial.distance import pdist
+    # pdist returns the condensed upper-triangle distance vector; all entries are pairwise distances between distinct points (no self-pairs to filter).
+    dists = pdist(X_sub.astype(np.float32, copy=False), metric="euclidean")
+    if dists.size == 0:
+        return 1.0
+    # Filter exact zeros (duplicate rows) so they don't bias the median; pdist returns 0 distance only for exact-equal rows.
+    nonzero = dists[dists > 0]
+    if nonzero.size == 0:
+        return 1.0
+    return float(np.median(nonzero))
+
+
+def require_seed(seed: object) -> int:
+    """Validate that ``seed`` is a literal Python int and not ``None`` or derived-from-data.
+
+    Per ML critic #7: a seed derived from input data (e.g. ``hash(X.shape)``) silently makes the projection matrices a function of the train fold, which is a
+    leakage channel even when the OOF discipline correctly excludes y. Forcing ``int`` at the API boundary doesn't catch all foot-guns but makes the cheap ones
+    impossible (``None`` -> implicit randomness, ``np.int64`` from a derived hash -> caught by a runtime type-check, etc.).
+    """
+    if seed is None:
+        raise TypeError("seed is required (no default). Pass a literal int, e.g. seed=42.")
+    if not isinstance(seed, (int, np.integer)) or isinstance(seed, bool):
+        raise TypeError(f"seed must be an int, got {type(seed).__name__}. Do not derive seeds from input data (e.g. hash(X.shape)) — that leaks data into the projection matrices.")
+    seed_int = int(seed)
+    if seed_int < 0 or seed_int >= 2 ** 32:
+        raise ValueError(f"seed must be in [0, 2**32); got {seed_int}.")
+    return seed_int

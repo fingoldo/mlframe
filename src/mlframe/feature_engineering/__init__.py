@@ -9,6 +9,7 @@ Submodules:
     mps            - Maximum Profit System target/regions.
     numerical      - rich numerical aggregates for 1d vectors.
     timeseries     - windowed feature aggregation and ACF helpers.
+    transformer    - frozen transformer-style FE: RFF, positional encoding, row-attention (multi-head softmax-weighted kNN-TE).
 """
 
 from __future__ import annotations
@@ -45,6 +46,12 @@ from .numerical import (
     rolling_moving_average,
 )
 from .timeseries import create_aggregated_features, create_windowed_features, general_acf
+from .transformer import (
+    compute_positional_encoding,
+    compute_rff_features,
+    compute_row_attention,
+    positions_within_group,
+)
 
 __all__ = [
     "add_fast_rolling_stats",
@@ -56,6 +63,9 @@ __all__ = [
     "compute_mps_targets",
     "compute_numaggs",
     "compute_numaggs_parallel",
+    "compute_positional_encoding",
+    "compute_rff_features",
+    "compute_row_attention",
     "compute_simple_stats_numba",
     "cont_entropy",
     "create_aggregated_features",
@@ -72,6 +82,7 @@ __all__ = [
     "get_simple_stats_names",
     "merge_perticker_and_wholemarket_features",
     "numaggs_over_matrix_rows",
+    "positions_within_group",
     "precompute_hurst_exponent",
     "rolling_moving_average",
     "run_pysr_fe",

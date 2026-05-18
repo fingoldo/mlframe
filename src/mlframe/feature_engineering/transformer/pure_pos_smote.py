@@ -1,0 +1,159 @@
+"""Pure-positive-weighted SMOTE: source-positive sampling weight ∝ distance to negative centroid.
+
+Iter 52 mechanism. BEYOND-FROZEN sampling-family.
+
+Hypothesis (after iter 49 active-virtual and iter 51 ADASYN failed): boundary-oriented sampling underperforms because boundary virtuals are intrinsically ambiguous.
+Iter 52 tries the OPPOSITE: oversample positives FURTHEST from negatives — the "purest" examples whose interpolation produces unambiguous virtuals deep in positive territory.
+
+Mechanism (binary):
+1. Compute negative class centroid: μ_neg = mean(X[y==0]).
+2. For each positive: distance_to_neg_centroid = ||x_pos − μ_neg||.
+3. Source-positive sampling weight w_i ∝ distance_to_neg_centroid_i / Σ_j distance_j.
+4. SMOTE-interpolate among weighted source positives. Pure positives (far from neg centroid) dominate the source pool → virtuals concentrate deep in positive region.
+5. Combine real + pure-weighted SMOTE virtuals → distance features.
+
+For regression: distance to bottom-quintile-y centroid (analogous to "negative centroid").
+
+Pattern context:
+- iter 50 density-weighted (sparse-pos oversampled): RECORD CB PR_AUC +7.35%.
+- iter 51 ADASYN (boundary-pos oversampled): NO RECORD.
+- iter 52 pure-pos (far-from-neg oversampled): UNTESTED. Opposite direction from iter 51 — should clarify whether mammography benefits from "purer" or "denser-region" virtuals.
+
+Leakage discipline: μ_neg computed per fold from train-fold negatives only.
+
+Cost: μ_neg O(n_neg · d) + weighted SMOTE.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Literal, Optional, Tuple
+
+import numpy as np
+import polars as pl
+
+from ._utils import require_seed, validate_numeric_input
+
+logger = logging.getLogger(__name__)
+
+_K_SCALES = (1, 3, 5, 10)
+
+
+def _pure_pos_smote_synthesize(X_minority: np.ndarray, neg_centroid: np.ndarray, n_synthetic: int, k_neighbors: int, seed: int) -> np.ndarray:
+    """Sample source positives with weight ∝ distance to negative centroid, then SMOTE."""
+    n_min = X_minority.shape[0]
+    if n_min < 2:
+        return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1] if n_min > 0 else 1), dtype=np.float32)
+    from sklearn.neighbors import NearestNeighbors
+    distances_to_neg = np.linalg.norm(X_minority - neg_centroid, axis=1) + 1e-9
+    # Weight: larger distance from neg centroid → more weight (purer positive).
+    weights = distances_to_neg / distances_to_neg.sum()
+    k_used = min(k_neighbors + 1, n_min)
+    nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
+    _dists, ids = nn.kneighbors(X_minority)
+    rng = np.random.default_rng(seed)
+    src_indices = rng.choice(n_min, size=n_synthetic, p=weights)
+    out = np.zeros((n_synthetic, X_minority.shape[1]), dtype=np.float32)
+    for i in range(n_synthetic):
+        src_idx = src_indices[i]
+        candidates = ids[src_idx, 1:k_used]
+        if candidates.size == 0:
+            out[i] = X_minority[src_idx]
+            continue
+        nbr_idx = candidates[rng.integers(0, candidates.size)]
+        alpha = rng.random()
+        out[i] = X_minority[src_idx] + alpha * (X_minority[nbr_idx] - X_minority[src_idx])
+    return out
+
+
+def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) -> np.ndarray:
+    from sklearn.neighbors import NearestNeighbors
+    n_sub = X_subset.shape[0]
+    if n_sub == 0:
+        return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
+    k_request = min(k_max, n_sub)
+    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
+    dists, _ids = nn.kneighbors(X_query)
+    out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
+    for col_idx, k in enumerate(_K_SCALES):
+        eff_k = min(k, k_request)
+        out[:, col_idx] = dists[:, eff_k - 1]
+    return out
+
+
+def compute_pure_pos_smote_features(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_query: Optional[np.ndarray],
+    splitter: Optional[Any] = None,
+    *,
+    seed: int,
+    task: Literal["binary", "regression"] = "binary",
+    oversample: float = 10.0,
+    k_smote: int = 5,
+    q_high: float = 0.8,
+    standardize: bool = True,
+    column_prefix: str = "ppsmote",
+    dtype: np.dtype = np.float32,
+) -> pl.DataFrame:
+    """Pure-positive-weighted SMOTE distance features."""
+    seed = require_seed(seed)
+    validate_numeric_input(X_train, name="X_train", allow_fp16=False)
+    if X_query is not None:
+        validate_numeric_input(X_query, name="X_query", allow_fp16=False)
+
+    X_train_f = np.asarray(X_train, dtype=np.float32)
+    y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
+
+    def _slice(X_sub: np.ndarray, y_sub: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        if task == "binary":
+            pos = y_sub > 0.5
+            return X_sub[pos], X_sub[~pos]
+        y_hi = np.quantile(y_sub, q_high)
+        y_lo = np.quantile(y_sub, 1.0 - q_high)
+        return X_sub[y_sub >= y_hi], X_sub[y_sub <= y_lo]
+
+    def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
+        if standardize:
+            from sklearn.preprocessing import RobustScaler
+            scaler = RobustScaler().fit(Xt)
+            Xt_s = scaler.transform(Xt).astype(np.float32)
+            Xq_s = scaler.transform(Xq).astype(np.float32)
+        else:
+            Xt_s = Xt
+            Xq_s = Xq
+        Xt_pos, Xt_neg = _slice(Xt_s, y_t)
+        if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
+            return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES)), dtype=np.float32)
+        neg_centroid = Xt_neg.mean(axis=0).astype(np.float32)
+        n_synthetic = max(50, int(Xt_pos.shape[0] * oversample))
+        X_synth_pos = _pure_pos_smote_synthesize(Xt_pos, neg_centroid, n_synthetic=n_synthetic, k_neighbors=k_smote, seed=fold_seed)
+        X_virtual_pos = np.concatenate([Xt_pos, X_synth_pos], axis=0)
+        pos_d = _kth_nearest_dists(X_virtual_pos, Xq_s, max(_K_SCALES))
+        neg_d = _kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES))
+        log_gap = np.log(np.maximum(neg_d, 1e-9)) - np.log(np.maximum(pos_d, 1e-9))
+        return np.concatenate([pos_d, log_gap], axis=1).astype(np.float32)
+
+    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
+        cols: dict[str, np.ndarray] = {}
+        for j, k in enumerate(_K_SCALES):
+            cols[f"{column_prefix}_pos_k{k}"] = feats[:, j].astype(dtype, copy=False)
+        for j, k in enumerate(_K_SCALES):
+            cols[f"{column_prefix}_loggap_k{k}"] = feats[:, len(_K_SCALES) + j].astype(dtype, copy=False)
+        return cols
+
+    if X_query is not None:
+        Xq = np.asarray(X_query, dtype=np.float32)
+        feats = _process(X_train_f, Xq, y_train_f, seed)
+        return pl.DataFrame(_make_df(feats))
+
+    if splitter is None:
+        raise ValueError("Mode A (X_query=None) requires a splitter.")
+    n_train = X_train_f.shape[0]
+    out = np.zeros((n_train, 2 * len(_K_SCALES)), dtype=dtype)
+    splits = list(splitter.split(X_train_f))
+    for fold_idx, (train_idx, val_idx) in enumerate(splits):
+        feats = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100)
+        out[val_idx] = feats.astype(dtype, copy=False)
+        logger.info("pure_pos_smote: fold %d/%d done", fold_idx + 1, len(splits))
+
+    return pl.DataFrame(_make_df(out))

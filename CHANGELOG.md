@@ -33,6 +33,25 @@ Closes the honest-gaps list from the TVT production log analysis. 13 shipped ite
 - **y-fingerprint `max_sample=1000`** (T2#11) - docstring expanded.
 - **`fe_adaptive_relax_factor=0.9`** (T2#12) - rationale captured in init docstring.
 
+## 2026-07-27 — Iter 78-86: All 15 ideas from 3-agent synthesis tested
+
+Per user "тестируй все их находки", all 15 ideas from 3-agent synthesis (info-theoretic / geometric / adversarial) implemented and tested:
+- iter 78 counterfactual feature substitution (adv #2)
+- iter 79 adversarial flip distance (adv #1)
+- iter 80 gradient direction agreement / Jacobian cosine sim (adv #4)
+- iter 81 Fisher-weighted residual band (info #3)
+- iter 82 predictive info delta H(y) - H(y|baseline_bin) (info #5)
+- iter 83 decision region depth via isotropic probes (adv #5)
+- iter 84 IB-quantized baseline codes (info #4)
+- iter 85 geodesic distance via kNN graph + scipy Dijkstra (geom #3)
+- iter 86 persistence diagram via gudhi RipsComplex H0 (geom #4) — installed gudhi/ripser pip
+
+**Result: 2 records in 15 agent ideas** (iter 72 ldgrad geom #2, iter 77 curv marginal geom #5). 13 no records.
+
+**Pattern**: pure-input-X geometric mechanisms dominated (density gradient + local curvature). Stacking-based info-theoretic and adversarial extensions modest signal but no records.
+
+7 standing session records across iter 60-86: abalone XGB (iter 61), mammography LGB AUC (iter 66), kin8nm LGB R² marginal (iter 68), abalone CB R² (iter 69), abalone LGB R² (iter 72), diabetes CB PR_AUC marginal (iter 77 replaces iter 60), and iter 77 ALL-5-metrics × ALL-3-boostings sweep on diabetes.
+
 ## 2026-07-26 — Iter 77: Local curvature via quadratic fit — MARGINAL NEW diabetes CB PR_AUC RECORD (+6.75%, was +6.49% iter 60, +0.26pp at fold-noise edge)
 
 Added `compute_local_curvature_features`: K=40 NN per row, local quadratic fit y = a + b·dx + 0.5 dx'·H·dx; emit 5 features (trace H, frobenius H, linear-vs-quadratic residual diff, lin val, quad val).
