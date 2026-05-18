@@ -1146,3 +1146,46 @@ def test_iter129_year50k_cb_r2_with_iter69():
 def test_iter129_kin8nm_lgb_r2_with_iter69():
     """iter69 + local_lift on kin8nm 8k LGB R2 (vs iter68 record +11.42%). Does local_lift help LGB-target too?"""
     _validate_scale(_load_kin8nm, _build_iter128_with_iter69, "lgb", "R2", 0.1142, "iter129_iter69+loclift_kin8nm_lgb")
+
+
+# ---------- iter130 - iter69 + local_lift + BGM on kin8nm CB (does the triple compose?) ----------
+
+
+def _build_iter130(X_tr, X_te, y_tr, task, seed):
+    """iter69 + local_lift + BGM additive: 8 + 12 + 32 + 12 = 64 features."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_features,
+        compute_local_lift_features,
+        compute_bgmm_quantile_bands_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    ll_tr = compute_local_lift_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str, k=32,
+    ).to_numpy()
+    ll_te = compute_local_lift_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str, k=32,
+    ).to_numpy()
+    bg_tr = compute_bgmm_quantile_bands_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bg_te = compute_bgmm_quantile_bands_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, ll_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, ll_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def test_iter130_kin8nm_cb_r2():
+    """iter69 + local_lift + BGM on kin8nm 8k CB R2 (vs iter128 record +8.06%)."""
+    _validate_scale(_load_kin8nm, _build_iter130, "cb", "R2", 0.0806, "iter130_iter69+loclift+bgm_kin8nm_cb")

@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-05-18 — Iter 130: NEW kin8nm CB R2 record (iter69+local_lift+BGM +8.31%, +0.25pp over iter128); composition WORKS on kin8nm
+
+Tested triple-additive composition iter69 + local_lift + BGM on kin8nm CB R2. Counter to expectation from iter105 (triple combo failed), this works on kin8nm.
+
+### Multi-seed results (3 seeds)
+- median **+8.31%** (range +7.40% / +8.53%, IQR 0.0057)
+- vs iter128 record +8.06%: +0.25pp
+- Per-seed pair comparison (same seeds {0,17,42}):
+  - seed 0: iter130 +8.53% > iter128 +8.36% (+0.17pp)
+  - seed 17: iter130 +8.31% > iter128 +8.06% (+0.25pp)
+  - seed 42: iter130 +7.40% > iter128 +7.35% (+0.05pp)
+  All 3 seeds favor iter130. Marginal but consistent.
+
+### Findings
+- Triple-additive composition WORKS for kin8nm CB R2, contrary to iter105 (triple combo failed elsewhere). kin8nm's CB R2 landscape is unusually responsive to diverse local-pattern signals (RFF, BGM, local_lift all win individually; combinations compound).
+- Likely due to kin8nm's smooth-manifold structure (robot arm dynamics) where multiple complementary signal sources each capture different aspects of the manifold structure.
+
+### kin8nm CB R2 progression (multi-seed validated)
+- iter69 alone:           +6.18%
+- iter102 (+ExtraTrees):  +6.57%
+- iter121 (+BGM):         +7.01%
+- iter128 (+local_lift):  +8.06%
+- **iter130 (+local_lift +BGM): +8.31%** NEW
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter130_kin8nm_cb_r2`.
+
 ## 2026-05-18 — Iter 129: iter69 + local_lift on kin8nm LGB R2 — TIE iter68 record (+0.24pp within noise); Year-50k OOM
 
 Scaled iter128 mechanism (iter69 + local_lift additive) to other regimes.
