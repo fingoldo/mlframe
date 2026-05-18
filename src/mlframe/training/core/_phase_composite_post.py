@@ -42,12 +42,15 @@ def _run_composite_target_wrapping(
     filtered_val_df,
     test_idx,
     test_df_pd,
+    skip_predict: bool = False,
 ) -> dict[int, np.ndarray]:
     """Wrap T-scale inner models in CompositeTargetEstimator so predict() returns y-scale; record y-scale RMSE/MAE/R2 per split.
 
     Mutates ``models`` in-place (replaces each composite-target inner with its wrapper) and writes ``metadata["composite_target_y_scale_metrics"]``.
     Returns the train-prediction cache (keyed by ``id(wrapper)``) so the downstream cross-target ensemble block can reuse the predictions
     without re-calling ``.predict`` on the wrapped models.
+
+    ``skip_predict=True`` (Pack 2026-05-18): skip the 3-split predict() calls used to compute y-scale RMSE/MAE/R2 metrics. The wrap step (replacing each entry's inner with ``CompositeTargetEstimator``) still runs so downstream predict-path consumers see y-scale predictions; only the metric computation block is bypassed. Pack G watchdog (additive transforms: T-MAE == y-MAE) already covers the correctness check, so the y-scale metrics are redundant when watchdog is on -- skipping them saves up to ~30 predict() calls on multi-million-row frames per composite target.
     """
     _train_pred_cache: dict[int, np.ndarray] = {}
     for _tt_w, _by_name in (models or {}).items():
@@ -119,6 +122,18 @@ def _run_composite_target_wrapping(
                 len(_entries), _composite_name,
             )
             # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale).
+            # ``skip_predict``: bypass the per-split predict + metric block; wrap step above already ran so downstream
+            # predict-path callers see y-scale predictions. Pack G watchdog on additive transforms (T-MAE == y-MAE) is
+            # the correctness gate; the y-scale numbers here would just restate what the T-scale metrics already say.
+            if skip_predict:
+                logger.info(
+                    "[CompositeTargetEstimator] composite='%s': wrap done, "
+                    "y-scale metric block SKIPPED (skip_wrap_pass_predict=True). "
+                    "T-scale metrics already in the per-target training log; "
+                    "Pack G watchdog covers correctness for additive transforms.",
+                    _composite_name,
+                )
+                continue
             _metrics_dict = metadata.setdefault(
                 "composite_target_y_scale_metrics", {},
             ).setdefault(str(_tt_w), {}).setdefault(_composite_name, [])
@@ -437,6 +452,9 @@ def run_composite_post_processing(
     # Train-prediction cache (key = id(wrapper)) populated by the wrapping block and reused by the cross-target ensemble block.
     _train_pred_cache: dict[int, np.ndarray] = {}
     if composite_specs_by_target_type:
+        _skip_predict = bool(getattr(
+            composite_target_discovery_config, "skip_wrap_pass_predict", False,
+        ))
         _train_pred_cache = _run_composite_target_wrapping(
             models=models,
             metadata=metadata,
@@ -448,6 +466,7 @@ def run_composite_post_processing(
             filtered_val_df=filtered_val_df,
             test_idx=test_idx,
             test_df_pd=test_df_pd,
+            skip_predict=_skip_predict,
         )
 
     # Cross-target ensemble (opt-in). Stored as a SimpleNamespace under models[type][f"_CT_ENSEMBLE__{original_target}"].

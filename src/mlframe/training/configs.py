@@ -2058,6 +2058,27 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     stacked_n_oof_folds: int = 3
     stacked_max_pass1_specs: int = 3
 
+    # 2026-05-18: skip the wrap-pass y-scale predict() calls per composite
+    # entry per split (train+val+test = 3 predict calls). For wide model
+    # zoos (CB + XGB + LGB + Ridge + MLP = 5 models × 3 splits = 15
+    # predicts per composite, ~30 for two composites) on 4M-row frames
+    # this can dominate wrap-pass wall time -- MLP especially (15-30s
+    # per predict). When True, the wrapper still replaces each entry's
+    # inner with ``CompositeTargetEstimator`` (so downstream consumers
+    # see y-scale predict output) but does NOT call predict to compute
+    # y-scale metrics; metadata["composite_target_y_scale_metrics"]
+    # stays empty. Safe when:
+    # 1. Pack A watchdog covers the transform (T-MAE == y-MAE for
+    #    additive-invertible transforms), so the y-scale numbers add
+    #    no information beyond the T-scale numbers already logged in
+    #    the per-target training phase.
+    # 2. Cross-target NNLS-stack will lazy-compute the predictions it
+    #    needs from the wrapped entries -- the empty train_pred_cache
+    #    just means no warm starts.
+    # Default False keeps the historical behaviour; flip True on long
+    # training runs where wrap-pass dominates wall time.
+    skip_wrap_pass_predict: bool = False
+
     # MI screening. Sample to keep the diagnostic under one minute on
     # 4M-row datasets; mi_sample_n=None uses full train.
     mi_sample_n: Optional[int] = 200_000
