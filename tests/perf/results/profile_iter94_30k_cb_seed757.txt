@@ -1,0 +1,31 @@
+# 1M-row e2e profile (n_rows=30_000, models=('cb',), save_charts=False, profile_predict=True, profile_save=True)
+
+=== regression x cb ===
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 1248, in <module>
+    main()
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 1192, in main
+    ) = _run_suite_profiled(
+        ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_profile_fuzz_1m.py", line 328, in _run_suite_profiled
+    from mlframe.training.core import train_mlframe_models_suite
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\__init__.py", line 8, in <module>
+    from .main import train_mlframe_models_suite  # noqa: F401
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\main.py", line 71, in <module>
+    from . import _phase_runners as pr
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_runners.py", line 25, in <module>
+    from ._phase_recurrent import train_recurrent_models
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\core\_phase_recurrent.py", line 28, in <module>
+    from ..trainer import _configure_recurrent_params
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\trainer.py", line 102, in <module>
+    from ._model_factories import (  # noqa: E402,F401
+  File "D:\Upd\Programming\PythonCodeRepository\mlframe\src\mlframe\training\_model_factories.py", line 475, in <module>
+    import torch
+  File "D:\ProgramData\anaconda3\Lib\site-packages\torch\__init__.py", line 270, in <module>
+    _load_dll_libraries()
+  File "D:\ProgramData\anaconda3\Lib\site-packages\torch\__init__.py", line 253, in _load_dll_libraries
+    raise err
+OSError: [WinError 1455] The paging file is too small for this operation to complete. Error loading "D:\ProgramData\anaconda3\Lib\site-packages\torch\lib\cufft64_10.dll" or one of its dependencies.
