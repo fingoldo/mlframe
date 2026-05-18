@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-05-18 — Iter 103: residual_stratified_distance - NEGATIVE result, all 3 seeds NEGATIVE on small-N
+
+Structural-shift mechanism vs iter69/102's "more baselines". Source: `residual_stratified_distance.py`. Splits training set into easy / hard halves via median |OOF residual| of a single LGB d=5 baseline; for each query exposes 11 features (kNN distances to each half + log-ratios + mean-residual stats).
+
+Hypothesis: tree boostings can compute pairwise feature comparisons but not "distance to nearest baseline-confused training row" without explicit kNN lookups.
+
+### Multi-seed-from-start results (3 seeds {0, 17, 42}, CB target_model)
+- abalone 4k: median **-1.39%** (all 3 seeds negative -0.49% to -1.52%) -- HURTS
+- California 20k: median **-0.48%** (all 3 seeds negative) -- HURTS
+- Year-100k: median **+0.96%** (positive but 5x INFERIOR to iter69 +4.92%)
+
+### Lesson
+Multi-seed-from-start protocol caught a mechanism that single-seed=42 would have falsely claimed as a Year-100k record (+1.03%). Diagnosis: median binary split too coarse on small-N (each half has only ~k/2 rows, kNN distances are noisy).
+
+Code retained per rule "never delete FE code". Useful as a component for iter104+ (try concatenated with iter69) or with K-quantile stratification.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter103_*_cb_r2`. Full disposition in RESULTS.md under "iter103 - residual_stratified_distance (alone) - NEGATIVE RESULT".
+
 ## 2026-05-18 — Iter 102: baseline_disagreement_v2 (iter69 + ExtraTrees) - NEW abalone CB R2 record (marginal +0.48pp)
 
 First NEW mechanism shipped under the multi-seed-from-start protocol that emerged from the honesty pass. Source: `src/mlframe/feature_engineering/transformer/baseline_disagreement_v2.py`. Adds ExtraTreesRegressor / Classifier as 4th baseline to iter69's 3 (LGB d=3, LGB d=5, Ridge/LogReg). 11 features total (was 8): +1 raw ET prediction, +2 new pairwise differences (lgb_avg-et, et-linear).

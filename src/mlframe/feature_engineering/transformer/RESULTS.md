@@ -3134,6 +3134,30 @@ Hypothesis: LGB uses gradient-based splits, ExtraTrees uses randomized splits. R
 - **iter104: cross-baseline RESIDUAL covariance.** Train K baselines, compute K-dim residual vector per row, output top-2 PCA components of the row-residual matrix. Captures dominant disagreement DIRECTIONS, not just magnitudes.
 - **iter105: ITERATIVE residual stacking.** Fit baseline 1 → predict OOF → fit baseline 2 ON RESIDUAL → fit baseline 3 ON residual-of-residual → output 3 sequential predictions + their differences. Sequence captures hierarchical structure that ensemble averaging hides.
 
+## iter103 — residual_stratified_distance (alone) — NEGATIVE RESULT
+
+NEW mechanism shipped under multi-seed-from-start protocol. Source: `residual_stratified_distance.py`. Hypothesis: expose LOCAL DENSITY of baseline-easy vs baseline-hard training rows around each query (different signal source from iter69/102's per-row prediction). 11 features = 3 distances to easy-set kNN + 3 distances to hard-set kNN + 3 log-ratios + 2 mean-|residual| stats.
+
+### Results (3 seeds, CB target_model, fresh pytest invocation per test)
+
+| # | Mechanism | Dataset/Model/Metric | iter69 baseline | iter103 median | Range | Verdict |
+|---|---|---|---|---|---|---|
+| 1 | residual_stratified_distance | abalone CB R2 | +2.26% | **-1.39%** | -1.52% / -0.49% (all 3 negative) | **HURTS** |
+| 2 | residual_stratified_distance | California 20k CB R2 | +1.15% | **-0.48%** | -0.67% / -0.35% (all 3 negative) | **HURTS** |
+| 3 | residual_stratified_distance | Year-100k CB R2 | +4.92% | **+0.96%** | +0.93% / +1.03% (all 3 positive, IQR 0.0005) | SURVIVES but 5x INFERIOR to iter69 |
+
+### Findings
+
+- **iter103 ALONE doesn't validate.** Consistent negative on abalone + California (all 3 seeds negative), marginal positive only at Year-100k (and 5x weaker than iter69 there).
+- **Multi-seed-from-start protocol worked.** With single-seed=42 we'd have seen Year-100k +1.03% and possibly claimed a "structural-shift mechanism" record. Multi-seed exposed: small-N regime → mechanism HURTS, only at large-N does it produce *positive but weak* lift.
+- **Diagnosis**: easy/hard binary split via median |residual| likely too coarse. Abalone 4k → ~2k easy, 2k hard → kNN distances are noisy. Year-100k → 50k/50k → kNN distances statistically robust → mechanism extracts a weak but real signal.
+- **Code retained per rule "never delete FE code".** The mechanism may be useful as a COMPONENT inside larger feature sets (e.g., concatenated with iter69) or with finer-grained stratification (K-quantile instead of binary).
+
+### Next (iter104+)
+
+- **iter104**: try iter69 + iter103 ADDITIVELY — does the geometric easy/hard density signal complement iter69's per-row predictions, even if neither alone is enough?
+- Alternative: **target-conditioned disagreement** — compute baseline statistics restricted to query's top-y vs bottom-y neighbours (closer to iter27's class_distance structure but with baselines).
+
 ## Reproducibility
 
 ```

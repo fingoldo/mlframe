@@ -138,3 +138,41 @@ def test_iter102_california_cb_r2():
 def test_iter102_year_100k_cb_r2():
     """iter102 on year-prediction 100k (was iter69 +4.92% median CB R2). Target: match or beat."""
     _validate_scale(_load_year_100k, _build_iter102, "cb", "R2", 0.0492, "iter102_blagreementv2+cdist_Year100k")
+
+
+# ---------- iter103 - residual_stratified_distance (alone, no cdist) ----------
+# Structural shift from "baseline ensembles": expose LOCAL DENSITY of baseline-easy vs
+# baseline-hard training rows around each query. Different signal from iter69/102.
+
+
+def _build_iter103(X_tr, X_te, y_tr, task, seed):
+    """residual_stratified_distance alone (iter103)."""
+    from sklearn.model_selection import KFold
+    from mlframe.feature_engineering.transformer import compute_residual_stratified_distance_features
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    rsd_tr = compute_residual_stratified_distance_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    rsd_te = compute_residual_stratified_distance_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    return (np.concatenate([X_tr, rsd_tr], axis=1),
+            np.concatenate([X_te, rsd_te], axis=1))
+
+
+def test_iter103_abalone_cb_r2():
+    """iter103 on abalone (was iter69 +2.26%, iter102 +2.74%). Target: improve or differ structurally."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter103, "cb", "R2", 0.0274, "iter103_rsd_abalone")
+
+
+def test_iter103_california_cb_r2():
+    """iter103 on California 20k (was iter69 +1.15%)."""
+    _validate_scale(_load_california, _build_iter103, "cb", "R2", 0.0115, "iter103_rsd_CA20k")
+
+
+def test_iter103_year_100k_cb_r2():
+    """iter103 on year-prediction 100k (was iter69 +4.92%, iter102 +4.93%)."""
+    _validate_scale(_load_year_100k, _build_iter103, "cb", "R2", 0.0492, "iter103_rsd_Year100k")
