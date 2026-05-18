@@ -2110,9 +2110,11 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #    just means no warm starts.
     #
     # Default flipped False -> True 2026-05-18 (Accuracy/perf over legacy):
-    # the metadata block is recoverable on demand and the 5-15 min saving
-    # is real on every multi-million-row suite. Flip back to False
-    # explicitly if you depend on metadata["composite_target_y_scale_metrics"].
+    # the metadata block is recoverable on demand via
+    # ``mlframe.training.core._phase_composite_post.recover_composite_y_scale_metrics``
+    # (T1#7) and the 5-15 min saving is real on every multi-million-row
+    # suite. Flip back to False explicitly only if you cannot make the
+    # recovery call (e.g. you've already discarded the wrapped models dict).
     skip_wrap_pass_predict: bool = True
 
     # MI screening. Sample to keep the diagnostic under one minute on

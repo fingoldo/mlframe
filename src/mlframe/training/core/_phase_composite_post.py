@@ -92,6 +92,10 @@ def _run_composite_target_wrapping(
                 _inner = getattr(_entry, "model", None) or _entry
                 if not hasattr(_inner, "predict"):
                     continue
+                # T1#7 2026-05-18 idempotency: if the entry is ALREADY a CompositeTargetEstimator (re-entry via recover_composite_y_scale_metrics), skip wrap.
+                # Double-wrap would treat y-scale predict output as if it were T-scale and invert the transform a second time, producing garbage.
+                if isinstance(_inner, CompositeTargetEstimator):
+                    continue
                 try:
                     _wrapper = CompositeTargetEstimator.from_fitted_inner(
                         fitted_inner=_inner,
@@ -384,6 +388,52 @@ def _run_composite_target_wrapping(
                             " | ".join(_y_summary_parts),
                         )
     return _train_pred_cache
+
+
+def recover_composite_y_scale_metrics(
+    *,
+    models: dict,
+    metadata: dict,
+    target_by_type: dict,
+    composite_specs_by_target_type: dict,
+    filtered_train_idx,
+    filtered_train_df,
+    filtered_val_idx,
+    filtered_val_df,
+    test_idx,
+    test_df_pd,
+) -> dict[int, np.ndarray]:
+    """T1#7 2026-05-18 lazy recovery of composite-target y-scale metrics.
+
+    When the suite runs with ``skip_wrap_pass_predict=True`` (default since
+    2026-05-18), the wrap step still runs but the y-scale metric block is
+    bypassed - ``metadata["composite_target_y_scale_metrics"]`` stays empty.
+
+    Callers that subsequently need those metrics (notebooks, dashboards,
+    downstream audits) invoke this helper. It walks the already-wrapped
+    ``models`` dict and computes RMSE/MAE/R2 per (composite_name, split).
+    The metadata dict is populated in place with the same shape as the
+    eager path; the train-prediction cache is returned so subsequent
+    cross-target ensemble work reuses the freshly-computed predictions.
+
+    Idempotent: when the wrap step in ``_run_composite_target_wrapping``
+    detects an entry whose inner is already a ``CompositeTargetEstimator``
+    it skips re-wrapping, so callers can invoke this helper safely after
+    the eager path has already run.
+    """
+    return _run_composite_target_wrapping(
+        models=models,
+        metadata=metadata,
+        target_by_type=target_by_type,
+        composite_specs_by_target_type=composite_specs_by_target_type,
+        filtered_train_idx=filtered_train_idx,
+        filtered_train_df=filtered_train_df,
+        filtered_val_idx=filtered_val_idx,
+        filtered_val_df=filtered_val_df,
+        test_idx=test_idx,
+        test_df_pd=test_df_pd,
+        skip_predict=False,
+    )
 
 
 def _run_suite_end_dummy_baselines_summary(
