@@ -75,7 +75,11 @@ class EngineeredRecipe:
     """
 
     name: str
-    kind: Literal["unary_binary", "factorize"]
+    # T1#3 2026-05-18 #1 Hermite recipe: ``"hermite_pair"`` kind carries
+    # ``coef_a``, ``coef_b``, ``basis``, ``bin_func_name``, ``preprocess_a``,
+    # ``preprocess_b``, ``degree_a``, ``degree_b`` in ``extra``. The
+    # 88-min Optuna best_res is now reproducible at predict-time.
+    kind: Literal["unary_binary", "factorize", "hermite_pair"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -183,7 +187,95 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_factorize(recipe, X)
     if recipe.kind == "target_encoding":
         return _apply_target_encoding(recipe, X)
+    if recipe.kind == "hermite_pair":
+        return _apply_hermite_pair(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
+
+
+def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """T1#3 2026-05-18: replay a Hermite/Chebyshev/Laguerre polynomial-pair FE column at predict time.
+
+    Carries the full ``HermiteResult`` state (coefficients, basis name,
+    bin-function name, preprocessing parameters) in ``recipe.extra``;
+    the builder ``build_hermite_pair_recipe`` populates it. Lazy import
+    of ``hermite_fe`` keeps this module dependency-light at import time.
+    """
+    if len(recipe.src_names) != 2:
+        raise ValueError(
+            f"hermite_pair recipe '{recipe.name}' must have exactly 2 src_names; "
+            f"got {len(recipe.src_names)}"
+        )
+    for key in ("coef_a", "coef_b", "basis", "bin_func_name",
+                "preprocess_a", "preprocess_b"):
+        if key not in recipe.extra:
+            raise KeyError(
+                f"hermite_pair recipe '{recipe.name}' missing '{key}' in extra. "
+                f"Re-fit with the current build_hermite_pair_recipe to repopulate."
+            )
+
+    # Lazy imports to avoid circular dependency (hermite_fe -> mrmr -> recipes).
+    from .hermite_fe import _POLY_BASES, _DEFAULT_BIN_FUNCS
+
+    basis = recipe.extra["basis"]
+    bin_func_name = recipe.extra["bin_func_name"]
+    if basis not in _POLY_BASES:
+        raise KeyError(
+            f"hermite_pair recipe '{recipe.name}' references unknown basis "
+            f"{basis!r}; available: {sorted(_POLY_BASES)}"
+        )
+    if bin_func_name not in _DEFAULT_BIN_FUNCS:
+        raise KeyError(
+            f"hermite_pair recipe '{recipe.name}' references unknown "
+            f"bin_func_name {bin_func_name!r}; available: "
+            f"{sorted(_DEFAULT_BIN_FUNCS)}"
+        )
+
+    name_a, name_b = recipe.src_names
+    vals_a = _extract_column(X, name_a)
+    vals_b = _extract_column(X, name_b)
+
+    basis_info = _POLY_BASES[basis]
+    z_a = np.ascontiguousarray(
+        basis_info["apply"](vals_a, dict(recipe.extra["preprocess_a"])),
+        dtype=np.float64,
+    )
+    z_b = np.ascontiguousarray(
+        basis_info["apply"](vals_b, dict(recipe.extra["preprocess_b"])),
+        dtype=np.float64,
+    )
+    eval_dispatch = basis_info["eval_dispatch"]
+    coef_a = np.ascontiguousarray(recipe.extra["coef_a"], dtype=np.float64)
+    coef_b = np.ascontiguousarray(recipe.extra["coef_b"], dtype=np.float64)
+    h_a = eval_dispatch(z_a, coef_a)
+    h_b = eval_dispatch(z_b, coef_b)
+    bin_func = _DEFAULT_BIN_FUNCS[bin_func_name]
+    return np.asarray(bin_func(h_a, h_b), dtype=np.float64).reshape(-1)
+
+
+def build_hermite_pair_recipe(
+    *, name: str, src_names: tuple[str, str], hermite_result,
+) -> EngineeredRecipe:
+    """T1#3 2026-05-18: builder that turns a ``HermiteResult`` (output of ``optimise_hermite_pair`` / Optuna driver) into a frozen ``EngineeredRecipe`` survivable across pickle / sklearn.clone.
+
+    The recipe captures the coefficients, basis name, bin-function name,
+    and preprocessing parameters - exactly the state required for
+    ``_apply_hermite_pair`` to reproduce the column on a test frame.
+    """
+    return EngineeredRecipe(
+        name=name,
+        kind="hermite_pair",
+        src_names=src_names,
+        extra={
+            "coef_a": np.asarray(hermite_result.coef_a, dtype=np.float64).copy(),
+            "coef_b": np.asarray(hermite_result.coef_b, dtype=np.float64).copy(),
+            "basis": str(hermite_result.basis),
+            "bin_func_name": str(hermite_result.bin_func_name),
+            "preprocess_a": dict(hermite_result.preprocess_a or {}),
+            "preprocess_b": dict(hermite_result.preprocess_b or {}),
+            "degree_a": int(hermite_result.degree_a),
+            "degree_b": int(hermite_result.degree_b),
+        },
+    )
 
 
 def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:

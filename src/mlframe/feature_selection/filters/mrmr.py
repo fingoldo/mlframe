@@ -1996,6 +1996,15 @@ class MRMR(BaseEstimator, TransformerMixin):
                         "best_mi": float(best_res.mi),
                         "baseline_mi": float(best_res.baseline_mi),
                     })
+                    # T1#3 2026-05-18 #1 Hermite recipe: persist best_res as an EngineeredRecipe so MRMR.transform replays it on test data.
+                    # Pre-fix this path stored a structured dict in _hermite_features_ but the predict-time replay path (apply_recipe) had no Hermite kind.
+                    # Now engineered_recipes carries the recipe; the fit-end splitter copies it into self._engineered_recipes_ when the column survives MRMR selection.
+                    from .engineered_recipes import build_hermite_pair_recipe
+                    engineered_recipes[_new_col_name] = build_hermite_pair_recipe(
+                        name=_new_col_name,
+                        src_names=(_src_a, _src_b),
+                        hermite_result=best_res,
+                    )
                     if verbose:
                         logger.info(
                             "Polynomial-pair FE injected new feature '%s' "
