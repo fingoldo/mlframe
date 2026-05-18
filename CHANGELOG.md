@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-05-18 — Iter 128: NEW kin8nm CB R2 record (iter69 + local_lift +8.06%, +1.05pp over iter121)
+
+Tested compute_local_lift_features (kNN target-rate encoding, k=32) as additive to iter69 backbone.
+
+### Multi-seed results (3 seeds, CB R2)
+- abalone 4k CB R2: median +2.28% (range +2.13% / +2.36%, IQR 0.0012) -- ~iter69 +2.26%, behind iter102 +2.74%
+- kin8nm 8k CB R2: median **+8.06%** (range +7.35% / +8.36%, IQR 0.0051) -- ALL 3 seeds above iter121 +7.01%
+  **NEW kin8nm CB R2 record, +1.05pp over iter121 (+BGM record)**
+
+### Findings
+- local_lift's kNN-target-rate signal is highly orthogonal to iter69's baseline-disagreement signal AND to iter121's BGM density features. Adding it to iter69 yields +1.88pp over iter69 alone on kin8nm.
+- kin8nm is unusually responsive to local-pattern enhancements (RFF iter68, BGM iter121, local_lift iter128 all win there). Its target manifold structure (robot arm dynamics) rewards diverse signal sources.
+- abalone CB R2 unaffected -- local_lift is a kin8nm-specific niche enhancement like BGM and RFF before it.
+
+### kin8nm CB R2 progression (multi-seed validated)
+- iter69 alone: +6.18%
+- iter102 (+ExtraTrees): +6.57%
+- iter121 (+BGM): +7.01%
+- **iter128 (+local_lift): +8.06%** NEW
+
+The session continues producing new records at iteration 27, contrary to the "diminishing returns" expectation from iter125-127.
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter128_*`.
+
 ## 2026-05-18 — Iter 127: iter69 + local_intrinsic_dim - marginal helper on abalone, Year-50k untestable (OOM)
 
 Tested compute_local_intrinsic_dim_features as additive component to iter69. Manifold-dimensionality signal at each row, conceptually orthogonal to baseline-prediction features.
