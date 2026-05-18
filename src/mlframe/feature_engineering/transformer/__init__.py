@@ -110,6 +110,11 @@ from .smote_distance import compute_smote_distance_features
 from .row_attention import attend, build_key_bank, compute_row_attention
 from .spectral_attention import compute_spectral_attention
 from .stacked_attention import compute_stacked_row_attention
+from .conformal_coverage_failure import compute_conformal_coverage_failure_features
+from .cross_feature_reconstruction import compute_cross_feature_reconstruction_features
+from .multi_threshold_ordinal import compute_multi_threshold_ordinal_features
+from .target_kmeans_codebook import compute_target_kmeans_codebook_features
+from .tree_path_boolean import compute_tree_path_boolean_features
 from .quantile_spread_fan import compute_quantile_spread_fan_features
 from .sign_residual_baseline import compute_sign_residual_baseline_features
 from .target_quantile import compute_target_quantile_attention
@@ -191,6 +196,11 @@ __all__ = [
     "compute_quantile_band_attention_features",
     "compute_quantile_neighbours",
     "compute_quantile_spread_fan_features",
+    "compute_conformal_coverage_failure_features",
+    "compute_cross_feature_reconstruction_features",
+    "compute_multi_threshold_ordinal_features",
+    "compute_target_kmeans_codebook_features",
+    "compute_tree_path_boolean_features",
     "compute_sign_residual_baseline_features",
     "compute_trust_score_oof_features",
     "compute_variance_baseline_features",
