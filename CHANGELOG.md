@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-05-18 — Iter 116: NEW kin8nm CB R2 record (iter69 +6.18%); iter104 LGB-target enhancement confirmed
+
+Tested iter69 alone and iter104 (iter69 + RSD additive) on kin8nm 8k (the historical RFF-winning dataset where iter68 had +11.42% LGB R2 median).
+
+### Multi-seed results (3 seeds, fresh pytest invocation per test)
+
+| Test | Mechanism | Target | Median | Range | Verdict |
+|---|---|---|---|---|---|
+| iter69 alone | LGB R2 | +9.46% | +8.24% / +9.97% | SURVIVES (under iter68 +11.42%) |
+| iter69 alone | CB R2 | **+6.18%** | +4.66% / +6.25% | **NEW kin8nm CB R2 record** |
+| iter104 (iter69+RSD) | LGB R2 | +9.75% | +8.15% / +9.91% | +0.29pp over iter69 alone |
+| iter104 | CB R2 | +6.16% | +5.15% / +6.51% | TIE iter69 |
+
+### Findings
+- NEW kin8nm CB R2 record at +6.18% (no prior CB record on kin8nm; iter68's was LGB-only).
+- iter104's additive RSD helps LGB R2 on kin8nm (+0.29pp), same pattern as Year-100k. Geometric easy/hard density complements iter69's per-row predictions for LGB target_model.
+- iter104 = iter69 on CB R2 (CB saturates).
+- iter68 (RFF) still wins LGB R2 on kin8nm (+11.42% > +9.75%). kin8nm's smooth manifold rewards Fourier-basis features more than baseline disagreement; dataset-specific preference.
+
+### Updated cross-mechanism pattern (post-iter116)
+- iter104 = regression LGB-target enhancement (+0.3pp consistent)
+- iter69 = regression CB-target baseline; iter104 saturates here
+
+### Updated 6-record best-of-breed table
+- abalone 4k:        iter102 +2.74% CB R2
+- kin8nm 8k:         iter68 +11.42% LGB R2 (RFF, dataset-specific) + iter69 +6.18% CB R2 (NEW)
+- California 20k:    iter69 +1.15% CB R2
+- Year-100k:         iter104 +5.25% CB R2
+- Adult 49k:         iter69 +0.63% CB AUC
+- Higgs 98k:         iter69 +0.67% CB AUC
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter116_kin8nm_*`.
+
 ## 2026-05-18 — Iter 115: IsolationForest anomaly score also FAILS on rare-positive; mammography needs different mechanism family
 
 New mechanism `compute_anomaly_score_features` -- 2 IsolationForest models per fold (different seeds), 5 features per row (2 raw scores + mean + std-disagreement + relative-z). Pure-X (no labels touched), task-agnostic.

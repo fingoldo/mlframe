@@ -726,3 +726,34 @@ def test_iter115_mammography_cb_auc_with_iter69():
 def test_iter115_adult_cb_auc_with_iter69():
     """iter115 anomaly + iter69 additive on Adult 49k (does anomaly add to balanced binary?)."""
     _validate_scale(_load_adult_binary, _build_iter115_with_iter69, "cb", "AUC", 0.0063, "iter115_anom+iter69_Adult49k_cb")
+
+
+# ---------- iter116 - test iter69 + iter104 (iter69+RSD) on kin8nm 8k (regression mechanism map completion) ----------
+# kin8nm is the original RFF-winning dataset (iter68 +11.42% LGB R2 median, multi_baseline_hard_row + RFF).
+# iter69-family was never tested here. If iter69 or iter104 works on kin8nm, regression boundary is fully mapped.
+
+
+def _load_kin8nm():
+    """kin8nm regression: ~8192 rows, 8 numeric features, robot arm dynamics target."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_kin8nm as _l
+    return _l()
+
+
+def test_iter116_kin8nm_lgb_r2_iter69():
+    """iter69 alone (baseline_disagreement + cdist) on kin8nm 8k LGB R2 (vs kin8nm-record iter68 +11.42% via RFF)."""
+    _validate_scale(_load_kin8nm, _build_iter69, "lgb", "R2", 0.1142, "iter116_iter69_kin8nm_lgb")
+
+
+def test_iter116_kin8nm_cb_r2_iter69():
+    """iter69 alone on kin8nm 8k CB R2."""
+    _validate_scale(_load_kin8nm, _build_iter69, "cb", "R2", 0.0, "iter116_iter69_kin8nm_cb")
+
+
+def test_iter116_kin8nm_lgb_r2_iter104():
+    """iter104 (iter69 + RSD additive) on kin8nm 8k LGB R2. Best Year-100k mechanism; does it generalize?"""
+    _validate_scale(_load_kin8nm, _build_iter104, "lgb", "R2", 0.1142, "iter116_iter104_kin8nm_lgb")
+
+
+def test_iter116_kin8nm_cb_r2_iter104():
+    """iter104 on kin8nm 8k CB R2."""
+    _validate_scale(_load_kin8nm, _build_iter104, "cb", "R2", 0.0, "iter116_iter104_kin8nm_cb")
