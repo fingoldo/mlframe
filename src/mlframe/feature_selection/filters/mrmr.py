@@ -546,12 +546,38 @@ class MRMR(BaseEstimator, TransformerMixin):
         only_unknown_interactions: bool = False,
         # feature engineering settings
         fe_max_steps=1,
-        fe_npermutations=0,
+        # 2026-05-18 audit-fixes flip #1 (``fe_npermutations`` 0->3):
+        # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
+        # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
+        # = ``1 - failures/npermutations`` is undefined at npermutations=0).
+        # Features with weak individual MI were silently dropped BEFORE
+        # the polynom-FE block could evaluate them as a pair, even when
+        # the pair carried genuine interaction signal. Flipping to 3
+        # aligns FE permutation count with screening-side
+        # ``full_npermutations=3``; cost ~3% FE wall time.
+        fe_npermutations=3,
         fe_ntop_features=0,
         fe_unary_preset="minimal",
         fe_binary_preset="minimal",
-        fe_max_pair_features: int = 1,
-        fe_min_nonzero_confidence: float = 1.0,
+        # 2026-05-18 audit-fixes flip #2 (``fe_max_pair_features`` 1->10):
+        # pre-fix only ONE pair per FE step was evaluated. On a dataset
+        # with 50 features (1225 candidate pairs ranked by prevalence-
+        # passing pair-MI) only the top-ranked pair was promoted to
+        # transformation evaluation. Multi-interaction problems (3+
+        # independent interacting pairs) lost 2/3 of the signal. 10 is a
+        # measure-first compromise: per-pair compute is cheap (<200ms on
+        # n=200k with default unary/binary presets), 10 covers most
+        # practical pair-interaction structures, AND the gates further
+        # downstream (``fe_min_engineered_mi_prevalence``) filter the
+        # eventual injection set.
+        fe_max_pair_features: int = 10,
+        # 2026-05-18 audit-fixes flip #1 (``fe_min_nonzero_confidence``
+        # 1.0->0.99): pre-fix 1.0 required EVERY permutation to clear the
+        # null-hypothesis test exactly, making the gate unreachable at any
+        # noise level. 0.99 matches the screening-side
+        # ``min_nonzero_confidence`` default so both stages apply equally
+        # strict statistical rigor without the unreachable-gate trap.
+        fe_min_nonzero_confidence: float = 0.99,
         fe_min_pair_mi: float = 0.001,
         fe_min_pair_mi_prevalence: float = 1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
         fe_min_engineered_mi_prevalence: float = 0.98,  # mi of transformed pair must be at least that higher than the mi of the entire pair
@@ -561,7 +587,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_print_best_mis_only: bool = True,
         fe_smart_polynom_iters: int = 0,
         fe_smart_polynom_optimization_steps: int = 1000,
-        fe_min_polynom_degree: int = 3,
+        # 2026-05-18 audit-fixes flip #3 (``fe_min_polynom_degree`` 3->1):
+        # pre-fix the Hermite/Chebyshev optimiser was locked to a minimum
+        # cubic basis. Degree-1 (linear product, the XOR / multiplicative
+        # interaction case) and degree-2 (saddle / circle / quadratic
+        # response) were structurally excluded. The optimiser then forced
+        # simple interactions into overfit-prone cubic+ representations,
+        # wasting Optuna budget AND injecting columns with higher
+        # variance than necessary. ``min_degree=1`` lets the optimiser
+        # discover the actual signal degree; the test in
+        # ``test_biz_cma_es_finds_xor_optimum`` already verified the
+        # optimiser converges on degree=2 for XOR when range is open.
+        fe_min_polynom_degree: int = 1,
         fe_max_polynom_degree: int = 8,
         fe_min_polynom_coeff: float = -10.0,
         fe_max_polynom_coeff: float = 10.0,
