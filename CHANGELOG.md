@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-05-18 — Iter 131: quadruple kin8nm marginal-but-OOM; iter102+local_lift on abalone TIE (local_lift doesn't help abalone)
+
+Tested further composition: quadruple (iter69_v2 with ExtraTrees + local_lift + BGM) on kin8nm CB R2, and iter102+local_lift on abalone.
+
+### Results (3 seeds)
+- kin8nm CB R2 quadruple: median +8.13% (range +7.49 / +8.78, 2 valid seeds + 1 OOM at seed=17)
+  - vs iter130 +8.31%: -0.18pp on median, but per-seed where valid:
+    - seed 0: iter131 +8.78% vs iter130 +8.53% (+0.25pp gain)
+    - seed 42: iter131 +7.49% vs iter130 +7.40% (+0.09pp gain)
+  - Quadruple plausibly better than triple but OOM blocks clean 3-seed claim
+- abalone CB R2 iter102+local_lift: median +2.63% (range +2.63 / +2.94, IQR 0.0016)
+  - vs iter102 record +2.74%: -0.11pp TIE
+  - local_lift doesn't add value on abalone (kin8nm-CB-specific niche)
+
+### Verdict
+iter130 remains durable kin8nm CB R2 record at +8.31%. iter131 quadruple is plausibly better but compromised by single seed OOM. Doesn't change the record table.
+
+abalone confirms: local_lift is kin8nm-CB-only enhancement (similar to BGM/RFF pattern).
+
+Driver: `tests/feature_engineering/transformer/test_validation_records_at_scale.py::test_iter131_*`.
+
 ## 2026-05-18 — Iter 130: NEW kin8nm CB R2 record (iter69+local_lift+BGM +8.31%, +0.25pp over iter128); composition WORKS on kin8nm
 
 Tested triple-additive composition iter69 + local_lift + BGM on kin8nm CB R2. Counter to expectation from iter105 (triple combo failed), this works on kin8nm.

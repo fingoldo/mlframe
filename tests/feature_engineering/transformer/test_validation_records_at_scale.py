@@ -1189,3 +1189,80 @@ def _build_iter130(X_tr, X_te, y_tr, task, seed):
 def test_iter130_kin8nm_cb_r2():
     """iter69 + local_lift + BGM on kin8nm 8k CB R2 (vs iter128 record +8.06%)."""
     _validate_scale(_load_kin8nm, _build_iter130, "cb", "R2", 0.0806, "iter130_iter69+loclift+bgm_kin8nm_cb")
+
+
+# ---------- iter131 - quadruple combo on kin8nm + iter102+local_lift on abalone ----------
+
+
+def _build_iter131_quadruple(X_tr, X_te, y_tr, task, seed):
+    """iter69 (v2 with ExtraTrees) + local_lift + BGM additive (quadruple)."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_v2_features,
+        compute_local_lift_features,
+        compute_bgmm_quantile_bands_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_v2_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_v2_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    ll_tr = compute_local_lift_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str, k=32,
+    ).to_numpy()
+    ll_te = compute_local_lift_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str, k=32,
+    ).to_numpy()
+    bg_tr = compute_bgmm_quantile_bands_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bg_te = compute_bgmm_quantile_bands_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, ll_tr, bg_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, ll_te, bg_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def _build_iter131_iter102_plus_loclift(X_tr, X_te, y_tr, task, seed):
+    """iter102 (iter69 + ExtraTrees) + local_lift additive (combining abalone's iter102 record with kin8nm-helper local_lift)."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_v2_features,
+        compute_local_lift_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_v2_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_v2_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    ll_tr = compute_local_lift_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str, k=32,
+    ).to_numpy()
+    ll_te = compute_local_lift_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str, k=32,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, ll_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, ll_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def test_iter131_kin8nm_cb_r2_quadruple():
+    """iter69_v2 (with ExtraTrees) + local_lift + BGM on kin8nm CB R2 (vs iter130 record +8.31%)."""
+    _validate_scale(_load_kin8nm, _build_iter131_quadruple, "cb", "R2", 0.0831, "iter131_quadruple_kin8nm_cb")
+
+
+def test_iter131_abalone_cb_r2_iter102plusloclift():
+    """iter102 + local_lift on abalone CB R2 (vs iter102 record +2.74%)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter131_iter102_plus_loclift, "cb", "R2", 0.0274, "iter131_iter102+loclift_abalone_cb")
