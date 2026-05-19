@@ -162,7 +162,7 @@ except ImportError:
 
 try:
     import flaml.default as flaml_zeroshot
-except ImportError:
+except (ImportError, OSError):  # flaml.automl.time_series.tcn → pytorch_lightning → lightning_fabric → torch DLL chain
     flaml_zeroshot = None  # type: ignore[assignment]
 
 from .configs import (
