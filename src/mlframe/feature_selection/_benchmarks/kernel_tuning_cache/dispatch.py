@@ -16,13 +16,46 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-# Hand-tuned fallbacks used before / instead of the sweep cache. These
-# match the constants in ``filters/gpu.py:mi_direct_gpu_batched`` so the
-# dispatcher's "first-process / no cache yet" decision is identical to
-# the hand-coded one.
-_FALLBACK_JOINT_HIST = {"kernel_variant": "shared", "block_size": 512}
+# HW-aware fallback table per compute-capability major version. Picks
+# sensible defaults BEFORE the auto-tune sweep ever runs. Sourced from
+# anecdotal measurements + CUDA arch characteristics:
+#   * cc 5/6 (Maxwell/Pascal): 48 KB shared, modest atomic throughput
+#   * cc 7 (Volta/Turing): 96 KB shared, faster shared atomics
+#   * cc 8 (Ampere): 100-164 KB shared, vastly faster atomics
+#   * cc 9+ (Hopper / Blackwell): async global atomics, prefer global path
+# Once the auto-tune sweep runs on the host, the empirically-measured
+# region overrides the fallback for the matched (n_samples, joint_size).
+_FALLBACK_BY_CC: dict[int, dict] = {
+    5: {"kernel_variant": "shared", "block_size": 512},
+    6: {"kernel_variant": "shared", "block_size": 512},
+    7: {"kernel_variant": "shared", "block_size": 256},
+    8: {"kernel_variant": "shared", "block_size": 256},
+    9: {"kernel_variant": "global", "block_size": 1024},
+}
+_FALLBACK_JOINT_HIST = {"kernel_variant": "shared", "block_size": 512}  # generic default
 _FALLBACK_JOINT_HIST_GLOBAL = {"kernel_variant": "global", "block_size": 1024}
 _SHARED_HIST_MAX_JOINT_FALLBACK = 4096
+
+
+def _hw_aware_fallback(joint_size: int) -> dict:
+    """Pick fallback based on live GPU compute capability. Cheap probe
+    via pyutilz; cached for the process lifetime."""
+    try:
+        from pyutilz.system.gpu_dispatch import gpu_capability_summary
+        summary = gpu_capability_summary(0)
+        if summary is not None:
+            cc_major = int(summary.get("cc_major", 0))
+            cc_entry = _FALLBACK_BY_CC.get(cc_major)
+            if cc_entry is not None:
+                # cc-9+ prefers global for large joint sizes by default.
+                if joint_size > _SHARED_HIST_MAX_JOINT_FALLBACK:
+                    return dict(_FALLBACK_JOINT_HIST_GLOBAL)
+                return dict(cc_entry)
+    except Exception:
+        pass
+    if joint_size > _SHARED_HIST_MAX_JOINT_FALLBACK:
+        return dict(_FALLBACK_JOINT_HIST_GLOBAL)
+    return dict(_FALLBACK_JOINT_HIST)
 
 
 _CACHE_SINGLETON: Optional[object] = None  # KernelTuningCache instance
@@ -117,19 +150,44 @@ def _maybe_online_relearn(n_samples: int, joint_size: int, current_choice: dict)
     _LEARN_COUNTER += 1
     if _LEARN_COUNTER % _LEARN_EVERY != 0:
         return
+    # Bounded re-measure: only the OFFENDING (n_samples, joint_size)
+    # region, not the full sweep grid. Total cost ~50-200 ms per fire
+    # (6 measurements × ~10 ms each on cc 6.1), matching the docstring
+    # promise. The full _run_sweep_joint_hist (15-30s) is too expensive
+    # to drop into a production lookup path -- use the CLI ``refresh``
+    # subcommand for a full re-sweep.
     try:
         from . import auto_tune as _at
-        # Re-measure ONE point (current size) with both variants + both
-        # block_size candidates; pick winner; update cache if it differs
-        # from current. Limited to a single (n_samples, joint_size) tuple
-        # so the relearn cost stays bounded.
-        regions = _at._run_sweep_joint_hist(n_iters=3)  # noqa: SLF001 - intentional
-        if not regions:
+        # _measure_single_region: re-tunes just one (n, joint) point.
+        # Returns the winning region dict (with the standard ..._max keys)
+        # or None on failure. Merges into the existing cache via update().
+        region = _at._measure_single_region(
+            n_samples=n_samples, joint_size=joint_size, n_iters=3,
+        )  # noqa: SLF001 - intentional access to private API
+        if region is None:
             return
         cache = _get_cache()
         if cache and cache is not False:
+            # Merge: read existing regions, replace any with matching caps,
+            # append the new region, persist. KernelTuningCache.update
+            # replaces the WHOLE kernel entry by design; we instead
+            # construct the merged region list explicitly.
+            existing = cache.get_regions("joint_hist_batched") or []
+            # Drop any region with the same caps as the new one.
+            new_regions = [
+                r for r in existing
+                if (r.get("n_samples_max") != region.get("n_samples_max")
+                    or r.get("joint_size_max") != region.get("joint_size_max"))
+            ]
+            new_regions.append(region)
+            # Move catch-all (None caps) to the end.
+            new_regions.sort(key=lambda r: (
+                r.get("n_samples_max") is None,
+                r.get("n_samples_max") or 0,
+                r.get("joint_size_max") or 0,
+            ))
             cache.update("joint_hist_batched",
-                         axes=["n_samples", "joint_size"], regions=regions)
+                         axes=["n_samples", "joint_size"], regions=new_regions)
             logger.info(
                 "online relearn: n=%d joint=%d cache updated (counter=%d)",
                 n_samples, joint_size, _LEARN_COUNTER,
@@ -139,10 +197,10 @@ def _maybe_online_relearn(n_samples: int, joint_size: int, current_choice: dict)
 
 
 def _fallback_for_joint_size(joint_size: int) -> dict:
-    """Hand-tuned source-code defaults used when the cache is absent."""
-    if joint_size > _SHARED_HIST_MAX_JOINT_FALLBACK:
-        return dict(_FALLBACK_JOINT_HIST_GLOBAL)
-    return dict(_FALLBACK_JOINT_HIST)
+    """HW-aware fallback used when the cache is absent. Routes by cc_major
+    via ``_hw_aware_fallback``; legacy hand-tuned defaults for non-CUDA /
+    pyutilz-missing hosts."""
+    return _hw_aware_fallback(joint_size)
 
 
 def reset_cache() -> None:

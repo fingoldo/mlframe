@@ -501,10 +501,15 @@ def mi_direct_gpu_batched(
         joint_freqs = joint_freqs.reshape(b, nbins_x, nbins_y)
         # Broadcast p_x * p_y (shape (nbins_x, nbins_y)).
         outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]
-        # Mask out zero joint cells to avoid log(0).
-        with np.errstate(divide="ignore", invalid="ignore"):
-            ratio = joint_freqs / outer_marginals[None, :, :]
-        log_ratio = cp.where(joint_freqs > 0, cp.log(ratio), 0.0)
+        # Mask the RATIO (not the log) so nan / inf never enter cp.log.
+        # An ``outer_marginals`` cell of 0 (e.g. unobserved class) would
+        # produce inf at jf>0 or nan at jf==0; cp.log of either is nan
+        # which CuPy 8+ propagates through fma despite the where-mask.
+        # Safe form: where(joint_freqs > 0, jf / outer_marginals, 1.0)
+        # so the masked path computes log(1) = 0 with no nan / inf in flight.
+        outer_safe = cp.where(outer_marginals[None, :, :] > 0, outer_marginals[None, :, :], 1.0)
+        ratio = cp.where(joint_freqs > 0, joint_freqs / outer_safe, 1.0)
+        log_ratio = cp.log(ratio)
         mi_batch = (joint_freqs * log_ratio).sum(axis=(1, 2))  # (b,)
 
         # Stage on device; defer cross-device sync.
@@ -608,7 +613,18 @@ def mi_direct_gpu_batched_streamed(
     shared_mem_bytes = joint_size * 4 if use_shared_hist else 0
     grid_x = (n + block_size - 1) // block_size
 
+    # B2 fix: ``classes_y_gpu``, ``freqs_x_gpu``, ``freqs_y_gpu`` were just
+    # allocated on the default stream. Non-blocking child streams do NOT
+    # implicitly wait for the default stream's H2D copies, so the first
+    # iter could read garbage. Force a sync before launching child streams.
+    cp.cuda.Stream.null.synchronize()
+
     streams = [cp.cuda.Stream(non_blocking=True) for _ in range(max(1, n_streams))]
+    # B1 fix: cp.random.uniform uses a singleton device-side RandomState
+    # whose curandState advance is NOT safe under concurrent stream access.
+    # One Generator per stream avoids the race; each generator's Philox
+    # state advance stays serial within its own stream.
+    rngs = [cp.random.default_rng() for _ in range(len(streams))]
     batch_failures = []
     nchecked = 0
     remaining = npermutations
@@ -616,8 +632,11 @@ def mi_direct_gpu_batched_streamed(
     while remaining > 0:
         b = min(batch_size, remaining)
         stream = streams[iter_idx % len(streams)]
+        rng = rngs[iter_idx % len(rngs)]
         with stream:
-            rand = cp.random.uniform(size=(b, n), dtype=cp.float64)
+            # ``rng.random`` (per-stream) replaces the legacy global
+            # ``cp.random.uniform`` to stay race-free across streams.
+            rand = rng.random(size=(b, n), dtype=cp.float64)
             perm_idx = cp.argsort(rand, axis=1)
             perms_y = classes_y_gpu[perm_idx].astype(cp.int32)
 
@@ -638,9 +657,11 @@ def mi_direct_gpu_batched_streamed(
             joint_freqs = joint_counts_batch.astype(cp.float64) / n
             joint_freqs = joint_freqs.reshape(b, nbins_x, nbins_y)
             outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]
-            with np.errstate(divide="ignore", invalid="ignore"):
-                ratio = joint_freqs / outer_marginals[None, :, :]
-            log_ratio = cp.where(joint_freqs > 0, cp.log(ratio), 0.0)
+            # Same C3 fix as the non-streamed variant: mask the ratio
+            # (not the log) to keep nan / inf out of cp.log entirely.
+            outer_safe = cp.where(outer_marginals[None, :, :] > 0, outer_marginals[None, :, :], 1.0)
+            ratio = cp.where(joint_freqs > 0, joint_freqs / outer_safe, 1.0)
+            log_ratio = cp.log(ratio)
             mi_batch = (joint_freqs * log_ratio).sum(axis=(1, 2))
             batch_failures.append((mi_batch >= original_mi).sum())
         iter_idx += 1
@@ -856,6 +877,16 @@ def mi_direct_gpu_batched_pairs(
     if n_pairs == 0:
         return np.zeros(0, dtype=np.float64)
 
+    # E1 fix: CUDA gridDim.y maxes at 65535 on cc 6.x (still 65535 on cc 7+;
+    # only x can go up to 2^31-1). At n_pairs > 65535 the launch fails with
+    # an opaque InvalidConfiguration. Validate host-side with a clear
+    # error so callers know to chunk.
+    if n_pairs > 65535:
+        raise ValueError(
+            f"mi_direct_gpu_batched_pairs: n_pairs={n_pairs} exceeds CUDA "
+            f"gridDim.y limit of 65535; chunk the call host-side."
+        )
+
     # Per-pair joint cardinalities ((nbins_a * nbins_b) cells for the MERGED dim) plus prefix-sum offsets. Each pair's joint table has shape (merged_size, nbins_y),
     # flattened row-major.
     nbins_a = factors_nbins[pairs_a].astype(np.int32)
@@ -863,8 +894,11 @@ def mi_direct_gpu_batched_pairs(
     nbins_y = int(np.asarray(freqs_y).shape[0])
     pair_merged_sizes = nbins_a.astype(np.int64) * nbins_b.astype(np.int64)
     pair_joint_sizes = pair_merged_sizes * nbins_y
-    joint_offsets = np.zeros(n_pairs + 1, dtype=np.int32)
-    joint_offsets[1:] = np.cumsum(pair_joint_sizes).astype(np.int32)
+    # A3 fix: int32 cumsum truncates at total_cells >= 2**31 (the 4 GB guard
+    # below was only catching this by 1 bit of headroom). Promote
+    # joint_offsets to int64 so the cumsum can never wrap.
+    joint_offsets = np.zeros(n_pairs + 1, dtype=np.int64)
+    joint_offsets[1:] = np.cumsum(pair_joint_sizes)
     total_cells = int(joint_offsets[-1])
 
     # GPU memory bound: total_cells int32. At total_cells = 1e7 that's 40 MB; at 1e8 that's 400 MB. Caller should constrain via ``max_combined_nbins`` to stay in bounds.
@@ -882,7 +916,11 @@ def mi_direct_gpu_batched_pairs(
     pairs_a_gpu = cp.asarray(pairs_a.astype(np.int32))
     pairs_b_gpu = cp.asarray(pairs_b.astype(np.int32))
     nbins_a_gpu = cp.asarray(nbins_a)
-    joint_offsets_gpu = cp.asarray(joint_offsets)
+    # Host-side joint_offsets is int64 (overflow-safe cumsum); the kernel
+    # signature ``const int *joint_offsets`` (int32) is preserved by
+    # narrowing here -- safe because the earlier 4 GB total_cells guard
+    # enforces ``total_cells < 2**30 < 2**31``, which fits int32 exactly.
+    joint_offsets_gpu = cp.asarray(joint_offsets.astype(np.int32))
     joint_counts_flat = cp.zeros(total_cells, dtype=cp.int32)
 
     # block_size via per-host kernel_tuning_cache (cache miss -> hand-tuned

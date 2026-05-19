@@ -134,6 +134,74 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
     return regions
 
 
+def _measure_single_region(
+    n_samples: int, joint_size: int, n_iters: int = 3,
+) -> Optional[dict]:
+    """Re-measure ONE (n_samples, joint_size) point with the same variant
+    + block_size axes used by the main sweep. Returns the winning region
+    dict (with ``n_samples_max`` / ``joint_size_max`` caps) or None.
+
+    Used by the online-relearn hook in ``dispatch._maybe_online_relearn``
+    so that the per-call re-measure cost stays bounded (~50-200 ms,
+    matching the docstring promise) instead of running the full grid
+    sweep (~15-30 s).
+    """
+    import cupy as cp
+    from mlframe.feature_selection.filters import gpu as _gpu_mod
+    _gpu_mod._ensure_kernels_inited()
+
+    # Pick (nbx, nby) closest to the requested joint_size, biased to
+    # square shapes (matches the typical MRMR axis).
+    nbx_nby = None
+    for _nbx, _nby in _NBINS_AXIS:
+        if _nbx * _nby == joint_size:
+            nbx_nby = (_nbx, _nby)
+            break
+    if nbx_nby is None:
+        # Pick the nearest joint_size from the sweep axes.
+        _diffs = [(abs(a * b - joint_size), (a, b)) for a, b in _NBINS_AXIS]
+        nbx_nby = min(_diffs)[1]
+    nbx, nby = nbx_nby
+
+    rng = np.random.default_rng(11)
+    classes_x = rng.integers(0, nbx, size=n_samples).astype(np.int32)
+    classes_y = rng.integers(0, nby, size=n_samples).astype(np.int32)
+    d_x = cp.asarray(classes_x)
+    d_y_perms = cp.asarray(classes_y.reshape(1, -1).copy())
+    d_out = cp.zeros((1, nbx * nby), dtype=cp.int32)
+    args = (d_x, d_y_perms, d_out,
+            np.int32(n_samples), np.int32(nbx), np.int32(nby))
+
+    best_wall = float("inf")
+    best_choice = None
+    for variant in ("shared", "global"):
+        for bs in _BLOCK_SIZE_AXIS:
+            d_out[:] = 0
+            grid_x = (n_samples + bs - 1) // bs
+            kernel = (_gpu_mod.compute_joint_hist_batched_shared_cuda
+                      if variant == "shared"
+                      else _gpu_mod.compute_joint_hist_batched_cuda)
+            smem = nbx * nby * 4 if variant == "shared" else 0
+            try:
+                wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters,
+                                    shared_mem_bytes=smem)
+            except Exception:
+                continue
+            if wall < best_wall:
+                best_wall = wall
+                best_choice = {"kernel_variant": variant, "block_size": bs,
+                               "wall_ms": round(wall, 4)}
+    if best_choice is None:
+        return None
+    return {
+        "n_samples_max": int(n_samples),
+        "joint_size_max": int(nbx * nby),
+        "nbins_x_max": int(nbx),
+        "nbins_y_max": int(nby),
+        **best_choice,
+    }
+
+
 def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     """Return cached regions for ``joint_hist_batched``; run the sweep
     + persist via pyutilz KernelTuningCache if missing. Returns None
