@@ -617,7 +617,7 @@ def test_biz_val_mrmr_factors_names_to_use_restricts_search(factors_names_subset
     )
 
 
-@pytest.mark.parametrize("preset", ["minimal", "default", "extended"])
+@pytest.mark.parametrize("preset", ["minimal", "medium", "maximal"])
 def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
     """``fe_unary_preset`` parametrized over the documented presets.
     Each must complete on a polynomial-friendly target. Catches
@@ -642,7 +642,7 @@ def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
         pytest.fail(f"required preset={preset!r} missing from registry: {e}")
 
 
-@pytest.mark.parametrize("preset", ["minimal", "default"])
+@pytest.mark.parametrize("preset", ["minimal", "medium", "maximal"])
 def test_biz_val_mrmr_fe_binary_preset_parametrize(preset):
     """``fe_binary_preset`` parametrized over presets that should
     exist."""

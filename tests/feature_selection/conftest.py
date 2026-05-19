@@ -10,6 +10,48 @@ import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 
 
+@pytest.fixture(autouse=True)
+def _clear_mrmr_fit_cache_between_tests():
+    """Reset the process-wide ``MRMR._FIT_CACHE`` before each test so the
+    order-dependent cache state doesn't leak across the suite.
+
+    Pre-fix (batch-2 random-ordering run): cache entries from earlier tests
+    survived into ``test_mrmr_cache_does_not_collide_on_distinct_targets_with_shared_samples``
+    (which probes negative collision semantics) and
+    ``test_fix2_pandas_target_columns_cleaned_after_fit_exception`` (which checks
+    post-fit state), causing both to fail intermittently under
+    ``pytest-randomly`` ordering. Both pass in isolation. The cache is a class
+    attribute on MRMR, so a fresh one is needed at every test boundary.
+
+    Public ``MRMR.clear_fit_cache()`` is already documented as the
+    suite-boundary drain hook (mrmr.py:511-519); we reuse it here so test
+    isolation matches the production-mediated reset path exactly.
+    """
+    try:
+        from mlframe.feature_selection.filters import mrmr as _mrmr_mod
+        _mrmr_mod.MRMR.clear_fit_cache()
+        # Module-level cross-target identity cache must also drain: a prior
+        # test storing an "identity" fingerprint can short-circuit fit() in a
+        # later test via _fit_identity_shortcut, bypassing the target-column
+        # injection and cleanup -- the order-dependent flake in
+        # test_fix2_pandas_target_columns_cleaned_after_fit_exception under
+        # random ordering.
+        with getattr(_mrmr_mod, "_MRMR_IDENTITY_FP_LOCK", _NullCtx()):
+            _mrmr_mod._MRMR_IDENTITY_FP_CACHE.clear()
+    except Exception:
+        # If the import fails (e.g. coverage-active subprocess that skips
+        # heavy fixtures), don't block the test from running its own setup.
+        pass
+    yield
+
+
+class _NullCtx:
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        return False
+
+
 # Fast-mode flag: when MLFRAME_FAST=1 (or "true"/"yes"), parametric / loop-heavy tests collapse to a single representative case so the suite runs
 # in a fraction of full-suite time during local dev iteration. Each fast-mode-aware test still hits every code branch with one input.
 IS_FAST_MODE = os.environ.get("MLFRAME_FAST", "").strip().lower() in ("1", "true", "yes", "on")
