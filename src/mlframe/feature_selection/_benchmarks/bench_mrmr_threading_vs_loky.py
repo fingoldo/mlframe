@@ -64,7 +64,6 @@ def _run_one(df: pd.DataFrame, y: pd.Series, backend: str, n_jobs: int, verbose:
 
     parallel_kwargs = dict(max_nbytes=1_000, backend=backend)
     selector = MRMR(
-        max_features_to_select=8,
         fe_max_steps=1,
         fe_ntop_features=5,
         fe_npermutations=10,
@@ -104,21 +103,31 @@ def main() -> None:
     df, y = _build_frame(args.n_rows, args.seed)
     print(f"frame: {df.shape}, target: {y.shape} (3 classes)")
 
-    print("\n--- run 1: backend=loky (legacy default) ---")
-    loky = _run_one(df, y, backend="loky", n_jobs=args.n_jobs, verbose=args.verbose)
-    print(loky)
+    print("\n--- run 1: backend=threading n_jobs=1 (sequential baseline) ---")
+    seq = _run_one(df, y, backend="threading", n_jobs=1, verbose=args.verbose)
+    print(seq)
 
-    print("\n--- run 2: backend=threading (post-fix default) ---")
+    print(f"\n--- run 2: backend=threading n_jobs={args.n_jobs} (post-fix default) ---")
     threading = _run_one(df, y, backend="threading", n_jobs=args.n_jobs, verbose=args.verbose)
     print(threading)
 
+    print("\n--- run 3: backend=loky n_jobs={n} (legacy default — may break on env w/ pickle issues) ---")
+    try:
+        loky = _run_one(df, y, backend="loky", n_jobs=args.n_jobs, verbose=args.verbose)
+        print(loky)
+    except Exception as exc:
+        print(f"loky run FAILED: {type(exc).__name__}: {str(exc).splitlines()[0][:200]}")
+        loky = None
+
     print("\n=== Speedup summary ===")
-    speedup = loky["wall_s"] / max(1e-9, threading["wall_s"])
-    rss_save = loky["rss_after_mb"] - threading["rss_after_mb"]
-    print(f"wall: loky={loky['wall_s']}s, threading={threading['wall_s']}s -> {speedup:.2f}x")
-    print(f"RSS after fit: loky={loky['rss_after_mb']}MB, threading={threading['rss_after_mb']}MB -> save={rss_save:.1f}MB")
-    if loky["n_selected"] != threading["n_selected"]:
-        print(f"WARN: n_selected differs: loky={loky['n_selected']} threading={threading['n_selected']}")
+    speedup_thread = seq["wall_s"] / max(1e-9, threading["wall_s"])
+    print(f"threading parallel speedup over seq: {seq['wall_s']}s -> {threading['wall_s']}s = {speedup_thread:.2f}x")
+    if loky:
+        rss_save = loky["rss_after_mb"] - threading["rss_after_mb"]
+        speedup_vs_loky = loky["wall_s"] / max(1e-9, threading["wall_s"])
+        print(f"vs loky: {loky['wall_s']}s -> {threading['wall_s']}s = {speedup_vs_loky:.2f}x  (RSS save: {rss_save:.1f}MB)")
+    else:
+        print("loky baseline unavailable on this env; speedup vs seq is the only safe comparison")
 
 
 if __name__ == "__main__":
