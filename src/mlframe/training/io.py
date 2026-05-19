@@ -36,6 +36,22 @@ import zstandard as zstd
 logger = logging.getLogger(__name__)
 
 
+_LEAN_STRIP_FIELDS = frozenset({
+    "test_preds",
+    "test_probs",
+    "test_target",
+    "val_preds",
+    "val_probs",
+    "val_target",
+    "train_preds",
+    "train_probs",
+    "train_target",
+    "train_od_idx",
+    "val_od_idx",
+    "trainset_features_stats",
+})
+
+
 def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None]) -> None:
     """Atomically write to ``target_path`` via write-tmp-then-rename.
 
@@ -159,6 +175,7 @@ def save_mlframe_model(
     file: str,
     zstd_kwargs: Optional[Dict[str, Any]] = None,
     verbose: int = 1,
+    lean: bool = False,
 ) -> bool:
     """
     Save an mlframe model to a compressed file.
@@ -172,6 +189,17 @@ def save_mlframe_model(
         zstd_kwargs: Optional compression parameters for zstandard.
             Defaults to level=4, with checksum and content size.
         verbose: Verbosity level. If > 0, logs the file size.
+        lean: When True, strip inference-irrelevant heavy fields
+            (train_preds/val_preds/test_preds/probs/target, train_od_idx,
+            val_od_idx, trainset_features_stats) from a SHALLOW COPY of the
+            namespace before serialization. This is the same field set
+            handled by :func:`clean_mlframe_model`. The caller's object is
+            not mutated. Default False preserves the historical
+            "save-everything" behaviour for forensics/round-trip parity;
+            callers that only need inference-ready bundles (the harness, prod
+            serving) can flip it to skip the dill descent through the
+            heaviest numpy attrs (observed 30x save speedup on cb+xgb
+            multi-model bundles).
 
     Returns:
         True if save was successful, False otherwise.
@@ -183,6 +211,14 @@ def save_mlframe_model(
             write_content_size=True,
             threads=-1,
         )
+    if lean and isinstance(model, SimpleNamespace):
+        _lean = SimpleNamespace(**{
+            k: v for k, v in vars(model).items()
+            if k not in _LEAN_STRIP_FIELDS
+        })
+        _payload: object = _lean
+    else:
+        _payload = model
     try:
         # Atomic write prevents corruption when two train runs save to
         # the same file concurrently (2026-04-19 probe finding).
@@ -198,7 +234,7 @@ def save_mlframe_model(
                 # 2026-04-14 on a fitted RandomForest + 1M-element ndarray payload —
                 # all sizes landed within ±5% of the direct write (high variance).
                 # Direct write retained.
-                dill.dump(model, zf)
+                dill.dump(_payload, zf)
 
         atomic_write_bytes(file, _writer)
         if verbose > 0:
@@ -258,20 +294,7 @@ def clean_mlframe_model(model: SimpleNamespace) -> SimpleNamespace:
     Returns:
         The cleaned model namespace (modified in place).
     """
-    fields_to_remove = [
-        "test_preds",
-        "test_probs",
-        "test_target",
-        "val_preds",
-        "val_probs",
-        "val_target",
-        "train_preds",
-        "train_probs",
-        "train_target",
-        "train_od_idx",
-        "val_od_idx",
-        "trainset_features_stats",
-    ]
+    fields_to_remove = _LEAN_STRIP_FIELDS
     for field in fields_to_remove:
         if hasattr(model, field):
             delattr(model, field)

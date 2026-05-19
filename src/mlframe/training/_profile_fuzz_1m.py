@@ -938,7 +938,7 @@ def _run_suite_profiled(
                     for _idx, _entry in enumerate(_entries):
                         _path = _dir / f"{_idx}.dump"
                         try:
-                            save_mlframe_model(_entry, str(_path), verbose=0)
+                            save_mlframe_model(_entry, str(_path), verbose=0, lean=True)
                             save_n_models += 1
                             if _path.exists():
                                 save_total_bytes += _path.stat().st_size
