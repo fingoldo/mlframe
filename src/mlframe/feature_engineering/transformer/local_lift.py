@@ -30,6 +30,8 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._intel_patch import try_patch_sklearn
+from ._knn_helper import knn_search
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -100,6 +102,7 @@ def compute_local_lift_features(
     Output: 3 columns per row — ``{prefix}_lift``, ``{prefix}_pr_auc`` (or Spearman for regression), ``{prefix}_top1``.
     """
     seed = require_seed(seed)
+    try_patch_sklearn()
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)
@@ -121,10 +124,8 @@ def compute_local_lift_features(
         else:
             Xt_s = Xt
             Xq_s = Xq
-        from sklearn.neighbors import NearestNeighbors
-        k_used = min(k, Xt_s.shape[0])
-        nn = NearestNeighbors(n_neighbors=k_used, algorithm="auto", n_jobs=-1).fit(Xt_s)
-        dists, ids = nn.kneighbors(Xq_s)
+        # _knn_helper auto-dispatches to hnswlib at N>=50000, falls back to sklearn otherwise.
+        dists, ids = knn_search(Xt_s, Xq_s, k=k)
         y_neighbors = y_t[ids]  # (n_q, k_used)
         return _local_lift_and_pr_auc(y_neighbors, dists, global_mean, task=task)
 

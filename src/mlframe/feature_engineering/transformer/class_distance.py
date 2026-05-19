@@ -39,6 +39,8 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
+from ._intel_patch import try_patch_sklearn
+from ._knn_helper import knn_search
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
@@ -50,17 +52,18 @@ def _kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int) ->
     """Return per-query distances to the 1st, 3rd, 5th, 10th nearest rows of X_subset (or fewer if X_subset too small).
 
     Shape: (n_query, len(_K_SCALES)). Missing scales (when X_subset smaller than scale) filled with the max-available-k distance.
+
+    Uses ``_knn_helper.knn_search`` which auto-dispatches to hnswlib at N>=50000 (10-50x speedup
+    on Windows when hnswlib is installed) and falls back to sklearn NearestNeighbors otherwise.
     """
-    from sklearn.neighbors import NearestNeighbors
     n_sub = X_subset.shape[0]
     if n_sub == 0:
         return np.full((X_query.shape[0], len(_K_SCALES)), 1e6, dtype=np.float32)
-    k_request = min(k_max, n_sub)
-    nn = NearestNeighbors(n_neighbors=k_request, algorithm="auto", n_jobs=-1).fit(X_subset)
-    dists, _ids = nn.kneighbors(X_query)  # (n_q, k_request)
+    dists, _ids = knn_search(X_subset, X_query, k=k_max)
+    n_returned = dists.shape[1]
     out = np.zeros((X_query.shape[0], len(_K_SCALES)), dtype=np.float32)
     for col_idx, k in enumerate(_K_SCALES):
-        eff_k = min(k, k_request)
+        eff_k = min(k, n_returned)
         out[:, col_idx] = dists[:, eff_k - 1]
     return out
 
@@ -119,6 +122,7 @@ def compute_class_distance_features(
     Mode A: per-class slices refit per fold from y_train[train_idx]. Mode B: slices from full y_train.
     """
     seed = require_seed(seed)
+    try_patch_sklearn()
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)

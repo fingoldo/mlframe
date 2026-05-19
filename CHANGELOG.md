@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-05-18 — FE perf pass: hnswlib drop-in kNN + sklearn-intelex patch + RSD duplicate-NN bug-fix + cheaper BGM defaults + LGB GPU in RSD
+
+Targeted optimizations for stacking-orthogonal FE mechanisms (cdist, local_lift, RSD, BGM) to scale to N=1M+ on Windows. None of these break record claims; iter130 (kin8nm CB R2) drops 0.26pp due to cheaper BGM defaults (documented tradeoff, override-able).
+
+### New helpers
+- **`_knn_helper.py`** (60 LOC): `knn_search(X_sub, X_query, k)` — hnswlib HNSW drop-in for sklearn NearestNeighbors at N>=50k (10-50x speedup), falls back to sklearn otherwise. Cached availability check, drops in without API change.
+- **`_intel_patch.py`** (30 LOC): `try_patch_sklearn()` — idempotent sklearn-intelex `patch_sklearn()` opt-out via `MLFRAME_USE_SKLEARNEX=0`. 5-50x on Intel CPUs for RobustScaler, NearestNeighbors, BGM, KMeans. No-op if sklearn-intelex isn't installed.
+
+### Refactored mechanisms
+- **`class_distance.py`** (cdist) — `_kth_nearest_dists` now calls `knn_search`. Records unchanged.
+- **`local_lift.py`** — replaces inline `NearestNeighbors.fit().kneighbors()` with `knn_search`. Records unchanged.
+- **`residual_stratified_distance.py`** (RSD) — 3 changes:
+  1. **BUG FIX**: combined `_kth_nearest_dists` + `_kth_nearest_residuals` into single `_kth_nearest_dists_and_residuals` returning (dists, mean_resid) from ONE knn search. Prior code re-fitted NearestNeighbors per band (4 NN fits per fold), now 2 NN fits per fold. ~2x speedup of geometry stage.
+  2. **LGB GPU opt-in**: `_compute_oof_residuals` uses `device_type="cuda" if LGB_GPU_AVAILABLE else "cpu"` via mlframe's existing `_gpu_probe.py` gating. Opt-in via env `MLFRAME_TRUST_LGB_CUDA=1` (LightGBM doesn't expose `build_info()` so probe is opt-in, matches the pattern in `mlframe.training.helpers`).
+  3. Routes kNN through `_knn_helper.knn_search`.
+- **`bgmm_quantile_bands.py`** (BGM) — defaults `n_components=3 -> 2`, new `max_iter` param (was hardcoded 200, default now 50). 3-4x faster BGM fit at cost of ~0.25pp accuracy on small-N; override to recover full accuracy. Also routes kNN through `_knn_helper`. All 4 mechanism files now call `try_patch_sklearn()` at function entry.
+
+### Regression test results (kin8nm CB R2, 3 seeds)
+- iter128 (iter69+local_lift): **+8.06%** (was +8.06% — IDENTICAL, sanity check passes)
+- iter130 (iter69+local_lift+BGM): **+8.05%** (was +8.31% — -0.26pp due to cheaper BGM defaults; expected tradeoff, override `n_components=3, max_iter=200` to recover)
+
+### Expected speedup table (Windows, N=1M)
+| Mechanism | Prior (sklearn) | After (hnswlib + intelex + tweaks) | Speedup |
+|---|---|---|---|
+| cdist | 2-5 min per fold | 30-90s | 4-10x |
+| local_lift | 1-3 min per fold | 20-60s | 3-5x |
+| RSD | 4-8 min per fold (geometry) + 5-10 min (LGB OOF) | 1-2 min (geometry, 2x bug fix + hnswlib) + 1-3 min (LGB GPU if opted in) | 3-10x combined |
+| BGM | 5-7 min per fold | 1-2 min per fold (cheaper EM + hnswlib) | 3-5x |
+
+### Opt-in deps (all optional)
+- `hnswlib` — pip install. Activates at N>=50k for kNN-bottlenecked features.
+- `scikit-learn-intelex` — pip install. Patches sklearn on Intel CPUs. AMD: 1.5-3x, Intel: 5-50x.
+- `MLFRAME_TRUST_LGB_CUDA=1` env var — opts into LightGBM CUDA in RSD's OOF residual computation (requires LightGBM built with USE_CUDA=ON; default pip wheels are CPU-only).
+
 ## 2026-05-18 — Iter 136: iter135 generalisation tests — ≈TIE iter104 on Year-50k, marginal +0.09pp on California
 
 Tested whether iter135 (iter102 + local_lift) mechanism that won marginal on kin8nm generalises to other CB R2 regression datasets.
@@ -8498,7 +8532,7 @@ Pairwise test count unchanged at 150; new infrastructure sits alongside.
 
 ### Added
 
-- **`tests/training/COMBO_FUZZ.md`** — design doc for the fuzz approach:
+- **`docs/internal/fuzz_audit.md`** — design doc for the fuzz approach:
   axes, covering algorithm, combo id scheme, invariants, A–G upgrade
   roadmap, operating manual.
 - **Fix C — per-combo property invariants** (`test_fuzz_suite.py::_assert_prediction_invariants`):
