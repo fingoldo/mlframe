@@ -306,15 +306,38 @@ def audit_residuals(
     if n_total == 0:
         raise ValueError("y_true / y_pred are empty.")
 
-    # Filter NaN / inf - common with degenerate model outputs.
-    finite_mask = np.isfinite(y_true) & np.isfinite(y_pred)
-    n_finite = int(finite_mask.sum())
+    # Sample BEFORE the finite filter on large inputs. Pre-fix the
+    # function ran np.isfinite + finite_mask boolean-index on the full
+    # input (~1M rows ~16MB allocations x 4 -- the finite-mask itself,
+    # both masked output arrays, and the int .sum() reduction) only to
+    # then subsample down to ``sample_size`` rows. The audit's purpose
+    # is distribution diagnostics on a representative sample; non-finite
+    # detection only needs to surface ANY occurrences. The post-sample
+    # finite-mask path stays sub-millisecond.
     warnings: list[str] = []
-    if n_finite < n_total:
-        n_dropped = n_total - n_finite
+    sampled = False
+    if sample_size is not None and n_total > sample_size:
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(n_total, size=sample_size, replace=False)
+        y_true = y_true[idx]
+        y_pred = y_pred[idx]
+        sampled = True
+
+    # Filter NaN / inf - common with degenerate model outputs. After
+    # sampling on large inputs (above), this runs on at most sample_size
+    # points. The dropped-count reported below is "in sample" not "total";
+    # the warning text reflects that the audit is sample-scoped.
+    finite_mask = np.isfinite(y_true) & np.isfinite(y_pred)
+    n_post_sample = int(y_true.size)
+    n_finite = int(finite_mask.sum())
+    if n_finite < n_post_sample:
+        n_dropped = n_post_sample - n_finite
+        # Use n_post_sample (not the pre-sample n_total) as the denominator
+        # so the percentage reflects what the audit actually saw.
+        _scope_word = "sampled" if sampled else "input"
         warnings.append(
             f"dropped {n_dropped} non-finite point(s) from the audit "
-            f"({n_dropped/n_total*100:.2f}% of input). Common causes: "
+            f"({n_dropped/n_post_sample*100:.2f}% of {_scope_word}). Common causes: "
             f"NaN target rows or model returning inf for OOD inputs."
         )
     y_true = y_true[finite_mask]
@@ -324,15 +347,6 @@ def audit_residuals(
         raise ValueError(
             f"need >= 5 finite observations to compute residual diagnostics; got {y_true.size}."
         )
-
-    # Sample if large.
-    sampled = False
-    if sample_size is not None and y_true.size > sample_size:
-        rng = np.random.default_rng(seed)
-        idx = rng.choice(y_true.size, size=sample_size, replace=False)
-        y_true = y_true[idx]
-        y_pred = y_pred[idx]
-        sampled = True
 
     residuals = y_true - y_pred
     n = int(residuals.size)

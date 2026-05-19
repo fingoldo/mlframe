@@ -240,6 +240,59 @@ def test_sample_size_honored():
     assert audit.n_total == 100_000
 
 
+def test_sample_before_finite_filter_on_large_input():
+    """audit_residuals must subsample BEFORE the np.isfinite + finite-mask
+    boolean-index pass on inputs larger than sample_size. Pre-fix the
+    function ran finite_mask on the full N-row input (~4x 16MB allocations
+    on 1M f64 rows: the mask itself, n_finite reduction, and the two
+    boolean-indexed output arrays). Surfaced as ~0.5-1s of cumtime in the
+    1M-row regression suite profile.
+
+    A regression that reorders the operations back to filter-then-sample
+    would fail this test by triggering np.isfinite on the full array. We
+    pin the new ordering by counting np.isfinite invocations and asserting
+    the y_true argument it receives has at most sample_size + slack
+    elements.
+    """
+    rng = np.random.default_rng(0)
+    n = 200_000
+    sample_size = 5_000
+    y_pred = rng.uniform(-3, 3, size=n)
+    y_true = y_pred + rng.normal(0, 1.0, size=n)
+
+    captured: dict[str, int] = {"max_size_seen": 0}
+    _orig_isfinite = np.isfinite
+
+    def _spy_isfinite(arr, *a, **kw):
+        try:
+            sz = int(np.asarray(arr).size)
+            if sz > captured["max_size_seen"]:
+                captured["max_size_seen"] = sz
+        except Exception:
+            pass
+        return _orig_isfinite(arr, *a, **kw)
+
+    import unittest.mock as _mock
+    with _mock.patch(
+        "mlframe.training.regression_residual_audit.np.isfinite",
+        side_effect=_spy_isfinite,
+    ):
+        audit = audit_residuals(y_true, y_pred, sample_size=sample_size)
+
+    assert audit.sampled is True
+    assert audit.n == sample_size
+    assert audit.n_total == n
+    # The finite filter must run AFTER subsampling -- the largest array
+    # np.isfinite ever sees should be at most ``sample_size`` (plus a
+    # tiny slack for any incidental probe; tighten to exactly
+    # ``sample_size`` if no probes exist).
+    assert captured["max_size_seen"] <= sample_size, (
+        f"np.isfinite ran on an array of size {captured['max_size_seen']} > "
+        f"sample_size={sample_size}; this re-introduces the pre-fix full-N "
+        f"finite-mask pass."
+    )
+
+
 def test_sample_size_none_no_subsample():
     rng = np.random.default_rng(0)
     n = 1_000
