@@ -149,6 +149,20 @@ import threading as _threading
 _MRMR_IDENTITY_FP_CACHE: dict[str, bool] = {}
 _MRMR_IDENTITY_FP_LOCK = _threading.Lock()
 
+# ---------------------------------------------------------------------------------------------------------------
+# Layer 3 pre-batch: thresholds for the dispatch_batch_pair_mi pre-fill path in _run_fe_step.
+#
+# * _MRMR_BATCH_PRECOMPUTE_MAX_K: cap on numeric_vars_to_consider size. The pre-fill materialises every (a, b)
+#   pair tuple, which is O(k^2). At k=200 -> 19_900 pair tuples (~480 KB of Python tuples); at k=500 -> 124_750
+#   tuples (~3 MB). 200 is the safe sweet spot: covers the typical fe_ntop_features=30-50 axis with margin and
+#   keeps the materialised tuple list under 1 MB. Above the cap the legacy combinations(...) lazy path runs
+#   unchanged.
+# * _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS: smallest pair count where the dispatcher overhead amortises. Below this
+#   the per-pair joblib path is competitive (and avoids a redundant numba.cuda first-call compile when no GPU
+#   speedup would materialise).
+_MRMR_BATCH_PRECOMPUTE_MAX_K = 200
+_MRMR_BATCH_PRECOMPUTE_MIN_PAIRS = 8
+
 
 def _canonicalise_dtype_str(dt) -> str:
     """Polars / pandas-agnostic dtype canonical form.
@@ -1950,6 +1964,60 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         if verbose:
             logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", n_pairs)
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Layer 3 pre-batch: compute pair MIs for every (a, b) in numeric_vars_to_consider via dispatch_batch_pair_mi
+        # (CUDA / CPU njit prange by size). Pre-fills cached_MIs[pair] so the per-pair compute_pairs_mis loop below skips
+        # the permutation-test branch entirely (since "pair in cached_MIs" short-circuits at feature_engineering.py:394).
+        #
+        # Semantic change vs the legacy path: pairs no longer go through the permutation-test confidence filter
+        # (min_nonzero_confidence). The raw original_mi is used as the FE-pair signal. Bench (commit 57f772c) shows
+        # 10-30x speedup over the per-pair joblib loop; downstream MRMR FE pair selection is regression-validated by the
+        # MRMR test suite. Disable by setting MLFRAME_MRMR_BATCH_PAIR_MI=0 (the env-var is the emergency rollback knob).
+        #
+        # Guards:
+        #   * _k > _MRMR_BATCH_PRECOMPUTE_MAX_K: the dispatcher would have to materialise O(k^2) pair tuples; for very
+        #     wide FE pools we keep the legacy lazy combinations + joblib chunking instead.
+        #   * n_pairs < _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS: pair count too small to amortise the dispatcher overhead.
+        #   * Any backend failure (CUDA driver hiccup, dtype mismatch): logged WARN, fall through to legacy path.
+        _BATCH_PRECOMPUTE_ENABLED = os.environ.get("MLFRAME_MRMR_BATCH_PAIR_MI", "1").strip() not in ("0", "false", "False", "")
+        _batch_prefill_count = 0
+        if (
+            _BATCH_PRECOMPUTE_ENABLED
+            and _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K
+            and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS
+        ):
+            try:
+                from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi
+
+                _pairs_list = list(combinations(numeric_vars_to_consider, 2))
+                _pair_a_arr = np.fromiter((p[0] for p in _pairs_list), dtype=np.int64, count=len(_pairs_list))
+                _pair_b_arr = np.fromiter((p[1] for p in _pairs_list), dtype=np.int64, count=len(_pairs_list))
+                _pair_mi_batch, _backend_used = dispatch_batch_pair_mi(
+                    factors_data=data,
+                    pair_a=_pair_a_arr,
+                    pair_b=_pair_b_arr,
+                    nbins=nbins,
+                    classes_y=classes_y,
+                    freqs_y=freqs_y,
+                )
+                # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
+                # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
+                for _i, _p in enumerate(_pairs_list):
+                    if _p not in cached_confident_MIs and _p not in cached_MIs:
+                        cached_MIs[_p] = float(_pair_mi_batch[_i])
+                        _batch_prefill_count += 1
+                if verbose:
+                    logger.info(
+                        "MRMR FE: batch-prefilled %d/%d pair MIs via %s backend (permutation test skipped for these pairs)",
+                        _batch_prefill_count, len(_pairs_list), _backend_used,
+                    )
+            except Exception as _exc:
+                if verbose:
+                    logger.warning(
+                        "MRMR FE: dispatch_batch_pair_mi failed (%s: %s); falling back to legacy per-pair path",
+                        type(_exc).__name__, _exc,
+                    )
 
         # Parallelise whenever (a) more than one worker is configured and
         # (b) we have at least n_jobs pairs to spread; per-pair MI compute is
