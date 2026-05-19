@@ -1,5 +1,171 @@
 # Changelog
 
+## 2026-05-19 — MRMR GPU stack closure: WAVE 1-5 cumulative 2.37x speedup at N=1M, p=30; persistent kernel_tuning_cache; HW-aware dispatch
+
+Five wave cumulative work landing the MRMR.fit hot path on a layered
+CPU/numba/cupy/CUDA-RawKernel dispatch. The session leaves WAVE 5 closed
+with measurement-backed rejections (1/4 shipped, 2-4/4 not worth the H2D
+round-trip on the actual sizes mlframe runs at) and a persistent per-host
+tuning cache that survives across sessions. See
+[docs/WAVE5_GPU_ROADMAP.md](docs/WAVE5_GPU_ROADMAP.md) for the full
+disposition table.
+
+### Measured end-to-end (commit 53ec8f6, GTX 1050 Ti cc 6.1, Win10 / Py3.11 / numba 0.59 / cupy 13)
+
+| Stack state | MRMR.fit wall @ n=1M, p=30, fe_npermutations=50 | Speedup |
+|---|---|---|
+| Baseline (sequential, single-thread, no GPU) | **23.75s** | 1.00x |
+| WAVE 1-5(1) cumulative, min-of-3 (varied seeds) | **10.01s** | **2.37x** |
+| WAVE 1-5(1) cumulative, mean-of-3 | 10.77s | 2.20x |
+
+Three trials with seeds 11/12/13 to defeat MRMR's
+``_FIT_CACHE`` content-signature identity cache (which would otherwise
+short-circuit trials 2-3 to ~280ms cache hits and bias the min downward).
+After one warmup pass that exercises both numba AOT cache +
+CuPy NVRTC compile via ``prewarm_fs_numba_cache`` +
+``prewarm_fs_cupy_kernels``. Re-bench with
+``mlframe.feature_selection._benchmarks.profile_mrmr_layer3_1m`` for
+cProfile attribution; the cProfile dump (``profile_mrmr_layer3_1m_<timestamp>.pstats``)
+lands under ``src/mlframe/feature_selection/_benchmarks/_results/``.
+
+Honest framing on the headline: prior WAVE 5(1) commit message reported
+**2.60x** (23.75s -> 9.15s) but that was a single-trial best case. The
+2.37x figure here is min-of-3 cold-cache trials with varied seeds; mean
+is 2.20x. The 9.15s number is reproducible as a best case but not as a
+worst case -- run-to-run variance under Windows scheduler / GPU
+ramp-up is ~10-15% on a 4 GB GTX 1050 Ti.
+
+### WAVE 1: joblib threading + njit batch_pair_mi_prange
+
+* New ``batch_pair_mi_prange`` njit kernel ([commit ba78f04](https://github.com/fingoldo/mlframe/commit/ba78f04))
+  amortises the per-pair MI computation; ``prefer_gpu`` knob lets the
+  test harness force a CPU baseline.
+
+### WAVE 2: CUDA RawKernels (global-atomic vs shared-mem)
+
+* ``compute_joint_hist_cuda`` (global-atomic) plus
+  ``compute_joint_hist_batched_shared_cuda`` (shared-mem) RawKernels in
+  ``filters/gpu.py``. Dispatcher picks shared vs global by
+  ``joint_size`` per the size table at line 28 of
+  ``_benchmarks/kernel_tuning_cache/dispatch.py``.
+* Shared-mem variant is ~30% faster than global at ``joint_size <=
+  4096`` (cc 6.1); ``joint_size > 4096`` overflows the 48KB shared-mem
+  budget and routes to global automatically.
+
+### WAVE 3: streams + multi-GPU per-thread device pin
+
+* ``mi_direct_gpu_batched_streamed`` uses ``cp.cuda.Stream(non_blocking=True)``
+  with per-stream ``cp.random.default_rng()`` (critic-3-found race;
+  ``cp.random.uniform`` is not stream-safe).
+* ``_pin_device_if_needed()`` called at every kernel entry point
+  (``mi_direct_gpu``, ``mi_direct_gpu_batched``,
+  ``mi_direct_gpu_batched_streamed``, ``mi_direct_gpu_batched_pairs``)
+  ensures joblib workers / asyncio tasks target the same device the
+  init thread chose via ``select_best_gpu``.
+
+### WAVE 4: persistent kernel_tuning_cache (per-host JSON + filelock)
+
+* New ``pyutilz.system.kernel_tuning_cache`` module (storage + lookup
+  primitives) consumed by ``mlframe.feature_selection._benchmarks.kernel_tuning_cache``
+  (sweep + dispatch). Schema-v1 JSON at
+  ``~/.pyutilz/kernel_tuning/<hw_fingerprint>.json``; cross-process
+  safe via ``filelock`` + merge-on-write.
+* HW fingerprint = ``cpu_<slug>_gpu_<slug>_cc<M.m>``; provenance
+  (CUDA driver/runtime + cupy/numba/numpy versions + gpu_summary)
+  auto-stamped via ``_build_provenance()``; stale entries detected
+  via ``provenance_changed()``.
+* Online relearn gated behind ``MLFRAME_KTC_ONLINE_LEARN=1`` env
+  (bounded ``_measure_single_region`` ~50-200ms vs full sweep
+  15-30s).
+* CLI: ``python -m mlframe.feature_selection._benchmarks.kernel_tuning_cache.cli``
+  with ``show`` / ``where`` / ``clear`` / ``refresh`` subcommands.
+  ``clear`` refuses non-TTY stdin without ``--yes`` to prevent piped
+  accidents.
+
+### WAVE 5: FE transformer GPU broadcast (1/4 shipped, 2-4/4 rejected)
+
+* **(1/4) SHIPPED** ([commit 228db3c](https://github.com/fingoldo/mlframe/commit/228db3c)):
+  ``filters/feature_engineering.py:compute_fe_pairs`` per-column unary
+  now routes to ``getattr(cp, tr_name)`` (cupy elementwise) when
+  ``vals.size >= 500_000``, ``tr_name in gpu_compatible_unary_names()``
+  (21-entry registry: log, exp, sin, cbrt, sqrt, abs, ...), and
+  ``is_cuda_available()``. Any GPU-path exception falls through to
+  ``tr_func(vals)``. Hermite-poly cases stay on numpy unchanged.
+* **(2/4) REJECTED** misframed: ``models/ensembling.py`` has exactly
+  one direct ``model.predict_proba`` call (line 231) and that already
+  inherits the fit-time device automatically (CB ``task_type='GPU'`` /
+  XGB ``device='cuda'``). No mlframe-side wire to add.
+* **(3/4) REJECTED** H2D dominates: ``predict_quantile_ensemble`` blend
+  is ``np.tensordot(w, stacked)`` over (M=5, N=1M, K=5) = 25M FMA, ~100ms
+  CPU; H2D of 200MB stacked tensor at PCIe 3.0 x16 is ~18ms; net win
+  21ms but only if (2/4) had landed. Closed without code change.
+* **(4/4) REJECTED** sub-1% fraction: votenrank operates on
+  int64[<=20, <=20]; CUDA-context launch latency outweighs CPU
+  runtime.
+
+### Cross-HW fallback hardening
+
+* ``_FALLBACK_BY_CC`` table at ``dispatch.py:28`` covers cc 5/6/7/8/9
+  with HW-measured ``(kernel_variant, block_size)``. ``joint_size >
+  _SHARED_HIST_MAX_JOINT_FALLBACK`` (4096) forces ``kernel_variant=
+  'global'`` regardless of cc-default (cc 5-8 default to shared).
+* New test file
+  ``tests/feature_selection/test_kernel_tuning_cross_hw.py`` ([commit
+  53ec8f6](https://github.com/fingoldo/mlframe/commit/53ec8f6))
+  adds 11 cross-HW tests: 5 variant-per-cc parametric + 4
+  joint_size-override parametric + unknown-cc graceful degrade +
+  missing-gpu_capability fallthrough. Complements the existing
+  block_size parametric test in
+  ``test_kernel_tuning_cache_critic3.py`` which a regression that
+  swapped shared<->global would have passed.
+
+### Numba AOT cache hardening
+
+* ``cache=True`` on 21 utility ``@njit`` decorators ([commit
+  53ec8f6](https://github.com/fingoldo/mlframe/commit/53ec8f6)) outside
+  the MRMR hot path: ``core/arrays.py`` (10), ``core/ewma.py`` (2),
+  ``feature_engineering/numerical.py`` (2), ``feature_engineering/hurst.py``
+  (2), ``feature_engineering/mps.py`` (7). NOT touching
+  ``compute_numerical_aggregates_numba`` at
+  ``feature_engineering/numerical.py:253`` which is explicitly
+  ``cache=False`` due to a documented numba 0.59 + Python 3.11 +
+  Windows cache-corruption bug. Feature_selection (the MRMR hot path)
+  was already 100% cached pre-fix; metrics/FE-transformer go through
+  ``NUMBA_NJIT_PARAMS dict(cache=True, nogil=True, ...)``.
+
+### Pyutilz dependency
+
+* Consumer of new ``pyutilz.system.kernel_tuning_cache`` module
+  (pyutilz commit 4cbaf05). ``hw_fingerprint`` degrades to
+  ``cpu_<slug>_gpu_nogpu_cc0.0`` on CPU-only hosts; the cache itself
+  works without CUDA.
+
+### Test surface
+
+* Equivalence tests (``test_gpu_kernel_equivalence.py``): 7 tests
+  validate shared-vs-global RawKernel agreement at 3 sizes + streamed-
+  vs-serial mi_direct_gpu_batched at 2 sizes.
+* Critic-3 closure (``test_kernel_tuning_cache_critic3.py``): 7 tests
+  cover online-relearn schema, streams + multi-RNG assertions
+  (regression guard for the cp.random race), HW fallback per-cc,
+  large-joint forced-global, on-disk JSON schema, kernel-attr init,
+  concurrent multiproc KTC update.
+* Cross-HW (``test_kernel_tuning_cross_hw.py``): 11 new tests, see
+  above.
+* Full GPU+FS surface (after WAVE 5(1) and cache=True edits): 18/18
+  green isolated, 405/0 on FE+GPU under fast-mode in 492s.
+
+### Known limitation
+
+* ``test_concurrent_update_preserves_kernels`` (KTC merge-on-write
+  under 2-process contention) passes in isolation, occasionally fails
+  under heavy concurrent pytest load on Windows (CUDA + multiprocessing
+  + paging-file pressure). The file-lock fix from pyutilz commit 70e4ab1
+  is correct; the flake is the Windows ``loky`` child enumeration race
+  documented in [reference_windows_paging_overflow_joblib]. Skip
+  semantics not added because the test catches a real regression on
+  retry.
+
 ## 2026-05-18 — FE perf pass: hnswlib drop-in kNN + sklearn-intelex patch + RSD duplicate-NN bug-fix + cheaper BGM defaults + LGB GPU in RSD
 
 Targeted optimizations for stacking-orthogonal FE mechanisms (cdist, local_lift, RSD, BGM) to scale to N=1M+ on Windows. None of these break record claims; iter130 (kin8nm CB R2) drops 0.26pp due to cheaper BGM defaults (documented tradeoff, override-able).
