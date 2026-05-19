@@ -335,10 +335,54 @@ def mi_direct_gpu(
     freqs_y_safe: np.ndarray = None,
     use_gpu: bool = True,
 ) -> tuple:
-    """GPU mutual-information + permutation test (CuPy)."""
+    """GPU mutual-information + permutation test (CuPy).
+
+    When ``npermutations >= 32`` and the caller did not pre-warm the
+    device-side target buffers (``classes_y_safe is None and
+    freqs_y_safe is None``), this function delegates to
+    :func:`mi_direct_gpu_batched`, which runs ``batch_size=64``
+    permutations per kernel launch. That cuts kernel-launch overhead
+    from O(npermutations) to O(npermutations / 64) -- material on the
+    screening hot path where the same single-pair MI evaluation is
+    repeated for every candidate.
+
+    Below 32 permutations the per-permutation generation overhead in
+    the batched path dominates the launch saving; we keep the legacy
+    per-iter loop. The 32 threshold comes from
+    ``mi_direct_gpu_batched``'s own documented crossover.
+
+    Return contract is identical (``(original_mi, confidence)``) in
+    both branches; the only behavioural difference is that the
+    batched path checks the ``nfailed >= max_failed`` early-stop
+    condition at batch granularity, so up to ``batch_size - 1`` extra
+    permutations may run before short-circuit (typically dominated by
+    the saved launch overhead, but documented so callers depending
+    on exact-perm-counts know).
+    """
     import cupy as cp
 
     _ensure_kernels_inited()
+
+    # Transparent fan-out to the batched permutation kernel when the
+    # caller hasn't pre-warmed device buffers (those carry caller-
+    # provided state we'd silently bypass) AND we have enough
+    # permutations to amortise the batch-generation overhead.
+    if (
+        npermutations >= 32
+        and classes_y_safe is None
+        and freqs_y_safe is None
+    ):
+        return mi_direct_gpu_batched(
+            factors_data=factors_data,
+            x=x,
+            y=y,
+            factors_nbins=factors_nbins,
+            npermutations=npermutations,
+            batch_size=64,
+            dtype=dtype,
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+        )
 
     classes_x, freqs_x, _ = merge_vars(
         factors_data=factors_data, vars_indices=x,
