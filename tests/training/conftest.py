@@ -20,11 +20,11 @@ matplotlib.use('Agg')
 # swallow ImportError because some of these are optional extras.
 try:
     import flaml.default  # noqa: F401
-except ImportError:
+except (ImportError, OSError):
     pass
 try:
     import mlframe.training.neural  # noqa: F401
-except ImportError:
+except (ImportError, OSError):
     pass
 try:
     # networkx is pulled in transitively by some sklearn / pyutilz paths;
@@ -32,7 +32,7 @@ try:
     # per-test timeout window.
     import networkx  # noqa: F401
     import networkx.algorithms  # noqa: F401
-except ImportError:
+except (ImportError, OSError):
     pass
 
 import pytest
@@ -50,23 +50,39 @@ from .synthetic import (
 )
 
 
+@pytest.fixture(scope="session")
+def _session_monkeypatch(request):
+    """Session-scoped monkeypatch helper (pytest's built-in monkeypatch is function-scoped).
+
+    Provides safe per-session attribute patching that is auto-reverted on session teardown
+    even if a worker yields mid-test under pytest-xdist (memory feedback rule about xdist safety).
+    """
+    from _pytest.monkeypatch import MonkeyPatch
+    mp = MonkeyPatch()
+    yield mp
+    mp.undo()
+
+
 @pytest.fixture(scope="session", autouse=True)
-def _force_cpu_training_defaults():
+def _force_cpu_training_defaults(_session_monkeypatch):
     """Force prefer_gpu_configs=False during tests.
 
     CI and many dev boxes have limited GPU memory; parameterized CatBoost
     test sweeps can accumulate CUDA allocations across the session and
     eventually OOM mid-suite (Windows fatal "bad allocation" out of the
-    CatBoost cython layer is unrecoverable — kills the pytest process).
+    CatBoost cython layer is unrecoverable -- kills the pytest process).
     CPU fallback is slower per-test but keeps the suite runnable end-to-end.
     Individual GPU-specific tests remain opt-in via @pytest.mark.gpu.
+
+    Uses session-scoped MonkeyPatch to guarantee restoration on teardown
+    under pytest-xdist (raw try/finally on model_fields was leaking mutated
+    defaults to sibling workers if a worker died mid-test).
     """
     from mlframe.training.configs import TrainingBehaviorConfig
-    original = TrainingBehaviorConfig.model_fields["prefer_gpu_configs"].default
-    TrainingBehaviorConfig.model_fields["prefer_gpu_configs"].default = False
+    _field = TrainingBehaviorConfig.model_fields["prefer_gpu_configs"]
+    _session_monkeypatch.setattr(_field, "default", False)
     TrainingBehaviorConfig.model_rebuild(force=True)
     yield
-    TrainingBehaviorConfig.model_fields["prefer_gpu_configs"].default = original
     TrainingBehaviorConfig.model_rebuild(force=True)
 
 
@@ -287,3 +303,76 @@ def fast_iterations():
 def fast_config_override(fast_iterations):
     """Config params override for fast test execution."""
     return {'iterations': fast_iterations}
+
+
+@pytest.fixture(scope="session")
+def cpu_only_hyperparams(fast_iterations):
+    """Shared CPU-only kwargs for cb / xgb / lgb / mlp boosters.
+
+    Replaces the repeated inline blocks in test_all_models.py and
+    test_catboost_polars.py that set task_type=CPU / device=cpu / device_type=cpu
+    per booster family. Pair with `fast_iterations` for fast test execution.
+    """
+    return {
+        "iterations": fast_iterations,
+        "cb_kwargs": {"task_type": "CPU"},
+        "xgb_kwargs": {"device": "cpu"},
+        "lgb_kwargs": {"device_type": "cpu"},
+        "mlp_kwargs": {"trainer_params": {"devices": 1}},
+    }
+
+
+@pytest.fixture(scope="session")
+def trained_suite_regression(sample_regression_data, common_init_params, fast_iterations):
+    """One trained suite per session for regression target.
+
+    Heavy fixture: runs `train_mlframe_models_suite` once with a tiny iteration
+    budget so that downstream behaviour tests that only need to inspect the
+    returned suite object (e.g. attribute presence, metric dict shape) can
+    consume it without re-training.
+    """
+    from mlframe.training.core import train_mlframe_models_suite
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    df, feature_names, _y = sample_regression_data
+    extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
+    suite = train_mlframe_models_suite(
+        df=df,
+        features_and_targets_extractor=extractor,
+        reporting_config=common_init_params,
+        config_override={
+            "iterations": fast_iterations,
+            "cb_kwargs": {"task_type": "CPU"},
+            "xgb_kwargs": {"device": "cpu"},
+            "lgb_kwargs": {"device_type": "cpu"},
+        },
+    )
+    return suite
+
+
+@pytest.fixture(scope="session")
+def trained_suite_binary(sample_classification_data, common_init_params, fast_iterations):
+    """One trained suite per session for binary-classification target.
+
+    Companion to ``trained_suite_regression`` (extends W4E shared-fixture work).
+    Tests that only inspect the returned suite object (attribute presence,
+    metric dict shape, predict_proba round-trip) should consume this fixture
+    instead of re-fitting per test.
+    """
+    from mlframe.training.core import train_mlframe_models_suite
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    df, feature_names, *_, _y = sample_classification_data
+    extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+    suite = train_mlframe_models_suite(
+        df=df,
+        features_and_targets_extractor=extractor,
+        reporting_config=common_init_params,
+        config_override={
+            "iterations": fast_iterations,
+            "cb_kwargs": {"task_type": "CPU"},
+            "xgb_kwargs": {"device": "cpu"},
+            "lgb_kwargs": {"device_type": "cpu"},
+        },
+    )
+    return suite

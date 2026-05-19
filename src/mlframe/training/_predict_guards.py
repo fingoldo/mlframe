@@ -408,6 +408,13 @@ def _fit_persist_and_transform(
     except ImportError:
         pl = None  # type: ignore[assignment]
 
+    # Cupy GPU acceleration was evaluated for this fastpath (D-Arch-6 audit, 2026-05-19);
+    # bench at ``_benchmarks/bench_arch_d.bench_predict_guards_cupy`` measured 0.66x-0.79x
+    # (cupy SLOWER than polars) on both n_rows=500k / n_cols=50 (25M cells) and n_rows=500k /
+    # n_cols=200 (100M cells). The polars fastpath below is already a vectorised single-pass
+    # plan; the H2D + D2H copy dominates the modest per-column arithmetic the GPU can offer.
+    # Skipping per the >5% gate: not worth adding a cupy code path that would be slower at
+    # every measured shape.
     if pl is not None and isinstance(X, pl.DataFrame) and all(dt.is_numeric() for dt in X.dtypes):
         from .utils import get_pandas_view_of_polars_df
         cols = X.columns
@@ -455,6 +462,13 @@ def _fit_persist_and_transform(
             setattr(model, "_mlframe_nan_scaler", scaler)
         except (AttributeError, TypeError):
             pass
+        # Audit D P1-5 (2026-05-18): this is a 1-hop savings, not zero-copy end-to-end. The
+        # polars-side mean/std + standardisation eliminate the polars->numpy->sklearn->pandas
+        # round trip on the COMPUTE side, but ``fn`` downstream is a sklearn pipeline that takes
+        # pandas and internally goes pandas->numpy. ``get_pandas_view_of_polars_df`` uses the
+        # split-blocks Arrow bridge so numeric columns stay zero-copy at THIS hop; ``fn``'s
+        # internal pandas->numpy is the remaining unavoidable copy until the sklearn estimator
+        # accepts numpy/polars directly.
         X_clean: Any = get_pandas_view_of_polars_df(df_std)
         return fn(X_clean)
 

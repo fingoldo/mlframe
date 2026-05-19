@@ -111,7 +111,7 @@ def _run_composite_target_wrapping(
                 _inner = getattr(_entry, "model", None) or _entry
                 if not hasattr(_inner, "predict"):
                     continue
-                # T1#7 2026-05-18 idempotency: if the entry is ALREADY a CompositeTargetEstimator (re-entry via recover_composite_y_scale_metrics), skip wrap.
+                # Idempotency: if the entry is ALREADY a CompositeTargetEstimator (re-entry via recover_composite_y_scale_metrics), skip wrap.
                 # Double-wrap would treat y-scale predict output as if it were T-scale and invert the transform a second time, producing garbage.
                 if isinstance(_inner, CompositeTargetEstimator):
                     continue
@@ -947,11 +947,17 @@ def run_composite_post_processing(
                                 y_train=_y_for_stack,
                             )
                     else:  # "oof_weighted"
+                        # C-P1-2: pipe OOF rmses through component_oof_rmse= so from_train_metrics ranks
+                        # on the honest holdout signal. The list named _oof_rmses IS the per-component OOF
+                        # RMSE (computed earlier in this phase), so the historical
+                        # component_train_rmse=_oof_rmses.tolist() argument was passing the right values
+                        # under a misleading parameter name (train_rmse) -- the helper would then emit the
+                        # "ranking on TRAIN RMSE which is biased" WARN even though the values were OOF.
                         _ensemble = _CrossEns.from_train_metrics(
                             component_models=_oof_components,
                             component_names=_oof_names,
-                            component_train_rmse=_oof_rmses.tolist(),
-                            baseline_train_rmse=None,
+                            component_oof_rmse=_oof_rmses.tolist(),
+                            baseline_oof_rmse=None,
                         )
                     # OOF validation gate: fall back to best single if ensemble holdout RMSE > best-single holdout RMSE.
                     if (_oof_pred_matrix is not None
@@ -1030,7 +1036,11 @@ def run_composite_post_processing(
                 # the right combine for the cross-target slot (predict-path parity). The CT key reuses
                 # the _CT_ENSEMBLE__ literal so the predict per-target lookup hits the same slot the loader produces.
                 _ce_actual_strategy = getattr(_ensemble, "strategy", None) or _ce_strategy
+                # Sub-key per ensemble family: cross-target ensembles live under
+                # ``ensembles_chosen["cross_target"]``; simple per-target ensembles are stamped by
+                # _phase_train_one_target under ``ensembles_chosen["simple"]``.
                 metadata.setdefault("ensembles_chosen", {}) \
+                    .setdefault("cross_target", {}) \
                     .setdefault(str(_tt_e), {})[_ens_key] = str(_ce_actual_strategy)
                 logger.info(
                     "[CompositeCrossTargetEnsemble] target='%s' built strategy='%s' "

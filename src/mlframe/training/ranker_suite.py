@@ -335,35 +335,49 @@ def train_mlframe_ranker_suite(
         # datetime columns + auto-cast object columns to pd.Categorical.
         # (Standard suite does this via the polars-alignment step; LTR
         # fork takes the simple route here.)
-        for col in list(df_X.columns):
+        # Audit D P1-4 (2026-05-18): pre-fix did ``df_X = df_X.drop`` and ``df_X[col] = ...`` per
+        # column, which triggers a full DataFrame copy on every assignment under pandas'
+        # BlockManager -- O(n_cols^2) memory churn on 100+ column frames. Now we accumulate
+        # drops + replacements in a single sweep, then commit them in two batch operations.
+        _drop_cols: list[str] = []
+        _replacements: dict[str, pd.Series] = {}
+        for col in df_X.columns:
             dt = df_X[col].dtype
             if str(dt).startswith("datetime"):
-                df_X = df_X.drop(columns=[col])
+                _drop_cols.append(col)
             elif dt is object:
-                # object-dtype columns can contain either scalar strings
-                # (cat features -> astype('category') OK) OR nested
-                # arrays/lists (embedding features from pl.List(pl.Float32)
-                # round-trip -> astype('category') raises
-                # ``TypeError: unhashable type: 'numpy.ndarray'`` because
-                # pandas factorize can't hash arrays). Drop nested-element
-                # columns silently: the rankers can't consume them as
-                # numeric anyway, and CB/XGB/LGB sklearn wrappers reject
-                # them at fit-time.
+                # object-dtype columns can contain either scalar strings (cat features ->
+                # astype('category') OK) OR nested arrays/lists (embedding features from
+                # pl.List(pl.Float32) round-trip -> astype('category') raises
+                # ``TypeError: unhashable type: 'numpy.ndarray'`` because pandas factorize
+                # can't hash arrays). Drop nested-element columns silently: the rankers can't
+                # consume them as numeric anyway, and CB/XGB/LGB sklearn wrappers reject them
+                # at fit time.
                 _sample = next((v for v in df_X[col] if v is not None and not (isinstance(v, float) and np.isnan(v))), None)
                 if _sample is not None and isinstance(_sample, (list, tuple, np.ndarray)):
-                    df_X = df_X.drop(columns=[col])
+                    _drop_cols.append(col)
                     continue
-                # Fill nulls BEFORE astype("category") so the missing
-                # sentinel becomes a category level (CatBoost rejects NaN
-                # in cat_features; the standard suite uses the same
-                # ``__MISSING__`` sentinel pattern).
-                df_X[col] = df_X[col].fillna("__MISSING__").astype("category")
+                # Fill nulls BEFORE astype("category") so the missing sentinel becomes a
+                # category level (CatBoost rejects NaN in cat_features; the standard suite
+                # uses the same ``__MISSING__`` sentinel pattern).
+                _replacements[col] = df_X[col].fillna("__MISSING__").astype("category")
             elif isinstance(dt, pd.CategoricalDtype):
                 # Existing category column with NaN: add the sentinel.
                 if df_X[col].isna().any():
-                    if "__MISSING__" not in df_X[col].cat.categories:
-                        df_X[col] = df_X[col].cat.add_categories("__MISSING__")
-                    df_X[col] = df_X[col].fillna("__MISSING__")
+                    _series = df_X[col]
+                    if "__MISSING__" not in _series.cat.categories:
+                        _series = _series.cat.add_categories("__MISSING__")
+                    _replacements[col] = _series.fillna("__MISSING__")
+        if _drop_cols:
+            df_X = df_X.drop(columns=_drop_cols)
+        if _replacements:
+            # Single-pass concat preserves column order, avoids O(n_cols^2) rebuilds.
+            _orig_order = list(df_X.columns)
+            _unchanged = [c for c in _orig_order if c not in _replacements]
+            df_X = pd.concat(
+                [df_X[_unchanged]] + [_replacements[c].rename(c) for c in _orig_order if c in _replacements],
+                axis=1,
+            )[_orig_order]
         X_tr = df_X.iloc[train_idx].reset_index(drop=True)
         X_va = df_X.iloc[val_idx].reset_index(drop=True)
         X_te = df_X.iloc[test_idx].reset_index(drop=True)
@@ -409,12 +423,49 @@ def train_mlframe_ranker_suite(
     flavor_order: list[str] = []
 
     # Detect categorical columns for cat_features kwarg (CB/LGB use, XGB
-    # uses enable_categorical). Heuristic: pandas object/category cols.
+    # uses enable_categorical). Heuristic: pandas object/category cols, but
+    # excluding embedding-like columns (object cells that are array-like /
+    # nested lists) - those must NOT go into cat_features or downstream CB /
+    # LGB will try to hash an unhashable cell.
     cat_features: list[str] = []
+    _embedding_cols: list[str] = []
     if isinstance(X_tr, pd.DataFrame):
         for col in X_tr.columns:
-            if isinstance(X_tr[col].dtype, pd.CategoricalDtype) or X_tr[col].dtype == object:
+            _dt = X_tr[col].dtype
+            if isinstance(_dt, pd.CategoricalDtype):
                 cat_features.append(col)
+                continue
+            if _dt == object:
+                _probe = X_tr[col].dropna()
+                if len(_probe) == 0:
+                    cat_features.append(col)
+                    continue
+                _first = _probe.iloc[0]
+                # array-likes (np.ndarray, list, tuple of numbers) are NOT
+                # categoricals; they are embedding columns mistakenly routed
+                # through the pandas object dtype by polars list-of-float
+                # materialisation.
+                if isinstance(_first, (np.ndarray, list, tuple)):
+                    _embedding_cols.append(col)
+                    continue
+                cat_features.append(col)
+    # Drop embedding columns from the X frames before model fit - native
+    # rankers (CatBoostRanker / XGBRanker / LGBMRanker) all treat them as
+    # numeric and raise on the array cell. Native embedding support requires
+    # the ``embedding_features`` kwarg which the LTR dispatch does not plumb.
+    if _embedding_cols:
+        logger.warning(
+            "[ranker_suite] dropping %d embedding-like object-dtype column(s) "
+            "(%s) from the X frames before native ranker fit; LTR dispatch "
+            "does not currently plumb ``embedding_features``.",
+            len(_embedding_cols), _embedding_cols,
+        )
+        if isinstance(X_tr, pd.DataFrame):
+            X_tr = X_tr.drop(columns=_embedding_cols, errors="ignore")
+        if isinstance(X_va, pd.DataFrame):
+            X_va = X_va.drop(columns=_embedding_cols, errors="ignore")
+        if isinstance(X_te, pd.DataFrame):
+            X_te = X_te.drop(columns=_embedding_cols, errors="ignore")
 
     # LightGBM (`LGBMRanker` + `Booster.predict`) rejects pandas object-
     # dtype columns at both fit and predict time with
@@ -440,11 +491,28 @@ def train_mlframe_ranker_suite(
             if isinstance(X_te, pd.DataFrame):
                 _splits_for_vocab.append(X_te)
             _vocabs: dict[str, dict] = {}
+            _skip_cols: set[str] = set()
             for _c in _to_encode:
                 _vals = set()
+                _abort = False
                 for _split in _splits_for_vocab:
                     if _c in _split.columns:
-                        _vals.update(v for v in _split[_c].dropna().tolist())
+                        for _v in _split[_c].dropna().tolist():
+                            try:
+                                _vals.add(_v)
+                            except TypeError:
+                                # Unhashable cell (e.g. embedding column that
+                                # is dtype==object but holds numpy arrays /
+                                # lists); leave the column untouched - LGB
+                                # will surface its own error if this is
+                                # really a cat_feature mis-labelled as such.
+                                _abort = True
+                                break
+                        if _abort:
+                            break
+                if _abort:
+                    _skip_cols.add(_c)
+                    continue
                 # Stable code assignment via sorted string repr -- avoids
                 # run-to-run drift on dict-ordering of insertion sets.
                 _vocabs[_c] = {
@@ -452,16 +520,31 @@ def train_mlframe_ranker_suite(
                         sorted(_vals, key=lambda x: str(x))
                     )
                 }
+            # Per-col ``_split_local[_c] = ...`` triggers BlockManager rebuilds
+            # for each column. Build a {col: new_series} dict in one pass, then
+            # assemble the result frame with a single ``pd.concat`` so the
+            # BlockManager rebuilds once.
             for _split_name, _split in (("train", X_tr), ("val", X_va), ("test", X_te)):
                 if not isinstance(_split, pd.DataFrame):
                     continue
-                _split_local = _split.copy()
+                _orig_cols = list(_split.columns)
+                _new_series: dict[str, pd.Series] = {}
                 for _c in _to_encode:
-                    if _c in _split_local.columns:
+                    if _c in _skip_cols:
+                        continue
+                    if _c in _split.columns:
                         _vmap = _vocabs[_c]
-                        _split_local[_c] = (
-                            _split_local[_c].map(_vmap).fillna(-1).astype("int32")
+                        _new_series[_c] = (
+                            _split[_c].map(_vmap).fillna(-1).astype("int32")
                         )
+                if _new_series:
+                    _kept = [c for c in _orig_cols if c not in _new_series]
+                    _split_local = pd.concat(
+                        [_split[_kept]] + [_new_series[c].rename(c) for c in _orig_cols if c in _new_series],
+                        axis=1,
+                    )[_orig_cols]
+                else:
+                    _split_local = _split
                 if _split_name == "train":
                     X_tr = _split_local
                 elif _split_name == "val":
@@ -579,7 +662,113 @@ def train_mlframe_ranker_suite(
     # -------------------------------------------------------------
     # 4. Ensemble
     # -------------------------------------------------------------
+    # Arch-5: apply quality / diversity / zero-crossing / NaN gates BEFORE the rank-fusion step.
+    # Each gate drops members from val_scores_per_model + test_scores_per_model + flavor_order in
+    # lockstep so the rank-fusion math sees a coherent post-gate set. Drops are logged at WARN.
     if use_mlframe_ensembles and len(val_scores_per_model) >= 2:
+        _gate_log: list[str] = []
+        _keep_idx = list(range(len(flavor_order)))
+
+        # NaN gate: members whose val OR test scores contain any NaN cannot rank-fuse cleanly
+        # (RRF / Borda map NaN to last place silently which biases the fused order).
+        _nan_drop = [
+            i for i in _keep_idx
+            if not np.all(np.isfinite(np.asarray(val_scores_per_model[i], dtype=np.float64)))
+            or not np.all(np.isfinite(np.asarray(test_scores_per_model[i], dtype=np.float64)))
+        ]
+        if _nan_drop:
+            _gate_log.append(f"NaN: dropped {[flavor_order[i] for i in _nan_drop]}")
+            _keep_idx = [i for i in _keep_idx if i not in set(_nan_drop)]
+
+        # Zero-variance gate: scores with std<=eps cannot inform rank order; including them
+        # adds a phantom tie-breaker that lowers the fused NDCG.
+        _zero_var_eps = 1e-12
+        _zv_drop = [
+            i for i in _keep_idx
+            if float(np.std(np.asarray(val_scores_per_model[i], dtype=np.float64))) <= _zero_var_eps
+        ]
+        if _zv_drop:
+            _gate_log.append(f"zero_variance: dropped {[flavor_order[i] for i in _zv_drop]}")
+            _keep_idx = [i for i in _keep_idx if i not in set(_zv_drop)]
+
+        # Quality gate: drop members whose val NDCG@10 is below half of the best surviving
+        # member. The exact threshold is a heuristic (half-best is the same rule
+        # ``ensemble_probabilistic_predictions`` applies for outlier members); the goal is to
+        # avoid dragging the fused score below the best single member.
+        if len(_keep_idx) >= 2:
+            _ndcgs = {
+                i: float(models_dict[flavor_order[i]]["val_metrics"].get("ndcg@10", 0.0))
+                for i in _keep_idx
+            }
+            _ndcg_finite = {i: v for i, v in _ndcgs.items() if np.isfinite(v)}
+            if _ndcg_finite:
+                _best = max(_ndcg_finite.values())
+                _floor = 0.5 * _best
+                _q_drop = [i for i, v in _ndcg_finite.items() if v < _floor]
+                if _q_drop and len(_keep_idx) - len(_q_drop) >= 2:
+                    _gate_log.append(
+                        f"quality: dropped {[flavor_order[i] for i in _q_drop]} "
+                        f"(val_ndcg@10 below 0.5x best={_best:.4f})"
+                    )
+                    _keep_idx = [i for i in _keep_idx if i not in set(_q_drop)]
+
+        # Diversity gate: when two members have val_score Spearman correlation > 0.99 they
+        # contribute almost no independent signal; keep the higher-NDCG of each near-duplicate
+        # pair. Spearman (rank correlation) is the rank-fusion-appropriate measure -- Pearson on
+        # raw scores would over-flag flavours with different score scales but identical orders.
+        if len(_keep_idx) >= 2:
+            from scipy.stats import spearmanr  # local import: heavy dep only when ensembling
+            _drop_div: set[int] = set()
+            _kept_sorted = sorted(
+                _keep_idx,
+                key=lambda i: float(models_dict[flavor_order[i]]["val_metrics"].get("ndcg@10", 0.0)),
+                reverse=True,
+            )
+            for _ix, _i in enumerate(_kept_sorted):
+                if _i in _drop_div:
+                    continue
+                _vi = np.asarray(val_scores_per_model[_i], dtype=np.float64)
+                for _j in _kept_sorted[_ix + 1:]:
+                    if _j in _drop_div:
+                        continue
+                    _vj = np.asarray(val_scores_per_model[_j], dtype=np.float64)
+                    try:
+                        _rho, _ = spearmanr(_vi, _vj)
+                    except Exception:
+                        continue
+                    if _rho is not None and np.isfinite(_rho) and _rho > 0.99:
+                        _drop_div.add(_j)
+            if _drop_div and len(_keep_idx) - len(_drop_div) >= 2:
+                _gate_log.append(
+                    f"diversity: dropped {[flavor_order[i] for i in sorted(_drop_div)]} "
+                    f"(val Spearman > 0.99 vs higher-NDCG sibling)"
+                )
+                _keep_idx = [i for i in _keep_idx if i not in _drop_div]
+
+        if _gate_log:
+            logger.warning(
+                "[ranker_ensemble gates] %s. Surviving members for rank-fusion: %s.",
+                "; ".join(_gate_log),
+                [flavor_order[i] for i in _keep_idx],
+            )
+        # Materialise the post-gate set. The legacy `flavor_order` list keeps the full set so
+        # per-member reporting under `models_dict[<flavour>]` stays intact; the fusion step
+        # iterates over the post-gate slices below.
+        _gated_flavor_order = [flavor_order[i] for i in _keep_idx]
+        _gated_val_scores = [val_scores_per_model[i] for i in _keep_idx]
+        _gated_test_scores = [test_scores_per_model[i] for i in _keep_idx]
+        if len(_gated_flavor_order) < 2:
+            logger.warning(
+                "[ranker_ensemble gates] only %d member(s) survived post-gate "
+                "(need >=2 to build a rank-fusion ensemble); skipping ensemble step.",
+                len(_gated_flavor_order),
+            )
+    else:
+        _gated_flavor_order = []
+        _gated_val_scores = []
+        _gated_test_scores = []
+
+    if use_mlframe_ensembles and len(_gated_flavor_order) >= 2:
         # Resolution order for the ensembling method:
         # 1. Explicit function-arg ``ensemble_method`` (back-compat, highest priority).
         # 2. ``ranking_config.ensemble_method`` when the legacy field was customised
@@ -608,12 +797,12 @@ def train_mlframe_ranker_suite(
         else:
             method = _typed
         ens_val = ensemble_ranker_scores(
-            val_scores_per_model, g_va,
+            _gated_val_scores, g_va,
             method=method, rrf_k=ranking_config.rrf_k,
             assume_comparable_scales=ranking_config.assume_comparable_scales,
         )
         ens_test = ensemble_ranker_scores(
-            test_scores_per_model, g_te,
+            _gated_test_scores, g_te,
             method=method, rrf_k=ranking_config.rrf_k,
             assume_comparable_scales=ranking_config.assume_comparable_scales,
         )
@@ -621,15 +810,23 @@ def train_mlframe_ranker_suite(
         ens_test_metrics = compute_ranking_summary(y_te, ens_test, g_te, eval_at=eval_at)
         models_dict["ensemble"] = {
             "method": method,
-            "members": flavor_order,
+            "members": _gated_flavor_order,
+            "members_pre_gate": flavor_order,
             "val_scores": ens_val,
             "test_scores": ens_test,
             "val_metrics": ens_val_metrics,
+            # WARN: ``test_metrics`` is for REPORTING ONLY; do NOT use it to pick the LTR
+            # ensemble method. The ``method`` here is resolved from config BEFORE the test
+            # set is seen (val/test split honoured); iterating on ``method`` until
+            # ``test_metrics`` improves would convert test into a model-selection surface.
+            # Selection-grade metrics belong to ``val_metrics``.
+            "test_metrics_for_reporting_only": True,
             "test_metrics": ens_test_metrics,
         }
         if verbose:
-            logger.info(
-                "  ensemble (%s, N=%d): val NDCG@10=%.4f / test NDCG@10=%.4f",
+            logger.warning(
+                "  ensemble (%s, N=%d): val NDCG@10=%.4f / test NDCG@10=%.4f  "
+                "[test_metrics for reporting only -- do NOT use to pick ensemble method]",
                 method, len(flavor_order),
                 ens_val_metrics["ndcg@10"], ens_test_metrics["ndcg@10"],
             )
@@ -819,6 +1016,16 @@ def borda_fuse(
         if np.any(arr <= 0):
             raise ValueError(
                 f"borda_fuse: member {i} contains non-positive ranks; expected 1-based dense ranks (>= 1)"
+            )
+        # C-Low-2: a rank exceeding its group size (sizes - arr < 0) means the caller passed a stale
+        # rank under a reduced group_sizes vector, producing a negative Borda contribution that flips
+        # the score sign and confuses operators. Refuse loudly rather than aggregating silently.
+        if np.any(arr > sizes):
+            _bad = int(np.argmax(arr > sizes))
+            raise ValueError(
+                f"borda_fuse: member {i} rank {float(arr[_bad])!r} at row {_bad} exceeds its group "
+                f"size {float(sizes[_bad])!r}. Either rerank within each group or update group_sizes "
+                "to match the rank vector."
             )
         aggregated += (sizes - arr)
     return aggregated

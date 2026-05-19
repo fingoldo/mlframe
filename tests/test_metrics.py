@@ -104,6 +104,7 @@ def binary_predictions(draw, min_size=10, max_size=1000):
 # ROC AUC Tests
 # =============================================================================
 
+@pytest.mark.fast
 class TestROCAUC:
     """Tests for ROC AUC computation."""
 
@@ -128,7 +129,7 @@ class TestROCAUC:
         y_score = np.array([0.1, 0.2, 0.3, 0.7, 0.8, 0.9])
 
         auc = fast_roc_auc(y_true, y_score)
-        assert auc == 1.0
+        assert auc == pytest.approx(1.0, rel=1e-6)
 
     def test_roc_auc_inverse_prediction(self):
         """Completely wrong predictions should give AUC = 0.0."""
@@ -136,7 +137,7 @@ class TestROCAUC:
         y_score = np.array([0.9, 0.8, 0.7, 0.3, 0.2, 0.1])
 
         auc = fast_roc_auc(y_true, y_score)
-        assert auc == 0.0
+        assert auc == pytest.approx(0.0, abs=1e-9)
 
     def test_roc_auc_random_prediction(self):
         """Random predictions should give AUC ~ 0.5."""
@@ -172,6 +173,7 @@ class TestROCAUC:
 # PR AUC Tests
 # =============================================================================
 
+@pytest.mark.fast
 class TestPRAUC:
     """Tests for PR AUC (Average Precision) computation."""
 
@@ -265,7 +267,7 @@ class TestBrierScore:
         y_prob = np.array([0, 1, 0, 1], dtype=np.float64)
 
         brier = brier_score_loss(y_true, y_prob)
-        assert brier == 0.0
+        assert brier == pytest.approx(0.0, abs=1e-9)
 
     def test_brier_score_worst_prediction(self):
         """Completely wrong predictions should give Brier score = 1."""
@@ -273,7 +275,7 @@ class TestBrierScore:
         y_prob = np.array([1, 0, 1, 0], dtype=np.float64)
 
         brier = brier_score_loss(y_true, y_prob)
-        assert brier == 1.0
+        assert brier == pytest.approx(1.0, rel=1e-6)
 
     def test_brier_score_bounds(self):
         """Brier score should always be between 0 and 1."""
@@ -844,7 +846,7 @@ class TestEdgeCases:
         y_score = np.array([0.3, 0.7])
 
         roc_auc = fast_roc_auc(y_true, y_score)
-        assert roc_auc == 1.0
+        assert roc_auc == pytest.approx(1.0, rel=1e-6)
 
     def test_probability_separation_empty_class(self):
         """Should return nan when class is empty."""

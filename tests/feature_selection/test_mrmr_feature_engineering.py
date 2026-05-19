@@ -152,18 +152,18 @@ class TestMRMRFeatureEngineering:
             assert feat in selected_names, f"Feature '{feat}' should be selected"
 
     @pytest.mark.parametrize("transform_name,transform_func,feature_gen", [
-        ("squared", lambda x: x**2, lambda: np.random.randn(3000)),
-        ("log", lambda x: np.log(np.abs(x) + 1), lambda: np.random.rand(3000) + 0.1),
-        ("sin", np.sin, lambda: np.random.rand(3000) * 2 * np.pi),
+        ("squared", lambda x: x**2, lambda rng: rng.standard_normal(3000)),
+        ("log", lambda x: np.log(np.abs(x) + 1), lambda rng: rng.random(3000) + 0.1),
+        ("sin", np.sin, lambda rng: rng.random(3000) * 2 * np.pi),
     ])
     def test_unary_transform_detection(self, transform_name, transform_func, feature_gen):
         """Test that MRMR can detect features with unary transforms."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
-        a = feature_gen()
-        b = np.random.randn(len(a))  # Noise
+        a = feature_gen(rng)
+        b = rng.standard_normal(len(a))  # Noise
 
-        y = transform_func(a) + np.random.randn(len(a)) * 0.1
+        y = transform_func(a) + rng.standard_normal(len(a)) * 0.1
 
         df = pd.DataFrame({'a': a, 'b': b})
 
@@ -185,20 +185,20 @@ class TestMRMRFeatureEngineering:
 
     def test_no_false_positives_independent_features(self):
         """Test that MRMR doesn't over-select when features are independent."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 5000
 
         # All independent features
         df = pd.DataFrame({
-            'a': np.random.randn(n),
-            'b': np.random.randn(n),
-            'c': np.random.randn(n),
-            'd': np.random.randn(n),
-            'e': np.random.randn(n),
+            'a': rng.standard_normal(n),
+            'b': rng.standard_normal(n),
+            'c': rng.standard_normal(n),
+            'd': rng.standard_normal(n),
+            'e': rng.standard_normal(n),
         })
 
         # Target only depends on 'a'
-        y = df['a'] + np.random.randn(n) * 0.1
+        y = df['a'] + rng.standard_normal(n) * 0.1
 
         mrmr = MRMR(
             full_npermutations=10,

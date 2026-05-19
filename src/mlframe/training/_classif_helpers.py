@@ -197,12 +197,11 @@ def _classif_objective_kwargs(flavor, target_type, n_classes):
             "xgboost": {"objective": "multi:softprob", "num_class": n_classes},
             "lightgbm": {"objective": "multiclass", "num_class": n_classes},
             "hgb": {},  # sklearn HistGradientBoostingClassifier auto-detects
-            # 2026-05-07: ``multi_class`` kwarg deprecated in sklearn 1.7
-            # and REMOVED in 1.8 (passing it raises TypeError on
-            # LogisticRegression.__init__). LR auto-detects multi-class
-            # from ``y`` since 1.5; explicit ``solver='lbfgs'`` is the
-            # only kwarg still meaningful here (defaults are fine but
-            # 'lbfgs' is the recommended multinomial solver).
+            # ``multi_class`` kwarg was deprecated in sklearn 1.7 and removed
+            # in 1.8 (passing it raises TypeError on LogisticRegression.__init__).
+            # LR auto-detects multi-class from ``y`` since 1.5; explicit
+            # ``solver='lbfgs'`` is the only kwarg still meaningful here
+            # (defaults are fine but 'lbfgs' is the recommended multinomial solver).
             "linear": {"solver": "lbfgs"},
         }.get(flavor, {})
 

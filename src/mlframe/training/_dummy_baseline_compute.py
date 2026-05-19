@@ -29,6 +29,17 @@ def _per_target_seed(base_seed: int, target_name: str) -> int:
     """
     return (base_seed + (hash(target_name) & 0xFFFF)) & 0x7FFFFFFF
 
+# Audit D P2-8 (2026-05-18): ``_pick_per_group_categorical`` + ``_per_group_predict`` both call
+# ``_to_pandas_for_baseline`` on the same train_X. The bridge is zero-copy on Arrow buffers so
+# the second call is cheap, but the log line + the get_pandas_view_of_polars_df overhead repeat.
+# A weak-id memo keyed by ``id(X)`` (the caller holds a strong ref across the per-target loop)
+# threads the view through without changing the function signature. Bounded to 4 entries because
+# at most train/val/test/df are live in one per-target iteration; weakrefs are NOT used (polars
+# DataFrames don't support weakref because they are pyo3-backed) so we rely on the explicit cap
+# + an id() key that the caller's strong reference keeps alive for the duration of the call.
+_TO_PANDAS_BASELINE_CACHE: "OrderedDict[int, pd.DataFrame]" = None  # type: ignore[assignment]
+
+
 def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
     """Bridge a polars / pandas / unknown ``X`` to a pandas frame view for
     per-group baseline computation.
@@ -42,15 +53,35 @@ def _to_pandas_for_baseline(X: Any) -> pd.DataFrame | None:
     Centralising the coercion lets ``_per_group_predict`` convert the three
     train/val/test frames exactly once at its entry, instead of paying the
     bridge cost per column inside the inner ``_col_to_groupkey`` loop.
+
+    Audit D P2-8: id-keyed memoization avoids a second log line + bridge call
+    when ``_pick_per_group_categorical`` runs back-to-back with
+    ``_per_group_predict`` on the same train_X. The cache is bounded to 4
+    entries (train/val/test/scratch) and cleared on every fresh call from a
+    different frame.
     """
     if isinstance(X, pd.DataFrame):
         return X
     if hasattr(X, "to_pandas"):
+        global _TO_PANDAS_BASELINE_CACHE
+        # Lazy init to avoid OrderedDict import at module scope (already imported but cheap).
+        if _TO_PANDAS_BASELINE_CACHE is None:
+            from collections import OrderedDict as _OD
+            _TO_PANDAS_BASELINE_CACHE = _OD()
+        key = id(X)
+        cached = _TO_PANDAS_BASELINE_CACHE.get(key)
+        if cached is not None:
+            return cached
         # Lazy import: utils.py pulls in _nan_processing which has its own
         # transitive cycle with this module's callers; importing at module
         # scope risks circular-load.
         from .utils import get_pandas_view_of_polars_df
-        return get_pandas_view_of_polars_df(X)
+        view = get_pandas_view_of_polars_df(X)
+        _TO_PANDAS_BASELINE_CACHE[key] = view
+        # Bound cache to 4 entries (train / val / test / scratch).
+        while len(_TO_PANDAS_BASELINE_CACHE) > 4:
+            _TO_PANDAS_BASELINE_CACHE.popitem(last=False)
+        return view
     return None
 
 
@@ -201,12 +232,25 @@ def _per_group_predict(
     train_X_pd = _to_pandas_for_baseline(train_X)
     val_X_pd = _to_pandas_for_baseline(val_X)
     test_X_pd = _to_pandas_for_baseline(test_X)
-    if train_X_pd is None:
-        train_X_pd = pd.DataFrame(train_X)
-    if val_X_pd is None:
-        val_X_pd = pd.DataFrame(val_X)
-    if test_X_pd is None:
-        test_X_pd = pd.DataFrame(test_X)
+    # Audit D P1-1 (2026-05-18): the previous ``pd.DataFrame(train_X)`` fallback was a TRAP.
+    # ``_to_pandas_for_baseline`` only returns ``None`` for objects without ``.to_pandas`` --
+    # i.e. NOT pandas, NOT polars. ``pd.DataFrame(<polars_df>)`` does NOT auto-detect polars
+    # and instead wraps the polars frame in a single object-dtype column, silently breaking
+    # downstream ``_col_to_groupkey``. Raise loudly instead of producing a dead frame.
+    if train_X_pd is None or val_X_pd is None or test_X_pd is None:
+        missing = []
+        if train_X_pd is None:
+            missing.append(f"train_X={type(train_X).__name__}")
+        if val_X_pd is None:
+            missing.append(f"val_X={type(val_X).__name__}")
+        if test_X_pd is None:
+            missing.append(f"test_X={type(test_X).__name__}")
+        raise TypeError(
+            "_per_group_predict: inputs must be pandas or polars DataFrames "
+            f"(have to_pandas()); got: {', '.join(missing)}. The polars-only fast path "
+            "is dispatched separately; an unsupported type here usually means a caller "
+            "passed a numpy array or sparse matrix where a DataFrame was expected."
+        )
 
     cat_train = _col_to_groupkey(train_X_pd, cat_col)
     cat_val = _col_to_groupkey(val_X_pd, cat_col)

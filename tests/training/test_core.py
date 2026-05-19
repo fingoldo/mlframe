@@ -17,6 +17,10 @@ from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
+# Deterministic RNG (single seed per module).
+_W53_RNG = __import__('numpy').random.default_rng(0)
+
+
 
 def _assert_trained_target_entries(entries, *, target_type_label: str):
     """Behavioural upgrade of bare ``len(models[ttype]['target']) > 0`` asserts.
@@ -1686,7 +1690,7 @@ class TestGroupIds:
                 "feature_0": np.random.randn(n_samples),
                 "feature_1": np.random.randn(n_samples),
                 "target": np.random.randn(n_samples),
-                "group_id": np.random.choice(["A", "B", "C"], n_samples),
+                "group_id": _W53_RNG.choice(["A", "B", "C"], n_samples),
             }
         )
 
@@ -1729,7 +1733,7 @@ class TestFairnessFeaturesExtended:
             {
                 "feature_0": np.random.randn(n_samples),
                 "feature_1": np.random.randn(n_samples),
-                "category": np.random.choice(["A", "B", "C"], n_samples),
+                "category": _W53_RNG.choice(["A", "B", "C"], n_samples),
                 "target": np.random.randn(n_samples),
             }
         )
@@ -2513,7 +2517,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -2572,7 +2576,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -2632,7 +2636,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -2708,7 +2712,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randn(n) if regression else np.random.randint(0, 2, size=n),
             }
         )
@@ -2768,9 +2772,9 @@ class TestPolarsNativeFastpath:
             {
                 "float_feat": np.random.randn(n),
                 "int_feat": np.random.randint(0, 100, size=n),
-                "str_feat": np.random.choice(["alpha", "beta", "gamma"], size=n),
-                "cat_feat": pl.Series(np.random.choice(["x", "y", "z"], size=n)).cast(pl.Categorical),
-                "bool_feat": np.random.choice([True, False], size=n),
+                "str_feat": _W53_RNG.choice(["alpha", "beta", "gamma"], size=n),
+                "cat_feat": pl.Series(_W53_RNG.choice(["x", "y", "z"], size=n)).cast(pl.Categorical),
+                "bool_feat": _W53_RNG.choice([True, False], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -2824,7 +2828,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "high_card": np.random.choice(high_card_values, size=n),
+                "high_card": _W53_RNG.choice(high_card_values, size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -2894,9 +2898,9 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_low": np.random.choice(["a", "b"], size=n),
-                "cat_mid": np.random.choice([f"m{i}" for i in range(20)], size=n),
-                "cat_high": np.random.choice([f"h{i}" for i in range(100)], size=n),
+                "cat_low": _W53_RNG.choice(["a", "b"], size=n),
+                "cat_mid": _W53_RNG.choice([f"m{i}" for i in range(20)], size=n),
+                "cat_high": _W53_RNG.choice([f"h{i}" for i in range(100)], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         ).with_columns(
@@ -2960,7 +2964,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -3031,7 +3035,7 @@ class TestPolarsNativeFastpath:
             {
                 "feat_a": np.random.randn(n),
                 "feat_b": np.random.randn(n),
-                "cat_feat": np.random.choice(["low", "mid", "high"], size=n),
+                "cat_feat": _W53_RNG.choice(["low", "mid", "high"], size=n),
                 "target": np.random.randn(n) * 10 + 50,  # continuous regression target
             }
         )
@@ -3159,7 +3163,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -3207,7 +3211,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randn(n),
             }
         )
@@ -3272,7 +3276,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["x", "y", "z"], size=n),
+                "cat_feat": _W53_RNG.choice(["x", "y", "z"], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -3333,7 +3337,7 @@ class TestPolarsNativeFastpath:
             {
                 "signal": x,
                 "noise": np.random.randn(n) * 0.1,
-                "cat_feat": np.random.choice(["a", "b"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b"], size=n),
                 "target": (x > 0).astype(int),
             }
         )
@@ -3377,7 +3381,7 @@ class TestPolarsNativeFastpath:
         pd_df = pd.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )
@@ -3434,7 +3438,7 @@ class TestPolarsNativeFastpath:
 
         np.random.seed(42)
         n = 200
-        cats = np.random.choice([f"cat_{i}" for i in range(50)], size=n)
+        cats = _W53_RNG.choice([f"cat_{i}" for i in range(50)], size=n)
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
@@ -3494,7 +3498,7 @@ class TestPolarsNativeFastpath:
         pl_df = pl.DataFrame(
             {
                 "num_feat": np.random.randn(n),
-                "cat_feat": np.random.choice(["a", "b", "c"], size=n),
+                "cat_feat": _W53_RNG.choice(["a", "b", "c"], size=n),
                 "target": np.random.randint(0, 2, size=n),
             }
         )

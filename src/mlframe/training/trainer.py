@@ -101,12 +101,45 @@ from ._data_helpers import (  # noqa: E402,F401
 )
 from ._model_factories import (  # noqa: E402,F401
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
-    MODELS_SUBDIR, _get_flaml_zeroshot, _get_neural_components,
-    _lgb_classifier_cls, _lgb_regressor_cls,
+    MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM,
+    _get_flaml_zeroshot, _get_neural_components,
+    _lgb_classifier_cls as _lgb_classifier_cls_factory,
+    _lgb_regressor_cls as _lgb_regressor_cls_factory,
     _patch_dataset_constructors_with_logging,
     _patch_lgb_feature_names_in_setter,
     _xgb_classifier_cls, _xgb_regressor_cls,
 )
+from ._model_factories import (
+    LGBMClassifierWithDatasetReuse as _LGBMClassifierWithDatasetReuse,
+    LGBMRegressorWithDatasetReuse as _LGBMRegressorWithDatasetReuse,
+)
+import lightgbm as _lgb_for_factory
+
+
+def _lgb_classifier_cls(use_flaml_zeroshot: bool):
+    """Trainer-local wrapper around the factory. Reads
+    ``USE_LGB_DATASET_REUSE_SHIM`` from THIS module so test monkeypatches on
+    ``trainer.USE_LGB_DATASET_REUSE_SHIM`` flip dispatch as documented."""
+    if use_flaml_zeroshot:
+        _fz = _get_flaml_zeroshot()
+        if _fz is None:
+            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
+        return _fz.LGBMClassifier
+    if USE_LGB_DATASET_REUSE_SHIM and _LGBMClassifierWithDatasetReuse is not None:
+        return _LGBMClassifierWithDatasetReuse
+    return _lgb_for_factory.LGBMClassifier
+
+
+def _lgb_regressor_cls(use_flaml_zeroshot: bool):
+    """Trainer-local wrapper, mirror of ``_lgb_classifier_cls``."""
+    if use_flaml_zeroshot:
+        _fz = _get_flaml_zeroshot()
+        if _fz is None:
+            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
+        return _fz.LGBMRegressor
+    if USE_LGB_DATASET_REUSE_SHIM and _LGBMRegressorWithDatasetReuse is not None:
+        return _LGBMRegressorWithDatasetReuse
+    return _lgb_for_factory.LGBMRegressor
 from mlframe.metrics.core import create_fairness_subgroups, create_fairness_subgroups_indices, fast_roc_auc
 from mlframe.feature_selection.wrappers import RFECV
 from pyutilz.pandaslib import get_df_memory_consumption
@@ -661,6 +694,27 @@ def train_and_evaluate_model(
         except (TypeError, ValueError, IndexError):
             _pre_pipeline_groups = None
 
+    # Extract train-subset sample_weight BEFORE FS runs so weight-aware MRMR / RFECV (when stamped with the
+    # _mlframe_use_sample_weights_in_fs_ marker by _build_pre_pipelines) can receive it via fit_params.
+    # _setup_sample_weight runs AFTER FS at L730 and writes to the model's fit_params dict; the FS-side
+    # forwarding happens through _apply_pre_pipeline_transforms -> _passthrough_cols_fit_transform.
+    _pre_pipeline_sample_weight = None
+    if sample_weight is not None:
+        try:
+            if isinstance(sample_weight, (pd.Series, pd.DataFrame)):
+                if train_idx is not None:
+                    _pre_pipeline_sample_weight = np.asarray(sample_weight.iloc[train_idx].values, dtype=np.float64)
+                else:
+                    _pre_pipeline_sample_weight = np.asarray(sample_weight.values, dtype=np.float64)
+            else:
+                _sw_arr = np.asarray(sample_weight, dtype=np.float64)
+                if train_idx is not None:
+                    _pre_pipeline_sample_weight = _sw_arr[train_idx]
+                else:
+                    _pre_pipeline_sample_weight = _sw_arr
+        except (TypeError, ValueError, IndexError):
+            _pre_pipeline_sample_weight = None
+
     train_df, val_df = _apply_pre_pipeline_transforms(
         model=model,
         pre_pipeline=pre_pipeline,
@@ -674,6 +728,7 @@ def train_and_evaluate_model(
         verbose=verbose,
         selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
         groups=_pre_pipeline_groups,
+        sample_weight=_pre_pipeline_sample_weight,
     )
 
     # Check if feature selection removed all features
@@ -723,6 +778,12 @@ def train_and_evaluate_model(
         _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj)
 
     if model is not None and fit_params:
+        # Two-phase coupling with FS (FS runs at the _apply_pre_pipeline_transforms call upstream):
+        # FS may drop columns from ``train_df``, so the ``cat_features`` declared in ``fit_params``
+        # can now reference columns that no longer exist. ``_filter_categorical_features`` reconciles
+        # the cat list against the post-FS frame; reordering this block relative to the FS call
+        # would silently feed CatBoost/LightGBM stale cat_features and trigger
+        # "feature_name not found" at fit time.
         _filter_categorical_features(fit_params, train_df, val_df=val_df, test_df=test_df)
 
     if model is not None:

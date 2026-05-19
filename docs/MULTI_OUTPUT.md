@@ -224,7 +224,7 @@ P²-Quantile streaming sketch is planned (Session-3).
 ## Related docs
 
 - `docs/NUMERICAL_STABILITY_REPORT.md` — Welford / Kahan numerical-stability audit + benchmarks
-- `tests/training/COMBO_FUZZ.md` — combo-fuzz harness covering multi-output combos
+- `docs/internal/fuzz_audit.md` — combo-fuzz harness covering multi-output combos
 - `tests/training/test_bizvalue_classifier_chain.py` — empirical justification for ChainEnsemble dispatch
 
 ## Out-of-scope (Session 3+)

@@ -1,4 +1,4 @@
-"""Regression test for FH target-encoder cache collision (Phase-1 fix #2).
+"""Regression test for FH target-encoder cache collision.
 
 Pre-fix ``_apply_target_encoder`` always built ``InMemoryKey(..., train_idx_token=0, ...)`` with the
 literal ``0``. A multi-target suite using ``target_mean`` / ``woe`` encoders for two different y's

@@ -202,6 +202,59 @@ def _build_dim_reducer(name: str, n_components: int, random_state: int):
     return factories[name]()
 
 
+class PySRTransformer:
+    """Persisted PySR symbolic-FE step. Holds the fitted ``PySRRegressor`` plus
+    the (column_name -> equation_index) map selected at train time, and
+    reproduces the same numeric columns on predict frames.
+
+    Kept as a plain class (not sklearn ``BaseEstimator``) because joblib
+    pickling of the underlying ``PySRRegressor`` handles Julia-side state via
+    PySR's own ``__getstate__``; subclassing BaseEstimator would force a
+    get_params/set_params contract we don't need here.
+    """
+
+    def __init__(self, model, col_to_index: Dict[str, int], equations: Optional[Dict[str, str]] = None):
+        self.model = model
+        self.col_to_index = dict(col_to_index)
+        self.equations = dict(equations) if equations else {}
+
+    def transform(self, df):
+        import numpy as _np
+        if df is None:
+            return df
+        for _col, _idx in self.col_to_index.items():
+            if _col in df.columns:
+                continue
+            df[_col] = _np.asarray(self.model.predict(df, index=int(_idx)), dtype=_np.float32)
+        return df
+
+    # Mirror sklearn-pipeline-ish access so ``get_feature_names_out`` callers
+    # downstream see the added column names.
+    def get_feature_names_out(self):
+        return list(self.col_to_index.keys())
+
+
+class PreprocessingExtensionsBundle:
+    """Composite extensions object: PySR transformer + TFIDF dict + sklearn
+    pipeline, applied in that order. Mirrors the contract that
+    ``apply_preprocessing_extensions`` runs (PySR -> TF-IDF -> sklearn) so the
+    persisted object is enough to replay every step.
+
+    Attributes are optional; absent stages are ``None``. ``_apply_extensions_pipeline``
+    detects this type and dispatches per-stage; legacy persisted shapes
+    (raw dict / raw sklearn Pipeline) are unchanged for backward compatibility.
+    """
+
+    def __init__(self, pysr=None, tfidf=None, sklearn_pipe=None):
+        self.pysr = pysr
+        self.tfidf = tfidf
+        self.sklearn_pipe = sklearn_pipe
+
+    @property
+    def feature_names_in_(self):
+        return getattr(self.sklearn_pipe, "feature_names_in_", None)
+
+
 def _apply_pysr_fe(
     *,
     train_df: "pd.DataFrame",
@@ -211,6 +264,7 @@ def _apply_pysr_fe(
     config: "PreprocessingExtensionsConfig",
     verbose: int = 1,
     out_equations: Optional[Dict[str, str]] = None,
+    out_transformer: Optional[list] = None,
 ) -> list:
     """Run PySR symbolic regression on train, apply top equations to all
     splits, and add predictions as new numeric columns in-place. Returns
@@ -371,6 +425,7 @@ def _apply_pysr_fe(
     import hashlib
 
     new_cols = []
+    _col_to_index: Dict[str, int] = {}
     # Equation-string column lives under several possible names depending on the PySR version (``equation``, ``sympy_format``, ``lambda_format``); fall back to the row repr if none are present so the hash still has a deterministic basis.
     _eq_col = next((c for c in ("equation", "sympy_format", "lambda_format") if c in eq_df.columns), None)
     for idx in eq_df.index:
@@ -385,6 +440,7 @@ def _apply_pysr_fe(
                 # Same equation rediscovered in this seed -- the column already carries the same values, skip recompute.
                 if out_equations is not None:
                     out_equations[col_name] = equation_str
+                _col_to_index[col_name] = int(idx)
                 continue
             train_df[col_name] = np.asarray(
                 model.predict(train_df, index=idx), dtype=np.float32)
@@ -395,10 +451,13 @@ def _apply_pysr_fe(
                 test_df[col_name] = np.asarray(
                     model.predict(test_df, index=idx), dtype=np.float32)
             new_cols.append(col_name)
+            _col_to_index[col_name] = int(idx)
             if out_equations is not None:
                 out_equations[col_name] = equation_str
         except Exception:
             continue
+    if out_transformer is not None and _col_to_index:
+        out_transformer.append(PySRTransformer(model=model, col_to_index=_col_to_index, equations=out_equations or {}))
     return new_cols
 
 
@@ -425,6 +484,12 @@ def apply_preprocessing_extensions(
     # columns to object-dtype and copies through pyarrow's slow path. Use Arrow split-blocks bridge
     # (~32x throughput vs naive copy) and preserve Arrow-backed dtypes (pyarrow CategoricalDtype etc.) so
     # downstream sklearn estimators don't see "object" where pandas Categorical was expected.
+    # Audit D P2-6 (2026-05-18): the bare ``df.to_pandas()`` fallback is the slow consolidation
+    # copy path (~30x slower on wide frames; degrades pl.Enum → object). It fires only when the
+    # installed polars version predates ``split_blocks=True`` (polars < 0.20.4). Log once at WARN
+    # so operators on stale polars know they are on the slow bridge; ``logger`` is the module
+    # logger so the message goes through the project's standard logging pipeline.
+    _fallback_warned = [False]
     def _to_pandas(df):
         if df is None:
             return None
@@ -432,6 +497,12 @@ def apply_preprocessing_extensions(
             try:
                 return df.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
             except TypeError:
+                if not _fallback_warned[0]:
+                    logger.warning(
+                        "polars.to_pandas(split_blocks=True) unsupported (polars version too old); "
+                        "falling back to bare .to_pandas() — wide-frame conversion will be ~30x slower."
+                    )
+                    _fallback_warned[0] = True
                 return df.to_pandas()
         return df
 
@@ -444,16 +515,21 @@ def apply_preprocessing_extensions(
     # PySR symbolic regression (step 0). Runs BEFORE TF-IDF and the sklearn
     # pipeline so that discovered equation features benefit from downstream
     # scaling, polynomial expansion, etc.
+    _pysr_transformer_holder: list = []
     if getattr(config, "pysr_enabled", False):
         # _apply_pysr_fe mutates train/val/test in place; its return value
-        # (the new column names) is intentionally discarded here.
+        # (the new column names) is intentionally discarded here. The fitted
+        # PySRTransformer is captured via the out_transformer holder so the
+        # caller can persist it in extensions_pipeline for predict-time replay.
         _apply_pysr_fe(
             train_df=train, val_df=val, test_df=test,
             y_train=y_train,
             config=config,
             verbose=verbose,
             out_equations=out_pysr_equations,
+            out_transformer=_pysr_transformer_holder,
         )
+    _pysr_transformer = _pysr_transformer_holder[0] if _pysr_transformer_holder else None
 
     # TF-IDF preflight: vectorize declared text columns and replace them with
     # numeric features before downstream sklearn steps (which expect numeric).
@@ -723,8 +799,14 @@ def apply_preprocessing_extensions(
 
     steps = _build_extension_steps(config, n_features=n_features)
     if not steps:
-        if tfidf_pipes:
-            # TF-IDF was applied but no other steps -- return TF-IDF-augmented frames.
+        if _pysr_transformer is not None or tfidf_pipes:
+            # PySR / TF-IDF applied but no sklearn pipeline. Bundle so predict-time
+            # replay sees the PySR transformer; legacy raw-dict shape is used only
+            # when PySR is absent so untouched persisted artefacts keep loading.
+            if _pysr_transformer is not None:
+                return train, val, test, PreprocessingExtensionsBundle(
+                    pysr=_pysr_transformer, tfidf=tfidf_pipes or None, sklearn_pipe=None,
+                )
             return train, val, test, tfidf_pipes
         return train_df, val_df, test_df, None
 
@@ -791,6 +873,15 @@ def apply_preprocessing_extensions(
         logger.info(
             "Applied preprocessing extensions (%d stages) -- train %s, %.2fs",
             len(steps), train_out.shape, elapsed,
+        )
+    # Bundle PySR transformer / TFIDF dict alongside the sklearn pipe so
+    # predict-time replay can re-emit symbolic columns BEFORE the TF-IDF /
+    # sklearn replay. Without the bundle, the persisted artefact dropped the
+    # PySR step and predict frames silently lacked the pysr_* columns the
+    # model was trained on.
+    if _pysr_transformer is not None or tfidf_pipes:
+        return train_out, val_out, test_out, PreprocessingExtensionsBundle(
+            pysr=_pysr_transformer, tfidf=tfidf_pipes or None, sklearn_pipe=pipe,
         )
     return train_out, val_out, test_out, pipe
 

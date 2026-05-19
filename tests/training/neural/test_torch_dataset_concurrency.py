@@ -1,5 +1,5 @@
-"""Wave 22 + 23 verification: TorchDataset eager-tensor + share_memory_() +
-persistent_workers concurrent-DataLoader optimizations.
+"""TorchDataset eager-tensor + share_memory_() + persistent_workers
+concurrent-DataLoader optimizations.
 
 Covers four orthogonal axes:
 
@@ -41,7 +41,7 @@ from mlframe.training.neural.data import TorchDataset
 
 
 class TestEagerConversion:
-    """Wave 22 eager-tensor-at-__init__ semantics."""
+    """Eager-tensor-at-__init__ semantics."""
 
     def test_numpy_features_eager_converted(self):
         features = np.random.rand(100, 4).astype(np.float32)
@@ -100,7 +100,7 @@ class TestEagerConversion:
 
 
 class TestByteCap:
-    """Wave 22 v2 byte-cap fallback for huge frames."""
+    """Byte-cap fallback for huge frames."""
 
     def test_small_ndarray_uses_eager_path(self):
         features = np.random.rand(100, 4).astype(np.float32)
@@ -172,7 +172,7 @@ class TestByteCap:
 
 
 class TestSharedMemory:
-    """Wave 23 ``share_memory_()`` promotion semantics."""
+    """``share_memory_()`` promotion semantics."""
 
     def test_default_features_shared(self):
         features = np.random.rand(100, 4).astype(np.float32)
@@ -418,7 +418,7 @@ class TestEagerVsLazyPerformance:
 
 
 class TestPersistentWorkersWiring:
-    """Wave 23: ``persistent_workers=True`` is set IFF ``num_workers > 0``."""
+    """``persistent_workers=True`` is set IFF ``num_workers > 0``."""
 
     def test_persistent_set_when_workers_gt_zero(self):
         from mlframe.training.neural.data import TorchDataModule

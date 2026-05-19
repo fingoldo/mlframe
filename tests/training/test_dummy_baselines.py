@@ -45,18 +45,34 @@ def cfg():
 
 
 @pytest.fixture
-def reg_data():
+def reg_data(sample_regression_data):
+    """Train/val/test slabs derived from the shared session-scoped regression fixture.
+
+    Migrated from an inline ``_make_*`` block to the shared ``sample_regression_data``
+    fixture so the synthesis happens once per session instead of per test. The slab
+    shape (n=500/100/100, single x column + cat) is preserved so existing assertions
+    keep firing.
+    """
+    df, feature_names, y = sample_regression_data
     rng = np.random.default_rng(0)
-    n_tr, n_va, n_te = 500, 100, 100
+    # The shared fixture has 1000 rows; carve 500 / 100 / 100 disjoint slices.
+    tr_slice = slice(0, 500)
+    va_slice = slice(500, 600)
+    te_slice = slice(600, 700)
+    # Project onto a single-x + cat schema (the dummy-baselines tests don't depend
+    # on the 10 features of the shared regression fixture, just the y-distribution).
+    train_x = df["feature_0"].to_numpy()[tr_slice]
+    val_x = df["feature_0"].to_numpy()[va_slice]
+    test_x = df["feature_0"].to_numpy()[te_slice]
     return {
         "target_type": "regression",
         "target_name": "y",
-        "train_y": rng.normal(10.0, 3.0, n_tr),
-        "val_y": rng.normal(10.0, 3.0, n_va),
-        "test_y": rng.normal(10.0, 3.0, n_te),
-        "train_X": pd.DataFrame({"x": rng.normal(size=n_tr), "cat": rng.integers(0, 5, n_tr)}),
-        "val_X": pd.DataFrame({"x": rng.normal(size=n_va), "cat": rng.integers(0, 5, n_va)}),
-        "test_X": pd.DataFrame({"x": rng.normal(size=n_te), "cat": rng.integers(0, 5, n_te)}),
+        "train_y": y[tr_slice].astype(float),
+        "val_y": y[va_slice].astype(float),
+        "test_y": y[te_slice].astype(float),
+        "train_X": pd.DataFrame({"x": train_x, "cat": rng.integers(0, 5, 500)}),
+        "val_X": pd.DataFrame({"x": val_x, "cat": rng.integers(0, 5, 100)}),
+        "test_X": pd.DataFrame({"x": test_x, "cat": rng.integers(0, 5, 100)}),
         "cat_features": ["cat"],
     }
 

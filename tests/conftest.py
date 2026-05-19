@@ -8,6 +8,12 @@ import warnings
 
 import pytest
 
+# Auto-register synthetic-data fixtures from tests.training.synthetic so they're
+# discoverable from tests outside tests/training (cross-package fixture sharing
+# without per-test from-imports). Plugins listed here are loaded at conftest
+# import time.
+pytest_plugins = ["tests.training.synthetic"]
+
 try:
     import psutil
 except ImportError:
@@ -36,6 +42,11 @@ _FAST_ENV = "MLFRAME_FAST"
 def is_fast_mode() -> bool:
     """Return True when tests should run in reduced-variant fast mode."""
     return os.environ.get(_FAST_ENV, "").strip() not in ("", "0", "false", "False")
+
+
+# Canonical module-level fast-mode flag. Subdir conftests historically defined
+# their own ``IS_FAST_MODE`` snapshots; they should re-use this one.
+IS_FAST_MODE = is_fast_mode()
 
 
 def fast_subset(values, *, representative=None, keep: int = 1):
@@ -166,9 +177,24 @@ def _reset_global_rng_state():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_memory():
-    """Clean up memory after each test to prevent OOM issues."""
+def cleanup_memory(request):
+    """Clean up memory after each test to prevent OOM issues.
+
+    Fast path: when the test does NOT carry ``uses_matplotlib`` / ``uses_torch``
+    markers, skip psutil sampling + pyarrow/matplotlib/torch cleanup and just
+    gc.collect() once. The heavy cleanup paths only matter for tests that
+    exercise those libraries; running them after every micro-test was costly.
+    """
     import os
+
+    has_heavy_marker = (
+        request.node.get_closest_marker("uses_matplotlib") is not None
+        or request.node.get_closest_marker("uses_torch") is not None
+    )
+    if not has_heavy_marker:
+        yield
+        gc.collect()
+        return
 
     is_main_process = os.environ.get('PYTEST_CURRENT_TEST') is not None
 

@@ -234,6 +234,33 @@ def _apply_recurrent_to_ensemble(
         logger.warning("apply_recurrent_to_ensemble: failed to slice targets for %s (%s); returning prior ensemble.", target_name, exc)
         return ensemble_dict
 
+    # C-P1-10: recurrent members may be trained on sequence-aligned slices whose row count differs from
+    # the dense (train|val|test)_idx the booster ensemble uses. If any member's *_preds row count fails
+    # to match the sliced target row count, the score_ensemble blend mixes predictions for different rows
+    # than the booster -- silent contamination. Refuse to rerun in that case rather than emitting a bad
+    # blend; the original ensemble_dict is returned and the suite reports the booster-only result.
+    for _split_name, _sliced, _attr in (
+        ("train", train_target, "train_preds"),
+        ("val", val_target, "val_preds"),
+        ("test", test_target, "test_preds"),
+    ):
+        if _sliced is None:
+            continue
+        _expected = int(np.asarray(_sliced).shape[0])
+        for _m in members:
+            _arr = getattr(_m, _attr, None)
+            if _arr is None:
+                continue
+            _got = int(np.asarray(_arr).shape[0])
+            if _got != _expected:
+                logger.warning(
+                    "apply_recurrent_to_ensemble: target=%s split=%s row-count drift: member %r has "
+                    "%d rows but sliced target has %d. Refusing to blend (recurrent member rows likely "
+                    "belong to a different row set than the booster). Returning prior ensemble.",
+                    target_name, _split_name, getattr(_m, "model_name", _m), _got, _expected,
+                )
+                return ensemble_dict
+
     sig = inspect.signature(score_ensemble)
     accepted = set(sig.parameters.keys())
     kwargs = {

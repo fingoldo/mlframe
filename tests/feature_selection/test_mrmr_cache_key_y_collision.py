@@ -1,4 +1,4 @@
-"""Regression test for MRMR._FIT_CACHE y-collision (Phase-1 fix #1).
+"""Regression test for MRMR._FIT_CACHE y-collision.
 
 Pre-fix, the cache key was ``(_content_array_signature(X), _content_array_signature(y), params_sig)``
 where ``_content_array_signature`` samples y at 10 evenly-spaced positions. Two targets whose 10

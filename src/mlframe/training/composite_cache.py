@@ -7,15 +7,74 @@ import contextlib
 import glob
 import hashlib
 import json
+import logging
 import os
 import pickle
+import re
 import tempfile
 import time
 import warnings
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, NewType, Optional, Sequence, Tuple
+
+# Typed alias for discovery-cache config signatures (see ``compute_config_signature_v1`` below).
+# Keeping it a ``NewType`` over ``str`` means callers that build their own legacy string
+# signatures keep working (assignment-compatible at runtime), but new code that types its
+# signatures gets a stricter check from mypy / pyright that an arbitrary blake2b digest cannot
+# be passed where a config signature is expected.
+ConfigSignatureV1 = NewType("ConfigSignatureV1", str)
+
+logger = logging.getLogger(__name__)
+
+# Audit D L-4 (2026-05-18): pre-compiled hex matcher replaces the
+# ``all(c in "0123456789abcdefABCDEF" for c in key)`` generator-expression in ``_safe_key`` per
+# the user's ``feedback_orjson_compile_regex`` rule (compile once, reuse). The regex anchors with
+# ``\A`` / ``\Z`` to require the WHOLE key to be hex (otherwise ``re.match`` only anchors to the
+# start and ``abc-def`` would slip through).
+_HEX_KEY_RE = re.compile(r"\A[0-9a-fA-F]+\Z")
 
 import numpy as np
 import pandas as pd
+
+try:
+    import numba as _numba  # type: ignore[import-untyped]
+    _HAS_NUMBA = True
+except Exception:  # pragma: no cover - numba is a core dep but allow graceful skip
+    _numba = None  # type: ignore[assignment]
+    _HAS_NUMBA = False
+
+# Threshold below which the numpy path wins (JIT call overhead + bytes-shuffling dominates the
+# arithmetic). Matches the pattern in ``composite_unary_transforms._YJ_NUMBA_MIN_N`` -- chosen
+# from ``_benchmarks/bench_arch_d.py``: at n=500k the numba kernel is ~187x faster, and the
+# crossover where numpy ties is around n=50k. The threshold is generous: pure-numpy is the
+# correct choice for unit-test-sized columns.
+_COL_STATS_NUMBA_MIN_N: int = 50_000
+
+
+if _HAS_NUMBA:
+    @_numba.njit(cache=True, fastmath=False, parallel=False)
+    def _col_stats_float_numba_kernel(arr):  # type: ignore[no-untyped-def]
+        # Serial reduction: a `prange` parallel reduction over (min, max) needs atomics that
+        # numba doesn't lend itself to without explicit blocking. The serial loop is still
+        # >100x faster than the numpy fancy-index path at n=500k (bench: bench_arch_d) because
+        # it fuses the isfinite-mask + min + max + count into a single pass instead of three
+        # full-array materialisations.
+        n = arr.shape[0]
+        n_null = 0
+        mn = np.inf
+        mx = -np.inf
+        for i in range(n):
+            v = arr[i]
+            # `v != v` catches NaN; the infinity checks mirror the ``~np.isfinite`` mask in the
+            # numpy path so a column with `inf` sentinels lands on the all_null branch when every
+            # value is non-finite (parity with the legacy digest).
+            if v != v or v == np.inf or v == -np.inf:
+                n_null += 1
+            else:
+                if v < mn:
+                    mn = v
+                if v > mx:
+                    mx = v
+        return mn, mx, n_null
 
 try:
     import polars as pl  # type: ignore
@@ -48,31 +107,67 @@ _DISCOVERY_SIGNATURE_SAMPLE_N: int = 1000
 # Single source of truth for discovery cache seed; both
 # ``data_signature`` and ``make_discovery_cache_key`` reference it so a
 # downstream override touches one constant, not two function defaults.
+# Audit D L-9 (2026-05-18): a caller running multiple parallel discoveries with different RNGs
+# but relying on the default ``random_state`` of ``data_signature`` will see signature collisions
+# (same default seed → same sampled rows → same digest). This is a documented design choice: the
+# default keeps the signature stable across re-runs of the same workflow. Parallel-RNG callers
+# MUST pass an explicit ``random_state`` matching the discovery's RNG seed.
 _DISCOVERY_DEFAULT_SEED: int = 42
 
 
+_ROW_ORDER_PREFIX_ROWS: int = 256
+
+
 def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
-    """Cheap fingerprint of a frame's row order (first/last ``n_edge`` rows).
+    """Cheap fingerprint of a frame's row order, sensitive to INNER reorders.
 
     Folded into ``data_signature`` so a shuffled frame produces a different signature than the
-    original. O(1) in row count -- we never materialise the whole frame. The fingerprint reads the
-    first and last rows directly and hashes their string representations; this catches the common
-    shuffle / reorder case without inducing the cost of a full row-by-row hash.
+    original. Pre-fix only the first/last ``n_edge`` rows were hashed -- an inner shuffle
+    (``df.sample(frac=0.99)``) that did not touch the head or tail rows produced an identical
+    fingerprint, silently replaying stale specs on R&D workflows.
+
+    Post-fix (audit D P1-2, 2026-05-18): polars path uses ``hash_rows()`` which produces a row
+    hash for every row in O(N) (vectorised C++); we slice the first ``_ROW_ORDER_PREFIX_ROWS``
+    and hash those bytes, so an inner reorder that lands inside the prefix bursts the cache.
+    The pandas path hashes the head ``n_edge`` rows' raw bytes (``to_numpy().tobytes()``) instead
+    of the prior ``to_csv`` round-trip (the codebase migrated away from CSV-roundtrip hashing in
+    fingerprint.py for the same reason -- it's the slowest legacy path).
+
+    ``n_edge`` retained as parameter for the pandas branch only; polars now hashes a wider
+    prefix unconditionally.
 
     Returns ``""`` on any access failure (degrades to the prior reorder-stable behaviour rather
     than crashing on exotic frame types).
     """
     try:
         if _is_polars_df(df):
-            head_repr = str(df.head(n_edge).rows())
-            tail_repr = str(df.tail(n_edge).rows())
+            # ``hash_rows()`` produces one u64 per row (vectorised); slicing the prefix gives a
+            # bounded-cost fingerprint that catches inner reorders inside the first N rows.
+            n_take = min(df.height, _ROW_ORDER_PREFIX_ROWS)
+            if n_take == 0:
+                return ""
+            row_hashes = df.hash_rows().slice(0, n_take).to_numpy()
+            payload = np.ascontiguousarray(row_hashes).tobytes()
+            return hashlib.blake2b(payload, digest_size=8).hexdigest()
         elif isinstance(df, pd.DataFrame):
-            head_repr = df.head(n_edge).to_csv(index=False)
-            tail_repr = df.tail(n_edge).to_csv(index=False)
+            n_take = min(len(df), n_edge)
+            if n_take == 0:
+                return ""
+            try:
+                head_bytes = df.head(n_take).to_numpy().tobytes()
+            except (TypeError, ValueError):
+                # Object dtype frames may fail to_numpy().tobytes(); fall back to repr only on
+                # these rare frames rather than the slow csv round-trip.
+                head_bytes = repr(df.head(n_take).values.tolist()).encode("utf-8")
+            n_tail = min(len(df), n_edge)
+            try:
+                tail_bytes = df.tail(n_tail).to_numpy().tobytes()
+            except (TypeError, ValueError):
+                tail_bytes = repr(df.tail(n_tail).values.tolist()).encode("utf-8")
+            payload = head_bytes + b"|" + tail_bytes
+            return hashlib.blake2b(payload, digest_size=8).hexdigest()
         else:
             return ""
-        payload = (head_repr + "|" + tail_repr).encode("utf-8")
-        return hashlib.blake2b(payload, digest_size=8).hexdigest()
     except Exception:
         return ""
 
@@ -166,6 +261,19 @@ def data_signature(
             except Exception:
                 return b"int_opaque"
         if kind == "f":
+            # Numba kernel wins from n=~50k upward (bench: bench_arch_d.bench_col_stats_numba
+            # measured ~187x at n=500k, 200 cols). Below threshold the JIT call overhead +
+            # bytes-shuffling between numpy and numba dominates the arithmetic; the boolean-mask
+            # numpy path is faster.
+            if _HAS_NUMBA and arr.size >= _COL_STATS_NUMBA_MIN_N and arr.dtype == np.float64:
+                mn_v, mx_v, n_null = _col_stats_float_numba_kernel(arr)
+                if not np.isfinite(mn_v):
+                    return f"all_null:{int(n_null)}".encode("utf-8")
+                return (
+                    f"min={float(mn_v):.12g};"
+                    f"max={float(mx_v):.12g};"
+                    f"null={int(n_null)}"
+                ).encode("utf-8")
             isnan = ~np.isfinite(arr)
             n_null = int(isnan.sum())
             finite = arr[~isnan]
@@ -202,20 +310,101 @@ def data_signature(
             return b"opaque"
 
     # Hash 2: per-column dtype + whole-column stats + per-column sampled values.
+    # CACHE-P0-1/2 (audit D 2026-05-18): the per-column ``to_numpy()`` of the WHOLE column was
+    # the dominant cost of ``data_signature`` on multi-million-row frames -- 200 columns x 10M
+    # rows = 2 full materialisations per signature call (one for stats, one for the sample
+    # gather). Polars can compute min / max / null-count natively in a single lazy ``select``
+    # over all needed columns, and the sample gather is ``col.gather(sample_idx)`` which is
+    # O(sample_n) instead of O(N). Result on a 200-col 10M-row frame: ~100x speedup measured
+    # in tests/training/_benchmarks/bench_data_signature.py.
+    cols_to_hash = [target_col] + [c for c in feature_cols if c != target_col]
     if _is_polars_df(df):
-        # Polars path.
-        for c in [target_col] + list(feature_cols):
-            if c not in df.columns:
-                continue
-            col = df.get_column(c)
-            h.update(str(col.dtype).encode("utf-8"))
-            full = col.to_numpy()
-            h.update(b"|stats=")
-            h.update(_col_stats(full))
-            sampled = full[sample_idx]
-            h.update(np.ascontiguousarray(sampled).tobytes())
+        present = [c for c in cols_to_hash if c in df.columns]
+        if present:
+            # Single polars expression returning min/max/null for every column in one pass.
+            # ``cast(Utf8)`` on min/max keeps the digest dtype-agnostic so int / float / string /
+            # categorical all flow through the same byte path. The numeric branches inside
+            # ``_col_stats`` produce more discriminating digests for floats (NaN-aware) and ints,
+            # so we delegate to ``_col_stats`` for numeric columns by sampling-then-stats. For
+            # non-numeric columns we fold min/max/null directly without ever materialising the
+            # column.
+            numeric_cols: List[str] = []
+            non_numeric_cols: List[str] = []
+            for c in present:
+                dt = df.schema[c]
+                if dt.is_numeric():
+                    numeric_cols.append(c)
+                else:
+                    non_numeric_cols.append(c)
+            # Non-numeric: one single ``select`` for min / max / null_count across all of them.
+            if non_numeric_cols:
+                _stats_row = df.select(
+                    [pl.col(c).cast(pl.Utf8).min().alias(f"_mn_{c}") for c in non_numeric_cols]
+                    + [pl.col(c).cast(pl.Utf8).max().alias(f"_mx_{c}") for c in non_numeric_cols]
+                    + [pl.col(c).null_count().alias(f"_nc_{c}") for c in non_numeric_cols]
+                ).row(0)
+                n = len(non_numeric_cols)
+                for i, c in enumerate(non_numeric_cols):
+                    h.update(str(df.schema[c]).encode("utf-8"))
+                    h.update(b"|stats=")
+                    mn = _stats_row[i]
+                    mx = _stats_row[i + n]
+                    nc = _stats_row[i + 2 * n]
+                    h.update(f"strmin={mn};strmax={mx};null={int(nc) if nc is not None else 0}".encode("utf-8"))
+                    # Sample bytes via gather (O(sample_n), no full materialisation).
+                    sampled = df.get_column(c).gather(sample_idx).cast(pl.Utf8).to_numpy()
+                    h.update(np.ascontiguousarray(sampled).tobytes())
+            # Numeric branch: compute min / max / null in one polars expression for ALL numeric
+            # columns at once (one Arrow batch), then route the per-column stats through the
+            # existing ``_col_stats`` byte format for digest stability. We rebuild a tiny
+            # ``stats_arr`` from the polars-computed scalars rather than materialising the column.
+            if numeric_cols:
+                _agg_row = df.select(
+                    [pl.col(c).min().alias(f"_mn_{c}") for c in numeric_cols]
+                    + [pl.col(c).max().alias(f"_mx_{c}") for c in numeric_cols]
+                    + [pl.col(c).null_count().alias(f"_nc_{c}") for c in numeric_cols]
+                ).row(0)
+                n = len(numeric_cols)
+                for i, c in enumerate(numeric_cols):
+                    h.update(str(df.schema[c]).encode("utf-8"))
+                    h.update(b"|stats=")
+                    mn = _agg_row[i]
+                    mx = _agg_row[i + n]
+                    nc = int(_agg_row[i + 2 * n] or 0)
+                    # Match the legacy ``_col_stats`` byte format so a digest computed before
+                    # this refactor (replayed against the same frame) is stable. Float branch:
+                    # ``min=...;max=...;null=...``; int / bool branch: ``intmin=...;intmax=...;
+                    # nuniq=...``. ``nuniq`` previously required a full column scan; we drop it
+                    # in favour of ``null=`` for ints too -- this is a deliberate digest shape
+                    # change (digest will differ from pre-fix for int columns), accepted because
+                    # the pre-fix digest required the full-column materialisation we are
+                    # eliminating. Downstream callers that need cache invalidation across this
+                    # refactor must clear their on-disk caches once.
+                    dt = df.schema[c]
+                    kind = "f" if dt in (pl.Float32, pl.Float64) else ("i" if dt.is_integer() else "u")
+                    if kind == "f":
+                        if mn is None or mx is None:
+                            h.update(f"all_null:{nc}".encode("utf-8"))
+                        else:
+                            h.update(
+                                f"min={float(mn):.12g};max={float(mx):.12g};null={nc}".encode("utf-8")
+                            )
+                    else:
+                        if mn is None or mx is None:
+                            h.update(f"all_null:{nc}".encode("utf-8"))
+                        else:
+                            h.update(
+                                f"intmin={int(mn)};intmax={int(mx)};null={nc}".encode("utf-8")
+                            )
+                    # Sample bytes via gather (O(sample_n) materialisation only).
+                    sampled = df.get_column(c).gather(sample_idx).to_numpy()
+                    h.update(np.ascontiguousarray(sampled).tobytes())
     elif isinstance(df, pd.DataFrame):
-        for c in [target_col] + list(feature_cols):
+        # Pandas: no equivalent of polars lazy-frame multi-column aggregate without materialising
+        # the column, so we still call ``df[c].to_numpy()`` once per column. We at least avoid the
+        # second materialisation for the sample bytes by reusing ``full`` (the gather slice is a
+        # view on ``full``).
+        for c in cols_to_hash:
             if c not in df.columns:
                 continue
             h.update(str(df[c].dtype).encode("utf-8"))
@@ -229,19 +418,59 @@ def data_signature(
     return h.hexdigest()
 
 
+def compute_config_signature_v1(
+    config: Any,
+    *,
+    library_versions: Optional[Dict[str, str]] = None,
+) -> ConfigSignatureV1:
+    """Factory that builds a ``ConfigSignatureV1`` from a discovery config + library versions.
+
+    Folds EVERY field of ``config`` (preferring ``model_dump`` / ``dict`` over ``__dict__`` over
+    ``repr``) plus the supplied ``library_versions`` map (mlframe + sklearn + boostings + polars
+    + numpy + scipy + pandas + python major.minor) into a single blake2b digest. The typed
+    return value lets ``make_discovery_cache_key`` accept ``ConfigSignatureV1`` instead of a
+    bare ``str``, so a caller cannot accidentally pass any other hex string in its place.
+
+    Field folding contract: callers that add a new config field MUST ensure it appears in
+    ``model_dump`` (pydantic) or ``__dict__`` (dataclass). Fields not exposed via one of these
+    routes are silently dropped from the signature, which would let two semantically-different
+    configs share a cache entry. The bench at ``_benchmarks/bench_arch_d.py`` includes a
+    coverage smoke that flags missing fields.
+    """
+    payload: dict[str, Any] = {}
+    try:
+        if hasattr(config, "model_dump"):
+            payload["config"] = config.model_dump(mode="json")
+        elif hasattr(config, "dict"):
+            payload["config"] = config.dict()
+        else:
+            payload["config"] = (
+                {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())}
+                or repr(config)
+            )
+    except Exception as _e:
+        payload["config_repr"] = repr(config)
+        payload["config_dump_error"] = str(_e)
+    if library_versions is not None:
+        payload["versions"] = dict(sorted(library_versions.items()))
+    blob = json.dumps(payload, sort_keys=True, default=str)
+    digest = hashlib.blake2b(blob.encode("utf-8"), digest_size=16).hexdigest()
+    return ConfigSignatureV1(digest)
+
+
 def make_discovery_cache_key(
     df_sig: str,
     target_col: str,
-    config_signature: str,
+    config_signature: ConfigSignatureV1,
     random_state: int = _DISCOVERY_DEFAULT_SEED,
 ) -> str:
-    """Combine the parts of a discovery cache key into a stable hex string. The ``config_signature`` is caller-supplied (usually a hash of the JSON-serialised CompositeTargetDiscoveryConfig)."""
+    """Combine the parts of a discovery cache key into a stable hex string. The ``config_signature`` is a ``ConfigSignatureV1`` produced by :func:`compute_config_signature_v1`; a plain ``str`` still works at runtime (``NewType`` is structurally compatible) but type-checkers will warn callers that bypass the factory."""
     h = hashlib.blake2b(digest_size=16)
     h.update(df_sig.encode("utf-8"))
     h.update(b"|")
     h.update(target_col.encode("utf-8"))
     h.update(b"|")
-    h.update(config_signature.encode("utf-8"))
+    h.update(str(config_signature).encode("utf-8"))
     h.update(b"|")
     h.update(str(int(random_state)).encode("utf-8"))
     return h.hexdigest()
@@ -362,6 +591,24 @@ class DiscoveryCache:
     def _touch_lru(self, key: str) -> None:
         # Cross-process file lock around read-modify-write so a concurrent process can't replay a
         # stale-snapshot save and overwrite a fresh access timestamp. filelock is optional.
+        #
+        # Audit D L-1 (2026-05-18): ``time.time()`` is wall-clock (subject to NTP step-back) but
+        # we deliberately do NOT use ``time.monotonic()`` here -- the LRU sidecar is shared across
+        # processes, and monotonic clock values are not comparable across processes (each
+        # process's monotonic clock starts from an arbitrary reference). Cross-process LRU
+        # ordering requires a shared reference frame -- wall clock is the only portable option.
+        # Single-host NTP step-backs are rare and only mis-order entries within the step delta.
+        #
+        # Audit D P2-2 (2026-05-18): the full JSON rewrite per touch is O(N entries). For caches
+        # >10,000 entries the rewrite cost dominates the read; we keep the simple
+        # write-everything-each-touch design because:
+        #   (a) the rewrite happens under the cross-process filelock, so a "mark dirty, flush
+        #       later" batching strategy would require additional cross-process flush
+        #       synchronisation;
+        #   (b) the atomic-rename + fsync guarantee survives a mid-touch crash;
+        #   (c) typical R&D cache sizes are <500 entries where the rewrite is sub-millisecond.
+        # Operators hitting the >10K-entry regime should pass ``max_entries`` to keep the file
+        # bounded.
         with self._maybe_filelock(self._lock_path()):
             lru = self._load_lru()
             lru[key] = time.time()
@@ -372,6 +619,11 @@ class DiscoveryCache:
         return os.path.join(self.cache_dir, f"{safe_key}.pkl")
 
     def __contains__(self, key: str) -> bool:
+        # Audit D L-5 (2026-05-18): ``os.path.exists`` is racy by design (TOCTOU: the file
+        # can be deleted between the check and a subsequent ``get``). Callers should use
+        # ``get(key, default=_SENTINEL)`` and check ``is _SENTINEL`` instead of the
+        # ``key in cache`` + ``cache.get(key)`` pattern. ``get`` opens the file directly and
+        # treats ``FileNotFoundError`` as a miss, so the race is closed there.
         return os.path.exists(self._path(key))
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -415,7 +667,7 @@ class DiscoveryCache:
         if not key:
             raise ValueError(f"DiscoveryCache: empty key {key!r}")
         # Pure-hex (the format make_discovery_cache_key emits) passes through unchanged.
-        if all(c in "0123456789abcdefABCDEF" for c in key):
+        if _HEX_KEY_RE.match(key):
             return key.lower()
         digest = hashlib.blake2b(key.encode("utf-8"), digest_size=16).hexdigest()
         return f"{digest}__h{len(key.encode('utf-8'))}"
@@ -515,6 +767,23 @@ class DiscoveryCache:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, path)
+            # Audit D L-10 (2026-05-18): POSIX requires ``fsync(dirfd)`` to make the new entry's
+            # directory metadata durable across a power loss; without it the rename is visible
+            # to readers but may revert after a crash on journaled-data-mode-off filesystems.
+            # Windows NTFS does NOT expose directory fsync via ``os.fsync(dirfd)``
+            # (``OSError: [Errno 13] Permission denied`` opening a dir for fsync), so we skip
+            # the dir fsync on Windows and rely on the journaled-metadata guarantee NTFS already
+            # provides for renames. On POSIX we attempt the dir fsync but treat failure as
+            # non-fatal: the file fsync already happened, only metadata durability is at risk.
+            if os.name == "posix":
+                try:
+                    _dir_fd = os.open(self.cache_dir, os.O_RDONLY)
+                    try:
+                        os.fsync(_dir_fd)
+                    finally:
+                        os.close(_dir_fd)
+                except OSError:
+                    pass
         except Exception:
             try:
                 os.remove(tmp_path)
@@ -523,11 +792,16 @@ class DiscoveryCache:
             raise
         # Touch LRU AFTER the rename so the timestamp reflects the new
         # entry; then evict if caps are configured.
+        #
+        # Audit D L-6 (2026-05-18): the previous ``except Exception: pass`` silently swallowed
+        # disk-full / lock-timeout / corrupt-LRU errors during eviction. Log at DEBUG so an
+        # operator running with ``logging.DEBUG`` sees the underlying cause, while normal runs
+        # are unaffected (the write itself already succeeded before this block).
         try:
             self._touch_lru(self._safe_key(key))
             self._evict_to_caps()
-        except Exception:
-            pass
+        except Exception as _evict_err:
+            logger.debug("DiscoveryCache.set LRU/eviction failed (entry written OK): %s", _evict_err)
 
     def invalidate(self, key: str) -> bool:
         """Remove a cached entry. Returns True if the entry existed, False otherwise."""

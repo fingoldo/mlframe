@@ -177,11 +177,13 @@ class TestRendererDoesNotMutateBackend:
     save path."""
 
     def test_renderer_source_does_not_call_matplotlib_use(self) -> None:
+        # Resolve the prod renderer file via the package import (robust to test layout).
+        # Skipping on missing-path was masking a real wiring bug; assert the file exists.
         from pathlib import Path
-        src = Path(__file__).parent.parent / "reporting" / "renderers" / "matplotlib.py"
-        if not src.exists():
-            pytest.skip(f"renderer not found at {src}")
-        text = src.read_text()
+        import mlframe.reporting.renderers.matplotlib as _renderer_mod
+        src = Path(_renderer_mod.__file__)
+        assert src.exists(), f"renderer source unexpectedly missing at {src}"
+        text = src.read_text(encoding="utf-8")
         # Allow ``matplotlib.use`` ONLY inside comments / docstrings.
         # The simplest lock: there must be NO ``matplotlib.use(`` call
         # outside a string / comment context. Crude but effective: count

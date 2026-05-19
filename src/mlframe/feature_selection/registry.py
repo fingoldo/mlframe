@@ -1,0 +1,88 @@
+"""Unified FeatureSelectorSpec protocol + registry for the training suite.
+
+Replaces the per-selector dispatch in ``_build_pre_pipelines``: each selector self-describes
+how to instantiate (``instantiate(**kwargs)``) and how to extract its FS report
+(``report_extract(selector, kept)``). Adding a fourth selector (sklearn RFE, boruta-py, etc.)
+becomes a single class registration instead of touching five edit sites across
+_build_pre_pipelines / FeatureSelectionConfig / validators / _selector_kind / _build_feature_selection_report.
+
+Lazy imports inside ``instantiate`` keep the cold-import cost (MRMR ~25s,
+BorutaShap ~2s from shap/matplotlib/seaborn) gated behind the opt-in flag, preserving
+the existing import-cost contract.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Callable, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class FeatureSelectorSpec(Protocol):
+    """Protocol every registered selector must satisfy.
+
+    name : stable identifier used for selector_kind marker stamping and report keys.
+    instantiate(**kwargs) : factory producing a fitted-ready selector instance from suite kwargs.
+    report_extract(selector, kept) : optional. Returns a dict shape consumed by
+        ``_build_feature_selection_report``. Default impl (None) signals the caller to use
+        the legacy generic extraction. Per-selector custom extraction lives here so adding
+        a fourth selector doesn't require editing the central report builder.
+    """
+
+    name: str
+    instantiate: Callable[..., Any]
+    report_extract: Callable[[Any, list[str]], dict] | None
+
+
+@dataclass(frozen=True)
+class _SimpleSpec:
+    """Concrete FeatureSelectorSpec implementation used by the built-in registrations."""
+    name: str
+    instantiate: Callable[..., Any]
+    report_extract: Callable[[Any, list[str]], dict] | None = None
+
+
+_REGISTRY: dict[str, _SimpleSpec] = {}
+
+
+def register(spec: FeatureSelectorSpec) -> None:
+    """Register a selector. Overwrites any prior registration under the same name."""
+    if not getattr(spec, "name", None):
+        raise ValueError("FeatureSelectorSpec must have a non-empty 'name'")
+    _REGISTRY[spec.name] = _SimpleSpec(
+        name=spec.name,
+        instantiate=spec.instantiate,
+        report_extract=getattr(spec, "report_extract", None),
+    )
+
+
+def get(name: str) -> FeatureSelectorSpec:
+    if name not in _REGISTRY:
+        raise KeyError(f"Unknown feature selector spec: {name!r}. Registered: {sorted(_REGISTRY)}")
+    return _REGISTRY[name]
+
+
+def available() -> list[str]:
+    """Sorted list of registered selector names."""
+    return sorted(_REGISTRY)
+
+
+def _instantiate_mrmr(**kwargs):
+    # Deferred import: see _setup_helpers.py comment about MRMR's ~10-25s cold-import cost.
+    from mlframe.feature_selection.filters import MRMR
+    return MRMR(**kwargs)
+
+
+def _instantiate_rfecv(**kwargs):
+    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    return RFECV(**kwargs)
+
+
+def _instantiate_boruta_shap(**kwargs):
+    # Lazy import: BorutaShap pulls in shap + matplotlib + seaborn (~2s).
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+    return BorutaShap(**kwargs)
+
+
+register(_SimpleSpec(name="MRMR", instantiate=_instantiate_mrmr))
+register(_SimpleSpec(name="RFECV", instantiate=_instantiate_rfecv))
+register(_SimpleSpec(name="BorutaShap", instantiate=_instantiate_boruta_shap))

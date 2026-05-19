@@ -808,10 +808,18 @@ def get_training_configs(
         rfecv_kwargs = rfecv_kwargs.copy()
 
     cv = rfecv_kwargs.get("cv")
+    _cv_n_splits = rfecv_kwargs.get("cv_n_splits")
     if not cv:
         if has_time:
-            cv = TimeSeriesSplit(n_splits=rfecv_kwargs.get("cv_n_splits", 3))
+            cv = TimeSeriesSplit(n_splits=_cv_n_splits if _cv_n_splits is not None else 3)
             logger.info(f"Using TimeSeriesSplit for RFECV...")
+        elif _cv_n_splits is not None:
+            # Non-time-series + user-supplied cv_n_splits: build a KFold so the kwarg actually
+            # propagates instead of getting silently dropped. Prior code only honored cv_n_splits
+            # on the time-series branch; users hitting the regular branch saw their tuning
+            # ignored, sklearn fell back to its default 5-fold.
+            from sklearn.model_selection import KFold
+            cv = KFold(n_splits=_cv_n_splits)
         else:
             cv = None
         rfecv_kwargs["cv"] = cv

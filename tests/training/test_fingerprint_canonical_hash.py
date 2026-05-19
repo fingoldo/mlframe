@@ -1,4 +1,4 @@
-"""Regression test for canonical_params_hash key-order stability (Phase-1 fix #3).
+"""Regression test for canonical_params_hash key-order stability.
 
 Pre-fix ``fingerprint.py:182`` called ``json.dumps(params, default=str)`` WITHOUT ``sort_keys=True``
 on the non-dict branch. That violates user memory rules ``feedback_json_hash_sort_keys`` AND

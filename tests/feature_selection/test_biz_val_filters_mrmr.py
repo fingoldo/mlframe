@@ -637,10 +637,9 @@ def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
         sel.fit(df, ys)
         assert len(sel.support_) >= 1
     except (KeyError, ValueError) as e:
-        # If a preset isn't in the registry, that's a known-config
-        # missing -- skip rather than fail. The other presets still
-        # exercise the unary-preset code path.
-        pytest.skip(f"preset={preset!r} not in registry: {e}")
+        # Required preset missing from registry is a real wiring bug, not optional config
+        # (memory feedback_no_mask_via_canon_or_guards). Fail loudly.
+        pytest.fail(f"required preset={preset!r} missing from registry: {e}")
 
 
 @pytest.mark.parametrize("preset", ["minimal", "default"])
@@ -662,7 +661,7 @@ def test_biz_val_mrmr_fe_binary_preset_parametrize(preset):
         sel.fit(df, ys)
         assert len(sel.support_) >= 1
     except (KeyError, ValueError) as e:
-        pytest.skip(f"preset={preset!r} not in registry: {e}")
+        pytest.fail(f"required preset={preset!r} missing from registry: {e}")
 
 
 @pytest.mark.parametrize("max_pair_features", [1, 2, 3])
@@ -804,8 +803,8 @@ def test_biz_val_mrmr_fe_max_polynom_degree_parametrize(degree):
         import mlframe.feature_selection.filters.mrmr as _m
         importlib.reload(_m)
         from mlframe.feature_selection.filters.mrmr import MRMR
-    except BaseException as e:
-        pytest.skip(f"MRMR import blocked: {type(e).__name__}")
+    except ImportError as e:
+        pytest.skip(f"MRMR optional dep missing: {type(e).__name__}")  # only suppress ImportError; other failures surface (feedback_no_mask_via_canon_or_guards)
     from tests.feature_selection._biz_val_synth import (
         make_polynomial_target, as_df,
     )
@@ -835,8 +834,8 @@ def test_biz_val_mrmr_fe_max_polynom_coeff_parametrize(coef_range_max):
         import mlframe.feature_selection.filters.mrmr as _m
         importlib.reload(_m)
         from mlframe.feature_selection.filters.mrmr import MRMR
-    except BaseException as e:
-        pytest.skip(f"MRMR import blocked: {type(e).__name__}")
+    except ImportError as e:
+        pytest.skip(f"MRMR optional dep missing: {type(e).__name__}")  # only suppress ImportError; other failures surface (feedback_no_mask_via_canon_or_guards)
     from tests.feature_selection._biz_val_synth import (
         make_polynomial_target, as_df,
     )

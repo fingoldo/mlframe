@@ -1365,3 +1365,45 @@ def test_iter136_year50k_cb_r2():
 def test_iter136_california_cb_r2():
     """iter135 mechanism on California 20k CB R2 (vs iter69 +1.15%). Does iter102+loclift beat iter69 on California?"""
     _validate_scale(_load_california, _build_iter135, "cb", "R2", 0.0115, "iter136_iter102+loclift_CA20k_cb")
+
+
+# ---------- iter137 - iter69 + quantile_spread_fan additive (different uncertainty signal) ----------
+
+
+def _build_iter137(X_tr, X_te, y_tr, task, seed):
+    """iter69 + quantile_spread_fan additive (Q90-Q10 spread of LGB quantile regressors)."""
+    from sklearn.model_selection import KFold
+    from tests.feature_engineering.transformer.test_validation_records import _features_cdist_seeded, _strip
+    from mlframe.feature_engineering.transformer import (
+        compute_baseline_disagreement_features,
+        compute_quantile_spread_fan_features,
+    )
+
+    splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
+    task_str = "binary" if task == "binary" else "regression"
+    bl_tr = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    bl_te = compute_baseline_disagreement_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    qf_tr = compute_quantile_spread_fan_features(
+        X_train=X_tr, y_train=y_tr, X_query=None, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    qf_te = compute_quantile_spread_fan_features(
+        X_train=X_tr, y_train=y_tr, X_query=X_te, splitter=splitter, seed=seed, task=task_str,
+    ).to_numpy()
+    cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
+    return (np.concatenate([X_tr, bl_tr, qf_tr, _strip(cd_tr, X_tr.shape[1])], axis=1),
+            np.concatenate([X_te, bl_te, qf_te, _strip(cd_te, X_te.shape[1])], axis=1))
+
+
+def test_iter137_kin8nm_cb_r2():
+    """iter69 + quantile_spread_fan on kin8nm CB R2 (vs iter130 +8.31%)."""
+    _validate_scale(_load_kin8nm, _build_iter137, "cb", "R2", 0.0831, "iter137_iter69+qfan_kin8nm_cb")
+
+
+def test_iter137_abalone_cb_r2():
+    """iter69 + quantile_spread_fan on abalone CB R2 (vs iter102 +2.74%)."""
+    from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
+    _validate_scale(_load_abalone, _build_iter137, "cb", "R2", 0.0274, "iter137_iter69+qfan_abalone_cb")

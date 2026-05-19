@@ -17,7 +17,9 @@ import polars as pl
 from ..baseline_diagnostics import BaselineDiagnostics
 from ..composite import CompositeTargetDiscovery
 from ..composite_cache import (
+    ConfigSignatureV1,
     DiscoveryCache,
+    compute_config_signature_v1,
     data_signature,
     make_discovery_cache_key,
 )
@@ -31,7 +33,7 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
-def _discovery_config_signature(config: Any) -> str:
+def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
     """Stable JSON-derived signature of a CompositeTargetDiscoveryConfig.
 
     Combined with library versions so a dependency bump invalidates
@@ -53,28 +55,7 @@ def _discovery_config_signature(config: Any) -> str:
       * ``python`` - major.minor (3.11 -> 3.12 changes pickle proto +
         dict ordering side-effects in some serialisers)
     """
-    import hashlib
-    import json as _json
     import sys
-
-    payload: dict[str, Any] = {}
-    try:
-        if hasattr(config, "model_dump"):
-            payload["config"] = config.model_dump(mode="json")
-        elif hasattr(config, "dict"):
-            payload["config"] = config.dict()
-        else:
-            # DISC-CONFIG-REPR: ``repr(config)`` on a plain object includes the mem-address suffix
-            # (``<Config object at 0x...>``), so the signature shifts at every process restart even
-            # when the actual config is identical. Stringify the object's __dict__ when present so
-            # we hash the field contents instead; fall back to repr only for opaque objects.
-            payload["config"] = (
-                {str(k): str(v) for k, v in sorted(getattr(config, "__dict__", {}).items())}
-                or repr(config)
-            )
-    except Exception as _e:
-        payload["config_repr"] = repr(config)
-        payload["config_dump_error"] = str(_e)
 
     versions: dict[str, str] = {}
     try:
@@ -95,23 +76,16 @@ def _discovery_config_signature(config: Any) -> str:
         try:
             mod = __import__(_name)
             _ver_str = str(getattr(mod, "__version__", "?"))
-            # Major.minor only -- patch bumps (e.g. ``pip install --user`` upgrading polars 1.18.1 ->
-            # 1.18.2) invalidate every cached spec even though MI / Wilcoxon / boosting math is
-            # unchanged. We care about semantic changes (RNG defaults, dtype dispatch); those land
-            # at minor bumps for the libraries above. Strip patch + any dev / rc tags.
+            # Major.minor only -- patch bumps invalidate every cached spec even though MI /
+            # Wilcoxon / boosting math is unchanged. Strip patch + any dev / rc tags.
             _parts = _ver_str.split(".")
             if len(_parts) >= 2 and _parts[0].isdigit():
                 _ver_str = f"{_parts[0]}.{_parts[1].split('+')[0].split('rc')[0].split('dev')[0]}"
             versions[_name] = _ver_str
         except Exception:
             versions[_name] = "absent"
-    # Python major.minor only - patch-level changes don't move semantics
-    # we care about, but a 3.x bump can.
     versions["python"] = f"{sys.version_info.major}.{sys.version_info.minor}"
-    payload["versions"] = versions
-
-    blob = _json.dumps(payload, sort_keys=True, default=str)
-    return hashlib.blake2b(blob.encode("utf-8"), digest_size=16).hexdigest()
+    return compute_config_signature_v1(config, library_versions=versions)
 
 
 def run_composite_target_discovery(

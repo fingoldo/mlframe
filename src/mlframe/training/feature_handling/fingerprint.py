@@ -52,7 +52,10 @@ except ImportError:  # pragma: no cover -- optional accel
 # recycled mid-suite (rare but possible after explicit ``del`` / GC inside a loop). Bounded to
 # ``_FP_CACHE_MAX`` entries (LRU); the strong-ref guarantee that makes ``id()`` safe inside a suite
 # holds here too.
-_FP_CACHE_MAX = 32
+# Audit D P2-3 (2026-05-18): bumped 32 → 128 so long-running Jupyter sessions that loop several
+# suites (each ≈ 5-15 distinct (id, n_cols) frames) don't thrash. 128 entries × ~200 bytes per
+# ContentFingerprint ≈ 25 KB working set -- negligible.
+_FP_CACHE_MAX = 128
 _fingerprint_cache: "OrderedDict[Tuple[int, int, int], ContentFingerprint]" = OrderedDict()
 # Module lock that serialises mutations of the fingerprint memo and the
 # session token. Without it, ``_fp_cache_put`` / ``_fp_cache_get`` racing

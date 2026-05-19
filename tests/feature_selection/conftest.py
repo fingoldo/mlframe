@@ -30,13 +30,10 @@ def _coverage_active() -> bool:
 COVERAGE_ACTIVE = _coverage_active()
 
 
+# NOTE: a richer ``fast_subset`` lives in tests/conftest.py (top-level).
+# This local copy preserves the historical ``n=`` kwarg used by callers in
+# ``feature_selection``. Both share the same MLFRAME_FAST env-var gate.
 def fast_subset(seq, n: int = 1):
-    """Return the first ``n`` items of ``seq`` when ``MLFRAME_FAST=1``; otherwise return ``seq`` unchanged.
-
-    Use to slim parametric coverage for fast-mode iteration:
-        @pytest.mark.parametrize("cv_n", fast_subset([2, 3, 5, 10]))
-    Returns a list so pytest's parametrize can introspect it; sequences shorter than ``n`` pass through unchanged.
-    """
     items = list(seq)
     if IS_FAST_MODE and len(items) > n:
         return items[:n]

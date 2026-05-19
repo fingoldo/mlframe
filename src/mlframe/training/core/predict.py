@@ -83,6 +83,20 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     if isinstance(df, pl.DataFrame):
         # Extensions pipelines are sklearn-typed and were fit on pandas -- materialise once for the transform.
         df = get_pandas_view_of_polars_df(df)
+    # Bundle dispatch: PySR -> TFIDF -> sklearn, mirroring training order so
+    # predict replay sees the same column-add sequence.
+    try:
+        from mlframe.training.pipeline import PreprocessingExtensionsBundle as _PEB
+    except ImportError:
+        _PEB = None
+    if _PEB is not None and isinstance(ext_pipeline, _PEB):
+        if ext_pipeline.pysr is not None:
+            df = ext_pipeline.pysr.transform(df)
+        if ext_pipeline.tfidf is not None:
+            df = _apply_extensions_pipeline(df, ext_pipeline.tfidf, verbose=verbose)
+        if ext_pipeline.sklearn_pipe is not None:
+            df = _apply_extensions_pipeline(df, ext_pipeline.sklearn_pipe, verbose=verbose)
+        return df
     if isinstance(ext_pipeline, dict):
         # TF-IDF-only shape -- replicate the training-time per-column replacement using the saved vectorizers.
         # Train hard-failed on missing tfidf-source cols (apply_preprocessing_extensions raises KeyError before
@@ -195,6 +209,9 @@ def _combine_probs(
     quantile_mode: str = "sort",
     rrf_k: int = 60,
     ensure_prob_limits: bool = True,
+    is_calibrated_per_model: Sequence[bool] | None = None,
+    metadata: dict | None = None,
+    target_label: str | None = None,
 ) -> np.ndarray:
     """Combine per-model prediction probabilities using the training-time-selected ``flavour``.
 
@@ -207,8 +224,30 @@ def _combine_probs(
     ``(N, K=len(alphas))`` and ``fix_quantile_crossing`` is applied after the ensemble step -- arithmetic /
     harmonic / quadratic aggregations can break per-row monotonicity even when each member's own quantiles
     are monotone. Without this the SKEW-QUANTILE-ENS bug surfaced.
+
+    Arch-4: ``is_calibrated_per_model`` carries one bool per member of ``all_probs`` indicating whether
+    that model's probabilities have been post-hoc calibrated. A mix (some True, some False) produces a
+    ``logger.warning`` because blending calibrated with uncalibrated probs degrades calibration of the
+    ensemble; the function does NOT refuse (user policy: WARN, NOT REFUSE). When ``metadata`` is
+    supplied, ``metadata["ensembles_calibrated"]`` is stamped as a bool reflecting "all members
+    calibrated" (True only when every flag is True; False otherwise).
     """
     from mlframe.models.ensembling import combine_probs as _shared_combine_probs
+
+    if is_calibrated_per_model is not None:
+        _flags = [bool(f) for f in is_calibrated_per_model]
+        if _flags and any(_flags) and not all(_flags):
+            _n_cal = sum(_flags)
+            logger.warning(
+                "[_combine_probs] mixing calibrated and uncalibrated probabilities for ensemble"
+                "%s: %d/%d members are calibrated. Blending the two degrades the ensemble's "
+                "calibration; the predict path still proceeds (Arch-4 WARN, not REFUSE) but the "
+                "deployed reliability diagram will diverge from each member's individual one.",
+                f" target={target_label!r}" if target_label else "",
+                _n_cal, len(_flags),
+            )
+        if isinstance(metadata, dict) and _flags:
+            metadata["ensembles_calibrated"] = bool(all(_flags))
 
     stacked = np.stack(all_probs)
     combined = _shared_combine_probs(
@@ -233,6 +272,23 @@ def _combine_probs(
                 len(quantile_alphas), combined.shape[1],
             )
     return combined
+
+
+def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
+    """Detect whether ``model_obj`` is a post-hoc calibrated wrapper.
+
+    Class-name matching keeps the heavy training-module imports out of the predict path. Recognises
+    the two wrappers stamped by mlframe.training: ``_PostHocCalibratedModel`` (single-output) and
+    ``_PostHocMultiCalibratedModel`` (multi-output). Anything else is treated as uncalibrated for
+    Arch-4 mix detection.
+    """
+    if model_obj is None:
+        return False
+    try:
+        _name = type(model_obj).__name__
+    except Exception:
+        return False
+    return _name in ("_PostHocCalibratedModel", "_PostHocMultiCalibratedModel")
 
 
 def _resolve_quantile_alphas(metadata: dict, target_type: Any, target_name: Any, model_obj: Any = None) -> Sequence[float] | None:
@@ -311,9 +367,10 @@ def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, tar
 def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name: Any = None) -> str | None:
     """Look up the persisted chosen ensemble flavour for ``(target_type, target_name)``.
 
-    Reads ``metadata['ensembles_chosen']``. Two shapes are tolerated for back-compat:
-      * ``{target_type: {target_name: flavour}}`` -- nested (preferred).
-      * ``{flavour}`` as a bare string -- whole-suite fallback for the case where only one target was trained.
+    Arch-3: ``metadata['ensembles_chosen']`` is sub-keyed per ensemble family --
+    ``{"simple": {tt: {tname: flavour}}, "cross_target": {tt: {tname: flavour}}}``.
+    ``_CT_ENSEMBLE__*``-prefixed target names dispatch to the ``cross_target`` bucket; everything
+    else reads the ``simple`` bucket.
     """
     _ec = metadata.get("ensembles_chosen") if isinstance(metadata, dict) else None
     if _ec is None:
@@ -322,10 +379,14 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
         return _ec
     if not isinstance(_ec, dict):
         return None
-    if target_type is not None:
-        _by_tt = _ec.get(target_type)
-        if _by_tt is None:
-            _by_tt = _ec.get(str(target_type))
+    # Pick bucket by target-name prefix. CT_ENSEMBLE keys live under "cross_target"; everything
+    # else under "simple". Falls back to whichever bucket has the entry when only one is populated.
+    _is_ct = isinstance(target_name, str) and target_name.startswith("_CT_ENSEMBLE__")
+    _bucket = _ec.get("cross_target" if _is_ct else "simple")
+    if not isinstance(_bucket, dict):
+        _bucket = None
+    if _bucket is not None and target_type is not None:
+        _by_tt = _bucket.get(target_type) or _bucket.get(str(target_type))
         if isinstance(_by_tt, dict):
             if target_name is not None:
                 _fl = _by_tt.get(target_name) or _by_tt.get(str(target_name))
@@ -336,13 +397,18 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
                 return next(iter(_by_tt.values()))
         elif isinstance(_by_tt, str):
             return _by_tt
-    # No (tt, tname) match -- if the whole map has a single flavour everywhere, use it.
+    # No (tt, tname) match in the dispatched bucket -- if the whole map has a single flavour
+    # everywhere across BOTH buckets, use it.
     _all = []
-    for _v in _ec.values():
-        if isinstance(_v, dict):
-            _all.extend(_v.values())
-        elif isinstance(_v, str):
-            _all.append(_v)
+    for _fam in _ec.values():
+        if isinstance(_fam, dict):
+            for _v in _fam.values():
+                if isinstance(_v, dict):
+                    _all.extend(_v.values())
+                elif isinstance(_v, str):
+                    _all.append(_v)
+        elif isinstance(_fam, str):
+            _all.append(_fam)
     _all_set = {f for f in _all if f}
     if len(_all_set) == 1:
         # Set with cardinality 1 is deterministic, but sort-then-pick documents the intent and survives the
@@ -658,6 +724,10 @@ def predict_mlframe_models_suite(
     # Per-target accumulator so Fix 3 can replay the chosen flavour separately for each (target_type, target_name).
     per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
     per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    # Arch-4: per-member calibration flags so _combine_probs can WARN on mixed ensembles. One bool
+    # per probability array, aligned with the prob accumulators above.
+    all_calib_flags: list[bool] = []
+    per_target_calib_flags: dict[tuple[Any, Any], list[bool]] = {}
     _slug_to_tt = metadata.get("slug_to_original_target_type", {}) or {}
     _slug_to_tn = metadata.get("slug_to_original_target_name", {}) or {}
 
@@ -761,6 +831,9 @@ def predict_mlframe_models_suite(
                 results["probabilities"][model_name] = probs
                 all_probs.append(probs)
                 per_target_probs.setdefault((_tt, _tn), []).append(probs)
+                _is_cal = _is_post_hoc_calibrated_model(model_obj)
+                all_calib_flags.append(_is_cal)
+                per_target_calib_flags.setdefault((_tt, _tn), []).append(_is_cal)
 
                 # Shape-aware decision rule: 1-D = sigmoid threshold; (N,2) = threshold class-1;
                 # (N,K>2) = argmax. Multilabel cannot be inferred from shape; caller must hold that contract.
@@ -820,7 +893,12 @@ def predict_mlframe_models_suite(
             _key = f"{_tt_k}_{_tn_k}"
             _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k)
             if len(_probs_list) > 1:
-                _combined = _combine_probs(_probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay)
+                _combined = _combine_probs(
+                    _probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay,
+                    is_calibrated_per_model=per_target_calib_flags.get((_tt_k, _tn_k)),
+                    metadata=metadata,
+                    target_label=f"{_tt_k}/{_tn_k}",
+                )
             else:
                 _combined = _probs_list[0]
                 if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
@@ -841,7 +919,12 @@ def predict_mlframe_models_suite(
 
         # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
         _suite_flavour = _resolve_chosen_flavour(metadata)
-        avg_probs = _combine_probs(all_probs, _suite_flavour)
+        avg_probs = _combine_probs(
+            all_probs, _suite_flavour,
+            is_calibrated_per_model=all_calib_flags or None,
+            metadata=metadata,
+            target_label="suite",
+        )
         results["ensemble_probabilities"] = avg_probs
         # Expose the ensemble inside the per-model probabilities dict under the
         # canonical "ensemble" key so consumers can iterate one dict.
@@ -1112,6 +1195,9 @@ def predict_from_models(
     # targets, which silently ignored the per-target flavour choice.
     per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
     per_target_preds: dict[tuple[Any, Any], list[np.ndarray]] = {}
+    # Arch-4: per-member calibration flags for mix detection in _combine_probs.
+    all_calib_flags: list[bool] = []
+    per_target_calib_flags: dict[tuple[Any, Any], list[bool]] = {}
 
     # Caches keyed by (id(df), id(_expected)) and (id(df), id(_expected)) -> precomputed drop / order lists.
     # Many models in a suite carry IDENTICAL feature_names_in_ (same family fit on same FE step); recomputing
@@ -1607,6 +1693,9 @@ def predict_from_models(
                         results["probabilities"][model_name] = probs
                         all_probs.append(probs)
                         per_target_probs.setdefault((target_type, target_name), []).append(probs)
+                        _is_cal = _is_post_hoc_calibrated_model(model_obj)
+                        all_calib_flags.append(_is_cal)
+                        per_target_calib_flags.setdefault((target_type, target_name), []).append(_is_cal)
 
                         if probs.ndim == 2:
                             if probs.shape[1] == 2:
@@ -1656,7 +1745,12 @@ def predict_from_models(
                 _sample_model = None
             _q_alphas = _resolve_quantile_alphas(metadata, _tt, _tname, _sample_model)
             if len(_probs_list) > 1:
-                _combined = _combine_probs(_probs_list, _flavour, quantile_alphas=_q_alphas)
+                _combined = _combine_probs(
+                    _probs_list, _flavour, quantile_alphas=_q_alphas,
+                    is_calibrated_per_model=per_target_calib_flags.get((_tt, _tname)),
+                    metadata=metadata,
+                    target_label=f"{_tt}/{_tname}",
+                )
             else:
                 _combined = _probs_list[0]
                 if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
@@ -1677,7 +1771,12 @@ def predict_from_models(
 
         # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
         _suite_flavour = _resolve_chosen_flavour(metadata)
-        avg_probs = _combine_probs(all_probs, _suite_flavour)
+        avg_probs = _combine_probs(
+            all_probs, _suite_flavour,
+            is_calibrated_per_model=all_calib_flags or None,
+            metadata=metadata,
+            target_label="suite",
+        )
         results["ensemble_probabilities"] = avg_probs
         if isinstance(results.get("probabilities"), dict):
             results["probabilities"]["ensemble"] = avg_probs

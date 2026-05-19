@@ -60,10 +60,12 @@ class TestFormatMetric:
     def test_custom_ndigits(self, value, ndigits, expected):
         assert format_metric(value, ndigits=ndigits) == expected
 
+    @pytest.mark.fast
     def test_non_numeric_strings_pass_through(self):
         """Non-castable input -> str(input) unchanged."""
         assert format_metric("hello") == "hello"
 
+    @pytest.mark.fast
     def test_integer_input_works(self):
         """int input is coerced to float; default 2 d.p."""
         assert format_metric(42) == "42.00"
@@ -82,6 +84,7 @@ class TestStripShimSuffix:
     def test_strip(self, name, expected):
         assert strip_shim_suffix(name) == expected
 
+    @pytest.mark.fast
     def test_non_string_passthrough(self):
         """Non-string input returned unchanged."""
         assert strip_shim_suffix(None) is None
@@ -104,6 +107,7 @@ class TestShortModelTag:
     def test_tag(self, name, expected):
         assert short_model_tag(name) == expected
 
+    @pytest.mark.fast
     def test_instance_input(self):
         """Object input: use type(obj).__name__."""
         class FakeXGB:

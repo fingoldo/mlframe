@@ -8,8 +8,6 @@ copy was removed; this test pins the resolved symbol to the canonical
 """
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 
@@ -25,15 +23,20 @@ def test_compute_quantile_baselines_resolves_to_canonical_module():
 
 
 def test_compute_quantile_baselines_defined_only_in_compute_module():
-    """The shadow definition in dummy_baselines.py is gone (no F811 noqa left)."""
+    """Behavioural: the canonical definition lives in _dummy_baseline_compute,
+    and the dummy_baselines module's symbol must be the SAME function object
+    (no in-file shadow def reshadowed the import). We check identity, not
+    source text, so refactors that move whitespace don't break this.
+    """
     from mlframe.training import dummy_baselines
+    from mlframe.training import _dummy_baseline_compute
 
-    src = inspect.getsource(dummy_baselines)
-    # Only the `from ._dummy_baseline_compute import (... _compute_quantile_baselines ...)`
-    # mention should remain; no `def _compute_quantile_baselines(` line.
-    assert "def _compute_quantile_baselines(" not in src, (
-        "dummy_baselines.py must not redefine _compute_quantile_baselines"
-    )
+    # Identity: dummy_baselines._compute_quantile_baselines IS the function
+    # from the compute module - not a wrapper, not a shadow.
+    assert (
+        dummy_baselines._compute_quantile_baselines
+        is _dummy_baseline_compute._compute_quantile_baselines
+    ), "dummy_baselines._compute_quantile_baselines was shadowed by a local def"
 
 
 def test_compute_quantile_baselines_callable_via_dummy_baselines():

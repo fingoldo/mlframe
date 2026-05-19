@@ -473,8 +473,8 @@ def test_fix8_fingerprint_enum_category_drift_invalidates():
 
 def test_fix8_fingerprint_json_canonicalisation_uses_sorted_keys():
     """Per-user memory rule: JSON serialisation for hashing must
-    sort_keys=True. We verify by rebuilding the canonical form and
-    reproducing the hash from the returned schema list."""
+    sort_keys=True. We verify by mirroring the canonical payload and
+    reproducing the hash."""
     from mlframe.training.utils import compute_model_input_fingerprint
 
     df = pl.DataFrame({
@@ -487,9 +487,26 @@ def test_fix8_fingerprint_json_canonicalisation_uses_sorted_keys():
     # and the test would fail. Pull stdlib json via importlib so the
     # convention test (orjson-only at imports) doesn't flag this line.
     stdlib_json = __import__("importlib").import_module("json")
-    canonical = stdlib_json.dumps(schema, sort_keys=True)
+    payload = {
+        "schema": schema,
+        "n_rows": int(len(df)),
+        "target_name": None,
+        "preprocessing_config": "none",
+        "pipeline_config": "none",
+        "model_family": None,
+        "random_seed": None,
+        "train_idx": "none",
+        "val_idx": "none",
+    }
+    canonical = stdlib_json.dumps(payload, sort_keys=True, default=str)
     expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:10]
     assert got_hash == expected
+    # Sanity: payload with un-sorted keys would produce a different hash on
+    # at least one Python build with dict-insertion-order semantics; sorting
+    # the keys is the only stable behaviour.
+    unsorted = stdlib_json.dumps(payload, sort_keys=False, default=str)
+    if unsorted != canonical:
+        assert hashlib.sha256(unsorted.encode("utf-8")).hexdigest()[:10] != got_hash
 
 
 def test_fix8_behavior_config_has_hash_suffix_flag():

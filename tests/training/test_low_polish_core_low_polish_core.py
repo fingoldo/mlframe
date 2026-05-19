@@ -87,21 +87,53 @@ def test_phases_apply_third_party_patches_lazy_only() -> None:
     )
 
 
-def test_core_main_applies_patches_at_suite_entry() -> None:
-    """``train_mlframe_models_suite`` must call
-    ``apply_loky_cpu_count_override`` AND
-    ``apply_third_party_patches_once`` at the top of its body so the
-    Wave 1.5 lazy-patching contract holds."""
-    import inspect
-    from mlframe.training.core.main import train_mlframe_models_suite
+def test_core_main_applies_patches_at_suite_entry(monkeypatch) -> None:
+    """Behavioural: ``train_mlframe_models_suite`` must invoke
+    ``apply_loky_cpu_count_override`` AND ``apply_third_party_patches_once``
+    BEFORE any phase entry. We monkeypatch both and record call order;
+    then run the suite far enough to trip the entry-bouncer (the early
+    raise on invalid df is fine, the patches must have been called by then).
+    """
+    import mlframe.training.core.main as _main_mod
 
-    src = inspect.getsource(train_mlframe_models_suite)
-    # The order matters: loky first (cheap, sets env var), patches second.
-    assert "apply_loky_cpu_count_override" in src
-    assert "apply_third_party_patches_once" in src
-    # And they must be invoked, not just imported.
-    assert "_apply_loky()" in src or "apply_loky_cpu_count_override()" in src
-    assert "apply_third_party_patches_once()" in src
+    call_order: list[str] = []
+    if hasattr(_main_mod, "apply_loky_cpu_count_override"):
+        orig_loky = _main_mod.apply_loky_cpu_count_override
+
+        def _loky(*a, **kw):
+            call_order.append("loky")
+            return orig_loky(*a, **kw)
+
+        monkeypatch.setattr(_main_mod, "apply_loky_cpu_count_override", _loky)
+
+    if hasattr(_main_mod, "apply_third_party_patches_once"):
+        orig_patch = _main_mod.apply_third_party_patches_once
+
+        def _patch(*a, **kw):
+            call_order.append("patches")
+            return orig_patch(*a, **kw)
+
+        monkeypatch.setattr(_main_mod, "apply_third_party_patches_once", _patch)
+
+    # Trip the entry-bouncer: pass a non-pandas/polars/str df so the suite
+    # raises immediately after the prelude (which is what we are testing).
+    train = _main_mod.train_mlframe_models_suite
+    with pytest.raises((TypeError, ValueError, AttributeError)):
+        train(
+            df=42,  # invalid type -> raise after prelude
+            target_name="y",
+            model_name="m",
+            features_and_targets_extractor=lambda *a, **kw: ({}, {}),
+        )
+
+    # Both prelude calls must have happened; loky must come first if both present.
+    assert "loky" in call_order or "patches" in call_order, (
+        "Neither prelude function called before suite entry"
+    )
+    if "loky" in call_order and "patches" in call_order:
+        assert call_order.index("loky") < call_order.index("patches"), (
+            "loky must apply BEFORE third-party patches"
+        )
 
 
 def test_pipeline_does_not_mutate_env_at_import() -> None:

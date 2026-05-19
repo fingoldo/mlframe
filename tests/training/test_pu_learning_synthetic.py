@@ -48,6 +48,18 @@ from mlframe.training.pu_learning import (
 from tests.conftest import is_fast_mode
 
 
+# Pin global RNG state per-test. HistGradientBoostingClassifier passes
+# ``random_state=0`` through to its own RNG, but sklearn internals (subsampling,
+# tie-breaking in some estimators) can still touch the numpy global stream;
+# pytest-randomly reseeds that stream per-test, which made the statistical
+# tolerance bands on ``elkan_noto`` / ``prior_shift_correction`` flake.
+@pytest.fixture(autouse=True)
+def _stable_global_rng():
+    import random
+    np.random.seed(0)
+    random.seed(0)
+
+
 # ----- Synthetic data generator -------------------------------------------------
 
 

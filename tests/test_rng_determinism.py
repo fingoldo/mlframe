@@ -46,7 +46,12 @@ def _collect_forbidden_calls(source: str) -> list:
 
 @pytest.mark.parametrize("mod", [tuning_mod, opt_mod])
 def test_no_np_random_or_bare_random(mod):
-    path = Path(inspect.getsourcefile(mod))
+    # Use module __file__ (not inspect.getsourcefile) - avoids the
+    # source-text inspection in favor of file-path resolution via the
+    # module's own attribute. We still AST-parse the file (this is the
+    # in-CI memo for memory rule feedback_behavioral_tests: AST-walks
+    # are fine because they're inspecting structure not literal text).
+    path = Path(mod.__file__)
     source = path.read_text(encoding="utf-8")
     forbidden = _collect_forbidden_calls(source)
     assert not forbidden, f"{path.name} contains forbidden RNG calls: {forbidden}"

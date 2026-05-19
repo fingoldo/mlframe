@@ -729,3 +729,41 @@ class TestSimpleFeaturesAndTargetsExtractorEdgeCases:
         assert 'col_to_remove' in cols_to_drop
         assert 'target1' in cols_to_drop
         assert 'target2' in cols_to_drop
+
+
+# =============================================================================
+# Polars-vs-pandas parametrized smoke (E-P0.5)
+# =============================================================================
+# Forces the polars-native fastpath in get_dataframe_info / intize_targets to be
+# exercised alongside the pandas branch, instead of only landing via round-trip
+# from pandas in integration tests.
+
+
+def _build_frame(kind):
+    data = {'int_col': [1, 2, 3], 'float_col': [1.0, 2.0, 3.0]}
+    return pd.DataFrame(data) if kind == 'pandas' else pl.DataFrame(data)
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("frame_kind", ["pandas", "polars"])
+def test_get_dataframe_info_parametrized(frame_kind):
+    """get_dataframe_info handles both pandas and polars without round-tripping."""
+    info = get_dataframe_info(_build_frame(frame_kind))
+    assert isinstance(info, str)
+    assert len(info) > 0
+
+
+@pytest.mark.fast
+@pytest.mark.parametrize("series_kind", ["pandas", "polars", "numpy"])
+def test_intize_targets_parametrized(series_kind):
+    """intize_targets coerces every supported series flavour to int8 numpy."""
+    if series_kind == 'pandas':
+        s = pd.Series([0.0, 1.0, 0.0])
+    elif series_kind == 'polars':
+        s = pl.Series([0, 1, 0])
+    else:
+        s = np.array([0.0, 1.0, 0.0])
+    targets = {'t': s}
+    intize_targets(targets)
+    assert isinstance(targets['t'], np.ndarray)
+    assert targets['t'].dtype == np.int8

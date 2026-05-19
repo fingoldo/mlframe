@@ -933,11 +933,8 @@ class TestFinancialUnnestOrdering:
     """
 
     def test_struct_indicators_are_unnested(self):
-        try:
-            import polars as pl
-            import polars_talib  # noqa: F401
-        except ImportError:
-            pytest.skip("polars_talib not installed")
+        import polars as pl
+        pytest.importorskip("polars_talib")
         from mlframe.feature_engineering.financial import add_ohlcv_ta_indicators
 
         rng = np.random.default_rng(0)
@@ -979,10 +976,8 @@ class TestBruteforceLeakageFreeEncoding:
     fit-on-everything baseline."""
 
     def test_kfold_helper_produces_different_encoding_than_fit_all(self):
-        try:
-            from category_encoders import CatBoostEncoder
-        except ImportError:
-            pytest.skip("category_encoders not installed")
+        pytest.importorskip("category_encoders")
+        from category_encoders import CatBoostEncoder
         from mlframe.feature_engineering.bruteforce import _kfold_target_encode
 
         rng = np.random.default_rng(0)

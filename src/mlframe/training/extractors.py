@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import io
 import logging
-from typing import Union, Iterable, Optional, Dict, Any, Tuple, List
+from typing import Union, Iterable, Optional, Dict, Any, Tuple, List, Protocol, runtime_checkable
 
 import numpy as np
 import pandas as pd
@@ -194,6 +194,10 @@ def showcase_features_and_targets(
 
     head = df.head(5)
     if isinstance(df, pl.DataFrame):
+        # Audit D P2-4 (2026-05-18): bare ``.to_pandas()`` is the slow consolidation copy path,
+        # but ``head(5)`` is 5 rows -- the copy cost is dominated by per-cell overhead, not by
+        # bulk-buffer consolidation. Display-only, cold-path. NEEDED for downstream pandas-only
+        # ``.style.set_caption`` / Jupyter display rich rendering.
         head = head.to_pandas()
 
     non_floats = head.select_dtypes(exclude=np.float32)
@@ -229,6 +233,10 @@ def showcase_features_and_targets(
                         sample_idx = _hist_rng.choice(
                             len(target), max_hist_samples, replace=False
                         )
+                        # Audit D L-3 (2026-05-18): polars Series ``target[sample_idx]``
+                        # with a numpy integer array works (polars treats it as
+                        # ``.gather(sample_idx)``); pandas Series uses ``.iloc`` for positional
+                        # indexing to avoid the FutureWarning on label-vs-position dispatch.
                         sample = (
                             target.iloc[sample_idx].values
                             if isinstance(target, pd.Series)
@@ -304,6 +312,7 @@ def showcase_features_and_targets(
 
         tail = df.tail(5)
         if isinstance(df, pl.DataFrame):
+            # Audit D P2-4 (2026-05-18): see head() comment above. Display-only, cold-path.
             tail = tail.to_pandas()
 
         display(tail)
@@ -312,6 +321,30 @@ def showcase_features_and_targets(
 # -----------------------------------------------------------------------------
 # Extractor Classes
 # -----------------------------------------------------------------------------
+
+
+@runtime_checkable
+class FeaturesAndTargetsExtractorProtocol(Protocol):
+    """Typed contract for any FTE the training suite consumes.
+
+    The training suite reads ``ftextractor_emitted_columns`` (a mapping
+    ``source_col -> [derived_col, ...]``) so the auto-detect / pipeline
+    phases can avoid re-emitting columns the FTE already added (eg datetime
+    decomposition). This Protocol makes the contract explicit so external
+    extractors are checked at runtime via ``isinstance(obj, ...)`` instead
+    of attribute sniffing.
+
+    Concrete subclasses (``FeaturesAndTargetsExtractor`` below,
+    ``SimpleFeaturesAndTargetsExtractor`` further down) already satisfy
+    this Protocol; new third-party extractors only need to expose the
+    same attribute name to be accepted.
+    """
+
+    ftextractor_emitted_columns: Dict[str, List[str]]
+
+    def add_features(self, df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd.DataFrame, pl.DataFrame]: ...
+
+    def build_targets(self, df: Union[pd.DataFrame, pl.DataFrame]) -> dict: ...
 
 
 class FeaturesAndTargetsExtractor:

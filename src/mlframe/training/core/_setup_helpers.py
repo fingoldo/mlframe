@@ -371,6 +371,7 @@ def _build_pre_pipelines(
     use_boruta_shap: bool = False,
     boruta_shap_kwargs: dict[str, Any] | None = None,
     use_sample_weights_in_fs: bool = False,
+    mrmr_identity_cache: dict | None = None,
 ) -> tuple[list[Any], list[str]]:
     """Build lists of pre-pipelines and their names for feature selection.
 
@@ -400,32 +401,61 @@ def _build_pre_pipelines(
         raise ValueError(f"Unknown RFECV model(s): {unknown_rfecv_models}. " f"Available: {list(rfecv_models_params.keys())}")
     for rfecv_model_name in rfecv_models:
         _rfecv_instance = rfecv_models_params[rfecv_model_name]
-        # Suite-level overrides win over the RFECV defaults; both knobs are scalars stored on the instance and consumed at fit time, so a post-construction setattr is safe.
+        # Suite-level overrides win over the RFECV defaults. Use sklearn's ``set_params`` instead of raw
+        # ``setattr`` so any future property-setter side effects (e.g. recomputing a derived bound) fire as
+        # the constructor would; ``set_params`` is the documented sklearn API for post-construction kwarg
+        # overrides and validates the parameter names against ``get_params``. Falls back to ``setattr`` for
+        # non-BaseEstimator instances used in tests / custom wrappers that don't implement set_params.
         if _rfecv_instance is not None:
-            setattr(_rfecv_instance, "leakage_corr_threshold", rfecv_leakage_corr_threshold)
-            setattr(_rfecv_instance, "mbh_adaptive_threshold", rfecv_mbh_adaptive_threshold)
+            _rfecv_overrides = {
+                "leakage_corr_threshold": rfecv_leakage_corr_threshold,
+                "mbh_adaptive_threshold": rfecv_mbh_adaptive_threshold,
+            }
+            _set_params = getattr(_rfecv_instance, "set_params", None)
+            if callable(_set_params):
+                try:
+                    _set_params(**_rfecv_overrides)
+                except (ValueError, TypeError):
+                    for _k, _v in _rfecv_overrides.items():
+                        setattr(_rfecv_instance, _k, _v)
+            else:
+                for _k, _v in _rfecv_overrides.items():
+                    setattr(_rfecv_instance, _k, _v)
+            # Suite-internal marker (user constraint: keep as setattr; not a public RFECV constructor kwarg).
             setattr(_rfecv_instance, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
+            # Dedicated dispatch marker so downstream report-build / cache code can identify the selector
+            # kind without class-name string matching or abusing the weight-marker as a type tag.
+            setattr(_rfecv_instance, "_mlframe_selector_kind_", "RFECV")
         pre_pipelines.append(_rfecv_instance)
         pre_pipeline_names.append(f"{rfecv_model_name} ")
 
     if use_mrmr_fs:
-        # MRMR handles NaN natively via ``nan_strategy`` (default
-        # "separate_bin" routes NaN rows to a dedicated discretization bin
-        # instead of imputing them; see MRMR._validate_inputs). Wrapping
-        # in SimpleImputer would discard that signal and silently degrade
-        # downstream NaN-aware backends (catboost / lgb / xgb).
-        # Deferred import: see module-level comment for the ~10-25s cold-
-        # import cost reason. Same pattern as BorutaShap a few lines below.
-        from mlframe.feature_selection.filters import MRMR
-        _mrmr = MRMR(**mrmr_kwargs)
+        # MRMR handles NaN natively via ``nan_strategy`` (default "separate_bin" routes NaN rows to a
+        # dedicated discretization bin instead of imputing them; see MRMR._validate_inputs). Wrapping in
+        # SimpleImputer would discard that signal and silently degrade downstream NaN-aware backends
+        # (catboost / lgb / xgb). Registry-driven dispatch (A-Arch-002): adding a fourth selector
+        # registers a spec instead of touching this function.
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _mrmr_spec = _get_selector_spec("MRMR")
+        _mrmr = _mrmr_spec.instantiate(**mrmr_kwargs)
         setattr(_mrmr, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
+        setattr(_mrmr, "_mlframe_selector_kind_", "MRMR")
+        # When the suite caller passes a ctx-scoped cache dict (default per FeatureSelectionConfig.mrmr_identity_cache_scope="ctx"),
+        # stamp it on the MRMR instance so fit-time identity-cache reads/writes route to the suite-bounded dict instead of the
+        # process-global module-level cache. None falls back to the module-level cache (mrmr_identity_cache_scope="process").
+        if mrmr_identity_cache is not None:
+            setattr(_mrmr, "_mlframe_identity_cache_override_", mrmr_identity_cache)
         pre_pipelines.append(_mrmr)
         pre_pipeline_names.append("MRMR ")
 
     if use_boruta_shap:
-        # Lazy import: BorutaShap pulls in shap + matplotlib + seaborn, which add ~2s to every training-module import even when the selector is OFF. Importing here keeps the cost gated behind the opt-in flag.
-        from mlframe.feature_selection.boruta_shap import BorutaShap
-        pre_pipelines.append(BorutaShap(**(boruta_shap_kwargs or {})))
+        # Registry-driven dispatch (A-Arch-002). The BorutaShap spec hides the lazy-import behind
+        # ``instantiate`` so shap / matplotlib / seaborn (~2s cold cost) only load when this branch fires.
+        from mlframe.feature_selection.registry import get as _get_selector_spec
+        _bs_spec = _get_selector_spec("BorutaShap")
+        _bs = _bs_spec.instantiate(**(boruta_shap_kwargs or {}))
+        setattr(_bs, "_mlframe_selector_kind_", "BorutaShap")
+        pre_pipelines.append(_bs)
         pre_pipeline_names.append("BorutaShap ")
 
     if custom_pre_pipelines:
@@ -594,6 +624,10 @@ def _compute_fairness_subgroups(
         if isinstance(df, pl.DataFrame):
             # Arrow-backed split-blocks bridge: ~32x faster than .to_pandas() default on
             # 9M-row frames -- consolidation copy eliminated for numeric / bool columns.
+            # Audit D P1-7 (2026-05-18): the polars->pandas conversion is NEEDED here because
+            # ``create_fairness_subgroups`` from ``mlframe.metrics.core`` consumes a pandas
+            # frame (pandas groupby / nunique). The conversion cannot be pushed further. Keep
+            # the split-blocks bridge so the hop stays at zero-copy on numeric columns.
             df_subset = get_pandas_view_of_polars_df(df.select(cols_to_select))
         else:
             df_subset = df[cols_to_select]
@@ -656,21 +690,37 @@ def _initialize_training_defaults(
     common_params_dict: dict[str, Any] | None,
     rfecv_models: list[str] | None,
     mrmr_kwargs: dict[str, Any] | None,
+    *,
+    suite_verbose: int | None = None,
 ) -> tuple[dict[str, Any], list[str], dict[str, Any]]:
-    """Initialize default values for training parameters."""
+    """Initialize default values for training parameters.
+
+    The MRMR default kwargs (n_workers / verbose / fe_max_steps / max_runtime_mins)
+    are SHALLOW-MERGED into a caller-supplied dict so passing
+    ``mrmr_kwargs={"some_knob": x}`` extends the defaults instead of replacing them
+    entirely. Prior code dropped the 5-hour runtime cap silently whenever the
+    caller supplied any kwarg. ``suite_verbose`` is the suite-level verbose so the
+    MRMR verbose tracks the operator setting (no MRMR chatter in silent CI runs).
+    ``psutil.cpu_count(logical=False)`` can return None on container hosts;
+    ``or 1`` keeps ``max()`` safe.
+    """
     if common_params_dict is None:
         common_params_dict = {}
 
     if rfecv_models is None:
         rfecv_models = []
 
+    _mrmr_verbose_default = int(suite_verbose) if suite_verbose is not None else 1
+    _default_mrmr_kwargs = dict(
+        n_workers=max(1, psutil.cpu_count(logical=False) or 1),
+        verbose=_mrmr_verbose_default,
+        fe_max_steps=1,
+        max_runtime_mins=300,
+    )
     if mrmr_kwargs is None:
-        mrmr_kwargs = dict(
-            n_workers=max(1, psutil.cpu_count(logical=False)),
-            verbose=2,
-            fe_max_steps=1,
-            max_runtime_mins=300,
-        )
+        mrmr_kwargs = _default_mrmr_kwargs
+    else:
+        mrmr_kwargs = {**_default_mrmr_kwargs, **mrmr_kwargs}
 
     return (
         common_params_dict,

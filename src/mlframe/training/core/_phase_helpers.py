@@ -712,21 +712,47 @@ def _phase_auto_detect_feature_types(
 
     # Capture pre-drop column data so dummy_baselines per_group_mean can use these as group
     # keys downstream (tree models drop them to avoid XGB QuantileDMatrix OOM).
+    # Audit D P1-6 (2026-05-18): pre-fix loop ran ``_frame[c].to_numpy()`` per column per
+    # split -- N independent Arrow batches per split. Now we do ONE ``_frame.select(cols)``
+    # per split, materialise that 2D matrix through ``get_pandas_view_of_polars_df`` (split-
+    # blocks Arrow bridge, ~32x faster than naive to_pandas on multi-col selects), then
+    # peel the per-column numpy arrays from the resulting DataFrame view. Pandas-branch is
+    # unchanged because pandas ``_frame[col]`` is already a Series view (no extra copy).
     dropped_high_card_data = {}
     if auto_high_card_drop:
+        # Per-split single-pass materialisation for polars frames; pandas branch is per-col
+        # (cheap Series view).
+        _per_split_views: dict[str, Any] = {}
+        for _label, _frame in (("train", train_df), ("val", val_df), ("test", test_df)):
+            if _frame is None:
+                continue
+            _cols = _frame.columns if hasattr(_frame, "columns") else []
+            _present = [c for c in auto_high_card_drop if c in _cols]
+            if not _present:
+                continue
+            if isinstance(_frame, pl.DataFrame):
+                try:
+                    # Single select over ALL needed columns; Arrow split-blocks bridge.
+                    from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pd_view
+                    _per_split_views[_label] = _get_pd_view(_frame.select(_present))
+                except Exception:
+                    # Fallback to bare to_pandas on the multi-col select; still 1 batch vs N.
+                    try:
+                        _per_split_views[_label] = _frame.select(_present).to_pandas()
+                    except Exception:
+                        _per_split_views[_label] = None
+            else:
+                _per_split_views[_label] = _frame
         for _col in auto_high_card_drop:
             _col_frames = {}
-            for _label, _frame in (("train", train_df), ("val", val_df), ("test", test_df)):
-                if _frame is None:
+            for _label in ("train", "val", "test"):
+                _view = _per_split_views.get(_label)
+                if _view is None:
                     continue
-                _cols = _frame.columns if hasattr(_frame, "columns") else []
-                if _col not in _cols:
+                if _col not in getattr(_view, "columns", []):
                     continue
                 try:
-                    if isinstance(_frame, pl.DataFrame):
-                        _col_frames[_label] = _frame[_col].to_numpy()
-                    else:
-                        _col_frames[_label] = np.asarray(_frame[_col])
+                    _col_frames[_label] = np.asarray(_view[_col])
                 except Exception:
                     continue
             if _col_frames:
@@ -750,26 +776,45 @@ def _phase_auto_detect_feature_types(
     cat_features = effective_cat_features
     metadata["cat_features"] = cat_features
 
-    # One-time Polars string->Categorical cast so XGB's arrow bridge doesn't choke on large_string.
+    # One-time Polars string->Enum cast so XGB's arrow bridge doesn't choke on large_string.
+    # Use pl.Enum (per-Series, no global cache impact) keyed off the train-only unique set;
+    # val/test cast non-strict so OOV becomes null (matches the alignment semantics elsewhere
+    # in the suite). pl.Categorical would widen the process-wide string cache (memory rule:
+    # reference_polars_global_string_cache). Fixes audit B-P0-3 / Low-B11.
     if was_polars_input and all_models_polars_native and pipeline_config.skip_categorical_encoding:
         _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
         _keep_as_string = text_emb_set
-        def _precast_strings(df):
-            if df is None:
-                return df
-            str_cols = [c for c, dt in zip(df.columns, df.dtypes)
-                        if dt in _string_types and c not in _keep_as_string]
-            return df.with_columns([pl.col(c).cast(pl.Categorical) for c in str_cols]) if str_cols else df
-        _pre_train = _precast_strings(train_df)
-        if _pre_train is not train_df:
-            train_df = _pre_train
-            val_df = _precast_strings(val_df)
-            test_df = _precast_strings(test_df)
-            train_df_polars_pre = _precast_strings(train_df_polars_pre)
-            val_df_polars_pre = _precast_strings(val_df_polars_pre)
-            test_df_polars_pre = _precast_strings(test_df_polars_pre)
+        _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes)
+                     if dt in _string_types and c not in _keep_as_string]
+        if _str_cols:
+            # Build per-column Enum domain from train-only uniques (held-out test must stay unseen).
+            _enum_domains: dict[str, list[str]] = {}
+            for _c in _str_cols:
+                try:
+                    _u = train_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
+                    _enum_domains[_c] = sorted(_u)
+                except Exception:
+                    pass
+
+            def _enum_cast(df, strict: bool):
+                if df is None:
+                    return df
+                _existing = set(df.columns)
+                _exprs = []
+                for _c in _str_cols:
+                    if _c not in _existing or _c not in _enum_domains:
+                        continue
+                    _exprs.append(pl.col(_c).cast(pl.Enum(_enum_domains[_c]), strict=strict))
+                return df.with_columns(_exprs) if _exprs else df
+
+            train_df = _enum_cast(train_df, strict=True)
+            val_df = _enum_cast(val_df, strict=False)
+            test_df = _enum_cast(test_df, strict=False)
+            train_df_polars_pre = _enum_cast(train_df_polars_pre, strict=True)
+            val_df_polars_pre = _enum_cast(val_df_polars_pre, strict=False)
+            test_df_polars_pre = _enum_cast(test_df_polars_pre, strict=False)
             if verbose:
-                logger.info("  Cast Polars string columns -> Categorical once (shared across model loop)")
+                logger.info("  Cast Polars string columns -> Enum once (shared across model loop)")
 
     if verbose and (text_features or embedding_features):
         logger.info("  Feature types -- text: %s, embedding: %s, cat: %s", text_features, embedding_features, cat_features or '(none)')
@@ -857,9 +902,13 @@ def _phase_fit_pipeline(
     _declared_cats: list[str] = []
     if train_df is not None:
         if isinstance(train_df, pl.DataFrame):
+            # Use isinstance(d, pl.Enum) instead of str(d).startswith("Enum")
+            # so dtype detection is API-stable across polars versions and survives any repr change.
+            _enum_cls = getattr(pl, "Enum", None)
             _declared_cats = [
                 n for n, d in train_df.schema.items()
-                if d == pl.Categorical or str(d).startswith("Enum") or str(d).startswith("Categorical")
+                if d == pl.Categorical
+                or (_enum_cls is not None and isinstance(d, _enum_cls))
                 or d == pl.Utf8 or d == pl.String
             ]
         elif hasattr(train_df, "select_dtypes"):
@@ -1106,12 +1155,24 @@ def _phase_fit_pipeline(
             if _reg_targets:
                 _first_name = next(iter(_reg_targets))
                 _vals = _reg_targets[_first_name]
+                # Audit D P2-5 (2026-05-18): polars/pandas → numpy is NEEDED here; PySR's
+                # ``PySRRegressor.fit(X, y)`` consumes a numpy array, and the ndim / [:, 0]
+                # downstream operations also assume numpy semantics. Conversion cannot be
+                # pushed further.
                 if hasattr(_vals, "to_numpy"):
                     _y_train_for_ext = _vals.to_numpy()
                 else:
                     _y_train_for_ext = np.asarray(_vals)
                 if _y_train_for_ext is not None and _y_train_for_ext.ndim > 1:
                     # Multi-output regression target -> first column for PySR.
+                    # PySR is single-target by design; we surface the chosen target name so a
+                    # multi-head regression doesn't silently pick the wrong head as the symbolic-FE signal.
+                    if verbose:
+                        logger.info(
+                            "PySR symbolic FE: multi-output regression target detected (n=%d columns); "
+                            "using first column '%s' as the supervised signal.",
+                            _y_train_for_ext.shape[1], _first_name,
+                        )
                     _y_train_for_ext = _y_train_for_ext[:, 0]
                 # target_by_type carries the PRE-split full target; slice to train_idx
                 # so PySR's symbolic FE only sees train-set y. Without this we hit a
@@ -1364,6 +1425,19 @@ def _phase_train_val_test_split(
                     _u, _c = np.unique(_composite_ids, return_counts=True)
                     if 2 <= len(_u) <= _MAX_COMPOSITE_CARDINALITY and _c.min() >= 2:
                         _stratify_y = _composite_ids
+                    elif len(_u) > _MAX_COMPOSITE_CARDINALITY:
+                        # Surface the silent fallback to shuffled-only splits so operators
+                        # know auto-stratification was abandoned on multi-head targets that
+                        # exceed the composite-cardinality cap; otherwise they re-discover
+                        # the all-class-0-val-slice bug under heavy class imbalance.
+                        logger.warning(
+                            "Auto-stratify: composite key has %d distinct row-tuples > "
+                            "_MAX_COMPOSITE_CARDINALITY=%d; falling back to UNstratified "
+                            "shuffle splits. Rare-class imbalance may produce all-one-class "
+                            "val/test slices. Reduce the number of classification heads or "
+                            "pre-compute a stratify_y manually to restore stratification.",
+                            len(_u), _MAX_COMPOSITE_CARDINALITY,
+                        )
             except Exception:
                 _stratify_y = None
     # Group-aware splitting opt-in: when the extractor produced ``group_ids`` and

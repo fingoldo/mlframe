@@ -141,7 +141,9 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         """
 
         check_fit = hasattr(self.model, "fit")
-        check_predict_proba = hasattr(self.model, "predict")
+        # Renamed from misleading ``check_predict_proba``; the call is ``hasattr(..., "predict")``,
+        # not ``"predict_proba"``. Variable now matches the attribute it actually probes.
+        check_predict = hasattr(self.model, "predict")
 
         try:
             check_feature_importance = hasattr(self.model, "feature_importances_")
@@ -155,7 +157,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             else:
                 self.model = RandomForestRegressor()
 
-        elif check_fit is False and check_predict_proba is False:
+        elif check_fit is False and check_predict is False:
             raise AttributeError("Model must contain both the fit() and predict() methods")
 
         elif (check_feature_importance is False and "RandomForest" not in type(self.model).__name__) and self.importance_measure == "gini":
@@ -437,7 +439,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             if self.sample:
                 self.preds = self.isolation_forest(self.X)
 
-            pbar = tqdmu(range(self.n_trials), desc="Feature selection")
+            pbar = tqdmu(range(self.n_trials), desc="Feature selection", disable=not self.verbose)
             last_ncols = 0
             for trial in pbar:
                 self.remove_features_if_rejected()
@@ -609,7 +611,9 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             for feature in self.features_to_remove:
                 try:
                     self.X.drop(feature, axis=1, inplace=True)
-                except (KeyError, ValueError):
+                except KeyError:
+                    # ValueError previously also swallowed here; that masked dtype-mismatch bugs.
+                    # KeyError is the only expected case (feature already dropped in a prior loop).
                     pass
 
         else:

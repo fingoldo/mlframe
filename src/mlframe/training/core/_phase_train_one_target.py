@@ -171,14 +171,18 @@ logger = logging.getLogger(__name__)
 
 
 # Candidate metric paths probed (in order) to rank ensemble flavours. ``oof.*`` is the only honest
-# selection surface (cross_val_predict held-out signal, never used for ES); val.* would double-dip on
-# the same surface burned for ES. ``integral_error`` is the canonical calibration metric for
-# classifiers; ``rmse`` is the regression fallback. ``None`` for any metric we can't read => skip.
+# selection surface (cross_val_predict held-out signal, never used for ES); val.* is the back-compat
+# fallback for single-fold suites that did not stamp OOF. ``integral_error`` is the canonical
+# calibration metric for classifiers; ``rmse`` is the regression fallback.
+#
+# ``("test", ...)`` candidates are DELIBERATELY ABSENT. Using the honest test split to pick the
+# ensemble winner converts it into a model-selection surface -- every subsequent test-set metric
+# becomes biased optimistic by the selection. Test stays a reporting-only surface here; when
+# neither OOF nor val is available, ``_choose_ensemble_flavour`` falls back to the first emitted
+# flavour (deterministic via ``ensembling_methods`` iteration order, NOT test-driven).
 _ENSEMBLE_RANK_METRIC_CANDIDATES = (
     ("oof", "integral_error", "lower"),
     ("oof", "rmse", "lower"),
-    ("test", "integral_error", "lower"),
-    ("test", "rmse", "lower"),
     ("val", "integral_error", "lower"),
     ("val", "rmse", "lower"),
 )
@@ -248,7 +252,19 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
     # No candidate exposed any ranking metric: fall back to the first flavour the suite emitted so the
     # predict path has a deterministic answer rather than None. ``score_ensemble``'s iteration order
     # mirrors ``ensembling_methods``, so the fallback is reproducible across runs.
-    return next(iter(_candidates.keys()))
+    #
+    # C-Low-4: surface the fallback at WARN so operators reading the suite log can grep for
+    # "no ranking metric exposed" and know the winner came from dict-insertion order rather than a
+    # metric comparison. The metadata side (ensembles_chosen[tt][tname]) records only the flavour
+    # string, which is indistinguishable from a normal metric-driven win without this log line.
+    _fallback = next(iter(_candidates.keys()))
+    logger.warning(
+        "[_choose_ensemble_flavour] no candidate exposed any of the canonical ranking metrics %s; "
+        "falling back to first-emitted flavour %r (deterministic via dict-insertion / "
+        "ensembling_methods order).",
+        [(s, m) for s, m, _ in _ENSEMBLE_RANK_METRIC_CANDIDATES], _fallback,
+    )
+    return _fallback
 
 
 def _unwrap_selector(pre_pipeline) -> Any:
@@ -284,6 +300,14 @@ def _selector_kind(selector) -> str | None:
     """
     if selector is None:
         return None
+    # Dedicated dispatch marker stamped by ``_build_pre_pipelines`` -- preferred over class-name
+    # matching because it survives subclassing and doesn't conflate with the weight-aware marker.
+    try:
+        _kind_marker = getattr(selector, "_mlframe_selector_kind_", None)
+    except Exception:
+        _kind_marker = None
+    if isinstance(_kind_marker, str) and _kind_marker in ("MRMR", "RFECV", "BorutaShap"):
+        return _kind_marker
     try:
         _cls_name = type(selector).__name__
     except Exception:
@@ -323,7 +347,10 @@ def _selector_params_hash(selector) -> str | None:
         else:
             _params = {k: v for k, v in vars(selector).items() if not k.startswith("_") and not k.endswith("_")}
         _digest_src = repr(sorted(_params.items(), key=lambda kv: kv[0]))
-        return hashlib.blake2b(_digest_src.encode("utf-8", errors="replace"), digest_size=8).hexdigest()
+        # digest_size=16 (128-bit) instead of 8 (64-bit): birthday-bound collision floor moves from
+        # ~2^32 to ~2^64, harmless cost on a per-suite hash; protects against accidental dedup at
+        # suite scale (targets x weights x models can produce thousands of param dicts).
+        return hashlib.blake2b(_digest_src.encode("utf-8", errors="replace"), digest_size=16).hexdigest()
     except Exception:
         return None
 
@@ -501,7 +528,7 @@ def _compute_pipeline_cache_key(
         tuple(sorted(embedding_features or ())),
     ))
     _feats_suffix = f"_feats{hashlib.blake2b(_feats_repr.encode(), digest_size=8).hexdigest()}"
-    # 2026-05-18: canonical dtype suffix that's POLARS / PANDAS AGNOSTIC.
+    # Canonical dtype suffix that's POLARS / PANDAS AGNOSTIC.
     # Pre-fix: only polars frames got the ``_dt`` suffix, pandas frames
     # got nothing. Production TVT log: same logical (CB, tier, feats)
     # cached under TWO different keys -- one with _dt suffix (polars
@@ -958,6 +985,53 @@ def _maybe_run_feature_handling_apply(
 
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
     """Train all models for one (target_type, target_name) pair."""
+    # Suite-once unsupervised pre-screen (A-Arch-001): drop variance==0 and nulls>99% columns from the
+    # TRAIN split ONLY, then reapply to val / test. Conservative defaults; train-only fit by contract so
+    # no held-out distribution leaks into the drop decision. Latched on ctx so multi-target suites pay
+    # the cost once. Opt out via FeatureSelectionConfig.pre_screen_unsupervised=False.
+    _fs_cfg = ctx.feature_selection_config
+    if _fs_cfg is not None and getattr(_fs_cfg, "pre_screen_unsupervised", False) and not ctx._pre_screen_done:
+        try:
+            from mlframe.feature_selection.filters.pre_screen import compute_unsupervised_drops, apply_drops
+            _protected = set()
+            if isinstance(targets, dict):
+                _protected.update(str(k) for k in targets.keys())
+            if ctx.cat_features:
+                pass
+            _train_for_screen = ctx.filtered_train_df if ctx.filtered_train_df is not None else (ctx.train_df_polars or ctx.train_df_pd)
+            _drops = compute_unsupervised_drops(
+                _train_for_screen,
+                variance_threshold=getattr(_fs_cfg, "pre_screen_variance_threshold", 0.0),
+                null_fraction_threshold=getattr(_fs_cfg, "pre_screen_null_fraction_threshold", 0.99),
+                protected_columns=_protected,
+            )
+            ctx._pre_screen_dropped_cols = list(_drops)
+            ctx._pre_screen_done = True
+            if _drops:
+                for _frame_attr in (
+                    "filtered_train_df", "filtered_val_df",
+                    "train_df_pd", "val_df_pd", "test_df_pd",
+                    "train_df_polars", "val_df_polars", "test_df_polars",
+                ):
+                    _f = getattr(ctx, _frame_attr, None)
+                    if _f is not None:
+                        try:
+                            setattr(ctx, _frame_attr, apply_drops(_f, _drops))
+                        except Exception:
+                            pass
+                if ctx.verbose:
+                    logger.info(
+                        "[pre-screen] dropped %d column(s) suite-wide (variance=%s, null_fraction>%s): %s",
+                        len(_drops),
+                        getattr(_fs_cfg, "pre_screen_variance_threshold", 0.0),
+                        getattr(_fs_cfg, "pre_screen_null_fraction_threshold", 0.99),
+                        _drops[:20] + (["..."] if len(_drops) > 20 else []),
+                    )
+        except Exception as _e:
+            # Pre-screen is a perf optimization; never block training on its failure.
+            ctx._pre_screen_done = True
+            ctx._pre_screen_dropped_cols = []
+            logger.warning("[pre-screen] skipped due to error: %s", _e)
     model_name = ctx.model_name
     target_name = ctx.target_name
     split_config = ctx.split_config
@@ -1222,6 +1296,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             rfecv_mbh_adaptive_threshold=feature_selection_config.rfecv_mbh_adaptive_threshold,
             use_boruta_shap=feature_selection_config.use_boruta_shap,
             boruta_shap_kwargs=feature_selection_config.boruta_shap_kwargs,
+            use_sample_weights_in_fs=feature_selection_config.use_sample_weights_in_fs,
+            mrmr_identity_cache=(
+                ctx._mrmr_identity_cache
+                if getattr(feature_selection_config, "mrmr_identity_cache_scope", "ctx") == "ctx"
+                else None
+            ),
         )
     else:
         # No mlframe_models means the downstream pre_pipeline loop must be a no-op; bind empty sequences
@@ -1970,10 +2050,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # polars frames. The report is always stamped (selector_name=None for ordinary) so
                 # downstream consumers can rely on the key existing.
                 #
-                # FS-REPORT-WLOOP: cache the report at ``(cur_target_name, pp_name, model_name,
-                # id(pre_pipeline))`` because the fitted selector + kept columns are weight-invariant.
-                # Building the report walks ``inspect`` / ``getattr`` over the selector each time;
-                # cache HIT skips the introspection walk for every weight schema after the first.
+                # Cache the report at (target, pp_name, model_name, selector_params_hash, kept_cols)
+                # because the fitted selector + kept columns are weight-invariant. The prior key used
+                # id(pre_pipeline) which is Python's memory-address; once an object is GC'd its id can
+                # be recycled, so a long-lived ``ctx._fs_report_cache`` could collide on a recycled
+                # address across the per-(target, model) inner loops. ``_selector_params_hash`` is
+                # content-derived and id-stable across recycling.
                 try:
                     _kept_cols = None
                     if train_df_transformed is not None and hasattr(train_df_transformed, "columns"):
@@ -1982,7 +2064,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         cur_target_name,
                         pre_pipeline_name,
                         mlframe_model_name,
-                        id(pre_pipeline),
+                        _selector_params_hash(_unwrap_selector(pre_pipeline)),
                         tuple(_kept_cols) if _kept_cols is not None else None,
                     )
                     _fsr_cached = ctx._fs_report_cache.get(_fsr_key)
@@ -2096,9 +2178,27 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 try:
                     _chosen = _choose_ensemble_flavour(_ensembles)
                     if _chosen is not None:
-                        metadata.setdefault("ensembles_chosen", {}).setdefault(target_type, {})[cur_target_name] = _chosen
+                        # Sub-key per ensemble family: simple per-target ensembles live under
+                        # ``ensembles_chosen["simple"]``; cross-target ensembles are stamped by
+                        # _phase_composite_post under ``ensembles_chosen["cross_target"]``.
+                        metadata.setdefault("ensembles_chosen", {}) \
+                            .setdefault("simple", {}) \
+                            .setdefault(target_type, {})[cur_target_name] = _chosen
                 except Exception as _choose_err:
                     logger.warning("ensembles_chosen stamp failed for %s/%s: %s", target_type, cur_target_name, _choose_err)
+                # C-P1-11: persist rrf_k (and a couple of other replay-critical params) into metadata
+                # so predict-side ``_combine_probs`` replays the exact same blend a non-default-k
+                # train was scored with. Pre-fix predict hard-coded k=60 -- a user setting rrf_k=10
+                # at train time silently got k=60 at predict time. The default 60 mirrors
+                # ``score_ensemble``'s default; common_params may override.
+                try:
+                    _rrf_k_used = int(common_params.get("rrf_k", 60))
+                except (TypeError, ValueError):
+                    _rrf_k_used = 60
+                metadata.setdefault("ensembles_chosen_params", {}) \
+                    .setdefault(str(target_type), {})[str(cur_target_name)] = {
+                        "rrf_k": _rrf_k_used,
+                    }
 
     ctx.models = models
     ctx.metadata = metadata

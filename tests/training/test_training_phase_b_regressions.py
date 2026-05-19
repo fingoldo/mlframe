@@ -1,9 +1,9 @@
-"""Phase-B audit regression tests for the mlframe.training subpackage.
+"""Phase-B regression tests for the mlframe.training subpackage.
 
 Covers:
 - splitting.make_train_test_split partition invariant
 - remove_constant_columns keeps varying columns (NaN-preserving semantics)
-- process_infinities leaves NaN intact (NaN preservation on mixed ±inf/NaN)
+- process_infinities leaves NaN intact (NaN preservation on mixed +/-inf/NaN)
 - create_linear_model("ridge", ...) smoke + ridge classifier variant
 - is_linear_model / is_neural_model type detection
 - save/load mlframe model round-trip (np + dict + SimpleNamespace)
@@ -51,7 +51,7 @@ def test_split_partition_invariant(n, test_size, val_size, seed):
     assert set(tr).isdisjoint(set(va))
     assert set(tr).isdisjoint(set(te))
     assert set(va).isdisjoint(set(te))
-    # Union ⊆ [0, n)
+    # Union subset of [0, n)
     union = set(tr) | set(va) | set(te)
     assert union.issubset(set(range(n)))
     # Totals don't exceed input
@@ -69,16 +69,12 @@ def test_split_partition_invariant(n, test_size, val_size, seed):
 def test_remove_constant_keeps_varying(values):
     from mlframe.training.utils import remove_constant_columns
 
-    # Construct a DataFrame with one varying column and one all-equal column.
     arr = np.array(values, dtype=np.float32)
     varying = arr.copy()
     # Force variation IFF the input IS constant under the same semantics the
-    # code-under-test uses — ``min == max`` (with NaNs, ``np.nanmin`` /
-    # ``np.nanmax`` skipped). Previously this branch used ``nanstd == 0``,
-    # which diverges from ``min == max`` on float32 values with small
-    # dynamic range but large magnitude: e.g. ``[29605196.0]*3`` has
-    # ``nanstd == 2.0`` (precision loss in ``mean``) but ``min == max``.
-    # Hypothesis found that counterexample in 2026-04-21.
+    # code-under-test uses: min == max with NaN-skip via nanmin/nanmax.
+    # Earlier nanstd==0 branch diverged for high-magnitude float32 (precision
+    # loss in mean) - keep min==max here to match production behaviour.
     varying_is_nan_only = np.all(np.isnan(arr))
     finite = arr[np.isfinite(arr)]
     varying_is_constant = finite.size > 0 and np.nanmin(arr) == np.nanmax(arr)
@@ -114,7 +110,7 @@ def test_process_infinities_polars_mixed():
     df = pl.DataFrame({"a": [1.0, float("inf"), float("nan"), float("-inf")]})
     out = process_infinities(df, fill_value=-999.0, verbose=0)
     col = out["a"].to_list()
-    # ±inf replaced; NaN preserved (caller should run process_nans first if wanted).
+    # +/-inf replaced; NaN preserved (caller should run process_nans first if wanted).
     assert col[0] == 1.0
     assert col[1] == -999.0
     # NaN preservation:
@@ -166,8 +162,8 @@ def test_save_load_mlframe_model(tmp_path):
     )
     path = str(tmp_path / "m.zst")
     assert save_mlframe_model(obj, path, verbose=0) is True
-    # dill's numpy-array reconstructor lives in `dill._dill`, which is intentionally
-    # NOT on the _SafeUnpickler allowlist. For this round-trip we opt out of safe mode.
+    # dill's numpy-array reconstructor lives in `dill._dill`, intentionally
+    # not on the _SafeUnpickler allowlist; opt out of safe mode for round-trip.
     loaded = load_mlframe_model(path, safe=False)
     assert loaded is not None
     assert isinstance(loaded, SimpleNamespace)
@@ -224,12 +220,11 @@ def test_preprocess_does_not_pass_parallel_columns_to_scan(tmp_path):
     from mlframe.training.preprocessing import load_and_prepare_dataframe, preprocess_dataframe
     from mlframe.training.configs import PreprocessingConfig
 
-    # Build a small DataFrame with a constant + varying col, write to parquet.
     pdf = pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "const": [7.0, 7.0, 7.0, 7.0]})
     p = tmp_path / "tiny.parquet"
     pdf.write_parquet(str(p))
 
-    cfg = PreprocessingConfig()  # no columns / no n_rows → hits scan_parquet branch
+    cfg = PreprocessingConfig()  # no columns / no n_rows -> hits scan_parquet branch
     loaded = load_and_prepare_dataframe(str(p), cfg, verbose=0)
     assert isinstance(loaded, pl.DataFrame)
     out = preprocess_dataframe(loaded, cfg, verbose=0)

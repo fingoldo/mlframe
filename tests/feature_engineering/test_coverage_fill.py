@@ -1299,10 +1299,7 @@ class TestFinancialAdvancedCoverage:
 
     def test_apply_ta_indicator_with_window(self):
         """Direct call to apply_ta_indicator with a windowed indicator."""
-        try:
-            import polars_talib as plta  # noqa: F401
-        except ImportError:
-            pytest.skip("polars_talib not installed")
+        pytest.importorskip("polars_talib")
         from mlframe.feature_engineering.financial import apply_ta_indicator
         # Build a minimal close-series expression and use a window-based TA fn.
         close = pl.col("close")
@@ -1492,10 +1489,7 @@ class TestFinancialGapClosing:
 
     def test_apply_ta_indicator_in_unnests(self):
         """apply_ta_indicator with col in unnests -> wraps in name.map_fields."""
-        try:
-            import polars_talib  # noqa: F401
-        except ImportError:
-            pytest.skip("polars_talib not installed")
+        pytest.importorskip("polars_talib")
         from mlframe.feature_engineering.financial import apply_ta_indicator
         # close.ta.mama returns a struct; col name == 'mama' is added to unnests so wrap fires.
         close = pl.col("close")
@@ -1800,10 +1794,7 @@ class TestBruteforceAdvancedCoverage:
 
     def test_run_pysr_leakage_free_path_with_categorical(self):
         """Exercise the leakage_free=True OOF KFold encoding branch."""
-        try:
-            import category_encoders  # noqa: F401
-        except ImportError:
-            pytest.skip("category_encoders not installed")
+        pytest.importorskip("category_encoders")
         from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
         rng = np.random.default_rng(0)
         n = 40
@@ -1884,10 +1875,7 @@ class TestBruteforceAdvancedCoverage:
 
 class TestBruteforceHelper:
     def test_kfold_target_encode_helper(self):
-        try:
-            import category_encoders  # noqa: F401
-        except ImportError:
-            pytest.skip("category_encoders not installed")
+        pytest.importorskip("category_encoders")
         from mlframe.feature_engineering.bruteforce import _kfold_target_encode
 
         rng = np.random.default_rng(0)

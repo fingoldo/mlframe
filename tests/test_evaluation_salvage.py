@@ -266,12 +266,14 @@ def test_make_brier_precision_scorer():
 
 def _import_keras_or_skip():
     pytest.importorskip("tensorflow")
+    pytest.importorskip("keras")
+    from mlframe.training.neural.keras_compat import build_keras_mlp  # noqa: F401
+    # Try an actual build; surface broken installs as ImportError via importorskip semantics
+    # rather than silently skipping (memory feedback_no_mask_via_canon_or_guards).
     try:
-        from mlframe.training.neural.keras_compat import build_keras_mlp  # noqa: F401
-        # Try an actual build to flush out broken installs.
         build_keras_mlp(num_layers=1, num_neurons=2, input_dim=2)
-    except Exception as exc:
-        pytest.skip(f"tensorflow/keras install broken: {exc}")
+    except ImportError as exc:
+        pytest.skip(f"keras optional dependency missing: {exc}")
 
 
 def test_build_keras_mlp_smoke():

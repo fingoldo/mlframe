@@ -105,6 +105,17 @@ class RFECV(BaseEstimator, TransformerMixin):
         Estimator might need eval_set or similar (eval_frac).
         Different folds invocations could benefit from generating all possible hyper parameters. Even if FS does not care, collected info could be used further at the HPT step.
 
+    Notes on ``nofeatures_dummy_scoring`` (default True)
+    ----------------------------------------------------
+    With this flag on, the "0-feature" anchor point of the CV curve is a
+    ``DummyClassifier`` / ``DummyRegressor`` baseline rather than skipped. On
+    AUROC / log-loss scorers the dummy reference is informative. On accuracy /
+    F1 with severely imbalanced binary targets the prior-strategy DummyClassifier
+    can score within a few points of the real model, which makes the marginal
+    gain of adding the first real feature look small and biases the chosen
+    optimum toward fewer features. Disable on imbalanced datasets if you score
+    on accuracy / F1.
+
     Parameters
     ----------
         cv : int, cross-validation generator or an iterable, default=None
@@ -832,7 +843,32 @@ class RFECV(BaseEstimator, TransformerMixin):
                 ",".join(map(str, np.asarray(y).ravel().tolist())).encode("utf-8"),
                 digest_size=16,
             ).hexdigest()
-        signature = (X.shape, y.shape, columns_key, _y_hash)
+        # X-content sample (10 evenly-spaced rows, all columns) so two RUNS on
+        # different X with identical shape + column names cannot collide on the
+        # checkpoint signature. Cost is O(n_cols * 10) value reads -- negligible
+        # vs a single RFECV iteration. Without this, a user reusing a checkpoint
+        # across experiments with same schema gets silent stale resume.
+        try:
+            _n = int(X.shape[0])
+            if _n > 0:
+                _step = max(1, _n // 10)
+                _positions = [i * _step for i in range(10) if i * _step < _n]
+                if isinstance(X, pd.DataFrame):
+                    _x_sample_arr = X.iloc[_positions].to_numpy()
+                else:
+                    _x_sample_arr = np.asarray(X)[_positions]
+                _x_hash = hashlib.blake2b(
+                    np.ascontiguousarray(_x_sample_arr.astype(np.float64, copy=False, casting="unsafe") if _x_sample_arr.dtype.kind in "biufc" else np.asarray(_x_sample_arr, dtype=str)).tobytes(),
+                    digest_size=12,
+                ).hexdigest()
+            else:
+                _x_hash = "empty"
+        except (TypeError, ValueError):
+            _x_hash = hashlib.blake2b(
+                repr(np.asarray(X).ravel()[:100].tolist()).encode("utf-8"),
+                digest_size=12,
+            ).hexdigest()
+        signature = (X.shape, y.shape, columns_key, _y_hash, _x_hash)
         # Invalidate stale support_/cache at fit entry so a partial-fit failure cannot leave a previous-fit's selection silently in place.
         # The cache is rebuilt below only on a successful path.
         self._selected_cols_cache = None

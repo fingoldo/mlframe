@@ -47,20 +47,24 @@ def _synth_with_nans(n_rows: int, n_cols: int, nan_rate: float, seed: int) -> np
 
 def test_polars_input_with_nans_takes_polars_native_branch_and_matches_sklearn_bitwise():
     """Polars NaN frame -> guard produces output identical (<=1e-12 abs diff) to sklearn SimpleImputer + StandardScaler on the same array."""
-    from mlframe.training._predict_guards import _apply_nan_guard
+    from mlframe.training._predict_guards import _apply_nan_guard, prime_nan_guard_stats
 
     arr = _synth_with_nans(2_000, 10, nan_rate=0.10, seed=42)
     cols = [f"c{i}" for i in range(10)]
     X_pl = pl.DataFrame(arr, schema=cols)
 
+    model_pl = _FakeRidge()
+    prime_nan_guard_stats(model_pl, X_pl)
     fn_pl, cap_pl = _capturing_fn()
-    _apply_nan_guard(_FakeRidge(), X_pl, fn_pl, n_rows=len(X_pl))
+    _apply_nan_guard(model_pl, X_pl, fn_pl, n_rows=len(X_pl))
 
     # Reference: drive the legacy branch by passing a pandas copy of the same data.
     import pandas as pd
     X_pd = pd.DataFrame(arr.copy(), columns=cols)
+    model_pd = _FakeRidge()
+    prime_nan_guard_stats(model_pd, X_pd)
     fn_pd, cap_pd = _capturing_fn()
-    _apply_nan_guard(_FakeRidge(), X_pd, fn_pd, n_rows=len(X_pd))
+    _apply_nan_guard(model_pd, X_pd, fn_pd, n_rows=len(X_pd))
 
     assert not np.any(np.isnan(cap_pl["arr"])), "polars-native path must impute all NaN"
     np.testing.assert_allclose(cap_pl["arr"], cap_pd["arr"], atol=1e-12, rtol=0)

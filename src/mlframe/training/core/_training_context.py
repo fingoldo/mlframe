@@ -181,6 +181,16 @@ class TrainingContext:
     # columns; sample_weight does not change either. Cache hit short-circuits the introspection
     # walk for every weight schema after the first.
     _fs_report_cache: dict = field(default_factory=dict)
+    # Suite-scoped MRMR cross-target identity cache (mrmr_identity_cache_scope="ctx", default).
+    # Process-scope ("process") falls through to the module-level dict in mrmr.py so CI matrices
+    # that intentionally reuse the cache across suites can still opt in.
+    _mrmr_identity_cache: dict = field(default_factory=dict)
+    # Suite-once unsupervised pre-screen result (train-fit only). The set of columns to drop is
+    # computed ONCE on the train split before the first per-target FS, then reapplied across all
+    # subsequent targets / weight schemas / models in the same suite call. None means not yet
+    # computed; empty list means computed and nothing to drop.
+    _pre_screen_dropped_cols: list | None = None
+    _pre_screen_done: bool = False
     # SW-LOG-PER-PP-PER-TGT: emit the "Using N weighting schema(s)..." banner once per suite,
     # not once per (target x pre_pipeline). Boolean latch reset by reset_session implicitly via
     # the fresh ctx construction.

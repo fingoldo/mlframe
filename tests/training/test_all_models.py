@@ -1213,3 +1213,15 @@ class TestGPUUsageVerification:
                 # Check device is cuda
                 assert params.get('device', 'cpu') in ['cuda', 'gpu'], \
                     "XGBoost should be configured for GPU"
+
+
+def test_trained_suite_regression_shape(trained_suite_regression):
+    """Smoke check that the shared session-scoped suite fixture produced a usable suite.
+
+    Re-uses the single train_mlframe_models_suite call from
+    tests/training/conftest.py::trained_suite_regression instead of training
+    a fresh suite per test. Proof-of-concept for slowest-file hotspot fixture
+    consumption.
+    """
+    suite = trained_suite_regression
+    assert suite is not None

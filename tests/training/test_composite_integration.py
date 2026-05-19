@@ -274,6 +274,10 @@ class TestCompositeIntegration:
             mi_sample_n=200,
             top_k_after_mi=1,
             eps_mi_gain=-1.0,
+            # Force the y-scale metric block to run (default is to skip it
+            # because Pack G's additive-transform watchdog covers correctness
+            # at lower cost). The metric block itself is the unit under test.
+            skip_wrap_pass_predict=False,
         )
         models, metadata = train_mlframe_models_suite(
             df=df,

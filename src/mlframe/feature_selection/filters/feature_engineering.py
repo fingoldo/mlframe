@@ -127,6 +127,11 @@ def check_prospective_fe_pairs(
     i = 0
     for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
         for var in raw_vars_pair:
+            # ``original_cols`` is built only for cols that survived the prior
+            # selection pass; a temp / dropped column index may not be present.
+            # Skip silently rather than KeyError out of the whole FE block.
+            if var not in original_cols:
+                continue
             # Polars vs pandas int-column indexing: ``X[:, idx].to_numpy()`` (polars, zero-copy for numerics) vs ``X.iloc[:, idx].values`` (pandas).
             if isinstance(X, pd.DataFrame):
                 vals = X.iloc[:, original_cols[var]].values
@@ -263,6 +268,8 @@ def check_prospective_fe_pairs(
                             external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
 
                         for external_factor in tqdmu(external_factors, desc="external validation factor", leave=False):
+                            if external_factor not in original_cols:
+                                continue
                             if isinstance(X, pd.DataFrame):
                                 param_b = X.iloc[:, original_cols[external_factor]].values
                             else:

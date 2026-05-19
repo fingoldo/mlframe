@@ -20,6 +20,10 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
 from .shared import SimpleFeaturesAndTargetsExtractor
 
+# Deterministic RNG (single seed per module).
+_W53_RNG = __import__('numpy').random.default_rng(0)
+
+
 
 # ================================================================================================
 # Test Class 1: MRMR Feature Selection
@@ -493,7 +497,7 @@ class TestCombinedPipelines:
                 "feature_0": np.random.randn(n_samples),
                 "feature_1": np.random.randn(n_samples),
                 "feature_2": np.random.randn(n_samples),
-                "group_feature": np.random.choice(["A", "B", "C"], n_samples),
+                "group_feature": _W53_RNG.choice(["A", "B", "C"], n_samples),
                 "target": np.random.randn(n_samples),
             }
         )

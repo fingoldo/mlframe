@@ -735,7 +735,9 @@ def test_diagnostic_pre_fit_log_emitted_for_lgb(tmp_path, caplog):
     prod failures are auto-explained by the type+dtypes of train_df."""
     pytest.importorskip("lightgbm")
     df = _basic_polars_frame(n=400)
-    with caplog.at_level(logging.INFO, logger="mlframe.training.trainer"):
+    # The [pre-fit] line is emitted by mlframe.training._training_loop, a
+    # sibling of mlframe.training.trainer; capture from their shared parent.
+    with caplog.at_level(logging.INFO, logger="mlframe.training"):
         _run_suite(df, mlframe_models=["lgb"], tmp_path=tmp_path, run_label="diag_lgb")
     pre_fit_lines = [r.message for r in caplog.records if "[pre-fit]" in r.message]
     assert pre_fit_lines, (

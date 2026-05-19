@@ -224,6 +224,7 @@ dev = [
     "pytest-randomly>=3.0",       # plugin referenced by `-p no:randomly` in addopts
     "coverage>=7.2",
     "hypothesis>=6.80",
+    "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
     "ruff>=0.1",
     "black>=23.0",
     "mypy>=1.0",
@@ -279,6 +280,8 @@ markers = [
     "requires_lgb: requires lightgbm",
     "requires_cb: requires catboost",
     "requires_torch: requires torch",
+    "uses_matplotlib: test produces matplotlib figures; triggers plt.close('all') + gc in cleanup_memory autouse",
+    "uses_torch: test allocates GPU/CPU torch tensors; triggers torch.cuda.empty_cache in cleanup_memory autouse",
 ]
 filterwarnings = [
     "error::DeprecationWarning:mlframe",

@@ -237,6 +237,16 @@ preds = batch_predict(
 )
 ```
 
+## Caching strategy
+
+mlframe runs two distinct caching layers in the training suite. They deliberately use different key strategies because the lifetime of the cached value, the cost of computing the cache key, and the failure mode of a stale hit are all different. Mixing the strategies (or "unifying" them under one keying scheme) was attempted once and reverted: it either made the cheap layer expensive or made the expensive layer unsafe.
+
+**Layer 1: `_PRE_PIPELINE_CACHE` (content-keyed, `_pipeline_helpers.py`).** Caches the output of `(SimpleImputer + StandardScaler + feature selectors).fit_transform(train_df, val_df)` so consecutive models in the same suite (CatBoost, LightGBM, XGBoost, MLP, linear) that share the same pre-pipeline structure reuse the fitted transforms instead of refitting. Keys are derived from a content fingerprint of `train_df`, `val_df`, the pipeline structural signature, the training target, the target name, and (optionally) sample weights - because two consecutive cache lookups inside one suite call see the SAME Python objects (same `id()`), but the value differs across targets, so id-keying would alias entries across targets and content-keying is the only safe option. The cost of the content hash is amortised across the ~50s pre-pipeline fit that a hit skips, so the upfront fingerprint pass pays for itself.
+
+**Layer 2: `FeatureCache.InMemoryKey` (id-keyed, `feature_handling/fingerprint.py`).** Caches per-column intermediate stats (MRMR scores, target-encoder folds, RFECV ranks) WITHIN a single `train_mlframe_models_suite` call. Keys are tuples of `(session_id, id(train_df), id(train_idx), column, params_canonical_hash, provider_signature)` - `id()` is safe here because the suite holds strong refs to `train_df` and `train_idx` for its entire lifetime, so Python cannot recycle the id under us, and the per-call `session_id` prevents cross-call collisions. The hits land in the inner per-column loops where a content hash per column per lookup would dominate the work the cache is supposed to skip; id keys are O(1) tuple equality and the cache is the inner-loop fastpath. Cross-session reuse is intentionally NOT supported by `InMemoryKey`; persistent cross-session caching is provided by a separate `DiskKey` (content-fingerprint-derived, computed once at suite start in a background thread).
+
+The asymmetry is therefore: layer 1 spans MODEL boundaries inside one suite call (must survive `id()` recycling between consecutive model fits because the loop body deletes intermediate frames, so content-keying is mandatory); layer 2 spans only INNER-LOOP boundaries inside one suite call where the suite-level strong refs guarantee `id()` stability, so id-keying is cheap and safe.
+
 ## Design notes
 
 - **Modular, opt-in extras.** Core install pulls `numpy`, `pandas`, `scipy`, `scikit-learn`, `pyarrow`, `joblib`, `tqdm`, `pyutilz`, `pydantic`. Heavy stacks (CatBoost, PyTorch, MLflow, SHAP, plotly) ship as extras; nothing ImportError-s on `import mlframe` because optional deps are lazy-imported at call site.

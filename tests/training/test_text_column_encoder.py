@@ -93,11 +93,13 @@ class TestTfidfHappyPath:
     def test_idempotency(self, small_text_polars):
         """fit().transform(df) and fit_transform(df) on the same df
         should produce identical sparse matrices."""
-        enc1 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20))
+        # min_df=1 on this 5-row toy fixture; production default min_df=2 would
+        # prune every token to empty vocab on this size.
+        enc1 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20, min_df=1))
         enc1.fit(small_text_polars)
         out1 = enc1.transform(small_text_polars)
 
-        enc2 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20))
+        enc2 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20, min_df=1))
         out2 = enc2.fit_transform(small_text_polars)
 
         np.testing.assert_array_equal(out1.toarray(), out2.toarray())
@@ -156,9 +158,12 @@ class TestSymmetry:
 
 
 class TestEdgeInputs:
+    # min_df=1 throughout: these edge fixtures are 4-token, every term is hapax.
+    # Production default min_df=2 prunes them to empty vocab (sklearn raises
+    # "After pruning, no terms remain").
     def test_empty_strings_dont_crash(self):
         df = pl.DataFrame({"txt": ["", "", "", "real text"]})
-        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10))
+        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10, min_df=1))
         enc.fit(df)
         out = enc.transform(df)
         assert out.shape == (4, len(enc._vectorizer.vocabulary_))
@@ -167,21 +172,21 @@ class TestEdgeInputs:
 
     def test_null_in_polars_coerced(self):
         df = pl.DataFrame({"txt": ["hello", None, "world", None]})
-        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10))
+        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10, min_df=1))
         enc.fit(df)
         out = enc.transform(df)
         assert out.shape[0] == 4
 
     def test_nan_in_pandas_coerced(self):
         df = pd.DataFrame({"txt": ["hello", float("nan"), "world", float("nan")]})
-        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10))
+        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=10, min_df=1))
         enc.fit(df)
         out = enc.transform(df)
         assert out.shape[0] == 4
 
     def test_unicode_roundtrip(self):
         df = pl.DataFrame({"txt": ["привет мир", "🔥 launch", "مرحبا", "english"]})
-        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20))
+        enc = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20, min_df=1))
         enc.fit(df)
         out = enc.transform(df)
         assert out.shape == (4, len(enc._vectorizer.vocabulary_))

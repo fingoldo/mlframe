@@ -37,39 +37,22 @@ def _is_minimise_metric(metric_name: str) -> bool:
 
 
 def _pick_best_flavour(ensembles_for_target: dict) -> str | None:
-    """Pick the best ensemble flavour from ``{method_name: ens_result}`` by val / oof primary metric.
+    """Pick the best ensemble flavour from ``{method_name: ens_result}``.
 
-    ``ens_result.metrics`` is a nested dict ``{split: {metric_name: value}}``. OOF preferred (cross_val_predict
-    held-out signal, never burned for ES); val acceptable for back-compat with single-fold suites without
-    cross_val_predict. Returns the bare method name (e.g. ``"harm"`` / ``"arithm"`` / ``"rrf"``) or ``None`` when
-    nothing scored; falls back to the first available key if all metrics are non-numeric so consumers always get
-    a stamp.
+    C-P0-5 / Arch-2: this function used to iterate ``_split.items()`` and break on the FIRST
+    numeric metric (whichever key dict iteration produced first), then declare lower/higher-better
+    by that single metric's name. That made the winner depend on metric registration order
+    (``integral_error`` vs ``rmse`` vs ``auc``). Now it delegates to the canonical
+    ``_choose_ensemble_flavour`` from ``_phase_train_one_target`` so finalize and the per-target
+    stamper use the SAME canonical ranking (oof.integral_error -> oof.rmse -> val.integral_error
+    -> val.rmse). Test split is deliberately not in the ranking.
     """
     if not ensembles_for_target:
         return None
-    _scored: list[tuple[str, float, bool]] = []
-    for _method, _ens in ensembles_for_target.items():
-        _metrics = getattr(_ens, "metrics", None)
-        if not isinstance(_metrics, dict):
-            continue
-        _split = _metrics.get("oof") or _metrics.get("val") or _metrics.get("test")
-        if not isinstance(_split, dict):
-            continue
-        for _mn, _mv in _split.items():
-            try:
-                _val = float(_mv)
-            except (TypeError, ValueError):
-                continue
-            if math.isnan(_val):
-                continue
-            _scored.append((str(_method), _val, _is_minimise_metric(_mn)))
-            break
-    if not _scored:
-        return next(iter(ensembles_for_target.keys()), None)
-    _minimise = _scored[0][2]
-    if _minimise:
-        return min(_scored, key=lambda r: r[1])[0]
-    return max(_scored, key=lambda r: r[1])[0]
+    # Local import: _phase_train_one_target imports _phase_finalize indirectly, so a top-level
+    # import would create a cycle at module init.
+    from ._phase_train_one_target import _choose_ensemble_flavour as _canonical_chooser
+    return _canonical_chooser(ensembles_for_target)
 
 
 def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
@@ -134,29 +117,147 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
 
 
 def _persist_chosen_ensemble_flavours(ctx: "TrainingContext") -> None:
-    """Walk ``ctx.ensembles`` and stamp ``metadata["ensembles_chosen"][target_type][target_name] = flavour``.
+    """Walk ``ctx.ensembles`` and ADD missing chosen-flavour entries to ``metadata["ensembles_chosen"]["simple"]``.
 
-    ``ctx.ensembles`` is populated by ``score_ensemble`` (``use_mlframe_ensembles=True``) as
-    ``{tt: {tname: {method: ens_result}}}``. We pick the best flavour by OOF / val primary metric per leaf;
-    targets without ensembles contribute nothing -- predict falls back to arithmetic mean on those slots.
+    Arch-2 / Low-10: the per-target stamper in ``_phase_train_one_target`` already writes
+    ``metadata["ensembles_chosen"]["simple"][target_type][target_name] = flavour`` immediately after
+    ``score_ensemble`` returns. Finalize previously REBUILT the whole dict, silently overwriting
+    each per-target decision. Now finalize only fills in slots the per-target stamper did NOT write
+    (e.g. composite cross-target ensembles, or targets where the stamper threw and was caught),
+    using the same canonical chooser as the per-target stamper.
+
+    Arch-3: ``ensembles_chosen`` is sub-keyed per ensemble family. Backfill of simple per-target
+    ensembles always lands under the ``"simple"`` bucket; cross-target ensembles are stamped by
+    ``_phase_composite_post`` directly under the ``"cross_target"`` bucket and are not touched here.
+
+    ``ctx.ensembles`` shape: ``{tt: {tname: {method: ens_result}}}``. Targets without ensembles
+    contribute nothing -- predict falls back to arithmetic mean on those slots.
     """
     _ens_by_target = getattr(ctx, "ensembles", None)
     if not _ens_by_target:
         return
-    _chosen: dict[str, dict[str, str]] = {}
+    _root = ctx.metadata.get("ensembles_chosen") if isinstance(ctx.metadata, dict) else None
+    if not isinstance(_root, dict):
+        _root = {}
+    _simple = _root.setdefault("simple", {})
+    if not isinstance(_simple, dict):
+        # Sentinel guard: a foreign caller may have stamped a non-dict; reset to empty dict.
+        _simple = {}
+        _root["simple"] = _simple
+    _added: list[tuple[str, str, str]] = []
     for _tt, _by_name in _ens_by_target.items():
         if not isinstance(_by_name, dict):
             continue
+        _tt_str = str(_tt)
+        _slot = _simple.setdefault(_tt_str, {})
+        if not isinstance(_slot, dict):
+            continue
         for _tname, _methods in _by_name.items():
+            _tname_str = str(_tname)
+            if _tname_str in _slot or _tname in _slot:
+                # Per-target stamper already chose; don't overwrite (Arch-2 / Low-10).
+                continue
             if not isinstance(_methods, dict):
                 continue
             _flavour = _pick_best_flavour(_methods)
             if _flavour:
-                _chosen.setdefault(str(_tt), {})[str(_tname)] = _flavour
-    if _chosen:
-        ctx.metadata["ensembles_chosen"] = _chosen
-        if getattr(ctx, "verbose", 0):
-            logger.info("[ensembles_chosen] persisted flavours: %s", _chosen)
+                _slot[_tname_str] = _flavour
+                _added.append((_tt_str, _tname_str, _flavour))
+    if _root:
+        ctx.metadata["ensembles_chosen"] = _root
+    if _added and getattr(ctx, "verbose", 0):
+        logger.info("[ensembles_chosen] finalize backfilled %d flavour entry/entries: %s", len(_added), _added)
+
+
+def _stamp_ensemble_composition(ctx: "TrainingContext") -> None:
+    """Stamp ``metadata["ensemble_composition"]`` -- per-target snapshot of {flavour, members, fallback_reason}.
+
+    Arch-6: a single observability dict that consumers (predict, evaluation, ops dashboards) can read
+    without having to walk both ``ctx.ensembles`` (simple per-target) and ``ctx.models[tt][_CT_ENSEMBLE__*]``
+    (cross-target). Reads from the stacker instance state (CompositeCrossTargetEnsemble.export_metadata),
+    not from re-derivation, so member weights / strategy / fallback notes survive verbatim.
+
+    Layout:
+        metadata["ensemble_composition"]["simple"][tt][tname] = {
+            "flavour": <str>, "members": [(name, weight), ...], "fallback_reason": <str|None>,
+        }
+        metadata["ensemble_composition"]["cross_target"][tt][tname] = {
+            "strategy": <str>, "members": [(name, weight), ...], "fallback_reason": <str|None>,
+        }
+    """
+    _composition: dict = {"simple": {}, "cross_target": {}}
+
+    # Simple per-target ensembles: equal-weighted blend of every method in ``ctx.ensembles``.
+    _ens_by_target = getattr(ctx, "ensembles", None) or {}
+    _chosen = ctx.metadata.get("ensembles_chosen") if isinstance(ctx.metadata, dict) else None
+    _simple_chosen = (_chosen or {}).get("simple", {}) if isinstance(_chosen, dict) else {}
+    for _tt, _by_name in _ens_by_target.items():
+        if not isinstance(_by_name, dict):
+            continue
+        _tt_str = str(_tt)
+        for _tname, _methods in _by_name.items():
+            if not isinstance(_methods, dict) or not _methods:
+                continue
+            _tname_str = str(_tname)
+            _flavour = (_simple_chosen.get(_tt_str) or {}).get(_tname_str) if isinstance(_simple_chosen, dict) else None
+            # Simple ensembles aggregate per-model probs uniformly inside ``score_ensemble``; the
+            # "members" surfaced here are the underlying ensembling-method results (one per
+            # flavour evaluated). Weight is 1/n -- this is reporting-grade not replay-grade.
+            _members = [(str(_m), 1.0 / len(_methods)) for _m in sorted(_methods.keys())]
+            _fallback_reason = None
+            if _flavour is None:
+                _fallback_reason = (
+                    "no metric-driven winner; predict will use first-emitted flavour fallback "
+                    "(deterministic via dict-insertion order)"
+                )
+            _composition["simple"].setdefault(_tt_str, {})[_tname_str] = {
+                "flavour": _flavour,
+                "members": _members,
+                "fallback_reason": _fallback_reason,
+            }
+
+    # Cross-target ensembles: stored as ``_CT_ENSEMBLE__<orig>`` entries inside ctx.models[tt].
+    for _tt, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        _tt_str = str(_tt)
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_tname, str) or not _tname.startswith("_CT_ENSEMBLE__"):
+                continue
+            if not isinstance(_entries, list) or not _entries:
+                continue
+            _entry = _entries[0]
+            _ensemble = getattr(_entry, "model", _entry)
+            if not hasattr(_ensemble, "export_metadata"):
+                continue
+            try:
+                _exp = _ensemble.export_metadata()
+            except Exception as _exp_err:
+                logger.warning("[ensemble_composition] export_metadata failed for %s/%s: %s", _tt_str, _tname, _exp_err)
+                continue
+            _strategy = _exp.get("strategy")
+            _names = _exp.get("component_names") or []
+            _weights = _exp.get("weights") or []
+            _members = [
+                (str(_n), float(_w))
+                for _n, _w in zip(_names, _weights)
+            ]
+            _notes = _exp.get("notes") or {}
+            _fallback_reason = None
+            if _strategy == "single_best_fallback":
+                _fallback_reason = "single component or non-finite OOF: fell back to best-single-target predictor"
+            elif "fallback_reason" in _notes:
+                _fallback_reason = str(_notes["fallback_reason"])
+            elif _notes.get("capped_to_top_n"):
+                _fallback_reason = f"capped to top {_notes['capped_to_top_n']} components"
+            _composition["cross_target"].setdefault(_tt_str, {})[_tname] = {
+                "strategy": _strategy,
+                "members": _members,
+                "fallback_reason": _fallback_reason,
+            }
+
+    if _composition["simple"] or _composition["cross_target"]:
+        ctx.metadata["ensemble_composition"] = _composition
 
 
 def _aggregate_discovery_cache_stats(metadata: dict) -> dict:
@@ -282,6 +383,13 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         _persist_chosen_ensemble_flavours(ctx)
     except Exception as _ec_err:
         logger.warning("[ensembles_chosen] persist failed: %s", _ec_err)
+
+    # Arch-6: per-target ensemble composition snapshot for ops / debugging. Must run AFTER
+    # _persist_chosen_ensemble_flavours so the "simple" bucket reads the post-backfill chosen flavour.
+    try:
+        _stamp_ensemble_composition(ctx)
+    except Exception as _comp_err:
+        logger.warning("[ensemble_composition] stamp failed: %s", _comp_err)
 
     # Predict-path parity: dump the in-memory ``_CT_ENSEMBLE__*`` entries (cross-target ensembles built by
     # _phase_composite_post.py) to disk so the predict loader (load_mlframe_suite / predict_mlframe_models_suite)

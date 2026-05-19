@@ -101,7 +101,7 @@ def test_capture_then_restore_dataset_reuse_cache_round_trips():
     t1._cached_val_dmatrix = None  # None entries must be SKIPPED by capture
 
     _capture_dataset_reuse_cache(ctx, "xgb", t1)
-    captured = ctx.artifacts["dataset_reuse_cache"]["xgb"]
+    captured = ctx.artifacts["dataset_reuse_cache"][("xgb", "")]
     assert captured["_cached_train_dmatrix"] is sentinel
     assert captured["_cached_train_key"] == "key-A"
     assert "_cached_val_dmatrix" not in captured

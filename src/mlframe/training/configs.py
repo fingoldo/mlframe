@@ -553,6 +553,11 @@ class PreprocessingExtensionsConfig(BaseConfig):
     # via PySR / juliacall). Off by default; enable with
     # pysr_enabled=True plus a pysr_params dict for budget control.
     pysr_enabled: bool = False
+    # Seed threaded into PySR's internal RNG (sample subsampling, GA initial population).
+    # Without this, _apply_pysr_fe used to fall back to 42 unconditionally because the
+    # field was absent (suite-level random_seed lives on TrainingSplitConfig, a different
+    # object, so getattr(config, "random_seed", 42) always hit the default).
+    random_seed: int = 42
     pysr_params: Optional[Dict] = Field(
         default=None,
         description="passed to PySRRegressor() as constructor kwargs (escape hatch for power users; "
@@ -757,6 +762,10 @@ class FeatureSelectionConfig(BaseConfig):
     # BorutaShap (SHAP-driven Boruta wrapper) is OFF by default: it adds 10-20x runtime over MRMR / RFECV because each trial fits a shap.TreeExplainer on a doubled feature matrix (real + shadow). Enable when the orthogonal SHAP-based signal is worth the extra compute -- typically on small frames where the shap-based feature attribution disagrees with permutation / gini.
     use_boruta_shap: bool = False
     # Forwarded verbatim to ``BorutaShap.__init__``; keys validated against the constructor signature so misspelt knobs fail at config time rather than deep inside fit.
+    # Operational tips for runtime control:
+    #   * ``n_trials`` (default 150): drives wall-time linearly. Small frames usually converge in 30-50; consider lowering to 50 in long suites.
+    #   * ``optimistic`` (default True): keeps tentative features alongside accepted. Flip to False for strict Boruta semantics (fewer features kept).
+    #   * ``train_or_test`` (default "train"): SHAP attributed on training data over-fits to noise on tree models; pass "test" for an internal train-test split when n is large enough that the held-out estimate is reliable.
     boruta_shap_kwargs: Optional[Dict[str, Any]] = None
 
     # When a feature-selection pipeline (MRMR / RFECV / custom) is identity-equivalent - keeps every input column and creates no new ones - training models on it duplicates the ordinary (no-pipeline) branch. Set False to still train both (eg for ensembling diversities from different random seeds). Default True skips the duplicate branch, logging a [Dedup] info.
@@ -775,6 +784,31 @@ class FeatureSelectionConfig(BaseConfig):
     # outweighs the cache-miss cost; the default-OFF contract is the FS-cache reuse invariant relied on by the
     # suite's per-weight-schema training loop.
     use_sample_weights_in_fs: bool = False
+
+    # Scope of the MRMR cross-target identity cache (see mrmr.py:_MRMR_IDENTITY_FP_CACHE).
+    #   "ctx"     (default, safe): cache lives on the suite's TrainingContext; sibling suites cannot
+    #             poison each other's MRMR results. Tied to A-Arch-004 mitigation of P0-003.
+    #   "process": cache lives at the module level for the lifetime of the Python process; CI matrices
+    #             that intentionally reuse cached identity results across suites opt in here.
+    # Unsupervised pre-screen filters (variance=0 / nulls>99%) applied ONCE per suite to the train
+    # split BEFORE per-target FS so obviously-useless columns never enter the expensive MRMR /
+    # RFECV / BorutaShap path. Train-only fit by contract; val / test see the same drop set so
+    # the pre-screen never leaks distribution information from held-out data. Conservative defaults
+    # only - aggressive correlation / cardinality filters would risk dropping joint-informative
+    # features and are not enabled here.
+    pre_screen_unsupervised: bool = True
+    pre_screen_variance_threshold: float = 0.0  # drop columns where variance == this exactly
+    pre_screen_null_fraction_threshold: float = 0.99  # drop columns where null_fraction > this
+    mrmr_identity_cache_scope: str = "ctx"
+
+    @field_validator("mrmr_identity_cache_scope")
+    @classmethod
+    def _validate_mrmr_identity_cache_scope(cls, v: str) -> str:
+        if v not in {"ctx", "process"}:
+            raise ValueError(
+                f"FeatureSelectionConfig.mrmr_identity_cache_scope must be 'ctx' or 'process', got {v!r}"
+            )
+        return v
 
     @field_validator("mrmr_kwargs")
     @classmethod

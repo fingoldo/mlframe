@@ -1,0 +1,93 @@
+"""Sensor tests for A-Arch-003: RFECV leakage / mbh thresholds applied via set_params, not raw setattr.
+
+The suite previously called ``setattr(_rfecv_instance, "leakage_corr_threshold", ...)`` directly,
+bypassing any property-setter side effects. The fix routes through sklearn's ``set_params`` which
+validates the parameter name against ``get_params`` and fires any setter side effects.
+"""
+from __future__ import annotations
+
+import pytest
+
+from mlframe.training.core._setup_helpers import _build_pre_pipelines
+
+
+class _FakeRFECVWithSetParams:
+    """Mimics RFECV.set_params behavior; records what was applied."""
+
+    def __init__(self):
+        self.leakage_corr_threshold = None
+        self.mbh_adaptive_threshold = None
+        self._set_params_calls: list[dict] = []
+
+    def set_params(self, **kwargs):
+        self._set_params_calls.append(dict(kwargs))
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        return self
+
+
+class _FakeNoSetParams:
+    """Selector without sklearn set_params; the fallback path uses setattr."""
+    pass
+
+
+def test_set_params_path_invoked_for_sklearn_style_instances():
+    inst = _FakeRFECVWithSetParams()
+    pre_pipelines, names = _build_pre_pipelines(
+        use_ordinary_models=False,
+        rfecv_models=["fake"],
+        rfecv_models_params={"fake": inst},
+        use_mrmr_fs=False,
+        mrmr_kwargs={},
+        custom_pre_pipelines=None,
+        rfecv_leakage_corr_threshold=0.77,
+        rfecv_mbh_adaptive_threshold=42,
+        use_boruta_shap=False,
+        boruta_shap_kwargs=None,
+    )
+    assert len(inst._set_params_calls) == 1
+    applied = inst._set_params_calls[0]
+    assert applied["leakage_corr_threshold"] == 0.77
+    assert applied["mbh_adaptive_threshold"] == 42
+    assert inst.leakage_corr_threshold == 0.77
+    assert inst.mbh_adaptive_threshold == 42
+
+
+def test_setattr_fallback_for_non_sklearn_instances():
+    inst = _FakeNoSetParams()
+    _build_pre_pipelines(
+        use_ordinary_models=False,
+        rfecv_models=["fake"],
+        rfecv_models_params={"fake": inst},
+        use_mrmr_fs=False,
+        mrmr_kwargs={},
+        custom_pre_pipelines=None,
+        rfecv_leakage_corr_threshold=0.5,
+        rfecv_mbh_adaptive_threshold=10,
+        use_boruta_shap=False,
+        boruta_shap_kwargs=None,
+    )
+    assert inst.leakage_corr_threshold == 0.5
+    assert inst.mbh_adaptive_threshold == 10
+
+
+def test_sample_weight_marker_still_stamped_via_setattr():
+    """Per user constraint: the suite-internal ``_mlframe_use_sample_weights_in_fs_`` marker stays as setattr."""
+    inst = _FakeRFECVWithSetParams()
+    _build_pre_pipelines(
+        use_ordinary_models=False,
+        rfecv_models=["fake"],
+        rfecv_models_params={"fake": inst},
+        use_mrmr_fs=False,
+        mrmr_kwargs={},
+        custom_pre_pipelines=None,
+        rfecv_leakage_corr_threshold=0.95,
+        rfecv_mbh_adaptive_threshold=30,
+        use_boruta_shap=False,
+        boruta_shap_kwargs=None,
+        use_sample_weights_in_fs=True,
+    )
+    assert getattr(inst, "_mlframe_use_sample_weights_in_fs_") is True
+    # The marker is NOT routed through set_params (kept suite-internal).
+    for call in inst._set_params_calls:
+        assert "_mlframe_use_sample_weights_in_fs_" not in call

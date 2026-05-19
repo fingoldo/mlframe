@@ -22,6 +22,10 @@ from mlframe.training.pipeline import fit_and_transform_pipeline
 from mlframe.training.configs import PreprocessingBackendConfig, TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
+# Deterministic RNG (single seed per module).
+_W53_RNG = __import__('numpy').random.default_rng(0)
+
+
 
 # ================================================================================================
 # Test Class 1: Memory Stress Tests
@@ -392,7 +396,7 @@ class TestEdgeCaseStress:
         # Create sparse-like data (mostly zeros)
         X = np.zeros((n_samples, n_features))
         for i in range(n_samples):
-            non_zero_idx = np.random.choice(n_features, size=10, replace=False)
+            non_zero_idx = _W53_RNG.choice(n_features, size=10, replace=False)
             X[i, non_zero_idx] = np.random.randn(10)
 
         y = np.random.randn(n_samples)

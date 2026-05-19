@@ -209,13 +209,13 @@ def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
 def _mrmr_compute_x_fingerprint(X) -> str:
     """Stable per-process fingerprint of the X argument used to key the identity-cache.
 
-    Captures column names, row count, and CANONICAL dtype repr so two structurally-equivalent frames -- one polars, one pandas -- produce the SAME fingerprint. We don't hash CELL CONTENT (too expensive on 4M-row frames); cell-level changes are rare across composite-target loops since the same X is reused throughout the suite.
-
-    KNOWN TRADE-OFF: two DIFFERENT X with same column names + dtypes + n_rows
-    but different cell values will collide on the same fingerprint. Acceptable
-    in the production scenario (same X reused across composite targets); a
-    future ``include_cell_sample=True`` mode would mitigate this by mixing in
-    a sample of values from each column.
+    Captures column names, row count, CANONICAL dtype repr, and a 10-cell evenly-spaced
+    content sample per column so two structurally-equivalent frames -- one polars,
+    one pandas -- produce the SAME fingerprint while differently-content frames on
+    the same schema produce DIFFERENT fingerprints. The cell sample mirrors
+    ``_content_array_signature`` (10 evenly-spaced positions, rounded float repr,
+    O(1) per column). On a 4M-row frame the sampling cost is O(n_cols) value
+    reads and adds <1ms compared to the dtype-only path.
     """
     try:
         if hasattr(X, "columns"):
@@ -247,7 +247,31 @@ def _mrmr_compute_x_fingerprint(X) -> str:
                 dtypes_repr = ()
         else:
             dtypes_repr = ()
-        payload = repr((cols, n_rows, dtypes_repr)).encode()
+        # Cell-content sample: 10 evenly-spaced positions per column. Prevents
+        # same-schema-different-content X frames from colliding in the cache.
+        cell_sample = ()
+        try:
+            n_sample = min(10, n_rows) if n_rows > 0 else 0
+            if n_sample > 0 and hasattr(X, "columns"):
+                step = max(1, n_rows // n_sample)
+                positions = [i * step for i in range(n_sample) if i * step < n_rows]
+                samples = []
+                for c in X.columns:
+                    try:
+                        col = X[c] if not hasattr(X, "schema") else X.get_column(c)
+                        # Polars Series + pandas Series both support iteration / indexing by int positions.
+                        if hasattr(col, "to_numpy"):
+                            arr = col.to_numpy()
+                        else:
+                            arr = np.asarray(col)
+                        vals = tuple(repr(arr[p]) for p in positions if p < len(arr))
+                        samples.append((str(c), vals))
+                    except Exception:
+                        samples.append((str(c), ()))
+                cell_sample = tuple(samples)
+        except Exception:
+            cell_sample = ()
+        payload = repr((cols, n_rows, dtypes_repr, cell_sample)).encode()
         return hashlib.blake2b(payload, digest_size=12).hexdigest()
     except Exception:
         return f"fp_id{id(X):x}"
@@ -346,9 +370,12 @@ def _target_to_numpy_values(y) -> np.ndarray:
     if isinstance(y, np.ndarray):
         return y
     if hasattr(y, "to_numpy"):
+        # Modern path: covers pandas Series/DataFrame and polars Series. Returned array is
+        # caller-safe (pandas returns a copy or read-only view; polars converts).
         return y.to_numpy()
-    if hasattr(y, "values"):
-        return y.values
+    # ``.values`` fallback exists only for legacy duck-typed targets without ``to_numpy``
+    # (custom wrappers around older sklearn arrays). Pandas/polars both flow through
+    # the ``to_numpy`` branch above; the fallback can be dropped once legacy callers are gone.
     return np.asarray(y)
 
 
@@ -675,14 +702,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         # indistinguishable from no retry. Tune only after observing
         # the per-pass engineered count in your data.
         fe_adaptive_relax_factor: float = 0.9,
-        # 2026-05-18 T3#18: when ``mrmr_skip_when_prior_was_identity=True``
-        # and you want STRICTER cache semantics (different y on same X must
-        # produce a separate cache key), set this True. The cache key adds
-        # a fingerprint of y's first-N-rows sample so legitimately distinct
-        # targets get their own cache slot. Default False keeps the
-        # ``X-only`` behaviour from #2 (the user's TVT scenario where
-        # 2 composites on same X both returned identity).
-        mrmr_identity_cache_include_y: bool = False,
+        # When ``mrmr_skip_when_prior_was_identity=True``, this controls whether
+        # legitimately distinct targets on the same X must produce a separate cache
+        # slot. With True (default) the cache key adds a y-fingerprint sample so
+        # target A's identity result cannot poison target B; the per-call cost is a
+        # ~5us blake2b over a 1000-element y sample. False reverts to X-only keying
+        # (the user's original TVT scenario where 2 composites on same X both
+        # returned identity); safe only when the operator can guarantee that
+        # identity-on-target-A implies identity-on-target-B.
+        mrmr_identity_cache_include_y: bool = True,
         # 2026-05-18 #2: cross-target identity cache. When True and a prior fit on the SAME X-fingerprint produced an identity result (all input columns selected, zero engineered features), subsequent calls with a different y short-circuit the entire FE pipeline. Production TVT log showed 88 min of MRMR work that produced identity output, then ANOTHER MRMR call on the same X for a composite target -- second call would also be 88 min wasted.
         #
         # Default flipped False -> True 2026-05-18 (Accuracy/perf over legacy): on multi-target suites the second MRMR call on the same X usually hits the cache and saves the full FE pipeline run-time. The conservative case (prior identity result was wrong for the new target) is rare in practice because composite-target y values are highly correlated with the raw y -- if MRMR found nothing on raw y, it almost never finds something on the residual.
@@ -848,8 +876,18 @@ class MRMR(BaseEstimator, TransformerMixin):
             pass
         # All-same y: raise (symmetric with RFECV.fit's single-class y validation). Constant y has H(y)=0 so
         # every MI(X_j, y) = 0; the entire MRMR pipeline produces zero-information output.
+        # Multilabel y is (N, K): require that AT LEAST ONE label column has variation
+        # (a single dead label is normal; all dead labels means the whole y is constant).
         try:
-            if len(np.unique(np.asarray(y))) == 1:
+            _y_arr = np.asarray(y)
+            if _y_arr.ndim == 2:
+                _per_col_unique = [
+                    len(np.unique(_y_arr[:, _j])) for _j in range(_y_arr.shape[1])
+                ]
+                _y_is_constant = max(_per_col_unique) == 1 if _per_col_unique else True
+            else:
+                _y_is_constant = len(np.unique(_y_arr)) == 1
+            if _y_is_constant:
                 raise ValueError(
                     "MRMR.fit: target y has only 1 unique value. H(y)=0 "
                     "so all features have MI(X_j, y)=0 by construction. "
@@ -955,7 +993,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Uniform -> nothing to do (preserves bit-exact legacy + cache reuse).
         if float(sw.max() - sw.min()) <= 1e-12 * max(1.0, abs(float(sw.mean()))):
             return X, y
-        rng = np.random.default_rng(self.random_seed if self.random_seed is not None else 0)
+        # When random_seed is None the user wants ENTROPY-seeded randomness for the resample;
+        # the prior fallback hardcoded ``0`` which deterministically returned the same draw on
+        # every call -- two A/B comparisons expecting independent random resamples got identical
+        # samples. ``np.random.default_rng(None)`` pulls fresh entropy from the OS.
+        rng = np.random.default_rng(self.random_seed)
         probs = sw / total
         idx = rng.choice(n_rows, size=n_rows, replace=True, p=probs)
         # iloc preserves dtypes / category metadata; works on pandas + polars (via take) + numpy.
@@ -991,13 +1033,35 @@ class MRMR(BaseEstimator, TransformerMixin):
         weight-aware without modifying screen / info_theory internals. sample_weight=None retains the
         old code path byte-for-byte (regression sentry).
 
+        groups: ACCEPTED FOR API COMPAT BUT NOT CONSUMED. MRMR's MI estimator treats each row
+        independently; group-stratified MI / group-resample permutations would require modifying
+        screen_predictors and info_theory.merge_vars. Until that's implemented, a non-None groups
+        argument emits a UserWarning so callers wrapping MRMR with GroupKFold know they need to
+        precompute per-group MI themselves. The signature is retained for symmetry with sklearn's
+        SelectorMixin.fit and to let sklearn Pipeline routing forward the kwarg without TypeError.
+
         2026-05-18 #2: cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
+        if groups is not None:
+            warnings.warn(
+                "MRMR.fit received groups but the current implementation does NOT consume them; "
+                "MI is estimated per-row. For grouped MI estimation, wrap MRMR with a per-group "
+                "selector and aggregate manually. Pass groups=None to silence this warning.",
+                UserWarning,
+                stacklevel=2,
+            )
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
 
         # 2026-05-18 #2 cross-target identity cache.
         _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
         _include_y = bool(getattr(self, "mrmr_identity_cache_include_y", False))
+        # Suite caller (train_mlframe_models_suite) can inject a ctx-scoped dict here via
+        # ``_mlframe_identity_cache_override_`` so cache lifetime is bounded by the suite
+        # rather than the process. When absent, fall back to the module-level dict for
+        # cross-suite reuse (CI matrices opt in via mrmr_identity_cache_scope="process").
+        _cache_dict = getattr(self, "_mlframe_identity_cache_override_", None)
+        if _cache_dict is None:
+            _cache_dict = _MRMR_IDENTITY_FP_CACHE
         _x_fp = None
         if _identity_skip:
             _x_fp = _mrmr_compute_x_fingerprint(X)
@@ -1005,7 +1069,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # T3#18: stricter cache key -- include y-fingerprint so legitimately distinct targets on same X get separate slots.
                 _x_fp = _x_fp + "_yfp_" + _mrmr_compute_y_fingerprint_sample(y)
             with _MRMR_IDENTITY_FP_LOCK:
-                _prior_was_identity = _MRMR_IDENTITY_FP_CACHE.get(_x_fp)
+                _prior_was_identity = _cache_dict.get(_x_fp)
             if _prior_was_identity is True:
                 logger.info(
                     "[MRMR] cross-target identity cache HIT for X fingerprint=%s -- "
@@ -1032,7 +1096,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         and len(getattr(self, "_engineered_features_", []) or []) == 0
                     )
                     with _MRMR_IDENTITY_FP_LOCK:
-                        _MRMR_IDENTITY_FP_CACHE[_x_fp] = bool(_is_id)
+                        _cache_dict[_x_fp] = bool(_is_id)
                     if _is_id:
                         logger.info(
                             "[MRMR] cross-target identity cache STORED for X fingerprint=%s "
@@ -1278,12 +1342,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             binary_transformations = create_binary_transformations(preset=fe_binary_preset)
             if fe_max_polynoms:
                 # Generated polynomial coefficients are appended directly to unary_transformations under "poly_<coef>" keys;
-                # no separate registry is needed.
+                # no separate registry is needed. Use a seeded local Generator so the polynomial recipes are reproducible
+                # across reruns with the same ``random_seed`` -- prior code used the global ``np.random`` stream, breaking
+                # determinism whenever any earlier suite stage advanced it.
+                _poly_rng = np.random.default_rng(self.random_seed)
                 for _ in range(fe_max_polynoms):
-                    length = np.random.randint(3, 9)
+                    length = int(_poly_rng.integers(3, 9))
                     coef = np.empty(shape=length, dtype=np.float32)
                     for i in range(length):
-                        coef[i] = np.random.normal((1.0 if i == 1 else 0.0), scale=0.05)
+                        coef[i] = _poly_rng.normal((1.0 if i == 1 else 0.0), scale=0.05)
 
                     unary_transformations["poly_" + str(coef)] = coef
 
@@ -2116,16 +2183,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                             raw_vars_pair, _inj_err,
                         )
 
-        # 2026-05-18 fix (production TVT FE dead-code): the standard
-        # check_prospective_fe_pairs path used to live in ``else:`` of the
-        # Hermite block. That meant: enabling ``fe_smart_polynom_iters > 0``
-        # silently DISABLED all standard unary/binary FE (cbrt, sqrt, log,
-        # hypot, atan2, ...). Production TVT log: 88 min on Hermite Optuna,
-        # 0 engineered features, MRMR returned identity (25 cols in, 25 cols
-        # out), full Hermite-FE compute wasted. De-dented the block so the
-        # standard pipeline always runs after the Hermite block; users get
-        # the unary/binary FE they asked for via ``fe_unary_preset='medium'``
-        # regardless of whether Hermite ran.
+        # The standard check_prospective_fe_pairs path used to live in
+        # ``else:`` of the Hermite block, which meant enabling
+        # ``fe_smart_polynom_iters > 0`` silently DISABLED all standard
+        # unary/binary FE (cbrt, sqrt, log, hypot, atan2, ...). De-dented the
+        # block so the standard pipeline always runs after the Hermite block;
+        # users get the unary/binary FE they asked for via
+        # ``fe_unary_preset='medium'`` regardless of whether Hermite ran.
         if True:
             original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
             if verbose >= 1:

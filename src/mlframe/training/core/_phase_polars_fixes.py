@@ -39,13 +39,34 @@ logger = logging.getLogger(__name__)
 _DICT_ALIGN_SKIP_CARD = 50_000
 
 
-def _cast_utf8_cats_to_categorical(df_, cat_features: list[str]):
+def _cast_utf8_cats_to_categorical(
+    df_,
+    cat_features: list[str],
+    enum_domains: Optional[Dict[str, List[str]]] = None,
+):
+    """Cast Utf8/String cat_features to pl.Enum when an enum domain is supplied for that column;
+    fall back to pl.Categorical only when no enum domain is known.
+
+    pl.Categorical participates in polars' process-wide global string cache (the cache grows
+    monotonically across calls; pl.disable_string_cache() is a no-op in polars 1.x). Each new
+    pl.Categorical Series widens that cache. pl.Enum is per-Series and does not touch the global
+    cache. Callers that have a precomputed train+val union should always supply enum_domains so the
+    cast lands on Enum, not Categorical (memory rule: reference_polars_global_string_cache).
+    """
     if not isinstance(df_, pl.DataFrame):
         return df_
     exprs = []
+    enum_domains = enum_domains or {}
     for c in cat_features:
         if c in df_.columns and df_.schema[c] in (pl.Utf8, pl.String):
-            exprs.append(pl.col(c).cast(pl.Categorical))
+            _dom = enum_domains.get(c)
+            if _dom:
+                # Build per-Series Enum, no global string cache impact.
+                exprs.append(pl.col(c).cast(pl.Enum(list(_dom)), strict=False))
+            else:
+                # Last-resort fallback when caller did not thread an enum domain in (e.g. legacy
+                # caller of _cast_utf8_cats_to_categorical without precomputed_category_union).
+                exprs.append(pl.col(c).cast(pl.Categorical))
     return df_.with_columns(exprs) if exprs else df_
 
 
@@ -125,6 +146,9 @@ def apply_polars_categorical_fixes(
 
     # 2. Align dicts across train/val/test via pl.Enum.
     # pl.Categorical assigns physical codes per-Series (order-of-first-occurrence) and XGB's native layer treats val's physical codes as indices into train's bin structure without re-reading the Arrow dict. pl.Enum(list) enforces a shared dict by construction. Opt out via ``align_polars_categorical_dicts=False``.
+    # Tracks the per-column train+val union built below; Step 4 below reuses these domains when
+    # casting raw Utf8 columns to Enum so the cast does not poison the global string cache (P0-B2).
+    _enum_domains_built: Dict[str, List[str]] = {}
     if (train_df_polars is not None and cat_features
             and align_polars_categorical_dicts):
         aligned_cols: list = []
@@ -133,9 +157,11 @@ def apply_polars_categorical_fixes(
             if col not in train_df_polars.columns:
                 continue
             dt = train_df_polars.schema[col]
+            _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
             is_cat_like = (
                 dt == pl.Categorical
                 or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
+                or dt in _string_types
             )
             if not is_cat_like:
                 continue
@@ -164,6 +190,7 @@ def apply_polars_categorical_fixes(
                     continue
                 union_sorted = sorted(union)
                 enum_dt = pl.Enum(union_sorted)
+                _enum_domains_built[col] = union_sorted
                 train_df_polars = train_df_polars.with_columns(pl.col(col).cast(enum_dt))
                 if val_df_polars is not None:
                     val_df_polars = val_df_polars.with_columns(pl.col(col).cast(enum_dt))
@@ -206,11 +233,21 @@ def apply_polars_categorical_fixes(
         if test_df_polars is not None:
             test_df_pd = test_df_polars
 
-    # 4. Cast remaining Utf8/String cat_features to pl.Categorical so pandas conversion produces ``category`` dtype (XGBClassifier's sklearn wrapper rejects ``object``).
+    # 4. Cast remaining Utf8/String cat_features so pandas conversion produces ``category`` dtype
+    # (XGBClassifier's sklearn wrapper rejects ``object``). Prefer pl.Enum keyed off the Step 2
+    # train+val union when available so we don't widen the global string cache (P0-B2 fix); fall
+    # back to pl.Categorical only when no domain was computed for the column (e.g. align_polars_
+    # categorical_dicts=False).
     if was_polars_input and cat_features:
-        train_df_polars = _cast_utf8_cats_to_categorical(train_df_polars, cat_features)
-        val_df_polars = _cast_utf8_cats_to_categorical(val_df_polars, cat_features)
-        test_df_polars = _cast_utf8_cats_to_categorical(test_df_polars, cat_features)
+        # Also expose any precomputed (pre-OD) unions: those rows reflect the broadest known
+        # category set for the column and are preferable when present.
+        _pre_unions = dict(precomputed_category_union or {})
+        _domains = dict(_pre_unions)
+        for _k, _v in _enum_domains_built.items():
+            _domains.setdefault(_k, _v)
+        train_df_polars = _cast_utf8_cats_to_categorical(train_df_polars, cat_features, _domains)
+        val_df_polars = _cast_utf8_cats_to_categorical(val_df_polars, cat_features, _domains)
+        test_df_polars = _cast_utf8_cats_to_categorical(test_df_polars, cat_features, _domains)
         if defer_pandas_conv:
             train_df_pd = train_df_polars if train_df_polars is not None else train_df_pd
             filtered_train_df = train_df_polars if train_df_polars is not None else filtered_train_df

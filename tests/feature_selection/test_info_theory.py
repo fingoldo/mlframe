@@ -62,8 +62,8 @@ class TestMIProperties:
 
     def test_mi_identical_variables(self):
         """MI(X, X) should equal H(X)."""
-        np.random.seed(42)
-        classes_x = np.random.randint(0, 5, 1000).astype(np.int32)
+        rng = np.random.default_rng(42)
+        classes_x = rng.integers(0, 5, 1000).astype(np.int32)
 
         # Compute frequencies
         unique, counts = np.unique(classes_x, return_counts=True)
@@ -80,10 +80,10 @@ class TestMIProperties:
 
     def test_mi_independent_variables(self):
         """MI of independent variables should be close to 0."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 5000
-        classes_x = np.random.randint(0, 5, n).astype(np.int32)
-        classes_y = np.random.randint(0, 5, n).astype(np.int32)
+        classes_x = rng.integers(0, 5, n).astype(np.int32)
+        classes_y = rng.integers(0, 5, n).astype(np.int32)
 
         # Compute frequencies
         unique_x, counts_x = np.unique(classes_x, return_counts=True)
@@ -101,9 +101,9 @@ class TestMIProperties:
 
     def test_mi_symmetry(self):
         """MI(X, Y) should equal MI(Y, X)."""
-        np.random.seed(42)
-        classes_x = np.random.randint(0, 5, 1000).astype(np.int32)
-        classes_y = ((classes_x + np.random.randint(0, 2, 1000)) % 5).astype(np.int32)
+        rng = np.random.default_rng(42)
+        classes_x = rng.integers(0, 5, 1000).astype(np.int32)
+        classes_y = ((classes_x + rng.integers(0, 2, 1000)) % 5).astype(np.int32)
 
         # Compute frequencies
         unique_x, counts_x = np.unique(classes_x, return_counts=True)
@@ -122,11 +122,11 @@ class TestMIProperties:
 
     def test_mi_bounded_by_entropy(self):
         """MI(X, Y) should be bounded by min(H(X), H(Y))."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         nbins = 5
         n = 1000
-        classes_x = np.random.randint(0, nbins, n).astype(np.int32)
-        classes_y = np.random.randint(0, nbins, n).astype(np.int32)
+        classes_x = rng.integers(0, nbins, n).astype(np.int32)
+        classes_y = rng.integers(0, nbins, n).astype(np.int32)
 
         # Compute frequencies
         unique_x, counts_x = np.unique(classes_x, return_counts=True)

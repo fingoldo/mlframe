@@ -55,9 +55,12 @@ def test_target_types_is_classification_predicates():
 
 
 def test_target_types_mutual_exclusion():
-    """Only one of {is_binary, is_regression, is_multiclass, is_multilabel} is True."""
+    """Exactly one of {is_binary, is_regression, is_multiclass, is_multilabel,
+    is_ranking, is_quantile} must be True for every TargetTypes value -- the
+    top-level role flags partition the enum."""
     for tt in TargetTypes:
-        flags = [tt.is_binary, tt.is_regression, tt.is_multiclass, tt.is_multilabel]
+        flags = [tt.is_binary, tt.is_regression, tt.is_multiclass,
+                 tt.is_multilabel, tt.is_ranking, tt.is_quantile]
         assert sum(flags) == 1, f"{tt!r}: expected exactly 1 flag True, got {flags}"
 
 
@@ -178,7 +181,9 @@ def test_classif_kwargs_binary(flavor, expected):
     ("xgboost", {"objective", "num_class"}),
     ("lightgbm", {"objective", "num_class"}),
     ("hgb", set()),
-    ("linear", {"multi_class", "solver"}),
+    # ``multi_class`` kwarg was removed in sklearn 1.8 (LogisticRegression
+    # auto-detects multi-class from y since 1.5); only ``solver`` remains.
+    ("linear", {"solver"}),
 ])
 def test_classif_kwargs_multiclass(flavor, expected_keys):
     out = _classif_objective_kwargs(flavor, TargetTypes.MULTICLASS_CLASSIFICATION, n_classes=5)

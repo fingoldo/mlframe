@@ -205,21 +205,29 @@ def load_and_prepare_dataframe(
 
         # Use read_parquet if columns/n_rows specified (scan_parquet has a narrower kwarg surface
         # and does not accept `parallel="columns"` or `columns=`). Otherwise scan lazily and let
-        # Polars collect once downstream — keeps memory low for wide files.
+        # Polars collect once downstream - keeps memory low for wide files.
         if config.columns or config.n_rows:
             df = pl.read_parquet(df, **load_params)
         else:
             # scan_parquet rejects `parallel="columns"` (only valid on eager read_parquet).
             df = pl.scan_parquet(df)
 
-    # Apply tail if specified (after loading)
+    # Apply tail if specified (after loading). For a LazyFrame produced by scan_parquet,
+    # collect via the streaming engine so the OS only ever needs (tail_size + per-batch buffer)
+    # rows in memory rather than the whole file (fix for audit B-P0-7: scan_parquet -> tail ->
+    # plain .collect() can OOM on a 100GB file even when tail=10k because slice-pushdown does
+    # not always reach the parquet reader; streaming guarantees a bounded working set).
     if config.tail:
         if verbose:
             logger.info("Taking last %s rows...", config.tail)
         df = df.tail(config.tail)
 
     if isinstance(df, pl.LazyFrame):
-        df = df.collect()
+        try:
+            df = df.collect(streaming=True)
+        except TypeError:
+            # polars version without the streaming kwarg falls back to default collect.
+            df = df.collect()
 
     if verbose:
         log_ram_usage()

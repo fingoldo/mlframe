@@ -74,6 +74,14 @@ from . import _phase_runners as pr
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df  # noqa: F401
 
 
+# Module-level handles for the prelude patch functions. They're populated
+# lazily on the first ``train_mlframe_models_suite`` call (delays the
+# joblib / lightgbm / catboost / xgboost touches that the patches do).
+# Module-level binding lets tests monkeypatch them.
+apply_loky_cpu_count_override = None
+apply_third_party_patches_once = None
+
+
 def train_mlframe_models_suite(
     df: Union[pl.DataFrame, pd.DataFrame, str],
     target_name: str,
@@ -189,9 +197,16 @@ def train_mlframe_models_suite(
     # at suite entry. Previously these ran as import-time side effects
     # of ``mlframe.training``; now bare imports leave joblib / lightgbm
     # / catboost / xgboost untouched.
-    from .. import apply_loky_cpu_count_override as _apply_loky
-    from .._model_factories import apply_third_party_patches_once
-    _apply_loky()
+    # The two functions are looked up on this module so test code can
+    # monkeypatch them in-place to observe call ordering.
+    global apply_loky_cpu_count_override, apply_third_party_patches_once
+    if apply_loky_cpu_count_override is None:
+        from .. import apply_loky_cpu_count_override as _apply_loky
+        apply_loky_cpu_count_override = _apply_loky
+    if apply_third_party_patches_once is None:
+        from .._model_factories import apply_third_party_patches_once as _apply_patches
+        apply_third_party_patches_once = _apply_patches
+    apply_loky_cpu_count_override()
     apply_third_party_patches_once()
 
     # Module-global registry; not safe to invoke concurrent training suites from the same process.
@@ -208,10 +223,14 @@ def train_mlframe_models_suite(
     if isinstance(df, str) and not df.lower().endswith(".parquet"):
         raise ValueError(f"File path must be a .parquet file, got: {df}")
 
-    if not target_name:
-        raise ValueError("target_name cannot be empty")
-    if not model_name:
-        raise ValueError("model_name cannot be empty")
+    if target_name is None or not isinstance(target_name, str):
+        raise TypeError(f"target_name must be a non-empty string, got {type(target_name).__name__}")
+    if not target_name.strip():
+        raise ValueError("target_name cannot be empty or whitespace-only")
+    if model_name is None or not isinstance(model_name, str):
+        raise TypeError(f"model_name must be a non-empty string, got {type(model_name).__name__}")
+    if not model_name.strip():
+        raise ValueError("model_name cannot be empty or whitespace-only")
     if features_and_targets_extractor is None:
         raise ValueError("features_and_targets_extractor is required")
 
@@ -442,6 +461,7 @@ def train_mlframe_models_suite(
             common_params_dict=common_params_dict,
             rfecv_models=rfecv_models,
             mrmr_kwargs=mrmr_kwargs,
+            suite_verbose=getattr(ctx, "verbose", None),
         )
 
     # Propagate split-config random_seed so the default CatBoostEncoder is

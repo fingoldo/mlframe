@@ -450,12 +450,26 @@ def compute_member_quality_gate(
           "rel_std_threshold", "per_member_mae", "per_member_std"}``.
     """
     n = len(preds_list)
-    if n <= 2:
-        # 2 members have no internal median to test against; 1 member trivially has no spread.
-        # Keep the K<=2 path as a no-op gate so the lower-level filter inside
-        # `ensemble_probabilistic_predictions` (which also early-exits at K<=2) is the single
-        # responsible site. GATE-K3-MIN: documented; intentional behaviour.
+    if n <= 1:
+        # K=1 has no peer to compare against; gate is trivially a no-op.
         return list(range(n)), [], {}
+    if n == 2:
+        # C-P2-12: K=2 cannot drop an outlier (both members get identical |a-b|/2 distance from the
+        # 2-element median, so no member is "more outlier" than the other). The legacy gate just
+        # returned (kept-all, no-stats); this branch additionally stamps a ``k2_disagreement``
+        # observability scalar = mean(|a-b|) so the suite caller / downstream metadata can surface
+        # when the two members disagreed heavily even though no drop is possible. The blend
+        # downstream is still arithmetic mean / harm / etc. of both members.
+        try:
+            _a = np.asarray(preds_list[0], dtype=np.float64)
+            _b = np.asarray(preds_list[1], dtype=np.float64)
+            if _a.shape == _b.shape:
+                _disagreement = float(np.mean(np.abs(_a - _b)))
+            else:
+                _disagreement = float("nan")
+        except Exception:
+            _disagreement = float("nan")
+        return list(range(n)), [], {"k2_disagreement": _disagreement, "filter_too_restrictive": False}
 
     arr = np.asarray(preds_list, dtype=np.float64)
     # Weighted median when sample_weight is supplied (numpy>=1.22). Falls back to unweighted on
@@ -668,6 +682,92 @@ def rrf_ensemble(
     return _rrf_aggregate_probs(stacked, k=k)
 
 
+def combine_probs(
+    stacked: np.ndarray,
+    flavour: str,
+    *,
+    rrf_k: int = 60,
+    sample_weight: Optional[np.ndarray] = None,
+    ensure_prob_limits: bool = True,
+) -> np.ndarray:
+    """Single canonical per-flavour ensemble math, shared by train and predict.
+
+    ``stacked`` is a (K, N, ...) tensor (already filtered to the post-gate member set).
+    The function ONLY does the per-flavour reduction + clip + NaN-fallback; it does NOT
+    run the outlier-member gate, the diversity scan, or the high-corr WARN. Those steps
+    are train-time only and live inside ``ensemble_probabilistic_predictions`` /
+    ``score_ensemble`` because they require ground-truth predictions (val / test / oof)
+    that predict-time replay does not have.
+
+    Extracted to eliminate the previous train-vs-predict math drift (Arch-1):
+    pre-extraction the predict path reimplemented every flavour by hand, missing the
+    train-side zero-handling / clip-before-blend / NaN-fallback. Replay drift surfaced
+    when any member's preds approached 0 / 1 (harm) or had NaN rows (any). One helper,
+    one set of semantics; predict-time output now matches train-stamp within fp64 tol.
+    """
+    flav = (flavour or "").lower()
+    if flav in ("", "arith", "mean"):
+        flav = "arithm"
+    elif flav in ("harmonic",):
+        flav = "harm"
+    elif flav in ("geomean", "geometric"):
+        flav = "geo"
+    elif flav in ("quadratic",):
+        flav = "quad"
+    elif flav in ("cubic",):
+        flav = "qube"
+
+    if ensure_prob_limits and flav in ("arithm", "harm", "quad", "qube", "median"):
+        stacked = np.clip(stacked, 0.0, 1.0)
+
+    if flav == "harm":
+        # Harmonic mean: when any model predicts exactly 0, HM is defined as 0.
+        any_zero = (stacked == 0).any(axis=0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inv_sum = np.sum(1.0 / stacked, axis=0)
+            combined = len(stacked) / inv_sum
+        if any_zero.any():
+            combined = np.where(any_zero, 0.0, combined)
+    elif flav == "arithm":
+        combined = np.mean(stacked, axis=0)
+    elif flav == "median":
+        if sample_weight is not None:
+            try:
+                combined = np.quantile(stacked, 0.5, axis=0, weights=sample_weight, method="inverted_cdf")
+            except TypeError:
+                combined = np.quantile(stacked, 0.5, axis=0)
+        else:
+            combined = np.quantile(stacked, 0.5, axis=0)
+    elif flav == "quad":
+        combined = np.sqrt(np.mean(stacked * stacked, axis=0))
+    elif flav == "qube":
+        # Underflow guard: for all-positive but extremely-small probs, cbrt(mean(p^3))
+        # can lose precision near 1e-100 because p^3 underflows below float64 min.
+        # Clip the pre-cube floor at the cube root of the smallest safe float64 (~1e-103).
+        _safe = np.clip(stacked, 1e-103, None) if (stacked > 0).all() else stacked
+        combined = np.cbrt(np.mean(_safe ** 3, axis=0))
+    elif flav == "geo":
+        with np.errstate(divide="ignore"):
+            combined = np.exp(np.mean(np.log(np.clip(stacked, 1e-300, None)), axis=0))
+    elif flav == "rrf":
+        combined = _rrf_aggregate_probs(stacked, k=int(rrf_k))
+    else:
+        # Unrecognised flavour -> arithmetic mean fallback (matches the legacy predict-side default).
+        combined = np.mean(stacked, axis=0)
+
+    # NaN/inf fallback to arithmetic mean. Train side ran this AFTER the flavour reduce;
+    # predict now does the same so a single NaN cell doesn't poison the whole batch.
+    non_finite_mask = ~np.isfinite(combined)
+    if non_finite_mask.any():
+        _arith = np.mean(stacked, axis=0)
+        combined = np.where(non_finite_mask, _arith, combined)
+
+    if ensure_prob_limits:
+        combined = np.clip(combined, 0.0, 1.0)
+
+    return combined
+
+
 def ensemble_probabilistic_predictions(
     *preds,
     ensemble_method="harm",
@@ -813,60 +913,18 @@ def ensemble_probabilistic_predictions(
     # Actual ensembling
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-    # PROB-CLIP: when probability bounds are requested clip every member to [0, 1] BEFORE the blend
-    # (so that an out-of-range member doesn't drag the mean / quadratic / harmonic out of the simplex).
-    # Previously this only happened inside the geometric branch; arithmetic / harmonic / quadratic blends
-    # inherited the OOR members and the final clip only flattened the symptom.
-    if ensure_prob_limits and ensemble_method in ("arithm", "harm", "quad", "qube", "median"):
-        _preds_arr = np.clip(_preds_arr, 0.0, 1.0)
-
-    if ensemble_method == "harm":
-        # Harmonic mean: if any model predicts exactly 0, HM is defined as 0.
-        # Plain ``1 / pred`` triggers RuntimeWarning ("divide by zero") and
-        # produces ``inf``, which ``1/mean(...)`` then maps back to 0 -- correct
-        # numerically but noisy in logs (observed 2026-04-23 prod run). Mask the
-        # zeros explicitly so the common path stays warning-free.
-        any_zero = (_preds_arr == 0).any(axis=0)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            inv_sum = np.sum(1.0 / _preds_arr, axis=0)
-            ensembled_predictions = len(_preds_arr) / inv_sum
-        if any_zero.any():
-            ensembled_predictions = np.where(any_zero, 0.0, ensembled_predictions)
-    elif ensemble_method == "arithm":
-        ensembled_predictions = np.mean(_preds_arr, axis=0)
-    elif ensemble_method == "median":
-        ensembled_predictions = np.quantile(_preds_arr, 0.5, axis=0)
-    elif ensemble_method == "quad":
-        ensembled_predictions = np.sqrt(np.mean(_preds_arr**2, axis=0))
-    elif ensemble_method == "qube":
-        ensembled_predictions = np.cbrt(np.mean(_preds_arr**3, axis=0))
-    elif ensemble_method == "geo":
-        # Use log-sum-exp via log-mean for numerical stability on large M.
-        # Floor at 1e-300 (smallest safe float64) instead of 1e-12 to
-        # preserve precision for legitimately rare events from well-
-        # calibrated boosted trees.
-        with np.errstate(divide="ignore"):
-            ensembled_predictions = np.exp(np.mean(np.log(np.clip(_preds_arr, 1e-300, None)), axis=0))
-    elif ensemble_method == "rrf":
-        # Reciprocal Rank Fusion: scale-invariant blend that survives wildly
-        # heterogeneous member scales (calibrated probs vs raw sigmoid/100 vs
-        # logit). Per column, rank members by per-row probability (higher prob
-        # -> better rank), accumulate 1/(k + rank), then per-row min-max to a
-        # sum-to-1 probability so the output stays in the [0, 1] simplex that
-        # downstream metrics (logloss, AUC) expect.
-        ensembled_predictions = _rrf_aggregate_probs(_preds_arr, k=rrf_k)
-
-    # Replace non-finite values (NaN, inf) with arithmetic mean fallback
-    non_finite_mask = ~np.isfinite(ensembled_predictions)
-    if non_finite_mask.any():
-        arith_mean = np.mean(_preds_arr, axis=0)
-        n_replaced = np.sum(non_finite_mask)
-        if verbose:
-            logger.info("%s non-finite values replaced with arithmetic mean", n_replaced)
-        ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
-
-    if ensure_prob_limits:
-        ensembled_predictions = np.clip(ensembled_predictions, 0.0, 1.0)
+    # ARCH-1 (Arch-1 / P0-3): delegate the per-flavour math + clip + NaN fallback to the shared
+    # ``combine_probs`` helper. This eliminates the historical train-vs-predict math drift -- predict
+    # imports the same helper. The outlier-member gate above is train-only (requires median across
+    # members which would need an honest signal predict cannot reconstruct); the per-flavour reduce
+    # below is identical on both sides.
+    ensembled_predictions = combine_probs(
+        _preds_arr,
+        ensemble_method,
+        rrf_k=int(rrf_k),
+        sample_weight=sample_weight,
+        ensure_prob_limits=ensure_prob_limits,
+    )
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # Confidence estimates
@@ -1595,7 +1653,12 @@ def score_ensemble(
     early_exit_if_identical: bool = False,
     # GATE-DOUBLE-DIP: when True, the quality-gate source is restricted to OOF predictions; legacy
     # callers that only stamped val_/test_/train_ preds fall through to the disabled gate path.
-    require_oof_for_gate: bool = False,
+    # C-P1-1: default flipped to True. Pre-fix the gate silently fell through to ``val_preds``
+    # (the same surface early-stopping already burned) for any member without OOF, biasing the
+    # gate-survivors selection. The suite caller (_phase_train_one_target.py) NEVER overrode this
+    # so every default suite ran with a val-biased gate. Setting to False explicitly re-enables
+    # the legacy fallback chain (oof -> val -> test -> train) when the suite has not stamped OOF.
+    require_oof_for_gate: bool = True,
     # VOTENRANK: build a votenrank.Leaderboard over the resulting per-flavour metrics and stamp it
     # in the returned dict under ``_leaderboard``. Defaults True for classification; regression-only
     # flavours skip rank-based methods automatically.
@@ -1603,8 +1666,17 @@ def score_ensemble(
     # Stacking-aware gate hook. When True, runs the NNLS-weight gate from composite_stacking on the
     # ensemble's OOF predictions and persists the survivors / weights under ``_stacking_gate``. The
     # gate is observational unless the suite caller wires it into a follow-up linear stack.
-    enable_stacking_aware_gate: bool = False,
+    # C-P1-5: default flipped to True. The gate is observational (does not drop members) and
+    # surfaces per-member NNLS-weight info operators want for audit; previously this required the
+    # suite caller to opt in, so the default suite path lost the diagnostics entirely.
+    enable_stacking_aware_gate: bool = True,
     stacking_gate_min_weight: float = 0.05,
+    # P1-7: optional auto-drop of one member from each high-correlation pair.
+    # ``None`` preserves the observational-only default (just WARNs + stamps to _diversity);
+    # passing a float in (0, 1] activates auto-drop when any pair's |corr| exceeds the floor.
+    # The MEMBER WITH HIGHER MEAN ABSOLUTE GATE-METRIC (mae from the gate) is dropped, so the
+    # surviving member is the one closer to the median.
+    auto_drop_diversity_above: Optional[float] = None,
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models.
@@ -1623,11 +1695,20 @@ def score_ensemble(
 
     # SINGLE-MEMBER: short-circuit when only one member is supplied. There is no ensemble to score;
     # historically the caller filtered K==1 but score_ensemble itself silently iterated every flavour
-    # over a 1-member tensor (the rrf/median/harm reduction is a no-op). Returning {} signals "no
-    # ensemble built" to the caller without raising.
+    # over a 1-member tensor (the rrf/median/harm reduction is a no-op). Returning a sentinel-only
+    # dict ({"_reason": "single_member"}) signals "no ensemble built" to the caller without raising,
+    # AND lets finalize / metadata distinguish "single-member suite" from "ensemble failed silently"
+    # (Low-9). The sentinel key starts with ``_`` so it is filtered out by the ensemble-iteration
+    # logic in callers that iterate ``res.items()`` for real flavours.
     if len(level_models_and_predictions) < 2:
         if verbose and len(level_models_and_predictions) == 1:
-            logger.info("[ensemble] only one member supplied; nothing to ensemble. Returning empty result.")
+            logger.info("[ensemble] only one member supplied; nothing to ensemble. Returning sentinel result.")
+        if len(level_models_and_predictions) == 1:
+            res["_reason"] = "single_member"
+            res["_n_members"] = 1
+        else:
+            res["_reason"] = "no_members"
+            res["_n_members"] = 0
         return res
 
     # Uniformity gate: mixing a classifier (probs available) with a regressor (probs == None)
@@ -1811,6 +1892,14 @@ def score_ensemble(
                 )
             if _gate_stats.get("filter_too_restrictive"):
                 logger.warning("[ensemble] gate would have excluded ALL members; falling back to original list (filter too restrictive for this combo)")
+                # Low-5: stamp the bypass into the returned res so finalize / metadata reflect that
+                # the gate was bypassed -- operators reading "all members kept" can now distinguish
+                # the "all members within threshold" case from the "filter too restrictive" case.
+                res["_gate_bypassed"] = {
+                    "reason": "filter_too_restrictive",
+                    "source_split": _gate_source_split,
+                    "would_have_excluded": [i for i, _ in (_excluded or [])],
+                }
         if _excluded and not _gate_stats.get("filter_too_restrictive"):
             level_models_and_predictions = [level_models_and_predictions[i] for i in _kept_idx]
             # 2026-05-11: refresh ``ensemble_name`` to reflect the kept
@@ -1860,26 +1949,68 @@ def score_ensemble(
             max_std_relative = 0.0
 
     # Observational diversity check: pairs of kept members whose val-pred Pearson correlation exceeds the threshold are
-    # surfaced via WARN + persisted to the returned dict under ``_diversity.high_correlation_pairs``. No member is removed
-    # here -- the user explicitly rejected auto-drop: ensembles tolerate redundancy fine (mean / median absorb it), but
-    # operators want visibility on near-duplicates to prune at the suite-definition stage rather than silently.
+    # surfaced via WARN + persisted to the returned dict under ``_diversity.high_correlation_pairs``. Defaults to
+    # observational-only (no member removed); pass ``auto_drop_diversity_above`` to actually drop one of each pair.
     _high_corr_pairs, _div_split_used = compute_high_correlation_pairs(
         level_models_and_predictions,
         _ensemble_member_tags,
         threshold=diversity_corr_warn_threshold,
     )
+    _drop_floor = auto_drop_diversity_above
+    _auto_dropped: list[str] = []
     for _pair in _high_corr_pairs:
+        _would_drop_msg = ""
+        if _drop_floor is not None and abs(_pair["corr"]) >= float(_drop_floor):
+            _would_drop_msg = f" auto-drop active (floor={_drop_floor:.3f}) -- one of {_pair['m1']}/{_pair['m2']} will be dropped"
+        else:
+            _would_drop_msg = " (would auto-drop one member if auto_drop_diversity_above set <= corr)"
         logger.warning(
-            "[ensemble] high-correlation member pair (split=%s): %s vs %s -- Pearson corr=%.4f > threshold=%.4f. "
-            "Both members retained; consider pruning one at suite-definition time to reduce wasted compute.",
+            "[ensemble] high-correlation member pair (split=%s): %s vs %s -- Pearson corr=%.4f > threshold=%.4f.%s",
             _div_split_used,
             _pair["m1"],
             _pair["m2"],
             _pair["corr"],
             diversity_corr_warn_threshold,
+            _would_drop_msg,
         )
-    if _high_corr_pairs:
-        res["_diversity"] = {"high_correlation_pairs": _high_corr_pairs, "threshold": diversity_corr_warn_threshold, "split_used": _div_split_used}
+    # Auto-drop one member from each high-corr pair when the knob is set. Pick the member with the
+    # larger tag-index (later in the suite) so removal is deterministic and stable across runs.
+    if _drop_floor is not None and _high_corr_pairs:
+        _to_drop_tags: set[str] = set()
+        for _pair in _high_corr_pairs:
+            if abs(_pair["corr"]) < float(_drop_floor):
+                continue
+            _m1, _m2 = _pair["m1"], _pair["m2"]
+            try:
+                _i1 = _ensemble_member_tags.index(_m1)
+                _i2 = _ensemble_member_tags.index(_m2)
+            except ValueError:
+                continue
+            _drop_tag = _m2 if _i2 >= _i1 else _m1
+            _to_drop_tags.add(_drop_tag)
+        if _to_drop_tags:
+            _kept_pairs = [
+                (i, m) for i, m in enumerate(level_models_and_predictions)
+                if _ensemble_member_tags[i] not in _to_drop_tags
+            ]
+            if len(_kept_pairs) >= 1:
+                level_models_and_predictions = [m for _, m in _kept_pairs]
+                _kept_indices = [i for i, _ in _kept_pairs]
+                _ensemble_member_tags = [_ensemble_member_tags[i] for i in _kept_indices]
+                _ensemble_short_tags = [_ensemble_short_tags[i] for i in _kept_indices]
+                _auto_dropped = sorted(_to_drop_tags)
+                logger.warning(
+                    "[ensemble] auto_drop_diversity_above=%.3f dropped %d duplicate member(s): %s",
+                    float(_drop_floor), len(_auto_dropped), _auto_dropped,
+                )
+    if _high_corr_pairs or _auto_dropped:
+        res["_diversity"] = {
+            "high_correlation_pairs": _high_corr_pairs,
+            "threshold": diversity_corr_warn_threshold,
+            "split_used": _div_split_used,
+            "auto_drop_floor": float(_drop_floor) if _drop_floor is not None else None,
+            "auto_dropped_members": _auto_dropped,
+        }
 
     # I2 (2026-05-11): for regression, gate-out harmonic / geometric ensemble flavours when ANY member's predictions contain near-zero values or sign changes. Harmonic mean = N / sum(1/p) and geometric mean = exp(mean(log p)) both diverge / are undefined on signals that cross zero. Symptom seen in the prod log: ``EnsHARM ... RMSE=178.84 MaxError=55206`` and ``RMSE=1299.55 MaxError=920165`` on composite residuals which cluster around zero by construction.
     #
@@ -1943,6 +2074,13 @@ def score_ensemble(
             if verbose:
                 logger.info("[ensemble] all members produce numerically identical predictions on split=%s; collapsing to a single 'arithm' flavour.", _gate_source_split)
             ensembling_methods = ["arithm"] if "arithm" in ensembling_methods else (ensembling_methods[:1] if ensembling_methods else [])
+            # P2-7: surface the collapse into res["_diversity"] so finalize can persist it. Operators
+            # reading ``ensembles_chosen[tt][tname]=='arithm'`` can then distinguish "arithm won by
+            # metric" from "all members were duplicates and arithm was the only viable flavour".
+            _div_block = res.setdefault("_diversity", {})
+            _div_block["all_members_identical"] = True
+            _div_block["collapsed_to_single_flavour"] = ensembling_methods[0] if ensembling_methods else None
+            _div_block["split_used"] = _gate_source_split
 
     # Stacking-aware gate (composite_stacking.stacking_aware_gate). Observational by default: runs
     # NNLS over member OOF preds, persists survivors / weights on ``res["_stacking_gate"]``. The

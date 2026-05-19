@@ -145,6 +145,15 @@ def bayesian_alpha_fit(
     if v > 2:
         var_factor = v / (v - 2)
     else:
+        # C-Low-11: surface degenerate-posterior at WARN. v=n-2; v<=2 (i.e. n<=4) makes the
+        # marginal t-variance factor v/(v-2) undefined. Operators feeding 4-row data previously
+        # got a valid alpha_mean and a silent NaN CI -- this WARN lets them grep for the case.
+        logger.warning(
+            "[bayesian_alpha_fit] degenerate posterior: n=%d -> v=n-2=%d <= 2; "
+            "variance factor v/(v-2) undefined, alpha_std / beta_std / CIs will be NaN. "
+            "Pass at least 5 observations for a finite posterior variance.",
+            n, v,
+        )
         var_factor = float("nan")
     alpha_var = s2_hat * float(XtX_inv[0, 0]) * var_factor
     beta_var = s2_hat * float(XtX_inv[1, 1]) * var_factor

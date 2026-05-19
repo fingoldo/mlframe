@@ -1,4 +1,4 @@
-"""Regression test for composite_cache row-order signature (Phase-1 fix #4).
+"""Regression test for composite_cache row-order signature.
 
 Pre-fix ``data_signature`` used a seeded-RNG row-sample, which produces identical samples for the
 original frame AND for any row-permutation of it. A shuffled frame therefore hit the cache and

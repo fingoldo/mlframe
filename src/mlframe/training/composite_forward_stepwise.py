@@ -35,7 +35,12 @@ def forward_stepwise_multi_base(
     min_marginal_rmse_gain: float = _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
     cv_folds: int = 3,
     random_state: int = 42,
-    time_aware: bool = False,
+    # C-P2-11: default flipped to True. The selector is downstream of every honest-OOF code path
+    # in the suite (composite_target_discovery passes through a temporal split). Random-shuffle CV
+    # over time-correlated rows gives optimistic gains; a base that survives KFold(shuffle=True) can
+    # regress on a true forward-walk. TimeSeriesSplit on non-temporal data is harmless (just a less
+    # efficient random split). Callers with confirmed non-temporal data can pass time_aware=False.
+    time_aware: bool = True,
     cv_splitter: Any = None,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Greedy forward-stepwise base selection for ``linear_residual_multi``.

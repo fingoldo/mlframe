@@ -416,28 +416,123 @@ def train_postcalibrators(
     include_patterns=None,
     max_mae: float = None,
     max_std: float = None,
-    ensembling_method="harm",
+    ensembling_method: Optional[str] = None,
     ensure_prob_limits: bool = True,
     uncertainty_quantile: float = 0.0,
     normalize_stds_by_mean_preds: bool = True,
     verbose: int = 1,
+    *,
+    calib_probs_per_model: Optional[Sequence[np.ndarray]] = None,
+    calib_target: Optional[np.ndarray] = None,
+    metadata: Optional[dict] = None,
 ):
-    """Fit postcalibrators on the aggregated test-set predictions of a model ensemble.
+    """Fit postcalibrators on a DISJOINT calibration split.
 
-    Disjoint-set contract: callers MUST NOT subsequently evaluate the fitted calibrators on
-    the same ``first_model.test_*`` set used here — the calibrators are fit directly on those
-    test predictions and reporting calibrated metrics on that same set measures in-sample
-    calibration quality, not held-out calibration. For an honest estimate, hold out an
-    additional split (calibration/validation set) and apply the fitted calibrators there.
-    ``compare_postcalibrators`` enforces the split via its ``calib_probs`` vs ``oos_probs``
-    arguments; this orchestrator intentionally passes ``oos_probs=None`` because calibrators
-    are persisted for later inference, not measured here.
+    Calibrators MUST be fit on a calibration split that is disjoint from BOTH the training set
+    (where the models were trained) AND the honest test/holdout set (used for honest evaluation
+    of calibrated metrics).
+
+    Required parameters (callers MUST supply BOTH):
+      - ``calib_probs_per_model``: an iterable of per-model probability arrays aligned to a
+        dedicated calibration split. Row i across every member must refer to the SAME row of
+        ``calib_target``. This function will NOT fall back to ``model.test_probs``: using the
+        honest test set to fit calibrators converts every later test-set calibration metric
+        into an in-sample read-out.
+      - ``calib_target``: the target vector aligned to ``calib_probs_per_model``.
+
+    The function asserts that ``calib_target`` is NOT identical to any model's ``.test_target``
+    (no silent same-set fallback), and refuses if either parameter is missing.
+
+    ``ensembling_method`` defaults to the suite-chosen flavour from
+    ``metadata["ensembles_chosen"]`` (per target). Pass an explicit string to override; pass
+    ``None`` and supply ``metadata`` to inherit the suite winner.
     """
     if include_patterns is None:
         include_patterns = [r"SplineCalib", r"pycalib.BetaCalibration"]
-    ensembled_test_predictions, confident_test_indices = ensemble_probabilistic_predictions(
-        *(el.test_probs for el in models.values()),
-        ensemble_method=ensembling_method,
+
+    if calib_probs_per_model is None or calib_target is None:
+        raise ValueError(
+            "train_postcalibrators requires explicit calib_probs_per_model + calib_target "
+            "from a DISJOINT calibration split (not the train set, and not the honest test set). "
+            "Falling back to model.test_probs would fit calibrators on the same rows used to "
+            "report honest test metrics, converting every later test-set calibration read-out "
+            "into an in-sample measurement. Pre-allocate a held-out calibration slice in the "
+            "suite caller and pass it positionally."
+        )
+
+    # Refuse silent same-set fallback: if ``calib_target`` IS (or matches by value) any model's
+    # ``.test_target`` we raise. This is the defence against the historical
+    # "test == calib" bug -- the caller may not realise they have shared the slot.
+    _calib_target_np = np.asarray(calib_target)
+    for _name, _m in models.items():
+        _tt = getattr(_m, "test_target", None)
+        if _tt is None:
+            continue
+        try:
+            _tt_np = _tt.values if hasattr(_tt, "values") else np.asarray(_tt)
+        except Exception:
+            continue
+        if _tt_np.shape == _calib_target_np.shape:
+            # array_equal handles dtype mismatches and avoids deprecation noise on ndarray==
+            try:
+                if np.array_equal(_tt_np, _calib_target_np):
+                    raise ValueError(
+                        "train_postcalibrators: calib_target appears to be identical to "
+                        f"model '{_name}'.test_target. Refusing to fit calibrators on the "
+                        "honest holdout split (in-sample calibration read-out). Use a "
+                        "dedicated calibration split disjoint from test."
+                    )
+            except (TypeError, ValueError) as _eq_err:
+                if "identical" in str(_eq_err):
+                    raise
+                # Non-comparable dtypes (e.g. mixed-type pandas Series) -- skip the equality check.
+                continue
+
+    # Resolve the ensemble flavour. Priority: explicit arg >
+    # metadata["ensembles_chosen"]["simple"][tt][tname] > "harm" fallback.
+    # Arch-3: ensembles_chosen is sub-keyed per family; calibrators always run on the simple
+    # per-target ensemble bucket (cross-target ensembles have their own calibration story).
+    _resolved_method = ensembling_method
+    if _resolved_method is None and metadata is not None:
+        _ec = metadata.get("ensembles_chosen") if isinstance(metadata, dict) else None
+        if isinstance(_ec, dict):
+            _bucket = _ec.get("simple")
+            if isinstance(_bucket, dict):
+                _by_tt = _bucket.get(task_type) or _bucket.get(str(task_type))
+                if isinstance(_by_tt, dict):
+                    _resolved_method = _by_tt.get(target_name) or _by_tt.get(str(target_name))
+                elif isinstance(_by_tt, str):
+                    _resolved_method = _by_tt
+    if _resolved_method is None:
+        _resolved_method = "harm"
+        logger.warning(
+            "train_postcalibrators: no ensemble flavour passed and metadata['ensembles_chosen'] "
+            "did not expose one for target=%r; defaulting to 'harm'. The deployed predict path "
+            "may select a different flavour, leading to a calibration / deployment mismatch.",
+            target_name,
+        )
+
+    _calib_arrays = [np.asarray(p) for p in calib_probs_per_model]
+    if not _calib_arrays:
+        raise ValueError("train_postcalibrators: calib_probs_per_model is empty.")
+    _n_calib = _calib_arrays[0].shape[0]
+    if _calib_target_np.shape[0] != _n_calib:
+        raise ValueError(
+            f"train_postcalibrators: calib_target length {_calib_target_np.shape[0]} "
+            f"does not match calib_probs row count {_n_calib}."
+        )
+    for _i, _p in enumerate(_calib_arrays):
+        if _p.shape[0] != _n_calib:
+            raise ValueError(
+                f"train_postcalibrators: calib_probs_per_model[{_i}] has {_p.shape[0]} rows; "
+                f"expected {_n_calib} aligned to calib_target."
+            )
+
+    # ensemble_probabilistic_predictions returns a 3-tuple (preds, uncertainty, confident_idx).
+    # Pre-fix this site unpacked into TWO names -- raising ValueError on every reachable call.
+    ensembled_calib_predictions, _uncertainty, _confident_calib_indices = ensemble_probabilistic_predictions(
+        *_calib_arrays,
+        ensemble_method=_resolved_method,
         max_mae=max_mae,
         max_std=max_std,
         ensure_prob_limits=ensure_prob_limits,
@@ -449,44 +544,21 @@ def train_postcalibrators(
     first_model = list(models.values())[0]
     columns = first_model.columns
 
-    # Alignment precondition: every model in the ensemble MUST share the same test_target
-    # indexing as first_model — we call ensemble_probabilistic_predictions positionally on
-    # test_probs, so row i of ensembled_test_predictions must correspond to row i of every
-    # model's test_target. Previously this was assumed implicitly; now assert explicitly
-    # so mis-aligned folds fail loud instead of producing silently garbage calibrators.
-    first_target = first_model.test_target
-    for name, model in models.items():
-        other_target = model.test_target
-        if len(other_target) != len(first_target):
-            raise AssertionError(
-                f"train_postcalibrators: model '{name}' test_target length {len(other_target)} "
-                f"does not match first model's {len(first_target)}; ensemble and calibrator "
-                "fits would be misaligned."
-            )
-        if hasattr(first_target, "index") and hasattr(other_target, "index"):
-            if not first_target.index.equals(other_target.index):
-                raise AssertionError(
-                    f"train_postcalibrators: model '{name}' test_target index does not match "
-                    "first model's index; row-wise alignment cannot be assumed."
-                )
-
-    test_target = first_target.values
-
     calib_test_metrics, test_calibrators = compare_postcalibrators(
         model_name=model_name,
         columns=columns,
-        calib_probs=ensembled_test_predictions,
-        calib_target=test_target,
+        calib_probs=ensembled_calib_predictions,
+        calib_target=_calib_target_np,
         oos_probs=None,
         oos_target=None,
-        calib_type="test",
+        calib_type="calib",
         include_patterns=include_patterns,
     )
 
     final_models_dir = join(models_dir, target_name, featureset_name, task_type, model_name)
 
     for calib_name, calibrator in test_calibrators.items():
-        ens_name = f"ens_{ensembling_method}"
+        ens_name = f"ens_{_resolved_method}"
         calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator_{slugify(calib_name)}.dump")
         joblib.dump(calibrator, calib_fpath, compress=("lzma", 6))
 

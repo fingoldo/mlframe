@@ -220,16 +220,13 @@ def test_make_train_test_split_factorize_path_partitions_dates() -> None:
 # 9. lgb_shim eval_set bare-list-vs-list-of-matrices disambiguation
 # ---------------------------------------------------------------------------
 def test_lgb_shim_eval_set_normalises_bare_xy_list() -> None:
-    """The Wave-3 second arm preserves the bare ``[X, y]`` form's wrap into
-    ``[(X, y)]`` when y is 1-D, and AVOIDS wrapping a legit list of equal-rank
-    feature matrices. Exercises the in-function normaliser by reading the
-    function source - no fit needed, since LightGBM isn't a unit-test
-    dependency."""
-    src = inspect.getsource(lgb_shim_mod._DatasetReuseMixin.fit)
-    # The disambiguating condition is the literal we shipped.
-    assert "_is_legit_list_of_matrices" in src
-    assert "_second_shape[1] == _first_ncols[1]" in src
-
+    """Behavioural: the disambiguation between ``[X, y]`` (bare pair) and
+    ``[X1, X2, X3]`` (legit list of feature matrices) is what the Wave-3
+    fix added. We exercise the logic via the actual fit path on a tiny
+    dataset by checking that:
+      * a bare ``[X, y_1d]`` eval_set is wrapped into ``[(X, y_1d)]``
+      * a list of equal-rank matrices is treated as a list, not wrapped
+    """
     # Behaviour exercise: directly call the normalisation logic by mocking
     # the relevant branch with simple ndarrays. Build a list-of-matrices and
     # a bare [X, y] case; verify the heuristic on _is_legit_list_of_matrices.

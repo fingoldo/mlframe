@@ -178,8 +178,13 @@ def test_biz_cat_fe_engineered_col_replays_on_test_data(xor_4way_dataset):
 
     mrmr = _fit_cat_fe(df_train, y_train)
     state = mrmr._cat_fe_state_
-    if not state.recipes:
-        pytest.skip("No recipes on this slice; not a biz-value regression")
+    # The XOR-4way dataset with fixed seed is supposed to deterministically yield recipes;
+    # an empty recipe set is a real undertraining regression, not a benign data condition
+    # (memory feedback_no_mask_via_canon_or_guards).
+    assert state.recipes, (
+        "cat_fe state.recipes is empty on XOR-4way dataset - undertraining regression. "
+        "If MRMR config changed, broaden the fitting budget rather than silently skipping."
+    )
 
     # Pick the XOR recipe and replay manually
     from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
@@ -188,8 +193,10 @@ def test_biz_cat_fe_engineered_col_replays_on_test_data(xor_4way_dataset):
         (r for r in state.recipes if set(r.src_names) == {"x1", "x2"}),
         None,
     )
-    if xor_recipe is None:
-        pytest.skip("XOR pair not selected on this slice")
+    assert xor_recipe is not None, (
+        "XOR pair (x1, x2) must be selected on the XOR-4way synthetic; "
+        "missing selection indicates a regression in cat_fe recipe discovery."
+    )
 
     # Replay on test
     out = apply_recipe(xor_recipe, df_test)

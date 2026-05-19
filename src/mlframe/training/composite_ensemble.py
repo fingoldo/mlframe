@@ -199,7 +199,15 @@ def _maybe_pass_sample_weight(fit_callable, X, y, sw: np.ndarray | None):
 
 # Module-level memo cache for compute_oof_holdout_predictions. OOF-K-NOT-CACHED: keyed by
 # (cache_key, kfold, random_state). The cache_key argument is opaque -- callers pass a hashable
-# tuple summarising the (component, X, y, sw) identity (e.g. (id(train_X), y_hash, spec_hash)).
+# tuple summarising the (component, X, y, sw) identity.
+#
+# C-P2-2: DO NOT include ``id(train_X)`` in the cache_key. Python recycles object IDs across the
+# lifecycle of a long-lived suite, so two frames with disjoint content can end up sharing the same
+# id and a stale cache entry can mask the swap. Prefer a content fingerprint (the suite already
+# computes one via ``pipeline_cache.fingerprint_df`` /``_hash_frame``) or a stable per-session
+# token. The historical comment that recommended ``id(train_X)`` was wrong; callers passing such
+# a key get cross-contamination across re-runs.
+#
 # 16-entry LRU; once full the least-recently-USED entry is evicted on insertion. Stays in-process;
 # cleared at interpreter shutdown. ``OrderedDict.move_to_end`` on cache hits keeps the eviction
 # order driven by access (true LRU), not just insertion order (which would degrade to FIFO).
@@ -280,7 +288,12 @@ def compute_oof_holdout_predictions(
 
     n_train = len(y_train_full)
     if n_train < 50 or holdout_frac <= 0 or holdout_frac >= 1:
-        return np.zeros((0, len(component_models))), np.zeros(0), []
+        # C-Low-1: shape consistency across the three empty-return paths. ``surviving_names=[]``
+        # means zero components survived; both axes are zero. Downstream consumers that probed
+        # ``.shape[1]`` against ``len(surviving_names)`` were correct; consumers that probed
+        # ``.shape[1]`` against ``len(component_models)`` had been silently looking at a
+        # non-empty K dimension with zero rows. Standardise to ``(0, 0)`` everywhere.
+        return np.zeros((0, 0)), np.zeros(0), []
 
     # OOF-K-NOT-CACHED: when the caller supplied a cache_key we look up the (key, kfold, rs)
     # tuple. Cache hit is bit-identical with a previous call -- same components, same X, same y,
@@ -293,12 +306,18 @@ def compute_oof_holdout_predictions(
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
             return _hit
 
-    # ENS-Low-1: K-fold path. We recurse on the single-split implementation
-    # by inducing the desired splits manually. Each fold's holdout slice is
-    # predicted by inner clones trained on the remaining (K-1) folds; OOF
-    # predictions are stitched back to row-order. Time-aware split is NOT
-    # K-folded (semantics would be ambiguous for past-only training); we
-    # fall through to the single-split path when ``time_ordering`` is given.
+    # C-P1-3: warn loudly when a caller asks for time-aware K-fold (kfold>1 AND time_ordering supplied) so
+    # they know the suite is silently downgrading to a single trailing-slice holdout. Forward-walking K-fold
+    # is semantically ambiguous (past-only training rules out shuffled K-fold) and intentionally unsupported;
+    # callers who got back ONE OOF slice instead of K used to have no signal that their kfold request was
+    # ignored, biasing every downstream "average across folds" report.
+    if int(kfold) > 1 and time_ordering is not None:
+        logger.warning(
+            "compute_oof_holdout_predictions: kfold=%d AND time_ordering supplied; K-fold is "
+            "incompatible with time-aware semantics. Downgrading to a single trailing-slice "
+            "holdout. Pass time_ordering=None to enable shuffled K-fold OOF.",
+            int(kfold),
+        )
     if int(kfold) > 1 and time_ordering is None:
         from sklearn.model_selection import KFold
         kf = KFold(n_splits=int(kfold), shuffle=True, random_state=int(random_state))
@@ -394,7 +413,8 @@ def compute_oof_holdout_predictions(
                 buf = oof_preds_by_name.setdefault(nm, np.full(n_train, np.nan, dtype=np.float64))
                 buf[fold_holdout_idx] = preds
         if not oof_preds_by_name or not survived_set:
-            _empty = (np.zeros((n_train, 0)), y_train_full.astype(np.float64), [])
+            # C-Low-1: shape consistency -- match the (0, 0) tiny-data short-circuit. No components survived.
+            _empty = (np.zeros((0, 0)), np.zeros(0), [])
             if _full_key is not None:
                 _oof_cache_put(_full_key, _empty)
             return _empty
@@ -535,8 +555,21 @@ def compute_oof_holdout_predictions(
             )
             continue
 
+    # C-P2-4: summary log so operators can see "ensemble built with N of K components" at INFO
+    # without grepping per-component WARN lines. ``component_names`` is the full caller-supplied
+    # list; ``surviving_names`` is the subset whose refit succeeded.
+    _surviving_n = len(surviving_names)
+    _total_n = len(component_names)
+    if _surviving_n < _total_n:
+        _dropped = [n for n in component_names if n not in set(surviving_names)]
+        logger.info(
+            "compute_oof_holdout_predictions: built OOF matrix with %d of %d components "
+            "(dropped %d: %s). Per-component drop reasons logged at WARN above.",
+            _surviving_n, _total_n, _total_n - _surviving_n, _dropped,
+        )
     if not holdout_cols:
-        _empty = (np.zeros((n_holdout, 0)), y_holdout, [])
+        # C-Low-1: shape consistency -- match the tiny-data + kfold short-circuits.
+        _empty = (np.zeros((0, 0)), np.zeros(0), [])
         if _full_key is not None:
             _oof_cache_put(_full_key, _empty)
         return _empty
@@ -649,10 +682,20 @@ class CompositeCrossTargetEnsemble:
     ) -> CompositeCrossTargetEnsemble:
         """Equal-weight average: ``w_k = 1/K`` for all components."""
         n = len(component_models)
+        # C-P2-3: fail fast with a self-attributed message rather than falling through to
+        # ``__init__``'s generic "empty component list" check. Callers reach this point because
+        # they had no fit candidates, not because of an internal bug -- surfacing the true cause
+        # at the call site lets ops investigate the upstream candidate-discovery step.
+        if n == 0:
+            raise ValueError(
+                "from_uniform_weights: empty component list. The caller must supply at least "
+                "one component model + name. Check upstream component-discovery (no surviving "
+                "components after fit / gate filtering)."
+            )
         return cls(
             component_models=component_models,
             component_names=component_names,
-            weights=np.full(n, 1.0 / n) if n > 0 else np.array([]),
+            weights=np.full(n, 1.0 / n),
             strategy="mean",
         )
 
@@ -747,11 +790,17 @@ class CompositeCrossTargetEnsemble:
         # path supports negative weights via is_convex=False).
         _neg_mask = raw_weights < 0
         if _neg_mask.any():
+            # C-P2-1: surface a quantitative impact estimate so operators see HOW MUCH of the ensemble's
+            # combined |weight| comes from negative-coefficient members. A scalar like 0.62 means
+            # 62% of the absolute-weight mass is anti-correlated, which is a much clearer signal than
+            # the per-member list alone.
+            _neg_share = float(np.sum(np.abs(raw_weights[_neg_mask])) / max(np.sum(np.abs(raw_weights)), 1e-300))
             logger.warning(
                 "[CompositeCrossTargetEnsemble] linear_stack: %d/%d components have negative Ridge "
-                "coefficients (anti-correlated with target on train). Ensemble is still built; the "
-                "predict path subtracts the weighted contribution of those members. Affected: %s.",
-                int(_neg_mask.sum()), len(raw_weights),
+                "coefficients (anti-correlated with target on train; %.1f%% of |weight| mass). Ensemble "
+                "is still built; the predict path subtracts the weighted contribution of those members. "
+                "Affected: %s.",
+                int(_neg_mask.sum()), len(raw_weights), 100.0 * _neg_share,
                 ", ".join(f"{component_names[i]} (w={raw_weights[i]:.4g})" for i in np.flatnonzero(_neg_mask).tolist()),
             )
         # Ridge stack: weights may be negative and do not sum to 1; signal this with
@@ -878,7 +927,7 @@ class CompositeCrossTargetEnsemble:
         cls,
         component_models: list[Any],
         component_names: list[str],
-        component_train_rmse: Sequence[float],
+        component_train_rmse: Sequence[float] | None = None,
         baseline_train_rmse: float | None = None,
         component_oof_rmse: Sequence[float] | None = None,
         baseline_oof_rmse: float | None = None,
@@ -920,6 +969,12 @@ class CompositeCrossTargetEnsemble:
             if baseline_oof_rmse is not None:
                 baseline_train_rmse = baseline_oof_rmse
         else:
+            if component_train_rmse is None:
+                raise ValueError(
+                    "from_train_metrics: must supply either component_oof_rmse "
+                    "(preferred, honest holdout) or component_train_rmse "
+                    "(biased optimistic fallback); got neither."
+                )
             rmses = np.asarray(component_train_rmse, dtype=np.float64)
             if len(rmses) != n:
                 raise ValueError(
@@ -1206,4 +1261,28 @@ class CompositeCrossTargetEnsemble:
                 else:
                     setattr(new, _attr, _val)
         return new
+
+    def discard_train_matrix(self) -> CompositeCrossTargetEnsemble:
+        """Drop the stashed (n_train, K) training-prediction matrix and target vector that the
+        dropout-refit path uses at predict time.
+
+        C-P2-8: the linear/NNLS stack factories cache the train matrix on the instance so the
+        predict path can refit when components are dropped on the fly. For production deploys that
+        will never trigger dropout-refit (single fixed component set, no online dropout), this
+        cache is ~``8 * n_train * (K + 1)`` bytes of dead weight that survives every
+        ``save_mlframe_model`` round-trip. Call this method right before persistence to strip those
+        attributes; the returned ensemble can still ``.predict`` normally but ``.refit`` /
+        dropout-style methods will raise. Operation is in-place and returns ``self`` so call sites
+        can chain.
+        """
+        for _attr in (
+            "_linear_stack_train_preds",
+            "_linear_stack_train_y",
+            "_nnls_stack_train_preds",
+            "_nnls_stack_train_y",
+        ):
+            if hasattr(self, _attr):
+                delattr(self, _attr)
+        self.notes["train_matrix_discarded"] = True
+        return self
 

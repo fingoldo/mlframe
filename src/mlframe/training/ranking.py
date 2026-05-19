@@ -612,15 +612,16 @@ def ensemble_ranker_scores(
         )
 
     if method == "score_mean" and not assume_comparable_scales:
-        logger.warning(
-            "ensemble_ranker_scores: method='score_mean' requires "
-            "assume_comparable_scales=True (raw scores from CB/XGB/LGB "
-            "rankers are NOT comparable -- different objectives emit "
-            "different ranges). Falling back to RRF for safety. To "
-            "enable score_mean, calibrate scores externally and pass "
-            "assume_comparable_scales=True."
+        # C-P1-4: hard-fail instead of silently mutating method='score_mean' -> method='rrf'. The previous
+        # silent fallback meant operators saw 'score_mean' in their config and metadata while RRF math
+        # actually executed; method choice is a contract, not a suggestion.
+        raise ValueError(
+            "ensemble_ranker_scores: method='score_mean' requires assume_comparable_scales=True. "
+            "Raw scores from CB/XGB/LGB rankers are NOT comparable -- different objectives emit "
+            "different ranges. To enable score_mean, calibrate scores externally and pass "
+            "assume_comparable_scales=True. To use rank-fusion instead, pass method='rrf' or "
+            "method='borda' explicitly."
         )
-        method = "rrf"
 
     sort_idx, group_starts = _group_starts_from_ids(group_ids)
     inv_sort = np.empty_like(sort_idx)

@@ -49,7 +49,32 @@ import threading as _threading  # noqa: E402
 _PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
 _PRE_PIPELINE_CACHE: OrderedDict[tuple, tuple] = OrderedDict()
 # Default LRU bound; overridable per call via TrainingBehaviorConfig.pre_pipeline_cache_max so long-running services can tune memory vs reuse rate without monkey-patching.
-_PRE_PIPELINE_CACHE_MAX: int = 4
+# Audit D P2-1 (2026-05-18): pre-fix default was 4 which silently evicted on the typical suite
+# (cb + lgb + xgb + mlp + linear == 5 models). Bumped to 8 so a standard suite fits without
+# thrashing; callers needing tighter bounds still set TrainingBehaviorConfig.pre_pipeline_cache_max.
+_PRE_PIPELINE_CACHE_MAX: int = 8
+
+
+# Audit D P0-3 (2026-05-18): a content-fingerprint failure must force a MISS, not a stable
+# cache hit. The previous ``("uncached", id(arr))`` return was a stable tuple key, so two
+# consecutive targets passing the SAME filtered_train_df id produced an IDENTICAL cache key
+# for both targets -- target-2 silently consumed target-1's fit-transform output. The sentinel
+# below is a unique-per-invocation marker; default identity equality / hash make two instances
+# NEVER compare equal even when wrapping the same input id.
+class _UncachableSentinel:
+    """Per-instance identity marker; two instances NEVER compare equal under default object
+    eq/hash, so cache keys built around two sentinels cannot collide."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - cosmetic only
+        return "<UncachableSentinel>"
+
+
+def _fresh_uncachable() -> tuple:
+    """Return a never-equal-to-anything-else sentinel tuple. Used in place of the unsafe
+    ``("uncached", id(arr))`` which collided cross-target."""
+    return ("uncached", _UncachableSentinel())
 
 
 def _content_fingerprint_for_cache(arr) -> tuple:
@@ -81,14 +106,14 @@ def _content_fingerprint_for_cache(arr) -> tuple:
             # on detection -- embedding columns are the common trigger (warning fired in
             # get_pandas_view_of_polars_df) and the cache contract is content-isolated regardless.
             if any(s.startswith(("List", "Array", "Struct")) for s in dtypes_str):
-                return ("uncached", id(arr))
+                return _fresh_uncachable()
             if n_rows == 0:
                 return ("pl", (n_rows, n_cols), col_names, dtypes_str, ())
             sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
             try:
                 rows = tuple(arr.row(i) for i in sample_idx)
             except Exception:
-                return ("uncached", id(arr))
+                return _fresh_uncachable()
             return ("pl", (n_rows, n_cols), col_names, dtypes_str, rows)
 
         # Polars Series: iloc-equivalent is ``arr[i]`` -- O(1), no full materialisation.
@@ -98,14 +123,14 @@ def _content_fingerprint_for_cache(arr) -> tuple:
             # List / Array / Struct dtypes yield Python list/dict cells; lists are unhashable so the
             # fingerprint tuple cannot be used as a dict key. Force-uncached on detection.
             if dtype_str.startswith(("List", "Array", "Struct")):
-                return ("uncached", id(arr))
+                return _fresh_uncachable()
             if n == 0:
                 return ("pls", (n,), dtype_str, ())
             sample_idx = (0, min(8, n - 1), n // 2, n - 1)
             try:
                 cells = tuple(arr[i] for i in sample_idx)
             except Exception:
-                return ("uncached", id(arr))
+                return _fresh_uncachable()
             return ("pls", (n,), dtype_str, cells)
 
         # Pandas DataFrame: .iat / .iloc[i].values -- O(n_cols), no full materialisation.
@@ -119,6 +144,12 @@ def _content_fingerprint_for_cache(arr) -> tuple:
             try:
                 # object-dtype cells from pyarrow ListArray materialise as Python lists -- unhashable.
                 # Coerce row cells to a hashable form: leave scalars alone, repr() any list/dict/ndarray.
+                # Audit D L-7 (2026-05-18): ``repr()`` on a 100-element numpy array is O(n_elements)
+                # in characters; on a List-of-floats embedding column each repr is hundreds of
+                # chars. We sample only 4 rows so the worst-case cost is 4 × O(embedding_len)
+                # chars per fingerprint call -- bounded and small relative to the cache-hit
+                # savings; a blake2b pre-hash would compact it further but is not currently
+                # actionable (only 4-row bound makes this <<1ms even on wide embedding frames).
                 def _row_to_hashable(r):
                     out = []
                     for v in r.values.tolist():
@@ -129,7 +160,7 @@ def _content_fingerprint_for_cache(arr) -> tuple:
                     return tuple(out)
                 rows = tuple(_row_to_hashable(arr.iloc[i]) for i in sample_idx)
             except Exception:
-                return ("uncached", id(arr))
+                return _fresh_uncachable()
             return ("pd", (n_rows, n_cols), col_names, dtypes, rows)
 
         # Pandas Series: .iat[i] -- O(1).
@@ -142,7 +173,7 @@ def _content_fingerprint_for_cache(arr) -> tuple:
             try:
                 cells = tuple(arr.iat[i] for i in sample_idx)
             except Exception:
-                return ("uncached", id(arr))
+                return _fresh_uncachable()
             return ("pds", (n,), dtype_str, cells)
 
         # NumPy / array-like: a 1-D / 2-D array is already in RAM; the previous flat-index sample is fine.
@@ -153,7 +184,7 @@ def _content_fingerprint_for_cache(arr) -> tuple:
         else:
             np_arr = np.asarray(arr)
         if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
-            return ("uncached", id(arr))
+            return _fresh_uncachable()
         shape = tuple(int(s) for s in np_arr.shape)
         dtype_str = str(np_arr.dtype)
         flat = np_arr.ravel()
@@ -164,10 +195,10 @@ def _content_fingerprint_for_cache(arr) -> tuple:
         try:
             sampled = bytes(np.ascontiguousarray(flat[idx]).tobytes())
         except Exception:
-            return ("uncached", id(arr))
+            return _fresh_uncachable()
         return ("np", shape, dtype_str, sampled)
     except Exception:
-        return ("uncached", id(arr))
+        return _fresh_uncachable()
 
 
 def _prepare_test_split(
@@ -335,19 +366,32 @@ def _multilabel_target_to_1d_for_supervised_encoders(target):
                 return target
     if arr.ndim != 2:
         return target
-    return (arr.sum(axis=1) > 0).astype(np.int8)
+    _collapsed = (arr.sum(axis=1) > 0).astype(np.int8)
+    if len(np.unique(_collapsed)) > 1:
+        return _collapsed
+    # "Any positive label" degenerates to all-1 (or all-0) when every row has at
+    # least one positive across K labels - happens for sparse multilabel with
+    # K>=3 and base rates ~50%. Fall back to the per-label signal that itself
+    # has the most variation (closest to 50/50 split). MRMR / TargetEncoder both
+    # need at least 2 unique values; degrading to per-label is the smallest
+    # information loss vs raising or returning a constant column.
+    for _j in np.argsort(np.abs(arr.mean(axis=0) - 0.5)):  # most-balanced first
+        _col = arr[:, _j].astype(np.int8)
+        if len(np.unique(_col)) > 1:
+            return _col
+    return _collapsed
 
 
-def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None, groups=None):
+def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=False, target=None, groups=None, sample_weight=None):
     """Run a selector fit/transform on df with passthrough_cols hidden, then re-attach them.
 
     Feature selectors (MRMR, RFECV) can't encode text or list-of-float embedding columns;
-    catboost needs them back intact for fit. Hide -> run -> re-attach preserves both.
+    catboost needs them back intact for fit. Hide - run - re-attach preserves both.
 
     Numpy-output fallback: if the inner ``fn`` is a default sklearn
     Pipeline (no ``set_output(transform="pandas")``), ``out`` comes back as a numpy
     array. The original code detected this via ``hasattr(out, "columns")`` and
-    silently returned numpy -- dropping ``passthrough_cols`` and, worse, collapsing
+    silently returned numpy - dropping ``passthrough_cols`` and, worse, collapsing
     pd.Categorical dtypes in the selected columns to numpy object strings, which
     crashes LGB's Dataset construction on the ``'HOURLY'`` path. We now rebuild a
     pd.DataFrame from the reduced-input column names so passthrough_cols re-attach
@@ -355,7 +399,14 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
 
     ``groups`` is threaded through fit/fit_transform so GroupKFold-aware feature
     selectors (RFECV with cv=GroupKFold(), MRMR with grouped CV) receive the
-    sample-grouping signal. fix audit row FS-P1-1.
+    sample-grouping signal.
+
+    ``sample_weight`` is threaded analogously into fit/fit_transform when the
+    underlying selector is stamped with ``_mlframe_use_sample_weights_in_fs_ = True``
+    (set by ``_build_pre_pipelines`` when ``FeatureSelectionConfig.use_sample_weights_in_fs``
+    is True). MRMR.fit and RFECV.fit both accept ``sample_weight`` as a kwarg; the
+    selector receives the active suite-level weights so selected features reflect
+    the weight schema (recency / fairness / class balance).
     """
 
     # Convert sklearn/polars "empty output" errors into
@@ -370,24 +421,45 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     #     (polars.to_numpy -> vstack on empty list).
     # Surfaced by MRMR fuzz axes (c0008 with interactions_max_order=3
     # + fe_max_steps=2 confirming 0 predictors).
+    # Resolve the underlying selector instance so we can read the weight-aware marker.
+    # ``fn`` is typically a bound method (``selector.fit_transform``); fall back to None when not applicable.
+    _selector = getattr(fn, "__self__", None)
+    _wants_sw = bool(sample_weight is not None and getattr(_selector, "_mlframe_use_sample_weights_in_fs_", False))
+
     def _call_fit(_fn, _arg, _target_arg):
-        """Invoke fit/fit_transform with ``groups`` when supported. sklearn
-        feature selectors that consume groups (RFECV(cv=GroupKFold()), MRMR)
-        accept ``groups`` as a kwarg on ``fit`` / ``fit_transform``. Best-effort:
-        if the underlying transformer does not accept the kwarg we retry
+        """Invoke fit/fit_transform with ``groups`` / ``sample_weight`` when supported.
+
+        sklearn feature selectors that consume groups (RFECV(cv=GroupKFold()), MRMR)
+        accept ``groups`` as a kwarg on ``fit`` / ``fit_transform``. MRMR.fit and
+        RFECV.fit also accept ``sample_weight``; the marker
+        ``_mlframe_use_sample_weights_in_fs_`` gates whether to forward it.
+        Best-effort: if the underlying transformer does not accept a kwarg we retry
         without it instead of failing.
 
         sklearn Pipeline.fit raises ``ValueError`` (not ``TypeError``) when an
-        unrecognised kwarg like ``groups`` is passed - the routing layer rejects
+        unrecognised kwarg like ``groups`` is passed; the routing layer rejects
         non-step-namespaced parameters with a "Pipeline.fit does not accept"
         message. Treat that as the same "does not consume groups" signal as
         a plain ``TypeError`` from a bare transformer.
         """
-        if groups is None:
+        _kwargs = {}
+        if groups is not None:
+            _kwargs["groups"] = groups
+        if _wants_sw:
+            _kwargs["sample_weight"] = sample_weight
+        if not _kwargs:
             return _fn(_arg, _target_arg)
         try:
-            return _fn(_arg, _target_arg, groups=groups)
+            return _fn(_arg, _target_arg, **_kwargs)
         except TypeError:
+            # Drop sample_weight first (more selectors accept groups than sw); then drop groups.
+            if "sample_weight" in _kwargs:
+                _kwargs.pop("sample_weight")
+                if _kwargs:
+                    try:
+                        return _fn(_arg, _target_arg, **_kwargs)
+                    except TypeError:
+                        pass
             return _fn(_arg, _target_arg)
         except ValueError as _exc:
             _msg = str(_exc)
@@ -395,7 +467,15 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
                 "does not accept the groups parameter" in _msg
                 or "got an unexpected keyword argument" in _msg
                 or "unexpected keyword argument 'groups'" in _msg
+                or "unexpected keyword argument 'sample_weight'" in _msg
             ):
+                if "sample_weight" in _kwargs:
+                    _kwargs.pop("sample_weight")
+                    if _kwargs:
+                        try:
+                            return _fn(_arg, _target_arg, **_kwargs)
+                        except (TypeError, ValueError):
+                            pass
                 return _fn(_arg, _target_arg)
             raise
 
@@ -498,7 +578,7 @@ def _pipeline_signature_for_cache(pipeline) -> str:
     return "|".join(parts)
 
 
-def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, target_name=None):
+def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, target_name=None, sample_weight=None):
     """Compose a CONTENT-based cache key.
 
     id()-keying was unsafe on two axes: GC-recycled ids can collide and
@@ -506,22 +586,50 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
     different targets - the second target would otherwise see the first
     target's fit-transform output. Including the target fingerprint AND
     the target name guarantees per-target isolation.
+
+    Audit D P1-3 (2026-05-18): the target-fingerprint AND target-name are deliberately BOTH
+    folded for defence-in-depth, NOT because both are required for correctness. Either alone is
+    sufficient: the content fingerprint detects any cell-level divergence and the name detects
+    name-only swaps where two targets happen to share content. Keeping both means a future
+    refactor that drops one does not silently re-enable cross-target contamination. Do NOT
+    refactor to a single dimension assuming the other is redundant.
+
+    ``sample_weight`` is folded only when the inner selector is marked
+    weight-aware (``_mlframe_use_sample_weights_in_fs_``); otherwise FS is
+    weight-invariant and the cache stays valid across weight schemas.
+    Weight fingerprinting uses the cheap 10-cell sampler shared with other
+    content-based keys so the cost is O(1) regardless of n_rows.
     """
     sig = _pipeline_signature_for_cache(pipeline)
+    _wants_sw = False
+    try:
+        # Walk the pipeline to find a selector with the marker set.
+        if pipeline is not None:
+            if hasattr(pipeline, "_mlframe_use_sample_weights_in_fs_"):
+                _wants_sw = bool(getattr(pipeline, "_mlframe_use_sample_weights_in_fs_", False))
+            elif hasattr(pipeline, "steps"):
+                for _, _step in pipeline.steps:
+                    if getattr(_step, "_mlframe_use_sample_weights_in_fs_", False):
+                        _wants_sw = True
+                        break
+    except Exception:
+        _wants_sw = False
+    _sw_fp = _content_fingerprint_for_cache(sample_weight) if (_wants_sw and sample_weight is not None) else ("no_sw",)
     return (
         _content_fingerprint_for_cache(train_df),
         _content_fingerprint_for_cache(val_df),
         _content_fingerprint_for_cache(train_target),
         str(target_name) if target_name is not None else "",
         sig,
+        _sw_fp,
     )
 
 
-def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, target_name=None, cache_max: int | None = None):
+def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None):
     """LRU-touch lookup; returns ``(train_out, val_out)`` or ``None``."""
     if train_df is None or pipeline is None:
         return None
-    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name)
+    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
     with _PRE_PIPELINE_CACHE_LOCK:
         if key in _PRE_PIPELINE_CACHE:
             _PRE_PIPELINE_CACHE.move_to_end(key)
@@ -529,7 +637,7 @@ def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, targe
     return None
 
 
-def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, train_target=None, target_name=None, cache_max: int | None = None):
+def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None):
     """Insert under LRU, evicting the oldest entry if over capacity.
 
     ``cache_max`` overrides the module default; pass through from the
@@ -538,7 +646,7 @@ def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, trai
     """
     if train_df is None or pipeline is None:
         return
-    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name)
+    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
     _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
     with _PRE_PIPELINE_CACHE_LOCK:
         # Store the pipeline as third element so future hits can transfer fit state.
@@ -570,6 +678,7 @@ def _apply_pre_pipeline_transforms(
     target_name: str | None = None,
     cache_max: int | None = None,
     groups=None,
+    sample_weight=None,
 ):
     """Apply pre-pipeline transformations to train and validation DataFrames.
 
@@ -613,10 +722,12 @@ def _apply_pre_pipeline_transforms(
         _cache_key_entry = _pre_pipeline_cache_key(
             train_df, val_df, pre_pipeline,
             train_target=train_target, target_name=target_name,
+            sample_weight=sample_weight,
         )
         _cache_hit = _pre_pipeline_cache_get(
             train_df, val_df, pre_pipeline,
             train_target=train_target, target_name=target_name,
+            sample_weight=sample_weight,
         )
         if _cache_hit is not None and not skip_pre_pipeline_transform and not skip_preprocessing and not _is_fitted(pre_pipeline):
             _cache_entry = _cache_hit
@@ -633,7 +744,24 @@ def _apply_pre_pipeline_transforms(
             # stopped being marked identity-equivalent).
             if fitted_cached is not None:
                 try:
-                    pre_pipeline.__dict__.update(fitted_cached.__dict__)
+                    # Audit D P1-8 (2026-05-18): a shallow ``__dict__.update`` shares mutable
+                    # state between the cached pipeline and pre_pipeline -- any per-call mutation
+                    # (e.g. ``set_params`` on a wrapper, or a transformer that lazily mutates
+                    # ``self.fitted_state_``) silently corrupts the cached copy because both
+                    # instances point to the SAME dict entries. Shallow-copy the dict and copy
+                    # the fitted attributes; downstream sklearn transforms only read fitted
+                    # attributes, not mutate them, so a shallow attribute-copy is enough.
+                    # ``copy.copy`` per-attribute is cheaper than ``copy.deepcopy`` (which
+                    # duplicates trained model weights -- ranges in GB for tree ensembles).
+                    import copy as _cp
+                    for _k, _v in fitted_cached.__dict__.items():
+                        try:
+                            pre_pipeline.__dict__[_k] = _cp.copy(_v)
+                        except Exception:
+                            # Defensive: a non-copyable attribute (e.g. file handle wrapper)
+                            # falls back to the original reference. Logged at debug because the
+                            # standard sklearn fitted attributes are all copyable.
+                            pre_pipeline.__dict__[_k] = _v
                 except Exception as _state_err:
                     logger.debug("pre_pipeline cache state transfer skipped: %s", _state_err)
             if verbose:
@@ -673,6 +801,7 @@ def _apply_pre_pipeline_transforms(
                             fit=True,
                             target=train_target,
                             groups=groups,
+                            sample_weight=sample_weight,
                         )
                     if verbose:
                         log_ram_usage()
@@ -736,7 +865,21 @@ def _apply_pre_pipeline_transforms(
                     fit=True,
                     target=_enc_target,
                     groups=groups,
+                    sample_weight=sample_weight,
                 )
+                # One-glance FS-retention log so operators don't need to crack open metadata pickles
+                # to see how many columns the selector kept. Reports the selector's class name when
+                # detectable, falls back to the pipeline repr; harmless on no-op pipelines.
+                if verbose:
+                    try:
+                        _kept = train_df.shape[1] if hasattr(train_df, "shape") and len(train_df.shape) == 2 else None
+                        _input_n = len(_input_cols) if _input_cols is not None else None
+                        if _kept is not None and _input_n is not None:
+                            _selector = _extract_feature_selector(pre_pipeline)
+                            _selector_label = type(_selector).__name__ if _selector is not None else type(pre_pipeline).__name__
+                            logger.info("  FS selector %s retained %d of %d features", _selector_label, _kept, _input_n)
+                    except Exception:
+                        pass
                 if verbose:
                     log_ram_usage()
                 # 0-feature short-circuit: when MRMR/RFECV selects no features,

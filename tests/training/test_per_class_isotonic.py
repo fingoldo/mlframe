@@ -256,3 +256,26 @@ def test_metrics_registry_failing_metric_skipped():
         assert "broken" not in results  # skipped silently
     finally:
         unregister_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "broken")
+
+
+# E-P0.5: polars DataFrame input parametrize completion.
+
+pl = pytest.importorskip("polars")
+
+
+@pytest.mark.parametrize(
+    "frame_kind",
+    ["numpy", "polars_df", "polars_lazy"],
+)
+def test_per_class_isotonic_accepts_frame_kinds(frame_kind: str):
+    probs, y = _make_multiclass(N=200, K=3)
+    if frame_kind == "polars_df":
+        arr = pl.DataFrame(probs, schema=[f"p{i}" for i in range(probs.shape[1])]).to_numpy()
+    elif frame_kind == "polars_lazy":
+        arr = pl.DataFrame(probs, schema=[f"p{i}" for i in range(probs.shape[1])]).lazy().collect().to_numpy()
+    else:
+        arr = probs
+    cal = _PerClassIsotonicCalibrator.fit(arr, y, TargetTypes.MULTICLASS_CLASSIFICATION)
+    out = cal.predict_proba(arr)
+    assert out.shape == arr.shape
+    np.testing.assert_allclose(out.sum(axis=1), 1.0, atol=1e-6)

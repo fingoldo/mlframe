@@ -24,6 +24,10 @@ from mlframe.training.pipeline import fit_and_transform_pipeline, prepare_df_for
 from mlframe.training.configs import PreprocessingBackendConfig
 from unittest.mock import patch
 
+# Deterministic RNG (single seed per module).
+_W53_RNG = __import__('numpy').random.default_rng(0)
+
+
 
 # =============================================================================
 # Parametrized Tests for Categorical Feature Detection
@@ -43,7 +47,7 @@ class TestCategoricalFeatureDetection:
         return pd.DataFrame({
             'feature_0': np.random.randn(500),
             'feature_1': np.random.randn(500),
-            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
         })
 
     @pytest.fixture
@@ -53,7 +57,7 @@ class TestCategoricalFeatureDetection:
         return pl.DataFrame({
             'feature_0': np.random.randn(500),
             'feature_1': np.random.randn(500),
-            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
         }).with_columns(pl.col('cat_feature').cast(pl.Categorical))
 
     @pytest.fixture
@@ -63,7 +67,7 @@ class TestCategoricalFeatureDetection:
         return pl.DataFrame({
             'feature_0': np.random.randn(500),
             'feature_1': np.random.randn(500),
-            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
         })
 
     @pytest.mark.parametrize("prefer_polarsds", [False, True])
@@ -240,7 +244,7 @@ class TestFitAndTransformPipeline:
         df = pd.DataFrame({
             'feature_0': np.random.randn(500),
             'feature_1': np.random.randn(500),
-            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
         })
 
         train_size = int(0.7 * len(df))
@@ -277,7 +281,7 @@ class TestFitAndTransformPipeline:
         pl_df = pl.DataFrame({
             'feature_0': np.random.randn(500),
             'feature_1': np.random.randn(500),
-            'cat_feature': np.random.choice(['A', 'B', 'C'], 500),
+            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 500),
         }).with_columns(
             pl.col('cat_feature').cast(pl.Categorical)
         )
@@ -317,7 +321,7 @@ class TestFitAndTransformPipeline:
         pl_df = pl.DataFrame({
             'feature_0': np.random.randn(500),
             'feature_1': np.random.randn(500),
-            'string_feature': np.random.choice(['X', 'Y', 'Z'], 500),
+            'string_feature': _W53_RNG.choice(['X', 'Y', 'Z'], 500),
         })
 
         # Verify it's String/Utf8 dtype (not Categorical)
@@ -402,7 +406,7 @@ class TestPrepareDfForCatboost:
         df = pd.DataFrame({
             'feature_0': np.random.randn(100),
             'feature_1': np.random.randn(100),
-            'cat_feature': np.random.choice(['A', 'B', 'C'], 100),
+            'cat_feature': _W53_RNG.choice(['A', 'B', 'C'], 100),
         })
 
         cat_features = ['cat_feature']

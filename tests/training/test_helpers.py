@@ -41,11 +41,12 @@ class TestExtractTargetSubset:
         assert isinstance(result, np.ndarray)
         assert list(result) == [20, 40]
     
+    @pytest.mark.fast
     def test_none_idx_returns_target(self):
         """Test that None idx returns original target."""
         target = pd.Series([1, 2, 3])
         result = _extract_target_subset(target, None)
-        
+
         assert result is target
     
     @pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
@@ -89,11 +90,13 @@ class TestSubsetDataframe:
         assert list(result.columns) == ["a", "c"]
         assert len(result) == 2
     
+    @pytest.mark.fast
     def test_none_df_returns_none(self):
         """Test that None df returns None."""
         result = _subset_dataframe(None, np.array([0, 1]))
         assert result is None
-    
+
+    @pytest.mark.fast
     def test_none_idx_returns_df(self):
         """Test that None idx returns original df."""
         df = pd.DataFrame({"a": [1, 2, 3]})
@@ -117,11 +120,12 @@ class TestSubsetDataframe:
 class TestPrepareDfForModel:
     """Tests for _prepare_df_for_model helper."""
     
+    @pytest.mark.fast
     def test_non_tabnet_returns_df(self):
         """Test that non-TabNet models return DataFrame unchanged."""
         df = pd.DataFrame({"a": [1, 2, 3]})
         result = _prepare_df_for_model(df, "CatBoostClassifier")
-        
+
         assert result is df
         assert hasattr(result, "columns")
     
@@ -214,41 +218,49 @@ class TestParseCatboostDevices:
         {"index": 3, "name": "GPU3"},
     ]
 
+    @pytest.mark.fast
     def test_single_gpu(self):
         """Single GPU index returns that GPU only."""
         result = parse_catboost_devices("0", all_gpus=self.ALL_GPUS)
         assert result == [self.ALL_GPUS[0]]
 
+    @pytest.mark.fast
     def test_multiple_colon_separated(self):
         """Colon-separated indices return matching GPUs."""
         result = parse_catboost_devices("0:2", all_gpus=self.ALL_GPUS)
         assert result == [self.ALL_GPUS[0], self.ALL_GPUS[2]]
 
+    @pytest.mark.fast
     def test_range(self):
         """Dash range returns all GPUs in range inclusive."""
         result = parse_catboost_devices("0-3", all_gpus=self.ALL_GPUS)
         assert result == self.ALL_GPUS
 
+    @pytest.mark.fast
     def test_empty_string_returns_all(self):
         """Empty string returns all available GPUs."""
         result = parse_catboost_devices("", all_gpus=self.ALL_GPUS)
         assert result == self.ALL_GPUS
 
+    @pytest.mark.fast
     def test_invalid_non_numeric(self):
         """Non-numeric string raises ValueError."""
         with pytest.raises(ValueError):
             parse_catboost_devices("abc", all_gpus=self.ALL_GPUS)
 
+    @pytest.mark.fast
     def test_invalid_reversed_range(self):
         """Reversed range (start > end) raises ValueError."""
         with pytest.raises(ValueError):
             parse_catboost_devices("3-0", all_gpus=self.ALL_GPUS)
 
+    @pytest.mark.fast
     def test_out_of_range_index(self):
         """Index beyond available GPUs raises ValueError."""
         with pytest.raises(ValueError):
             parse_catboost_devices("5", all_gpus=self.ALL_GPUS)
 
+    @pytest.mark.fast
     def test_invalid_range_format(self):
         """Range with too many dashes raises ValueError."""
         with pytest.raises(ValueError):

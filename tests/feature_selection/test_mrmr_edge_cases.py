@@ -36,10 +36,10 @@ class TestMRMREdgeCases:
 
     def test_constant_feature(self):
         """Test MRMR with constant feature."""
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 200
         X = pd.DataFrame({
-            'informative': np.random.randn(n),
+            'informative': rng.standard_normal(n),
             'constant': np.ones(n),
         })
         y = (X['informative'] > 0).astype(int)
@@ -181,10 +181,10 @@ class TestMRMREdgeCases:
         very strict thresholds. The transform should still work without errors.
         Regression test for IndexError with empty numpy array indexing.
         """
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         # Create data where features have zero correlation with target
-        X = pd.DataFrame(np.random.randn(200, 5), columns=['a', 'b', 'c', 'd', 'e'])
-        y = np.random.randint(0, 2, 200)
+        X = pd.DataFrame(rng.standard_normal((200, 5)), columns=['a', 'b', 'c', 'd', 'e'])
+        y = rng.integers(0, 2, 200)
 
         mrmr = MRMR(
             full_npermutations=2,
@@ -212,16 +212,16 @@ class TestMRMREdgeCases:
         When one feature is perfectly correlated with the target, MRMR
         should identify and select it.
         """
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n = 500
         # Create noise features
         X = pd.DataFrame({
-            'noise1': np.random.randn(n),
-            'noise2': np.random.randn(n),
-            'noise3': np.random.randn(n),
+            'noise1': rng.standard_normal(n),
+            'noise2': rng.standard_normal(n),
+            'noise3': rng.standard_normal(n),
         })
         # Perfect feature: target is directly derived from it
-        X['perfect'] = np.random.randn(n)
+        X['perfect'] = rng.standard_normal(n)
         y = (X['perfect'] > 0).astype(int)  # Binary classification from perfect feature
 
         mrmr = MRMR(

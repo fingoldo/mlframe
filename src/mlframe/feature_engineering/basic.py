@@ -27,6 +27,10 @@ _NP_TO_PL_DTYPE: Dict[type, pl.DataType] = {
     np.int16: pl.Int16,
     np.int32: pl.Int32,
     np.int64: pl.Int64,
+    np.uint8: pl.UInt8,
+    np.uint16: pl.UInt16,
+    np.uint32: pl.UInt32,
+    np.uint64: pl.UInt64,
 }
 
 _DEFAULT_DATE_METHODS: Dict[str, type] = {"day": np.int8, "weekday": np.int8, "month": np.int8}
