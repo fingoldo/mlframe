@@ -427,6 +427,36 @@ optimized" — verify with a microbench across `n` first.
      numba.cuda and cupy device functions). See bench:
      `feature_selection/_benchmarks/bench_poly_eval_backends.py`.
 
+### CRITICAL: fastest variant must be the DEFAULT, never opt-in
+
+When you add a GPU / numba / cupy variant of an existing function, the
+**fastest applicable path must be the default** at the public API. Do
+NOT ship the optimization as a public `_gpu` / `_cuda` / `_njit` name
+that callers must manually wire in -- callers won't, and the win
+stays unrealised forever.
+
+The right shape:
+
+* `do_thing(...)` is the public name and acts as the dispatcher: it
+  picks `_do_thing_cpu` / `_do_thing_cuda` / `_do_thing_cupy` based on
+  CUDA availability (via `pyutilz.system.gpu_dispatch.is_cuda_available`)
+  + data shape + the measured crossover thresholds.
+* Each backend lives under an explicit `_do_thing_<backend>` name and
+  remains callable directly for tests + benches.
+* The dispatcher accepts a `force_backend=` / `prefer_gpu=False` knob
+  for tests + diagnostics. Defaults: dispatcher picks fastest.
+
+This is non-negotiable per the user directive (2026-05-19): "самый
+быстрый вариант должен быть установлен по дефолту". A correct example
+to follow: `dispatch_batch_pair_mi(...)` in
+`feature_selection/filters/batch_pair_mi_gpu.py`, with the explicit
+`batch_pair_mi_njit_prange / batch_pair_mi_cuda / batch_pair_mi_cupy`
+backends each callable on their own.
+
+A WRONG example to avoid: shipping `mi_direct_gpu_batched` as a public
+name for >6 months without wiring it into `mi_direct_gpu`; that's the
+gap commits 033941b and ba78f04 had to close retroactively.
+
 ### Pre-implementation rule: BENCH first, dispatch second
 
 **Always microbench all four backends across `n in {500, 2000, 10000,
