@@ -308,6 +308,15 @@ def mi_direct_gpu_batched(
         log_ratio = cp.where(joint_freqs > 0, cp.log(ratio), 0.0)
         mi_batch = (joint_freqs * log_ratio).sum(axis=(1, 2))  # (b,)
 
+        # Per-batch ``.get()`` was investigated as a hotspot at 1M rows
+        # (5.5s of 13.2s ``mi_direct_gpu_batched`` time on Windows WDDM);
+        # an attempt to coalesce into a single end-of-loop sync via a
+        # device-side scalar accumulator measured WORSE at n=10k (1.05x
+        # vs the existing 1.5x test target -- the per-batch device-side
+        # ``+=`` on a 0-d CuPy scalar adds more launch overhead than the
+        # H2D scalar transfer it would replace). The original per-batch
+        # sync is the right design point for the n_rows / npermutations
+        # mix the production tests cover.
         nfailed += int((mi_batch >= original_mi).sum().get())
         nchecked += b
         remaining -= b

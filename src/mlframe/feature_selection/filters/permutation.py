@@ -212,6 +212,7 @@ def mi_direct(
     parallel_kwargs: dict = None,
     parallelism: str = "outer",
     base_seed: int = 0,
+    prefer_gpu: bool = True,
 ) -> tuple:
     """CPU mutual-information + permutation-test wrapper.
 
@@ -248,7 +249,8 @@ def mi_direct(
     #     to ``mi_direct_gpu`` lets it allocate / reuse its own GPU
     #     buffers.
     if (
-        npermutations >= 32
+        prefer_gpu
+        and npermutations >= 32
         and parallelism in ("outer", "none")
     ):
         try:

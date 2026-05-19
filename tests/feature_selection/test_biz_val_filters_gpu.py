@@ -72,8 +72,12 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
     N_PERMS = 500
 
     t0 = time.perf_counter()
+    # ``prefer_gpu=False`` keeps the legacy CPU njit permutation kernel
+    # (commit ba78f04 added a transparent GPU route at npermutations>=32
+    # that would otherwise hijack this CPU baseline call and break the
+    # GPU-vs-CPU comparison this test is asserting).
     mi_direct(factors, (0,), (1,), factors_nbins,
-              npermutations=N_PERMS, parallelism="none")
+              npermutations=N_PERMS, parallelism="none", prefer_gpu=False)
     t_cpu = time.perf_counter() - t0
 
     t0 = time.perf_counter()
