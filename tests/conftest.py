@@ -139,7 +139,27 @@ try:
     _thinc_original_fix = _thinc_util.fix_random_seed
 
     def _thinc_clamped_fix_random_seed(seed: int = 0) -> None:
-        return _thinc_original_fix(int(seed) % (2**32))
+        try:
+            return _thinc_original_fix(int(seed) % (2**32))
+        except Exception as _seed_err:
+            # thinc.util.fix_random_seed transitively calls cupy.random.seed,
+            # which crashes hard on boxes where cupy is installed but curand
+            # initialisation fails (e.g. driver/runtime mismatch, GPU busy,
+            # or missing CUDA at runtime). Pre-fix this killed the entire
+            # pytest session before a single test ran. Now we seed Python's
+            # random + numpy directly so determinism still holds and skip
+            # whatever thinc was trying to do with cupy.
+            import random
+            import numpy as np
+            random.seed(int(seed) % (2**32))
+            np.random.seed(int(seed) % (2**32))
+            warnings.warn(
+                f"thinc.util.fix_random_seed raised {_seed_err!r}; "
+                f"fell back to seeding python+numpy directly. cupy random "
+                f"state is unset for this session.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     _thinc_util.fix_random_seed = _thinc_clamped_fix_random_seed
 
