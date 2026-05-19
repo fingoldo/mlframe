@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 
 
 # Sweep axes. Kept small for first-run latency.
+#
+# Multi-axis dispatch (added in WAVE 4): regions emit separate
+# ``nbins_x_max`` / ``nbins_y_max`` keys alongside the legacy
+# ``joint_size_max`` (= product) so dispatchers that have explicit nbins
+# values can match more precisely. The legacy ``joint_size`` lookup still
+# works via the catch-all fallback path -- a region with finer-grained
+# keys also satisfies the ``joint_size <=`` test by construction
+# (joint_size = nbins_x * nbins_y).
 _N_SAMPLES_AXIS = (200_000, 1_000_000)
 _NBINS_AXIS: tuple[tuple[int, int], ...] = ((5, 5), (10, 10), (20, 20))
 _BLOCK_SIZE_AXIS = (256, 512, 1024)
@@ -87,22 +95,34 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
                 best_choice = {"kernel_variant": variant, "block_size": bs,
                                "wall_ms": round(wall, 4)}
         if best_choice is not None:
+            # Stamp the per-axis nbins values so the saved region carries
+            # the finer-grained nbins_x_max / nbins_y_max keys (WAVE 4).
+            best_choice["nbins_x_y"] = (nbx, nby)
             best_per_combo[(n_samples, joint)] = best_choice
             logger.info(
-                "auto_tune joint_hist n=%d joint=%d -> %s bs=%d (%.3fms)",
-                n_samples, joint, best_choice["kernel_variant"],
+                "auto_tune joint_hist n=%d joint=%d (%dx%d) -> %s bs=%d (%.3fms)",
+                n_samples, joint, nbx, nby, best_choice["kernel_variant"],
                 best_choice["block_size"], best_choice["wall_ms"],
             )
 
     regions: list[dict] = []
     for (n_samples, joint), choice in sorted(best_per_combo.items()):
-        regions.append({
+        region = {
             "n_samples_max": n_samples,
             "joint_size_max": joint,
             "kernel_variant": choice["kernel_variant"],
             "block_size": choice["block_size"],
             "wall_ms": choice["wall_ms"],
-        })
+        }
+        # Multi-axis emission (WAVE 4): also stamp ``nbins_x_max`` /
+        # ``nbins_y_max`` separately so dispatchers that have nbins
+        # explicitly can match more precisely. Pyutilz lookup matches by
+        # ANY ``..._max`` keys present; unknown axes are unconstrained.
+        nbins_x_y = choice.get("nbins_x_y")
+        if nbins_x_y is not None:
+            region["nbins_x_max"] = int(nbins_x_y[0])
+            region["nbins_y_max"] = int(nbins_x_y[1])
+        regions.append(region)
     # Catch-all fallback for above-axis sizes.
     regions.append({
         "n_samples_max": None,
