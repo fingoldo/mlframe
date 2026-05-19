@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 compute_joint_hist_cuda: Any = None
 compute_mi_from_classes_cuda: Any = None
 compute_joint_hist_batched_cuda: Any = None
+compute_joint_hist_batched_shared_cuda: Any = None
 
 
 # Persistent device-buffer pool. Reuses a preallocated set of CuPy arrays across ``mi_direct_gpu`` calls so the inner permutation loop does not pay the H2D-copy
@@ -100,6 +101,11 @@ def init_kernels() -> None:
         "compute_joint_hist_cuda",
     )
 
+    # Joint-hist batched, global-atomic variant. Win axis: large joint_size
+    # (>> shared-mem budget). Each thread directly atomically increments the
+    # global-memory bin; correctness-simple but global atomics are 10-100x
+    # slower than shared-memory atomics on cc 6.x. Kept available for
+    # back-compat + fall-back when joint_size exceeds the shared-mem budget.
     module.compute_joint_hist_batched_cuda = cp.RawKernel(
         r"""
     extern "C" __global__
@@ -121,6 +127,60 @@ def init_kernels() -> None:
     }
     """,
         "compute_joint_hist_batched_cuda",
+    )
+
+    # Joint-hist batched, SHARED-MEM atomic variant. Win axis: small joint_size
+    # (<= shared-mem budget, typical for MRMR nbins_x*nbins_y in 4-256 range).
+    # Each block keeps a local histogram in shared memory (10-100x faster
+    # atomic-add than global memory on cc 6.x); after the strided read of
+    # n_samples the block reduces its shared hist into the global output once.
+    # Shared-mem usage: joint_size * 4 bytes -- caller passes the size as
+    # ``shared_mem`` launch arg (see ``mi_direct_gpu_batched`` dispatch).
+    # See ``feedback_keep_all_kernel_versions``: ``compute_joint_hist_batched_cuda``
+    # (the global-atomic version above) stays available; the dispatcher picks
+    # this faster path only when joint_size fits.
+    module.compute_joint_hist_batched_shared_cuda = cp.RawKernel(
+        r"""
+    extern "C" __global__
+    void compute_joint_hist_batched_shared_cuda(
+        const int *classes_x,           // (n,)
+        const int *perms_y,             // (batch, n) row-major
+        int *joint_counts_batch,        // (batch, nbins_x * nbins_y) row-major
+        int n,
+        int nbins_x,
+        int nbins_y
+    ) {
+        extern __shared__ int sm_hist[];  // size: nbins_x * nbins_y * sizeof(int)
+        int batch_id = blockIdx.y;
+        int joint_size = nbins_x * nbins_y;
+        int tid = threadIdx.x;
+        int nthreads = blockDim.x;
+        int gid_offset = blockIdx.x * nthreads;
+
+        // Zero the shared histogram.
+        for (int i = tid; i < joint_size; i += nthreads) {
+            sm_hist[i] = 0;
+        }
+        __syncthreads();
+
+        // Grid-strided read of n_samples (only the block's slice).
+        int my_row = gid_offset + tid;
+        if (my_row < n) {
+            int cy = perms_y[batch_id * n + my_row];
+            int cx = classes_x[my_row];
+            atomicAdd(&sm_hist[cx * nbins_y + cy], 1);
+        }
+        __syncthreads();
+
+        // Reduce: each thread merges its slice of sm_hist into the per-batch
+        // global output. Block-level atomicAdd into global is still atomic
+        // (many blocks may have this batch_id), so we use atomicAdd here too.
+        for (int i = tid; i < joint_size; i += nthreads) {
+            atomicAdd(&joint_counts_batch[batch_id * joint_size + i], sm_hist[i]);
+        }
+    }
+    """,
+        "compute_joint_hist_batched_shared_cuda",
     )
     # Multi-pair batched joint histogram kernel. Processes B pairs per launch via 3D grid (blocks along rows, blocks along pairs). Each (pair, row) thread atomically
     # adds into the pair-local joint hist.
@@ -204,12 +264,14 @@ def _ensure_kernels_inited() -> None:
     """
     if (compute_joint_hist_cuda is not None
             and compute_mi_from_classes_cuda is not None
-            and compute_joint_hist_batched_cuda is not None):
+            and compute_joint_hist_batched_cuda is not None
+            and compute_joint_hist_batched_shared_cuda is not None):
         return
     with _KERNEL_INIT_LOCK:
         if (compute_joint_hist_cuda is None
                 or compute_mi_from_classes_cuda is None
-                or compute_joint_hist_batched_cuda is None):
+                or compute_joint_hist_batched_cuda is None
+                or compute_joint_hist_batched_shared_cuda is None):
             init_kernels()
 
 
@@ -275,6 +337,20 @@ def mi_direct_gpu_batched(
     block_size = GPU_MAX_BLOCK_SIZE
     grid_x = (n + block_size - 1) // block_size
 
+    # Joint-hist kernel dispatch (compute_joint_hist_batched_shared_cuda vs
+    # compute_joint_hist_batched_cuda). Win axis per
+    # ``feedback_keep_all_kernel_versions``: the shared-mem variant cuts
+    # global atomicAdd contention by keeping a per-block histogram in shared
+    # memory (10-100x faster atomic on cc 6.x) and reducing to global only at
+    # block-end. Shared-mem requirement: ``joint_size * 4`` bytes per block;
+    # GTX 1050 Ti cc 6.1 caps blocks at 48 KB shared (49152 bytes), so
+    # joint_size <= 49152/4 = 12_288. We cap conservatively at 4096 to leave
+    # headroom for the runtime's own shared-mem reservations.
+    joint_size = nbins_x * nbins_y
+    _SHARED_HIST_MAX_JOINT = 4096
+    use_shared_hist = joint_size <= _SHARED_HIST_MAX_JOINT
+    shared_mem_bytes = joint_size * 4 if use_shared_hist else 0
+
     # ``.get()`` coalescing v2: stage each batch's failure-count as a
     # CuPy 0-d array in a Python list, then sync ONCE at end-of-loop via
     # ``cp.stack([...]).sum().get()``. The previous per-batch
@@ -302,14 +378,25 @@ def mi_direct_gpu_batched(
         perms_y = classes_y_gpu[perm_idx].astype(cp.int32)
 
         joint_counts_batch = cp.zeros((b, nbins_x * nbins_y), dtype=cp.int32)
-        compute_joint_hist_batched_cuda(
-            (grid_x, b),
-            (block_size,),
-            (
-                classes_x_gpu, perms_y, joint_counts_batch,
-                np.int32(n), np.int32(nbins_x), np.int32(nbins_y),
-            ),
-        )
+        if use_shared_hist:
+            compute_joint_hist_batched_shared_cuda(
+                (grid_x, b),
+                (block_size,),
+                (
+                    classes_x_gpu, perms_y, joint_counts_batch,
+                    np.int32(n), np.int32(nbins_x), np.int32(nbins_y),
+                ),
+                shared_mem=shared_mem_bytes,
+            )
+        else:
+            compute_joint_hist_batched_cuda(
+                (grid_x, b),
+                (block_size,),
+                (
+                    classes_x_gpu, perms_y, joint_counts_batch,
+                    np.int32(n), np.int32(nbins_x), np.int32(nbins_y),
+                ),
+            )
 
         # Compute MI per row of joint_counts_batch via vectorised math.
         # joint_freqs = joint_counts / n; mi = sum p_xy log(p_xy / (p_x p_y)).
