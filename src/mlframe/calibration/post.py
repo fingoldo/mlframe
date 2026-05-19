@@ -54,14 +54,10 @@ from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 
 from mlframe.training.evaluation import report_model_perf
 
-import netcal, pycalib
-from pycalib import models  # must be
-from netcal import binning  # must be
-from netcal import scaling  # must be
-import ml_insights as mli
-from betacal import BetaCalibration
-import calibration as verified_calibration
-from venn_abers import VennAbersCalibrator
+# Heavy optional deps (netcal/pycalib pull torch transitively → DLL-load can fail
+# on Windows boxes with mismatched CUDA toolkits). Imported lazily inside
+# get_postcalibrators(); module-level import would crash pytest collection on
+# such boxes even though the rest of the module doesn't need these.
 from sklearn.calibration import CalibratedClassifierCV
 
 try:
@@ -225,6 +221,15 @@ def should_run(name: str, include: list[str] = None, skip: list[str] = None) -> 
 
 
 def get_postcalibrators(calib_target, num_bins: int) -> list:
+
+    import netcal, pycalib
+    from pycalib import models  # noqa: F401  used via pycalib.models.LogisticCalibration in named_calibrator chains
+    from netcal import binning  # noqa: F401  exercised through netcal.binning.BBQ etc.
+    from netcal import scaling  # noqa: F401
+    import ml_insights as mli
+    from betacal import BetaCalibration
+    import calibration as verified_calibration
+    from venn_abers import VennAbersCalibrator
 
     calibrators = [
         named_calibrator(CalibratedClassifierCV(method="sigmoid", ensemble=False), name="CalibratedClassifierCV", param_str="method=sigmoid", lib="sklearn"),
