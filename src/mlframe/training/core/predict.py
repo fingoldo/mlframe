@@ -943,9 +943,22 @@ def predict_mlframe_models_suite(
             results["predictions"]["ensemble"] = ensemble_preds
 
     elif len(all_preds) > 1:
-        # Majority voting when probabilities are unavailable.
-        ensemble_preds, _ = stats.mode(np.stack(all_preds), axis=0)
-        results["ensemble_predictions"] = ensemble_preds.flatten()
+        # Ensemble fallback when no probabilities exist. Dispatch by
+        # prediction dtype: float -> arithmetic mean (regression /
+        # quantile heads); int -> scipy.stats.mode majority voting
+        # (classification predict() without predict_proba). Pre-fix the
+        # branch unconditionally called stats.mode on the stacked preds,
+        # which (a) returns statistically meaningless output for
+        # continuous regression predictions (mode of 2 float arrays
+        # picks the first by tie-break ~always) and (b) was 50-80x
+        # slower than np.mean on 1M-row inputs (0.72s vs 0.01s --
+        # surfaced by the 1M regression x lgb predict profile).
+        _stacked = np.stack(all_preds)
+        if np.issubdtype(_stacked.dtype, np.floating):
+            results["ensemble_predictions"] = _stacked.mean(axis=0)
+        else:
+            ensemble_preds, _ = stats.mode(_stacked, axis=0)
+            results["ensemble_predictions"] = ensemble_preds.flatten()
 
     elif len(all_preds) == 1:
         results["ensemble_predictions"] = all_preds[0]
@@ -1793,9 +1806,18 @@ def predict_from_models(
             results["predictions"]["ensemble"] = ensemble_preds
 
     elif len(all_preds) > 1:
-        # Majority voting when probabilities are unavailable.
-        ensemble_preds, _ = stats.mode(np.stack(all_preds), axis=0)
-        results["ensemble_predictions"] = ensemble_preds.flatten()
+        # Dtype-aware ensemble fallback when no probabilities exist.
+        # Float predictions (regression / quantile heads) -> arithmetic
+        # mean; integer predictions (classification predict() without
+        # predict_proba) -> scipy.stats.mode majority voting. Mirrors
+        # the fix in ``predict_mlframe_models_suite`` -- this entry
+        # point had the same regression-via-mode bug.
+        _stacked = np.stack(all_preds)
+        if np.issubdtype(_stacked.dtype, np.floating):
+            results["ensemble_predictions"] = _stacked.mean(axis=0)
+        else:
+            ensemble_preds, _ = stats.mode(_stacked, axis=0)
+            results["ensemble_predictions"] = ensemble_preds.flatten()
 
     elif len(all_preds) == 1:
         results["ensemble_predictions"] = all_preds[0]
