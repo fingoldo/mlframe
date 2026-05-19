@@ -481,29 +481,38 @@ def apply_preprocessing_extensions(
         return train_df, val_df, test_df, None
     # Polars input -> convert to pandas (extensions use sklearn; mixing with the polars-native fastpath
     # would defeat the point if user opted in). Bare ``df.to_pandas()`` collapses pl.Enum / pl.Categorical
-    # columns to object-dtype and copies through pyarrow's slow path. Use Arrow split-blocks bridge
-    # (~32x throughput vs naive copy) and preserve Arrow-backed dtypes (pyarrow CategoricalDtype etc.) so
-    # downstream sklearn estimators don't see "object" where pandas Categorical was expected.
-    # Audit D P2-6 (2026-05-18): the bare ``df.to_pandas()`` fallback is the slow consolidation
-    # copy path (~30x slower on wide frames; degrades pl.Enum → object). It fires only when the
-    # installed polars version predates ``split_blocks=True`` (polars < 0.20.4). Log once at WARN
-    # so operators on stale polars know they are on the slow bridge; ``logger`` is the module
-    # logger so the message goes through the project's standard logging pipeline.
+    # columns to object-dtype and copies through pyarrow's slow path. Use the Arrow extension-array
+    # bridge (~32x throughput vs naive copy) and preserve Arrow-backed dtypes (pyarrow CategoricalDtype
+    # etc.) so downstream sklearn estimators don't see "object" where pandas Categorical was expected.
+    #
+    # API split: polars 1.x's ``to_pandas`` accepts ONLY ``use_pyarrow_extension_array`` as a top-level
+    # kwarg and passes ``split_blocks=True / self_destruct=True / use_threads=True`` to pyarrow internally.
+    # Older polars (< 1.0) exposed ``split_blocks`` + ``self_destruct`` directly. Try the modern
+    # signature first, fall through to the legacy one, then to bare. Pre-fix this passed
+    # ``split_blocks=True`` unconditionally and crashed on polars 1.x with
+    # "got multiple values for keyword argument 'split_blocks'" -- which fell back to bare
+    # ``.to_pandas()`` (no Arrow extension dtypes, ~30x slower wide-frame conversion).
     _fallback_warned = [False]
     def _to_pandas(df):
         if df is None:
             return None
         if isinstance(df, pl.DataFrame):
             try:
-                return df.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
+                # Polars 1.x fast path: extension array only; library forwards split_blocks itself.
+                return df.to_pandas(use_pyarrow_extension_array=True)
             except TypeError:
-                if not _fallback_warned[0]:
-                    logger.warning(
-                        "polars.to_pandas(split_blocks=True) unsupported (polars version too old); "
-                        "falling back to bare .to_pandas() — wide-frame conversion will be ~30x slower."
-                    )
-                    _fallback_warned[0] = True
-                return df.to_pandas()
+                try:
+                    # Polars 0.x legacy: explicit pyarrow kwargs.
+                    return df.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
+                except TypeError:
+                    if not _fallback_warned[0]:
+                        logger.warning(
+                            "polars.to_pandas Arrow-extension bridge unsupported on this polars / pyarrow "
+                            "combination; falling back to bare .to_pandas() -- wide-frame conversion will "
+                            "be ~30x slower and pl.Enum / pl.Categorical degrade to object dtype."
+                        )
+                        _fallback_warned[0] = True
+                    return df.to_pandas()
         return df
 
     train = _to_pandas(train_df)

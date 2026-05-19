@@ -549,9 +549,17 @@ class RFECV(BaseEstimator, TransformerMixin):
             except Exception:
                 pass
             try:
-                X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
+                # Polars 1.x: extension-array kwarg only; library forwards split_blocks/self_destruct
+                # internally. Passing them explicitly on 1.x raises TypeError("got multiple values for
+                # keyword argument 'split_blocks'") and falls through to bare .to_pandas() (lossy:
+                # pl.Enum / pl.Categorical degrade to object).
+                X = X.to_pandas(use_pyarrow_extension_array=True)
             except TypeError:
-                X = X.to_pandas()
+                try:
+                    # Legacy polars 0.x signature.
+                    X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
+                except TypeError:
+                    X = X.to_pandas()
         if isinstance(y, pl.Series):
             y = y.to_pandas()
 
