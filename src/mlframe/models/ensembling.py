@@ -83,9 +83,55 @@ try:  # pragma: no cover -- env-dependent
         return out_mae, out_std
 
     _HAS_NUMBA_PER_MEMBER = True
+
+    @_numba.njit(parallel=True, fastmath=False, cache=True)
+    def _rrf_aggregate_probs_njit(preds_arr: np.ndarray, k: int) -> np.ndarray:
+        """Parallel-over-M reciprocal-rank fusion of a (M, N, K) probability
+        tensor. Each member's argsort over the N axis is independent across
+        members; ``prange`` exploits multi-core CPUs to amortise the dominant
+        O(N log N) sort cost.
+
+        fastmath=False because ``1.0 / (k + rank + 1)`` is exact float
+        division; fast-math reciprocal-approximations would drift the
+        per-row sums on long N.
+
+        Memory: allocates a (M, N, K) float64 intermediate (M*N*K*8 bytes).
+        The dispatcher in ``_rrf_aggregate_probs`` guards via input-size
+        threshold so this kernel only fires when the allocation fits.
+
+        Bench results (2026-05-19, ``mlframe._benchmarks.bench_ensemble_rrf``)
+        show 2.65x-4.06x speedup vs numpy across (M=5/10/20) x (N=10k/100k/1M)
+        x (K=2/3) on the dev host; equivalence to ~1e-16 max abs delta.
+        """
+        M, N, K = preds_arr.shape
+        per_member_recip = np.zeros((M, N, K), dtype=np.float64)
+        for m in _numba.prange(M):
+            for k_class in range(K):
+                col_m = -preds_arr[m, :, k_class]
+                order = np.argsort(col_m, kind="quicksort")
+                for n_pos in range(N):
+                    rank = n_pos
+                    row_idx = order[n_pos]
+                    per_member_recip[m, row_idx, k_class] = 1.0 / (k + rank + 1)
+        aggregated = np.zeros((N, K), dtype=np.float64)
+        for m in range(M):
+            for n in range(N):
+                for ki in range(K):
+                    aggregated[n, ki] += per_member_recip[m, n, ki]
+        if K > 1:
+            for n in _numba.prange(N):
+                row_sum = 0.0
+                for ki in range(K):
+                    row_sum += aggregated[n, ki]
+                if row_sum > 0.0:
+                    inv = 1.0 / row_sum
+                    for ki in range(K):
+                        aggregated[n, ki] *= inv
+        return aggregated
 except Exception:  # pragma: no cover
     _HAS_NUMBA_PER_MEMBER = False
     _per_member_mae_std_njit = None
+    _rrf_aggregate_probs_njit = None
 
 
 try:  # pragma: no cover -- env-dependent
@@ -601,6 +647,28 @@ def _rrf_aggregate_probs(preds_arr: np.ndarray, k: int = 60) -> np.ndarray:
         # Promote (M, N) -> (M, N, 1) for the scalar / 1-D path
         preds_arr = preds_arr.reshape(preds_arr.shape[0], preds_arr.shape[1], -1)
     M, N, K = preds_arr.shape
+
+    # Numba parallel-over-M fastpath. Bench (2026-05-19,
+    # mlframe._benchmarks.bench_ensemble_rrf) shows 2.6-4.1x speedup across
+    # (M=5/10/20) x (N=10k/100k/1M) x (K=2/3) -- njit wins at every
+    # measured point, equivalence to ~1e-16 max abs delta. The dispatcher
+    # gates on (a) numba available, (b) float64 input, (c) the (M, N, K)
+    # intermediate fits in ~512MB so the kernel doesn't blow up RAM on
+    # extreme (M, N) combinations. K=1 binary-score path also routes
+    # through njit; the final normalisation is K>1 only inside the kernel.
+    _intermediate_bytes = int(M) * int(N) * int(K) * 8
+    _use_njit = (
+        _HAS_NUMBA_PER_MEMBER
+        and _rrf_aggregate_probs_njit is not None
+        and preds_arr.dtype == np.float64
+        and preds_arr.flags["C_CONTIGUOUS"]
+        and _intermediate_bytes < 512 * 1024 * 1024  # 512MB allocation guard
+    )
+    if _use_njit:
+        aggregated = _rrf_aggregate_probs_njit(preds_arr, int(k))
+        if aggregated.shape[1] == 1:
+            return aggregated[:, 0]
+        return aggregated
 
     aggregated = np.zeros((N, K), dtype=np.float64)
     for k_class in range(K):
