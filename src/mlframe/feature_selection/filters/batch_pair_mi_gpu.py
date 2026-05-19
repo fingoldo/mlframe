@@ -35,12 +35,26 @@ from .info_theory import batch_pair_mi_prange as batch_pair_mi_njit_prange
 
 # Optional GPU deps. The dispatcher gracefully falls back to the CPU kernel
 # when either is missing.
+#
+# ``_CUDA_AVAIL`` consults the central pyutilz probe (``is_cuda_available``)
+# rather than re-running ``numba.cuda.is_available()`` inline. The numba
+# module itself is still imported here because the ``@_nb_cuda.jit``
+# decorator at ``_cuda_kernel_factory`` needs a binding; the probe is just
+# how we DECIDE whether to take the GPU path.
 try:
     from numba import cuda as _nb_cuda
-    _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)())
 except Exception:
     _nb_cuda = None
-    _CUDA_AVAIL = False
+
+try:
+    from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
+    _CUDA_AVAIL = _pyutilz_is_cuda_available()
+except Exception:
+    # Fallback to inline numba probe if pyutilz is not importable for some reason.
+    try:
+        _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
+    except Exception:
+        _CUDA_AVAIL = False
 
 try:
     import cupy as _cp
@@ -57,23 +71,60 @@ except Exception:
 # Per-pair CUDA kernel: one block per pair, threads in the block populate a
 # shared-memory joint-class histogram, then one thread reduces it to MI.
 #
-# Compute capability 6.x exposes a 48 KB per-block static-shared-memory budget
-# (96 KB physical, but 48 KB is the default carve-out without opt-in). Sizing
-# the histogram as int64[MAX_JOINT_BINS][MAX_Y_BINS] + freqs_x[MAX_JOINT_BINS]
-# the budget is:
-#     MAX_JOINT_BINS * MAX_Y_BINS * 8  +  MAX_JOINT_BINS * 8
-# With (128, 16) -> 128*16*8 + 128*8 = 16384 + 1024 = 17 KB  (fits).
-# With (256, 32) -> 256*32*8 + 256*8 = 65536 + 2048 = 64 KB  (overflows; the
-# first revision tripped CUDA_ERROR_INVALID_SOURCE / "uses too much shared data
-# (0x10800 bytes, 0xc000 max)" on a GTX 1050 Ti).
-# MAX_JOINT_BINS=128 covers nbins[a]*nbins[b] up to 128 (e.g. 11x11 = 121),
-# which is generous for the mlframe MI-screen axis where nbins is typically
-# 5-10. MAX_Y_BINS=16 supports up to 16-class multiclass targets. Inputs
-# exceeding either bound are rejected by the dispatcher and routed to the
-# CPU njit kernel where the histogram lives in main memory.
+# The shared-memory footprint per block is:
+#     MAX_JOINT_BINS_CUDA * MAX_Y_BINS_CUDA * 8  +  MAX_JOINT_BINS_CUDA * 8
+# i.e. (joint_card * n_classes_y * int64) for the histogram, plus joint_card *
+# int64 for the marginal freqs.
+#
+# We derive the safe caps from the live device's per-block shared-memory
+# budget via ``pyutilz.system.gpu_dispatch.get_shared_mem_budget_per_block``.
+# That probe returns the correct per-block ceiling for every shipped compute
+# capability (cc 6.x = 48 KB, cc 7.0 Volta = 96 KB opt-in, cc 8.0 A100 = 163 KB
+# opt-in, cc 9.0 Hopper = 227 KB opt-in; cf. pyutilz commit 8371ce1 for the
+# full table). The cap is locked to MAX_Y_BINS_CUDA=16 (sufficient for 16-class
+# multiclass targets) and MAX_JOINT_BINS_CUDA is the largest power-of-2 that
+# fits the remaining budget.
+#
+# Fallback: if pyutilz is unavailable OR the probe fails, we use the cc 6.x
+# safe defaults (128, 16) -> 17 KB.
 
-MAX_JOINT_BINS_CUDA = 128  # covers nbins<=11 per column (11x11 = 121)
-MAX_Y_BINS_CUDA = 16       # multiclass up to 16 levels
+MAX_Y_BINS_CUDA = 16  # supports up to 16-class multiclass targets
+
+
+def _derive_max_joint_bins(max_y_bins: int) -> int:
+    """Pick MAX_JOINT_BINS_CUDA from the live device's per-block shared-memory
+    budget (via pyutilz). Solves
+        joint * max_y_bins * 8 + joint * 8 <= budget
+    for ``joint``, then rounds DOWN to the nearest power of 2 for kernel-launch
+    safety. Caps at 1024 (kernel design guarantees correctness only up to
+    that joint cardinality). Falls back to 128 (cc 6.x safe) on probe failure.
+    """
+    try:
+        from pyutilz.system.gpu_dispatch import (
+            gpu_capability_summary,
+            get_shared_mem_budget_per_block,
+        )
+        summary = gpu_capability_summary(0) if _CUDA_AVAIL else None
+        if summary is None:
+            return 128
+        budget = get_shared_mem_budget_per_block(
+            summary["cc_major"], summary["cc_minor"], allow_opt_in=False,
+        )
+        # Solve joint * (max_y_bins + 1) * 8 <= budget.
+        raw = budget // ((max_y_bins + 1) * 8)
+        if raw < 16:
+            return 16
+        # Round down to nearest power of 2 to keep CUDA shared-mem alignment
+        # predictable.
+        joint = 1
+        while joint * 2 <= raw and joint < 1024:
+            joint *= 2
+        return joint
+    except Exception:
+        return 128
+
+
+MAX_JOINT_BINS_CUDA = _derive_max_joint_bins(MAX_Y_BINS_CUDA)
 
 
 def _cuda_kernel_factory():
