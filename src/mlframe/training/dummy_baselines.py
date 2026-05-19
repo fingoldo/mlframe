@@ -405,6 +405,33 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
             type(e).__name__, e,
         )
 
+    # Also warm the full metric / calibration / classification-report
+    # kernel set. Pre-fix only the bootstrap subset above was warmed;
+    # ``fast_calibration_report`` and its 10+ inner kernels JIT-compiled
+    # lazily inside ``report_probabilistic_model_perf`` on the first
+    # binary_classification fit, charging 10-16s of compile cost to the
+    # training-phase profile attribution. Surfaced by the 500k binary_class
+    # x lgb fuzz profile 2026-05-19: 27.2s cold-cache vs 10.1s warm-cache
+    # for the same combo + seed, the 17.1s delta sitting almost entirely
+    # in numba.dispatcher._compile_for_args under fast_calibration_report.
+    # The kernels all have cache=True via NUMBA_NJIT_PARAMS so the warmup
+    # populates the on-disk ``__pycache__/*.nbc`` files for ALL subsequent
+    # processes too. Best-effort; failures fall back to lazy compile.
+    try:
+        from ..metrics.core import prewarm_numba_cache as _prewarm_metric_kernels
+        _t1 = _time.time()
+        _prewarm_metric_kernels()
+        log(
+            "[dummy-baselines] metric kernel cache pre-warmed in %.2fs",
+            _time.time() - _t1,
+        )
+    except Exception as _exc:
+        logger.debug(
+            "[dummy-baselines] metric kernel pre-warmup failed (%s: %s); "
+            "calibration report will JIT-compile lazily on first call",
+            type(_exc).__name__, _exc,
+        )
+
 # ---------------------------------------------------------------------
 # Public API surface
 # ---------------------------------------------------------------------
