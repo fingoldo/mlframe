@@ -223,6 +223,46 @@ except (ImportError, OSError, RuntimeError):  # pragma: no cover
     pass
 
 
+# pyutilz.system.tqdmu wraps tqdm.tqdm but does NOT honour any global "disable"
+# env var, so MRMR's per-pair / "getting pairs MIs" / "Interactions order" bars
+# spam the test log unconditionally regardless of any verbose flag we pass.
+# Force disable=True by default in the test session; tests that explicitly want
+# a visible bar still get one when they pass disable=False themselves.
+try:
+    import pyutilz.system as _pus  # noqa: E402
+    _orig_tqdmu = _pus.tqdmu
+
+    def _quiet_tqdmu(*args, **kwargs):
+        kwargs.setdefault("disable", True)
+        return _orig_tqdmu(*args, **kwargs)
+
+    _pus.tqdmu = _quiet_tqdmu
+    # Re-export to any module that already imported the symbol at top level.
+    # mlframe.feature_selection.filters.mrmr is the heavy emitter; refresh its binding.
+    try:
+        from mlframe.feature_selection.filters import mrmr as _mrmr_mod  # noqa: E402
+        _mrmr_mod.tqdmu = _quiet_tqdmu
+    except Exception:
+        pass
+    try:
+        from mlframe.feature_selection.filters import feature_engineering as _fe_mod  # noqa: E402
+        _fe_mod.tqdmu = _quiet_tqdmu
+    except Exception:
+        pass
+    try:
+        from mlframe.feature_selection.wrappers import _rfecv as _rfecv_mod  # noqa: E402
+        _rfecv_mod.tqdmu = _quiet_tqdmu
+    except Exception:
+        pass
+    try:
+        from mlframe.feature_selection.filters import screen as _screen_mod  # noqa: E402
+        _screen_mod.tqdmu = _quiet_tqdmu
+    except Exception:
+        pass
+except (ImportError, OSError, RuntimeError):  # pragma: no cover
+    pass
+
+
 @pytest.fixture(autouse=True)
 def _reset_global_rng_state():
     import random as _random
