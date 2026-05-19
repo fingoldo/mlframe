@@ -1,13 +1,12 @@
-"""Run the kernel sweep on cache miss and persist the result.
+"""Run the kernel sweep on cache miss and persist via the pyutilz cache.
 
 Public entry: :func:`ensure_joint_hist_tuning`. Called from
-``prewarm_fs_cupy_kernels`` (which is called from production startup)
-and from the dispatcher on cache miss.
+``prewarm_fs_cupy_kernels`` (production startup) and from the dispatcher
+on cache miss + ``run_auto_tune=True``.
 
-The auto-tune walks a small set of (n_samples, joint_size, block_size)
-points -- intentionally smaller than ``bench_gpu_kernel_sweep`` so the
-first-process-per-host cost stays under ~30s. Once the JSON is on disk,
-every future process loads it in ~1 ms.
+The auto-tune walks a small (n_samples, nbins, block_size) grid. Once
+the cache JSON is on disk, every future process loads it in ~1 ms via
+``pyutilz.system.kernel_tuning_cache.KernelTuningCache``.
 """
 from __future__ import annotations
 
@@ -18,17 +17,13 @@ from typing import Optional
 
 import numpy as np
 
-from . import cache_io
-
 logger = logging.getLogger(__name__)
 
 
-# Sweep axes. Kept small for first-run latency; can be widened in a
-# subsequent on-demand re-tune.
+# Sweep axes. Kept small for first-run latency.
 _N_SAMPLES_AXIS = (200_000, 1_000_000)
-_NBINS_AXIS: tuple[tuple[int, int], ...] = ((5, 5), (10, 10), (20, 20))  # joint_size = 25, 100, 400
+_NBINS_AXIS: tuple[tuple[int, int], ...] = ((5, 5), (10, 10), (20, 20))
 _BLOCK_SIZE_AXIS = (256, 512, 1024)
-_BATCH = 1  # one row per kernel launch; cuts dispatch noise
 
 
 def _measure_one(kernel, grid_x: int, block_size: int, args: tuple,
@@ -53,12 +48,8 @@ def _measure_one(kernel, grid_x: int, block_size: int, args: tuple,
 
 
 def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
-    """Returns a list of region dicts ready to drop into the cache."""
+    """Returns a list of region dicts ready for KernelTuningCache.update."""
     import cupy as cp
-    # Re-fetch kernel references AFTER ``_ensure_kernels_inited`` rebinds
-    # the module attributes. A direct ``from .filters.gpu import
-    # compute_joint_hist_batched_cuda`` at module-import time grabs the
-    # pre-init ``None`` and never updates -- silent NoneType errors below.
     from mlframe.feature_selection.filters import gpu as _gpu_mod
     _gpu_mod._ensure_kernels_inited()
     compute_joint_hist_batched_cuda = _gpu_mod.compute_joint_hist_batched_cuda
@@ -73,7 +64,7 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
         classes_y = rng.integers(0, nby, size=n_samples).astype(np.int32)
         d_x = cp.asarray(classes_x)
         d_y_perms = cp.asarray(classes_y.reshape(1, -1).copy())
-        d_out = cp.zeros((_BATCH, joint), dtype=cp.int32)
+        d_out = cp.zeros((1, joint), dtype=cp.int32)
         args = (d_x, d_y_perms, d_out,
                 np.int32(n_samples), np.int32(nbx), np.int32(nby))
 
@@ -103,7 +94,6 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
                 best_choice["block_size"], best_choice["wall_ms"],
             )
 
-    # Build regions sorted ascending by (n_samples_max, joint_size_max).
     regions: list[dict] = []
     for (n_samples, joint), choice in sorted(best_per_combo.items()):
         regions.append({
@@ -126,21 +116,21 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
 
 def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     """Return cached regions for ``joint_hist_batched``; run the sweep
-    + persist if missing. Returns None if CUDA is unavailable."""
+    + persist via pyutilz KernelTuningCache if missing. Returns None
+    if CUDA / pyutilz unavailable."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
         if not is_cuda_available():
             return None
-    except Exception:
+    except ImportError:
         return None
 
+    cache = KernelTuningCache()
     if not force:
-        cached = cache_io.load()
-        if cached is not None:
-            kernels = cached.get("kernels", {})
-            entry = kernels.get("joint_hist_batched")
-            if entry and entry.get("regions"):
-                return entry["regions"]
+        regions = cache.get_regions("joint_hist_batched")
+        if regions:
+            return regions
 
     logger.info("kernel_tuning_cache: joint_hist sweep starting (one-time per host)")
     t0 = time.perf_counter()
@@ -152,7 +142,8 @@ def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     logger.info("kernel_tuning_cache: joint_hist sweep done in %.2fs", time.perf_counter() - t0)
 
     try:
-        cache_io.update_kernel("joint_hist_batched", regions)
+        cache.update("joint_hist_batched",
+                     axes=["n_samples", "joint_size"], regions=regions)
     except OSError as e:
         logger.warning("kernel_tuning_cache: cache save failed: %s", e)
 

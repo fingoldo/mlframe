@@ -313,14 +313,28 @@ def discretize_2d_array(
     routes to the fastest backend by default; manual backend selection
     is only for tests + benches.
     """
-    # CUDA-eligibility gate. Falls through to CPU when ANY condition fails.
+    # CUDA-eligibility gate. ``min_cells`` comes from the per-host kernel
+    # tuning cache (pyutilz.system.kernel_tuning_cache + auto_tune sweep)
+    # when available; else the hand-tuned 500k default. Lets the dispatcher
+    # adapt to faster GPUs (cc 8+ wins at smaller sizes) without code edits.
+    min_cells = _DISCRETIZE_2D_CUDA_MIN_CELLS
+    try:
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        _cache = KernelTuningCache()
+        _entry = _cache.lookup("discretize_2d_array",
+                                arr_size=int(arr.size) if hasattr(arr, "size") else 0)
+        if _entry is not None and "min_cells" in _entry:
+            min_cells = int(_entry["min_cells"])
+    except Exception:
+        pass  # pyutilz missing or lookup error -> hand-tuned default
+
     if (
         prefer_gpu
         and method == "quantile"
         and min_values is None
         and max_values is None
         and arr.ndim == 2
-        and arr.size >= _DISCRETIZE_2D_CUDA_MIN_CELLS
+        and arr.size >= min_cells
     ):
         try:
             from pyutilz.core.pythonlib import is_cuda_available

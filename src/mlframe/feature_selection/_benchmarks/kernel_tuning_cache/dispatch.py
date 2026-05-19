@@ -1,16 +1,11 @@
-"""Runtime dispatcher: pick the best (kernel_variant, block_size) per call.
+"""Runtime dispatcher for the mlframe joint-hist kernels.
 
-Public API:
-    ``lookup_joint_hist(n_samples, joint_size) -> dict``
-        Returns a dict ``{"kernel_variant": "shared"|"global", "block_size": int}``.
-        Loads the cache lazily on first call; on cache miss falls back to
-        the hand-tuned defaults from the source code so the dispatcher
-        never blocks production fits even before the first sweep ran.
-
-The cache is consulted ONCE per process via ``_load_or_build`` (under a
-threading.Lock so concurrent callers serialise). After that every lookup
-is a Python dict scan over a handful of regions -- O(N_regions) per
-call but N_regions <= 20.
+Thin wrapper that delegates storage + lookup to the generic
+``pyutilz.system.kernel_tuning_cache.KernelTuningCache``. This module
+keeps the mlframe-specific entry point ``lookup_joint_hist`` so
+``filters/gpu.py:mi_direct_gpu_batched`` doesn't need to know about the
+generic backing storage; it also owns the hand-tuned fallbacks used
+when the cache is missing AND auto-tune hasn't been triggered yet.
 """
 from __future__ import annotations
 
@@ -18,90 +13,99 @@ import logging
 import threading
 from typing import Optional
 
-from . import auto_tune, cache_io
-
 logger = logging.getLogger(__name__)
 
-
-_LOAD_LOCK = threading.Lock()
-_LOADED: dict[str, list[dict]] = {}  # kernel_name -> regions list
 
 # Hand-tuned fallbacks used before / instead of the sweep cache. These
 # match the constants in ``filters/gpu.py:mi_direct_gpu_batched`` so the
 # dispatcher's "first-process / no cache yet" decision is identical to
 # the hand-coded one.
-_FALLBACK_JOINT_HIST = {
-    "kernel_variant": "shared",  # current source-code default
-    "block_size": 512,
-}
-_FALLBACK_JOINT_HIST_GLOBAL = {
-    "kernel_variant": "global",
-    "block_size": 1024,
-}
+_FALLBACK_JOINT_HIST = {"kernel_variant": "shared", "block_size": 512}
+_FALLBACK_JOINT_HIST_GLOBAL = {"kernel_variant": "global", "block_size": 1024}
 _SHARED_HIST_MAX_JOINT_FALLBACK = 4096
 
 
-def _load_or_build(kernel_name: str, *, auto_tune_fn=None) -> Optional[list[dict]]:
-    """Idempotent loader: cache -> auto_tune -> None. Under a lock so
-    only one thread per process pays the sweep cost."""
+_CACHE_SINGLETON: Optional[object] = None  # KernelTuningCache instance
+_LOAD_LOCK = threading.Lock()
+
+
+def _get_cache():
+    """Lazy import + singleton init of the pyutilz cache."""
+    global _CACHE_SINGLETON
+    if _CACHE_SINGLETON is not None:
+        return _CACHE_SINGLETON
     with _LOAD_LOCK:
-        if kernel_name in _LOADED:
-            return _LOADED[kernel_name]
-        cached = cache_io.load() or {}
-        kernels = cached.get("kernels", {})
-        entry = kernels.get(kernel_name)
-        if entry and entry.get("regions"):
-            _LOADED[kernel_name] = entry["regions"]
-            return _LOADED[kernel_name]
-        # Cache miss; trigger auto-tune if a tuner was provided.
-        if auto_tune_fn is not None:
-            regions = auto_tune_fn()
-            if regions:
-                _LOADED[kernel_name] = regions
-                return regions
-        _LOADED[kernel_name] = []  # cache miss, no tuner: store empty so we don't retry
-        return None
+        if _CACHE_SINGLETON is None:
+            try:
+                from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+                _CACHE_SINGLETON = KernelTuningCache()
+            except ImportError:
+                logger.debug(
+                    "pyutilz.system.kernel_tuning_cache unavailable; "
+                    "using hand-tuned fallbacks"
+                )
+                _CACHE_SINGLETON = False  # sentinel: cache absent
+    return _CACHE_SINGLETON
 
 
 def lookup_joint_hist(n_samples: int, joint_size: int,
                        *, run_auto_tune: bool = False) -> dict:
     """Return ``{"kernel_variant", "block_size"}`` for the given size pair.
 
-    If ``run_auto_tune`` is True, runs the per-host sweep on cache miss;
-    otherwise returns the source-code fallback immediately and a
-    background tuner can run later (via ``prewarm_fs_cupy_kernels``).
+    Hits the pyutilz ``KernelTuningCache`` for ``joint_hist_batched``.
+    On cache miss + ``run_auto_tune=True`` triggers a one-time sweep
+    (~30s) via :mod:`auto_tune`. Returns the hand-tuned fallback if
+    pyutilz is unavailable or the kernel hasn't been tuned yet.
     """
-    regions = _load_or_build(
-        "joint_hist_batched",
-        auto_tune_fn=auto_tune.ensure_joint_hist_tuning if run_auto_tune else None,
-    )
+    cache = _get_cache()
+    if cache is False or cache is None:
+        # pyutilz missing entirely -> source-code fallback.
+        return _fallback_for_joint_size(joint_size)
 
-    if not regions:
-        # No cache, no auto-tune -> hand-tuned fallback. Mirrors the
-        # source-code default in ``mi_direct_gpu_batched``.
-        if joint_size > _SHARED_HIST_MAX_JOINT_FALLBACK:
-            return dict(_FALLBACK_JOINT_HIST_GLOBAL)
-        return dict(_FALLBACK_JOINT_HIST)
+    choice = cache.lookup("joint_hist_batched", n_samples=n_samples, joint_size=joint_size)
+    if choice is not None:
+        return {
+            "kernel_variant": choice["kernel_variant"],
+            "block_size": choice["block_size"],
+        }
 
-    for region in regions:
-        n_max = region.get("n_samples_max")
-        j_max = region.get("joint_size_max")
-        if (n_max is None or n_samples <= n_max) and (j_max is None or joint_size <= j_max):
-            return {
-                "kernel_variant": region["kernel_variant"],
-                "block_size": region["block_size"],
-            }
+    # Cache miss; optionally auto-tune.
+    if run_auto_tune:
+        try:
+            from . import auto_tune as _auto_tune
+            _auto_tune.ensure_joint_hist_tuning(force=False)
+            choice = cache.lookup(
+                "joint_hist_batched", n_samples=n_samples, joint_size=joint_size,
+            )
+            if choice is not None:
+                return {
+                    "kernel_variant": choice["kernel_variant"],
+                    "block_size": choice["block_size"],
+                }
+        except Exception as e:
+            logger.debug("auto_tune sweep failed: %s", e)
 
-    # Should never happen: the saved catch-all has None bounds. Defensive:
+    return _fallback_for_joint_size(joint_size)
+
+
+def _fallback_for_joint_size(joint_size: int) -> dict:
+    """Hand-tuned source-code defaults used when the cache is absent."""
+    if joint_size > _SHARED_HIST_MAX_JOINT_FALLBACK:
+        return dict(_FALLBACK_JOINT_HIST_GLOBAL)
     return dict(_FALLBACK_JOINT_HIST)
 
 
 def reset_cache() -> None:
-    """Drop the in-memory dispatch table; next lookup re-loads from disk
-    (or re-runs auto-tune if forced). For tests + on driver-update
-    cache-invalidation hooks."""
+    """Drop the in-memory cache singleton; next lookup re-loads from disk
+    (or re-runs auto-tune if forced). For tests + driver-update hooks."""
+    global _CACHE_SINGLETON
     with _LOAD_LOCK:
-        _LOADED.clear()
+        if _CACHE_SINGLETON not in (None, False):
+            try:
+                _CACHE_SINGLETON.reset()
+            except Exception:
+                pass
+        _CACHE_SINGLETON = None
 
 
 __all__ = ["lookup_joint_hist", "reset_cache"]
