@@ -106,9 +106,12 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self.model = model
         self.check_model()
 
-        if random_state is not None:
-            np.random.seed(random_state)
+        # Use a private rng so the suite's global numpy RNG state is not mutated by
+        # BorutaShap construction. Prior code seeded np.random globally, leaking the
+        # seed into every downstream consumer (data augmentation, FE) of the same
+        # process and violating the suite's determinism contract.
         self.random_state = random_state
+        self._rng = np.random.default_rng(random_state)
 
         self.n_trials = n_trials
         self.sample = sample
@@ -160,6 +163,28 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         else:
             pass
+
+    @staticmethod
+    def _ordinal_encode_object_cols_inplace(df: pd.DataFrame) -> list[str]:
+        """Replace every object / pandas-Categorical column in ``df`` with
+        int32 ordinal codes. Returns the list of touched column names so
+        the caller can log / unit-test the path.
+
+        NaN preserved as ``-1`` so the surrogate model can still split on
+        "missing"; non-NaN values get stable codes derived from the unique
+        set seen in that column (pandas Categorical default).
+        """
+        touched: list[str] = []
+        for _col in df.columns:
+            _ser = df[_col]
+            _dtype = _ser.dtype
+            if pd.api.types.is_categorical_dtype(_dtype):
+                df[_col] = _ser.cat.codes.astype("int32")
+                touched.append(str(_col))
+            elif _dtype == object:
+                df[_col] = pd.Categorical(_ser).codes.astype("int32")
+                touched.append(str(_col))
+        return touched
 
     def check_X(self):
         """
@@ -372,6 +397,29 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             self.starting_X = X.copy()
             self.X = X.copy()
             self.y = y.copy()
+            # Ordinal-encode object / pandas-Categorical columns in self.X so
+            # the internal surrogate fit (Train_model) and the SHAP step
+            # downstream both see numeric features. Pre-fix iter-179 / iter-237
+            # path: when the suite's main cat-encoder is bypassed (polars-
+            # fastpath models / cat_enc=ordinal where the encoder ran on the
+            # polars-pre frame only), BorutaShap is fed a raw pandas frame
+            # with object dtype cat cols; LGB / XGB surrogates raise
+            # ``ValueError: could not convert string to float: 'A'`` and the
+            # entire feature-selection branch is lost. The codes are private
+            # to BorutaShap internals: ``transform`` returns ``X.iloc[:,
+            # indices]`` of the CALLER-supplied frame (not self.X), so the
+            # encoding never leaks into the downstream model's input. The CB
+            # path also benefits because cat_features=col_names still works
+            # on int codes (CB treats them as ordinal-encoded categories).
+            _self_x_encoded_cols = self._ordinal_encode_object_cols_inplace(
+                self.X,
+            )
+            if _self_x_encoded_cols:
+                logger.debug(
+                    "BorutaShap: ordinal-encoded %d object/category col(s) "
+                    "for internal surrogate fit: %s",
+                    len(_self_x_encoded_cols), _self_x_encoded_cols,
+                )
 
             self.ncols = self.X.shape[1]
             self.all_columns = self.X.columns.to_numpy()
@@ -424,21 +472,27 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             kept |= set(self.tentative)
         self.support_ = np.array([c in kept for c in self.all_columns], dtype=bool)
         self.selected_features_ = [c for c in self.all_columns if c in kept]
+        # sklearn convention: feature_names_in_ + n_features_in_ are the canonical
+        # discoverable attributes for downstream report builders. Without them the
+        # FS report's ``dropped_features`` field is None for BorutaShap and
+        # asymmetric vs MRMR / RFECV.
+        self.feature_names_in_ = np.asarray(self.all_columns)
+        self.n_features_in_ = int(len(self.all_columns))
 
     def transform(
         self,
         X,
     ):
-        columns = self.X.columns.values.tolist()
-        indices = []
-        for var in self.accepted:
-            indices.append(columns.index(var))
-
-        if self.optimistic:
-            for var in self.tentative:
-                indices.append(columns.index(var))
-
-        return X.iloc[:, sorted(indices)]
+        # Name-based selection: ``self.X`` was mutated in place during fit
+        # (rejected columns dropped by ``remove_features_if_rejected``), so its
+        # column ordering is NOT the input X's ordering. Using ``X[selected]`` /
+        # ``X.loc[:, selected]`` is stable across caller-side column reordering
+        # (train vs serve drift) where the prior ``iloc[:, sorted(indices)]``
+        # silently selected the wrong columns.
+        selected = list(self.selected_features_)
+        if hasattr(X, "loc"):
+            return X.loc[:, selected]
+        return X[selected]
 
     def fit_transform(self, X, y):
         self.fit(X, y)
@@ -603,7 +657,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         Returns:
             Datframe with random permutations of the original columns.
         """
-        self.X_shadow = self.X.apply(np.random.permutation)
+        # Private rng (set in __init__) keeps shadow-feature permutations seeded
+        # without mutating the global np.random stream that other suite stages rely on.
+        _rng = getattr(self, "_rng", None) or np.random.default_rng(getattr(self, "random_state", None))
+        self.X_shadow = self.X.apply(lambda col: _rng.permutation(col.values))
 
         if isinstance(self.X_shadow, pd.DataFrame):
             # append
@@ -763,7 +820,17 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         else:
             basis = self.X_boruta
 
-        if self.classification or self.y.shape[1] > 1:
+        # ``self.y.shape[1] > 1`` raises IndexError on 1-D regression targets
+        # (shape is ``(n,)``). The intent is "multi-output regression"; guard
+        # with ``ndim >= 2``. Pre-fix iter-237 / iter-280: BorutaShap on a 1-D
+        # regression target crashed after 50+ minutes of SHAP computation
+        # with ``IndexError: tuple index out of range``.
+        _y_multi = (
+            hasattr(self.y, "shape")
+            and getattr(self.y, "ndim", 1) >= 2
+            and self.y.shape[1] > 1
+        )
+        if self.classification or _y_multi:
             # for some reason shap returns values wraped in a list of length 1
 
             self.shap_values = np.array(explainer.shap_values(basis))
