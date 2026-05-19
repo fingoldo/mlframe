@@ -247,6 +247,10 @@ class PytorchLightningEstimator(BaseEstimator):
             val_sample_weight=eval_sample_weight,
             **self.datamodule_params,
         )
+        # Stash for predict-time reuse so we don't re-instantiate (and trigger the
+        # "No datamodule found from training. Creating temporary datamodule for
+        # prediction." misleading warning at every predict call).
+        self.prediction_datamodule = dm
 
         if isinstance(self, ClassifierMixin):
             # Detect multilabel target (2-D y of shape (N, K)). Multilabel has independent binary labels - no single classes_ array;
@@ -575,15 +579,13 @@ class PytorchLightningEstimator(BaseEstimator):
 
             prediction_trainer = L.Trainer(**trainer_params)
 
-        if self.model.training:
-            logger.warning("Model was in training mode during prediction. Switching to eval mode.")
-            self.model.eval()
-
-        # Additional check for compiled models
+        # Unconditional eval() switch - cheap idempotent op, removes the spurious
+        # "Model was in training mode during prediction" warning that fired on
+        # every legit predict-after-fit (Lightning's Trainer.fit leaves the model
+        # in train mode on exit).
+        self.model.eval()
         if hasattr(self.model, "_orig_mod"):
-            if self.model._orig_mod.training:
-                logger.warning("Compiled model's original module was in training mode. Switching to eval mode.")
-                self.model._orig_mod.eval()
+            self.model._orig_mod.eval()
 
         try:
             predictions = prediction_trainer.predict(
