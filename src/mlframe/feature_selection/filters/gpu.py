@@ -334,34 +334,34 @@ def mi_direct_gpu_batched(
     freqs_x_gpu = cp.asarray(freqs_x).astype(cp.float64)
     freqs_y_gpu = cp.asarray(freqs_y).astype(cp.float64)
 
-    # Joint-hist kernel dispatch (compute_joint_hist_batched_shared_cuda vs
-    # compute_joint_hist_batched_cuda). Win axis per
-    # ``feedback_keep_all_kernel_versions``: the shared-mem variant cuts
-    # global atomicAdd contention by keeping a per-block histogram in shared
-    # memory (10-100x faster atomic on cc 6.x) and reducing to global only at
-    # block-end. Shared-mem requirement: ``joint_size * 4`` bytes per block;
-    # GTX 1050 Ti cc 6.1 caps blocks at 48 KB shared (49152 bytes), so
-    # joint_size <= 49152/4 = 12_288. We cap conservatively at 4096 to leave
-    # headroom for the runtime's own shared-mem reservations.
+    # Joint-hist kernel dispatch via the per-host kernel_tuning_cache. The
+    # cache is built on first use by a 30s sweep and persisted to
+    # ``~/.mlframe/kernel_tuning/{hw_fingerprint}.json``. Subsequent calls
+    # do an O(N_regions) dict lookup (N_regions <= ~10). Falls back to the
+    # hand-tuned source-code default (shared, bs=512) on cache miss /
+    # CUDA-unavailable / lookup error so production fits never block on
+    # the cache.
+    #
+    # Both kernel variants stay alongside per ``feedback_keep_all_kernel_versions``:
+    #   * compute_joint_hist_batched_shared_cuda -- shared-mem atomic;
+    #     wins at most (n_samples, joint_size) combos.
+    #   * compute_joint_hist_batched_cuda -- global-atomic; wins at large
+    #     joint_size on certain (n_samples, block_size) combos that the
+    #     auto-tune sweep discovered (e.g. n=1M, joint=400 on cc 6.1).
     joint_size = nbins_x * nbins_y
-    _SHARED_HIST_MAX_JOINT = 4096
-    use_shared_hist = joint_size <= _SHARED_HIST_MAX_JOINT
-    shared_mem_bytes = joint_size * 4 if use_shared_hist else 0
+    try:
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
+            lookup_joint_hist,
+        )
+        _choice = lookup_joint_hist(n_samples=n, joint_size=joint_size)
+        use_shared_hist = _choice["kernel_variant"] == "shared"
+        block_size = int(_choice["block_size"])
+    except Exception:
+        # Hand-tuned source-code fallback (matches the pre-cache defaults).
+        use_shared_hist = joint_size <= 4096
+        block_size = 512 if use_shared_hist else GPU_MAX_BLOCK_SIZE
 
-    # Kernel-specific block_size. Sweep bench (commit d293a42 +
-    # bench_gpu_kernel_sweep) found:
-    #   * global-atomic kernel is atomic-throughput-bound; block_size matters
-    #     little above 64 -- 1024 stays the sane default (matches every
-    #     other ``compute_*_cuda`` consumer in this module).
-    #   * shared-mem kernel pays init+reduce overhead per block; the sweet
-    #     spot is 256-512 threads. block_size=512 won 6/16 configs (most),
-    #     1024 only 3/16; block_size=64 LOST every joint_size=400 config
-    #     by 0.48-0.64x.
-    # Setting the shared kernel to 512 captures the win on the typical
-    # MRMR axis without regressing larger joint sizes.
-    block_size_global = GPU_MAX_BLOCK_SIZE          # = 1024 (was used for both)
-    block_size_shared = 512                          # tuned by sweep bench
-    block_size = block_size_shared if use_shared_hist else block_size_global
+    shared_mem_bytes = joint_size * 4 if use_shared_hist else 0
     grid_x = (n + block_size - 1) // block_size
 
     # ``.get()`` coalescing v2: stage each batch's failure-count as a

@@ -397,6 +397,21 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
     except Exception as _exc:
         _log.debug("prewarm_fs_cupy_kernels: batched_pairs warm failed (%s); continuing", _exc)
 
+    # Step 4b: build the per-host kernel-tuning cache if missing. First-run
+    # cost ~30s; subsequent processes load the cached JSON in ~1ms. The
+    # cache persists at ``~/.mlframe/kernel_tuning/{hw_fingerprint}.json``.
+    try:
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+            ensure_joint_hist_tuning,
+        )
+        ensure_joint_hist_tuning(force=False)
+    except Exception as _exc:
+        _log.debug(
+            "prewarm_fs_cupy_kernels: kernel_tuning auto-tune failed (%s); "
+            "production will use hand-tuned fallbacks",
+            _exc,
+        )
+
     # Step 5: discretize_2d_array_cuda. The CuPy path uses cp.percentile +
     # cp.searchsorted + cp.linspace, each of which lazy-compiles a separate
     # CUDA module on first call. The percentile path alone accounts for ~700ms
