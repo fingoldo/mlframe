@@ -1940,7 +1940,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         if verbose:
             logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", n_pairs)
 
-        if _k < 50:
+        # Parallelise whenever (a) more than one worker is configured and
+        # (b) we have at least n_jobs pairs to spread; per-pair MI compute is
+        # ~35 s with default fe_npermutations on a wide frame, so parallel
+        # overhead is amortised even at very small _k. Previously this took
+        # the single-thread branch up to _k=50 (1225 pairs), serialising what
+        # should be a 4-minute job into ~1 h on a 16-core box.
+        if n_jobs <= 1 or n_pairs < max(2, n_jobs):
             compute_pairs_mis(
                 all_pairs=tqdmu(
                     combinations(numeric_vars_to_consider, 2),
