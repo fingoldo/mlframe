@@ -724,7 +724,18 @@ class MRMR(BaseEstimator, TransformerMixin):
             n_jobs = psutil.cpu_count(logical=False)
 
         if parallel_kwargs is None:
-            parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES)
+            # backend="threading": joblib uses ThreadPoolExecutor in the same
+            # process instead of the default loky ProcessPoolExecutor. Data
+            # arrays are shared in memory (zero copy, no memmap_folder, no
+            # paging-file pressure); numba kernels in mi_direct /
+            # parallel_mi_prange / compute_mi_from_classes already release the
+            # GIL so threads run truly parallel on CPU cores. Pre-fix iter-371
+            # 1M cb multiclass + MRMR + binary=medium: 3 joblib loky workers
+            # each memmap'd the 1M-row dataset (3GB RAM total), then Windows
+            # WinError 1455 (paging file too small) cascaded into MemoryError +
+            # dangling joblib_memmapping_folder temp files that the resource
+            # tracker could not clean up.
+            parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES, backend="threading")
 
         # assert isinstance(estimator, (BaseEstimator,))
 

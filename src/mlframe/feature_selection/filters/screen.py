@@ -218,7 +218,12 @@ def screen_predictors(
     # ---------------------------------------------------------------------------------------------------------------
 
     if parallel_kwargs is None:
-        parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES)
+        # backend="threading" mirrors the mrmr.py default flip (iter-371 fix):
+        # joblib ThreadPoolExecutor in-process shares the data arrays zero-copy
+        # so the screen pass no longer triples RAM via per-worker memmap copies
+        # under Windows paging pressure. Numba kernels release the GIL so the
+        # threadpool genuinely parallelises on CPU cores.
+        parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES, backend="threading")
 
     if max_confirmation_cand_nbins is None:
         max_confirmation_cand_nbins = MAX_CONFIRMATION_CAND_NBINS
