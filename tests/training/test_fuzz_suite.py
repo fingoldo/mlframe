@@ -17,6 +17,10 @@ import traceback
 import numpy as np
 import pytest
 
+# Fuzz combos run ~150 train_mlframe_models_suite iterations and are deselected
+# from the default test run; pass pytest --run-fuzz to include.
+pytestmark = pytest.mark.fuzz
+
 from ._fuzz_combo import (
     FuzzCombo,
     build_frame_for_combo,

@@ -14,6 +14,10 @@ import os
 
 import pytest
 
+# Fuzz combos run hundreds of train_mlframe_models_suite iterations and are
+# deselected from the default test run; pass pytest --run-fuzz to include.
+pytestmark = pytest.mark.fuzz
+
 # Reuse all the heavy plumbing (FuzzCombo dataclass, frame builder, the
 # parametrized test body, xfail rules) from the full suite by importing
 # the existing module. ``test_fuzz_train_mlframe_models_suite`` is the

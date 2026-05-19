@@ -79,6 +79,14 @@ def pytest_addoption(parser):
         help="Fast mode: parametrized tests run one representative variant per group "
              f"(also enabled by {_FAST_ENV}=1).",
     )
+    parser.addoption(
+        "--run-fuzz",
+        action="store_true",
+        default=False,
+        help="Include long-running fuzz-combo tests (test_fuzz_suite, "
+             "test_fuzz_3way_suite, ...). They are deselected by default even "
+             "without --fast because each runs ~150 combos through the suite.",
+    )
 
 
 def pytest_configure(config):
@@ -92,9 +100,24 @@ def pytest_configure(config):
         "markers",
         "slow_only: test is skipped in fast mode.",
     )
+    config.addinivalue_line(
+        "markers",
+        "fuzz: long-running fuzz-combo test; deselected unless --run-fuzz is passed.",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
+    # Always: deselect ``fuzz``-marked items unless --run-fuzz is given. Applies
+    # in BOTH fast and full modes - fuzz combos run hundreds of train_mlframe_models_suite
+    # iterations and should never be in the standard CI loop. Opt in explicitly.
+    if not config.getoption("--run-fuzz"):
+        skip_fuzz = pytest.mark.skip(
+            reason="skipped by default; pass --run-fuzz to include long fuzz-combo tests"
+        )
+        for item in items:
+            if "fuzz" in item.keywords:
+                item.add_marker(skip_fuzz)
+
     if not is_fast_mode():
         return
     skip_slow = pytest.mark.skip(reason="skipped in --fast mode")
@@ -179,6 +202,24 @@ except (ImportError, OSError, RuntimeError) as exc:  # pragma: no cover
         f"Skipping optional thinc pytest-randomly seed shim because thinc import failed: {exc}",
         RuntimeWarning,
     )
+    pass
+
+
+# RFECV defaults to verbose=1 which floods the test log with tqdm progress lines
+# ("RFECV: trying 15F, had 2F with score -1.96, best was 2F ..."). In a test
+# session we want quiet by default; tests that explicitly want to assert on the
+# verbose path can still pass verbose>=1 themselves. Monkey-patches __init__ to
+# only inject verbose=0 when the caller did not specify it.
+try:
+    from mlframe.feature_selection.wrappers._rfecv import RFECV as _RFECV  # noqa: E402
+    _orig_rfecv_init = _RFECV.__init__
+
+    def _quiet_rfecv_init(self, *args, **kwargs):
+        kwargs.setdefault("verbose", 0)
+        return _orig_rfecv_init(self, *args, **kwargs)
+
+    _RFECV.__init__ = _quiet_rfecv_init
+except (ImportError, OSError, RuntimeError):  # pragma: no cover
     pass
 
 
