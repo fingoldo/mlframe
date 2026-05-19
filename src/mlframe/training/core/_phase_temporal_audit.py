@@ -91,10 +91,29 @@ def run_temporal_audit_batch(
 
         if _audit_targets_spec:
             _ts_arr = np.asarray(_audit_ts_values)
-            _batch_input = pd.DataFrame({
-                _audit_ts_col: _ts_arr,
-                **_audit_input_cols,
-            })
+            # Route to the polars multi-target single-pass aggregation path
+            # (~5x faster on N>1 targets at >1M rows per target_temporal_audit
+            # module docstring). audit_targets_over_time only takes that path
+            # when ``isinstance(df, pl.DataFrame)``. Numeric timestamps are
+            # pre-coerced via pd.to_datetime so the polars Datetime semantics
+            # match the pandas fallback (pandas interprets bare int64 as ns
+            # since the unix epoch).
+            try:
+                import polars as _pl
+                _ts_for_pl = (
+                    _ts_arr
+                    if np.issubdtype(_ts_arr.dtype, np.datetime64)
+                    else pd.to_datetime(_ts_arr).to_numpy()
+                )
+                _batch_input = _pl.DataFrame({
+                    _audit_ts_col: _ts_for_pl,
+                    **_audit_input_cols,
+                })
+            except ImportError:
+                _batch_input = pd.DataFrame({
+                    _audit_ts_col: _ts_arr,
+                    **_audit_input_cols,
+                })
             _gran = getattr(behavior_config, "target_temporal_audit_granularity", "auto")
             _batch_results = _audit_targets_over_time(
                 _batch_input,
