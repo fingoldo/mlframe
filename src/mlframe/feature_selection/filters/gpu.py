@@ -334,9 +334,6 @@ def mi_direct_gpu_batched(
     freqs_x_gpu = cp.asarray(freqs_x).astype(cp.float64)
     freqs_y_gpu = cp.asarray(freqs_y).astype(cp.float64)
 
-    block_size = GPU_MAX_BLOCK_SIZE
-    grid_x = (n + block_size - 1) // block_size
-
     # Joint-hist kernel dispatch (compute_joint_hist_batched_shared_cuda vs
     # compute_joint_hist_batched_cuda). Win axis per
     # ``feedback_keep_all_kernel_versions``: the shared-mem variant cuts
@@ -350,6 +347,22 @@ def mi_direct_gpu_batched(
     _SHARED_HIST_MAX_JOINT = 4096
     use_shared_hist = joint_size <= _SHARED_HIST_MAX_JOINT
     shared_mem_bytes = joint_size * 4 if use_shared_hist else 0
+
+    # Kernel-specific block_size. Sweep bench (commit d293a42 +
+    # bench_gpu_kernel_sweep) found:
+    #   * global-atomic kernel is atomic-throughput-bound; block_size matters
+    #     little above 64 -- 1024 stays the sane default (matches every
+    #     other ``compute_*_cuda`` consumer in this module).
+    #   * shared-mem kernel pays init+reduce overhead per block; the sweet
+    #     spot is 256-512 threads. block_size=512 won 6/16 configs (most),
+    #     1024 only 3/16; block_size=64 LOST every joint_size=400 config
+    #     by 0.48-0.64x.
+    # Setting the shared kernel to 512 captures the win on the typical
+    # MRMR axis without regressing larger joint sizes.
+    block_size_global = GPU_MAX_BLOCK_SIZE          # = 1024 (was used for both)
+    block_size_shared = 512                          # tuned by sweep bench
+    block_size = block_size_shared if use_shared_hist else block_size_global
+    grid_x = (n + block_size - 1) // block_size
 
     # ``.get()`` coalescing v2: stage each batch's failure-count as a
     # CuPy 0-d array in a Python list, then sync ONCE at end-of-loop via
