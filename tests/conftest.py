@@ -210,15 +210,25 @@ except (ImportError, OSError, RuntimeError) as exc:  # pragma: no cover
 # session we want quiet by default; tests that explicitly want to assert on the
 # verbose path can still pass verbose>=1 themselves. Monkey-patches __init__ to
 # only inject verbose=0 when the caller did not specify it.
+#
+# IDEMPOTENCY: a sentinel attribute guards against double-patching. Without it,
+# any code path that re-imports tests/conftest.py (xdist worker bootstrap, or a
+# test file doing ``from tests.conftest import ...``) re-wraps the
+# already-wrapped function, building a recursion chain that blows the stack on
+# the Nth re-import (observed as ``RecursionError: maximum recursion depth
+# exceeded`` cascade across test_metrics + test_estimators on big-iron xdist
+# runs).
 try:
     from mlframe.feature_selection.wrappers._rfecv import RFECV as _RFECV  # noqa: E402
-    _orig_rfecv_init = _RFECV.__init__
+    if not getattr(_RFECV.__init__, "_mlframe_test_quieted", False):
+        _orig_rfecv_init = _RFECV.__init__
 
-    def _quiet_rfecv_init(self, *args, **kwargs):
-        kwargs.setdefault("verbose", 0)
-        return _orig_rfecv_init(self, *args, **kwargs)
+        def _quiet_rfecv_init(self, *args, **kwargs):
+            kwargs.setdefault("verbose", 0)
+            return _orig_rfecv_init(self, *args, **kwargs)
 
-    _RFECV.__init__ = _quiet_rfecv_init
+        _quiet_rfecv_init._mlframe_test_quieted = True
+        _RFECV.__init__ = _quiet_rfecv_init
 except (ImportError, OSError, RuntimeError):  # pragma: no cover
     pass
 
@@ -228,37 +238,35 @@ except (ImportError, OSError, RuntimeError):  # pragma: no cover
 # spam the test log unconditionally regardless of any verbose flag we pass.
 # Force disable=True by default in the test session; tests that explicitly want
 # a visible bar still get one when they pass disable=False themselves.
+#
+# Same idempotency sentinel guards as the RFECV block above - see that comment
+# for the rationale.
 try:
     import pyutilz.system as _pus  # noqa: E402
-    _orig_tqdmu = _pus.tqdmu
+    if not getattr(_pus.tqdmu, "_mlframe_test_quieted", False):
+        _orig_tqdmu = _pus.tqdmu
 
-    def _quiet_tqdmu(*args, **kwargs):
-        kwargs.setdefault("disable", True)
-        return _orig_tqdmu(*args, **kwargs)
+        def _quiet_tqdmu(*args, **kwargs):
+            kwargs.setdefault("disable", True)
+            return _orig_tqdmu(*args, **kwargs)
 
-    _pus.tqdmu = _quiet_tqdmu
-    # Re-export to any module that already imported the symbol at top level.
-    # mlframe.feature_selection.filters.mrmr is the heavy emitter; refresh its binding.
-    try:
-        from mlframe.feature_selection.filters import mrmr as _mrmr_mod  # noqa: E402
-        _mrmr_mod.tqdmu = _quiet_tqdmu
-    except Exception:
-        pass
-    try:
-        from mlframe.feature_selection.filters import feature_engineering as _fe_mod  # noqa: E402
-        _fe_mod.tqdmu = _quiet_tqdmu
-    except Exception:
-        pass
-    try:
-        from mlframe.feature_selection.wrappers import _rfecv as _rfecv_mod  # noqa: E402
-        _rfecv_mod.tqdmu = _quiet_tqdmu
-    except Exception:
-        pass
-    try:
-        from mlframe.feature_selection.filters import screen as _screen_mod  # noqa: E402
-        _screen_mod.tqdmu = _quiet_tqdmu
-    except Exception:
-        pass
+        _quiet_tqdmu._mlframe_test_quieted = True
+        _pus.tqdmu = _quiet_tqdmu
+        # Re-export to any module that already imported the symbol at top level.
+        # Each refresh is also idempotent because we just point at the already-
+        # patched _quiet_tqdmu.
+        for _mod_path in (
+            "mlframe.feature_selection.filters.mrmr",
+            "mlframe.feature_selection.filters.feature_engineering",
+            "mlframe.feature_selection.wrappers._rfecv",
+            "mlframe.feature_selection.filters.screen",
+        ):
+            try:
+                import importlib
+                _mod = importlib.import_module(_mod_path)
+                _mod.tqdmu = _quiet_tqdmu
+            except Exception:
+                pass
 except (ImportError, OSError, RuntimeError):  # pragma: no cover
     pass
 
