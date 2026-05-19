@@ -475,7 +475,11 @@ try:
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
-except ImportError:  # pragma: no cover
+except (ImportError, OSError):  # pragma: no cover
+    # OSError covers Windows DLL load failures (e.g. WinError 127 from cublas64_11.dll
+    # entry-point mismatch on boxes with shadow CUDA installs). Without OSError in
+    # the catch, an otherwise-installed-but-broken torch aborts every test that
+    # transitively imports the training trainer, not just MLP/recurrent tests.
     torch = None  # type: ignore[assignment]
     nn = None  # type: ignore[assignment]
     F = None  # type: ignore[assignment]

@@ -2,9 +2,19 @@
 from __future__ import annotations
 
 from pyutilz.system import tqdmu as tqdm
-from transformers import AutoModelForMaskedLM, AutoTokenizer
-import torch
 import numpy as np
+
+# Heavy ML deps - swallow ImportError AND OSError (Windows DLL load failures
+# from broken CUDA toolkits, WinError 127). Functions below will fail loudly
+# on first use when these are None, but module-level import remains DLL-safe
+# so pytest collection of unrelated test files doesn't abort.
+try:
+    from transformers import AutoModelForMaskedLM, AutoTokenizer
+    import torch
+except (ImportError, OSError):  # pragma: no cover
+    AutoModelForMaskedLM = None  # type: ignore[assignment]
+    AutoTokenizer = None  # type: ignore[assignment]
+    torch = None  # type: ignore[assignment]
 
 
 def naive_masking_score(model, tokenizer, sentence):
