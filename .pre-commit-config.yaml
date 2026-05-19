@@ -14,17 +14,32 @@
 # wall-clock belongs in the regular pytest suite, not here.
 
 repos:
+  # Secret-scanner -- catches accidental commits of API keys / tokens /
+  # secrets. Runs on every staged change. Mirrors pyutilz's hook setup.
+  # Bootstrap the baseline once with:
+  #   detect-secrets scan > .secrets.baseline
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: '\.secrets\.baseline$'
+
   - repo: local
     hooks:
       - id: mlframe-meta-tests
         name: "mlframe meta-tests (config / strategy / metric invariants)"
-        entry: pytest tests/test_meta/ --no-cov -q -x
+        # ``-p no:randomly`` disables test-ordering randomization which has
+        # an environment-specific Seed-out-of-range bug on the dev host;
+        # meta-tests must run in deterministic order anyway for snapshot
+        # diff stability.
+        entry: pytest tests/test_meta/ --no-cov -p no:randomly -q -x
         language: system
         types: [python]
         pass_filenames: false
         # Run on every commit that touches Python source. The meta-tests
         # are quick enough that the per-commit cost is fine; if a
-        # contributor wants to skip in a hurry, ``pre-commit run --no-verify``
+        # contributor wants to skip in a hurry, ``git commit --no-verify``
         # is the one-time escape hatch.
         always_run: false
         stages: [pre-commit]
@@ -36,7 +51,7 @@ repos:
     hooks:
       - id: mlframe-meta-tests-static-only
         name: "mlframe meta-tests (static checks only — skip Hypothesis)"
-        entry: pytest tests/test_meta/ --no-cov -q -x --deselect tests/test_meta/test_metric_invariants.py --deselect tests/test_meta/test_utility_fuzz.py --deselect tests/test_meta/test_config_round_trip.py
+        entry: pytest tests/test_meta/ --no-cov -p no:randomly -q -x --deselect tests/test_meta/test_metric_invariants.py --deselect tests/test_meta/test_utility_fuzz.py --deselect tests/test_meta/test_config_round_trip.py
         language: system
         types: [python]
         pass_filenames: false

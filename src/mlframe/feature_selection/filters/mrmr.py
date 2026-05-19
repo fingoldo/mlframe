@@ -1980,7 +1980,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         #     wide FE pools we keep the legacy lazy combinations + joblib chunking instead.
         #   * n_pairs < _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS: pair count too small to amortise the dispatcher overhead.
         #   * Any backend failure (CUDA driver hiccup, dtype mismatch): logged WARN, fall through to legacy path.
-        _BATCH_PRECOMPUTE_ENABLED = os.environ.get("MLFRAME_MRMR_BATCH_PAIR_MI", "1").strip() not in ("0", "false", "False", "")
+        # Accept the common truthy/falsy spellings rather than require the operator
+        # to remember the exact literals we sliced earlier. Empty / missing env
+        # var defaults to ENABLED (the new behaviour).
+        _BATCH_PRECOMPUTE_ENABLED = os.environ.get(
+            "MLFRAME_MRMR_BATCH_PAIR_MI", "1",
+        ).strip().lower() not in ("0", "false", "no", "off", "")
         _batch_prefill_count = 0
         if (
             _BATCH_PRECOMPUTE_ENABLED
@@ -2015,8 +2020,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             except Exception as _exc:
                 if verbose:
                     logger.warning(
-                        "MRMR FE: dispatch_batch_pair_mi failed (%s: %s); falling back to legacy per-pair path",
+                        "MRMR FE: dispatch_batch_pair_mi failed (%s: %s); falling back to legacy per-pair path "
+                        "[n_pairs=%d, n_rows=%d, n_classes_y=%d]",
                         type(_exc).__name__, _exc,
+                        n_pairs, int(data.shape[0]) if hasattr(data, "shape") else -1,
+                        int(freqs_y.shape[0]) if hasattr(freqs_y, "shape") else -1,
                     )
 
         # Parallelise whenever (a) more than one worker is configured and

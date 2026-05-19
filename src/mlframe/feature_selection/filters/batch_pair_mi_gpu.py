@@ -176,10 +176,21 @@ def batch_pair_mi_cuda(
     Raises ``RuntimeError`` if CUDA is not available. The dispatcher routes
     around this; direct callers should gate on :data:`_CUDA_AVAIL`.
 
-    Shared-memory budget caps:
-      * Max joint cardinality (``nbins[a] * nbins[b]``): ``MAX_JOINT_BINS_CUDA = 256``
-      * Max target cardinality (``n_classes_y``): ``MAX_Y_BINS_CUDA = 32``
+    Shared-memory budget caps (sized for cc 6.x 48 KB per-block budget):
+      * Max joint cardinality (``nbins[a] * nbins[b]``): ``MAX_JOINT_BINS_CUDA = 128``
+      * Max target cardinality (``n_classes_y``): ``MAX_Y_BINS_CUDA = 16``
     Callers exceeding either limit must fall back to the CPU kernel.
+
+    Preconditions enforced host-side (raise ``ValueError`` on violation):
+      * ``factors_data >= 0`` everywhere -- negative codes would underflow
+        the joint-index arithmetic ``va * nb_b + vb`` and write to undefined
+        shared-mem cells (numba.cuda has no array-bounds checks in release
+        mode, so this is silent corruption rather than a crash).
+      * ``classes_y[i] < n_classes_y`` for every i -- out-of-range class ids
+        would write past the shared histogram into ``sm_fx``.
+      * ``nbins[a] >= 1`` for every column referenced by ``pair_a`` /
+        ``pair_b`` -- a zero-cardinality column collapses ``joint_card`` to
+        zero, returning a meaningless MI=0.
     """
     global _CUDA_KERNEL
     if not _CUDA_AVAIL:
@@ -189,6 +200,12 @@ def batch_pair_mi_cuda(
         if _CUDA_KERNEL is None:
             raise RuntimeError("numba.cuda kernel factory failed to build")
 
+    n_pairs = int(pair_a.shape[0])
+    if n_pairs == 0:
+        # Critic-flagged P0: ``max(...)`` over the empty pair zip raises
+        # ``ValueError`` before any device work; short-circuit cleanly.
+        return np.empty(0, dtype=np.float64)
+
     # Shape guard
     n_classes_y = int(freqs_y.shape[0])
     if n_classes_y > MAX_Y_BINS_CUDA:
@@ -196,11 +213,21 @@ def batch_pair_mi_cuda(
             f"n_classes_y={n_classes_y} exceeds CUDA shared-memory budget "
             f"MAX_Y_BINS_CUDA={MAX_Y_BINS_CUDA}; use the CPU kernel instead",
         )
-    # Joint-card guard: check the largest pair
-    max_joint = int(max(
-        int(nbins[a]) * int(nbins[b])
-        for a, b in zip(pair_a, pair_b)
-    ))
+    # Joint-card + min-cardinality guard: check the largest and smallest pair.
+    max_joint = 0
+    min_nb = None
+    for a, b in zip(pair_a, pair_b):
+        nb_a = int(nbins[a])
+        nb_b = int(nbins[b])
+        if nb_a < 1 or nb_b < 1:
+            raise ValueError(
+                f"degenerate pair ({int(a)}, {int(b)}): nbins=({nb_a}, {nb_b}); "
+                f"at least one column has zero cardinality (skip the pair host-side)",
+            )
+        if min_nb is None or min(nb_a, nb_b) < min_nb:
+            min_nb = min(nb_a, nb_b)
+        if nb_a * nb_b > max_joint:
+            max_joint = nb_a * nb_b
     if max_joint > MAX_JOINT_BINS_CUDA:
         raise ValueError(
             f"max joint cardinality nbins[a]*nbins[b]={max_joint} exceeds "
@@ -208,8 +235,26 @@ def batch_pair_mi_cuda(
             f"use the CPU kernel instead",
         )
 
+    # Critic-flagged P0: out-of-range classes_y or negative factors_data writes
+    # past shared memory. Validate on host (cheap: one min/max sweep) so the
+    # device kernel can stay branch-free in the hot loop.
+    if classes_y.size > 0:
+        cy_max = int(classes_y.max())
+        cy_min = int(classes_y.min())
+        if cy_max >= n_classes_y or cy_min < 0:
+            raise ValueError(
+                f"classes_y values must be in [0, n_classes_y={n_classes_y}); "
+                f"got [min={cy_min}, max={cy_max}]",
+            )
+    if factors_data.size > 0:
+        fd_min = int(factors_data.min())
+        if fd_min < 0:
+            raise ValueError(
+                f"factors_data must be non-negative; got min={fd_min} "
+                f"(merge_vars output should be >= 0 by contract)",
+            )
+
     n_samples = int(factors_data.shape[0])
-    n_pairs = int(pair_a.shape[0])
 
     # Move inputs to device. ``ascontiguousarray`` guards against non-C-layout
     # numpy arrays that the harness occasionally produces (e.g. .T views).
@@ -252,6 +297,9 @@ def batch_pair_mi_cupy(
     if not _CUPY_AVAIL:
         raise RuntimeError("cupy is not available on this host")
     cp = _cp  # local alias
+
+    if pair_a.shape[0] == 0:
+        return np.empty(0, dtype=np.float64)
 
     d_data = cp.asarray(factors_data, dtype=cp.int32)
     d_classes_y = cp.asarray(classes_y, dtype=cp.int32)
