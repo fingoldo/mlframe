@@ -88,12 +88,19 @@ def _make_synth(n=200, seed=42):
     return pd.DataFrame({"x0": x0, "x1": x1, "x2": x2, "y": y})
 
 
-# Gate the whole module.
-pytestmark = pytest.mark.skipif(
-    not _check_julia(),
-    reason="Julia runtime not available (D:/Julia/bin/julia.exe missing "
-           "or pysr import failed)",
-)
+# Gate the whole module: skip when Julia unavailable; also mark slow_only so
+# fast-mode runs skip it cleanly. PySR fit can take 30-60+ seconds even on a
+# tiny synthetic, and the embedded Julia process occasionally raises Windows
+# access-violation when its multi-threaded GC interacts with the pytest
+# subprocess teardown. Both make it unsuitable for fast/CI loops.
+pytestmark = [
+    pytest.mark.skipif(
+        not _check_julia(),
+        reason="Julia runtime not available (D:/Julia/bin/julia.exe missing "
+               "or pysr import failed)",
+    ),
+    pytest.mark.slow_only,
+]
 
 
 def test_biz_val_bruteforce_pysr_runs_and_returns_equations():
