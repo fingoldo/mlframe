@@ -72,7 +72,15 @@ __all__ = [
     "CatFEState",
     "EngineeredRecipe",
     "run_cat_interaction_step",
+    # JIT pre-warm hooks for production process bootstrap.
+    "prewarm_fs_numba_cache",
+    "prewarm_fs_cupy_kernels",
 ]
+
+
+# Pre-warm hooks. Idempotent; call once per process before first MRMR.fit to
+# move ~5-15s of numba+CuPy NVRTC compile out of the timed fit path.
+from ._prewarm import prewarm_fs_numba_cache, prewarm_fs_cupy_kernels  # noqa: E402
 
 
 # Cat-FE re-exports. Imported here (not via the ``_legacy`` star) so that
