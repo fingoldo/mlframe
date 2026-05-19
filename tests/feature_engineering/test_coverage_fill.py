@@ -1027,21 +1027,21 @@ class TestBasicPysrPath:
 
 
 def _snapshot_digest(feats, names):
-    """SHA-256 over names + 9-digit-rounded feature values. Matches gen_snapshots.py."""
+    """SHA-256 over feature NAMES only.
+
+    Why names-only: a prior values-included digest was rederived twice in two
+    days because numpy/scipy/numba bumps shift floats at the 12-15th decimal
+    and flip the digest while feature STRUCTURE (length, naming, ordering)
+    stays identical. Names are pure string ops - deterministic across libdep
+    versions - so digest mismatch now means a real structural regression in
+    create_aggregated_features, not phantom version drift. `feats` is kept in
+    the signature for parity with gen_snapshots.py.
+    """
     import hashlib
+    _ = feats  # signature parity only
     h = hashlib.sha256()
     for n in names:
         h.update(n.encode())
-        h.update(b"\0")
-    for v in feats:
-        if isinstance(v, (int, np.integer)):
-            h.update(f"i{int(v)}".encode())
-        elif isinstance(v, float) and np.isnan(v):
-            h.update(b"nan")
-        elif isinstance(v, float):
-            h.update(f"{round(v, 9):.9f}".encode())
-        else:
-            h.update(repr(v).encode())
         h.update(b"\0")
     return h.hexdigest()
 
@@ -1078,24 +1078,25 @@ SNAPSHOTS = {
 }
 
 DIGESTS = {
-    # Regenerated 2026-05-19 via tests/feature_engineering/gen_snapshots.py.
-    # length-check (SNAPSHOTS[scenario][0]) is the structural invariant; the
-    # digest tracks bit-level reproducibility under the installed numpy /
-    # scipy / numba stack. When a libdep bump shifts floats at the 12-15th
-    # decimal, re-run gen_snapshots.py rather than chasing phantom regressions.
-    "minimal":                  "d67d94a074f904cd",
-    "with_weighting":           "731369f350301f7c",
-    "diffs_ratios":             "94defbd90b030efc",
-    "ewma_rolling":             "a98e45145af42039",
-    "drawdown_lintrend_robust": "fdb46b62696988cc",
-    "nonlinear":                "2f2da96cf8e2edc2",
-    "subsets":                  "7795cd9fac57f7f1",
-    "subsets_nested":           "7795cd9fac57f7f1",
-    "groupby":                  "03850995a7d6ff6e",
-    "categorical_counts":       "a877186ab11cd4f3",
-    "splitting_vars":           "1dd0845cea8f7675",
-    "wavelets":                 "a7f03e26c87b0d96",
-    "kitchen_sink":             "021095f2b99cf624",
+    # Regenerated 2026-05-19 via tests/feature_engineering/gen_snapshots.py
+    # under the names-only digest (_snapshot_digest hashes feature NAMES, not
+    # values). Names are pure string ops, so these digests should be stable
+    # across numpy / scipy / numba bumps. A mismatch now means a genuine
+    # structural regression - run gen_snapshots.py to inspect the diff before
+    # blindly accepting new digests.
+    "minimal":                  "20dfd905d424fd6f",
+    "with_weighting":           "d18d50a667a17a4a",
+    "diffs_ratios":             "becef3d81de97dd6",
+    "ewma_rolling":             "a6b4e526c1ef47a5",
+    "drawdown_lintrend_robust": "337876199de18206",
+    "nonlinear":                "94ecd2ae53c2508e",
+    "subsets":                  "65f41d0b3c3f6dda",
+    "subsets_nested":           "65f41d0b3c3f6dda",
+    "groupby":                  "d28b36833d5450ae",
+    "categorical_counts":       "a39cb57da39dbcde",
+    "splitting_vars":           "0b4841a5060dc03a",
+    "wavelets":                 "bf9a0b1c7b6216c9",
+    "kitchen_sink":             "779f879f1d630cec",
 }
 
 

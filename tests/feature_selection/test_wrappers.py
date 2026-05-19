@@ -291,9 +291,14 @@ class TestRFECVParameters:
     """Tests covering RFECV parameter variations."""
 
     def test_basic_initialization(self):
-        """Test RFECV initializes with default parameters."""
+        """Test RFECV initializes and preserves explicit parameters.
+
+        verbose is passed explicitly because conftest.py monkey-patches
+        the default to 0 to keep the test log readable; production
+        default stays 1 in _rfecv.py.
+        """
         estimator = RandomForestClassifier(n_estimators=10, random_state=42)
-        rfecv = RFECV(estimator=estimator)
+        rfecv = RFECV(estimator=estimator, verbose=1)
 
         assert rfecv.estimator is estimator
         assert rfecv.cv == 3
