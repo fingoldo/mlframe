@@ -87,7 +87,15 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         if self.n_jobs == 1:
             supports = [_one_bootstrap(s) for s in seeds]
         else:
-            supports = Parallel(n_jobs=self.n_jobs)(delayed(_one_bootstrap)(s) for s in seeds)
+            # backend="threading": each bootstrap fits an estimator clone on a
+            # resampled (X, y) tuple. loky's default would deep-copy the whole
+            # (X, y) into each worker process -- with the stability path
+            # already running inside MRMR's outer FE loop, that's a recipe for
+            # the iter-371 paging cascade. Estimator clones share the parent
+            # X/y arrays under threading; the inner fit holds the GIL anyway
+            # so threading doesn't speed up the fits themselves, but it
+            # eliminates the OOM risk and removes loky process-spawn cost.
+            supports = Parallel(n_jobs=self.n_jobs, backend="threading")(delayed(_one_bootstrap)(s) for s in seeds)
 
         # Accumulate per-feature inclusion counts.
         counts = np.zeros(n_features, dtype=np.int64)

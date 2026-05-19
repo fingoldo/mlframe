@@ -153,7 +153,13 @@ def ksg_mi_with_significance(
     if n_jobs == 1:
         perm_mis = [_one_perm(s) for s in shuffle_seeds]
     else:
-        perm_mis = Parallel(n_jobs=n_jobs, max_nbytes=int(1e7))(
+        # backend="threading": mirrors MRMR.__init__ default flip
+        # (commit 0da27e0). The per-permutation worker reads ``X`` /
+        # ``y`` from the enclosing closure -- with loky each worker
+        # process would deep-copy the entire frame, repeating the
+        # iter-371 OOM cascade. Threading shares the arrays zero-copy
+        # and the inner mi kernel releases the GIL.
+        perm_mis = Parallel(n_jobs=n_jobs, max_nbytes=int(1e7), backend="threading")(
             delayed(_one_perm)(s) for s in shuffle_seeds
         )
     perm_mi_arr = np.stack(perm_mis, axis=0)  # (n_permutations, n_features)
