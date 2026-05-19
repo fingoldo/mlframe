@@ -179,11 +179,15 @@ class _QuantileMultiOutputWrapper(BaseEstimator, RegressorMixin):
             self.estimators_ = [_fit_one(a) for a in self.alphas]
         else:
             # Use Parallel as a context manager so the worker pool is torn
-            # down deterministically when fit returns - on Windows joblib's
-            # loky backend keeps worker processes resident otherwise, which
-            # leaks memory across many fits (see user note on quantile
-            # wrappers consuming RAM in long-running search loops).
-            with Parallel(n_jobs=n_jobs) as par:
+            # down deterministically when fit returns. backend="threading"
+            # mirrors the MRMR / screen flip (commits 0da27e0, 47923ab):
+            # quantile-wrapper workers fit independent boosting estimators on
+            # the SAME (X, y) tuple, so threading shares those arrays zero-copy
+            # instead of paying loky's per-worker pickle copy (the iter-371
+            # OOM pathway under Windows paging pressure). Tree backends release
+            # the GIL inside their native fit; the sklearn pre/post hooks
+            # (validation, attribute stamping) are short.
+            with Parallel(n_jobs=n_jobs, backend="threading") as par:
                 self.estimators_ = par(
                     delayed(_fit_one)(a) for a in self.alphas
                 )

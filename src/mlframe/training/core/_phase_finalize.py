@@ -103,7 +103,20 @@ def _persist_ct_ensemble_entries(ctx: "TrainingContext") -> None:
                 # _phase_composite_post's local ``_PrePipelinePredictShim`` closure -- dill captures the closure
                 # cell so the round-trip works without a top-level definition.
                 try:
-                    save_mlframe_model(_entry, _fpath, verbose=0)
+                    # lean=True strips train/val/test preds/probs/targets and
+                    # other forensics-only fields before dill.dump. The CT_ENSEMBLE
+                    # bundle is consumed exclusively by ``predict_from_models`` (the
+                    # composite cross-target combiner), which never reads
+                    # ``train_preds`` etc. -- those attributes only exist as a
+                    # side-product of the training loop. iter-344 cb+xgb regression
+                    # save profile showed dill descending recursively through
+                    # ~900K leaf-numpy arrays per per-target CT_ENSEMBLE bundle on
+                    # 1M-row runs (181s wall for 63MB on disk = 0.35 MB/s).
+                    # lean=True drops the dill descent to the inference path only,
+                    # yielding ~30x save speedup (post-iter-344 commit 9295e67
+                    # measured on the harness flip; same arithmetic applies here
+                    # because the saved object graph is identical).
+                    save_mlframe_model(_entry, _fpath, verbose=0, lean=True)
                     _n_saved += 1
                 except Exception as _exc:
                     logger.warning(
