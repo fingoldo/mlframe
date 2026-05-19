@@ -275,7 +275,22 @@ def mi_direct_gpu_batched(
     block_size = GPU_MAX_BLOCK_SIZE
     grid_x = (n + block_size - 1) // block_size
 
-    nfailed = 0
+    # ``.get()`` coalescing v2: stage each batch's failure-count as a
+    # CuPy 0-d array in a Python list, then sync ONCE at end-of-loop via
+    # ``cp.stack([...]).sum().get()``. The previous per-batch
+    # ``int((mi_batch >= original_mi).sum().get())`` pattern triggered a
+    # cross-device sync on every iteration -- profile on 1M x 30,
+    # fe_npermutations=50 showed ``cupy.ndarray.get`` at 5.2s of 13.2s fit
+    # wall (39%) with 42 calls = ~124ms each (Windows WDDM driver fault
+    # latency).
+    #
+    # An earlier attempt (commit 7319f11 noted in its log) using a
+    # device-side scalar accumulator ``cp.zeros((), int64)`` with ``+=``
+    # measured worse at n=10k because per-batch in-place add on a 0-d
+    # array is itself a kernel launch. The list-of-arrays pattern below
+    # avoids both pitfalls: no per-batch sync, no per-batch device-side
+    # arithmetic; just queue compute, sync once.
+    batch_failures = []  # list of CuPy 0-d arrays
     nchecked = 0
     remaining = npermutations
     while remaining > 0:
@@ -308,18 +323,19 @@ def mi_direct_gpu_batched(
         log_ratio = cp.where(joint_freqs > 0, cp.log(ratio), 0.0)
         mi_batch = (joint_freqs * log_ratio).sum(axis=(1, 2))  # (b,)
 
-        # Per-batch ``.get()`` was investigated as a hotspot at 1M rows
-        # (5.5s of 13.2s ``mi_direct_gpu_batched`` time on Windows WDDM);
-        # an attempt to coalesce into a single end-of-loop sync via a
-        # device-side scalar accumulator measured WORSE at n=10k (1.05x
-        # vs the existing 1.5x test target -- the per-batch device-side
-        # ``+=`` on a 0-d CuPy scalar adds more launch overhead than the
-        # H2D scalar transfer it would replace). The original per-batch
-        # sync is the right design point for the n_rows / npermutations
-        # mix the production tests cover.
-        nfailed += int((mi_batch >= original_mi).sum().get())
+        # Stage on device; defer cross-device sync.
+        batch_failures.append((mi_batch >= original_mi).sum())
         nchecked += b
         remaining -= b
+
+    # Single end-of-loop sync. cp.stack into 1-D array of length len(batch_failures),
+    # sum along axis 0, .get() once. For small batch counts (e.g. n=10k -> 8 batches)
+    # the stack is cheap; for large (e.g. 1M -> 8 batches per call, ~9 calls -> 72
+    # total) we still pay only 1 sync per call instead of N per call.
+    if batch_failures:
+        nfailed = int(cp.stack(batch_failures).sum())
+    else:
+        nfailed = 0
 
     confidence = (1.0 - nfailed / nchecked) if nchecked > 0 else 0.0
     if nfailed >= int(npermutations * 0.05):  # rough min_nonzero_confidence=0.95 default
