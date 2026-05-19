@@ -187,9 +187,15 @@ def make_train_test_split(
     # line shows up next to the existing "{N} train rows ... val rows
     # ..." summary at the bottom.
     if val_placement != _effective_val_placement:
-        logger.info(
-            "val_placement=%r requested but downgraded to %r "
-            "(timestamps=%s, val_size=%s)",
+        # Caller asked for temporal honesty (newest data -> val) but no timestamps were
+        # supplied or val_size=0 forced fallback. Caller-visible: WARNING-level because
+        # the requested semantics is silently lost; INFO would let it disappear in noise.
+        # Operator needs to know to pass timestamps_column / non-zero val_size if they
+        # care about temporal generalization estimates.
+        logger.warning(
+            "val_placement=%r requested but downgraded to %r (timestamps=%s, val_size=%s). "
+            "Temporal honesty lost - val/test rows are randomly mixed across time. "
+            "Pass timestamps_column kwarg with a per-row timestamp Series to enable a true temporal split.",
             val_placement, _effective_val_placement,
             "present" if timestamps is not None else "None",
             val_size,

@@ -241,11 +241,14 @@ _PREDICT_DTYPE_BYTES: int = 4        # float32 (cheap upper bound for tabular)
 # order of magnitude but lets typical predict still throughput.
 _PREDICT_BATCH_FALLBACK: int = 1024
 
-# Train-time auto batch size. Keep the historical 1024 ceiling for typical
-# narrow tabular data, but allow the resolver to shrink wide-feature fits
-# before they reach CUDA/CPU OOM territory.
+# Train-time auto batch size. Previously the ceiling was 1024 - catastrophic
+# for narrow-feature tabular runs (25 features on 4M rows = 3996 batches per
+# epoch, with 16-core CPU/GPU under-utilised). Memory budget already shrinks
+# the resolved size when activations get wide; the ceiling just needs to be
+# permissive enough that the budget actually binds. Bumping to 65536 lets
+# small-feature frames run with 1-3 batches per epoch instead of thousands.
 _TRAIN_BATCH_MIN: int = 32
-_TRAIN_BATCH_MAX: int = 1024
+_TRAIN_BATCH_MAX: int = 65536
 _TRAIN_BATCH_FALLBACK: int = 1024
 _TRAIN_ACTIVATION_MULTIPLIER: int = 12
 _TRAIN_MEM_FRACTION: float = 0.10

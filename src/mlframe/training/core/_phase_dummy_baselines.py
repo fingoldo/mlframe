@@ -147,8 +147,11 @@ def run_dummy_baselines(
                     f"{_dummy_mt_suffix}"
                 )
 
+                # ``X or []`` triggers pd.Index.__bool__ which raises ValueError; use an
+                # explicit None/empty check instead. Was: ``getattr(..., "columns", []) or []``.
+                _columns_attr = getattr(filtered_train_df, "columns", None)
                 _common = dict(
-                    columns=list(getattr(filtered_train_df, "columns", []) or []),
+                    columns=list(_columns_attr) if _columns_attr is not None else [],
                     df=None, model=None,
                     model_name=_dummy_name,
                     plot_outputs=getattr(reporting_config, "plot_outputs", None),
@@ -179,10 +182,20 @@ def run_dummy_baselines(
                         **_common_test,
                     )
             except Exception as _plot_err:
+                # Include input types in the warning so the "truth value of a Index is
+                # ambiguous"-style pandas booleanness errors can be triaged without
+                # repro. The dummy report path is non-critical; training continues
+                # regardless.
+                _val_t = type(current_val_target).__name__ if current_val_target is not None else "None"
+                _test_t = type(current_test_target).__name__ if current_test_target is not None else "None"
+                _strong_val_t = type(_strongest_val_raw).__name__ if _strongest_val_raw is not None else "None"
+                _strong_test_t = type(_strongest_test_raw).__name__ if _strongest_test_raw is not None else "None"
                 logger.warning(
                     "[dummy-baselines] target='%s' report_model_perf for dummy "
-                    "failed: %s. Training continues without pre-training floor report.",
+                    "failed: %s [val_target=%s test_target=%s strong_val_preds=%s strong_test_preds=%s]. "
+                    "Training continues without pre-training floor report.",
                     cur_target_name, _plot_err,
+                    _val_t, _test_t, _strong_val_t, _strong_test_t,
                 )
 
         metadata.setdefault("dummy_baselines", {}) \

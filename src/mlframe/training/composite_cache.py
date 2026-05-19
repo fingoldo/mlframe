@@ -488,8 +488,8 @@ class DiscoveryCache:
         self,
         cache_dir: Any,
         *,
-        max_entries: Optional[int] = None,
-        max_size_mb: Optional[float] = None,
+        max_entries: Optional[int] = 1000,
+        max_size_mb: Optional[float] = 2000.0,
     ) -> None:
         """Construct a disk-backed discovery cache.
 
@@ -500,12 +500,12 @@ class DiscoveryCache:
         max_entries
             Hard cap on the number of cached entries. When ``set()`` would
             push the count above the cap, the least-recently-accessed
-            entries are evicted to fit. ``None`` (default) means no cap -
-            R&D workflows that re-run discovery thousands of times grow
-            unboundedly without this.
+            entries are evicted to fit. Default 1000 - protects against
+            unbounded R&D growth. Pass ``None`` to disable count-based
+            eviction explicitly.
         max_size_mb
             Soft cap on the total cache footprint in megabytes. Evaluated
-            after the count cap. ``None`` (default) means no size cap.
+            after the count cap. Default 2000 MB. Pass ``None`` to disable.
 
         LRU tracking uses a sidecar ``<cache_dir>/.lru`` JSON file rather
         than ``os.path.getatime``: Windows / NTFS frequently mounts with
