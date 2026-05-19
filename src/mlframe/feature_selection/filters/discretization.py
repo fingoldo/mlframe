@@ -248,7 +248,12 @@ def _discretize_array_impl(
     return quantize_search(arr, bins_edges).astype(dtype)
 
 
-@njit(parallel=True)
+# cache=True persists the parallel-fused artefact alongside the serial @njit kernels above.
+# Pre-fix iter-366: the only cache=False kernel in this module re-paid ~7.9s LLVM compile
+# (18% of a 43.5s 1M cb+MRMR train) on every fresh process. Caching reduces second-run
+# fit time by the full compile budget; the parallel=True specialisation caches per CPU
+# arch the same way the serial variants already did.
+@njit(parallel=True, cache=True)
 def discretize_2d_array(
     arr: np.ndarray,
     n_bins: int = 10,

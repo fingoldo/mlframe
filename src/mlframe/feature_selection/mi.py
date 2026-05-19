@@ -22,7 +22,7 @@ USE_FASTMATH: bool = True
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-@njit(fastmath=USE_FASTMATH)
+@njit(fastmath=USE_FASTMATH, cache=True)
 def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: object = np.int64):
     hist = np.zeros((n_bins, n_bins), dtype=dtype)
     for i in range(len(a)):
@@ -31,7 +31,7 @@ def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: ob
 
 
 # TODO: verify removal safety — superseded by grok_mutual_information (kept for now, not one of the 3 live kernels).
-@njit(fastmath=USE_FASTMATH)
+@njit(fastmath=USE_FASTMATH, cache=True)
 def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, hist_dtype: object = np.int64):
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
     a_hist = np.sum(joint_hist, axis=1)
@@ -64,7 +64,7 @@ def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, 
     return mi
 
 
-@njit(parallel=True)
+@njit(parallel=True, cache=True)
 def grok_compute_mutual_information(
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:
@@ -107,7 +107,7 @@ def grok_compute_mutual_information(
 
 
 # Single-pair MI (15 discrete bins, natural-log base)
-@njit(fastmath=USE_FASTMATH)
+@njit(fastmath=USE_FASTMATH, cache=True)
 def _chatgpt_mi_pair(x: np.ndarray, y: np.ndarray, n_bins: int = 15, hist_dtype=np.int64) -> float:
     """Mutual information between two 1-D int8 vectors already binned to 0..n_bins-1."""
 
@@ -146,7 +146,7 @@ def _chatgpt_mi_pair(x: np.ndarray, y: np.ndarray, n_bins: int = 15, hist_dtype=
 
 
 # All features vs. one target (parallel over the wide axis)
-@njit(parallel=True, fastmath=USE_FASTMATH)
+@njit(parallel=True, fastmath=USE_FASTMATH, cache=True)
 def _chatgpt_mi_one_target(
     data: np.ndarray, target_idx: int, n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:  # shape (n_samples, n_cols), int8
@@ -199,7 +199,7 @@ def chatgpt_compute_mutual_information(
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-@njit(parallel=True, fastmath=USE_FASTMATH)
+@njit(parallel=True, fastmath=USE_FASTMATH, cache=True)
 def deepseek_compute_mutual_information(
     data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
 ) -> np.ndarray:

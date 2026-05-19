@@ -45,7 +45,7 @@ def _fourier_apply(x: np.ndarray, params: dict) -> np.ndarray:
     return (x - params["lo"]) / params["span"]
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def _fourier_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
     """``sum_k a_k * sin(2*pi*k*z) + b_k * cos(2*pi*k*z)`` for k = 1..K. ``c`` packs ``[a_1, b_1, a_2, b_2, ..., a_K, b_K]`` -- length 2K."""
     n = z.shape[0]
@@ -103,7 +103,7 @@ def _rbf_apply(x: np.ndarray, params: dict) -> np.ndarray:
     return np.ascontiguousarray(x, dtype=np.float64)
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def _rbf_eval_kernel_njit(z: np.ndarray, c: np.ndarray,
                             centres: np.ndarray, bandwidth: float) -> np.ndarray:
     """``sum_k c_k * exp(-((z - centres_k) / bandwidth)^2)``."""
@@ -169,7 +169,7 @@ def _sigmoid_apply(x: np.ndarray, params: dict) -> np.ndarray:
     return np.ascontiguousarray(x, dtype=np.float64)
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def _sigmoid_eval_kernel_njit(z: np.ndarray, c: np.ndarray,
                                 thresholds: np.ndarray,
                                 slope: float) -> np.ndarray:
@@ -235,7 +235,7 @@ def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
     return ((x - params["mean"]) / max(params["std"], 1e-12)).astype(np.float64)
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def _pade_eval_njit(z: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Rational ``(a_0 + a_1*z + ... + a_p*z^p) / (1 + b_1*z + ... + b_q*z^q)``.
 
