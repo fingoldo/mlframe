@@ -109,6 +109,46 @@ def test_run_temporal_audit_batch_builds_polars_input(_audit_call_recorder):
     )
 
 
+def test_pick_granularity_accepts_min_max_tuple_shortcut():
+    """``_pick_granularity`` must accept a ``(min_ts, max_ts)`` tuple to
+    skip the O(N) ``pd.Series + pd.to_datetime`` materialisation on the
+    full timestamp array. The 1M-row fuzz profile surfaced this as 0.85s
+    cumtime (the function only needs the span; the caller materialised
+    the full Python list via ``polars.Series.to_list()`` first).
+
+    A regression that drops the tuple-shortcut branch would fall back to
+    indexing into the 2-element tuple as if it were a Sequence and pick
+    a wrong granularity (or raise). This test pins the shortcut by
+    asserting that two semantically equivalent calls (full sequence vs
+    its (min, max)) produce the same granularity choice.
+    """
+    import datetime as _dt
+
+    from mlframe.training.target_temporal_audit import _pick_granularity
+
+    base = _dt.datetime(2024, 1, 1)
+    full = [base + _dt.timedelta(days=i) for i in range(120)]  # ~4 months
+    granularity_from_full = _pick_granularity(full)
+    granularity_from_minmax = _pick_granularity((full[0], full[-1]))
+
+    assert granularity_from_minmax == granularity_from_full, (
+        f"(min, max) shortcut must match the full-sequence path: "
+        f"shortcut={granularity_from_minmax!r}, full={granularity_from_full!r}"
+    )
+
+
+def test_pick_granularity_minmax_zero_span_returns_month():
+    """Degenerate single-point span via (min, max) must NOT raise; falls
+    back to the 'month' default the full-sequence path also uses."""
+    from mlframe.training.target_temporal_audit import _pick_granularity
+
+    import datetime as _dt
+    ts = _dt.datetime(2024, 1, 1)
+    assert _pick_granularity((ts, ts)) == "month"
+    # None inputs (caller couldn't determine span) also degrade safely.
+    assert _pick_granularity((None, None)) == "month"
+
+
 def test_run_temporal_audit_batch_pandas_fallback_when_polars_missing(
     _audit_call_recorder, monkeypatch
 ):

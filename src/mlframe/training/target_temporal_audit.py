@@ -277,13 +277,31 @@ def _pick_granularity(
     size sits inside ``target_bins_range``. If no granularity fits
     perfectly, return the one with the count closest to the geometric
     mean of the range (sqrt(30 * 50) ≈ 38).
+
+    Accepts ``(min_ts, max_ts)`` as a 2-tuple shortcut: callers with
+    direct polars / numpy / pandas span knowledge can skip the
+    ``pd.to_datetime(pd.Series(...))`` materialisation of the full
+    1M+ timestamp array (which costs ~1s on 1M rows for a probe that
+    only needs the two extremes).
     """
-    if len(timestamps) == 0:
-        return "month"
-    ts = pd.to_datetime(pd.Series(timestamps))
-    span_seconds = (ts.max() - ts.min()).total_seconds()
-    if span_seconds <= 0:
-        return "month"
+    # Fast path: caller pre-computed (min, max). Avoids the O(N)
+    # round-trip through pd.Series for 1M+ row inputs.
+    if isinstance(timestamps, tuple) and len(timestamps) == 2:
+        _t_min, _t_max = timestamps
+        if _t_min is None or _t_max is None:
+            return "month"
+        ts_min = pd.Timestamp(_t_min)
+        ts_max = pd.Timestamp(_t_max)
+        span_seconds = (ts_max - ts_min).total_seconds()
+        if span_seconds <= 0:
+            return "month"
+    else:
+        if len(timestamps) == 0:
+            return "month"
+        ts = pd.to_datetime(pd.Series(timestamps))
+        span_seconds = (ts.max() - ts.min()).total_seconds()
+        if span_seconds <= 0:
+            return "month"
 
     target_geomean = math.sqrt(target_bins_range[0] * target_bins_range[1])
     best: Granularity | None = None
@@ -1016,18 +1034,26 @@ def audit_targets_over_time(
         target_specs.append((col, ttype, alias))
         name_to_alias[name] = alias
 
-    # 1. Pick granularity.
-    if _HAS_POLARS and isinstance(df, pl.DataFrame):
-        ts_for_picker = df[timestamp_col].to_list()
+    # 1. Pick granularity. Pass (min, max) directly so _pick_granularity
+    # can skip the O(N) pd.Series + pd.to_datetime materialisation that
+    # is wasted when the function only needs the span -- ~1s saved on
+    # 1M-row polars inputs by avoiding the .to_list() Python objectification.
+    if granularity == "auto":
+        if _HAS_POLARS and isinstance(df, pl.DataFrame):
+            _ts_col = df[timestamp_col]
+            ts_for_picker = (_ts_col.min(), _ts_col.max())
+        else:
+            if not isinstance(df, pd.DataFrame):
+                df = pd.DataFrame(df)
+            _ts_col = df[timestamp_col]
+            ts_for_picker = (_ts_col.min(), _ts_col.max())
+        chosen = _pick_granularity(ts_for_picker)
     else:
-        if not isinstance(df, pd.DataFrame):
+        # Caller forced granularity; no need to inspect the timestamps.
+        chosen = granularity
+        # Still coerce non-polars/non-pandas inputs downstream consumers may not handle.
+        if not (_HAS_POLARS and isinstance(df, pl.DataFrame)) and not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
-        ts_for_picker = df[timestamp_col]
-    chosen = (
-        _pick_granularity(ts_for_picker)
-        if granularity == "auto"
-        else granularity
-    )
 
     # 2. ONE aggregation pass — polars fastpath multi-agg, pandas
     #    fallback runs per-target (less efficient but correct).
