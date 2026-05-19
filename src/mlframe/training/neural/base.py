@@ -80,6 +80,22 @@ from lightning.pytorch.loggers import CSVLogger
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.metrics import accuracy_score, r2_score, root_mean_squared_error
 
+# Lightning's data_connector emits a UserWarning ("does not have many workers
+# which may be a bottleneck. Consider increasing the value of the num_workers
+# argument...") for every train/val/predict DataLoader. That recommendation
+# is wrong for mlframe: num_workers > 0 pickles the entire TorchDataset (which
+# holds the full Polars/pandas frame) into every worker - catastrophic on
+# 100+ GB production frames. Empirical bench at
+# _benchmarks/bench_dataloader_workers.py confirms num_workers=0 is the best
+# default on Windows/8-core for 3 of 4 measured shapes. Silence the warning
+# so the log stays focused on actionable diagnostics.
+import warnings as _warnings
+_warnings.filterwarnings(
+    "ignore",
+    message=r".*does not have many workers which may be a bottleneck.*",
+    category=UserWarning,
+)
+
 # local
 from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
@@ -358,7 +374,12 @@ class PytorchLightningEstimator(BaseEstimator):
                     min_delta=0.001,
                     patience=self.early_stopping_rounds,
                     mode="min",
-                    verbose=True,
+                    # verbose=False: BestEpochModelCheckpoint already emits
+                    # "New best model at epoch X with metric=..." via mlframe's
+                    # logger (neural/base.py:771). Lightning's verbose=True
+                    # would duplicate that as both a logger.info and a print()
+                    # for every improvement -- 3 lines per best-epoch event.
+                    verbose=False,
                 )
             )
 
