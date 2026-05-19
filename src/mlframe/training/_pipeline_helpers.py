@@ -851,11 +851,39 @@ def _apply_pre_pipeline_transforms(
                         logger.info("Using pre-fitted pipeline (transform only): %s", pre_pipeline)
                     except (ValueError, TypeError):
                         pass
-                train_df = _passthrough_cols_fit_transform(
-                    pre_pipeline.transform,
-                    train_df,
-                    passthrough_cols=selector_passthrough_cols,
-                )
+                # Fit-state mismatch fallback (iter-365 family, sibling of iter-347):
+                # ``_is_fitted`` may return True on a partially-state-transferred
+                # pipeline whose inner step (BorutaShap.selected_features_,
+                # MRMR.support_) lacks the selector-private attribute the
+                # ``transform`` reads. Catch NotFittedError / AttributeError
+                # and recover via fit_transform so the suite doesn't drop the
+                # model. Identical logic to the ``skip_preprocessing`` branch
+                # above; both code paths reach the same failure mode.
+                try:
+                    train_df = _passthrough_cols_fit_transform(
+                        pre_pipeline.transform,
+                        train_df,
+                        passthrough_cols=selector_passthrough_cols,
+                    )
+                except (NotFittedError, AttributeError) as _pipeline_state_exc:
+                    if verbose:
+                        logger.warning(
+                            "Pre-fitted pre_pipeline raised %s on transform; "
+                            "falling back to fit_transform with current target+groups. "
+                            "Likely cause: cache state transfer didn't replicate every "
+                            "inner-step attribute (e.g. BorutaShap.selected_features_).",
+                            type(_pipeline_state_exc).__name__,
+                        )
+                    _enc_target_recover = _multilabel_target_to_1d_for_supervised_encoders(train_target)
+                    train_df = _passthrough_cols_fit_transform(
+                        pre_pipeline.fit_transform,
+                        train_df,
+                        passthrough_cols=selector_passthrough_cols,
+                        fit=True,
+                        target=_enc_target_recover,
+                        groups=groups,
+                        sample_weight=sample_weight,
+                    )
                 if verbose:
                     log_ram_usage()
                 if val_df is not None:
