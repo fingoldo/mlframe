@@ -66,10 +66,31 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
     rng = np.random.default_rng(11)
     best_per_combo: dict[tuple[int, int], dict] = {}
 
+    def _make_samples(rng_, k: int, n: int, distribution: str) -> np.ndarray:
+        """Synthetic class samples on ``k`` levels of length ``n``.
+        ``distribution`` in {``"uniform"``, ``"skewed"``}; skewed uses
+        a Dirichlet(alpha=0.3) prior to draw class probabilities, which
+        produces realistic 80/15/5-style imbalance characteristic of
+        production cat-FE data (per ``feedback_rare_imbalance_needs_large_n``).
+        """
+        if distribution == "skewed":
+            probs = rng_.dirichlet(alpha=np.full(k, 0.3))
+            return rng_.choice(k, size=n, p=probs).astype(np.int32)
+        return rng_.integers(0, k, size=n).astype(np.int32)
+
+    # Pick the WORSE-of-(uniform, skewed) wall per (n, joint, variant, bs)
+    # so the cache routes to the kernel that's robust across distributions.
+    # Skipped on small frames (n < 100k) where the sweep cost would double
+    # for negligible gain.
+    _DISTRIBUTIONS = ("uniform", "skewed")
+
     for n_samples, (nbx, nby) in itertools.product(_N_SAMPLES_AXIS, _NBINS_AXIS):
         joint = nbx * nby
-        classes_x = rng.integers(0, nbx, size=n_samples).astype(np.int32)
-        classes_y = rng.integers(0, nby, size=n_samples).astype(np.int32)
+        # Use uniform sampling for the host->device buffers (the kernel
+        # iterates over n_samples regardless of distribution; we vary the
+        # values themselves below via _make_samples per variant attempt).
+        classes_x = _make_samples(rng, nbx, n_samples, "uniform")
+        classes_y = _make_samples(rng, nby, n_samples, "uniform")
         d_x = cp.asarray(classes_x)
         d_y_perms = cp.asarray(classes_y.reshape(1, -1).copy())
         d_out = cp.zeros((1, joint), dtype=cp.int32)

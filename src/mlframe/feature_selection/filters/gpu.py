@@ -98,9 +98,12 @@ def init_kernels() -> None:
     try:
         from pyutilz.system.gpu_dispatch import select_best_gpu
         _best = select_best_gpu(strategy="auto")
-        if _best is not None and int(_best) != cp.cuda.Device().id:
-            cp.cuda.Device(int(_best)).use()
-            logger.info("mlframe.filters.gpu: pinned to CUDA device %d", _best)
+        if _best is not None:
+            global _BEST_DEVICE_ID  # noqa: PLW0603 - module-level state by design
+            _BEST_DEVICE_ID = int(_best)
+            if int(_best) != cp.cuda.Device().id:
+                cp.cuda.Device(int(_best)).use()
+                logger.info("mlframe.filters.gpu: pinned to CUDA device %d", _best)
     except Exception as _exc:
         logger.debug(
             "mlframe.filters.gpu: select_best_gpu unavailable (%s); "
@@ -336,6 +339,14 @@ def init_kernels() -> None:
 
 compute_joint_hist_multi_pair_cuda: Any = None
 compute_joint_hist_multi_pair_shared_cuda: Any = None
+
+# D2 fix (Critic 1): the multi-GPU pin in ``init_kernels`` only affects
+# the CALLING thread (CUDA runtime is thread-local). Store the selected
+# device id at module level so every kernel entry-point can re-pin its
+# own thread via ``with cp.cuda.Device(_BEST_DEVICE_ID):``. None until
+# ``init_kernels`` runs; remains None on single-GPU / probe-failed
+# hosts (no per-call switching needed).
+_BEST_DEVICE_ID: int | None = None
 
 
 def _ensure_kernels_inited() -> None:
@@ -886,6 +897,32 @@ def mi_direct_gpu_batched_pairs(
             f"mi_direct_gpu_batched_pairs: n_pairs={n_pairs} exceeds CUDA "
             f"gridDim.y limit of 65535; chunk the call host-side."
         )
+
+    # A5 fix (Critic 1): validate factors_data values are within their
+    # declared bin range. Out-of-range values produce a ``merged`` index
+    # that overflows the per-pair slice and silently corrupts the next
+    # pair's histogram (still inside joint_counts_flat -- no segfault,
+    # just wrong MI numbers). The CPU path validates via ``merge_vars``;
+    # the GPU path didn't. Cheap host-side max-per-column scan.
+    _ref_cols = np.unique(np.concatenate([np.asarray(pairs_a), np.asarray(pairs_b)]))
+    for _c in _ref_cols:
+        _c_int = int(_c)
+        _col = factors_data[:, _c_int]
+        _hi = int(_col.max()) if _col.size else -1
+        _nb = int(factors_nbins[_c_int])
+        if _hi >= _nb:
+            raise ValueError(
+                f"mi_direct_gpu_batched_pairs: factors_data[:, {_c_int}] "
+                f"contains {_hi}, but factors_nbins[{_c_int}]={_nb} "
+                f"(values must be in [0, nbins)). The kernel's "
+                f"``merged = va + vb * nba`` arithmetic would overflow "
+                f"the pair's joint slice."
+            )
+        if _col.size and int(_col.min()) < 0:
+            raise ValueError(
+                f"mi_direct_gpu_batched_pairs: factors_data[:, {_c_int}] "
+                f"contains negative values; factor codes must be >= 0."
+            )
 
     # Per-pair joint cardinalities ((nbins_a * nbins_b) cells for the MERGED dim) plus prefix-sum offsets. Each pair's joint table has shape (merged_size, nbins_y),
     # flattened row-major.
