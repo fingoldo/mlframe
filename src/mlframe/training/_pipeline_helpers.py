@@ -786,11 +786,39 @@ def _apply_pre_pipeline_transforms(
                     if _is_fitted(feature_selector):
                         if verbose:
                             logger.info("Using pre-fitted feature selector (transform only): %s", feature_selector)
-                        train_df = _passthrough_cols_fit_transform(
-                            feature_selector.transform,
-                            train_df,
-                            passthrough_cols=selector_passthrough_cols,
-                        )
+                        # Fit-state mismatch fallback (iter-347 family): _is_fitted
+                        # uses sklearn's check_is_fitted heuristic which can
+                        # report True on a partially-state-transferred clone whose
+                        # selector-specific attrs (BorutaShap.selected_features_,
+                        # MRMR.support_) were not copied across. If transform then
+                        # raises NotFittedError or AttributeError, retry via
+                        # fit_transform so the suite recovers instead of dropping
+                        # the model.
+                        try:
+                            train_df = _passthrough_cols_fit_transform(
+                                feature_selector.transform,
+                                train_df,
+                                passthrough_cols=selector_passthrough_cols,
+                            )
+                        except (NotFittedError, AttributeError) as _selector_state_exc:
+                            if verbose:
+                                logger.warning(
+                                    "Pre-fitted feature selector %s raised %s on transform; "
+                                    "falling back to fit_transform with current target+groups. "
+                                    "This usually means the cache state transfer didn't replicate "
+                                    "every selector-private attribute (e.g. BorutaShap.selected_features_).",
+                                    type(feature_selector).__name__,
+                                    type(_selector_state_exc).__name__,
+                                )
+                            train_df = _passthrough_cols_fit_transform(
+                                feature_selector.fit_transform,
+                                train_df,
+                                passthrough_cols=selector_passthrough_cols,
+                                fit=True,
+                                target=train_target,
+                                groups=groups,
+                                sample_weight=sample_weight,
+                            )
                     else:
                         if verbose:
                             logger.info("Fitting feature selector: %s", feature_selector)
