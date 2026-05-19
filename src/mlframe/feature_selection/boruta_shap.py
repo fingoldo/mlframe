@@ -491,6 +491,21 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # ``X.loc[:, selected]`` is stable across caller-side column reordering
         # (train vs serve drift) where the prior ``iloc[:, sorted(indices)]``
         # silently selected the wrong columns.
+        #
+        # Fit-state guard: surfaced iter-347 (cb,lgb regression + boruta=True,
+        # weight=recency) -- the per-weight pre_pipeline path can hand a cloned
+        # (unfit) BorutaShap to ``transform`` directly, raising
+        # ``AttributeError: 'BorutaShap' object has no attribute
+        # 'selected_features_'`` and dropping the entire model from the suite.
+        # Raise the canonical sklearn NotFittedError so the caller's
+        # check_is_fitted-aware fallback path (see ``predict.py`` iter-59
+        # recovery branch and ``_pipeline_helpers._is_fitted``) can react.
+        from sklearn.exceptions import NotFittedError
+        if not hasattr(self, "selected_features_"):
+            raise NotFittedError(
+                "BorutaShap.transform called before fit. Call fit_transform "
+                "or fit + transform before using the selector.",
+            )
         selected = list(self.selected_features_)
         if hasattr(X, "loc"):
             return X.loc[:, selected]
