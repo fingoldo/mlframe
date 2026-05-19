@@ -34,7 +34,19 @@ def test_should_run_include_skip_filters():
 
 @pytest.mark.fast
 def test_get_postcalibrators_returns_nonempty_list(tiny_binary):
-    """get_postcalibrators must yield a non-empty calibrator list for a binary task."""
+    """get_postcalibrators must yield a non-empty calibrator list for a binary task.
+
+    Skips on boxes lacking the heavy optional calibration deps (netcal / pycalib /
+    ml_insights / betacal / venn_abers) -- they are lazy-imported inside the
+    function so the module loads but the call raises ModuleNotFoundError.
+    """
+    pytest.importorskip("netcal")
+    pytest.importorskip("pycalib")
+    pytest.importorskip("ml_insights")
+    pytest.importorskip("betacal")
+    pytest.importorskip("venn_abers")
+    pytest.importorskip("calibration")  # verified_calibration alias
+
     probs, y = tiny_binary
     cals = post.get_postcalibrators(calib_target=y, num_bins=5)
     assert isinstance(cals, list)

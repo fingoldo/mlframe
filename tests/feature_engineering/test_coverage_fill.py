@@ -1078,19 +1078,24 @@ SNAPSHOTS = {
 }
 
 DIGESTS = {
-    "minimal":                  "e36268435f7cab84",
-    "with_weighting":           "062c9d8866bcf3f5",
-    "diffs_ratios":             "f671363473218203",
-    "ewma_rolling":             "02feba047feb2772",
-    "drawdown_lintrend_robust": "a171783417b37bcc",
-    "nonlinear":                "1ef0fa4b8a1adbf4",
-    "subsets":                  "6dcc96b2cf5056cc",
-    "subsets_nested":           "6dcc96b2cf5056cc",
-    "groupby":                  "82892eae5c5bb058",
-    "categorical_counts":       "19f2eded231a7555",
-    "splitting_vars":           "0c5b8e202d7d2860",
-    "wavelets":                 "c3ae735740273150",
-    "kitchen_sink":             "944c408ef8655d55",
+    # Regenerated 2026-05-19 via tests/feature_engineering/gen_snapshots.py.
+    # length-check (SNAPSHOTS[scenario][0]) is the structural invariant; the
+    # digest tracks bit-level reproducibility under the installed numpy /
+    # scipy / numba stack. When a libdep bump shifts floats at the 12-15th
+    # decimal, re-run gen_snapshots.py rather than chasing phantom regressions.
+    "minimal":                  "d67d94a074f904cd",
+    "with_weighting":           "731369f350301f7c",
+    "diffs_ratios":             "94defbd90b030efc",
+    "ewma_rolling":             "a98e45145af42039",
+    "drawdown_lintrend_robust": "fdb46b62696988cc",
+    "nonlinear":                "2f2da96cf8e2edc2",
+    "subsets":                  "7795cd9fac57f7f1",
+    "subsets_nested":           "7795cd9fac57f7f1",
+    "groupby":                  "03850995a7d6ff6e",
+    "categorical_counts":       "a877186ab11cd4f3",
+    "splitting_vars":           "1dd0845cea8f7675",
+    "wavelets":                 "a7f03e26c87b0d96",
+    "kitchen_sink":             "021095f2b99cf624",
 }
 
 
