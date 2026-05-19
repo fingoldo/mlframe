@@ -219,6 +219,38 @@ def save_mlframe_model(
         _payload: object = _lean
     else:
         _payload = model
+
+    # torch.compile produces an OptimizedModule wrapper that carries a non-picklable
+    # ConfigModuleInstance closure (torch._dynamo). dill.dump raises TypeError
+    # "cannot pickle 'ConfigModuleInstance' object". Walk the payload, locate any
+    # attribute whose value carries ``_orig_mod`` (the un-compiled underlying
+    # nn.Module that torch.compile preserves), temp-swap to the original for the
+    # duration of dump, then restore. This keeps the caller's compile state intact
+    # after save returns and avoids invasive changes to the model class hierarchy.
+    _compile_swaps: list = []
+    _walk_seen: set = set()
+
+    def _collect_torch_compile_swaps(obj: object) -> None:
+        if id(obj) in _walk_seen:
+            return
+        _walk_seen.add(id(obj))
+        _d = getattr(obj, "__dict__", None)
+        if not isinstance(_d, dict):
+            return
+        for _k, _v in list(_d.items()):
+            _orig = getattr(_v, "_orig_mod", None)
+            if _orig is not None and _orig is not _v:
+                _compile_swaps.append((obj, _k, _v))
+                _d[_k] = _orig
+            _collect_torch_compile_swaps(_v)
+
+    try:
+        _collect_torch_compile_swaps(_payload)
+    except Exception:
+        # Defensive: a malformed payload should still attempt the dump; the wrapping
+        # try/except below catches dump-time errors.
+        _compile_swaps = []
+
     try:
         # Atomic write prevents corruption when two train runs save to
         # the same file concurrently (2026-04-19 probe finding).
@@ -244,6 +276,17 @@ def save_mlframe_model(
     except Exception as e:
         logger.error(f"Could not save model to file {file}: {e}")
         return False
+    finally:
+        # Restore torch.compile wrappers on the caller's payload so subsequent
+        # predict / fit reuses keep the optimized graph rather than the unwrapped
+        # eager fallback.
+        for _parent, _k, _orig_v in _compile_swaps:
+            try:
+                _parent.__dict__[_k] = _orig_v
+            except Exception:
+                # If something mutated the parent during dump (rare), there's
+                # nothing useful to restore - log at debug only.
+                logger.debug("save_mlframe_model: could not restore compile-wrapped attr %r", _k)
 
 
 def load_mlframe_model(file: str, safe: bool = True) -> Optional[object]:

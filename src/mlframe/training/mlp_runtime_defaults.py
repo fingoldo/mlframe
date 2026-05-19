@@ -25,17 +25,20 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Cross-platform policy: keep DataLoader single-threaded by default on
-# EVERY OS. The 2026-05-12 audit (user observation) flagged that our
-# ``TorchDataset`` stores the entire input Polars / pandas / numpy frame as
-# ``self.features`` (see ``mlframe/training/neural/data.py:62``). With
-# ``num_workers > 0``:
+# EVERY OS. The TorchDataset stores the entire input Polars / pandas / numpy
+# frame as ``self.features`` (see neural/data.py). With num_workers > 0:
 #   * Windows uses spawn -> the whole Dataset (incl. the 100 GB frame) gets
 #     pickled into every worker. IPC death + N x 100 GB memory.
 #   * Linux/Mac use fork -> Arrow-backed Polars buffers are CoW-shared, BUT
 #     Python refcount writes break CoW on every access and Polars indexing
-#     (``df[indices]``) materialises copies on the per-row path. On a 100 GB
-#     frame even partial CoW breakage swap-thrashes the box.
-# So both platforms stay at 0 until the datamodule is rewritten to use
+#     materialises copies on the per-row path. On 100 GB frames even partial
+#     CoW breakage swap-thrashes the box.
+#
+# Empirical confirmation: _benchmarks/bench_dataloader_workers.py (Win/8-core)
+# shows num_workers > 0 NEUTRAL-or-WORSE in 3 of 4 shapes we tested
+# (tiny narrow 25x slower, small narrow 3-5x slower, medium wide 1.4x slower).
+# Only medium-narrow (1M x 25 features) showed a 1.26x speedup at nw=4.
+# Marginal. Both platforms stay at 0 until the datamodule is rewritten to use
 # shared-memory tensors (torch.share_memory_() or memory-mapped Arrow IPC).
 # Users opt in explicitly via mlp_kwargs["dataloader_params"]["num_workers"]
 # when they know their dataset fits in worker memory.
