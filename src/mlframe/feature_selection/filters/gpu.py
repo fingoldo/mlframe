@@ -246,6 +246,68 @@ def init_kernels() -> None:
         "compute_joint_hist_multi_pair_cuda",
     )
 
+    # Shared-mem multi-pair variant. Win axis: small per-pair joint_size_y
+    # (joint_size_y = nbins_a * nbins_b * nbins_y). Each block builds the
+    # pair-local histogram in shared memory; one global reduce at block-end.
+    # Caller passes ``max_joint_size_y`` (= max over all pairs in the launch)
+    # as the dynamic-shared-mem size at kernel-launch time. Pairs with
+    # smaller joint_size only use the first slice of sm_hist; the rest is
+    # wasted shared-mem -- acceptable when the variance across pairs is
+    # bounded (mlframe cat-FE typically has uniform nbins).
+    module.compute_joint_hist_multi_pair_shared_cuda = cp.RawKernel(
+        r"""
+    extern "C" __global__
+    void compute_joint_hist_multi_pair_shared_cuda(
+        const int *factors_data_T,    // (n_cols, n)
+        const int *classes_y,          // (n,)
+        const int *pairs_a,            // (n_pairs,)
+        const int *pairs_b,            // (n_pairs,)
+        const int *nbins_a,            // (n_pairs,)
+        const int *joint_offsets,      // (n_pairs + 1,) prefix sum
+        int *joint_counts_flat,        // sum(nbins_a[p]*nbins_b[p]*nbins_y)
+        int n_rows,
+        int n_pairs,
+        int nbins_y,
+        int max_joint_size_y           // shared-mem allocation size in cells
+    ) {
+        extern __shared__ int sm_hist[];  // size: max_joint_size_y * sizeof(int)
+        int pid = blockIdx.y;
+        if (pid >= n_pairs) return;
+
+        int pair_size = joint_offsets[pid + 1] - joint_offsets[pid];
+        int tid = threadIdx.x;
+        int nthreads = blockDim.x;
+
+        // Zero only the pair's slice of shared (rest is unused / garbage).
+        for (int i = tid; i < pair_size; i += nthreads) {
+            sm_hist[i] = 0;
+        }
+        __syncthreads();
+
+        int col_a = pairs_a[pid];
+        int col_b = pairs_b[pid];
+        int nba = nbins_a[pid];
+
+        int row = blockIdx.x * nthreads + tid;
+        if (row < n_rows) {
+            int va = factors_data_T[col_a * n_rows + row];
+            int vb = factors_data_T[col_b * n_rows + row];
+            int cy = classes_y[row];
+            int merged = va + vb * nba;
+            atomicAdd(&sm_hist[merged * nbins_y + cy], 1);
+        }
+        __syncthreads();
+
+        // Reduce shared -> per-pair global slot.
+        int g_off = joint_offsets[pid];
+        for (int i = tid; i < pair_size; i += nthreads) {
+            atomicAdd(&joint_counts_flat[g_off + i], sm_hist[i]);
+        }
+    }
+    """,
+        "compute_joint_hist_multi_pair_shared_cuda",
+    )
+
     module.compute_mi_from_classes_cuda = cp.RawKernel(
         r"""
     extern "C" __global__
@@ -273,6 +335,7 @@ def init_kernels() -> None:
 
 
 compute_joint_hist_multi_pair_cuda: Any = None
+compute_joint_hist_multi_pair_shared_cuda: Any = None
 
 
 def _ensure_kernels_inited() -> None:
@@ -284,13 +347,15 @@ def _ensure_kernels_inited() -> None:
     if (compute_joint_hist_cuda is not None
             and compute_mi_from_classes_cuda is not None
             and compute_joint_hist_batched_cuda is not None
-            and compute_joint_hist_batched_shared_cuda is not None):
+            and compute_joint_hist_batched_shared_cuda is not None
+            and compute_joint_hist_multi_pair_shared_cuda is not None):
         return
     with _KERNEL_INIT_LOCK:
         if (compute_joint_hist_cuda is None
                 or compute_mi_from_classes_cuda is None
                 or compute_joint_hist_batched_cuda is None
-                or compute_joint_hist_batched_shared_cuda is None):
+                or compute_joint_hist_batched_shared_cuda is None
+                or compute_joint_hist_multi_pair_shared_cuda is None):
             init_kernels()
 
 
@@ -460,6 +525,140 @@ def mi_direct_gpu_batched(
     if nfailed >= int(npermutations * 0.05):  # rough min_nonzero_confidence=0.95 default
         original_mi = 0.0
 
+    return original_mi, confidence
+
+
+def mi_direct_gpu_batched_streamed(
+    factors_data,
+    x: tuple,
+    y: tuple,
+    factors_nbins: np.ndarray,
+    npermutations: int = 100,
+    batch_size: int = 64,
+    dtype=np.int32,
+    classes_y: np.ndarray = None,
+    freqs_y: np.ndarray = None,
+    n_streams: int = 2,
+) -> tuple:
+    """CUDA-streams variant of :func:`mi_direct_gpu_batched`.
+
+    Same contract (``(original_mi, confidence)``) but the batch loop
+    alternates iterations across ``n_streams`` non-blocking CuPy streams
+    (default 2). This lets iter (i+1)'s ``cp.random.uniform`` + argsort
+    queue concurrently with iter (i)'s histogram kernel + MI math,
+    potentially filling SM idle gaps that the single-stream variant leaves.
+
+    On cc 6.1 (GTX 1050 Ti, 6 SMs) the SMs are usually fully saturated by
+    one kernel at a time so the overlap is minimal; bench expected
+    speedup is 0-15%. On cc 8.x (Ampere, 100+ SMs) the overlap is larger.
+
+    Per ``feedback_keep_all_kernel_versions``: kept ALONGSIDE the original
+    ``mi_direct_gpu_batched``. The dispatcher (kernel_tuning_cache) can
+    route to either via the ``variant`` field after a sweep finds the
+    crossover.
+
+    Caveats:
+    * Streams share the GPU memory pool; over-subscribing batches can
+      cause OOM at smaller n. ``batch_size`` is still subject to the
+      memGetInfo-derived cap (same as the non-streamed variant).
+    * The cupy legacy ``cp.random.uniform`` global RNG serialises through
+      a Python-side lock; with 2 streams the lock contention is tiny but
+      observable. Migrating to ``cp.random.Generator`` per stream would
+      remove the lock at the cost of more state.
+    """
+    import cupy as cp
+
+    _ensure_kernels_inited()
+
+    classes_x, freqs_x, _ = merge_vars(
+        factors_data=factors_data, vars_indices=x,
+        var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
+    )
+    if classes_y is None:
+        classes_y, freqs_y, _ = merge_vars(
+            factors_data=factors_data, vars_indices=y,
+            var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
+        )
+
+    original_mi = compute_mi_from_classes(
+        classes_x=classes_x, freqs_x=freqs_x,
+        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+    )
+    if original_mi <= 0 or npermutations <= 0:
+        return original_mi, 0.0
+
+    n = len(classes_x)
+    nbins_x = len(freqs_x)
+    nbins_y = len(freqs_y)
+
+    free_bytes, _ = cp.cuda.runtime.memGetInfo()
+    bytes_per_perm = n * 4
+    safe_batch = max(1, int(free_bytes // 2 // bytes_per_perm))
+    if batch_size > safe_batch:
+        batch_size = safe_batch
+
+    classes_x_gpu = cp.asarray(classes_x.astype(np.int32))
+    classes_y_gpu = cp.asarray(classes_y.astype(np.int32))
+    freqs_x_gpu = cp.asarray(freqs_x).astype(cp.float64)
+    freqs_y_gpu = cp.asarray(freqs_y).astype(cp.float64)
+
+    joint_size = nbins_x * nbins_y
+    use_shared_hist = joint_size <= 4096
+    block_size = 512 if use_shared_hist else GPU_MAX_BLOCK_SIZE
+    shared_mem_bytes = joint_size * 4 if use_shared_hist else 0
+    grid_x = (n + block_size - 1) // block_size
+
+    streams = [cp.cuda.Stream(non_blocking=True) for _ in range(max(1, n_streams))]
+    batch_failures = []
+    nchecked = 0
+    remaining = npermutations
+    iter_idx = 0
+    while remaining > 0:
+        b = min(batch_size, remaining)
+        stream = streams[iter_idx % len(streams)]
+        with stream:
+            rand = cp.random.uniform(size=(b, n), dtype=cp.float64)
+            perm_idx = cp.argsort(rand, axis=1)
+            perms_y = classes_y_gpu[perm_idx].astype(cp.int32)
+
+            joint_counts_batch = cp.zeros((b, joint_size), dtype=cp.int32)
+            if use_shared_hist:
+                compute_joint_hist_batched_shared_cuda(
+                    (grid_x, b), (block_size,),
+                    (classes_x_gpu, perms_y, joint_counts_batch,
+                     np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+                    shared_mem=shared_mem_bytes,
+                )
+            else:
+                compute_joint_hist_batched_cuda(
+                    (grid_x, b), (block_size,),
+                    (classes_x_gpu, perms_y, joint_counts_batch,
+                     np.int32(n), np.int32(nbins_x), np.int32(nbins_y)),
+                )
+            joint_freqs = joint_counts_batch.astype(cp.float64) / n
+            joint_freqs = joint_freqs.reshape(b, nbins_x, nbins_y)
+            outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                ratio = joint_freqs / outer_marginals[None, :, :]
+            log_ratio = cp.where(joint_freqs > 0, cp.log(ratio), 0.0)
+            mi_batch = (joint_freqs * log_ratio).sum(axis=(1, 2))
+            batch_failures.append((mi_batch >= original_mi).sum())
+        iter_idx += 1
+        nchecked += b
+        remaining -= b
+
+    # Sync all streams before the host-side aggregation.
+    for s in streams:
+        s.synchronize()
+
+    if batch_failures:
+        nfailed = int(cp.stack(batch_failures).sum())
+    else:
+        nfailed = 0
+
+    confidence = (1.0 - nfailed / nchecked) if nchecked > 0 else 0.0
+    if nfailed >= int(npermutations * 0.05):
+        original_mi = 0.0
     return original_mi, confidence
 
 
@@ -702,16 +901,39 @@ def mi_direct_gpu_batched_pairs(
         pass
     grid_x = (n_rows + block_size - 1) // block_size
 
-    # SINGLE kernel launch processes all pairs via 3D grid (rows along X, pairs along Y); per-pair launch overhead amortised to zero.
-    compute_joint_hist_multi_pair_cuda(
-        (grid_x, n_pairs),
-        (block_size,),
-        (
-            factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
-            nbins_a_gpu, joint_offsets_gpu,
-            joint_counts_flat, n_rows, n_pairs, nbins_y,
-        ),
+    # Kernel-variant dispatch: shared-mem multi-pair kernel wins for small
+    # per-pair joint_size_y (typical cat-FE nbins=5, ny=3 -> joint=15;
+    # 5*5*3=75 cells × int32 = 300 bytes per pair). Cap conservatively at
+    # 4096 cells (16 KB shared per block) to leave runtime headroom.
+    max_joint_size_y = int(pair_joint_sizes.max()) if len(pair_joint_sizes) else 0
+    _SHARED_MULTI_PAIR_MAX = 4096
+    use_shared_multi_pair = (
+        max_joint_size_y > 0 and max_joint_size_y <= _SHARED_MULTI_PAIR_MAX
     )
+
+    # SINGLE kernel launch processes all pairs via 3D grid (rows along X, pairs along Y); per-pair launch overhead amortised to zero.
+    if use_shared_multi_pair:
+        compute_joint_hist_multi_pair_shared_cuda(
+            (grid_x, n_pairs),
+            (block_size,),
+            (
+                factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
+                nbins_a_gpu, joint_offsets_gpu,
+                joint_counts_flat, n_rows, n_pairs, nbins_y,
+                np.int32(max_joint_size_y),
+            ),
+            shared_mem=max_joint_size_y * 4,
+        )
+    else:
+        compute_joint_hist_multi_pair_cuda(
+            (grid_x, n_pairs),
+            (block_size,),
+            (
+                factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu,
+                nbins_a_gpu, joint_offsets_gpu,
+                joint_counts_flat, n_rows, n_pairs, nbins_y,
+            ),
+        )
     joint_counts_host = cp.asnumpy(joint_counts_flat)
 
     # Per-pair MI from joint counts (numpy). joint shape = (merged_size, nbins_y); marg_m = joint.sum(axis=1); marg_y = joint.sum(axis=0); total = n_rows.

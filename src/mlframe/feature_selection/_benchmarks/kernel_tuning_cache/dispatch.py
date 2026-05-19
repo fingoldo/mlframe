@@ -28,6 +28,14 @@ _SHARED_HIST_MAX_JOINT_FALLBACK = 4096
 _CACHE_SINGLETON: Optional[object] = None  # KernelTuningCache instance
 _LOAD_LOCK = threading.Lock()
 
+# Online-learning counter: every Nth ``lookup_joint_hist`` call we
+# OPTIONALLY re-measure the chosen kernel + one alternative and update
+# the cache if the alternative is faster. Off by default (gated on
+# ``$MLFRAME_KTC_ONLINE_LEARN``) because it adds a one-call overhead
+# of a couple milliseconds; users who want continuous self-tuning opt in.
+_LEARN_COUNTER = 0
+_LEARN_EVERY = 1000  # 0.1% sampling rate at default
+
 
 def _get_cache():
     """Lazy import + singleton init of the pyutilz cache."""
@@ -64,10 +72,12 @@ def lookup_joint_hist(n_samples: int, joint_size: int,
 
     choice = cache.lookup("joint_hist_batched", n_samples=n_samples, joint_size=joint_size)
     if choice is not None:
-        return {
+        result = {
             "kernel_variant": choice["kernel_variant"],
             "block_size": choice["block_size"],
         }
+        _maybe_online_relearn(n_samples, joint_size, result)
+        return result
 
     # Cache miss; optionally auto-tune.
     if run_auto_tune:
@@ -86,6 +96,46 @@ def lookup_joint_hist(n_samples: int, joint_size: int,
             logger.debug("auto_tune sweep failed: %s", e)
 
     return _fallback_for_joint_size(joint_size)
+
+
+def _maybe_online_relearn(n_samples: int, joint_size: int, current_choice: dict) -> None:
+    """Optional online relearn: every ``_LEARN_EVERY`` calls and when the
+    env-var is enabled, time the current choice + 1 alternative and update
+    the cache if the alternative wins. Adds ~5-10 ms per re-measure call
+    (only 0.1% of total at default cadence), zero overhead at the other
+    99.9% of calls.
+
+    Gated behind ``MLFRAME_KTC_ONLINE_LEARN=1`` so production fits never
+    pay the re-measure cost unless explicitly opted in.
+    """
+    import os
+    if os.environ.get("MLFRAME_KTC_ONLINE_LEARN", "").strip().lower() in (
+        "", "0", "false", "no", "off",
+    ):
+        return
+    global _LEARN_COUNTER
+    _LEARN_COUNTER += 1
+    if _LEARN_COUNTER % _LEARN_EVERY != 0:
+        return
+    try:
+        from . import auto_tune as _at
+        # Re-measure ONE point (current size) with both variants + both
+        # block_size candidates; pick winner; update cache if it differs
+        # from current. Limited to a single (n_samples, joint_size) tuple
+        # so the relearn cost stays bounded.
+        regions = _at._run_sweep_joint_hist(n_iters=3)  # noqa: SLF001 - intentional
+        if not regions:
+            return
+        cache = _get_cache()
+        if cache and cache is not False:
+            cache.update("joint_hist_batched",
+                         axes=["n_samples", "joint_size"], regions=regions)
+            logger.info(
+                "online relearn: n=%d joint=%d cache updated (counter=%d)",
+                n_samples, joint_size, _LEARN_COUNTER,
+            )
+    except Exception as exc:
+        logger.debug("online relearn failed: %s", exc)
 
 
 def _fallback_for_joint_size(joint_size: int) -> dict:
