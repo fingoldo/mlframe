@@ -144,7 +144,32 @@ def check_prospective_fe_pairs(
                         if "poly_" in tr_name:
                             transformed_vars[:, i] = hermval(vals, c=tr_func)
                         else:
-                            transformed_vars[:, i] = tr_func(vals)
+                            # WAVE 5 (1/4): if CUDA is available, the
+                            # transformation is GPU-compatible, AND the
+                            # column is large enough to amortise the H2D
+                            # + D2H round trip, run the elementwise op on
+                            # GPU via cupy. Threshold 500k cells matches
+                            # ``discretize_2d_array_cuda``'s breakeven on
+                            # cc 6.1. Smaller cols stay on the numpy path.
+                            _gpu_used = False
+                            if (
+                                vals.size >= 500_000
+                                and tr_name in gpu_compatible_unary_names()
+                            ):
+                                try:
+                                    from pyutilz.core.pythonlib import is_cuda_available
+                                    if is_cuda_available():
+                                        import cupy as cp
+                                        _cp_fn = getattr(cp, tr_name, None)
+                                        if _cp_fn is not None:
+                                            d_vals = cp.asarray(vals)
+                                            d_res = _cp_fn(d_vals)
+                                            transformed_vars[:, i] = cp.asnumpy(d_res)
+                                            _gpu_used = True
+                                except Exception:
+                                    _gpu_used = False  # fall through to CPU
+                            if not _gpu_used:
+                                transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
                         # ``np.isnan`` / ``np.isinf`` / ``np.nanmin`` only work on float dtypes. When ``vals`` is object/string (e.g. a polars Utf8 cat column not encoded
                         # before reaching FE), calling them inside the error-log formatter itself raises -- masking the real transformation error and aborting MRMR
