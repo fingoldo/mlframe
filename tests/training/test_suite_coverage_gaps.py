@@ -885,7 +885,7 @@ def test_datetime_column_does_not_crash_suite(tmp_path):
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     # Add a datetime column spanning 1 year.
     start = pd.Timestamp("2026-01-01")
-    df["ts"] = pd.date_range(start, periods=len(df), freq="H")
+    df["ts"] = pd.date_range(start, periods=len(df), freq="h")
 
     trained, meta = _train_once(df, tmp_path, models=("cb",), regression=False)
     assert trained, "datetime column broke the suite"

@@ -118,7 +118,7 @@ def test_plot_pr_and_roc_smoke():
 def test_compute_ml_perf_by_time_basic():
     rng = np.random.default_rng(7)
     n = 1000
-    timestamps = pd.date_range("2024-01-01", periods=n, freq="H")
+    timestamps = pd.date_range("2024-01-01", periods=n, freq="h")
     # 10 daily bins (~24h*10 = 240; we have 1000 hours -> ~42 days)
     # Use freq="D", 1000 rows across many days
     y_true = rng.integers(0, 2, size=n)
@@ -132,7 +132,7 @@ def test_compute_ml_perf_by_time_basic():
 def test_visualize_ml_metric_by_time_returns_figure():
     rng = np.random.default_rng(11)
     n = 240
-    timestamps = pd.date_range("2024-01-01", periods=n, freq="H")
+    timestamps = pd.date_range("2024-01-01", periods=n, freq="h")
     y_true = rng.integers(0, 2, size=n)
     y_pred = rng.random(n)
     perf = compute_ml_perf_by_time(y_true, y_pred, timestamps, freq="D", metric="roc_auc", min_samples=1)

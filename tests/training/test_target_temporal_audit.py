@@ -106,7 +106,7 @@ def test_granularity_auto_picks_day_for_short_span():
     """A 2-month span has ~60 days → falls in the day range."""
     from mlframe.training.target_temporal_audit import _pick_granularity
     df = pd.DataFrame({
-        "ts": pd.date_range("2024-01-01", "2024-03-01", freq="H"),
+        "ts": pd.date_range("2024-01-01", "2024-03-01", freq="h"),
     })
     g = _pick_granularity(df["ts"])
     assert g == "day", f"expected day, got {g}"

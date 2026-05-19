@@ -101,17 +101,20 @@ from ._data_helpers import (  # noqa: E402,F401
 )
 from ._model_factories import (  # noqa: E402,F401
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
-    MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM,
+    MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM, USE_XGB_DMATRIX_REUSE_SHIM,
     _get_flaml_zeroshot, _get_neural_components,
     _lgb_classifier_cls as _lgb_classifier_cls_factory,
     _lgb_regressor_cls as _lgb_regressor_cls_factory,
     _patch_dataset_constructors_with_logging,
     _patch_lgb_feature_names_in_setter,
-    _xgb_classifier_cls, _xgb_regressor_cls,
+    _xgb_classifier_cls as _xgb_classifier_cls_factory,
+    _xgb_regressor_cls as _xgb_regressor_cls_factory,
 )
 from ._model_factories import (
     LGBMClassifierWithDatasetReuse as _LGBMClassifierWithDatasetReuse,
     LGBMRegressorWithDatasetReuse as _LGBMRegressorWithDatasetReuse,
+    XGBClassifierWithDMatrixReuse as _XGBClassifierWithDMatrixReuse,
+    XGBRegressorWithDMatrixReuse as _XGBRegressorWithDMatrixReuse,
 )
 import lightgbm as _lgb_for_factory
 
@@ -140,6 +143,33 @@ def _lgb_regressor_cls(use_flaml_zeroshot: bool):
     if USE_LGB_DATASET_REUSE_SHIM and _LGBMRegressorWithDatasetReuse is not None:
         return _LGBMRegressorWithDatasetReuse
     return _lgb_for_factory.LGBMRegressor
+
+
+def _xgb_classifier_cls(use_flaml_zeroshot: bool):
+    """Trainer-local wrapper around the XGB factory. Reads
+    ``USE_XGB_DMATRIX_REUSE_SHIM`` from THIS module so test monkeypatches on
+    ``trainer.USE_XGB_DMATRIX_REUSE_SHIM`` flip dispatch as documented (the
+    factory's own constant is a different binding)."""
+    if use_flaml_zeroshot:
+        _fz = _get_flaml_zeroshot()
+        if _fz is None:
+            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
+        return _fz.XGBClassifier
+    if USE_XGB_DMATRIX_REUSE_SHIM and _XGBClassifierWithDMatrixReuse is not None:
+        return _XGBClassifierWithDMatrixReuse
+    return XGBClassifier
+
+
+def _xgb_regressor_cls(use_flaml_zeroshot: bool):
+    """Trainer-local wrapper, mirror of ``_xgb_classifier_cls``."""
+    if use_flaml_zeroshot:
+        _fz = _get_flaml_zeroshot()
+        if _fz is None:
+            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
+        return _fz.XGBRegressor
+    if USE_XGB_DMATRIX_REUSE_SHIM and _XGBRegressorWithDMatrixReuse is not None:
+        return _XGBRegressorWithDMatrixReuse
+    return XGBRegressor
 from mlframe.metrics.core import create_fairness_subgroups, create_fairness_subgroups_indices, fast_roc_auc
 from mlframe.feature_selection.wrappers import RFECV
 from pyutilz.pandaslib import get_df_memory_consumption
