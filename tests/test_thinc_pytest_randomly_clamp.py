@@ -24,13 +24,16 @@ import pytest
 try:
     import thinc.util as _thinc_util
     THINC_INSTALLED = True
-except ImportError:  # pragma: no cover
+except (ImportError, OSError) as _thinc_import_err:  # pragma: no cover
+    # OSError covers thinc transitively importing torch on Windows boxes with broken
+    # CUDA toolkits (WinError 127 from cublas DLL entry-point mismatch).
     THINC_INSTALLED = False
+    _thinc_util = None  # type: ignore[assignment]
 
 
 pytestmark = pytest.mark.skipif(
     not THINC_INSTALLED,
-    reason="thinc not installed — the shim is only needed when thinc is present",
+    reason="thinc not importable (missing OR torch DLL chain broken) — shim only needed when thinc loads",
 )
 
 
