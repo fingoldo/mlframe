@@ -384,6 +384,26 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "y_clip_high": y_clip_high,
             "y_train_median": y_train_median,
         }
+        # Inherit feature_names_in_ from the already-fitted inner. The
+        # __init__ path captures it via .fit() (line 618); the
+        # from_fitted_inner path must mirror that so predict-side
+        # ``predict_from_models`` can resolve the wrapper's expected
+        # column list via getattr(model, "feature_names_in_"). Without it
+        # the predict-side column-subset / df_pre_pipeline fallback path
+        # (predict.py:1168-1194) skips, and the wrapper is fed the
+        # post-extensions pca-only / svd-only frame while its inner
+        # CatBoost/LGB/XGB was trained on the raw-plus-extension frame.
+        # CatBoost then raises ``At position 0 should be feature with
+        # name x0 (found pca0)``. Surfaced by fuzz iter-340 (composite +
+        # PCA) / iter-79 family (composite + TruncatedSVD).
+        _inner_names = getattr(fitted_inner, "feature_names_in_", None)
+        if _inner_names is None:
+            _inner_names = getattr(fitted_inner, "feature_names_", None)
+        if _inner_names is not None:
+            try:
+                instance.feature_names_in_ = list(_inner_names)
+            except TypeError:
+                pass
         instance.runtime_stats_ = {
             "predict_calls": 0,
             "predict_rows_total": 0,
