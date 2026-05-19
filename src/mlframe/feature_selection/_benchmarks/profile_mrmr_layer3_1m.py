@@ -66,13 +66,24 @@ def main() -> None:
         verbose=0,
     )
 
-    # Warm-up: trigger numba JIT compilation outside the profile so the
-    # profile measures steady-state work, not first-call compile.
+    # Warm-up: trigger numba + CuPy JIT compilation outside the profile so
+    # the profile measures steady-state work, not first-call compile costs.
     print("warming JIT caches (first call) ...")
     t_warm = time.perf_counter()
+    try:
+        from mlframe.feature_selection.filters._prewarm import (
+            prewarm_fs_numba_cache, prewarm_fs_cupy_kernels,
+        )
+        prewarm_fs_numba_cache(verbose=False)
+        prewarm_fs_cupy_kernels(verbose=False)
+    except ImportError:
+        pass
     _warm_X, _warm_y = _build_frame(2000, n_features, seed)
+    # fe_npermutations=64 forces the GPU route (>=32 threshold from commit
+    # ba78f04). Without this the warm-up never exercises mi_direct_gpu and
+    # the profiled run pays the cold-start sub-kernel compiles.
     MRMR(
-        fe_max_steps=1, fe_ntop_features=4, fe_npermutations=5,
+        fe_max_steps=1, fe_ntop_features=4, fe_npermutations=64,
         random_seed=seed, verbose=0,
     ).fit(_warm_X, _warm_y)
     print(f"warm-up done in {time.perf_counter() - t_warm:.2f}s")

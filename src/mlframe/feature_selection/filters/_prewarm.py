@@ -299,4 +299,123 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         _log.info("prewarm_fs_numba_cache: warmed FS kernels in %.2fs", _wall)
 
 
+def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
+    """Trigger CuPy RawKernel + sub-kernel compile-and-load for the GPU paths.
+
+    Without this prewarm, the first ``mi_direct_gpu`` / ``mi_direct_gpu_batched``
+    call on a fresh process pays ~1.65s of ``cupy.cuda.Module.load`` (29 NVRTC
+    compile-loads measured in profile_mrmr_layer3_1m v6) -- the CuPy lazy-loaded
+    sub-kernels for ``argsort``, ``sum``, ``random.uniform``, ``log``,
+    elementwise compare, plus the project's ``compute_joint_hist_batched_cuda``
+    and ``compute_mi_from_classes_cuda`` RawKernels.
+
+    Calling this once at process start (alongside ``prewarm_fs_numba_cache``)
+    moves the 1.65s out of the timed first-fit path. Subsequent fits hit the
+    in-process CuPy module cache and pay zero.
+
+    No-op on CuPy-unavailable / no-CUDA hosts. Idempotent: the second call
+    completes in milliseconds because every kernel is already loaded.
+    """
+    import time
+    import logging
+    _log = logging.getLogger(__name__)
+    _t0 = time.perf_counter()
+
+    try:
+        import cupy as cp
+        from pyutilz.core.pythonlib import is_cuda_available
+        if not is_cuda_available():
+            if verbose:
+                _log.info("prewarm_fs_cupy_kernels: CUDA unavailable; skipping")
+            return
+    except ImportError:
+        if verbose:
+            _log.info("prewarm_fs_cupy_kernels: cupy/pyutilz not importable; skipping")
+        return
+    except Exception:
+        return
+
+    try:
+        from .gpu import (
+            init_kernels, mi_direct_gpu, mi_direct_gpu_batched,
+            mi_direct_gpu_batched_pairs,
+        )
+    except ImportError:
+        return
+
+    # Step 1: ensure the three project-owned RawKernels are built.
+    try:
+        init_kernels()
+    except Exception:
+        return
+
+    # Step 2: tiny end-to-end mi_direct_gpu_batched call -- triggers the cupy
+    # sub-kernel loads (argsort / sum / uniform / log / compare). npermutations
+    # MUST be >= 32 to actually exercise the batched path (smaller goes to the
+    # single-perm mi_direct_gpu loop). n=200 is enough to keep memory tiny
+    # while still forcing each sub-kernel to load.
+    try:
+        rng = np.random.default_rng(0)
+        n_warm = 200
+        nbins = 3
+        factors_data = rng.integers(0, nbins, size=(n_warm, 2)).astype(np.int32)
+        factors_nbins = np.array([nbins, nbins], dtype=np.int32)
+        _ = mi_direct_gpu_batched(
+            factors_data=factors_data, x=(0,), y=(1,),
+            factors_nbins=factors_nbins, npermutations=64, batch_size=32,
+        )
+    except Exception as _exc:
+        _log.debug("prewarm_fs_cupy_kernels: batched warm failed (%s); continuing", _exc)
+
+    # Step 3: tiny mi_direct_gpu call with npermutations<32 to warm the single-
+    # perm path's distinct CuPy ops (cp.random.shuffle on a 1-D classes_y, the
+    # per-iter compute_joint_hist_cuda + compute_mi_from_classes_cuda launches).
+    try:
+        _ = mi_direct_gpu(
+            factors_data=factors_data, x=(0,), y=(1,),
+            factors_nbins=factors_nbins, npermutations=4,
+        )
+    except Exception as _exc:
+        _log.debug("prewarm_fs_cupy_kernels: single-perm warm failed (%s); continuing", _exc)
+
+    # Step 4: tiny mi_direct_gpu_batched_pairs (cat_interactions GPU path) to
+    # warm compute_joint_hist_multi_pair_cuda + per-pair joint-allocation kernels.
+    try:
+        rng2 = np.random.default_rng(1)
+        n_pair_warm = 200
+        n_feat = 3
+        data_pair = rng2.integers(0, nbins, size=(n_pair_warm, n_feat)).astype(np.int32)
+        nbins_pair = np.full(n_feat, nbins, dtype=np.int32)
+        classes_y_pair = rng2.integers(0, nbins, size=n_pair_warm).astype(np.int32)
+        freqs_y_pair = np.bincount(classes_y_pair, minlength=nbins).astype(np.float64) / n_pair_warm
+        pairs_a = np.array([0], dtype=np.int64)
+        pairs_b = np.array([1], dtype=np.int64)
+        _ = mi_direct_gpu_batched_pairs(
+            factors_data=data_pair, pairs_a=pairs_a, pairs_b=pairs_b,
+            factors_nbins=nbins_pair, classes_y=classes_y_pair, freqs_y=freqs_y_pair,
+        )
+    except Exception as _exc:
+        _log.debug("prewarm_fs_cupy_kernels: batched_pairs warm failed (%s); continuing", _exc)
+
+    # Step 5: discretize_2d_array_cuda. The CuPy path uses cp.percentile +
+    # cp.searchsorted + cp.linspace, each of which lazy-compiles a separate
+    # CUDA module on first call. The percentile path alone accounts for ~700ms
+    # of Module.load (measured in profile v7) when not pre-warmed. Use a frame
+    # SIZE >= _DISCRETIZE_2D_CUDA_MIN_CELLS (default 500_000) so the dispatcher
+    # actually routes to CUDA -- a smaller frame would hit the CPU njit path
+    # and skip the warm.
+    try:
+        from .discretization import discretize_2d_array
+        # 600 rows x 1000 cols = 600_000 cells, above the 500_000 dispatch
+        # threshold; tiny in absolute terms (~5 MB float64).
+        cont_warm = rng.normal(size=(600, 1000)).astype(np.float64)
+        _ = discretize_2d_array(arr=cont_warm, n_bins=10, method="quantile")
+    except Exception as _exc:
+        _log.debug("prewarm_fs_cupy_kernels: discretize CUDA warm failed (%s); continuing", _exc)
+
+    _wall = time.perf_counter() - _t0
+    if verbose:
+        _log.info("prewarm_fs_cupy_kernels: warmed CuPy kernels in %.2fs", _wall)
+
+
 __all__ = ["prewarm_fs_numba_cache"]
