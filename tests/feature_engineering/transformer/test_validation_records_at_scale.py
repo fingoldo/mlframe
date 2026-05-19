@@ -42,7 +42,9 @@ from tests.feature_engineering.transformer.test_validation_records import (
 )
 
 
-pytestmark = pytest.mark.fast
+# Earlier pytestmark = pytest.mark.fast was here -- removed because the
+# slow_only marker at module top (line 35) is correct for this 30-min suite
+# and the later assignment silently overrode it.
 
 
 _SCALE_SEEDS = (0, 17, 42)
