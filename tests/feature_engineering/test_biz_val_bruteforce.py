@@ -47,10 +47,21 @@ def _check_julia():
         os.environ["JULIA_EXE"] = julia_exe
         # Prepend (not setdefault) so pysr finds julia.exe in subprocesses.
         os.environ["PATH"] = bindir + os.pathsep + os.environ.get("PATH", "")
+        # SUBPROCESS PROBE: pysr's transitive import chain (Julia + PyJuliaCall +
+        # torch on some installs) can native-crash on broken environments,
+        # tearing down the xdist worker. A subprocess probe contains the blast
+        # radius: a crash in the child returns non-zero exit, we skip the
+        # whole module instead of taking down the test session.
         try:
-            import pysr  # noqa: F401
-            return True
-        except (ImportError, subprocess.CalledProcessError, OSError):
+            r = subprocess.run(
+                [sys.executable, "-c", "import pysr"],
+                env=os.environ,
+                capture_output=True,
+                timeout=30,
+            )
+            if r.returncode == 0:
+                return True
+        except (subprocess.TimeoutExpired, OSError):
             continue
     return False
 
