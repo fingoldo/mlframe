@@ -13,12 +13,16 @@ confidence ``0.0`` from the caller) to avoid ``UnboundLocalError`` on ``i`` when
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from joblib import Parallel, delayed
 from numba import njit, prange
 
 from ._internals import NMAX_NONPARALLEL_ITERS
 from .info_theory import compute_mi_from_classes, merge_vars
+
+logger = logging.getLogger(__name__)
 
 
 @njit(cache=True)
@@ -222,6 +226,59 @@ def mi_direct(
     single candidate is being evaluated with a large permutation budget."""
     if parallel_kwargs is None:
         parallel_kwargs = {}
+
+    # Transparent route to the GPU permutation path when CUDA is available AND
+    # the caller is asking for a high enough permutation count to amortise the
+    # H2D copy of (classes_x, classes_y). Profile on 1M x 30 features (commit
+    # 033941b's profile_mrmr_layer3_1m bench) showed CPU ``shuffle_arr``
+    # consuming 51% of MRMR.fit wall at fe_npermutations=10 and 84% at 50.
+    # Routing to ``mi_direct_gpu`` further delegates to ``mi_direct_gpu_batched``
+    # at npermutations>=32 (commit 033941b) which batches permutations 64 at a
+    # time. Same ``(original_mi, confidence)`` contract.
+    #
+    # Gating notes:
+    #   * ``parallelism in ("outer", "none")`` -- the inner/besag-clifford
+    #     paths have their own numba-prange or sequential contracts that
+    #     don't compose with GPU dispatch.
+    #   * ``classes_y_safe`` is intentionally NOT a gate condition. The
+    #     CPU ``classes_y_safe`` arg is a numpy buffer the caller pre-
+    #     allocated for the prange permutation kernel; ``mi_direct_gpu``
+    #     uses an independent CuPy buffer pool (``_GPU_POOL``) and does
+    #     not consume the CPU pre-warm. Passing ``classes_y_safe=None``
+    #     to ``mi_direct_gpu`` lets it allocate / reuse its own GPU
+    #     buffers.
+    if (
+        npermutations >= 32
+        and parallelism in ("outer", "none")
+    ):
+        try:
+            from pyutilz.core.pythonlib import is_cuda_available
+            _gpu_ok = is_cuda_available()
+        except Exception:
+            _gpu_ok = False
+        if _gpu_ok:
+            try:
+                from mlframe.feature_selection.filters.gpu import mi_direct_gpu
+                return mi_direct_gpu(
+                    factors_data=factors_data,
+                    x=x,
+                    y=y,
+                    factors_nbins=factors_nbins,
+                    min_occupancy=min_occupancy,
+                    dtype=dtype,
+                    npermutations=npermutations,
+                    max_failed=max_failed,
+                    min_nonzero_confidence=min_nonzero_confidence,
+                    classes_y=classes_y,
+                    freqs_y=freqs_y,
+                    use_gpu=True,
+                )
+            except Exception as _exc:
+                logger.debug(
+                    "mi_direct: GPU fastpath failed (%s: %s); falling back to CPU",
+                    type(_exc).__name__, _exc,
+                )
+
     classes_x, freqs_x, _ = merge_vars(
         factors_data=factors_data, vars_indices=x,
         var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
