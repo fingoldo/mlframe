@@ -21,7 +21,7 @@ import numpy as np
 from numba import njit
 
 
-@njit(fastmath=False)
+@njit(fastmath=False, cache=True)
 def _ewma_numba(x: np.ndarray, alpha: float) -> np.ndarray:
     """O(n) EWMA recurrence matching pandas' adjust=False convention.
 
@@ -40,7 +40,7 @@ def _ewma_numba(x: np.ndarray, alpha: float) -> np.ndarray:
     return out
 
 
-@njit(fastmath=False)
+@njit(fastmath=False, cache=True)
 def _ewma_numba_adjust(x: np.ndarray, alpha: float) -> np.ndarray:
     """O(n) EWMA with adjust=True (pandas default): weighted sum / weight_sum."""
     n = len(x)

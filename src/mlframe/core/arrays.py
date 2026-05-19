@@ -11,7 +11,7 @@ from numba import cuda, njit, prange
 ################################################################################################
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def arrayMinMax(x, l=0, r=0):
     n = len(x)
     if r == 0:
@@ -29,7 +29,7 @@ def arrayMinMax(x, l=0, r=0):
     return (minimum, maximum)
 
 
-@njit(fastmath=True, parallel=True)
+@njit(fastmath=True, parallel=True, cache=True)
 def arrayMinMaxParallel(array, l=0, r=0, maxThreads=8):
     arrLen = len(array)
     if r == 0:
@@ -47,7 +47,7 @@ def arrayMinMaxParallel(array, l=0, r=0, maxThreads=8):
     return np.min(minMaxData[:, 0]), np.max(minMaxData[:, 1])
 
 
-@njit(fastmath=True, parallel=True)
+@njit(fastmath=True, parallel=True, cache=True)
 def npnbArrayMinMax(x):
     return x.min(), x.max()
 
@@ -55,7 +55,7 @@ def npnbArrayMinMax(x):
 ################################################################################################
 # ARRAY SORTING
 ################################################################################################
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def arrayCountingSort(array, maxval):
     res = np.empty(len(array), np.int32)
     m = maxval + 1
@@ -73,12 +73,12 @@ def arrayCountingSort(array, maxval):
 ################################################################################################
 # ARRAY ARGSORTING
 ################################################################################################
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def emptyListOfInts():
     return [i for i in range(0)]
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def BinByUniqueValues(array, l, r, m, mask):
     groupedIndices = [emptyListOfInts() for k in range(m)]
     if len(mask) > 0:
@@ -102,7 +102,7 @@ def BinByUniqueValues(array, l, r, m, mask):
     #   m=newM
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def arrayCountingArgSort(array, maxval, mask=np.array([], np.int32)):
     m = maxval + 1
 
@@ -125,7 +125,7 @@ def arrayCountingArgSort(array, maxval, mask=np.array([], np.int32)):
     return argsorted
 
 
-@njit(fastmath=True)
+@njit(fastmath=True, cache=True)
 def arrayCountingArgSortAndUniqueValues(array, maxval, mask=np.array([], np.int32)):
     m = maxval + 1
 
@@ -152,7 +152,7 @@ def arrayCountingArgSortAndUniqueValues(array, maxval, mask=np.array([], np.int3
     return np.array(uniqueValues, np.int32), np.array(uniqueValuesIndices, np.int32), argsorted
 
 
-@njit(fastmath=True, parallel=True)
+@njit(fastmath=True, parallel=True, cache=True)
 def arrayCountingArgSortThreaded(array, maxval, mask=np.array([], np.int32), maxThreads=2):
     m = maxval + 1
 
@@ -190,7 +190,7 @@ def arrayCountingArgSortThreaded(array, maxval, mask=np.array([], np.int32), max
     return argsorted
 
 
-@njit(fastmath=True, parallel=True)
+@njit(fastmath=True, parallel=True, cache=True)
 def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=np.array([], np.int32), maxThreads=2):
     m = maxval + 1
     # Allocate output array

@@ -1415,7 +1415,7 @@ def get_moments_slope_mi_feature_names(weights: np.ndarray = None, directional_o
 # the compensator and reverting the loop to naive sliding-window drift (~n*eps*max_value, several
 # decimal digits on float32 windows). MEASURED cost of disabling fastmath here: ~260% slowdown
 # on Windows / numba 0.59 (LLVM also SIMD-vectorises the cumsum once Kahan is folded out).
-@numba.njit(fastmath=False)
+@numba.njit(fastmath=False, cache=True)
 def _rolling_moving_average_compensated(arr: np.ndarray, n: int) -> np.ndarray:  # pragma: no cover
     """Kahan-Babuska-Neumaier compensated rolling mean. Slow but precision-stable."""
     result = np.empty(len(arr) - n + 1, dtype=arr.dtype)
@@ -1432,7 +1432,7 @@ def _rolling_moving_average_compensated(arr: np.ndarray, n: int) -> np.ndarray: 
     return result
 
 
-@numba.njit(fastmath=True)
+@numba.njit(fastmath=True, cache=True)
 def _rolling_moving_average_fast(arr: np.ndarray, n: int) -> np.ndarray:  # pragma: no cover
     """Plain sliding-window rolling mean. ~3.5x faster than the compensated variant.
 

@@ -52,7 +52,7 @@ FASTMATH: bool = False
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(fastmath=FASTMATH, cache=True)
 def _state_index(pos):  # pragma: no cover
     # map position to state index: -1 -> 0, 0 -> 1, +1 -> 2
     if pos == -1:
@@ -63,7 +63,7 @@ def _state_index(pos):  # pragma: no cover
         return 2
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(fastmath=FASTMATH, cache=True)
 def _index_state(idx):  # pragma: no cover
     # inverse mapping
     if idx == 0:
@@ -74,7 +74,7 @@ def _index_state(idx):  # pragma: no cover
         return 1
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(fastmath=FASTMATH, cache=True)
 def _trade_count(prev_pos, new_pos):  # pragma: no cover
     # Number of trades executed when switching prev_pos -> new_pos.
     # Critical: continuing the same non-zero position is ZERO trades. The previous version
@@ -91,7 +91,7 @@ def _trade_count(prev_pos, new_pos):  # pragma: no cover
     return trades
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(fastmath=FASTMATH, cache=True)
 def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):  # pragma: no cover
     if trades == 0:
         return 0.0
@@ -101,7 +101,7 @@ def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):  # pragma: no cover
         return tc * trades
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(fastmath=FASTMATH, cache=True)
 def compute_area_profits(prices, positions):  # pragma: no cover
     n = prices.shape[0]
     profits = np.zeros(n, dtype=prices.dtype)
@@ -174,7 +174,7 @@ def compute_area_profits(prices, positions):  # pragma: no cover
     return out
 
 
-@numba.njit(fastmath=FASTMATH)
+@numba.njit(fastmath=FASTMATH, cache=True)
 def find_best_mps_sequence(
     prices: np.ndarray,
     raw_prices: np.ndarray,
@@ -272,7 +272,7 @@ def find_best_mps_sequence(
     return positions, profits
 
 
-@numba.njit(fastmath=True)
+@numba.njit(fastmath=True, cache=True)
 def backfill_zeros(arr, direction="right"):  # pragma: no cover
     """
     Backfill zeros in an array from either right or left based on direction parameter.

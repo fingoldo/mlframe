@@ -24,7 +24,7 @@ _FASTMATH = False
 _ZERO_EPS = 1e-12
 
 
-@njit(fastmath=_FASTMATH)
+@njit(fastmath=_FASTMATH, cache=True)
 def compute_hurst_rs(arr: np.ndarray) -> float:  # pragma: no cover
     """Rescaled-range (R/S) statistic for one window.
 
@@ -45,7 +45,7 @@ def compute_hurst_rs(arr: np.ndarray) -> float:  # pragma: no cover
     return R / S
 
 
-@njit(fastmath=_FASTMATH)
+@njit(fastmath=_FASTMATH, cache=True)
 def precompute_hurst_exponent(
     arr: np.ndarray,
     min_window: int = 5,
