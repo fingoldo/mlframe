@@ -632,7 +632,12 @@ class TestSimpleFeaturesAndTargetsExtractorPolars:
         assert targets['target'].dtype == np.int8
 
     def test_polars_with_ts_field(self):
-        """Test Polars DataFrame with timestamp field conversion."""
+        """Test Polars DataFrame with timestamp field conversion.
+
+        Uses pl.datetime_range (not pl.date_range) - in polars 1.x the latter
+        returns pl.Date (no time component), which breaks downstream .dt
+        accessor calls in get_sample_weights_by_recency.
+        """
         extractor = SimpleFeaturesAndTargetsExtractor(
             ts_field='timestamp',
             regression_targets=['target']
@@ -640,7 +645,7 @@ class TestSimpleFeaturesAndTargetsExtractorPolars:
         df = pl.DataFrame({
             'feature1': [1.0, 2.0, 3.0],
             'target': [10.0, 20.0, 30.0],
-            'timestamp': pl.date_range(datetime(2023, 1, 1), datetime(2023, 1, 3), eager=True)
+            'timestamp': pl.datetime_range(datetime(2023, 1, 1), datetime(2023, 1, 3), eager=True)
         })
 
         result = extractor.transform(df)
