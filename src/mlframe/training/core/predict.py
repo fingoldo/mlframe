@@ -193,48 +193,45 @@ def _combine_probs(
     *,
     quantile_alphas: Sequence[float] | None = None,
     quantile_mode: str = "sort",
+    rrf_k: int = 60,
+    ensure_prob_limits: bool = True,
 ) -> np.ndarray:
-    """Combine per-model prediction probabilities using the training-time-selected ``flavour``. Falls back to
-    arithmetic mean when ``flavour`` is None or unrecognised (back-compat for saved models that pre-date the
-    metadata key).
+    """Combine per-model prediction probabilities using the training-time-selected ``flavour``.
+
+    Delegates to the canonical ``combine_probs`` helper in ``mlframe.models.ensembling`` to guarantee
+    byte-identical (within fp64 tolerance) replay against the train-stamped output. ``rrf_k`` defaults
+    to 60 but the caller (predict pipeline) should plumb the persisted ``metadata["rrf_k"]`` /
+    ``metadata["ensembles_chosen_params"]`` so a non-default-k train run replays correctly.
 
     When ``quantile_alphas`` is provided the aggregated output is treated as a quantile-regression matrix
     ``(N, K=len(alphas))`` and ``fix_quantile_crossing`` is applied after the ensemble step -- arithmetic /
     harmonic / quadratic aggregations can break per-row monotonicity even when each member's own quantiles
-    are monotone (mean of two monotone series can cross at the boundaries). Without this the SKEW-QUANTILE-ENS
-    bug surfaced: trained suite returns monotone quantiles per model, but the ensemble probabilities expose
-    crossings to consumers.
+    are monotone. Without this the SKEW-QUANTILE-ENS bug surfaced.
     """
-    stacked = np.stack(all_probs)
-    _fl = (flavour or "").lower()
-    if _fl in ("", "arithm", "arith", "mean"):
-        combined = np.mean(stacked, axis=0)
-    elif _fl in ("median",):
-        combined = np.median(stacked, axis=0)
-    elif _fl in ("harm", "harmonic"):
-        # Harmonic mean = N / sum(1/p); clip away true zeros so 1/p stays finite.
-        combined = stacked.shape[0] / np.sum(1.0 / np.clip(stacked, 1e-12, None), axis=0)
-    elif _fl in ("geo", "geomean", "geometric"):
-        combined = np.exp(np.mean(np.log(np.clip(stacked, 1e-300, None)), axis=0))
-    elif _fl in ("quad", "quadratic"):
-        combined = np.sqrt(np.mean(stacked * stacked, axis=0))
-    elif _fl in ("qube", "cubic"):
-        combined = np.cbrt(np.mean(stacked ** 3, axis=0))
-    elif _fl in ("rrf",):
-        try:
-            from mlframe.models.ensembling import _rrf_aggregate_probs
-            combined = _rrf_aggregate_probs(stacked, k=60)
-        except Exception:
-            combined = np.mean(stacked, axis=0)
-    else:
-        combined = np.mean(stacked, axis=0)
+    from mlframe.models.ensembling import combine_probs as _shared_combine_probs
 
-    if quantile_alphas is not None and combined.ndim == 2 and combined.shape[1] == len(quantile_alphas):
-        try:
-            from ..quantile_postproc import fix_quantile_crossing
-            combined = fix_quantile_crossing(combined, quantile_alphas, mode=quantile_mode)
-        except Exception as _qe:
-            logger.warning("[_combine_probs] fix_quantile_crossing(post-aggregation) failed: %s", _qe)
+    stacked = np.stack(all_probs)
+    combined = _shared_combine_probs(
+        stacked, flavour or "arithm",
+        rrf_k=int(rrf_k),
+        ensure_prob_limits=ensure_prob_limits,
+    )
+
+    if quantile_alphas is not None and combined.ndim == 2:
+        # P2-6: when the aggregated matrix's K dim does not match the alpha tuple, log + skip
+        # rather than silently letting an aligned-by-coincidence call apply the wrong fix.
+        if combined.shape[1] == len(quantile_alphas):
+            try:
+                from ..quantile_postproc import fix_quantile_crossing
+                combined = fix_quantile_crossing(combined, quantile_alphas, mode=quantile_mode)
+            except Exception as _qe:
+                logger.warning("[_combine_probs] fix_quantile_crossing(post-aggregation) failed: %s", _qe)
+        else:
+            logger.warning(
+                "[_combine_probs] quantile_alphas has %d entries but aggregated matrix has %d cols; "
+                "skipping fix_quantile_crossing to avoid mis-aligned column rewrites.",
+                len(quantile_alphas), combined.shape[1],
+            )
     return combined
 
 
@@ -273,6 +270,42 @@ def _resolve_quantile_alphas(metadata: dict, target_type: Any, target_name: Any,
                 except (TypeError, ValueError):
                     continue
     return None
+
+
+def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, target_name: Any = None) -> dict:
+    """Look up persisted ensemble replay params (rrf_k, etc.) for ``(target_type, target_name)``.
+
+    C-P1-11: predict-side blend math must use the SAME rrf_k the train side recorded; pre-fix the
+    predict path hard-coded k=60 which silently drifted when a user changed it at train time.
+    ``metadata["ensembles_chosen_params"][tt][tname] = {"rrf_k": ...}`` is written by the per-target
+    stamper in ``_phase_train_one_target``; this helper tolerates the absence (legacy models) and
+    returns ``{}`` -- callers should treat that as "use defaults".
+    """
+    _ep = metadata.get("ensembles_chosen_params") if isinstance(metadata, dict) else None
+    if not isinstance(_ep, dict):
+        return {}
+    if target_type is not None:
+        _by_tt = _ep.get(target_type) or _ep.get(str(target_type))
+        if isinstance(_by_tt, dict):
+            if target_name is not None:
+                _params = _by_tt.get(target_name) or _by_tt.get(str(target_name))
+                if isinstance(_params, dict):
+                    return _params
+            # single-entry fallback
+            if len(_by_tt) == 1:
+                _only = next(iter(_by_tt.values()))
+                if isinstance(_only, dict):
+                    return _only
+    # suite-wide fallback when only one (tt, tname) entry exists across the map
+    _all_params: list[dict] = []
+    for _v in _ep.values():
+        if isinstance(_v, dict):
+            for _vv in _v.values():
+                if isinstance(_vv, dict):
+                    _all_params.append(_vv)
+    if len(_all_params) == 1:
+        return _all_params[0]
+    return {}
 
 
 def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name: Any = None) -> str | None:
@@ -782,10 +815,12 @@ def predict_mlframe_models_suite(
             if not _probs_list:
                 continue
             _flavour = _resolve_chosen_flavour(metadata, _tt_k, _tn_k)
+            _ens_params = _resolve_chosen_ensemble_params(metadata, _tt_k, _tn_k)
+            _rrf_k_replay = int(_ens_params.get("rrf_k", 60))
             _key = f"{_tt_k}_{_tn_k}"
             _q_alphas = _resolve_quantile_alphas(metadata, _tt_k, _tn_k)
             if len(_probs_list) > 1:
-                _combined = _combine_probs(_probs_list, _flavour, quantile_alphas=_q_alphas)
+                _combined = _combine_probs(_probs_list, _flavour, quantile_alphas=_q_alphas, rrf_k=_rrf_k_replay)
             else:
                 _combined = _probs_list[0]
                 if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
@@ -1321,11 +1356,50 @@ def predict_from_models(
                                             except Exception:
                                                 pass
                                 except Exception as _pp_exc:
+                                    # When pre_pipeline.transform fails (most
+                                    # commonly NotFittedError on a cloned-not-
+                                    # refitted MRMR / RFECV / BorutaShap),
+                                    # recover by subsetting ``input_for_model``
+                                    # to the inner model's own feature names
+                                    # (LightGBM / XGB / sklearn:
+                                    # ``feature_names_in_``; CatBoost:
+                                    # ``feature_names_``). The inner model was
+                                    # fit on the SELECTOR-output column subset,
+                                    # so passing the un-subset full feature
+                                    # set raises "data (8) vs training (5)"
+                                    # in LGB and a similar shape error in
+                                    # CB / XGB. Pre-fix iter-59 / iter-301
+                                    # path: predict skipped pre_pipeline and
+                                    # blindly passed the full frame to the
+                                    # inner model -> LightGBMError; with this
+                                    # fallback subset the inner model sees
+                                    # the expected K columns and predict
+                                    # succeeds. Surfaced by fuzz iter-301
+                                    # (lgb binary MRMR) / iter-326 (lgb+xgb
+                                    # regression MRMR).
+                                    _inner_feat_names = getattr(model, "feature_names_in_", None)
+                                    if _inner_feat_names is None:
+                                        _inner_feat_names = getattr(model, "feature_names_", None)
+                                    if (
+                                        _inner_feat_names is not None
+                                        and hasattr(input_for_model, "columns")
+                                    ):
+                                        try:
+                                            _inner_list = [str(c) for c in _inner_feat_names]
+                                            _have = {str(c) for c in input_for_model.columns}
+                                            if all(c in _have for c in _inner_list):
+                                                if isinstance(input_for_model, pl.DataFrame):
+                                                    input_for_model = input_for_model.select(_inner_list)
+                                                else:
+                                                    input_for_model = input_for_model.loc[:, _inner_list]
+                                        except Exception:
+                                            pass
                                     logger.warning(
                                         "predict_from_models: %s pre_pipeline.transform "
                                         "raised %s: %s. Skipping pre_pipeline (main "
-                                        "pipeline already encoded cat_features); passing "
-                                        "input directly to model.predict.",
+                                        "pipeline already encoded cat_features); subsetted "
+                                        "input to inner model's feature_names_in_ when "
+                                        "available, then passing to model.predict.",
                                         model_name, type(_pp_exc).__name__,
                                         str(_pp_exc).splitlines()[0][:160],
                                     )
@@ -1372,6 +1446,58 @@ def predict_from_models(
                                     )
                         if _to_cast:
                             input_for_model = input_for_model.assign(**_to_cast)
+
+                    # XGB cat dtype coercion (iter-101 family). XGB's
+                    # QuantileDMatrix builder rejects object / pl.String /
+                    # pl.LargeString cat cols with ``Invalid columns:
+                    # cat_low: object`` (pandas path) or
+                    # ``KeyError: DataType(large_string)`` (polars path).
+                    # Cast to pandas ``category`` so the downstream
+                    # ``enable_categorical=True``-fit XGB Booster accepts
+                    # them. Pre-fix this surfaced on every XGB predict
+                    # whose cat cols were stored as raw strings in the
+                    # serving frame (iter-228 / iter-243 / iter-258 /
+                    # iter-264 / iter-275 / iter-307 / iter-313 /
+                    # iter-322 / iter-326).
+                    _is_xgb = (
+                        _model_module.startswith("xgboost")
+                        or _model_module.endswith("xgb_shim")
+                        or "XGB" in type(model).__name__
+                    )
+                    if _is_xgb and _cat_features and hasattr(input_for_model, "columns"):
+                        if isinstance(input_for_model, pl.DataFrame):
+                            _pl_cast_exprs = []
+                            for _cf in _cat_features:
+                                if _cf not in input_for_model.columns:
+                                    continue
+                                _dt = input_for_model.schema.get(_cf)
+                                if _dt in (pl.String, pl.Utf8) or str(_dt).startswith("LargeString"):
+                                    _pl_cast_exprs.append(pl.col(_cf).cast(pl.Categorical))
+                            if _pl_cast_exprs:
+                                try:
+                                    input_for_model = input_for_model.with_columns(_pl_cast_exprs)
+                                except Exception as _exc:
+                                    logger.debug(
+                                        "predict_from_models: XGB polars cat-cast failed (%s); "
+                                        "leaving as-is",
+                                        type(_exc).__name__,
+                                    )
+                        else:
+                            _to_cast_xgb: dict[str, Any] = {}
+                            for _cf in _cat_features:
+                                if _cf in input_for_model.columns:
+                                    try:
+                                        _col_dtype = input_for_model[_cf].dtype
+                                        if getattr(_col_dtype, "name", "") != "category":
+                                            _to_cast_xgb[_cf] = input_for_model[_cf].astype("category")
+                                    except Exception as _exc:
+                                        logger.debug(
+                                            "predict_from_models: XGB cat-cast for %r failed "
+                                            "(%s); leaving as-is",
+                                            _cf, type(_exc).__name__,
+                                        )
+                            if _to_cast_xgb:
+                                input_for_model = input_for_model.assign(**_to_cast_xgb)
 
                     # Pre-main-pipeline fallback. Models with internal
                     # categorical handling fitted on string categories
