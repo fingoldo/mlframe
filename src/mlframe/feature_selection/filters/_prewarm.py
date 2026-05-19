@@ -343,6 +343,12 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
     except ImportError:
         return
 
+    # Per Critic 2 D2: emit progress logs at INFO level regardless of
+    # ``verbose`` so the 60-90s cold-start prewarm doesn't look like
+    # a hang. Users who don't want the noise can filter the logger
+    # ``mlframe.feature_selection.filters._prewarm`` at runtime.
+    _log.info("prewarm_fs_cupy_kernels: building CuPy RawKernels ...")
+
     # Step 1: ensure the three project-owned RawKernels are built.
     try:
         init_kernels()
@@ -399,7 +405,8 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
 
     # Step 4b: build the per-host kernel-tuning cache if missing. First-run
     # cost ~30s; subsequent processes load the cached JSON in ~1ms. The
-    # cache persists at ``~/.mlframe/kernel_tuning/{hw_fingerprint}.json``.
+    # cache persists at ``~/.pyutilz/kernel_tuning/{hw_fingerprint}.json``.
+    _log.info("prewarm_fs_cupy_kernels: kernel_tuning sweep (~30s on first run, cached after) ...")
     try:
         from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
             ensure_joint_hist_tuning,

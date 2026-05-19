@@ -349,6 +349,23 @@ compute_joint_hist_multi_pair_shared_cuda: Any = None
 _BEST_DEVICE_ID: int | None = None
 
 
+def _pin_device_if_needed() -> None:
+    """Per-thread idempotent pin to ``_BEST_DEVICE_ID``. Cheap no-op if
+    already on the right device or if the pin is unset. CUDA runtime
+    state is thread-local, so this MUST be called from every thread
+    that runs an ``mi_direct_gpu*`` entry-point (joblib worker,
+    asyncio task, etc.) -- the ``init_kernels`` pin only affected the
+    init thread."""
+    if _BEST_DEVICE_ID is None:
+        return
+    try:
+        import cupy as cp
+        if cp.cuda.Device().id != _BEST_DEVICE_ID:
+            cp.cuda.Device(_BEST_DEVICE_ID).use()
+    except Exception:
+        pass
+
+
 def _ensure_kernels_inited() -> None:
     """Double-checked init guard. Cheap on the hot path, race-free on the first call across any combination of threads and joblib workers.
 
@@ -394,6 +411,7 @@ def mi_direct_gpu_batched(
     import cupy as cp
 
     _ensure_kernels_inited()
+    _pin_device_if_needed()  # D2 part 2: per-thread CUDA device pin
 
     classes_x, freqs_x, _ = merge_vars(
         factors_data=factors_data, vars_indices=x,
@@ -585,6 +603,7 @@ def mi_direct_gpu_batched_streamed(
     import cupy as cp
 
     _ensure_kernels_inited()
+    _pin_device_if_needed()  # D2 part 2: per-thread CUDA device pin
 
     classes_x, freqs_x, _ = merge_vars(
         factors_data=factors_data, vars_indices=x,
@@ -737,6 +756,7 @@ def mi_direct_gpu(
     import cupy as cp
 
     _ensure_kernels_inited()
+    _pin_device_if_needed()  # D2 part 2: per-thread CUDA device pin
 
     # Transparent fan-out to the batched permutation kernel when the
     # caller hasn't pre-warmed device buffers (those carry caller-
@@ -883,6 +903,7 @@ def mi_direct_gpu_batched_pairs(
         ) from e
 
     _ensure_kernels_inited()
+    _pin_device_if_needed()  # D2 part 2: per-thread CUDA device pin
     n_pairs = len(pairs_a)
     n_rows = factors_data.shape[0]
     if n_pairs == 0:

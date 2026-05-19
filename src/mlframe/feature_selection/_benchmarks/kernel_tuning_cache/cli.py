@@ -58,6 +58,15 @@ def _cmd_clear(args) -> int:
         print(f"# no cache to clear at {path}", file=sys.stderr)
         return 1
     if not args.yes:
+        # E1 fix (Critic 2): refuse to block on non-TTY stdin (piped
+        # invocation in a CI). Force the operator to pass --yes for
+        # non-interactive runs.
+        if not sys.stdin.isatty():
+            print(
+                "# refusing: non-TTY stdin, pass --yes to confirm",
+                file=sys.stderr,
+            )
+            return 1
         ans = input(f"Delete {path}? [y/N] ").strip().lower()
         if ans not in ("y", "yes"):
             print("aborted")

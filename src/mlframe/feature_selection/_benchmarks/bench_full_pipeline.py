@@ -80,28 +80,40 @@ def main() -> None:
     except ImportError:
         print("prewarm unavailable")
 
-    # Cold phase.
+    # Cold phase. Per Critic 3 B1: each fit wrapped in try/except so an
+    # OOM at one size doesn't kill the whole bench.
     print("\n--- cold phase (cache may be partially built) ---")
     cold = []
     for n_rows, n_features in _SIZES:
-        X, y = _build(n_rows, n_features, seed=11)
-        wall = _one_fit(X, y, fe_npermutations=50)
-        cold.append(wall)
-        print(f"  n={n_rows:>10_} k={n_features:>3} fit_wall={wall:>6.2f}s")
+        try:
+            X, y = _build(n_rows, n_features, seed=11)
+            wall = _one_fit(X, y, fe_npermutations=50)
+            cold.append(wall)
+            print(f"  n={n_rows:>10_} k={n_features:>3} fit_wall={wall:>6.2f}s")
+        except Exception as exc:
+            cold.append(None)
+            print(f"  n={n_rows:>10_} k={n_features:>3} SKIPPED ({type(exc).__name__}: {exc})")
 
     # Warm phase: same fits, cache fully warm.
     print("\n--- warm phase (all caches hit) ---")
     warm = []
     for n_rows, n_features in _SIZES:
-        X, y = _build(n_rows, n_features, seed=11)
-        wall = _one_fit(X, y, fe_npermutations=50)
-        warm.append(wall)
-        print(f"  n={n_rows:>10_} k={n_features:>3} fit_wall={wall:>6.2f}s")
+        try:
+            X, y = _build(n_rows, n_features, seed=11)
+            wall = _one_fit(X, y, fe_npermutations=50)
+            warm.append(wall)
+            print(f"  n={n_rows:>10_} k={n_features:>3} fit_wall={wall:>6.2f}s")
+        except Exception as exc:
+            warm.append(None)
+            print(f"  n={n_rows:>10_} k={n_features:>3} SKIPPED ({type(exc).__name__}: {exc})")
 
-    # Summary.
+    # Summary. Handle None entries (OOM-skipped) gracefully.
     print("\n=== summary ===")
     print(f"  {'size':<20} {'cold':>8} {'warm':>8} {'speedup':>8}")
     for (n_rows, n_features), cold_w, warm_w in zip(_SIZES, cold, warm):
+        if cold_w is None or warm_w is None:
+            print(f"  {n_rows:>10_} x {n_features:<6} {'skipped':>8} {'skipped':>8} {'-':>8}")
+            continue
         spd = cold_w / max(warm_w, 1e-9)
         print(f"  {n_rows:>10_} x {n_features:<6} {cold_w:>7.2f}s {warm_w:>7.2f}s {spd:>7.2f}x")
 

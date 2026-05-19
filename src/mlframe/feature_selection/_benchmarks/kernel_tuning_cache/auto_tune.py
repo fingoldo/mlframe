@@ -144,12 +144,28 @@ def _run_sweep_joint_hist(n_iters: int = 5) -> list[dict]:
             region["nbins_x_max"] = int(nbins_x_y[0])
             region["nbins_y_max"] = int(nbins_x_y[1])
         regions.append(region)
-    # Catch-all fallback for above-axis sizes.
+    # B3 fix (Critic 2): catch-all region is the winner of the LARGEST
+    # measured combo, not a hardcoded constant. On non-cc-6.1 hardware
+    # the previous ``(shared, 512)`` default was wrong; auto-picking
+    # the measured winner of the largest combo gives a per-HW-tuned
+    # extrapolation for any (n_samples, joint_size) above the sweep
+    # axes. Falls back to the hardcoded default if best_per_combo is
+    # empty (no measurements landed).
+    if best_per_combo:
+        # The largest combo by (n_samples, joint_size) product is the
+        # closest analogue for "above-axis" inputs.
+        largest_key = max(best_per_combo.keys(), key=lambda k: (k[0], k[1]))
+        largest_choice = best_per_combo[largest_key]
+        catch_all_variant = largest_choice["kernel_variant"]
+        catch_all_block_size = largest_choice["block_size"]
+    else:
+        catch_all_variant = "shared"
+        catch_all_block_size = 512
     regions.append({
         "n_samples_max": None,
         "joint_size_max": None,
-        "kernel_variant": "shared",
-        "block_size": 512,
+        "kernel_variant": catch_all_variant,
+        "block_size": catch_all_block_size,
         "wall_ms": None,
     })
     return regions
