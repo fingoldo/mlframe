@@ -149,9 +149,10 @@ try:
     import torch
     import torch.nn.functional as F
     from torch import nn
-except ImportError:
+except (ImportError, OSError):  # OSError covers Windows DLL load failures (WinError 127 etc.)
     torch = None  # type: ignore[assignment]
     nn = None  # type: ignore[assignment]
+    F = None  # type: ignore[assignment]
 
 try:
     from ngboost import NGBClassifier, NGBRegressor
