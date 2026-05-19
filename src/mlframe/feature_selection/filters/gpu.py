@@ -88,6 +88,25 @@ def init_kernels() -> None:
 
     module = sys.modules[__name__]
 
+    # Multi-GPU: pin the process to the best available device BEFORE building
+    # any RawKernel. CuPy compiles RawKernels per-device; binding here once
+    # makes subsequent kernel launches free of device-switch overhead.
+    # ``select_best_gpu`` returns the device id with the best
+    # ``free_vram * compute_capability`` score (per pyutilz "auto" strategy).
+    # Falls back to device 0 (the CUDA default) if pyutilz / GPU probe is
+    # unavailable, preserving the legacy behaviour.
+    try:
+        from pyutilz.system.gpu_dispatch import select_best_gpu
+        _best = select_best_gpu(strategy="auto")
+        if _best is not None and int(_best) != cp.cuda.Device().id:
+            cp.cuda.Device(int(_best)).use()
+            logger.info("mlframe.filters.gpu: pinned to CUDA device %d", _best)
+    except Exception as _exc:
+        logger.debug(
+            "mlframe.filters.gpu: select_best_gpu unavailable (%s); "
+            "using current CUDA device", _exc,
+        )
+
     module.compute_joint_hist_cuda = cp.RawKernel(
         r"""
     extern "C" __global__
