@@ -320,6 +320,35 @@ AXES: dict[str, tuple[Any, ...]] = {
     # in discretized numeric columns alongside categoricals. Default
     # False (avoid spurious aliasing from noisy floats).
     "mrmr_cat_fe_include_numeric_cfg": (False, True),
+    # 2026-05-19 — PreprocessingExtensionsConfig knobs added in iter-69
+    # (byte-aware polynomial auto-tune) and the 390-finding audit
+    # (polynomial_max_features cap, polynomial_interaction_only default
+    # flip). Prior fuzz coverage stopped at polynomial_degree -- without
+    # these axes the auto-tune branches (flip interaction_only,
+    # decrement degree, skip polynomial) have no fuzz exposure.
+    #
+    # polynomial_max_features: None / 0 = disabled; non-zero = projected
+    # cols above the cap trigger auto-tune. Pin small (100) to force the
+    # auto-tune path so canonicalisation can't silently absorb it.
+    "prep_ext_polynomial_max_features_cfg": (None, 100, 10_000),
+    # polynomial_interaction_only: now True by default (2026-05-18). False
+    # exercises the legacy pure-power-term path that the auto-tune flips
+    # away from first.
+    "prep_ext_polynomial_interaction_only_cfg": (True, False),
+    # memory_safety_max_bytes: 500MB default; None disables the byte-cap
+    # (column-count-only behaviour). A tight cap (1MB) forces the
+    # byte-aware auto-tune path on wide+long frames.
+    "prep_ext_memory_safety_max_bytes_cfg": (None, 1_000_000, 500_000_000),
+    # 2026-05-19 — composite-discovery stacked-residual knobs.
+    # use_stacked_discovery enables the parallel "fit_stacked_on_raw"
+    # path. use_stacked_discovery_residual is the residual variant
+    # (mutually exclusive with use_stacked_discovery; residual wins per
+    # configs.py:2128). skip_wrap_pass_predict toggles whether predict
+    # replays the per-component wrap pass (default True saves 5-15min on
+    # large suites). Canonicalised away when composite discovery is OFF.
+    "composite_use_stacked_discovery_cfg": (False, True),
+    "composite_use_stacked_discovery_residual_cfg": (False, True),
+    "composite_skip_wrap_pass_predict_cfg": (True, False),
 }
 
 
@@ -446,6 +475,17 @@ class FuzzCombo:
     mrmr_fe_min_polynom_degree_cfg: int = 3
     mrmr_fe_max_polynom_degree_cfg: int = 3
     mrmr_cat_fe_include_numeric_cfg: bool = False
+    # 2026-05-19 -- PreprocessingExtensionsConfig polynomial-auto-tune
+    # axes (iter-69 byte cap + iter-340 polynomial_max_features cap).
+    # Defaults mirror the live configs so existing pinned sensor combos
+    # deserialise unchanged.
+    prep_ext_polynomial_max_features_cfg: "int | None" = 10_000
+    prep_ext_polynomial_interaction_only_cfg: bool = True
+    prep_ext_memory_safety_max_bytes_cfg: "int | None" = 500_000_000
+    # 2026-05-19 -- composite-discovery stacked-residual axes.
+    composite_use_stacked_discovery_cfg: bool = False
+    composite_use_stacked_discovery_residual_cfg: bool = False
+    composite_skip_wrap_pass_predict_cfg: bool = True
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -758,6 +798,47 @@ class FuzzCombo:
                 and self.mrmr_cat_fe_enable_cfg
                 and self.cat_feature_count > 0
             ) else False,
+            # 2026-05-19 -- polynomial auto-tune axes are no-ops when
+            # prep_ext_polynomial_degree_cfg is None (the whole polynomial
+            # step is OFF). Canonicalise to library defaults so dedup
+            # absorbs combos that differ only on inactive knobs.
+            self.prep_ext_polynomial_max_features_cfg if (
+                self.prep_ext_polynomial_degree_cfg is not None
+            ) else 10_000,
+            self.prep_ext_polynomial_interaction_only_cfg if (
+                self.prep_ext_polynomial_degree_cfg is not None
+            ) else True,
+            # memory_safety_max_bytes guards every sklearn-bridge stage
+            # output, not just polynomial; keep meaningful whenever ANY
+            # prep-ext stage is on. Canonicalise to the default cap when
+            # none of scaler / kbins / polynomial / dim_reducer /
+            # nonlinear is active.
+            self.prep_ext_memory_safety_max_bytes_cfg if (
+                self.prep_ext_scaler_cfg is not None
+                or self.prep_ext_kbins_cfg is not None
+                or self.prep_ext_polynomial_degree_cfg is not None
+                or self.prep_ext_dim_reducer_cfg is not None
+                or self.prep_ext_nonlinear_cfg is not None
+            ) else 500_000_000,
+            # Composite stacked-discovery knobs no-op unless composite
+            # discovery is enabled AND the target is regression (the
+            # discovery is regression-only). Canonicalise to False so
+            # dedup collapses identical-behaviour combos.
+            self.composite_use_stacked_discovery_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else False,
+            self.composite_use_stacked_discovery_residual_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else False,
+            # skip_wrap_pass_predict toggles per-component re-wrap at
+            # predict; only meaningful when composite discovery actually
+            # produced wrappers (regression + enabled).
+            self.composite_skip_wrap_pass_predict_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else True,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
