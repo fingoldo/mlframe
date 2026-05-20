@@ -252,3 +252,150 @@ def detect_group_column_candidates(
         }))
     results.sort(key=lambda kv: kv[1]["score"], reverse=True)
     return results
+
+
+# ----------------------------------------------------------------------
+# detect_cat_columns: symmetric sibling of detect_group_column_candidates,
+# calibrated for FHC target-encoding (target_mean / WoE) rather than
+# linear_residual_grouped.
+#
+# Wave 64 (2026-05-20): closes the wave-10 deferral. Where group-column
+# detection wants UNIFORM group sizes (linear_residual_grouped needs
+# balanced groups to fit per-group affine residuals reliably), category
+# detection wants ENOUGH SAMPLES PER LEVEL (FHC encoders need >=
+# min_samples_per_cat samples per category to estimate a stable target
+# mean / log-odds without high variance). The thresholds differ:
+#
+#   detect_group_column_candidates: min_unique=3, max_unique=500,
+#     min_size_ratio=0.01 (uniform), score = 1/(1+size_cv) * min(n_unique, 50)
+#
+#   detect_cat_columns: min_unique=2, max_unique=1000, min_samples_per_cat=20
+#     (absolute, NOT ratio -- FHC stability is dominated by *absolute*
+#     per-category count not by relative balance), score weighted toward
+#     coverage (more rows in the largest k categories = stronger signal).
+# ----------------------------------------------------------------------
+
+_CAT_DETECT_DEFAULT_MIN_UNIQUE: int = 2
+_CAT_DETECT_DEFAULT_MAX_UNIQUE: int = 1000
+_CAT_DETECT_DEFAULT_MIN_SAMPLES_PER_CAT: int = 20
+
+
+def detect_cat_columns(
+    df: Any,
+    *,
+    candidate_columns: Sequence[str] | None = None,
+    min_unique: int = _CAT_DETECT_DEFAULT_MIN_UNIQUE,
+    max_unique: int = _CAT_DETECT_DEFAULT_MAX_UNIQUE,
+    min_samples_per_cat: int = _CAT_DETECT_DEFAULT_MIN_SAMPLES_PER_CAT,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Scan ``df`` for columns that look like categorical features (suitable for
+    FHC target_mean / WoE / CatBoostEncoder).
+
+    Distinct from ``detect_group_column_candidates`` (which targets uniform
+    grouping for linear_residual_grouped); the calibration here favors columns
+    where the per-category sample count is sufficient for stable target-encoding
+    statistics, not for balanced groups.
+
+    Parameters
+    ----------
+    df : pl.DataFrame | pd.DataFrame
+    candidate_columns : sequence of str, optional
+        Columns to consider. Defaults to all non-float columns (str / bool /
+        low-card int).
+    min_unique : int, default 2
+        Minimum distinct values (binary indicators are valid categoricals).
+    max_unique : int, default 1000
+        Above this cardinality, FHC encoding produces too many sparse buckets
+        and is usually dominated by hash / embedding methods instead.
+    min_samples_per_cat : int, default 20
+        Absolute minimum samples for the SMALLEST category. FHC stability is
+        dominated by per-category count, not by relative balance.
+
+    Returns
+    -------
+    List of ``(column_name, info_dict)`` sorted by score descending. ``info_dict``
+    carries:
+    - ``n_unique``: int
+    - ``min_per_cat``: int, rows in the rarest category
+    - ``max_per_cat``: int, rows in the most-common category
+    - ``coverage_top10``: float, fraction of rows covered by the 10 most common
+      categories (high coverage = lots of signal concentrated in few levels).
+    - ``score``: float, composite ranking (higher = better categorical candidate)
+
+    Empty list when no column meets the thresholds. Safe for both pl.DataFrame
+    and pd.DataFrame.
+    """
+    if _is_polars_df(df):
+        if candidate_columns is None:
+            candidate_columns = [
+                c for c in df.columns
+                if not _is_numeric_column(df, c)
+            ]
+        def get_col(c):
+            return df.get_column(c).to_numpy()
+    elif isinstance(df, pd.DataFrame):
+        if candidate_columns is None:
+            # Default: non-float columns -- string, bool, low-cardinality int
+            # (the int-as-cat heuristic from project_mlframe_int_as_cat_detector).
+            candidate_columns = [
+                c for c in df.columns
+                if not pd.api.types.is_float_dtype(df[c])
+                and (
+                    not pd.api.types.is_numeric_dtype(df[c])
+                    or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
+                )
+            ]
+        def get_col(c):
+            return df[c].to_numpy()
+    else:
+        raise TypeError(f"detect_cat_columns: unsupported df type {type(df).__name__}")
+
+    n_rows = len(df)
+    if n_rows == 0:
+        return []
+
+    results: list[tuple[str, dict[str, Any]]] = []
+    for col in candidate_columns:
+        try:
+            arr = get_col(col)
+        except Exception as _e:
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "detect_cat_columns: skipping col=%r: %s", col, _e,
+            )
+            continue
+
+        # Strip nulls so they don't count as a separate "category".
+        mask_finite = pd.notna(arr) if hasattr(arr, "__iter__") else None
+        if mask_finite is not None and not np.any(mask_finite):
+            continue
+        arr_clean = arr[mask_finite] if mask_finite is not None else arr
+        uniq, counts = np.unique(arr_clean, return_counts=True)
+        n_unique = int(uniq.size)
+        if n_unique < min_unique or n_unique > max_unique:
+            continue
+        min_per_cat = int(counts.min())
+        max_per_cat = int(counts.max())
+        if min_per_cat < min_samples_per_cat:
+            continue
+
+        # Coverage by the top-10 categories: high coverage means few categories
+        # carry most rows, giving FHC encoders strong signal-to-noise.
+        top10_count = int(np.sort(counts)[-10:].sum())
+        coverage_top10 = top10_count / max(1, len(arr_clean))
+
+        # Score: favor moderate n_unique (too few -> low info; too many -> sparse)
+        # weighted by coverage. The (n_unique / log(n_unique+1)) shape rewards
+        # 10-100 categories more than 2 or 500.
+        info_bonus = float(n_unique) / float(np.log1p(n_unique) + 1.0)
+        score = coverage_top10 * info_bonus
+
+        results.append((str(col), {
+            "n_unique": n_unique,
+            "min_per_cat": min_per_cat,
+            "max_per_cat": max_per_cat,
+            "coverage_top10": coverage_top10,
+            "score": score,
+        }))
+    results.sort(key=lambda kv: kv[1]["score"], reverse=True)
+    return results
