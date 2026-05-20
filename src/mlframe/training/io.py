@@ -416,6 +416,27 @@ def save_mlframe_model(
             serving) can flip it to skip the dill descent through the
             heaviest numpy attrs (observed 30x save speedup on cb+xgb
             multi-model bundles).
+    Snapshot semantics:
+        ``pickle.dumps(model)`` deep-walks the model graph and writes a
+        FROZEN snapshot to disk. Subsequent in-memory mutation of the
+        caller's ``model`` (or of any mutable bundle slot like
+        ``composite_target_specs`` / ``dummy_baselines`` / fitted
+        estimators) does NOT affect the saved file.
+
+        Wave-19 P2 audit (2026-05-20) raised a concern that "callers
+        commonly mutate model.composite_target_specs ... between two
+        suite calls; the on-disk dump diverges silently". Re-verified
+        2026-05-20: the audit framing was off. Pickle's snapshot
+        guarantee is enough -- two distinct saves at different points
+        in the caller's mutation timeline correctly produce two
+        distinct snapshots (which is exactly what the operator wants).
+
+        The genuine cross-suite-call mutation hazard (one suite mutating
+        a shared mutable dict that the next suite reads) is a SEPARATE
+        problem already handled by ``main.py``'s ``_copy.deepcopy``
+        assignment site at the precomputed-bundle boundary (wave 11
+        cluster, commit ``1959016``). No additional copy-on-save logic
+        needed here.
 
     Returns:
         True if save was successful, False otherwise.
