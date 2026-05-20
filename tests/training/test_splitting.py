@@ -1241,8 +1241,16 @@ class TestTrainMlframeModelsSuiteUseGroups:
 
     def _spy_split(self, monkeypatch, captured):
         """Install a spy that captures the ``groups`` kwarg and returns
-        a deterministic 60/20/20 split so the rest of the suite can run."""
-        from mlframe.training import core as core_mod
+        a deterministic 60/20/20 split so the rest of the suite can run.
+
+        Patches the symbol at the use site (``core._phase_helpers``). The
+        refactor that turned ``mlframe.training.core`` from a module into
+        a package moved the live binding into ``_phase_helpers`` while the
+        package ``__init__`` only re-exports a different set of symbols;
+        the previous ``setattr(core_mod, "make_train_test_split", ...)``
+        therefore raised AttributeError.
+        """
+        from mlframe.training.core import _phase_helpers as _ph_mod
 
         def _fake_split(df, **kwargs):
             captured["groups"] = kwargs.get("groups")
@@ -1254,7 +1262,7 @@ class TestTrainMlframeModelsSuiteUseGroups:
             train_idx = np.arange(0, n - n_test - n_val)
             return train_idx, val_idx, test_idx, "", "", ""
 
-        monkeypatch.setattr(core_mod, "make_train_test_split", _fake_split)
+        monkeypatch.setattr(_ph_mod, "make_train_test_split", _fake_split)
 
     def test_groups_flow_when_use_groups_true(self, monkeypatch, tmp_path):
         """Extractor's ``group_ids`` reaches splitter under default config."""
