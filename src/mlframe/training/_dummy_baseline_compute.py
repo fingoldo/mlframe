@@ -22,12 +22,26 @@ logger = logging.getLogger(__name__)
 def _per_target_seed(base_seed: int, target_name: str) -> int:
     """Deterministic per-target seed for stochastic baselines (D13).
 
-    ``base_seed + (hash(target_name) & 0xFFFF)`` keeps reproducibility
-    across runs (same target -> same seed) while ensuring independence
-    across targets in the same suite (different target -> different
-    seed). 0xFFFF mask keeps the offset bounded.
+    Uses ``hashlib.blake2b`` (NOT Python's builtin ``hash``) so the seed
+    is bit-stable across processes / runs / PYTHONHASHSEED values. The
+    pre-2026-05-20 form used ``hash(target_name)``, but Python salts the
+    builtin string hash per process when PYTHONHASHSEED is unset (the
+    default), so the docstring's "same target -> same seed" guarantee
+    silently broke across runs: stochastic baselines
+    (``random_quantile``, ``_pick_per_group_categorical``, etc. in
+    dummy_baselines.py) produced different predictions and metric
+    values run-to-run, then those values were persisted into
+    ``BaselineReport``s consumed by the eval-report pipeline.
+
+    16 bits of offset are kept (0xFFFF mask) for backward compatibility
+    with the prior offset range; the result is folded into a non-
+    negative int32 so it round-trips through numpy RNGs that reject
+    negative seeds.
     """
-    return (base_seed + (hash(target_name) & 0xFFFF)) & 0x7FFFFFFF
+    import hashlib as _hashlib
+    _digest = _hashlib.blake2b(target_name.encode("utf-8"), digest_size=4).digest()
+    _stable_int = int.from_bytes(_digest, "big")
+    return (base_seed + (_stable_int & 0xFFFF)) & 0x7FFFFFFF
 
 # Audit D P2-8 (2026-05-18): ``_pick_per_group_categorical`` + ``_per_group_predict`` both call
 # ``_to_pandas_for_baseline`` on the same train_X. The bridge is zero-copy on Arrow buffers so

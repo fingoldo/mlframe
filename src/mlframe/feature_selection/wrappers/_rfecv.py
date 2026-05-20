@@ -919,8 +919,17 @@ class RFECV(BaseEstimator, TransformerMixin):
         random_state = self.random_state
         # When random_state is None, derive a stable seed from the signature so re-fits on the SAME data are deterministic. Otherwise
         # self._rng is reseeded from system entropy on every fit, breaking reproducibility silently.
+        # Use ``hashlib.blake2b`` (not Python's builtin ``hash``) so the seed is bit-stable across processes /
+        # runs / PYTHONHASHSEED values. The signature tuple contains strings (column names + hex digests) and
+        # the builtin hash of strings is salted per process, which silently broke the "same data -> same support_"
+        # guarantee across worker spawns. The hashlib path mirrors the _y_hash / _x_hash construction ~30 lines
+        # above so the in-tree style stays consistent.
         if random_state is None:
-            _seed = abs(hash(signature)) % (2 ** 32)
+            import hashlib as _hashlib
+            _sig_bytes = repr(signature).encode("utf-8", errors="replace")
+            _seed = int.from_bytes(
+                _hashlib.blake2b(_sig_bytes, digest_size=4).digest(), "big",
+            )
             self._rng = np.random.default_rng(_seed)
         else:
             self._rng = np.random.default_rng(random_state)
