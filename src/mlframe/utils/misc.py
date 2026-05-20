@@ -10,7 +10,17 @@ from pyutilz.numbalib import set_numba_random_seed
 
 
 def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False):
-    """Seed everything ml-related."""
+    """Seed everything ml-related.
+
+    Wave 49 (2026-05-20): this function INTENTIONALLY mutates the process-global
+    RNG state across random / numpy / cupy / numba / torch. It is ONLY for use
+    at top-of-script / notebook setup. NEVER call this from inside fit(), predict(),
+    or any library code path -- it will break determinism for sibling code in
+    the same process that already seeded its own local Generator.
+
+    For library use, prefer ``np.random.default_rng(seed)`` / ``random.Random(seed)``
+    / ``torch.Generator().manual_seed(seed)`` to keep RNG state local.
+    """
     random.seed(seed)
 
     try:

@@ -986,10 +986,13 @@ def _count_nfailed_joint_indep_cupy(
     denom_x2 = freqs_x2_g[:, None] * freqs_y_g[None, :]
 
     nfailed_total = 0
+    # Wave 49 (2026-05-20): use a local cupy RandomState per permutation rather
+    # than mutating cp.random's global state. Reproducibility is preserved (same
+    # base_seed -> same per-iter local RNG); caller's cupy global stream is no
+    # longer clobbered.
     for p in range(n_perms):
-        # Per-iter RNG seeded for reproducibility across runs.
-        cp.random.seed(base_seed + p)
-        y_perm = cp.random.permutation(classes_y_g)
+        _local_cp_rng = cp.random.RandomState(base_seed + p)
+        y_perm = _local_cp_rng.permutation(classes_y_g)
 
         # Joint counts via flat-index bincount.
         flat_pair = classes_pair_g * K_y + y_perm

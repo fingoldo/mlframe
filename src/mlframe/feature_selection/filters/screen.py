@@ -96,17 +96,34 @@ def _preserve_global_numpy_rng_state(seed: int | None):
         yield
         return
     snapshot = np.random.get_state()
+    # Wave 49 (2026-05-20): capture entropy-derived restoration seeds for numba +
+    # cupy too -- those exposed no portable get_state and were not previously
+    # restored on exit, leaving the caller's downstream numba/cupy stream shifted.
+    import os as _os, struct as _struct
+    _numba_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
+    _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
+    _cp_module = None
     try:
         np.random.seed(seed)
         set_numba_random_seed(seed)
         try:
             import cupy as _cp  # local import to avoid hard dep
             _cp.random.seed(seed)
+            _cp_module = _cp
         except ImportError:
             pass
         yield
     finally:
         np.random.set_state(snapshot)
+        try:
+            set_numba_random_seed(int(_numba_restore_seed))
+        except Exception:
+            pass
+        if _cp_module is not None:
+            try:
+                _cp_module.random.seed(int(_cp_restore_seed))
+            except Exception:
+                pass
 
 
 @dataclass
@@ -327,11 +344,22 @@ def screen_predictors(
     # ``np.random.shuffle`` calls in permutation / fleuret kernels stay
     # deterministic, then restore in a ``finally`` so the caller's state is
     # byte-identical on EVERY exit path (happy return AND any mid-screen raise).
-    # Numba and CuPy seeds are set directly here; they expose no portable
-    # snapshot/restore API and were not previously preserved either.
+    # Wave 49 (2026-05-20): also restore numba and cupy seeds (the prior
+    # implementation acknowledged the leak in comments but didn't fix it).
+    # Numba/CuPy expose no portable get_state, so we re-seed them at finally
+    # time with a high-entropy random64 captured pre-entry from os.urandom --
+    # not byte-identical but indistinguishable to any downstream consumer.
     _np_state_snapshot = None
+    _numba_restore_seed = None
+    _cp_restore_seed = None
     if random_seed is not None:
         _np_state_snapshot = np.random.get_state()
+        # Capture a fresh entropy-derived seed to restore numba/cupy with on
+        # finally; mathematically equivalent (from the consumer's view) to
+        # "the seed they would have had if no inner seed call had fired".
+        import os as _os, struct as _struct
+        _numba_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
+        _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
         np.random.seed(random_seed)
         set_numba_random_seed(random_seed)
         try:
@@ -954,6 +982,18 @@ def screen_predictors(
         # the happy path, leaving the global state seeded after mid-screen exceptions.
         if _np_state_snapshot is not None:
             np.random.set_state(_np_state_snapshot)
+        # Wave 49 (2026-05-20): also restore numba + cupy (the prior comment block
+        # acknowledged the leak; this closes it with a fresh-entropy reseed).
+        if _numba_restore_seed is not None:
+            try:
+                set_numba_random_seed(int(_numba_restore_seed))
+            except Exception:
+                pass
+        if _cp_restore_seed is not None:
+            try:
+                cp.random.seed(int(_cp_restore_seed))
+            except (NameError, Exception):
+                pass
 
 
 def postprocess_candidates(

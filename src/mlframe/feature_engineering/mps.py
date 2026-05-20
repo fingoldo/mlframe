@@ -598,8 +598,11 @@ def show_mps_regions(
 
 
 def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:
-    # Generate sample data with more interesting patterns & slight upward trend
-    np.random.seed(random_seed)
+    # Wave 49 (2026-05-20): switch to local Generator instead of mutating the
+    # global RNG (which broke determinism for any sibling code running in the
+    # same process). Falls back to entropy-seeded Generator when random_seed
+    # is None per the standard default_rng contract.
+    rng = np.random.default_rng(random_seed)
 
     # Create date range
     dates = [start_date + timedelta(days=i) for i in range(n_days)]
@@ -611,7 +614,7 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
 
     for i in range(1, n_days):
         # Add trend, volatility, and some mean reversion
-        change = np.random.normal(trend, 2.5)
+        change = rng.normal(trend, 2.5)
         if i > 1:
             # Add some mean reversion
             change += (base_price - prices[i - 1]) * 0.01
@@ -619,8 +622,8 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
         prices[i] = max(prices[i - 1] + change, 1.0)
 
         # Add some occasional big moves (news events)
-        if np.random.random() < 0.05:
-            prices[i] *= np.random.choice([0.95, 1.05])
+        if rng.random() < 0.05:
+            prices[i] *= rng.choice([0.95, 1.05])
 
     # Generate correlated volume data (higher volume on big price moves)
 
@@ -628,7 +631,7 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
 
     for i in range(n_days):
         # Base volume with random variation
-        vol = base_volume * np.random.uniform(0.5, 2.0)
+        vol = base_volume * rng.uniform(0.5, 2.0)
 
         # Increase volume on big price moves
         if i > 0:

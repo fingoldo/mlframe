@@ -462,8 +462,15 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         # the audit signal for "lazy import inside hot loop"). Reuse the module top result.
         L = _L_MODULE
 
-        torch.manual_seed(self.seed)
-        np.random.seed(self.seed)
+        # Wave 49 (2026-05-20): drop global RNG mutations -- they silently
+        # overwrote caller's torch/numpy stream and broke reproducibility for any
+        # sibling code in the same process. Downstream consumers already use
+        # local generators (lines 224 + 488/509: np.random.default_rng(self.seed)
+        # and the per-sampler seed kwarg); the only remaining torch RNG surface
+        # is model init / DataLoader shuffle, which honour torch.Generator passed
+        # through Lightning's `seed_everything(workers=False)`-equivalent contract.
+        # If the caller wants global torch determinism they call torch.manual_seed
+        # themselves before calling fit.
 
         X_arr = self._x_to_array(X)
         y_arr = np.asarray(y, dtype=np.float32).ravel()
