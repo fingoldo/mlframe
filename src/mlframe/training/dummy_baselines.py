@@ -1376,7 +1376,11 @@ def _compute_ltr_baselines(
     if n_groups_train < 2:
         extras["ltr_skip_reason"] = f"only {n_groups_train} group in train"
         return val_preds, test_preds, extras
-    train_group_sizes = np.bincount(pd.factorize(g_train)[0])
+    # Wave 50 (2026-05-20): pd.factorize emits -1 for NaN; np.bincount(-1) raises
+    # ValueError. Drop NaN codes before bincount so sparsely-populated group_field
+    # doesn't crash the LTR fast-path.
+    _factor_codes = pd.factorize(g_train)[0]
+    train_group_sizes = np.bincount(_factor_codes[_factor_codes >= 0])
     if train_group_sizes.max() > 0.5 * len(g_train):
         extras["ltr_skip_reason"] = (
             f"max_group_pct={train_group_sizes.max() / len(g_train) * 100:.1f}% "

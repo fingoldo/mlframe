@@ -285,7 +285,11 @@ def _apply_nan_guard(
             _has_nan = bool(_sample.isna().any().any())
         elif hasattr(X, "__array__"):
             _arr_check = np.asarray(X[:500]) if hasattr(X, "__getitem__") else np.asarray(X)
-            _has_nan = bool(np.any(~np.isfinite(_arr_check[:500])))
+            # Wave 50 (2026-05-20): use np.isnan (not ~np.isfinite) for parity with
+            # the pandas isna() branch above; the prior ~isfinite included +-inf
+            # which SimpleImputer(strategy="mean") does NOT replace, so +-inf rows
+            # would pass the gate but then propagate unchanged through imputer+scaler.
+            _has_nan = bool(np.any(np.isnan(_arr_check[:500])))
     except Exception:
         _has_nan = False
 

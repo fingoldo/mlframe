@@ -142,7 +142,12 @@ def run_pysr_feature_engineering(
         sampled = df.sample(n, seed=random_state) if random_state is not None else df.sample(n)
         # Zero-fill ONLY numeric columns; previously a blanket .fill_null(0) ran before non-numeric
         # columns were dropped, which raises on polars 1.x for Utf8 / Datetime / Duration dtypes.
-        sampled = sampled.with_columns(cs.numeric().fill_null(0).fill_nan(0))
+        # Wave 50 (2026-05-20): use per-column median instead of 0 so NaN rows aren't
+        # silently collapsed onto real-0 rows in PySR's candidate-score ranking. Median
+        # is robust to outliers and preserves the column's central tendency.
+        sampled = sampled.with_columns([
+            cs.numeric().fill_nan(cs.numeric().median()).fill_null(cs.numeric().median())
+        ])
         tmp_df = sampled.to_pandas()
     elif isinstance(df, pd.DataFrame):
         n = min(sample_size, len(df))
@@ -151,9 +156,10 @@ def run_pysr_feature_engineering(
         # ``Cannot setitem on a Categorical with a new category (0)`` because ``0`` is not a
         # listed category. Categoricals get dropped or encoded downstream anyway, so we leave
         # their NaNs alone here.
+        # Wave 50 (2026-05-20): use per-column median for the same reason as the polars branch.
         numeric_cols = tmp_df.select_dtypes(include=[np.number]).columns
         if len(numeric_cols):
-            tmp_df[numeric_cols] = tmp_df[numeric_cols].fillna(0)
+            tmp_df[numeric_cols] = tmp_df[numeric_cols].fillna(tmp_df[numeric_cols].median())
     else:
         raise TypeError(f"Input must be a pandas or polars DataFrame, got {type(df).__name__}.")
 

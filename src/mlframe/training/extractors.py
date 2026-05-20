@@ -787,8 +787,24 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             for col in self.classification_targets:
                 if col not in df_columns:
                     raise KeyError(f"Classification target column '{col}' not found in DataFrame. Available: {list(df.columns)[:10]}...")
-                # Impute NaNs with 0 for classification targets
-                col_data = df[col].fillna(0) if is_pandas else df[col].fill_null(0)
+                # Wave 50 (2026-05-20): the prior fillna(0) silently labelled NaN rows as
+                # the positive class when thresh_val<=0 (common for residual / mean-centered
+                # targets) and identical-to-real-0 rows otherwise. Raise honestly instead;
+                # callers must drop NaN targets explicitly upstream.
+                if is_pandas:
+                    if df[col].isna().any():
+                        raise ValueError(
+                            f"Classification target '{col}' contains NaN; drop or impute upstream "
+                            "(silent fillna(0) was changed in wave-50 to surface this honestly)."
+                        )
+                    col_data = df[col]
+                else:
+                    if df[col].null_count() > 0:
+                        raise ValueError(
+                            f"Classification target '{col}' contains nulls; drop or impute upstream "
+                            "(silent fill_null(0) was changed in wave-50 to surface this honestly)."
+                        )
+                    col_data = df[col]
 
                 # Process lower thresholds
                 if self.classification_lower_thresholds and col in self.classification_lower_thresholds:

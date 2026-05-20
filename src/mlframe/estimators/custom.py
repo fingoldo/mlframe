@@ -175,17 +175,32 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
             return self
 
 class PdOrdinalEncoder(OrdinalEncoder):
-    
-    def __init__(self, categories='auto', dtype=np.float32, handle_unknown='error', unknown_value=None, encoded_missing_value=np.nan, min_frequency=None, max_categories=None):
+
+    # Wave 50 (2026-05-20): default ``encoded_missing_value`` flipped from
+    # ``np.nan`` to ``-1``. Pre-fix, NaN -> int32 produced platform-dependent
+    # INT_MIN sentinels that broke downstream code expecting codes in [0, K)
+    # AND collided with no real category but obscured the missing-value contract.
+    # Callers needing nan-on-missing behaviour should pass it explicitly and
+    # NOT use ``.astype(np.int32)`` -- this class always coerces to int.
+    def __init__(self, categories='auto', dtype=np.float32, handle_unknown='error', unknown_value=None, encoded_missing_value=-1, min_frequency=None, max_categories=None):
         super().__init__(categories=categories,dtype=dtype,handle_unknown=handle_unknown,unknown_value=unknown_value,encoded_missing_value=encoded_missing_value,min_frequency=min_frequency,max_categories=max_categories)
-    
+
     def transform(self, X):
         if isinstance(X,pd.DataFrame):
             col_names = X.columns.values.tolist()
         else:
             col_names=None
-        
+
         X = super().transform(X)
+        # Wave 50 (2026-05-20): if caller overrode encoded_missing_value=np.nan,
+        # surface NaN explicitly instead of producing platform-dependent INT_MIN
+        # via astype(int32). NaN-in-int32 is undefined behaviour.
+        if np.any(np.isnan(np.asarray(X, dtype=np.float64))):
+            raise ValueError(
+                "PdOrdinalEncoder.transform: NaN codes in output -- caller set "
+                "encoded_missing_value=np.nan but transform unconditionally casts to int32. "
+                "Either keep encoded_missing_value=-1 (default) or change dtype contract."
+            )
         if col_names:
             return pd.DataFrame(data=X, columns=col_names).astype(np.int32)
         else:

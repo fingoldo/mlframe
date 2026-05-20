@@ -125,13 +125,32 @@ def categorize_1d_array(
     dtype=np.int16,
     nan_filler: float = 0.0,
 ):
-    """Per-column ordinal encoder used by ad-hoc external pipelines. Inside MRMR proper we use ``categorize_dataset`` below."""
+    """Per-column ordinal encoder used by ad-hoc external pipelines. Inside MRMR proper we use ``categorize_dataset`` below.
+
+    Wave 50 (2026-05-20): ``nan_filler=0.0`` default mixes NaN rows with real-0 rows
+    into bin-0, biasing MI estimation. New callers should pass ``nan_filler=None``
+    to raise honestly on NaN input, or use a sentinel that cannot collide with real
+    data (``np.nan_to_num(vals, nan=vals.min()-1)`` upstream). Default kept as 0.0
+    for back-compat -- a WARN is emitted when NaNs are actually filled.
+    """
     ordinal_encoder = OrdinalEncoder()
 
     if vals.dtype.name != "category" and np.issubdtype(vals.dtype, np.bool_):
         vals = vals.astype(np.int8)
 
     if pd.isna(vals).any():
+        # Wave 50: surface the legacy bias when it actually fires.
+        if nan_filler is None:
+            raise ValueError(
+                "categorize_1d_array: input contains NaN and nan_filler=None; "
+                "drop NaN upstream or pick a non-colliding sentinel."
+            )
+        import warnings as _w
+        _w.warn(
+            f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing "
+            "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
+            stacklevel=2,
+        )
         vals = pd.Series(vals).fillna(nan_filler).values
 
     vals = vals.reshape(-1, 1)

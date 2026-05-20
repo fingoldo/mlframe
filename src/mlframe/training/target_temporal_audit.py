@@ -577,8 +577,12 @@ def _aggregate_by_time_pandas(
     s["__bin"] = s[timestamp_col].dt.to_period(period_freq).dt.to_timestamp()
 
     if target_type == "binary_classification":
+        # Wave 50 (2026-05-20): the prior `fillna(0) > 0` counted NaN rows as
+        # negatives, deflating reported positive rate per bin. Drop NaN
+        # explicitly so the rate is the honest empirical positive fraction
+        # over non-missing rows; NaN fraction is surfaced separately via n_obs.
         rate = s.groupby("__bin")[target_col].apply(
-            lambda c: (c.fillna(0) > 0).mean()
+            lambda c: (c.dropna() > 0).mean() if c.notna().any() else float("nan")
         )
     else:
         rate = s.groupby("__bin")[target_col].mean()
