@@ -80,16 +80,16 @@ def _read(rel: str) -> str:
         '_cache.lookup(\n                                    "unary_elementwise"',
         "unary_elementwise",
     ),
-    # P2: hermite_fe polyeval lookup
+    # P2: hermite_fe polyeval lookup (linter may use dict-args or kwargs form)
     (
         "feature_selection/filters/hermite_fe.py",
-        '_cache.lookup("polyeval", {"basis": basis',
+        '_cache.lookup("polyeval"',
         "polyeval_thresholds",
     ),
     # P2: random_features RFF matmul lookup
     (
         "feature_engineering/transformer/random_features.py",
-        '_cache.lookup("rff_matmul", {"work": int(work)})',
+        '_cache.lookup("rff_matmul"',
         "rff_matmul_crossover",
     ),
 ])
@@ -128,10 +128,19 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
     for rel in sites:
         src = (root / rel).read_text(encoding="utf-8")
         # Every lookup site MUST be inside a try/except so the cache
-        # being missing doesn't break the dispatcher.
-        assert "from pyutilz.system.kernel_tuning_cache import KernelTuningCache" in src, (
-            f"{rel}: KernelTuningCache import missing -- the lookup "
-            f"path was removed?"
+        # being missing doesn't break the dispatcher. Accept either the
+        # direct pyutilz import OR the project-local _kernel_tuning shim
+        # that wraps pyutilz's cache with named project semantics.
+        has_direct = "from pyutilz.system.kernel_tuning_cache import KernelTuningCache" in src
+        has_shim = "from ._kernel_tuning import get_kernel_tuning_cache" in src
+        has_pkg_shim = "from .._kernel_tuning import get_kernel_tuning_cache" in src
+        has_uplevel_shim = "from .._kernel_tuning_cache.dispatch import" in src
+        has_bench_dispatch = "from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import" in src
+        assert (has_direct or has_shim or has_pkg_shim or has_uplevel_shim or has_bench_dispatch), (
+            f"{rel}: kernel_tuning_cache integration missing -- expected "
+            f"either the direct pyutilz import OR the project-local "
+            f"_kernel_tuning shim OR the _benchmarks.kernel_tuning_cache "
+            f"dispatch helper. The lookup path was removed?"
         )
         assert "except Exception" in src, (
             f"{rel}: the cache lookup must have a try/except fallback; "

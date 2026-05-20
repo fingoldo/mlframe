@@ -1640,7 +1640,17 @@ class RFECV(BaseEstimator, TransformerMixin):
                 from joblib import Parallel, delayed
                 # prefer="threads": sklearn / CB / LGB / XGB all release GIL during fit, so threads give true parallelism without the
                 # serialisation cost of multiprocessing.
-                Parallel(n_jobs=n_jobs_effective, prefer="threads")(
+                # Wave 27 P2 fix (2026-05-20): added ``require="sharedmem"``
+                # to HARDEN the design. ``prefer`` is a soft hint that an
+                # outer ``joblib.parallel_backend('loky')`` / sklearn
+                # ``parallel_config`` can override; under loky the
+                # ``_fold_runner`` closure-state mutations (``scores``,
+                # ``feature_importances``, ``fitted_estimators``) happen
+                # in worker process copies and the main-process state
+                # silently stays empty -> ``final_score = nan`` with no
+                # exception. ``require`` makes joblib RAISE if it can't
+                # satisfy threading, surfacing the misconfiguration loud.
+                Parallel(n_jobs=n_jobs_effective, prefer="threads", require="sharedmem")(
                     delayed(_fold_runner)(*a) for a in _fold_args
                 )
             else:

@@ -69,7 +69,18 @@ class _GpuBufferPool:
 
 _GPU_POOL = _GpuBufferPool()
 
-# Cross-process safe lock. Constructed on first import; safe under multiprocessing because the lock is a primitive type that picks up the host process's mutex on spawn.
+# Wave 27 P2 fix (2026-05-20): the prior docstring claimed
+# "Cross-process safe ... picks up the host process's mutex on spawn".
+# That is FALSE on Windows ``spawn`` (the joblib loky default): each
+# child process re-imports the module and constructs its own
+# ``Lock()`` -- the parent + children do NOT share the underlying
+# ``SemLock`` handle. The lock only mutexes WITHIN one process.
+# This is acceptable HERE because the lock body
+# (``init_kernels``) is idempotent: duplicate CuPy NVRTC compile is
+# wasted work but correctness is unaffected. Future contributors
+# adding NON-idempotent init under this lock would silently break.
+# Either pass via Pool(initializer=..., initargs=(lock,)) or use a
+# Manager().Lock() if cross-process exclusion is ever required.
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 
 

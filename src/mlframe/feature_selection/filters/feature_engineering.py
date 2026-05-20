@@ -10,6 +10,7 @@ Public functions:
 from __future__ import annotations
 
 import logging
+import threading
 from collections import defaultdict
 from itertools import combinations
 from timeit import default_timer as timer
@@ -22,6 +23,19 @@ from scipy import special as sp
 
 from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.system import tqdmu
+
+
+# Wave 27 P1 (2026-05-20): ``check_prospective_fe_pairs`` is dispatched via
+# ``parallel_run`` from mrmr.py with backend='threading'. The function
+# accumulates per-binary-transform timings into a shared ``times_spent``
+# defaultdict via ``+=``. Python's ``+=`` on a float is load-add-store and
+# NOT atomic even under the GIL between threads; concurrent workers can
+# drop updates silently, under-reporting the diagnostic at mrmr.py:1691.
+# This module-level lock serialises the increment; threading workers
+# synchronise correctly. Under loky/spawn each worker gets its own
+# defaultdict copy (no shared state); the lock has no effect there but
+# also doesn't break.
+_TIMES_SPENT_LOCK = threading.Lock()
 
 
 # Domain-validity tags for unary transforms produced by ``create_unary_transformations(preset="maximal")``. Consumers that need to clip / reject inputs before
@@ -243,7 +257,12 @@ def check_prospective_fe_pairs(
                     #    final_transformed_vals[:, i] =pd.Series(final_transformed_vals[:, i] ).ffill().bfill().values
                     np.nan_to_num(final_transformed_vals[:, i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-                    times_spent[bin_func_name] += timer() - start
+                    # Wave 27 P1: serialise the increment under
+                    # ``_TIMES_SPENT_LOCK``; pre-fix `+=` raced on the
+                    # shared defaultdict under the parallel threading
+                    # dispatch from mrmr.py.
+                    with _TIMES_SPENT_LOCK:
+                        times_spent[bin_func_name] += timer() - start
 
                     discretized_transformed_values = discretize_array(
                         arr=final_transformed_vals[:, i], n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype

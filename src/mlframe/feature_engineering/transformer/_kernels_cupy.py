@@ -29,7 +29,12 @@ logger = logging.getLogger(__name__)
 # Module-level RawKernel placeholder. ``_ensure_kernels_inited`` populates it on first use.
 row_attention_stage4_raw_kernel: Any = None
 
-# Cross-process safe lock (Windows spawn workers).
+# Wave 27 P2 fix (2026-05-20): intra-process lock. Pre-fix claimed
+# "Cross-process safe lock (Windows spawn workers)" -- that's FALSE on
+# spawn since each child re-imports the module and constructs a fresh
+# Lock(). The parent + children don't share the underlying SemLock.
+# Acceptable HERE because the lock body is idempotent (NVRTC compile);
+# documented honestly to avoid misleading future contributors.
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 _KERNELS_INITED = False
 
