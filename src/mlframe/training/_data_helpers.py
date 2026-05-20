@@ -246,7 +246,37 @@ def _validate_target_values(target, subset_name="train", is_classification=None)
     the NaN/inf check runs, so callers that haven't been migrated to
     pass the flag explicitly are unaffected.
     """
-    arr = target.values if isinstance(target, pd.Series) else target
+    # Coerce target to a plain numpy ndarray for the np.isfinite checks below.
+    # Pre-fix shape (pre-2026-05-20 silent-coercion audit): bare
+    # ``target.values if pd.Series else target`` returned a pandas
+    # ExtensionArray for nullable Int64 / Float64 columns, and the
+    # subsequent ``np.isfinite`` raised TypeError that was caught at the
+    # outer except and silently set nan_count = inf_count = 0 -- defeating
+    # the whole purpose of this NaN-detection function. Same hazard on the
+    # polars Int64-with-null branch. Coerce via to_numpy(na_value=nan) so
+    # both ExtensionArray-nullable-Int AND polars-Int-with-null appear as
+    # NaN to np.isfinite. Float dtypes are unaffected (NaN was already
+    # representable natively).
+    if isinstance(target, pd.Series):
+        try:
+            # na_value=nan only valid for float output; integer dtype + has_na -> fall back.
+            arr = target.to_numpy(dtype=np.float64, na_value=np.nan)
+        except (TypeError, ValueError):
+            arr = target.to_numpy(copy=False)
+    else:
+        # polars Series or numpy array
+        try:
+            import polars as _pl
+            if isinstance(target, _pl.Series):
+                # polars Int with nulls -> cast to Float64 then to_numpy so nulls -> nan.
+                if target.null_count() > 0 and not target.dtype.is_float():
+                    arr = target.cast(_pl.Float64).to_numpy()
+                else:
+                    arr = target.to_numpy()
+            else:
+                arr = np.asarray(target)
+        except ImportError:
+            arr = np.asarray(target)
     try:
         # Single-pass finiteness check; only re-scan the (typically empty)
         # non-finite subset to split nan_count vs inf_count. Two separate
