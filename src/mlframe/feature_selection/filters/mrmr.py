@@ -654,11 +654,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         # dominate (32% + 22% of fit time); each MI call scales linearly
         # with n. At n=4M with default config (10 restarts x 200 trials
         # x C(25,2)=300 pairs) per-pair cost projects to ~5 min, ~25
-        # hours serial. Default 100_000 caps inner-MI work at a
-        # deterministic constant; the FINAL injected column is still
-        # computed from FULL source so no train-time precision is lost.
+        # hours serial.
+        #
+        # Default 200_000 (raised from 100_000 on 2026-05-18 after the
+        # n=1M bench showed 100k could lose 1 hermite feature on
+        # marginal seeds while 200k kept it). The FINAL injected column
+        # is still computed from FULL source so no train-time precision
+        # is lost.
+        #
         # Set to ``None`` / 0 / negative to disable (use full data).
-        fe_smart_polynom_subsample_n: int = 100_000,
+        fe_smart_polynom_subsample_n: int = 200_000,
         # 2026-05-18 audit-fixes flip #3 (``fe_min_polynom_degree`` 3->1):
         # pre-fix the Hermite/Chebyshev optimiser was locked to a minimum
         # cubic basis. Degree-1 (linear product, the XOR / multiplicative
