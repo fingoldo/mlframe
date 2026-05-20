@@ -110,7 +110,30 @@ def coerce_timestamps_for_audit(
         return arr
     if not (np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.floating)):
         # Object / string / pd.Timestamp etc. -- let pandas figure it out (string parsing path).
-        return pd.to_datetime(arr).to_numpy()
+        # Wave 34 P2 fix (2026-05-20): if the input contains tz-aware
+        # pd.Timestamp entries, ``pd.to_datetime(arr).to_numpy()`` returns
+        # an OBJECT dtype (tz info preserved as Timestamp objects), NOT
+        # the documented ``datetime64[ns]`` invariant. Downstream callers
+        # (recommended_filter_mask at L335, compute_ml_perf_by_time)
+        # silently get a mixed-dtype array; Grouper / comparisons
+        # then behave inconsistently across runs.
+        # Force the documented contract: coerce to UTC-aware via
+        # ``utc=True``, then strip the tz so the resulting numpy view IS
+        # ``datetime64[ns]``. WARN-log when tz info gets dropped so the
+        # operator knows the audit assumes UTC.
+        _coerced = pd.to_datetime(arr, utc=True, errors="coerce")
+        _had_tz = (getattr(_coerced.dtype, "tz", None) is not None)
+        if _had_tz:
+            _coerced = _coerced.tz_convert("UTC").tz_localize(None)
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "coerce_timestamps_for_audit: input contained tz-aware "
+                "Timestamps; converted to UTC then tz-stripped so the "
+                "returned dtype matches the documented datetime64[ns] "
+                "contract. If your data are not UTC-anchored, localise "
+                "BEFORE calling this helper."
+            )
+        return _coerced.to_numpy()
 
     if arr.size == 0:
         return pd.to_datetime(arr, unit=explicit_unit or "ns").to_numpy()
@@ -318,20 +341,43 @@ class TemporalAuditResult:
         gran_seconds = _GRANULARITY_SECONDS.get(self.granularity, 30.44 * 86_400.0)
         gran_delta = pd.Timedelta(seconds=gran_seconds)
 
+        # Wave 34 P1 fix (2026-05-20): pre-fix the ``ts`` Series and the
+        # ``start_ts/end_ts`` Timestamps could have mismatched tz state.
+        # If ``bin_start`` was built from a tz-aware polars Datetime
+        # (``Datetime(time_zone="UTC")``), the kept[..].bin_start values
+        # are tz-aware while ``coerce_timestamps_for_audit`` returns
+        # tz-naive datetime64[ns]. Direct ``ts >= start_ts`` then raises
+        # ``TypeError: Cannot compare tz-naive and tz-aware``.
+        # Coerce ``ts`` to a pandas Series and normalise BOTH sides to
+        # tz-naive (the documented audit invariant): the
+        # ``coerce_timestamps_for_audit`` helper above already enforces
+        # this for the LHS; the RHS needs symmetric handling.
         ts = pd.Series(coerce_timestamps_for_audit(timestamps))
+
+        def _normalize_bin_ts(_t):
+            """Strip tz on a Timestamp / datetime if present so the
+            comparison against the tz-naive ``ts`` Series succeeds.
+            ``coerce_timestamps_for_audit`` has already converted any
+            tz-aware input to UTC then dropped tz; do the same here for
+            consistency."""
+            _tz = getattr(_t, "tz", None) or getattr(_t, "tzinfo", None)
+            if _tz is not None:
+                return _t.tz_convert("UTC").tz_localize(None) if hasattr(_t, "tz_convert") else _t.astimezone(None).replace(tzinfo=None)
+            return _t
+
         mask = np.zeros(len(ts), dtype=bool)
         for s in chosen_segs:
             start_idx = int(s["start_idx"])
             end_idx = int(s["end_idx"])  # exclusive into kept[]
             if start_idx >= len(kept):
                 continue
-            start_ts = kept[start_idx].bin_start
+            start_ts = _normalize_bin_ts(kept[start_idx].bin_start)
             if end_idx < len(kept):
-                end_ts = kept[end_idx].bin_start
+                end_ts = _normalize_bin_ts(kept[end_idx].bin_start)
             else:
                 # Tail segment — use last bin's left edge + granularity
                 # span as the (open) right edge.
-                end_ts = kept[-1].bin_start + gran_delta
+                end_ts = _normalize_bin_ts(kept[-1].bin_start) + gran_delta
             seg_mask = (ts >= start_ts) & (ts < end_ts)
             mask |= seg_mask.to_numpy() if hasattr(seg_mask, "to_numpy") else np.asarray(seg_mask)
         return mask

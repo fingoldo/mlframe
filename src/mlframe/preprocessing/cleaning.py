@@ -250,10 +250,24 @@ def is_variable_truly_continuous(
                     cur_fract_digits = 1
         cur_fract_digits = cur_fract_digits - 1
     elif var_is_datetime:
+        # Wave 34 Low fix (2026-05-20): the ``.astype("datetime64[D]")``
+        # call on a tz-aware Series RAISES on pandas >=2.0 (the tz info
+        # cannot survive the unit-truncation) and silently DROPS tz on
+        # pandas <2.0 emitting a FutureWarning. Strip tz upfront so the
+        # rounding-resolution probe works uniformly across pandas eras.
+        _vals_naive = values
+        _tz_attr = getattr(getattr(values, "dtype", None), "tz", None)
+        if _tz_attr is not None:
+            try:
+                # values is a pandas DatetimeArray / Series here.
+                _vals_naive = values.tz_convert("UTC").tz_localize(None)
+            except (AttributeError, TypeError):
+                # numpy or scalar fallback: cast through to_numpy.
+                _vals_naive = pd.to_datetime(values, utc=True).tz_localize(None).to_numpy()
         full_multiplier = 1
         prev_date_fract = "D"
         for date_fract, multiplier in zip(DATEFRACTS_CODES, DATEFRACTS_MULTIPLIERS):
-            if np.all(values.astype(f"datetime64[{date_fract}]") == values):
+            if np.all(_vals_naive.astype(f"datetime64[{date_fract}]") == _vals_naive):
                 break
             else:
                 full_multiplier *= multiplier
