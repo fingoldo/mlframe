@@ -1109,9 +1109,21 @@ def _phase_fit_pipeline(
                         or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
                     ):
                         _embedding_object_cols.append(_c)
+            # Wave 54 (2026-05-20): pandas allows duplicate column names; the prior
+            # {c: ...} comprehension silently collapsed dupes to one entry, so the
+            # downstream schema-hash would mis-flag a "matching" schema and drop
+            # auto-detect coverage for the duplicate columns. Refuse explicitly.
+            _cols_list = list(train_df.columns)
+            if len(set(_cols_list)) != len(_cols_list):
+                from collections import Counter as _Counter
+                _dupes = [_c for _c, _n in _Counter(_cols_list).items() if _n > 1]
+                raise ValueError(
+                    f"train_df has {len(_dupes)} duplicate column name(s) "
+                    f"({_dupes[:5]}); deduplicate before fit() to keep schema-hash honest."
+                )
             train_df_pandas_pre_meta = {
-                "columns": list(train_df.columns),
-                "dtypes": {c: str(train_df[c].dtype) for c in train_df.columns},
+                "columns": _cols_list,
+                "dtypes": {c: str(train_df[c].dtype) for c in _cols_list},
                 "n_unique": _n_unique,
                 "non_null": _non_null,
                 "embedding_object_cols": _embedding_object_cols,

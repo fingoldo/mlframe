@@ -643,7 +643,18 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         return [item for sublist in array for item in sublist]
 
     def create_mapping_between_cols_and_indices(self):
-        return dict(zip(self.X.columns.to_list(), np.arange(self.X.shape[1])))
+        # Wave 54 (2026-05-20): refuse duplicate-column input -- prior dict(zip(...))
+        # silently collapsed dupes to the LAST index, so any earlier-duplicated column
+        # would never be shuffled / tested by Boruta's shadow-feature loop.
+        cols = self.X.columns.to_list()
+        if len(set(cols)) != len(cols):
+            from collections import Counter
+            dupes = [c for c, n in Counter(cols).items() if n > 1]
+            raise ValueError(
+                f"BorutaShap: input X has {len(dupes)} duplicate column name(s) "
+                f"({dupes[:5]}); deduplicate before fit() to avoid silently dropping shadow indices."
+            )
+        return dict(zip(cols, np.arange(self.X.shape[1])))
 
     def calculate_hits(self):
         """

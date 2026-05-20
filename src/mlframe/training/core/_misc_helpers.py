@@ -612,6 +612,15 @@ def _auto_detect_feature_types(
             _meta_embed_obj = set(pandas_meta.get("embedding_object_cols", []))
         else:
             _columns = list(df.columns)
+            # Wave 54 (2026-05-20): same dupe-column hazard as _phase_helpers.py:1114;
+            # silently-collapsing dtype dict would feed a wrong schema-hash downstream.
+            if len(set(_columns)) != len(_columns):
+                from collections import Counter as _Counter
+                _dupes = [_c for _c, _n in _Counter(_columns).items() if _n > 1]
+                raise ValueError(
+                    f"df has {len(_dupes)} duplicate column name(s) "
+                    f"({_dupes[:5]}); deduplicate before predict() to keep schema-hash honest."
+                )
             _dtypes = {c: str(df[c].dtype) for c in _columns}
             _meta_n_unique = None
             _meta_non_null = None

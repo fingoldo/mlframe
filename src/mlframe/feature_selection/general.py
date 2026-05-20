@@ -271,6 +271,16 @@ def run_efs(
             **efs_params,
         )
 
+        # Wave 54 (2026-05-20): refuse duplicate target names -- the prior dict-comp
+        # silently dropped MI rows when the caller listed the same target twice
+        # (e.g. multi-target classification+regression view of the same column).
+        if len(set(target_columns)) != len(target_columns):
+            from collections import Counter as _Counter
+            _dupes = [_t for _t, _n in _Counter(target_columns).items() if _n > 1]
+            raise ValueError(
+                f"target_columns has {len(_dupes)} duplicate(s) ({_dupes[:5]}); "
+                "deduplicate to avoid silently dropping MI rows."
+            )
         features_mis = pd.DataFrame({target_columns[col]: mutual_informations[col, :] for col in range(len(target_columns))})
         features_mis["feature"] = bins.columns
         features_mis = features_mis.sort_values(target_columns[0], ascending=False)

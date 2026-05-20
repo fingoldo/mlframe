@@ -165,7 +165,22 @@ def run_pysr_feature_engineering(
 
     clean_ram()
 
-    tmp_df.columns = [col.replace("-", "_").replace("=", "_") for col in tmp_df.columns]
+    # Wave 54 (2026-05-20): detect renaming collisions ("col-x" and "col=x" both
+    # become "col_x"); pandas DataFrame with dupe columns then silently collapses
+    # to one when read via any dict-comprehension over .columns. Suffix collisions
+    # with _2, _3, ... so each column retains a unique identity.
+    _renamed = [col.replace("-", "_").replace("=", "_") for col in tmp_df.columns]
+    from collections import Counter as _Counter
+    _seen: dict = {}
+    _final_names: list = []
+    for _name in _renamed:
+        if _name in _seen:
+            _seen[_name] += 1
+            _final_names.append(f"{_name}_{_seen[_name]}")
+        else:
+            _seen[_name] = 1
+            _final_names.append(_name)
+    tmp_df.columns = _final_names
     tmp_df.rename(
         columns={col: reserved_prefix + col for col in reserved_names if col in tmp_df.columns},
         inplace=True,
