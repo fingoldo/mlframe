@@ -49,7 +49,8 @@ import warnings
 
 import numpy as np
 
-warnings.filterwarnings("ignore")
+# Wave 87 (2026-05-21): module-level filter mutation removed; bench scripts
+# now gate via __main__ to avoid poisoning the process-global filter on import.
 
 from mlframe.feature_selection.filters.hermite_fe import (
     optimise_hermite_pair,
@@ -329,4 +330,5 @@ def main():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")
     main()

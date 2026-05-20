@@ -21,7 +21,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-warnings.filterwarnings("ignore")
+# Wave 87 (2026-05-21): module-level filter removed; gated under __main__ below.
 
 
 # ---------------------------------------------------------------------------
@@ -655,4 +655,5 @@ def main():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")
     main()

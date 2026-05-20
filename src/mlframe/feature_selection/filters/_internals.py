@@ -11,10 +11,27 @@ from numba import njit
 from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 
 
-# Warnings setup (mirrors legacy filters.py top-of-file initialisation).
-warnings.filterwarnings("ignore", module=".*_discretization")
-warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
-warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
+# Wave 87 (2026-05-21): scoped numba/discretization warnings suppressor.
+# Replaces the prior module-level filter mutation which silently poisoned
+# the process-global filter for every importer.
+from contextlib import contextmanager as _contextmanager
+
+
+@_contextmanager
+def suppress_numba_warnings():
+    """Scope-local numba + discretization-internal warning suppression.
+
+    Use inside the numba-heavy entry points (kernel hot loops, hist binning)
+    rather than mutating the global filter at import time:
+
+        with suppress_numba_warnings():
+            _njit_kernel(...)
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", module=".*_discretization")
+        warnings.simplefilter("ignore", category=NumbaDeprecationWarning)
+        warnings.simplefilter("ignore", category=NumbaPendingDeprecationWarning)
+        yield
 
 
 # =============================================================================

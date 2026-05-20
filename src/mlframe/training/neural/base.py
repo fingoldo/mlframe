@@ -80,21 +80,29 @@ from lightning.pytorch.loggers import CSVLogger
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from sklearn.metrics import accuracy_score, r2_score, root_mean_squared_error
 
-# Lightning's data_connector emits a UserWarning ("does not have many workers
-# which may be a bottleneck. Consider increasing the value of the num_workers
-# argument...") for every train/val/predict DataLoader. That recommendation
-# is wrong for mlframe: num_workers > 0 pickles the entire TorchDataset (which
-# holds the full Polars/pandas frame) into every worker - catastrophic on
-# 100+ GB production frames. Empirical bench at
-# _benchmarks/bench_dataloader_workers.py confirms num_workers=0 is the best
-# default on Windows/8-core for 3 of 4 measured shapes. Silence the warning
-# so the log stays focused on actionable diagnostics.
 import warnings as _warnings
-_warnings.filterwarnings(
-    "ignore",
-    message=r".*does not have many workers which may be a bottleneck.*",
-    category=UserWarning,
-)
+from contextlib import contextmanager as _contextmanager
+
+
+# Wave 87 (2026-05-21): scoped Lightning DataLoader warning suppressor.
+# Lightning's data_connector emits "does not have many workers which may be a
+# bottleneck" for every train/val/predict DataLoader; the recommendation is
+# wrong for mlframe (num_workers > 0 pickles the full polars/pandas frame
+# into every worker -- catastrophic on 100+ GB frames per the bench at
+# _benchmarks/bench_dataloader_workers.py). Suppress at call sites, NOT at
+# module import time (was poisoning the process-global filter for every
+# importer of this neural base).
+@_contextmanager
+def suppress_lightning_workers_warning():
+    """Scope-local suppression of Lightning's num_workers DataLoader warning.
+    Wrap the trainer.fit() / trainer.predict() invocations in this neural base."""
+    with _warnings.catch_warnings():
+        _warnings.filterwarnings(
+            "ignore",
+            message=r".*does not have many workers which may be a bottleneck.*",
+            category=UserWarning,
+        )
+        yield
 
 # local
 from pyutilz.pythonlib import get_parent_func_args, store_params_in_object

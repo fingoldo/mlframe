@@ -37,7 +37,7 @@ from typing import Optional
 
 import numpy as np
 
-warnings.filterwarnings("ignore")  # sklearn convergence + optuna experimental noise
+# Wave 87 (2026-05-21): module-level filter removed; gated under __main__ below.
 
 
 def _load_california(n_subsample: Optional[int] = 4000, seed: int = 42):
@@ -410,4 +410,5 @@ def main():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")  # sklearn convergence + optuna experimental noise
     main()
