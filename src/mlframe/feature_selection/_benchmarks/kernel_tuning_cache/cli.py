@@ -9,12 +9,13 @@ Inspect / refresh / clear the per-host kernel-tuning cache. Useful for:
 
 Subcommands::
 
-    show           dump the live cache as JSON to stdout
-    where          print the on-disk path
-    clear          delete the live host's cache file
-    refresh        force-rerun the joint_hist auto-tune sweep (~30s)
-    refresh-mi     force-rerun the plugin_mi_classif_dispatch sweep (~30s)
-    refresh-all    force-rerun every registered kernel sweep
+    show              dump the live cache as JSON to stdout
+    where             print the on-disk path
+    clear             delete the live host's cache file
+    refresh           force-rerun the joint_hist auto-tune sweep (~30s)
+    refresh-mi        force-rerun the plugin_mi_classif_dispatch sweep (~30s)
+    refresh-polyeval  force-rerun the polyeval (Hermite/Legendre/...) sweep (~30s)
+    refresh-all       force-rerun every registered kernel sweep
 
 The cache lives at ``pyutilz.system.kernel_tuning_cache.cache_path()``
 (``~/.pyutilz/kernel_tuning/{hw_fingerprint}.json`` by default; override
@@ -109,6 +110,22 @@ def _cmd_refresh_mi(args) -> int:
     return 0
 
 
+def _cmd_refresh_polyeval(args) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_polyeval_tuning,
+    )
+    regions = ensure_polyeval_tuning(force=True)
+    if not regions:
+        print(
+            "# polyeval auto-tune failed; cache unchanged",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"# polyeval: re-tuned, {len(regions)} regions saved")
+    return 0
+
+
 def _cmd_refresh_all(args) -> int:
     """Re-tune every registered kernel sweep. Saves ~10-30s per kernel.
 
@@ -118,7 +135,8 @@ def _cmd_refresh_all(args) -> int:
     """
     rc1 = _cmd_refresh(args)
     rc2 = _cmd_refresh_mi(args)
-    return 0 if (rc1 == 0 and rc2 == 0) else 1
+    rc3 = _cmd_refresh_polyeval(args)
+    return 0 if (rc1 == 0 and rc2 == 0 and rc3 == 0) else 1
 
 
 def main(argv=None) -> int:
@@ -141,6 +159,10 @@ def main(argv=None) -> int:
         help="force-rerun the plugin_mi_classif_dispatch sweep (~30s)",
     )
     sub.add_parser(
+        "refresh-polyeval",
+        help="force-rerun the polyeval (Hermite/Legendre/...) sweep (~30s)",
+    )
+    sub.add_parser(
         "refresh-all",
         help="force-rerun every registered kernel sweep",
     )
@@ -149,7 +171,9 @@ def main(argv=None) -> int:
     return {
         "show": _cmd_show, "where": _cmd_where,
         "clear": _cmd_clear, "refresh": _cmd_refresh,
-        "refresh-mi": _cmd_refresh_mi, "refresh-all": _cmd_refresh_all,
+        "refresh-mi": _cmd_refresh_mi,
+        "refresh-polyeval": _cmd_refresh_polyeval,
+        "refresh-all": _cmd_refresh_all,
     }[args.cmd](args)
 
 

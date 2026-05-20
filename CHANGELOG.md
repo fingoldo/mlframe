@@ -45,9 +45,15 @@ k=1/5/20 x n_classes=2/3/5 — max diff ~1e-15).
 
 Public dispatchers:
 - ``plugin_mi_classif_dispatch`` / ``plugin_mi_classif_batch_dispatch``
-- Thresholds: ``MLFRAME_MI_CUDA_THRESHOLD=1_000_000`` (single),
-  ``MLFRAME_MI_BATCH_CUDA_THRESHOLD=300_000`` (batch); env-overridable.
-- ``MLFRAME_MI_BACKEND=njit|cuda`` force-overrides regardless of n.
+- Backend choice: initially via hardcoded ``MLFRAME_MI_(BATCH_)CUDA_THRESHOLD``
+  env vars (1_000_000 / 300_000) which proved too conservative on actual
+  hardware. **Migrated same-day** to the per-host
+  ``pyutilz.system.kernel_tuning_cache`` infrastructure — see the
+  "Plug-in MI dispatcher: kernel_tuning_cache integration" section
+  below for the final implementation. The legacy env-var thresholds
+  no longer exist in the source.
+- ``MLFRAME_MI_BACKEND=njit|cuda`` force-overrides the cache lookup
+  (debugging escape hatch).
 
 Measured speedup vs ``_plugin_mi_classif_batch_njit`` (GTX 1050 Ti):
 - n=200k, k=20: **2.17x** (137ms → 63ms)

@@ -10,8 +10,6 @@ when the cache is missing AND auto-tune hasn't been triggered yet.
 from __future__ import annotations
 
 import logging
-import threading
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +56,6 @@ def _hw_aware_fallback(joint_size: int) -> dict:
     return dict(_FALLBACK_JOINT_HIST)
 
 
-_CACHE_SINGLETON: Optional[object] = None  # KernelTuningCache instance
-_LOAD_LOCK = threading.Lock()
-
 # Online-learning counter: every Nth ``lookup_joint_hist`` call we
 # OPTIONALLY re-measure the chosen kernel + one alternative and update
 # the cache if the alternative is faster. Off by default (gated on
@@ -71,22 +66,18 @@ _LEARN_EVERY = 1000  # 0.1% sampling rate at default
 
 
 def _get_cache():
-    """Lazy import + singleton init of the pyutilz cache."""
-    global _CACHE_SINGLETON
-    if _CACHE_SINGLETON is not None:
-        return _CACHE_SINGLETON
-    with _LOAD_LOCK:
-        if _CACHE_SINGLETON is None:
-            try:
-                from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-                _CACHE_SINGLETON = KernelTuningCache()
-            except ImportError:
-                logger.debug(
-                    "pyutilz.system.kernel_tuning_cache unavailable; "
-                    "using hand-tuned fallbacks"
-                )
-                _CACHE_SINGLETON = False  # sentinel: cache absent
-    return _CACHE_SINGLETON
+    """Lazy import + singleton init of the pyutilz cache.
+
+    Delegates to the shared ``filters._kernel_tuning.get_kernel_tuning_cache``
+    singleton so this module and the hot-path filters (discretization, gpu)
+    share ONE KernelTuningCache instance per process — collapses N
+    ``nvidia-smi`` subprocess spawns (one per fresh KernelTuningCache._load)
+    into one. Returns the cache instance or ``False`` on import miss to keep
+    backward compat with callers that test ``cache is False``.
+    """
+    from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+    cache = get_kernel_tuning_cache()
+    return cache if cache is not None else False
 
 
 def lookup_joint_hist(n_samples: int, joint_size: int,

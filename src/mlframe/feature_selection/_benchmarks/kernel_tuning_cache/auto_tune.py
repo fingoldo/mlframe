@@ -239,19 +239,31 @@ def _measure_single_region(
     }
 
 
-def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
-    """Return cached regions for ``joint_hist_batched``; run the sweep
-    + persist via pyutilz KernelTuningCache if missing. Returns None
-    if CUDA / pyutilz unavailable."""
+def _shared_cache():
+    """Return the shared ``KernelTuningCache`` singleton via
+    :mod:`mlframe.feature_selection.filters._kernel_tuning`, or ``None``
+    when pyutilz / CUDA are unavailable. Using the shared singleton
+    collapses N ``nvidia-smi`` subprocess spawns (one per fresh
+    ``KernelTuningCache._load``) into one per process."""
     try:
         from pyutilz.core.pythonlib import is_cuda_available
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
         if not is_cuda_available():
             return None
     except ImportError:
         return None
+    from mlframe.feature_selection.filters._kernel_tuning import (
+        get_kernel_tuning_cache,
+    )
+    return get_kernel_tuning_cache()
 
-    cache = KernelTuningCache()
+
+def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
+    """Return cached regions for ``joint_hist_batched``; run the sweep
+    + persist via pyutilz KernelTuningCache if missing. Returns None
+    if CUDA / pyutilz unavailable."""
+    cache = _shared_cache()
+    if cache is None:
+        return None
     if not force:
         regions = cache.get_regions("joint_hist_batched")
         if regions:
@@ -397,15 +409,9 @@ def ensure_mi_classif_dispatch_tuning(force: bool = False) -> Optional[list[dict
     ~10-30s once per host; subsequent processes read the cached JSON
     in ~1ms.
     """
-    try:
-        from pyutilz.core.pythonlib import is_cuda_available
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-        if not is_cuda_available():
-            return None
-    except ImportError:
+    cache = _shared_cache()
+    if cache is None:
         return None
-
-    cache = KernelTuningCache()
     if not force:
         regions = cache.get_regions("plugin_mi_classif_dispatch")
         if regions:
@@ -441,4 +447,171 @@ def ensure_mi_classif_dispatch_tuning(force: bool = False) -> Optional[list[dict
     return regions
 
 
-__all__ = ["ensure_joint_hist_tuning", "ensure_mi_classif_dispatch_tuning"]
+def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
+    """Sweep ``(basis, n_samples)`` grid for the ``polyeval_dispatch``
+    njit / njit_par / cuda backend decision. Derives the optimal
+    ``par_threshold`` (njit -> njit_par crossover) and ``cuda_threshold``
+    (njit_par -> cuda crossover) per basis from measurements.
+
+    Output region schema matches the ``_lookup_polyeval_thresholds``
+    consumer in ``hermite_fe.py``: one region per basis with the measured
+    crossovers in the ``par_threshold`` / ``cuda_threshold`` fields.
+
+    Source-code defaults (50k / 500k, measured ages ago on a 1050 Ti)
+    were never re-verified against MKL+numba version drift; the
+    consumer was wired to the cache 2026-05-20 (Wave 23 P2) but no
+    populator existed -- every lookup fell through to the stale source
+    defaults until this sweep registered.
+    """
+    from mlframe.feature_selection.filters.hermite_fe import (
+        polyeval_dispatch as _disp,  # noqa: F401  -- import for module init
+        _NJIT_FUNCS, _NJIT_PAR_FUNCS, _CUDA_AVAILABLE,
+    )
+    if _CUDA_AVAILABLE:
+        from mlframe.feature_selection.filters.hermite_fe import (
+            _polyeval_cuda, _ensure_cuda_kernels,
+        )
+        _ensure_cuda_kernels()
+
+    rng = np.random.default_rng(11)
+    bases = ("hermite", "legendre", "chebyshev", "laguerre")
+    # n axis brackets the CMA-ES inner subsample (1500) up through
+    # full-data evaluation (1M).
+    n_axis = (1_000, 5_000, 20_000, 50_000, 100_000, 200_000, 500_000, 1_000_000)
+    max_degree = 4
+    coef = rng.uniform(-1.0, 1.0, size=max_degree + 1).astype(np.float64)
+
+    # Warmup all backends with a tiny case so JIT + cupy compile cost
+    # doesn't pollute the first measurement.
+    _warm_x = rng.normal(size=2000).astype(np.float64)
+    for _basis in bases:
+        try:
+            _NJIT_FUNCS[_basis](_warm_x, coef)
+            _NJIT_PAR_FUNCS[_basis](_warm_x, coef)
+            if _CUDA_AVAILABLE:
+                _polyeval_cuda(_basis, _warm_x, coef)
+        except Exception as exc:
+            logger.warning("polyeval warmup failed (basis=%s): %s", _basis, exc)
+
+    regions: list[dict] = []
+    for basis in bases:
+        timing_table: dict[int, dict[str, float]] = {}
+        # Pick natural-domain inputs per basis (matches the runtime
+        # preprocess; out-of-domain inputs blow up the recurrence).
+        for n in n_axis:
+            if basis == "hermite":
+                x = rng.normal(size=n).astype(np.float64)
+            elif basis in ("legendre", "chebyshev"):
+                x = rng.uniform(-1.0, 1.0, n).astype(np.float64)
+            else:  # laguerre
+                x = rng.exponential(2.0, n).astype(np.float64)
+            t_njit, t_par, t_cuda = [], [], []
+            try:
+                for _ in range(n_iters):
+                    t0 = time.perf_counter()
+                    _NJIT_FUNCS[basis](x, coef)
+                    t_njit.append(time.perf_counter() - t0)
+                    t0 = time.perf_counter()
+                    _NJIT_PAR_FUNCS[basis](x, coef)
+                    t_par.append(time.perf_counter() - t0)
+                    if _CUDA_AVAILABLE:
+                        t0 = time.perf_counter()
+                        _polyeval_cuda(basis, x, coef)
+                        t_cuda.append(time.perf_counter() - t0)
+            except Exception as exc:
+                logger.debug("polyeval sweep skipped basis=%s n=%d: %s",
+                             basis, n, exc)
+                continue
+            timing_table[n] = {
+                "njit": float(np.median(t_njit) * 1000),
+                "njit_par": float(np.median(t_par) * 1000),
+                "cuda": (float(np.median(t_cuda) * 1000) if t_cuda
+                          else float("inf")),
+            }
+            logger.info(
+                "auto_tune polyeval basis=%s n=%d njit=%.2fms njit_par=%.2fms cuda=%.2fms",
+                basis, n,
+                timing_table[n]["njit"], timing_table[n]["njit_par"],
+                timing_table[n]["cuda"],
+            )
+        if not timing_table:
+            continue
+
+        # Find par_threshold: smallest n where njit_par <= njit (saving
+        # at least 5% to absorb noise; otherwise stick with single-thread).
+        par_threshold = 50_000  # source default fallback
+        for n in sorted(timing_table):
+            row = timing_table[n]
+            if row["njit_par"] < row["njit"] * 0.95:
+                par_threshold = n
+                break
+        # Find cuda_threshold: smallest n where cuda <= njit_par * 0.95
+        # (skip if cuda never wins or unavailable).
+        cuda_threshold = 500_000  # source default fallback
+        if _CUDA_AVAILABLE:
+            for n in sorted(timing_table):
+                row = timing_table[n]
+                if row["cuda"] < row["njit_par"] * 0.95:
+                    cuda_threshold = n
+                    break
+        regions.append({
+            "basis": basis,
+            "n_samples_max": None,
+            "par_threshold": int(par_threshold),
+            "cuda_threshold": int(cuda_threshold),
+        })
+        logger.info(
+            "auto_tune polyeval basis=%s -> par_threshold=%d cuda_threshold=%d",
+            basis, par_threshold, cuda_threshold,
+        )
+    return regions
+
+
+def ensure_polyeval_tuning(force: bool = False) -> Optional[list[dict]]:
+    """Return cached regions for ``polyeval``; run the sweep + persist
+    via pyutilz KernelTuningCache if missing.
+
+    The consumer ``_lookup_polyeval_thresholds`` in
+    ``hermite_fe.py`` was wired to the cache 2026-05-20 (Wave 23 P2)
+    but no populator existed -- this fills the gap. First run
+    ~20-40s (4 bases x 8 n-points x njit/njit_par/cuda); subsequent
+    processes read in ~1ms.
+    """
+    cache = _shared_cache()
+    if cache is None:
+        return None
+    if not force:
+        regions = cache.get_regions("polyeval")
+        if regions:
+            return regions
+
+    logger.info(
+        "kernel_tuning_cache: polyeval sweep starting (one-time per host)"
+    )
+    t0 = time.perf_counter()
+    try:
+        regions = _run_sweep_polyeval(n_iters=5)
+    except Exception as e:
+        logger.warning("kernel_tuning_cache: polyeval sweep failed: %s", e)
+        return None
+    logger.info(
+        "kernel_tuning_cache: polyeval sweep done in %.2fs",
+        time.perf_counter() - t0,
+    )
+
+    if regions:
+        try:
+            cache.update(
+                "polyeval", axes=["basis", "n_samples"], regions=regions,
+            )
+        except OSError as e:
+            logger.warning("kernel_tuning_cache: polyeval cache save failed: %s", e)
+
+    return regions
+
+
+__all__ = [
+    "ensure_joint_hist_tuning",
+    "ensure_mi_classif_dispatch_tuning",
+    "ensure_polyeval_tuning",
+]
