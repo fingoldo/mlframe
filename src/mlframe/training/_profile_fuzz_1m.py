@@ -958,7 +958,11 @@ def _run_suite_profiled(
                     for _idx, _entry in enumerate(_entries):
                         _path = _dir / f"{_idx}.dump"
                         try:
-                            save_mlframe_model(_entry, str(_path), verbose=0, lean=True)
+                            # durable=False: harness saves to a tempdir that gets removed
+                            # after the bench; nt.fsync on Windows costs ~400ms per file
+                            # (15 models = 6s of pure disk-flush wait) for durability we
+                            # never use. Production users keep the default durable=True.
+                            save_mlframe_model(_entry, str(_path), verbose=0, lean=True, durable=False)
                             save_n_models += 1
                             if _path.exists():
                                 save_total_bytes += _path.stat().st_size

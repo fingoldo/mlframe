@@ -52,7 +52,7 @@ _LEAN_STRIP_FIELDS = frozenset({
 })
 
 
-def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None]) -> None:
+def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fsync: bool = True) -> None:
     """Atomically write to ``target_path`` via write-tmp-then-rename.
 
     Previous implementation (2026-04-19 probe finding): callers used
@@ -77,6 +77,22 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None]) -> No
     complete pre-write file or the complete post-write file, never
     a partial one. Concurrent writers still race (last writer wins),
     but neither produces corruption.
+
+    Parameters
+    ----------
+    fsync : bool, default True
+        When True, calls ``f.flush()`` + ``os.fsync(fd)`` before the
+        rename so the new contents survive a power loss. The fsync
+        is the dominant cost on Windows: ``nt.FlushFileBuffers``
+        blocks until the disk WRITE CACHE is committed (~400ms per
+        call on commodity SSDs even for ~1MB files). Surfaced by the
+        2026-05-19 multi-model profile: 15 model saves x 406ms fsync =
+        6.09s of 7.11s save wall (86%). Set ``fsync=False`` only when
+        the caller does NOT need crash durability (e.g. bench saves to
+        a tempdir that will be deleted; integration tests writing then
+        immediately reading in the same process; bulk training runs
+        that issue a final ``os.fsync`` on the directory after all
+        files are written).
     """
     target_dir = os.path.dirname(target_path) or "."
     fd, tmp_path = tempfile.mkstemp(
@@ -87,12 +103,13 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None]) -> No
     try:
         with os.fdopen(fd, "wb") as f:
             writer_fn(f)
-            # fsync inside the with-block: pickle.dump / dill.dump / numpy.save
-            # only flush their own buffers, not the OS page cache. Without an
-            # explicit fsync, a power loss between rename and writeback can
-            # publish a visible filename whose contents are still dirty pages.
-            f.flush()
-            os.fsync(f.fileno())
+            if fsync:
+                # fsync inside the with-block: pickle.dump / dill.dump / numpy.save
+                # only flush their own buffers, not the OS page cache. Without an
+                # explicit fsync, a power loss between rename and writeback can
+                # publish a visible filename whose contents are still dirty pages.
+                f.flush()
+                os.fsync(f.fileno())
         os.replace(tmp_path, target_path)
     except Exception:
         try:
@@ -176,6 +193,7 @@ def save_mlframe_model(
     zstd_kwargs: Optional[Dict[str, Any]] = None,
     verbose: int = 1,
     lean: bool = False,
+    durable: bool = True,
 ) -> bool:
     """
     Save an mlframe model to a compressed file.
@@ -189,6 +207,17 @@ def save_mlframe_model(
         zstd_kwargs: Optional compression parameters for zstandard.
             Defaults to level=4, with checksum and content size.
         verbose: Verbosity level. If > 0, logs the file size.
+        durable: When True (default), the underlying ``atomic_write_bytes``
+            issues a per-file ``os.fsync`` so the saved bundle survives a
+            power loss. On Windows this costs ~400ms per file (FlushFileBuffers
+            waits for the disk WRITE CACHE to commit). Set ``durable=False``
+            when the saved file is throwaway (bench harnesses, integration
+            tests that read it back in the same process, bulk save loops
+            that batch fsync at the end). Surfaced by the 2026-05-19
+            multi-model fuzz profile: 15-model save was 86% nt.fsync
+            (6.09s of 7.11s wall). Production users should leave the
+            default ``durable=True`` so a crash mid-save doesn't corrupt
+            the on-disk bundle into an unreadable state.
         lean: When True, strip inference-irrelevant heavy fields
             (train_preds/val_preds/test_preds/probs/target, train_od_idx,
             val_od_idx, trainset_features_stats) from a SHALLOW COPY of the
@@ -268,7 +297,7 @@ def save_mlframe_model(
                 # Direct write retained.
                 dill.dump(_payload, zf)
 
-        atomic_write_bytes(file, _writer)
+        atomic_write_bytes(file, _writer, fsync=durable)
         if verbose > 0:
             size_mb = os.path.getsize(file) / (1024 * 1024)
             logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
