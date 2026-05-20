@@ -82,7 +82,15 @@ def detect_time_column_candidates(
         try:
             dtype_str = get_dtype(col).lower()
             series = get_col(col)
-        except Exception:
+        except Exception as _e:
+            # Pre-fix `continue` silently dropped cols where dtype / series
+            # access raised, so operators wondered why a hoped-for time_col
+            # never picked. DEBUG level (not WARN) because skipping IS the
+            # right action - we just want the trail when it matters.
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "detect_time_column_candidates: skipping col=%r: %s", col, _e,
+            )
             continue
         is_datetime = ("datetime" in dtype_str
                        or "timestamp" in dtype_str
@@ -208,7 +216,14 @@ def detect_group_column_candidates(
     for col in candidate_columns:
         try:
             arr = get_col(col)
-        except Exception:
+        except Exception as _e:
+            # Same shape as detect_time_column_candidates above: silent skip
+            # blinds operators to "why didn't group_col pick this?"; DEBUG
+            # log keeps the trail without WARN-spamming on normal scans.
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "detect_group_column_candidates: skipping col=%r: %s", col, _e,
+            )
             continue
         # Skip all-null columns.
         mask_finite = pd.notna(arr) if hasattr(arr, "__iter__") else None

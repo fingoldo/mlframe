@@ -61,7 +61,18 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
         if label_arr is not None and label_arr.dtype == object and label_arr.ndim == 1 and label_arr.shape[0] > 0:
             try:
                 label_arr = np.stack([np.asarray(c) for c in label_arr], axis=0)
-            except Exception:
+            except Exception as _e_stack:
+                # Stack failure -> label_arr stays None -> the function
+                # returns without configuring MultiLogloss / HammingLoss,
+                # so a multilabel CatBoost ends up training with the
+                # single-label default loss. Caller wouldn't see why.
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "multilabel CB auto-config: failed to stack label rows "
+                    "(%s); CatBoost will use the single-label default loss "
+                    "instead of MultiLogloss. Pass a 2D label array to bypass.",
+                    _e_stack,
+                )
                 label_arr = None
     if label_arr is None or label_arr.ndim != 2:
         return

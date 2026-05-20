@@ -665,7 +665,18 @@ def _tiny_cv_rmse_raw_y(
                     bin_var_clean[val_fold], n_bins=n_bins,
                 )
             return rmse, per_bin
-        except Exception:
+        except Exception as _e:
+            # Failed fold reported as NaN -> np.nanmean over surviving folds
+            # silently shifts the screening RMSE toward well-behaved folds
+            # (K_eff < K with no signal). At least WARN-log per failure so
+            # operators see why the effective fold count dropped. The NaN
+            # return semantics are preserved (caller knows to use nanmean).
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "composite_screening: tiny-model CV fold failed (%s); fold "
+                "reported as NaN. Screening RMSE will use nanmean over surviving "
+                "folds -- effective fold count is reduced.", _e,
+            )
             return float("nan"), None
 
     splits = list(kf.split(x_clean))
@@ -990,7 +1001,18 @@ def _tiny_cv_rmse_y_scale(
                     base_clean[val_fold], n_bins=n_bins,
                 )
             return rmse, per_bin
-        except Exception:
+        except Exception as _e:
+            # Failed fold reported as NaN -> np.nanmean over surviving folds
+            # silently shifts the screening RMSE toward well-behaved folds
+            # (K_eff < K with no signal). At least WARN-log per failure so
+            # operators see why the effective fold count dropped. The NaN
+            # return semantics are preserved (caller knows to use nanmean).
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "composite_screening: tiny-model CV fold failed (%s); fold "
+                "reported as NaN. Screening RMSE will use nanmean over surviving "
+                "folds -- effective fold count is reduced.", _e,
+            )
             return float("nan"), None
 
     splits = list(kf.split(x_clean))

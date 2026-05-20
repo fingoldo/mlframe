@@ -192,10 +192,32 @@ def _frame_contains_inf(df) -> bool:
         try:
             # na_value=nan so pandas nullable Float dtypes don't fall through to object dtype.
             return bool(np.isinf(num.to_numpy(dtype=np.float64, na_value=np.nan)).any())
-        except (TypeError, ValueError):
-            return False
-    except Exception:
-        return False
+        except (TypeError, ValueError) as _e_inner:
+            # Specific failure here (e.g. nullable Float64Dtype that
+            # to_numpy can't coerce): WARN-log + treat as "unknown"
+            # rather than False, then let the caller's fix_infinities
+            # branch decide. Returning False silently here would tell
+            # the caller "no infs detected" and XGB/HGB would crash
+            # later with no upstream signal.
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "_has_any_infinity: numpy conversion failed (%s); cannot "
+                "confirm absence of inf - returning True to force the "
+                "fix_infinities path (safer than silently passing infs "
+                "downstream to XGB/HGB).", _e_inner,
+            )
+            return True
+    except Exception as _e_outer:
+        # Outer failure (e.g. df doesn't support .schema or _pandas_float_like_columns
+        # helper itself broke). Pre-fix returned False silently which let infs reach
+        # the booster. Same conservative branch: assume infs MAY be present.
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "_has_any_infinity: detection failed entirely (%s); returning True "
+            "to force the fix_infinities path. The original detector exists "
+            "specifically to flag this case.", _e_outer,
+        )
+        return True
 
 
 def load_and_prepare_dataframe(

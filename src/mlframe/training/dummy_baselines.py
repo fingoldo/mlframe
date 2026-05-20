@@ -2456,12 +2456,25 @@ def _bootstrap_ci_for_strongest(
                     if yi.ndim == 1:
                         return float(_ll(yi, pi, labels=[0, 1]))
                     losses = []
+                    failed: list[tuple[int, str]] = []
                     for k in range(K):
                         try:
                             losses.append(float(_ll(yi[:, k], pi[:, k], labels=[0, 1])))
-                        except Exception:
-                            continue
-                    return float(np.mean(losses)) if losses else float("nan")
+                        except Exception as _e:
+                            # Pre-fix `continue` silently dropped failing classes
+                            # from the mean -- the multilabel log-loss reported
+                            # back was a biased average over surviving classes only.
+                            failed.append((k, str(_e)))
+                            losses.append(float("nan"))
+                    if failed:
+                        import logging as _logging
+                        _logging.getLogger(__name__).warning(
+                            "multilabel log-loss: %d/%d class component(s) failed "
+                            "and are reported as NaN (not silently dropped); "
+                            "use np.nanmean downstream. failures: %s",
+                            len(failed), K, failed[:5],
+                        )
+                    return float(np.nanmean(losses)) if losses else float("nan")
             elif "log_loss" in primary_metric:
                 from sklearn.metrics import log_loss as _ll
                 # 1D label, 1D or 2D pred
