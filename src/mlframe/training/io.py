@@ -240,6 +240,136 @@ class _SafeUnpickler(dill.Unpickler):
         )
 
 
+_SIDECAR_META_VERSION = 1
+
+
+def _collect_lib_versions() -> Dict[str, str]:
+    """Snapshot the booster + serialization library versions at save time.
+
+    Used by the .meta.json sidecar so the load-side can flag skew. Only the
+    libraries whose internals appear in mlframe payloads are recorded; this
+    keeps the sidecar small and the skew-check focused. Unavailable libraries
+    are silently skipped (their absence is itself signal).
+    """
+    out: Dict[str, str] = {}
+    for _name in (
+        "mlframe", "numpy", "pandas", "polars", "scipy", "sklearn",
+        "lightgbm", "xgboost", "catboost", "pyarrow", "dill",
+    ):
+        try:
+            _mod = __import__(_name)
+            _ver = getattr(_mod, "__version__", None)
+            if _ver is not None:
+                out[_name] = str(_ver)
+        except (ImportError, AttributeError):
+            continue
+    return out
+
+
+def _meta_sidecar_path(bundle_path: str) -> str:
+    """Sibling path for the version-envelope sidecar JSON."""
+    return bundle_path + ".meta.json"
+
+
+def _write_save_meta_sidecar(bundle_path: str, *, durable: bool = False) -> None:
+    """Write the .meta.json sidecar next to the just-written bundle.
+
+    Schema (versioned by ``_SIDECAR_META_VERSION``):
+        {
+          "sidecar_version": 1,
+          "saved_at_utc": "2026-05-20T12:34:56Z",
+          "lib_versions": {"mlframe": "...", "lightgbm": "...", ...},
+          "bundle_sha256": "...",  # not yet -- placeholder for future
+        }
+
+    Atomic-written via the same ``atomic_write_bytes`` helper as the
+    bundle itself so a crash mid-write doesn't leave a half-meta file.
+    """
+    import json
+    import datetime as _dt
+    payload = {
+        "sidecar_version": _SIDECAR_META_VERSION,
+        "saved_at_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "lib_versions": _collect_lib_versions(),
+    }
+    meta_bytes = json.dumps(payload, sort_keys=True, indent=2).encode("utf-8")
+
+    def _writer(f):
+        f.write(meta_bytes)
+
+    atomic_write_bytes(_meta_sidecar_path(bundle_path), _writer, fsync=durable)
+
+
+def load_save_meta_sidecar(bundle_path: str) -> Optional[Dict[str, Any]]:
+    """Read the .meta.json sidecar for a bundle. Returns None if no sidecar
+    exists (legacy bundle pre-2026-05-20). Returns parsed dict otherwise.
+
+    Errors during parse (corrupt JSON, missing fields) return None + WARN;
+    callers should fall through to back-compat semantics rather than fail
+    the whole load.
+    """
+    import json
+    sidecar = _meta_sidecar_path(bundle_path)
+    if not os.path.exists(sidecar):
+        return None
+    try:
+        with open(sidecar, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            logger.warning(
+                "load_save_meta_sidecar: %s is not a JSON object; ignoring.",
+                sidecar,
+            )
+            return None
+        return data
+    except (OSError, json.JSONDecodeError) as _e:
+        logger.warning(
+            "load_save_meta_sidecar: failed to read %s: %s. Falling back "
+            "to back-compat (no version validation).", sidecar, _e,
+        )
+        return None
+
+
+def validate_load_meta_sidecar(
+    bundle_path: str,
+    *,
+    strict: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Load + validate the sidecar. Returns the parsed payload on success
+    or None when no sidecar / unreadable. WARN-logs library-version drift
+    between the saved snapshot and the live environment.
+
+    ``strict=True`` raises ValueError on any drift; default False just WARNs
+    (booster libraries are typically forward-compatible for minor versions
+    but operators should see the skew when debugging metric regressions).
+    """
+    meta = load_save_meta_sidecar(bundle_path)
+    if meta is None:
+        return None
+    saved_libs = meta.get("lib_versions") or {}
+    live_libs = _collect_lib_versions()
+    drift: list[str] = []
+    for lib, saved_ver in saved_libs.items():
+        live_ver = live_libs.get(lib)
+        if live_ver is None:
+            drift.append(f"{lib}: saved={saved_ver!r}, live=NOT-INSTALLED")
+            continue
+        if live_ver != saved_ver:
+            drift.append(f"{lib}: saved={saved_ver!r}, live={live_ver!r}")
+    if drift:
+        msg = (
+            f"load_mlframe_model: library-version drift detected for "
+            f"bundle {bundle_path!r}:\n  " + "\n  ".join(drift) +
+            "\nBooster libraries are typically forward-compatible for minor "
+            "versions; if you see unexplained metric regression after a "
+            "library upgrade, retrain on the live environment."
+        )
+        if strict:
+            raise ValueError(msg)
+        logger.warning(msg)
+    return meta
+
+
 def save_mlframe_model(
     model: object,
     file: str,
@@ -378,6 +508,22 @@ def save_mlframe_model(
                 zf.write(_payload_bytes)
 
         atomic_write_bytes(file, _writer, fsync=durable)
+        # Wave 19 P0 #1: write a sidecar .meta.json next to the .dump bundle
+        # so the load side can refuse / WARN on version skew. Sidecar approach
+        # (vs payload-wrapping) is non-invasive: old loaders simply ignore the
+        # extra file; new loaders read it before unpickling.
+        try:
+            _write_save_meta_sidecar(file, durable=durable)
+        except Exception as _meta_err:
+            # Sidecar is best-effort: a failure here MUST NOT block the save
+            # (the .dump is already on disk). Log at WARN so the operator
+            # sees the version-stamp gap.
+            logger.warning(
+                "save_mlframe_model: failed to write .meta.json sidecar for "
+                "%s: %s. Bundle saved; load-time version validation will "
+                "fall through to back-compat path.",
+                file, _meta_err,
+            )
         if verbose > 0:
             size_mb = os.path.getsize(file) / (1024 * 1024)
             logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
@@ -398,7 +544,7 @@ def save_mlframe_model(
                 logger.debug("save_mlframe_model: could not restore compile-wrapped attr %r", _k)
 
 
-def load_mlframe_model(file: str, safe: bool = True) -> Optional[object]:
+def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = False) -> Optional[object]:
     """
     Load an mlframe model from a compressed file.
 
@@ -406,10 +552,33 @@ def load_mlframe_model(file: str, safe: bool = True) -> Optional[object]:
         file: Path to the model file.
         safe: If True (default), use _SafeUnpickler with a conservative allowlist.
             If False, use vanilla dill.load (unsafe — RCE risk from untrusted sources).
+        strict_version: If True, raise on lib-version drift recorded in the
+            .meta.json sidecar (post 2026-05-20 bundles). Default False just
+            WARN-logs the drift -- booster libs are typically forward-
+            compatible for minor versions.
 
     Returns:
         The loaded model object, or None if loading failed.
     """
+    # Wave 19 P0 #1: validate the .meta.json sidecar BEFORE unpickling so the
+    # operator sees library-version drift (catboost / lightgbm minor upgrades
+    # silently change booster internals) instead of chasing a cryptic
+    # AttributeError deep in predict(). Returns None on legacy bundles
+    # (pre-2026-05-20) with no sidecar; that's a back-compat path with a
+    # one-line INFO message in the helper.
+    try:
+        validate_load_meta_sidecar(file, strict=strict_version)
+    except ValueError:
+        # strict_version=True propagates the failure to the caller verbatim.
+        raise
+    except Exception as _meta_e:
+        # Other (unexpected) failures in the sidecar reader are non-fatal:
+        # the bundle itself may still be loadable. Logger.warning was already
+        # called inside the helper for the known cases.
+        logger.debug(
+            "load_mlframe_model: sidecar validation raised unexpectedly "
+            "(%s); proceeding with bundle load.", _meta_e,
+        )
     try:
         with open(file, "rb") as f:
             decompressor = zstd.ZstdDecompressor()
