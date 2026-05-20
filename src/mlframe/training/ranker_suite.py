@@ -355,6 +355,16 @@ def train_mlframe_ranker_suite(
                 # at fit time.
                 _sample = next((v for v in df_X[col] if v is not None and not (isinstance(v, float) and np.isnan(v))), None)
                 if _sample is not None and isinstance(_sample, (list, tuple, np.ndarray)):
+                    # Surface the silent drop: pre-fix the comment said "drop silently" but
+                    # an operator who shipped an embedding column unflagged loses a feature
+                    # without any log line. Log once per column at INFO so the column count
+                    # mismatch downstream traces back.
+                    logger.info(
+                        "ranker_suite: dropping object-dtype column %r containing nested "
+                        "elements (sample type=%s) -- rankers can't consume embeddings; "
+                        "use the FTE's embedding_columns slot to route them properly.",
+                        col, type(_sample).__name__,
+                    )
                     _drop_cols.append(col)
                     continue
                 # Fill nulls BEFORE astype("category") so the missing sentinel becomes a

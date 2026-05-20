@@ -638,8 +638,18 @@ def _tiny_cv_rmse_raw_y(
             if n_jobs > 1 and hasattr(model, "set_params"):
                 try:
                     model.set_params(n_jobs=1)
-                except Exception:
-                    pass
+                except Exception as _njobs_err:
+                    # When the set_params raises (custom model, version skew rejecting the
+                    # kwarg), every fold's inner model oversubscribes its own threads
+                    # against the outer parallel-fold dispatch -- discovery wallclock
+                    # blows up 4-8x with no log evidence pre-fix. Surface the model class
+                    # so the operator can fix the wrapper that's rejecting n_jobs.
+                    logger.warning(
+                        "composite_screening: failed to cap n_jobs=1 on inner %s under "
+                        "outer n_jobs=%d (parallel oversubscription risk; discovery "
+                        "wallclock may regress 4-8x): %s: %s",
+                        type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
+                    )
             with _silence_tiny_model_output():
                 model.fit(x_clean[train_fold], y_clean[train_fold])
                 y_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
@@ -925,8 +935,16 @@ def _tiny_cv_rmse_y_scale(
             if n_jobs > 1 and hasattr(model, "set_params"):
                 try:
                     model.set_params(n_jobs=1)
-                except Exception:
-                    pass
+                except Exception as _njobs_err:
+                    # Same oversubscription warning as the sibling branch above
+                    # (transformed-target variant): without this log, an operator
+                    # tracking "discovery wallclock regressed" never connects it
+                    # to a silently-failed n_jobs cap on the inner model.
+                    logger.warning(
+                        "composite_screening (transformed): failed to cap n_jobs=1 on "
+                        "inner %s under outer n_jobs=%d (oversubscription risk): %s: %s",
+                        type(model).__name__, n_jobs, type(_njobs_err).__name__, _njobs_err,
+                    )
             with _silence_tiny_model_output():
                 model.fit(x_clean[train_fold], t_clean[train_fold])
                 t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)

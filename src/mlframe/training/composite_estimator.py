@@ -402,8 +402,17 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         if _inner_names is not None:
             try:
                 instance.feature_names_in_ = list(_inner_names)
-            except TypeError:
-                pass
+            except TypeError as _names_err:
+                # Slotted / read-only inner instance rejected the assignment. Surface
+                # so the operator sees this rather than waiting for the CatBoost
+                # ``At position 0 should be feature with name x0 (found pca0)`` crash
+                # at predict time which doesn't trace back to this propagation step.
+                logger.warning(
+                    "CompositeEstimator: failed to propagate inner.feature_names_in_ "
+                    "onto wrapper (%s); predict-time may raise feature-name mismatch "
+                    "on CB/LGB/XGB inner model. Inner type: %s, inner names count: %d.",
+                    _names_err, type(fitted_inner).__name__, len(list(_inner_names)),
+                )
         instance.runtime_stats_ = {
             "predict_calls": 0,
             "predict_rows_total": 0,

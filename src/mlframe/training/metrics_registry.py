@@ -106,7 +106,22 @@ def iter_extra_metrics(
             value = spec.fn(y_true, probs_NK, preds_NK)
             yield name, value
         except (ValueError, ZeroDivisionError, TypeError, FloatingPointError) as e:
-            logger.debug("metric %r failed: %s: %s", name, type(e).__name__, e)
+            # WARNING not DEBUG -- silently omitting a metric from the report is a
+            # substantive event the operator needs to see. Pre-fix the operator saw
+            # the report missing the metric row entirely and concluded the metric
+            # was never configured (or the model was fine), not "the metric crashed
+            # on degenerate data". Common upstream causes: roc_auc on a single-class
+            # slice (val/test became class-degenerate due to outlier_detection +
+            # tight aging window), pinball on shape mismatch (quantile preds vs
+            # scalar y_true).
+            try:
+                _n = int(len(y_true)) if y_true is not None else 0
+            except TypeError:
+                _n = -1  # un-sized iterator etc.
+            logger.warning(
+                "metric %r failed on target_type=%s n=%d: %s: %s; omitted from report",
+                name, target_type, _n, type(e).__name__, e,
+            )
 
 
 def list_registered(target_type: TargetTypes) -> list:

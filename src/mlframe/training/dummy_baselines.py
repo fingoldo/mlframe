@@ -2183,7 +2183,19 @@ def _paired_bootstrap_vs_runner_up(
                     )
                     if not minimize:
                         deltas = -deltas
-        except Exception:
+        except Exception as _numba_err:
+            # Numba fast-path can fail on dtype edges / contiguity / shape mismatches.
+            # The sklearn loop fallback below is ~60x slower; an operator who doesn't
+            # see this WARN re-benches "bootstrap CI got slow" without realising the
+            # numba path silently fell back. Emit the type+message so they can grep.
+            logger.warning(
+                "dummy_baselines: numba paired-bootstrap-logloss fast-path failed "
+                "(%s: %s); falling back to sklearn loop (~60x slower). n_resamples=%d, "
+                "y_true.shape=%s, p1.shape=%s.",
+                type(_numba_err).__name__, _numba_err, n_resamples,
+                getattr(y_true, "shape", None),
+                getattr(p1, "shape", None),
+            )
             deltas = None  # fall through to sklearn loop
 
     if deltas is None:
@@ -2389,8 +2401,15 @@ def _bootstrap_ci_for_strongest(
                     lo = float(np.percentile(samples, 2.5))
                     hi = float(np.percentile(samples, 97.5))
                     return (lo, point, hi)
-            except Exception:
-                pass  # fall through to vectorised numpy / sklearn loop
+            except Exception as _numba_err:
+                # Numba single-bootstrap fast-path failed; same operator-blindness as
+                # the paired-bootstrap twin above. Log so the perf regression is
+                # traceable to the fallback rather than mystery slowness.
+                logger.warning(
+                    "dummy_baselines: numba single-bootstrap fast-path failed (%s: %s); "
+                    "falling back to vectorised numpy / sklearn loop. primary_metric=%s n_resamples=%d.",
+                    type(_numba_err).__name__, _numba_err, primary_metric, n_resamples,
+                )
 
         # Vectorised numpy path for log_loss / log_loss_macro that don't
         # match the numba binary-int guard above (e.g. float-binary 1D y,
@@ -2546,7 +2565,19 @@ def _compute_multi_output_regression(
                 primary_value = float(
                     sub_rep.table.loc[sub_rep.strongest, sub_rep.primary_metric]
                 )
-            except Exception:
+            except (KeyError, ValueError, TypeError) as _lookup_err:
+                # Surface the silent NaN substitution: pre-fix this swallowed bare
+                # Exception, NaN flowed into per_output_strongest -> cross-output
+                # "mean normalized RMSE" aggregator silently averaged NaN with real
+                # values. Operator reads the cross-output number without knowing one
+                # of the K outputs was faked.
+                logger.warning(
+                    "dummy_baselines multi_output: lookup failed for output=%d "
+                    "strongest=%r metric=%r (%s: %s); NaN substituted in per-output "
+                    "aggregation -- cross-output summary will average NaN with real values.",
+                    k, sub_rep.strongest, sub_rep.primary_metric,
+                    type(_lookup_err).__name__, _lookup_err,
+                )
                 primary_value = float("nan")
             # Normalized aggregation: RMSE / std(y_train_per_target)
             std_k = float(np.std(sub_train)) if sub_train.size > 1 else 1.0

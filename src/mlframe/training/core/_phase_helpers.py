@@ -1414,7 +1414,18 @@ def _phase_train_val_test_split(
                         _u, _c = np.unique(_first, return_counts=True)
                         if len(_u) >= 2 and _c.min() >= 2:
                             _stratify_y = _first
-            except Exception:
+                        else:
+                            logger.warning(
+                                "Auto-stratify: multilabel first-label fallback has %d "
+                                "unique values with min-count=%d (need >=2 + min-count>=2); "
+                                "stratification disabled. val/test slices may be class-degenerate.",
+                                len(_u), int(_c.min()) if len(_c) else 0,
+                            )
+            except Exception as _strat_err:
+                logger.warning(
+                    "Auto-stratify: multilabel build failed (%s: %s); shuffled-only splits.",
+                    type(_strat_err).__name__, _strat_err,
+                )
                 _stratify_y = None
         elif len(_classification_targets) == 1:
             try:
@@ -1423,7 +1434,22 @@ def _phase_train_val_test_split(
                     _u, _c = np.unique(_arr, return_counts=True)
                     if len(_u) >= 2 and _c.min() >= 2:
                         _stratify_y = _arr
-            except Exception:
+                    else:
+                        # Surface so the rare-imbalance scenario (single-class slice OR
+                        # rare-class with one sample) isn't misdiagnosed as random-seed
+                        # flakiness when val ends up all-class-0. Pre-fix this branch
+                        # silently flipped to shuffled-only.
+                        logger.warning(
+                            "Auto-stratify: single classification target has %d unique "
+                            "classes with min-count=%d (need >=2 + min-count>=2); "
+                            "stratification disabled. val/test slices may be class-degenerate.",
+                            len(_u), int(_c.min()) if len(_c) else 0,
+                        )
+            except Exception as _strat_err:
+                logger.warning(
+                    "Auto-stratify: single-target build failed (%s: %s); shuffled-only splits.",
+                    type(_strat_err).__name__, _strat_err,
+                )
                 _stratify_y = None
         elif len(_classification_targets) > 1:
             try:
@@ -1438,6 +1464,13 @@ def _phase_train_val_test_split(
                     _u, _c = np.unique(_composite_ids, return_counts=True)
                     if 2 <= len(_u) <= _MAX_COMPOSITE_CARDINALITY and _c.min() >= 2:
                         _stratify_y = _composite_ids
+                    elif len(_u) < 2 or _c.min() < 2:
+                        logger.warning(
+                            "Auto-stratify: composite key has %d distinct row-tuples with "
+                            "min-count=%d (need >=2 + min-count>=2); stratification disabled. "
+                            "val/test slices may be class-degenerate.",
+                            len(_u), int(_c.min()) if len(_c) else 0,
+                        )
                     elif len(_u) > _MAX_COMPOSITE_CARDINALITY:
                         # Surface the silent fallback to shuffled-only splits so operators
                         # know auto-stratification was abandoned on multi-head targets that

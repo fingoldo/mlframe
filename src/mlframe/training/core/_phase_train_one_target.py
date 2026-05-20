@@ -133,14 +133,18 @@ def _apply_loss_recommendation_in_place(
         "xgb": ("objective", rec.get("xgb")),
     }
     _applied: list[str] = []
+    _skipped: list[str] = []
     for _backend, (_param_name, _value) in _backend_param.items():
         if not _value:
+            _skipped.append(f"{_backend}:no_recommendation")
             continue
         _entry = models_params.get(_backend)
         if not isinstance(_entry, dict):
+            _skipped.append(f"{_backend}:no_entry_in_models_params")
             continue
         _model = _entry.get("model")
         if _model is None or not hasattr(_model, "set_params"):
+            _skipped.append(f"{_backend}:model_none_or_no_set_params")
             continue
         try:
             _model.set_params(**{_param_name: _value})
@@ -159,6 +163,17 @@ def _apply_loss_recommendation_in_place(
             composite_name, float(rec.get("excess_kurt", float("nan"))),
             int(rec.get("n_finite", 0)),
             rec.get("rationale", ""), ", ".join(_applied),
+        )
+    # Surface skipped backends too: an operator who expected a custom objective on
+    # ALL three backends gets no signal about which ones were dropped pre-fix.
+    # Log at INFO (operator-relevant) only when at least one backend was applied,
+    # so the surrounding noise is gated on the auto-loss path having actually fired
+    # for some backend; otherwise this is silent (no skip-only spam on backends
+    # that simply have no recommendation engine wired).
+    if verbose and _applied and _skipped:
+        logger_.info(
+            "[auto-loss] target='%s' skipped backends: %s",
+            composite_name, ", ".join(_skipped),
         )
 
 
