@@ -147,3 +147,101 @@ class TestParallelDiscoveryBizValue:
             f"(ratio={med_parallel / max(med_serial, 1e-9):.2f}x); "
             f"raw serial={serial_times}, raw parallel={parallel_times}"
         )
+
+
+def _run_rerank(*, n_jobs: int, seed_repeats: int = 1):
+    """Variant of `_run` that forces tiny_model_rerank to actually run.
+
+    ``screening="tiny_model"`` triggers the Phase B rerank inside
+    :meth:`CompositeTargetDiscovery._tiny_model_rerank`. Multi-seed
+    repeats exercise the Wilcoxon-gate codepath as well so the parallel
+    reduce of ``_wilcoxon_per_seed_composite`` is covered.
+    """
+    df, y = _build_problem()
+    df_with_y = df.copy()
+    df_with_y["y"] = y
+    cfg = CompositeTargetDiscoveryConfig(
+        transforms=["linear_residual", "diff", "ratio", "logratio"],
+        mi_nbins=8,
+        mi_estimator="bin",
+        top_k_after_mi=4,
+        eps_mi_gain=-1.0,
+        random_state=11,
+        discovery_n_jobs=1,
+        mi_gain_bootstrap_n=0,
+        detect_linear_residual_alpha_drift=False,
+        base_candidates=["base1", "base2"],
+        screening="tiny_model",
+        tiny_screening_models="single_lgbm",
+        tiny_model_sample_n=500,
+        tiny_model_n_estimators=20,
+        tiny_model_cv_folds=3,
+        tiny_model_n_seed_repeats=seed_repeats,
+        use_wilcoxon_gate=(seed_repeats > 1),
+        deterministic_screening_models=True,
+        require_beats_raw_baseline=False,
+        tiny_rerank_n_jobs=n_jobs,
+    )
+    discovery = CompositeTargetDiscovery(config=cfg)
+    n = len(df)
+    train_idx = np.arange(int(0.8 * n))
+    feature_cols = ["base1", "base2", "f3", "f4", "f5", "f6"]
+    discovery.fit(
+        df=df_with_y,
+        target_col="y",
+        feature_cols=feature_cols,
+        train_idx=train_idx,
+    )
+    return discovery
+
+
+class TestParallelRerankEquivalence:
+    """Phase B parallel rerank must produce identical RMSEs to serial.
+
+    The refactor pre-builds the per-base cache, then runs per-spec in a
+    joblib threading pool. Each task returns the per-family RMSEs and
+    (optionally) per-seed arrays. The serial reduce rebuilds the same
+    ``per_family_scores`` / ``_wilcoxon_per_seed_composite`` /
+    ``_per_bin_first_pass`` state. With ``deterministic_screening_models``
+    the LightGBM CV is bit-for-bit reproducible across runs and threads.
+    """
+
+    def test_rerank_scores_match_serial(self) -> None:
+        serial = _run_rerank(n_jobs=1)
+        parallel = _run_rerank(n_jobs=4)
+
+        ser_scores = dict(getattr(serial, "_tiny_rerank_scores", {}))
+        par_scores = dict(getattr(parallel, "_tiny_rerank_scores", {}))
+        assert set(ser_scores) == set(par_scores), (
+            f"parallel rerank produced a different spec set:\n"
+            f"  serial:   {sorted(ser_scores)}\n"
+            f"  parallel: {sorted(par_scores)}"
+        )
+        for name, ser_rmse in ser_scores.items():
+            par_rmse = par_scores[name]
+            if np.isfinite(ser_rmse) and np.isfinite(par_rmse):
+                assert np.isclose(ser_rmse, par_rmse, atol=1e-10), (
+                    f"rerank RMSE for '{name}' diverged: "
+                    f"serial={ser_rmse}, parallel={par_rmse}"
+                )
+            else:
+                assert (
+                    np.isnan(ser_rmse) == np.isnan(par_rmse)
+                ), f"finiteness mismatch for '{name}'"
+
+    def test_wilcoxon_per_seed_matches_serial(self) -> None:
+        serial = _run_rerank(n_jobs=1, seed_repeats=3)
+        parallel = _run_rerank(n_jobs=4, seed_repeats=3)
+
+        ser_per_seed = getattr(serial, "_wilcoxon_per_seed_composite", {})
+        par_per_seed = getattr(parallel, "_wilcoxon_per_seed_composite", {})
+        assert set(ser_per_seed) == set(par_per_seed), (
+            "Wilcoxon per-seed key set diverged between serial and parallel"
+        )
+        for key, ser_arr in ser_per_seed.items():
+            par_arr = par_per_seed[key]
+            assert ser_arr.shape == par_arr.shape
+            np.testing.assert_allclose(
+                ser_arr, par_arr, atol=1e-10,
+                err_msg=f"per-seed RMSE array diverged for {key}",
+            )
