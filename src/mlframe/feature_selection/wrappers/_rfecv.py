@@ -2026,7 +2026,12 @@ class RFECV(BaseEstimator, TransformerMixin):
 
         base_perf = np.array(cv_mean_perf) * self.mean_perf_weight - np.array(cv_std_perf) * self.std_perf_weight
         if smooth_perf:
-            smoothed_perf = pd.Series(base_perf).rolling(smooth_perf, center=True).mean().values
+            # ``.rolling().mean().values`` returns a read-only ndarray on
+            # recent pandas (the underlying BlockManager exposes an immutable
+            # view of its memory). ``.to_numpy(copy=True)`` forces a writeable
+            # buffer so the in-place NaN backfill on the next line doesn't
+            # raise ``ValueError: assignment destination is read-only``.
+            smoothed_perf = pd.Series(base_perf).rolling(smooth_perf, center=True).mean().to_numpy(copy=True)
             idx = np.isnan(smoothed_perf)
             smoothed_perf[idx] = base_perf[idx]
             base_perf = smoothed_perf
