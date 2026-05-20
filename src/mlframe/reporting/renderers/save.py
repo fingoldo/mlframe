@@ -86,6 +86,30 @@ def set_inline_display_mode(mode):
         )
 
 
+def get_inline_display_mode():
+    """Return the current process-wide inline-display override.
+
+    Returns the same tri-state set_inline_display_mode accepts:
+      - ``True``  if MLFRAME_PLOT_INLINE_DISPLAY in {"1", "true", "yes"}.
+      - ``False`` if MLFRAME_PLOT_INLINE_DISPLAY in {"0", "false", "no"}.
+      - ``None``  if the env var is unset (auto-detect path).
+
+    Used by the suite's snapshot+restore wrap so a per-suite override is reverted
+    at suite finish rather than leaking into the next suite call.
+    """
+    import os
+    _val = os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY")
+    if _val is None:
+        return None
+    _norm = _val.strip().lower()
+    if _norm in ("1", "true", "yes", "y", "on"):
+        return True
+    if _norm in ("0", "false", "no", "n", "off"):
+        return False
+    # Unrecognised env value -> treat as unset.
+    return None
+
+
 def render_and_save(
     spec: FigureSpec,
     output: PlotOutputSpec,

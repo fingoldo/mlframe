@@ -120,8 +120,16 @@ def setup_configuration(
     behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
     reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
 
-    # Module-level override; the historical default is restored after the suite finishes since this only flips while a run is in progress.
-    from ..evaluation import _set_residual_audit_enabled as _set_resid_audit
+    # Module-level overrides for residual_audit + inline_display.
+    # Pre-fix the leading comment promised "restored after the suite finishes" but no restore
+    # call site existed anywhere -- the flag stayed flipped for the rest of the process and
+    # leaked into the next suite call that didn't override it. Snapshot prior values onto
+    # transient locals, stash on ctx via artifacts (set below) so _phase_finalize can restore.
+    from ..evaluation import (
+        _set_residual_audit_enabled as _set_resid_audit,
+        _get_residual_audit_enabled as _get_resid_audit,
+    )
+    _residual_audit_prior = _get_resid_audit()
     _set_resid_audit(getattr(behavior_config, "report_residual_audit", True))
 
     # None = clear override (auto-detect via __IPYTHON__ / sys.ps1); True/False = explicit.
@@ -130,11 +138,22 @@ def setup_configuration(
     # which is pure overhead on suites that never touch charts (plot_outputs='matplotlib[png]'
     # + save_charts=False).
     _inline_display = getattr(reporting_config, "plot_inline_display", None)
+    _inline_display_prior_set = False  # whether we successfully captured a prior to restore
+    _inline_display_prior = None
     if _inline_display is not None:
         try:
-            from mlframe.reporting.renderers.save import set_inline_display_mode as _set_idm
+            from mlframe.reporting.renderers.save import (
+                set_inline_display_mode as _set_idm,
+                get_inline_display_mode as _get_idm,
+            )
+            try:
+                _inline_display_prior = _get_idm()
+                _inline_display_prior_set = True
+            except (AttributeError, NameError):
+                # Older renderers.save without get_inline_display_mode: skip restore (best-effort).
+                pass
             _set_idm(_inline_display)
-        except Exception:
+        except ImportError:
             pass
 
     # Process-wide; None keeps the user's pre-suite matplotlib/plotly settings intact.
@@ -341,4 +360,12 @@ def setup_configuration(
     # gains the slot). Until then the value is reachable via artifacts so downstream wiring is unblocked.
     if feature_handling_config is not None:
         ctx.artifacts["feature_handling_config"] = feature_handling_config
+    # Stash prior values of the process-wide overrides flipped above so _phase_finalize
+    # can restore them. Without this restore step, two back-to-back suite calls with
+    # different behavior_config.report_residual_audit values silently inherited the
+    # first call's setting (the leading "restored after the suite finishes" comment
+    # at the original set call was aspirational; no restore call site existed pre-fix).
+    ctx.artifacts["_process_flag_prior_residual_audit"] = _residual_audit_prior
+    if _inline_display_prior_set:
+        ctx.artifacts["_process_flag_prior_inline_display"] = _inline_display_prior
     return ctx

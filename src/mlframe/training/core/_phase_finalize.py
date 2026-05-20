@@ -456,4 +456,31 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         ctx.metadata["selected_features"] = sorted(_selected_features_union)
         ctx.metadata["selected_features_per_model"] = _selected_features_per_model
 
+    # Restore process-wide overrides flipped by setup_configuration. Pre-fix the
+    # residual_audit + inline_display flags were set but NEVER restored, so two
+    # back-to-back suite calls with different behavior_config values silently
+    # inherited the first call's setting (the leading comment at the set site
+    # promised restore but it was aspirational). Snapshot lives in ctx.artifacts.
+    _artifacts = ctx.artifacts or {}
+    _residual_audit_prior = _artifacts.pop("_process_flag_prior_residual_audit", None)
+    if _residual_audit_prior is not None:
+        try:
+            from mlframe.training.evaluation import _set_residual_audit_enabled
+            _set_residual_audit_enabled(_residual_audit_prior)
+        except (ImportError, AttributeError) as _restore_err:
+            logger.debug(
+                "[finalize] residual_audit flag restore failed: %s: %s",
+                type(_restore_err).__name__, _restore_err,
+            )
+    if "_process_flag_prior_inline_display" in _artifacts:
+        _inline_display_prior = _artifacts.pop("_process_flag_prior_inline_display")
+        try:
+            from mlframe.reporting.renderers.save import set_inline_display_mode
+            set_inline_display_mode(_inline_display_prior)
+        except (ImportError, AttributeError) as _restore_err:
+            logger.debug(
+                "[finalize] inline_display flag restore failed: %s: %s",
+                type(_restore_err).__name__, _restore_err,
+            )
+
     return ctx.metadata
