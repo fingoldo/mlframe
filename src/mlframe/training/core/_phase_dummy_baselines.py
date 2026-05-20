@@ -42,6 +42,10 @@ def run_dummy_baselines(
     metadata: dict,
     target_by_type: dict,
     _split_preds_probs,
+    group_ids=None,  # ctx.group_ids; required for LTR-Popularity / per-group baselines.
+                    # Pre-fix the signature didn't accept it -> LTR suites silently
+                    # degraded to regression-style dummy + the LTR baseline table came
+                    # back blank with extras["ltr_skip_reason"] = "group_ids missing".
 ) -> dict:
     try:
         if not (dummy_baselines_config.enabled and (
@@ -99,6 +103,26 @@ def run_dummy_baselines(
             if not _q_alphas:
                 _q_alphas = None
 
+        # Slice group_ids to the split-indices so per-split arrays line up with the y / X
+        # arrays passed below. Pre-fix group_ids was never received by this function so the
+        # LTR-Popularity / per-group baselines hit extras["ltr_skip_reason"] = "group_ids
+        # missing" and the LTR baseline table came back blank.
+        _gid_train = _gid_val = _gid_test = None
+        if group_ids is not None:
+            import numpy as _np_gid
+            try:
+                _gid_arr = _np_gid.asarray(group_ids)
+                if filtered_train_idx is not None:
+                    _gid_train = _gid_arr[filtered_train_idx]
+                if filtered_val_idx is not None:
+                    _gid_val = _gid_arr[filtered_val_idx]
+                if test_idx is not None:
+                    _gid_test = _gid_arr[test_idx]
+            except (TypeError, IndexError) as _gid_err:
+                logger.warning(
+                    "run_dummy_baselines: failed to slice group_ids to split indices "
+                    "(%s); LTR-popularity baseline will be skipped.", _gid_err,
+                )
         with phase(f"dummy_baselines:{str(target_type)}", target=cur_target_name):
             _db_report = compute_dummy_baselines(
                 target_type=str(target_type),
@@ -116,6 +140,9 @@ def run_dummy_baselines(
                 quantile_alphas=_q_alphas,
                 config=dummy_baselines_config,
                 plot_file_prefix=(plot_file or ""),
+                group_ids_train=_gid_train,
+                group_ids_val=_gid_val,
+                group_ids_test=_gid_test,
             )
 
         logger.info(_db_report.format_text())

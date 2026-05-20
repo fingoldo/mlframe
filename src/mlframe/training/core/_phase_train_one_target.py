@@ -1308,6 +1308,10 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             metadata=metadata,
             target_by_type=target_by_type,
             _split_preds_probs=_split_preds_probs,
+            # Propagate ctx.group_ids so LTR-Popularity / per-group dummy baselines fire on
+            # LTR suites instead of silently degrading to regression-style dummy + blank
+            # baseline table (wave 12 #2).
+            group_ids=getattr(ctx, "group_ids", None),
         )
 
         # Audits are precomputed once for all targets via the batch API; this lookup is the per-target render.
@@ -2276,12 +2280,39 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 _members_label = f"[N={len(_member_tags)}]"
             # confidence_ensemble_quantile=0.0 disables the Conf Ensemble output entirely.
             _conf_q = float(getattr(behavior_config, "confidence_ensemble_quantile", 0.1))
+            # Thread ctx.group_ids + per-target sample_weight into score_ensemble so the
+            # gate / NNLS / RRF stages compute weighted + group-aware. Pre-fix these were
+            # both silently absent here -- score_ensemble's docstring at models/ensembling.py
+            # says "ctx auto-passes when available" but the suite never auto-passed; LTR /
+            # weighted suites got member selection + RRF blend computed on i.i.d. rows.
+            # Pull per-target sample_weight from ctx.sample_weights (dict keyed by target);
+            # falls back to current_common_params (per-iter local that survives Python loop
+            # scope as the last iter's value) or None when no weighting was configured.
+            _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
+            _ens_sample_weight = (
+                _ctx_sw_dict.get(cur_target_name)
+                if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
+                else (
+                    current_common_params.get("sample_weight")
+                    if isinstance(locals().get("current_common_params"), dict)
+                    else None
+                )
+            )
+            # Spread common_params first, then explicitly set group_ids/sample_weight.
+            # If common_params happened to already carry either key (unlikely on the
+            # current build but defensive against future schema drift), the explicit
+            # set wins. Avoid TypeError "multiple values for kw" by removing first.
+            _ens_kwargs = dict(common_params or {})
+            _ens_kwargs.pop("group_ids", None)
+            _ens_kwargs.pop("sample_weight", None)
             _ensembles = score_ensemble(
                 models_and_predictions=ens_models,
                 ensemble_name=f"{pre_pipeline_name}{_members_label} ",
                 n_features=ens_n_features,
                 uncertainty_quantile=_conf_q,
-                **common_params,
+                group_ids=getattr(ctx, "group_ids", None),
+                sample_weight=_ens_sample_weight,
+                **_ens_kwargs,
             )
             # Persist the ensemble outputs so finalize_suite can serialise them and downstream
             # consumers (predict, reporting) see them. Pre-fix this return value was bound to a

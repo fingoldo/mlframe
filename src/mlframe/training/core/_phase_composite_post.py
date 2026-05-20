@@ -800,6 +800,29 @@ def run_composite_post_processing(
                                  if s["name"] == _comp_name), None,
                             )
                             _component_specs.append(_matching)
+                    # Thread ctx.timestamps + per-target sample_weight so the OOF
+                    # holdout split becomes time-aware (trailing-slice past-only train)
+                    # rather than random shuffle. Pre-fix a time-series composite suite
+                    # silently used random shuffle -> FUTURE rows leaked into the OOF
+                    # train -> over-optimistic ensemble gate. compute_oof_holdout_predictions
+                    # documents the time-aware fork at composite_ensemble.py:260-267.
+                    # Slice both to filtered_train_idx so length matches train_X.
+                    _ctx_ts_full = getattr(ctx, "timestamps", None) if "ctx" in dir() else None
+                    _time_ordering = None
+                    if _ctx_ts_full is not None:
+                        try:
+                            _time_ordering = np.asarray(_ctx_ts_full)[filtered_train_idx]
+                        except (TypeError, IndexError):
+                            _time_ordering = None
+                    _ctx_sw_dict = getattr(ctx, "sample_weights", None) if "ctx" in dir() else None
+                    _sw_for_oof = None
+                    if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict:
+                        _sw_raw = _ctx_sw_dict.get(_orig_tname)
+                        if _sw_raw is not None:
+                            try:
+                                _sw_for_oof = np.asarray(_sw_raw)[filtered_train_idx]
+                            except (TypeError, IndexError):
+                                _sw_for_oof = None
                     try:
                         _oof_pred_matrix, _oof_y_holdout, _surviving = (
                             compute_oof_holdout_predictions(
@@ -814,6 +837,8 @@ def run_composite_post_processing(
                                     composite_target_discovery_config,
                                     "oof_random_state", _DEFAULT_OOF_RANDOM_STATE,
                                 ),
+                                time_ordering=_time_ordering,
+                                sample_weight=_sw_for_oof,
                             )
                         )
                     except Exception as _oof_err:

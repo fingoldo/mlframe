@@ -263,6 +263,17 @@ def _apply_recurrent_to_ensemble(
 
     sig = inspect.signature(score_ensemble)
     accepted = set(sig.parameters.keys())
+    # Per-target sample_weight pulled from ctx.sample_weights (suite-supplied via FTE.get_sample_weights).
+    # Without this, the recurrent-rerun ensemble's gate / NNLS / RRF stages compute UNWEIGHTED
+    # even when the suite was running recency- or fairness-weighted training -> the rebuilt
+    # ensemble (which OVERWRITES the prior ensemble at L331) is strictly weaker than the
+    # pre-recurrent build on weighted suites.
+    _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
+    _sw_for_target = (
+        _ctx_sw_dict.get(target_name)
+        if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
+        else None
+    )
     kwargs = {
         "models_and_predictions": list(members),
         "ensemble_name": f"{ctx.model_name or 'mdl'}__{target_name}__recurrent_rerun",
@@ -273,6 +284,9 @@ def _apply_recurrent_to_ensemble(
         "val_idx": ctx.val_idx,
         "test_idx": ctx.test_idx,
         "verbose": bool(ctx.verbose),
+        # ctx-derived kwargs the score_ensemble signature accepts when available.
+        "group_ids": getattr(ctx, "group_ids", None),
+        "sample_weight": _sw_for_target,
     }
     kwargs = {k: v for k, v in kwargs.items() if k in accepted or k == "models_and_predictions"}
 
@@ -458,13 +472,49 @@ def train_recurrent_models(
                     elif val_df_pd is not None:
                         eval_set = (val_df_pd, val_target)
 
+                # Thread per-target sample_weight from ctx so the recurrent model
+                # trains on the same weighted loss surface every other suite member
+                # uses. Pre-fix the recurrent wrapper trained UNWEIGHTED even on
+                # recency- / fairness-weighted suites, so the ensemble blend was
+                # silently biased toward the unweighted recurrent member. Defensive
+                # try/except per fit-call signature inspection: older wrapper
+                # versions may not accept sample_weight; fall back to unweighted
+                # fit + WARN so the caller sees the path was taken.
+                _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
+                _sw_for_target = (
+                    _ctx_sw_dict.get(cur_target_name)
+                    if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
+                    else None
+                )
+                # Slice weights to train_idx so length matches train_target.
+                if _sw_for_target is not None and hasattr(ctx, "train_idx") and ctx.train_idx is not None:
+                    try:
+                        _sw_for_target = np.asarray(_sw_for_target)[ctx.train_idx]
+                    except (TypeError, IndexError):
+                        _sw_for_target = None
+                _fit_kwargs = dict(
+                    sequences=train_sequences,
+                    features=train_df_pd if train_df_pd is not None else None,
+                    labels=train_target,
+                    eval_set=eval_set,
+                )
+                if _sw_for_target is not None:
+                    _fit_kwargs["sample_weight"] = _sw_for_target
                 try:
-                    model_clone.fit(
-                        sequences=train_sequences,
-                        features=train_df_pd if train_df_pd is not None else None,
-                        labels=train_target,
-                        eval_set=eval_set,
-                    )
+                    try:
+                        model_clone.fit(**_fit_kwargs)
+                    except TypeError as _fit_te:
+                        if "sample_weight" in str(_fit_te) and "sample_weight" in _fit_kwargs:
+                            logger.warning(
+                                "Recurrent wrapper %s did not accept sample_weight (%s); "
+                                "falling back to unweighted fit. Ensemble blend may be biased on "
+                                "weighted suites. Upgrade the wrapper or remove weighting.",
+                                type(model_clone).__name__, _fit_te,
+                            )
+                            _fit_kwargs.pop("sample_weight", None)
+                            model_clone.fit(**_fit_kwargs)
+                        else:
+                            raise
                 except Exception as e:
                     logger.error("Failed to train %s for %s: %s", recurrent_model_name, cur_target_name, e)
                     continue
