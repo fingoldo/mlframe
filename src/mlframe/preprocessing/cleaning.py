@@ -84,13 +84,26 @@ def _update_sub_df_col(
     df: pd.DataFrame, sub_df: pd.DataFrame, col: str, col_unique_values: pd.DataFrame, nunique: int, analyse_mask: np.ndarray = None
 ) -> tuple:
     if analyse_mask is not None:
-        # Previously probed the private ``_is_view`` attribute, which was dropped from the
-        # public pandas API. Use the documented helper: a BlockManager's ``_is_view`` flag is
-        # replaced by checking whether the underlying ndarray is shared (``values.base`` is set).
-        vals = sub_df[col].values if col in sub_df else None
-        is_view = vals is not None and getattr(vals, "base", None) is not None
-        if not is_view:
-            sub_df[col] = df.loc[analyse_mask, col]
+        # Wave 33 P1 fix (2026-05-20): the prior ``values.base`` probe was an
+        # attempt to cheaply detect whether ``sub_df[col]`` shared memory
+        # with the parent ``df`` (in which case the assignment was a no-op
+        # because both viewed the same buffer) and avoid a redundant copy.
+        # The heuristic was unreliable:
+        #   - On pandas <2 with copy-on-write OFF, ``.values.base`` could be
+        #     None even for a view (BlockManager-internal aliasing was not
+        #     exposed) -> the gate fired and ``sub_df[col] = ...`` triggered
+        #     a SettingWithCopyWarning.
+        #   - On pandas >=2 with copy-on-write ON (the default in 2.1+),
+        #     ``.values`` returns a fresh ndarray every time, so
+        #     ``values.base`` is ALWAYS non-None and the gate INVERTS:
+        #     the refresh never fires and ``sub_df[col]`` stays stale.
+        # The defensive fix: unconditionally refresh from ``df.loc[...]``.
+        # Replacing the column on a ``sub_df`` that was constructed via
+        # ``df.loc[mask, :]`` (the caller's pattern at this module's L516)
+        # is safe AND correct in both pandas eras; the value_counts at L94
+        # always reflects the caller's latest ``df`` mutation.
+        sub_df = sub_df.copy() if col in sub_df else sub_df
+        sub_df[col] = df.loc[analyse_mask, col]
     col_unique_values = sub_df[col].value_counts(dropna=False)
     nunique = len(col_unique_values)
     collect()
