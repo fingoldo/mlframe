@@ -252,6 +252,8 @@ def train_mlframe_models_suite(
         composite_target_discovery_config=composite_target_discovery_config,
         feature_handling_config=feature_handling_config,
         ranking_config=ranking_config,
+        linear_model_config=linear_model_config,
+        multilabel_dispatch_config=multilabel_dispatch_config,
         model_name=model_name,
         target_name=target_name,
         mlframe_models=mlframe_models,

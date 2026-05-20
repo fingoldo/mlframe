@@ -81,8 +81,18 @@ def setup_configuration(
     # train_mlframe_models_suite so older call-sites that don't pass them
     # explicitly preserve current behaviour.
     ranking_config: Any = None,
-    use_mlframe_ensembles: bool = False,
+    # use_mlframe_ensembles default aligned to True to match the public-API default in
+    # train_mlframe_models_suite (main.py:96). Prior default was False, which would have
+    # flipped behaviour for any caller of setup_configuration that omitted the kwarg.
+    # main.py:258 currently always passes the value explicitly so the mismatch was dormant.
+    use_mlframe_ensembles: bool = True,
     use_ordinary_models: bool = True,
+    # Same silently-dropped-kwarg bug class as ``verbose`` (fixed 7479b54): the public
+    # train_mlframe_models_suite accepts both of these but the value never reached ctx,
+    # so the per-target reads at _phase_train_one_target.py:1051 and :1061 always saw
+    # the dataclass default ``None``. Threaded through here and assigned on ctx below.
+    linear_model_config: Any = None,
+    multilabel_dispatch_config: Any = None,
 ) -> TrainingContext:
     """Convert and validate all configs, return processed state dict."""
     if verbose:
@@ -289,6 +299,8 @@ def setup_configuration(
         dummy_baselines_config=dummy_baselines_config,
         quantile_regression_config=quantile_regression_config,
         composite_target_discovery_config=composite_target_discovery_config,
+        linear_model_config=linear_model_config,
+        multilabel_dispatch_config=multilabel_dispatch_config,
         ranking_config=ranking_config,
         # Caller's verbose level. Without this the TrainingContext class default (1) was
         # always used regardless of user-passed value, so every ``if ctx.verbose:`` block
