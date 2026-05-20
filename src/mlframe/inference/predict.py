@@ -41,12 +41,24 @@ def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
 
 
 def _verify_sidecar(path: str) -> bool:
-    """If a ``<path>.sha256`` sidecar exists, verify it matches; otherwise return True.
+    """If a ``<path>.sha256`` sidecar exists, verify it matches; otherwise return True (with WARN).
 
     Returns False only when a sidecar exists and its digest does NOT match.
+
+    Wave 84 (2026-05-21): a silently-missing sidecar previously opened an RCE
+    bypass (attacker plants pickle, omits sidecar -> _verify_sidecar returns True
+    -> joblib.load deserialises arbitrary code). Now WARN-logs so operators see
+    the verification gap.
     """
     sidecar = path + ".sha256"
     if not isfile(sidecar):
+        import logging as _lg
+        _lg.getLogger(__name__).warning(
+            "_verify_sidecar: no .sha256 sidecar for %s -- joblib.load proceeds WITHOUT "
+            "content verification (RCE risk if path is attacker-reachable). "
+            "Generate the sidecar with `sha256sum <path> > <path>.sha256` to enable verification.",
+            path,
+        )
         return True
     with open(sidecar, encoding="utf-8") as f:
         expected = f.read().strip().split()[0].lower()

@@ -45,10 +45,20 @@ def _verify_sidecar(path: str) -> bool:
     # Wave 48 (2026-05-20): the prior isfile-then-open pattern was a TOCTOU race
     # (sidecar deleted between check and open raised FileNotFoundError uncaught
     # mid model-load). Try-open and treat missing sidecar as "no verification".
+    # Wave 84 (2026-05-21): WARN when sidecar is missing -- previously a silently-
+    # missing sidecar opened an RCE bypass (attacker plants pickle, omits sidecar,
+    # _verify_sidecar returns True). Loud WARN so the operator sees the gap.
     try:
         with open(sidecar, encoding="utf-8") as f:
             expected = f.read().strip().split()[0].lower()
     except FileNotFoundError:
+        import logging as _lg
+        _lg.getLogger(__name__).warning(
+            "_verify_sidecar: no .sha256 sidecar for %s -- pickle load proceeds WITHOUT "
+            "content verification (RCE risk if path is attacker-reachable). "
+            "Generate the sidecar with `sha256sum <path> > <path>.sha256` to enable verification.",
+            path,
+        )
         return True
     return _sha256_of_file(path).lower() == expected
 
