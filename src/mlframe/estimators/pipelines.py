@@ -42,10 +42,14 @@ def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
 
 def _verify_sidecar(path: str) -> bool:
     sidecar = path + ".sha256"
-    if not os.path.isfile(sidecar):
+    # Wave 48 (2026-05-20): the prior isfile-then-open pattern was a TOCTOU race
+    # (sidecar deleted between check and open raised FileNotFoundError uncaught
+    # mid model-load). Try-open and treat missing sidecar as "no verification".
+    try:
+        with open(sidecar, encoding="utf-8") as f:
+            expected = f.read().strip().split()[0].lower()
+    except FileNotFoundError:
         return True
-    with open(sidecar, encoding="utf-8") as f:
-        expected = f.read().strip().split()[0].lower()
     return _sha256_of_file(path).lower() == expected
 
 import matplotlib as mpl

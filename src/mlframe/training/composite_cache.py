@@ -828,18 +828,23 @@ class DiscoveryCache:
     def invalidate(self, key: str) -> bool:
         """Remove a cached entry. Returns True if the entry existed, False otherwise."""
         path = self._path(key)
-        if os.path.exists(path):
+        # Wave 48 (2026-05-20): TOCTOU race -- parallel hyperopt suites sharing
+        # cache_dir can both call invalidate(same_key); the prior exists+remove
+        # pattern raised uncaught FileNotFoundError on the loser. Replace with
+        # try/except so concurrent invalidations of the same key are idempotent.
+        try:
             os.remove(path)
-            # Mirror the deletion in the LRU sidecar so a stale ledger
-            # doesn't keep ghost keys pinning the count.
-            try:
-                lru = self._load_lru()
-                if lru.pop(self._safe_key(key), None) is not None:
-                    self._save_lru(lru)
-            except Exception:
-                pass
-            return True
-        return False
+        except FileNotFoundError:
+            return False
+        # Mirror the deletion in the LRU sidecar so a stale ledger
+        # doesn't keep ghost keys pinning the count.
+        try:
+            lru = self._load_lru()
+            if lru.pop(self._safe_key(key), None) is not None:
+                self._save_lru(lru)
+        except Exception:
+            pass
+        return True
 
     def clear(self) -> int:
         """Remove all cached entries. Returns the number of files removed."""

@@ -42,11 +42,13 @@ import sys
 def _cmd_show(args) -> int:
     from pyutilz.system.kernel_tuning_cache import cache_path
     path = cache_path()
-    if not os.path.isfile(path):
+    # Wave 48 (2026-05-20): drop the redundant isfile precheck; just try-open.
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
         print(f"# no cache at {path}", file=sys.stderr)
         return 1
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
     json.dump(data, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 0
@@ -83,7 +85,12 @@ def _cmd_clear(args) -> int:
         if ans not in ("y", "yes"):
             print("aborted")
             return 1
-    os.remove(path)
+    # Wave 48 (2026-05-20): tolerate race with concurrent _cmd_clear / external cleanup.
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        print(f"# already removed: {path}", file=sys.stderr)
+        return 0
     print(f"deleted {path}")
     return 0
 

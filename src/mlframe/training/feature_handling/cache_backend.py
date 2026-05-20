@@ -142,6 +142,10 @@ class LocalDiskBackend:
                 pass
 
     def exists(self, key: str) -> bool:
+        """Advisory existence check; subject to TOCTOU races with concurrent
+        writers/evictors. Callers MUST NOT rely on a True result implying that
+        a subsequent ``get(key)`` will succeed -- use ``get(key, default=None)``
+        and check for None instead. Wave 48 (2026-05-20): contract documented."""
         return os.path.exists(self._value_path(key))
 
     def delete(self, key: str) -> None:

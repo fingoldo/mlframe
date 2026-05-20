@@ -226,12 +226,18 @@ def save_key_bank(
     (a partial cache is treated as a miss by ``try_load_key_bank``).
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
-    tmp_dir = cache_dir / (fingerprint + ".tmp")
+    # Wave 48 (2026-05-20): use a UUID-stamped tmp dir so two parallel workers
+    # writing the same fingerprint don't race on the shared "<fingerprint>.tmp"
+    # path (each gets its own scratch). Final rename onto the canonical dir is
+    # still racy but harmless (content-addressable: both workers have the same
+    # bytes); the loser's tmp_dir is left for the next save call to clean up.
+    import uuid as _uuid
+    tmp_dir = cache_dir / (fingerprint + ".tmp." + _uuid.uuid4().hex[:8])
     if tmp_dir.exists():
         # Leftover from a previous failed write; wipe and retry.
         import shutil
-        shutil.rmtree(tmp_dir)
-    tmp_dir.mkdir(parents=True)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
     np.save(tmp_dir / "projections.npy", bank.projections)
     np.save(tmp_dir / "k_proj.npy", bank.k_proj)
     np.save(tmp_dir / "y_train.npy", bank.y_train)
@@ -253,8 +259,22 @@ def save_key_bank(
             with (tmp_dir / f"ann_h{h}.pkl").open("wb") as fh:
                 pickle.dump(idx, fh)
     final_dir = cache_dir / fingerprint
+    # Wave 48 (2026-05-20): rmtree+rename was a TOCTOU race -- two writers could
+    # both wipe final_dir and the loser's rename would fail. Wrap both in
+    # try/except OSError: caches are content-addressable so the loser silently
+    # discards its tmp_dir (the winner's bytes are equivalent).
     if final_dir.exists():
         import shutil
-        shutil.rmtree(final_dir)
-    tmp_dir.rename(final_dir)
+        try:
+            shutil.rmtree(final_dir, ignore_errors=True)
+        except OSError:
+            pass
+    try:
+        tmp_dir.rename(final_dir)
+    except OSError as _rn_err:
+        # Race: a sibling worker won the rename. Clean up our tmp and move on.
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        logger.debug("KeyBank rename(%s -> %s) lost the race: %s", tmp_dir, final_dir, _rn_err)
+        return
     logger.info("KeyBank saved to cache %s.", final_dir)

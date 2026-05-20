@@ -310,8 +310,9 @@ def load_save_meta_sidecar(bundle_path: str) -> Optional[Dict[str, Any]]:
     """
     import json
     sidecar = _meta_sidecar_path(bundle_path)
-    if not os.path.exists(sidecar):
-        return None
+    # Wave 48 (2026-05-20): the prior exists-then-open was a redundant TOCTOU check;
+    # the except below already handles missing sidecar. Drop the precheck so the
+    # race window collapses to zero.
     try:
         with open(sidecar, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -322,6 +323,8 @@ def load_save_meta_sidecar(bundle_path: str) -> Optional[Dict[str, Any]]:
             )
             return None
         return data
+    except FileNotFoundError:
+        return None
     except (OSError, json.JSONDecodeError) as _e:
         logger.warning(
             "load_save_meta_sidecar: failed to read %s: %s. Falling back "

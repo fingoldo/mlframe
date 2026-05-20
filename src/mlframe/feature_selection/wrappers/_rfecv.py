@@ -506,12 +506,18 @@ class RFECV(BaseEstimator, TransformerMixin):
         import pickle
 
         path = self.checkpoint_path
-        if not path or not os.path.exists(path):
+        if not path:
             return None
+        # Wave 48 (2026-05-20): the prior exists-then-open pattern was a TOCTOU race
+        # with concurrent RFECV runs sharing checkpoint_path (or an external cleanup
+        # cron); FileNotFoundError/OSError would propagate uncaught and abort the fit.
+        # Drop the redundant exists check; add OSError/FileNotFoundError to the except.
         try:
             with open(path, "rb") as fh:
                 state = pickle.load(fh)
-        except (pickle.PickleError, EOFError, AttributeError, TypeError, ValueError) as exc:
+        except FileNotFoundError:
+            return None
+        except (pickle.PickleError, EOFError, AttributeError, TypeError, ValueError, OSError) as exc:
             logger.warning(
                 "RFECV: checkpoint at %s could not be loaded (%s); starting from scratch.",
                 path, exc,

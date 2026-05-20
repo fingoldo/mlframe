@@ -333,11 +333,14 @@ class FeatureCache:
 
     def _read_from_disk(self, disk_key: DiskKey) -> Optional[Any]:
         path = self._path_for(disk_key)
-        if not os.path.exists(path):
-            return None
+        # Wave 48 (2026-05-20): the prior exists-then-deserialize was redundant
+        # (the except Exception already handled missing-file). Drop the precheck
+        # so the TOCTOU race window collapses to zero.
         allow_pickle = bool(getattr(self._cfg, "allow_pickle", False))
         try:
             return _deserialize(path, allow_pickle=allow_pickle)
+        except FileNotFoundError:
+            return None
         except CachePickleRefusedError:
             # Surface the refusal up to the caller -- silent miss would
             # hide a security policy decision the operator must see.
