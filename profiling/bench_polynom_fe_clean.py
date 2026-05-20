@@ -87,15 +87,21 @@ def main(n_rows: int = 1_000_000) -> int:
     print("[JIT warmup done]")
     print()
 
+    # subsample=200_000 matches the post-2026-05-18 MRMR default
+    # (``fe_smart_polynom_subsample_n``). At 100k a non-trivial fraction
+    # of CMA-ES trials lose the genuine hermite=1 feature -- raising the
+    # subsample to 200k recovered it. The 100k row stays for historical
+    # comparison; new runs should focus on the 200k case.
     cases = [
-        ("subsample=0     n_jobs=1", 0,      1, None),
-        ("subsample=100k  n_jobs=1", 100_000, 1, None),
-        ("subsample=100k  n_jobs=4", 100_000, 4, None),
-        ("subsample=100k  n_jobs=4 backend=njit",     100_000, 4, "njit"),
-        ("subsample=100k  n_jobs=4 backend=njit_par", 100_000, 4, "njit_par"),
+        ("subsample=0     n_jobs=1",                  0,        1, None),
+        ("subsample=100k  n_jobs=4",                  100_000,  4, None),
+        ("subsample=200k  n_jobs=1",                  200_000,  1, None),
+        ("subsample=200k  n_jobs=4 (production)",     200_000,  4, None),
+        ("subsample=200k  n_jobs=4 backend=njit",     200_000,  4, "njit"),
+        ("subsample=200k  n_jobs=4 backend=njit_par", 200_000,  4, "njit_par"),
     ]
     if "cupy" in sys.modules or True:  # add cuda case always, will fall back gracefully
-        cases.append(("subsample=100k  n_jobs=4 backend=cuda", 100_000, 4, "cuda"))
+        cases.append(("subsample=200k  n_jobs=4 backend=cuda", 200_000, 4, "cuda"))
 
     print(f"{'Variant':45s} | {'Time':>8s} | {'Hermite':>7s} | {'Recipes':>7s} | {'Support':>7s}")
     print("-" * 100)

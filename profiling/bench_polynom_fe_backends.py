@@ -14,7 +14,7 @@ The MI estimator ``_plugin_mi_classif_njit`` is single-thread numba;
 function columns. No CUDA path for MI.
 
 Two axes:
-- ``fe_smart_polynom_subsample_n`` ON/OFF (default 100k since 2026-05-18)
+- ``fe_smart_polynom_subsample_n`` ON/OFF (default 200k since 2026-05-18)
 - env ``MLFRAME_POLYEVAL_BACKEND`` override (cuda / njit_par / njit)
 
 Bench: n=1M source, fe_smart_polynom_iters=2 x 30 trials per pair, 4
@@ -100,12 +100,18 @@ def main() -> int:
     print("[JIT warmup done]")
     print()
 
+    # subsample=200_000 is the post-2026-05-18 MRMR default
+    # (``fe_smart_polynom_subsample_n``). 100k caused trial-budget-driven
+    # loss of the hermite=1 feature on n=1M data with 200 CMA-ES restarts;
+    # 200k recovers it at ~85% of the 100k wall-time so it stays the
+    # production default.
     matrix = [
-        ("no_subsample, n_jobs=1", 0, 1, None),
-        ("subsample=100k, n_jobs=1", 100_000, 1, None),
-        ("subsample=100k, n_jobs=4 (default)", 100_000, 4, None),
-        ("no_subsample, n_jobs=4, backend=njit", 0, 4, "njit"),
-        ("no_subsample, n_jobs=4, backend=njit_par", 0, 4, "njit_par"),
+        ("no_subsample, n_jobs=1",                    0,       1, None),
+        ("subsample=100k, n_jobs=4",                  100_000, 4, None),
+        ("subsample=200k, n_jobs=1",                  200_000, 1, None),
+        ("subsample=200k, n_jobs=4 (production)",     200_000, 4, None),
+        ("no_subsample, n_jobs=4, backend=njit",      0,       4, "njit"),
+        ("no_subsample, n_jobs=4, backend=njit_par",  0,       4, "njit_par"),
     ]
     if cuda_avail:
         matrix.append(
