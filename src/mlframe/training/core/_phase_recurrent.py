@@ -274,9 +274,15 @@ def _apply_recurrent_to_ensemble(
         if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
         else None
     )
+    # Wave 14 P2 (re-opened 2026-05-20): ``ctx.model_name or 'mdl'``
+    # silently injected the prefix ``mdl`` when the caller's ctx had
+    # ``model_name=""``. Empty string is a legitimate "no prefix" intent
+    # (yields names like ``__target__recurrent_rerun``); None should
+    # collapse to ``mdl``. Use explicit None-check.
+    _model_name_prefix = "mdl" if getattr(ctx, "model_name", None) is None else ctx.model_name
     kwargs = {
         "models_and_predictions": list(members),
-        "ensemble_name": f"{ctx.model_name or 'mdl'}__{target_name}__recurrent_rerun",
+        "ensemble_name": f"{_model_name_prefix}__{target_name}__recurrent_rerun",
         "train_target": train_target,
         "val_target": val_target,
         "test_target": test_target,

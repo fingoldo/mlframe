@@ -463,7 +463,15 @@ def _build_configs_from_params(
     output_config = OutputConfig(
         plot_file=plot_file or "",
         data_dir=data_dir or "",
-        models_dir=models_subdir or "models",
+        # Wave 14 P2 (re-opened 2026-05-20): ``models_subdir or "models"``
+        # silently rewrote a legitimate ``models_subdir=""`` (intent: write
+        # models flat in data_dir, no subfolder) to ``"models"`` subdir.
+        # Use explicit None-check so the empty-string intent is preserved.
+        # ``plot_file or ""`` and ``data_dir or ""`` ABOVE intentionally
+        # collapse falsy -> "" because their None and "" both mean
+        # "feature disabled"; ``models_subdir`` is asymmetric -- None
+        # means "use default" but "" is a real caller choice.
+        models_dir="models" if models_subdir is None else models_subdir,
     )
 
     naming_config = NamingConfig(
