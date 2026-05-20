@@ -84,6 +84,24 @@ def knn_search(
         )
     k_request = min(k, n_sub)
 
+    # Wave 23 follow-up (Low, 2026-05-20): the prefer_hnsw_at_n=50_000
+    # default is documented as 'matches the empirical crossover on a
+    # 16-core AVX2 box'. CPU dispatch is not strictly the
+    # kernel_tuning_cache target (which the memory rule scopes to GPU),
+    # BUT the same dev-box-tuning pathology applies: AVX-512 boxes
+    # crossover earlier, low-core ARM boxes later. Consult the cache
+    # opportunistically; fall back to the documented 50_000 when no
+    # entry exists yet. Caller's prefer_hnsw_at_n=... explicit override
+    # still wins (kwarg value preserved).
+    if prefer_hnsw_at_n == 50_000:
+        try:
+            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            _cache = KernelTuningCache.load_or_create()
+            _e = _cache.lookup("knn_hnsw_crossover", {"n_subset": n_sub, "d": X_subset.shape[1]})
+            if _e and "n_threshold" in _e:
+                prefer_hnsw_at_n = int(_e["n_threshold"])
+        except Exception:
+            pass  # keep the 50_000 default
     use_hnsw = n_sub >= prefer_hnsw_at_n and _check_hnsw_available()
     if use_hnsw:
         import hnswlib
