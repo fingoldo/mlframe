@@ -122,7 +122,11 @@ def _prewarm_numba_cache_body():
                 from joblib.parallel import cpu_count as _cc
                 _cc()
             except Exception:
-                pass
+                # Wave 43 (2026-05-20): daemon thread is fire-and-forget; without
+                # this debug log a failure of the perf prefetch would be completely
+                # invisible. Keep the swallow (failure has no semantic effect, the
+                # main path calls cpu_count again later) but at least surface it.
+                logger.debug("_kick_cpu_count: prefetch failed", exc_info=True)
 
         threading.Thread(target=_kick_cpu_count, daemon=True).start()
     except Exception:

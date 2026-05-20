@@ -305,6 +305,21 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
             # Already loaded successfully -- hand back the resolved future.
             return fut
         new_fut = _PREWARM_EXECUTOR.submit(_do_load)
+        # Wave 43 (2026-05-20): if a future internal caller invokes prewarm() but
+        # forgets the wait_prewarm() pair, exceptions stored on the cached future
+        # would be silently retained. Attach a done-callback so an unawaited failure
+        # at least logs once.
+        def _log_unhandled(_fut: "Future") -> None:
+            try:
+                exc = _fut.exception(timeout=0)
+            except Exception:
+                return
+            if exc is not None:
+                logger.warning(
+                    "prewarm(%r) failed; caller did not call wait_prewarm to surface it.",
+                    signature, exc_info=exc,
+                )
+        new_fut.add_done_callback(_log_unhandled)
         _PREWARM_FUTURES[signature] = new_fut
         return new_fut
 
