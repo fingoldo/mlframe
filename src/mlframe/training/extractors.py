@@ -60,32 +60,80 @@ def get_dataframe_info(df: Union[pd.DataFrame, pl.DataFrame]) -> str:
     raise TypeError(f"Unsupported DataFrame type: {type(df).__name__}. Expected pandas or Polars DataFrame.")
 
 
+def _smallest_safe_int_dtype(min_val: int, max_val: int) -> np.dtype:
+    """Pick the smallest signed-int numpy dtype that can hold [min_val, max_val].
+
+    Promotion ladder: int8 -> int16 -> int32 -> int64. Multiclass classification
+    targets routinely have ``n_classes`` up to thousands (label-encoded
+    categorical features, ID-based class assignments); the historical default of
+    forcing every classification target to ``int8`` silently wrapped any label
+    >127 on the pandas path (``np.array([200]).astype(np.int8) -> -56``) and
+    raised hard on the polars path (asymmetric, the trap that surfaced this).
+    Polars Series.cast(pl.Int8) raises ``InvalidOperationError``; pandas just
+    wraps without warning -- pandas users got scrambled labels downstream.
+    """
+    if -128 <= min_val and max_val <= 127:
+        return np.dtype(np.int8)
+    if -32_768 <= min_val and max_val <= 32_767:
+        return np.dtype(np.int16)
+    if -2_147_483_648 <= min_val and max_val <= 2_147_483_647:
+        return np.dtype(np.int32)
+    return np.dtype(np.int64)
+
+
+def _safe_int_cast_numpy(arr: np.ndarray, target_name: str) -> np.ndarray:
+    """Cast a numpy array to the smallest signed-int dtype that preserves every value."""
+    if arr.size == 0:
+        return arr.astype(np.int8, copy=False)
+    if np.issubdtype(arr.dtype, np.integer):
+        _min, _max = int(arr.min()), int(arr.max())
+    elif np.issubdtype(arr.dtype, np.floating):
+        # Refuse fractional floats (e.g. accidentally-numeric target); only allow integer-valued floats.
+        if not np.isfinite(arr).all() or not np.all(np.equal(np.mod(arr, 1), 0)):
+            raise ValueError(
+                f"target {target_name!r}: numeric target contains non-integer or non-finite values; "
+                f"cannot safely cast to int. Drop NaN/inf rows or use a regression target type."
+            )
+        _min, _max = int(arr.min()), int(arr.max())
+    elif np.issubdtype(arr.dtype, np.bool_):
+        return arr.astype(np.int8, copy=False)
+    else:
+        # Object / string -- pandas/numpy will surface an error from astype itself; let it propagate
+        # rather than introducing a separate error path here.
+        return arr.astype(np.int8, copy=False)
+    _dtype = _smallest_safe_int_dtype(_min, _max)
+    if arr.dtype == _dtype:
+        return arr
+    return arr.astype(_dtype, copy=False)
+
+
 def intize_targets(targets: Dict[str, Union[pd.Series, pl.Series, np.ndarray]]) -> None:
-    """Convert target values to int8 numpy arrays in-place.
+    """Convert target values to the smallest signed-int numpy dtype that preserves every value.
+
+    Multiclass labels with cardinality >127 used to silently wrap on the pandas
+    path (``astype(np.int8)`` is modulo arithmetic for over-range ints) while
+    failing loudly on the polars path. Now promotes int8 -> int16 -> int32 -> int64
+    based on the actual value range. Multiclass datasets with thousands of
+    classes (label-encoded categorical IDs, hash-encoded targets) round-trip
+    correctly under this fix.
 
     Args:
         targets: Dictionary mapping target names to target arrays/series.
 
     Raises:
         TypeError: If target is not a supported type (pd.Series, pl.Series, np.ndarray).
+        ValueError: If a numeric target contains fractional / non-finite values
+            (silent truncation hazard).
     """
     for target_name, target in targets.copy().items():
         if isinstance(target, np.ndarray):
-            # Skip the materialise+copy when already int8; np.int8 == np.int8 means no-op.
-            if target.dtype == np.int8:
-                continue
-            targets[target_name] = target.astype(np.int8, copy=False)
+            targets[target_name] = _safe_int_cast_numpy(target, target_name)
         elif isinstance(target, pl.Series):
-            # Skip the cast when already Int8; cast(Int8) on Int8 still allocates a new buffer in polars 1.x.
-            if target.dtype == pl.Int8:
-                targets[target_name] = target.to_numpy()
-            else:
-                targets[target_name] = target.cast(pl.Int8).to_numpy()
+            # to_numpy first (zero-copy on contiguous numeric), then route through the
+            # numpy-side range-aware cast so polars + pandas paths share one promotion table.
+            targets[target_name] = _safe_int_cast_numpy(target.to_numpy(), target_name)
         elif isinstance(target, pd.Series):
-            if target.dtype == np.int8:
-                targets[target_name] = target.values
-            else:
-                targets[target_name] = target.astype(np.int8).values
+            targets[target_name] = _safe_int_cast_numpy(target.to_numpy(), target_name)
         else:
             raise TypeError(f"Unsupported target type for '{target_name}': {type(target).__name__}")
 
@@ -752,17 +800,16 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                         elif is_polars:
                             targets[target_name] = (col_data == val).cast(pl.Int8)
 
-                # Default: use column as-is
+                # Default: use column as-is. Don't pre-cast to int8 here -- intize_targets()
+                # below promotes int8/16/32/64 based on actual value range, so multiclass labels
+                # with cardinality >127 don't wrap silently (pandas) or raise (polars).
                 if (
                     col not in (self.classification_lower_thresholds or {})
                     and col not in (self.classification_upper_thresholds or {})
                     and col not in (self.classification_exact_values or {})
                 ):
                     target_name = col
-                    if is_pandas:
-                        targets[target_name] = col_data.astype(np.int8)
-                    elif is_polars:
-                        targets[target_name] = col_data.cast(pl.Int8)
+                    targets[target_name] = col_data
 
                 self.columns_to_drop.add(col)
 
