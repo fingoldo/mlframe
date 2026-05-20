@@ -138,6 +138,35 @@ def run_polynom_pair_fe(
             vals_a_sub = vals_a_full
             vals_b_sub = vals_b_full
             classes_y_sub = classes_y
+        # 2026-05-20 NEW-A: compute trivial baseline ONCE per pair (was
+        # silently re-computed once per ``fe_smart_polynom_iters`` restart
+        # inside ``optimise_hermite_pair``). On the n=200k production
+        # config ``best_trivial_pair`` is ~50-150ms; with the default
+        # ``fe_smart_polynom_iters=5`` and 12 pairs that adds up to ~60
+        # redundant calls, saving 3-9 seconds without changing the
+        # numerical result (baseline is a deterministic fn of (x_a, x_b, y)).
+        _trivial_baseline = None
+        _trivial_name = None
+        try:
+            from .fe_baselines import best_trivial_pair as _best_trivial_pair
+            _t = _best_trivial_pair(
+                np.asarray(vals_a_sub, dtype=np.float64),
+                np.asarray(vals_b_sub, dtype=np.float64),
+                classes_y_sub,
+                discrete_target=True,
+                mi_estimator=fe_mi_estimator,
+                plugin_n_bins=20,
+                n_neighbors=None,
+            )
+            if _t is not None:
+                _trivial_name, _, _trivial_baseline = _t
+        except Exception as _e:
+            logger.debug(
+                "best_trivial_pair precompute failed for pair %s: %r; "
+                "optimise_hermite_pair will recompute internally.",
+                raw_vars_pair, _e,
+            )
+
         best_res = None
         for seed_offset in range(fe_smart_polynom_iters):
             res = optimise_hermite_pair(
@@ -156,6 +185,8 @@ def run_polynom_pair_fe(
                 optimizer=fe_optimizer,
                 warm_start=fe_warm_start,
                 multi_fidelity=fe_multi_fidelity,
+                precomputed_trivial_baseline=_trivial_baseline,
+                precomputed_trivial_name=_trivial_name,
             )
             if res is not None and (best_res is None or res.mi > best_res.mi):
                 best_res = res

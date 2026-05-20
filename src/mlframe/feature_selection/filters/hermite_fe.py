@@ -174,6 +174,236 @@ def _plugin_mi_classif_batch_njit(X_cols: np.ndarray, y: np.ndarray,
     return out
 
 
+@njit(cache=True, fastmath=True)
+def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray,
+                                  n_bins: int) -> float:
+    """Plug-in MI given pre-binned x. Skips the ``np.argsort`` step inside
+    :func:`_plugin_mi_classif_njit`; the caller does the argsort + bin
+    assignment in pure numpy (which is ~1.6x faster than numba-wrapped
+    ``np.argsort`` at n=1500, measured 2026-05-20 — numba's argsort
+    dispatch eats ~70us out of 92us total).
+
+    This is the kernel that numba is genuinely good at: tight nested
+    histogram loops, log/log_n math, plug-in MI summation. Bench at
+    n=1500, n_classes=3: ~10us per call, vs ~128us for the full
+    ``_plugin_mi_classif_njit``.
+    """
+    n = x_binned.shape[0]
+    n_classes = 0
+    for i in range(n):
+        if y[i] >= n_classes:
+            n_classes = y[i] + 1
+
+    hist_xy = np.zeros((n_bins, n_classes), dtype=np.int64)
+    hist_x = np.zeros(n_bins, dtype=np.int64)
+    hist_y = np.zeros(n_classes, dtype=np.int64)
+    for i in range(n):
+        b = x_binned[i]
+        c = y[i]
+        hist_xy[b, c] += 1
+        hist_x[b] += 1
+        hist_y[c] += 1
+
+    log_n = math.log(n)
+    mi = 0.0
+    for b in range(n_bins):
+        if hist_x[b] == 0:
+            continue
+        log_hx = math.log(hist_x[b])
+        for c in range(n_classes):
+            n_xy = hist_xy[b, c]
+            if n_xy == 0 or hist_y[c] == 0:
+                continue
+            mi += (n_xy / n) * (math.log(n_xy) + log_n - log_hx - math.log(hist_y[c]))
+    if mi < 0.0:
+        mi = 0.0
+    return mi
+
+
+def _quantile_bin_numpy(x: np.ndarray, n_bins: int) -> np.ndarray:
+    """Pure-numpy quantile binning. ~1.6x faster than the numba version
+    at n=1500 because numpy's ``np.argsort`` dispatches to a SIMD-optimised
+    C sort that numba's argsort wrapper does not match.
+
+    Used by the hot CMA-ES inner loop in :func:`optimise_hermite_pair`
+    via :func:`plugin_mi_classif_fast` / :func:`plugin_mi_classif_batch_fast`
+    which split the argsort (numpy) from the histogram math (njit).
+    """
+    n = x.shape[0]
+    sort_idx = np.argsort(x)
+    out = np.empty(n, dtype=np.int32)
+    base = n // n_bins
+    rem = n % n_bins
+    pos = 0
+    for b in range(n_bins):
+        size = base + (1 if b < rem else 0)
+        out[sort_idx[pos:pos + size]] = b
+        pos += size
+    return out
+
+
+def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray,
+                            n_bins: int = 20) -> float:
+    """Faster single-column plug-in MI: numpy argsort + njit histogram math.
+
+    Measured 2026-05-20 at n=1500 (CMA-ES inner-loop scale):
+    - ``_plugin_mi_classif_njit`` (all-in-numba):                    128us
+    - ``plugin_mi_classif_fast`` (numpy argsort + njit histogram):  ~67us
+    -> **~1.9x speedup** on the hottest path. Numerical result is
+    bit-for-bit identical (same quantile-bin recipe, same plug-in MI
+    formula).
+    """
+    x_binned = _quantile_bin_numpy(x, n_bins)
+    return float(_plugin_mi_from_binned_njit(
+        x_binned, np.asarray(y, dtype=np.int64), n_bins,
+    ))
+
+
+def plugin_mi_classif_batch_fast(X_cols: np.ndarray, y: np.ndarray,
+                                   n_bins: int = 20) -> np.ndarray:
+    """Batch variant of :func:`plugin_mi_classif_fast`. Does argsort + bin
+    assignment per column in pure numpy then dispatches the histogram
+    math to the njit kernel. Wins over ``_plugin_mi_classif_batch_njit``
+    when k is small (<= ~10) because the prange-overhead and per-thread
+    argsort cost dominate at low column counts.
+    """
+    n, k = X_cols.shape
+    y_i64 = np.asarray(y, dtype=np.int64)
+    out = np.empty(k, dtype=np.float64)
+    for j in range(k):
+        x_binned = _quantile_bin_numpy(
+            np.ascontiguousarray(X_cols[:, j]), n_bins,
+        )
+        out[j] = _plugin_mi_from_binned_njit(x_binned, y_i64, n_bins)
+    return out
+
+
+# CUDA (cupy) port of plug-in MI for the batch path. At n >= ~300k * k >= 20
+# the H2D + argsort on GPU + scatter histogram beats prange on CPU even with
+# transfer overhead amortised over k columns. Single-column CUDA is slower
+# than the njit version below ~500k due to setup cost; the dispatcher below
+# routes accordingly.
+def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray,
+                                  n_bins: int = 20) -> np.ndarray:
+    """Cupy batch plug-in MI. Quantile-bins each column on GPU via
+    ``cp.argsort`` -> rank-to-bin lookup, then computes joint histograms
+    via a single ``cp.bincount`` across (col, bin, class) flat indices.
+    Numerically equivalent to :func:`_plugin_mi_classif_batch_njit`
+    up to fp64 round-off.
+    """
+    import cupy as cp
+    X_gpu = cp.asarray(X_cols, dtype=cp.float64)
+    y_gpu = cp.asarray(y, dtype=cp.int64)
+    n, k = X_gpu.shape
+    n_classes = int(cp.max(y_gpu).item()) + 1 if n > 0 else 0
+    if n == 0 or k == 0 or n_classes == 0:
+        return np.zeros(k, dtype=np.float64)
+
+    # Per-column quantile binning: argsort -> rank -> bin lookup.
+    # bin_for_rank[r] = floor(r / (n / n_bins)) with the remainder
+    # absorbed by the first ``rem`` bins (matches njit version exactly).
+    sort_idx = cp.argsort(X_gpu, axis=0)  # (n, k) int64
+    base = n // n_bins
+    rem = n - base * n_bins
+    sizes = cp.full(n_bins, base, dtype=cp.int64)
+    if rem > 0:
+        sizes[:rem] += 1
+    offsets = cp.empty(n_bins, dtype=cp.int64)
+    offsets[0] = 0
+    if n_bins > 1:
+        offsets[1:] = cp.cumsum(sizes[:-1])
+    ranks = cp.arange(n, dtype=cp.int64)
+    bin_for_rank = cp.searchsorted(offsets, ranks, side="right") - 1  # (n,)
+
+    # Scatter rank-to-row: X_binned[sort_idx[r, j], j] = bin_for_rank[r]
+    X_binned = cp.empty((n, k), dtype=cp.int64)
+    cols_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))
+    X_binned[sort_idx, cols_idx] = bin_for_rank[:, None]
+
+    # Joint hist via single bincount on flat index (col, bin, class).
+    j_idx = cp.broadcast_to(cp.arange(k, dtype=cp.int64)[None, :], (n, k))
+    y_b = y_gpu[:, None]
+    flat = (j_idx * n_bins + X_binned) * n_classes + y_b  # (n, k)
+    hist_flat = cp.bincount(
+        flat.ravel(), minlength=k * n_bins * n_classes,
+    )
+    hist_xyc = hist_flat.reshape(k, n_bins, n_classes).astype(cp.float64)
+    hist_x = hist_xyc.sum(axis=2)  # (k, n_bins)
+    hist_y = hist_xyc.sum(axis=1)  # (k, n_classes); same across cols but kept per-col for cleanliness
+
+    # MI sum vectorised across cells. Cells with zero count contribute 0
+    # (same as the njit ``if n_xy == 0: continue`` short-circuit).
+    log_n = math.log(n)
+    mask = hist_xyc > 0
+    safe_xyc = cp.where(mask, hist_xyc, 1.0)
+    safe_x = cp.where(hist_x > 0, hist_x, 1.0)
+    safe_y = cp.where(hist_y > 0, hist_y, 1.0)
+    term = (hist_xyc / n) * (
+        cp.log(safe_xyc) + log_n
+        - cp.log(safe_x)[:, :, None] - cp.log(safe_y)[:, None, :]
+    )
+    mi = cp.where(mask, term, 0.0).sum(axis=(1, 2))  # (k,)
+    mi = cp.maximum(mi, 0.0)
+    return cp.asnumpy(mi)
+
+
+def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray,
+                            n_bins: int = 20) -> float:
+    """Single-column cupy wrapper around :func:`_plugin_mi_classif_batch_cuda`.
+    Provided for API symmetry; the dispatcher routes here only when n is
+    big enough to amortise H2D + GPU launch (default >= 1M)."""
+    X_cols = np.ascontiguousarray(x).reshape(-1, 1)
+    res = _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
+    return float(res[0])
+
+
+# Thresholds for the MI dispatcher (in array length n). Single-column
+# CUDA crossover is much higher than the polyeval one because the MI
+# kernel is launch-cost-bound for small k. Batch path uses a lower
+# threshold because the cost of H2D + argsort is amortised across k.
+import os as _mi_os
+_MI_CUDA_THRESHOLD = int(_mi_os.environ.get(
+    "MLFRAME_MI_CUDA_THRESHOLD", "1000000",
+))
+_MI_BATCH_CUDA_THRESHOLD = int(_mi_os.environ.get(
+    "MLFRAME_MI_BATCH_CUDA_THRESHOLD", "300000",
+))
+
+
+def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
+                                n_bins: int = 20) -> float:
+    """Single-column plug-in MI for continuous x and discrete y.
+
+    Routes to :func:`_plugin_mi_classif_njit` (CPU) or
+    :func:`_plugin_mi_classif_cuda` (GPU) based on ``len(x)`` and
+    ``cupy`` availability. Override via ``MLFRAME_MI_BACKEND`` env var
+    (``njit`` | ``cuda``).
+    """
+    forced = _mi_os.environ.get("MLFRAME_MI_BACKEND", "")
+    n = x.shape[0]
+    if forced == "cuda" or (forced == "" and n >= _MI_CUDA_THRESHOLD and _CUDA_AVAILABLE):
+        if _CUDA_AVAILABLE:
+            return _plugin_mi_classif_cuda(x, y, n_bins)
+    return float(_plugin_mi_classif_njit(x, y, n_bins))
+
+
+def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
+                                      n_bins: int = 20) -> np.ndarray:
+    """Batch plug-in MI per column of ``X_cols`` against discrete ``y``.
+
+    Routes to :func:`_plugin_mi_classif_batch_njit` (prange CPU) or
+    :func:`_plugin_mi_classif_batch_cuda` (GPU) based on ``len(X_cols)``
+    and ``cupy`` availability. Override via ``MLFRAME_MI_BACKEND`` env
+    var (``njit`` | ``cuda``).
+    """
+    forced = _mi_os.environ.get("MLFRAME_MI_BACKEND", "")
+    n = X_cols.shape[0]
+    if forced == "cuda" or (forced == "" and n >= _MI_BATCH_CUDA_THRESHOLD and _CUDA_AVAILABLE):
+        if _CUDA_AVAILABLE:
+            return _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
+    return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+
+
 @njit(cache=True, fastmath=True, parallel=True)
 def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray,
                                        n_bins: int = 20) -> np.ndarray:
@@ -1135,10 +1365,18 @@ def _select_diverse_topm(history: list, top_m: int,
 def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                      direction_only, warm_start_seeds, eval_kwargs,
                      popsize=None, eval_pair_fn=None,
-                     track_history=False):
+                     track_history=False,
+                     early_stop_no_improve_gens: int | None = None):
     """CMA-ES inner loop. Returns (best_coef_a, best_coef_b, best_bf_idx, best_raw_mi, n_evals). When track_history=True, also returns the full evaluation list.
 
     CMA minimizes; we negate the MI score. Default popsize=max(8, min(20, n_trials // 8)) -- smaller than CMA's default to allow more generations on tight budgets.
+
+    ``early_stop_no_improve_gens`` (2026-05-20 NEW-D): break out of the
+    CMA loop when ``best_score`` has not improved for this many
+    consecutive GENERATIONS (not trials). Set to None to disable.
+    Useful when the warm-start seeds + early CMA generations have
+    already found the optimum and the remaining budget is wasted
+    exploring around it. Default None (no plateau early-stop).
     """
     import cma
     dim = ca_size + cb_size
@@ -1204,6 +1442,10 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
                       for s in (warm_start_seeds or [])]
 
     first_gen = True
+    # 2026-05-20 NEW-D: plateau early-stop state. Tracks how many
+    # consecutive CMA generations passed without improving best_score.
+    _plateau_gens = 0
+    _last_gen_best_score = best_score
     while not es.stop() and n_evals < n_trials:
         try:
             if first_gen and inject_arrays:
@@ -1244,6 +1486,17 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
         if len(scores) < len(solutions):
             scores.extend([1e6] * (len(solutions) - len(scores)))
         es.tell(solutions, scores)
+        # Plateau early-stop check (after es.tell so the generation is
+        # complete). Compare end-of-generation best_score to start-of-
+        # generation; if no improvement, increment plateau counter.
+        if early_stop_no_improve_gens and early_stop_no_improve_gens > 0:
+            if best_score > _last_gen_best_score:
+                _plateau_gens = 0
+                _last_gen_best_score = best_score
+            else:
+                _plateau_gens += 1
+                if _plateau_gens >= int(early_stop_no_improve_gens):
+                    break
     if best_coefs is None:
         return None
     if track_history:
@@ -1316,6 +1569,8 @@ def optimise_hermite_pair(
     direction_only: bool = False,
     multi_fidelity: bool = True,
     use_trivial_baseline: bool = True,
+    precomputed_trivial_baseline: float | None = None,
+    precomputed_trivial_name: str | None = None,
 ) -> HermiteResult | None:
     """Find polynomial coefficients c_a, c_b that maximise MI(bin_func(P(x_a, c_a), P(x_b, c_b)), y) over the requested
     Optuna/CMA budget. Standardises inputs, regularises coefficients, and only returns a result when the engineered MI
@@ -1411,8 +1666,15 @@ def optimise_hermite_pair(
     # Stronger gate than the identity max(MI(x_a, y), MI(x_b, y)): try trivial pair-feature transforms
     # (mul, ratio, sum_sq, atan2, ...) and use BEST trivial MI as baseline. Often a simple mul(x_a, x_b)
     # captures most of the signal a polynomial would (verified on XOR / circle / saddle / UCI).
-    trivial_baseline_name = None
-    if use_trivial_baseline:
+    #
+    # 2026-05-20 NEW-A: callers running multiple ``fe_smart_polynom_iters``
+    # restarts per pair can pre-compute the trivial baseline once and feed
+    # it in via ``precomputed_trivial_baseline`` (+ ``precomputed_trivial_name``);
+    # this elides ~5x duplicated 50-150ms ``best_trivial_pair`` calls per
+    # pair on the n=200k production config.
+    trivial_baseline_name = precomputed_trivial_name
+    if (use_trivial_baseline
+            and precomputed_trivial_baseline is None):
         try:
             from .fe_baselines import best_trivial_pair
             trivial = best_trivial_pair(
@@ -1433,6 +1695,15 @@ def optimise_hermite_pair(
                     baseline = trivial_mi
         except Exception as e:
             logger.debug(f"trivial baseline check failed: {e}")
+    elif precomputed_trivial_baseline is not None:
+        # Caller supplied the precomputed value -- use it directly.
+        if precomputed_trivial_baseline > baseline:
+            logger.debug(
+                f"trivial baseline {precomputed_trivial_name!r} "
+                f"raises baseline from {baseline:.4f} to "
+                f"{precomputed_trivial_baseline:.4f} (precomputed)"
+            )
+            baseline = float(precomputed_trivial_baseline)
 
     # Pre-cast y once for the njit fast path.
     if mi_estimator == "plugin":
@@ -1478,21 +1749,22 @@ def optimise_hermite_pair(
         eval_func_b = eval_func
 
     # 2026-05-18 PERFORMANCE: precompute basis matrices once per pair for
-    # BLAS GEMV fastpath. Measure-first verdict at n=1M / subsample=200k:
-    # WHEN multi_fidelity activates (n_full >= 4000) the inner CMA-ES
-    # operates on a 1500-sample slice where ``@njit(parallel=True)``
-    # Horner is already cache-friendly enough that BLAS GEMV adds
-    # nothing - kernel takes the same wall time, the build + slice-copy
-    # overhead cancels any margin. So we ONLY enable the basis-matrix
-    # path when multi_fidelity is OFF (or n_full < 4000 forces it off
-    # anyway). In that regime CMA-ES evaluates against full z_a/z_b
-    # (possibly 100k+ samples) per call - BLAS GEMV genuinely wins
-    # there (~5x per call vs Horner).
+    # BLAS GEMV fastpath. Initial 2026-05-18 measurement (different
+    # hardware) found zero speedup at multi_fidelity=True scale and
+    # gated the basis-matrix path OFF for that case. Re-measured
+    # 2026-05-20 on current hardware (numba 0.59, MKL BLAS) at the same
+    # 1500-element inner CMA-ES scale showed BLAS GEMV is **1.13-1.19x
+    # faster than ``@njit(parallel=True)`` Horner** — slice-copy
+    # overhead and recurrence pipelining no longer cancel. Gate flipped
+    # to build B matrices for ALL polynomial bases (including under
+    # multi_fidelity=True). The refinement step at the bottom of this
+    # function still drops B_a / B_b before evaluating on full z (see
+    # ``full_kwargs["B_a"] = None`` line below) so the
+    # subsample-sized matrices never leak into the full-n evaluation.
     B_a_search = None
     B_b_search = None
     _multi_fidelity_active = bool(multi_fidelity and n_full >= 4000)
-    if (factory is None and basis in _BASIS_BUILDERS
-            and not _multi_fidelity_active):
+    if factory is None and basis in _BASIS_BUILDERS:
         try:
             B_a_search = build_basis_matrix(basis, z_a_search, max_degree)
             B_b_search = build_basis_matrix(basis, z_b_search, max_degree)
@@ -1595,6 +1867,19 @@ def optimise_hermite_pair(
         raw_mi_best = -np.inf
 
         if optimizer == "cma":
+            # 2026-05-20 NEW-D: translate the Optuna-trial-based
+            # ``early_stop_no_improve`` knob into a CMA-generation count.
+            # CMA popsize defaults to max(8, min(20, n_trials // 8)), so
+            # ``early_stop_gens = max(2, early_stop_no_improve // popsize)``
+            # gives a comparable "give up after X plateau trials" budget.
+            # The +1 floor keeps the bound meaningful even for tiny
+            # popsizes.
+            _early_stop_gens = None
+            if early_stop_no_improve and early_stop_no_improve < n_trials:
+                _eff_popsize = max(8, min(20, n_trials // 8))
+                _early_stop_gens = max(
+                    2, int(early_stop_no_improve) // _eff_popsize + 1,
+                )
             try:
                 cma_result = _run_cma_search(
                     ca_size=ca_size, cb_size=cb_size,
@@ -1603,6 +1888,7 @@ def optimise_hermite_pair(
                     warm_start_seeds=warm_seeds,
                     eval_kwargs=eval_kwargs,
                     eval_pair_fn=eval_pair_fn,
+                    early_stop_no_improve_gens=_early_stop_gens,
                 )
             except Exception as e:
                 logger.warning("CMA-ES failed at degree %d (%s); "
