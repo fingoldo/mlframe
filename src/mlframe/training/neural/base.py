@@ -782,6 +782,9 @@ class NetworkGraphLoggingCallback(Callback):
 class AggregatingValidationCallback(Callback):
 
     def __init__(self, metric_name: str, metric_fcn: object, on_epoch: bool = True, on_step: bool = False, prog_bar: bool = True):
+        # Wave 56 (2026-05-20): forward to Lightning's Callback base so any future
+        # state it sets in __init__ is populated (currently a no-op).
+        super().__init__()
         params = get_parent_func_args()
         store_params_in_object(obj=self, params=params)
         self.init_accumulators()

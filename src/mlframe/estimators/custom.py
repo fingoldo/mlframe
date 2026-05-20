@@ -57,11 +57,18 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
         check_inverse=True,
         es_fit_param_name:str=None,
     ):
-        self.regressor = regressor
-        self.transformer = transformer
-        self.func = func
-        self.inverse_func = inverse_func
-        self.check_inverse = check_inverse
+        # Wave 56 (2026-05-20): forward to parent __init__ so any new sklearn
+        # TransformedTargetRegressor attrs (e.g. validate_inverse, _n_features_out)
+        # added in minor sklearn releases are populated -- the prior manual
+        # re-assignment of the 5 known attrs would silently drop new ones from
+        # get_params/clone introspection.
+        super().__init__(
+            regressor=regressor,
+            transformer=transformer,
+            func=func,
+            inverse_func=inverse_func,
+            check_inverse=check_inverse,
+        )
         self.es_fit_param_name = es_fit_param_name
         
     def _transform_y(self, y):

@@ -191,6 +191,10 @@ class GroupBatchSampler(Sampler):
         shuffle: bool = True,
         seed: int = 0,
     ):
+        # Wave 56 (2026-05-20): forward to torch Sampler base. Currently passing
+        # data_source=None is a no-op (newer torch silently accepts it); explicit
+        # super call reserves the hook for future torch state.
+        super().__init__(data_source=None)
         self.group_ids = np.asarray(group_ids)
         self.relevance = np.asarray(relevance)
         self.shuffle = shuffle
@@ -234,6 +238,8 @@ class _RankerDataset(Dataset):
     """Row-level dataset for (X, y); the GroupBatchSampler controls query grouping."""
 
     def __init__(self, X: np.ndarray, y: np.ndarray):
+        # Wave 56 (2026-05-20): forward to torch Dataset base for forward-compat.
+        super().__init__()
         self.X = torch.as_tensor(np.asarray(X), dtype=torch.float32)
         self.y = torch.as_tensor(np.asarray(y), dtype=torch.float32)
 

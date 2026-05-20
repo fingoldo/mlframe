@@ -60,6 +60,9 @@ class TorchDataset(Dataset):
         ``_create_dataloader: dl_params["pin_memory"] = on_gpu``). Pinning the WHOLE feature tensor once would lock the buffer's RAM permanently - only
         worth it for small frames AND a GPU target.
         """
+        # Wave 56 (2026-05-20): forward to torch Dataset base for forward-compat
+        # (currently a no-op; reserves the hook for future torch state).
+        super().__init__()
         self.features_dtype = features_dtype
         self.labels_dtype = labels_dtype
         self.device = device
