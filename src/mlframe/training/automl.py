@@ -86,8 +86,8 @@ def train_autogluon_model(
     """
     try:
         from autogluon.tabular import TabularDataset, TabularPredictor
-    except ImportError as e:
-        logger.error(f"AutoGluon not available: {e}")
+    except ImportError:
+        logger.exception("AutoGluon not available")
         return None
 
     init_params = init_params or {}
@@ -133,10 +133,8 @@ def train_autogluon_model(
                     auc = roc_auc_score(test_target, test_probs[:, 1])
                 logger.info("AutoGluon test AUC: %.4f", auc)
                 metrics["test_auc"] = auc
-            except (ValueError, TypeError) as e:
-                # ValueError: Only one class present in y_true or invalid input
-                # TypeError: Cannot compute score on incompatible types
-                logger.warning(f"Could not compute AUC: {e}")
+            except (ValueError, TypeError):
+                logger.warning("Could not compute AUC", exc_info=True)
 
     # Get feature importance
     feature_importance = None
@@ -145,11 +143,8 @@ def train_autogluon_model(
             feature_importance = predictor.feature_importance(test_df)
         else:
             feature_importance = predictor.feature_importance(train_df)
-    except (AttributeError, ValueError, RuntimeError) as e:
-        # AttributeError: Model doesn't support feature importance
-        # ValueError: Invalid input data
-        # RuntimeError: Feature importance computation failed
-        logger.warning(f"Could not compute feature importance: {e}")
+    except (AttributeError, ValueError, RuntimeError):
+        logger.warning("Could not compute feature importance", exc_info=True)
 
     if verbose:
         logger.info("AutoGluon training completed")
@@ -216,8 +211,8 @@ def train_lama_model(
         from lightautoml.automl.presets.tabular_presets import TabularAutoML
         from lightautoml.tasks import Task
         import matplotlib as mpl
-    except ImportError as e:
-        logger.error(f"LightAutoML not available: {e}")
+    except ImportError:
+        logger.exception("LightAutoML not available")
         return None
 
     # Default to binary classification if no init_params provided
@@ -272,10 +267,8 @@ def train_lama_model(
                     auc = roc_auc_score(test_target, test_probs[:, 1])
                 logger.info("LAMA test AUC: %.4f", auc)
                 metrics["test_auc"] = auc
-            except (ValueError, TypeError) as e:
-                # ValueError: Only one class present in y_true or invalid input
-                # TypeError: Cannot compute score on incompatible types
-                logger.warning(f"Could not compute AUC: {e}")
+            except (ValueError, TypeError):
+                logger.warning("Could not compute AUC", exc_info=True)
 
         # Reset matplotlib params (LAMA sometimes modifies them)
         mpl.rcParams.update(mpl.rcParamsDefault)
@@ -284,11 +277,8 @@ def train_lama_model(
     feature_importance = None
     try:
         feature_importance = automl.get_feature_scores("fast")
-    except (AttributeError, ValueError, RuntimeError) as e:
-        # AttributeError: Model doesn't support feature importance
-        # ValueError: Invalid input data
-        # RuntimeError: Feature importance computation failed
-        logger.warning(f"Could not compute feature importance: {e}")
+    except (AttributeError, ValueError, RuntimeError):
+        logger.warning("Could not compute feature importance", exc_info=True)
 
     if verbose:
         logger.info("LAMA training completed")

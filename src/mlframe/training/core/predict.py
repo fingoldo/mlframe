@@ -1895,7 +1895,10 @@ def predict_from_models(
                     results["models_used"].append(model_name)
 
                 except Exception as e:
-                    logger.error(f"Error predicting with model {model_name}: {e}")
+                    # Wave 41 (2026-05-20): twin path at line 995 already uses exc_info=True;
+                    # this site was the asymmetric one - lost the traceback for downstream
+                    # ensemble-member triage. Mirror the twin.
+                    logger.error("Error predicting with model %s", model_name, exc_info=True)
                     _predict_errors.append((model_name, f"{type(e).__name__}: {e}"))
                     continue
 

@@ -549,8 +549,11 @@ def save_mlframe_model(
             size_mb = os.path.getsize(file) / (1024 * 1024)
             logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
         return True
-    except Exception as e:
-        logger.error(f"Could not save model to file {file}: {e}")
+    except Exception:
+        # Wave 41 (2026-05-20): caller sees only a False return; without the traceback,
+        # production triage of "save returned False" is impossible (pickle / disk-full /
+        # torch-compile errors all look identical).
+        logger.exception("Could not save model to file %s", file)
         return False
     finally:
         # Restore torch.compile wrappers on the caller's payload so subsequent

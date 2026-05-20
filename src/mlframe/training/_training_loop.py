@@ -863,8 +863,8 @@ def _train_model_with_fallback(
             best_iter = get_model_best_iter(model_obj)
             if best_iter and verbose:
                 logger.info("es_best_iter: %d", best_iter)
-        except (AttributeError, TypeError, ValueError) as e:
-            logger.warning(f"Could not get best iteration: {e}")
+        except (AttributeError, TypeError, ValueError):
+            logger.warning("Could not get best iteration", exc_info=True)
 
     return model, best_iter
 

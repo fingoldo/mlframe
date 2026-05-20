@@ -648,8 +648,10 @@ def safely_compute_mps(f, **kwargs):
         res = compute_mps_targets(f, **kwargs)
         if res is not None and len(res) > 0:
             return res
-    except Exception as e:
-        print(f"Error with {f}: {e}")
+    except Exception:
+        # Wave 41 (2026-05-20): print -> logger.exception so traceback is preserved
+        # and the message stops mixing with stdout.
+        logger.exception("Error processing MPS file %s", f)
     return None
 
 
@@ -675,8 +677,8 @@ def compute_mps_targets(
                 .unique(subset=[ts_field, group_field], keep="first")
                 .sort(ts_field)
             )
-        except Exception as e:
-            logger.warning(f"File {fpath}, error {e}")
+        except Exception:
+            logger.warning("Failed to read MPS parquet file %s", fpath, exc_info=True)
             return
 
     basic_expr = pl.col(price_field).fill_null(strategy="forward").fill_null(strategy="backward")

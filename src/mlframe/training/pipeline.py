@@ -1222,8 +1222,9 @@ def create_polarsds_pipeline(
     """
     try:
         from polars_ds.pipeline import Pipeline as PdsPipeline, Blueprint as PdsBlueprint
-    except Exception as e:
-        logger.warning(f"Could not import polars-ds: {e}")
+    except ImportError:
+        # Wave 41 (2026-05-20): narrowed broad Exception -> ImportError; preserve traceback.
+        logger.warning("Could not import polars-ds", exc_info=True)
         return None
 
     if verbose:

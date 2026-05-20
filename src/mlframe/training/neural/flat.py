@@ -414,8 +414,8 @@ class MLPTorchModel(L.LightningModule):
         try:
             self.network = torch.compile(self.network, mode=self.hparams.compile_network)
             logger.info("Applied torch.compile with mode='%s'", self.hparams.compile_network)
-        except Exception as e:
-            logger.warning(f"Failed to apply torch.compile: {e}. Using uncompiled network.")
+        except Exception:
+            logger.warning("Failed to apply torch.compile. Using uncompiled network.", exc_info=True)
 
     def forward(self, *args, **kwargs) -> torch.Tensor:
         """Forward pass through the network."""
@@ -680,8 +680,8 @@ class MLPTorchModel(L.LightningModule):
                     on_epoch=True,
                     sync_dist=True,
                 )
-            except Exception as e:
-                logger.error(f"Failed to compute metric {prefix}_{metric.name}: {e}")
+            except Exception:
+                logger.exception("Failed to compute metric %s_%s", prefix, metric.name)
 
     def configure_optimizers(self):
         """Configure optimizer and optional learning rate scheduler."""

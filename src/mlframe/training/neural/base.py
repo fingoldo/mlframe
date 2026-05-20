@@ -434,8 +434,8 @@ class PytorchLightningEstimator(BaseEstimator):
 
             try:
                 self.model.example_input_array = to_tensor_any(data_slice, dtype=features_dtype, safe=True)
-            except Exception as e:
-                logger.warning(f"Failed to prepare example_input_array: {e}")
+            except Exception:
+                logger.warning("Failed to prepare example_input_array", exc_info=True)
 
         if self.tune_params and not (is_partial_fit and hasattr(self, "_tuned")):
             tuner = Tuner(trainer)

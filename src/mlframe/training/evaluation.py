@@ -226,8 +226,8 @@ def plot_model_feature_importances(
                 show_plots=show_plots,
                 max_zero_fi_to_plot=max_zero_fi_to_plot,
             )
-        except (ValueError, AttributeError, IndexError, TypeError) as e:
-            logger.warning(f"Could not plot feature importances: {e}. Maybe data shape is changed within a pipeline?")
+        except (ValueError, AttributeError, IndexError, TypeError):
+            logger.warning("Could not plot feature importances. Maybe data shape changed within a pipeline?", exc_info=True)
 
         return feature_importances
 

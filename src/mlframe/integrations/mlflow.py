@@ -118,6 +118,9 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: str = None, experimen
             except Exception as e:
                 nfailed+=1
                 if nfailed>5:
+                    # Wave 41 (2026-05-20): preserve traceback before final-give-up return;
+                    # caller sees only (None, False) otherwise.
+                    logger.exception("mlflow.start_run failed after %d retries", nfailed)
                     return None,False
                 scrubbed = _strip_userinfo(e)
                 if 'already active' in str(e):

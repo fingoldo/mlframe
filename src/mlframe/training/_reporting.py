@@ -811,8 +811,8 @@ def report_probabilistic_model_perf(
             # path below -- with the same Polars fallback wrapping so we
             # don't retry into the same dispatcher miss.
             probs = _predict_with_fallback(model, df, method="predict_proba")
-        except (AttributeError, TypeError, NotImplementedError) as e:
-            logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")
+        except (AttributeError, TypeError, NotImplementedError):
+            logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)
             preds_fallback = _predict_with_fallback(model, df, method="predict")
 
             if hasattr(model, "classes_"):

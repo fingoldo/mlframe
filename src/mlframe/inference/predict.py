@@ -124,8 +124,10 @@ def read_trained_models(
         abs_fpath = os.path.abspath(fpath)
         try:
             common = os.path.commonpath([abs_root, abs_fpath])
-        except ValueError:
-            raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}")
+        except ValueError as e:
+            # Wave 41 (2026-05-20): preserve the original ValueError ("Paths don't have the same drive"
+            # on Windows) via `from e` so cross-drive root mismatches don't masquerade as path-traversal.
+            raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}") from e
         if common != abs_root:
             raise ValueError(f"Path {abs_fpath} is not inside trusted_root {abs_root}")
     if not isdir(fpath):

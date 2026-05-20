@@ -1032,8 +1032,10 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
                     is_regression=False,
                     weights_only=False,
                 )
-            except Exception as e:
-                logger.warning(f"Failed to load checkpoint, using final model: {e}")
+            except Exception:
+                # Wave 41 (2026-05-20): checkpoint-fallback to final-epoch model is a
+                # quality regression source; preserve traceback for triage.
+                logger.warning("Failed to load checkpoint, using final model", exc_info=True)
 
         return self
 
@@ -1209,8 +1211,10 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
                     is_regression=True,
                     weights_only=False,
                 )
-            except Exception as e:
-                logger.warning(f"Failed to load checkpoint, using final model: {e}")
+            except Exception:
+                # Wave 41 (2026-05-20): checkpoint-fallback to final-epoch model is a
+                # quality regression source; preserve traceback for triage.
+                logger.warning("Failed to load checkpoint, using final model", exc_info=True)
 
         return self
 

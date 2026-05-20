@@ -702,8 +702,11 @@ def train_and_evaluate_model(
         _validate_trusted_path(model_file_name, _root)
         try:
             model, *_, pre_pipeline = joblib.load(model_file_name)
-        except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError, AttributeError) as e:
-            logger.warning(f"Failed to load cached model from {model_file_name}: {e}. Will retrain instead.")
+        except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError, AttributeError):
+            # Wave 41 (2026-05-20): retraining is expensive; preserve traceback so the
+            # operator can distinguish pickle-version mismatch / torch attribute drift /
+            # disk corruption rather than re-investigating after each fallback.
+            logger.warning("Failed to load cached model from %s; will retrain instead.", model_file_name, exc_info=True)
             # Continue to training - model remains as originally passed
 
     if fit_params is None:
