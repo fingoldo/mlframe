@@ -1280,17 +1280,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Convert numpy array to DataFrame if needed
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
-        else:
-            # Wave 29 P1 fix (2026-05-20): pre-fix polars DataFrames
-            # slipped past the np.ndarray branch; downstream
-            # ``X[target_name] = y`` (a few lines below) assumed pandas
-            # in-place mutation and raised on polars. Coerce explicitly.
-            try:
-                import polars as _pl_for_isinstance
-                if isinstance(X, _pl_for_isinstance.DataFrame):
-                    X = X.to_pandas()
-            except ImportError:
-                pass
+        # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
+        # coercion was added on the premise that downstream ``X[target_name]
+        # = y`` mutation assumed pandas and would raise on polars; but the
+        # ``_is_polars_input`` branch immediately below (line ~1326) ALREADY
+        # handles polars via ``X.with_columns(target_series)``. The Wave 29
+        # coercion was a false-positive fix that killed the zero-copy
+        # polars promise (test_mrmr_fe_zero_copy_polars regressed --
+        # ``pl.DataFrame.to_pandas()`` was called 1x per fit on 100+ GB
+        # production frames). Leaving polars frames untouched so the
+        # native branch fires.
 
         self.feature_names_in_ = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
         self.n_features_in_ = len(self.feature_names_in_)

@@ -88,7 +88,15 @@ class TestMRMRIdentityCache:
         assert not str(getattr(m, "signature", "")).startswith("_mrmr_identity_shortcut")
 
     def test_identity_skip_short_circuits_second_call(self) -> None:
-        """When prior fit was identity AND ``mrmr_skip_when_prior_was_identity=True``, the second fit on the SAME X with a different y returns identity output in O(microseconds), not O(seconds)."""
+        """When prior fit was identity AND ``mrmr_skip_when_prior_was_identity=True``, the second fit on the SAME X with a different y returns identity output in O(microseconds), not O(seconds).
+
+        Note: requires ``mrmr_identity_cache_include_y=False`` to test the
+        "skip regardless of y" path. With the new default
+        ``mrmr_identity_cache_include_y=True`` the cache key would compose
+        (X_fp, y_fp); a different y would miss the cache and a real fit
+        would run. The y-inclusion case is covered by
+        ``TestIdentityCacheYFingerprintOption`` below.
+        """
         rng = np.random.default_rng(7)
         n = 500
         X = pd.DataFrame({
@@ -105,7 +113,11 @@ class TestMRMRIdentityCache:
         _MRMR_IDENTITY_FP_CACHE[fp] = True
 
         from time import perf_counter
-        m = MRMR(verbose=0, mrmr_skip_when_prior_was_identity=True)
+        m = MRMR(
+            verbose=0,
+            mrmr_skip_when_prior_was_identity=True,
+            mrmr_identity_cache_include_y=False,  # override new default to test X-only-fp short-circuit
+        )
         t0 = perf_counter()
         m.fit(X, y2)
         elapsed = perf_counter() - t0
@@ -166,11 +178,21 @@ class TestMonresAutoKnotTuning:
 # ----------------------------------------------------------------------
 
 
-class TestIdentityCacheCellContentCollision:
-    """The X-fingerprint hashes only column NAMES + n_rows + dtypes -- NOT cell content. Two structurally-identical frames with different values collide on the same fingerprint. Documented trade-off."""
+class TestIdentityCacheCellContentDifferentiation:
+    """The X-fingerprint now hashes column NAMES + n_rows + dtypes PLUS a
+    10-cell evenly-spaced content sample per column, so two frames with
+    identical schema but different cell values produce DIFFERENT
+    fingerprints. The schema-only behaviour was a documented earlier
+    trade-off that allowed legitimate same-X-different-y re-fits to hit
+    the cache slot wrongly; the content-sample addition closes that
+    leak. Pre-change docstring at ``_mrmr_compute_x_fingerprint``:
+    "10 evenly-spaced positions, rounded float repr, O(1) per column".
+    """
 
-    def test_same_structure_different_values_collide(self) -> None:
-        """Two DataFrames with identical schema but different cell values produce the SAME X-fingerprint."""
+    def test_same_structure_different_values_DO_NOT_collide(self) -> None:
+        """Two DataFrames with identical schema but different cell values
+        MUST produce DIFFERENT X-fingerprints. The 10-cell content sample
+        in ``_mrmr_compute_x_fingerprint`` differentiates them."""
         df_a = pd.DataFrame({
             "a": np.array([1.0, 2.0, 3.0], dtype=np.float32),
             "b": np.array([4.0, 5.0, 6.0], dtype=np.float32),
@@ -181,19 +203,27 @@ class TestIdentityCacheCellContentCollision:
         })
         fp_a = _mrmr_compute_x_fingerprint(df_a)
         fp_b = _mrmr_compute_x_fingerprint(df_b)
-        # Documented trade-off: SAME fingerprint despite distinct content.
-        assert fp_a == fp_b, (
-            f"X-fingerprint should COLLIDE on same schema (documented trade-off); "
-            f"got fp_a={fp_a!r}, fp_b={fp_b!r}"
+        assert fp_a != fp_b, (
+            f"X-fingerprint should DIFFER when cell values differ "
+            f"(content-sample differentiation); got fp_a={fp_a!r}, "
+            f"fp_b={fp_b!r}"
         )
 
 
 class TestIdentityCacheYFingerprintOption:
-    """``mrmr_identity_cache_include_y=True`` adds a y-fingerprint to the cache key so legitimately distinct targets on same X get separate slots."""
+    """``mrmr_identity_cache_include_y=True`` (the post-2026-05-20 default)
+    adds a y-fingerprint to the cache key so legitimately distinct
+    targets on same X get separate slots. The earlier default was
+    ``False`` (schema-only collision was allowed); flipped to ``True``
+    after the cell-content-sample upgrade because it became cheap to
+    discriminate."""
 
-    def test_default_y_inclusion_off(self) -> None:
+    def test_default_y_inclusion_on(self) -> None:
+        """Default was flipped True 2026-05-20 -- y now contributes to
+        the cache key by default to prevent same-X-different-y
+        cache hits returning stale identity output."""
         m = MRMR()
-        assert m.mrmr_identity_cache_include_y is False
+        assert m.mrmr_identity_cache_include_y is True
 
     def test_y_fingerprint_distinguishes_different_targets(self) -> None:
         """When the option is ON, different y values on same X must produce different cache keys."""
