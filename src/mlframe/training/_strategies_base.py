@@ -1,0 +1,375 @@
+"""``ModelPipelineStrategy`` -- the abstract base class for all model strategies.
+
+Wave 104 (2026-05-21): split out from ``training/strategies.py`` to keep that
+file below the 1k-line monolith threshold. Behaviour preserved bit-for-bit;
+the class is re-exported from ``strategies`` so existing imports continue
+to work.
+
+The class implements the Strategy pattern to handle model-specific
+preprocessing pipelines. Each model type may require different
+preprocessing (scaling, encoding, imputation).
+"""
+
+from __future__ import annotations
+
+
+import importlib.util
+import logging
+import re
+from abc import ABC, abstractmethod
+from typing import Optional, List, Any, Dict, FrozenSet, Tuple, TYPE_CHECKING
+from sklearn.pipeline import Pipeline
+
+logger = logging.getLogger(__name__)
+
+# Pre-compiled slug pattern (MEMORY.md: pre-compile regex at module level).
+# Only allow alnum, dash, underscore; everything else collapses to a single "_".
+_SLUG_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
+
+if TYPE_CHECKING:
+    import polars as pl
+
+# =============================================================================
+# Unified categorical type constants
+# =============================================================================
+# Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals.
+# Import these instead of hardcoding type lists.
+
+PANDAS_CATEGORICAL_DTYPES: FrozenSet[str] = frozenset({
+    "category", "object", "string", "string[pyarrow]", "large_string[pyarrow]",
+})
+
+
+class ModelPipelineStrategy(ABC):
+    """
+    Abstract base class for model-specific pipeline strategies.
+
+    Different model types have different requirements:
+    - Tree models (CB, LGB, XGB): Handle NaN natively, no scaling needed
+    - HGB: Needs category encoding but no scaling
+    - Neural nets (MLP, NGBoost): Need full preprocessing (encoding + imputation + scaling)
+    - Linear models: Need full preprocessing
+    """
+
+    @property
+    @abstractmethod
+    def cache_key(self) -> str:
+        """Unique key for caching transformed DataFrames."""
+        ...
+
+    @property
+    @abstractmethod
+    def requires_scaling(self) -> bool:
+        """Whether this model type requires feature scaling."""
+        ...
+
+    @property
+    @abstractmethod
+    def requires_encoding(self) -> bool:
+        """Whether this model type requires category encoding."""
+        ...
+
+    @property
+    @abstractmethod
+    def requires_imputation(self) -> bool:
+        """Whether this model type requires missing value imputation."""
+        ...
+
+    @property
+    def supports_polars(self) -> bool:
+        """Whether this model type can accept Polars DataFrames directly for training."""
+        return False
+
+    @property
+    def supports_text_features(self) -> bool:
+        """Whether this model supports text features (free-text string columns)."""
+        return False
+
+    @property
+    def supports_embedding_features(self) -> bool:
+        """Whether this model supports embedding features (list-of-float vector columns)."""
+        return False
+
+    # ---- Multi-output (multiclass + multilabel) capability flags ----
+    # Strategies override these to opt INTO native dispatch. Default False
+    # means the dispatcher falls back to wrapper-based handling
+    # (MultiOutputClassifier for multilabel, default sklearn for
+    # multiclass -- most libraries already support multiclass natively
+    # via library-specific objective kwargs in helpers._classif_objective_kwargs).
+
+    @property
+    def supports_native_multiclass(self) -> bool:
+        """Whether this strategy supports K>2 single-label classification
+        natively (via library objective kwargs).
+
+        True for CB/XGB/LGB/HGB/Linear (all 5 mlframe strategies have
+        native paths). NeuralNet / Recurrent default False (their multi-
+        output handling is its own track).
+        """
+        return False
+
+    @property
+    def supports_native_multilabel(self) -> bool:
+        """Whether this strategy supports K binary independent labels
+        natively (single fitted model returns (N, K) probabilities,
+        no MultiOutputClassifier wrapper needed).
+
+        Today only CatBoost (loss_function='MultiLogloss'). Override to
+        True in CatBoostStrategy.
+        """
+        return False
+
+    @property
+    def supports_native_ranking(self) -> bool:
+        """Whether this strategy supports learning-to-rank natively.
+
+        True for CatBoostStrategy / XGBoostStrategy / LightGBMStrategy
+        (all three ship native rankers: ``CatBoostRanker``, ``XGBRanker``,
+        ``LGBMRanker``). False for HGB / Linear / Neural / Recurrent --
+        no ranker exists in those backends, and the suite skips them
+        with NotImplementedError when ``target_type.is_ranking``.
+        """
+        return False
+
+    @property
+    def supports_native_quantile(self) -> bool:
+        """Whether this strategy supports single-fit multi-quantile
+        regression natively.
+
+        True for CatBoost (``loss_function=MultiQuantile:alpha=...``)
+        and XGBoost (``objective=reg:quantileerror, quantile_alpha=[...]``).
+        False for everyone else -- LGB, HGB, Linear, MLP, Recurrent
+        all need K independent fits stacked via
+        ``_QuantileMultiOutputWrapper``.
+        """
+        return False
+
+    def get_quantile_objective_kwargs(self, qr_config) -> dict:
+        """Per-strategy kwargs for quantile-regression objective.
+
+        Returns the dict to merge into the regressor constructor kwargs
+        when ``target_type.is_quantile`` is in scope. Default returns
+        ``{}`` (subclasses without native quantile support route through
+        the wrapper instead -- see ``wrap_quantile``).
+        """
+        return {}
+
+    def wrap_quantile(self, estimator, qr_config):
+        """Wrap a base regressor for quantile-regression dispatch.
+
+        - Strategies with ``supports_native_quantile=True`` (CB / XGB)
+          return ``estimator`` unchanged -- the native objective kwargs
+          (injected via ``get_quantile_objective_kwargs``) make the
+          single fit produce (N, K) predictions.
+        - Strategies with ``supports_native_quantile=False`` wrap the
+          estimator in ``_QuantileMultiOutputWrapper(base, alphas)`` so
+          K independent fits are stacked into an (N, K) prediction.
+        """
+        if self.supports_native_quantile:
+            return estimator
+        from .quantile_wrapper import _QuantileMultiOutputWrapper
+
+        return _QuantileMultiOutputWrapper(
+            base_estimator=estimator,
+            alphas=qr_config.alphas,
+            crossing_fix=qr_config.crossing_fix,
+            n_jobs=qr_config.wrapper_n_jobs,
+        )
+
+    def get_ranker_objective_kwargs(
+        self,
+        ranking_config=None,
+        y_max: Optional[float] = None,
+    ) -> dict:
+        """Per-strategy ranker kwargs (loss_function / objective + auxiliaries).
+
+        Returns the dict to merge into the ranker constructor kwargs.
+        Default implementation returns ``{}`` (subclasses without native
+        ranker should never reach this -- ``supports_native_ranking=False``
+        gates it). Override in CB/XGB/LGB strategies.
+
+        Parameters
+        ----------
+        ranking_config : LearningToRankConfig, optional
+            User-pinned ranking objectives + ensemble method. Defaults
+            applied when None.
+        y_max : float, optional
+            Maximum value of ``y_train`` -- used by XGB to auto-fall-back
+            from ``rank:map`` (binary-only) to ``rank:ndcg`` when graded
+            relevance is detected (``y_max > 1``).
+        """
+        return {}
+
+    def get_classif_objective_kwargs(self, target_type, n_classes: int) -> dict:
+        """Per-strategy classifier kwargs for the target type.
+
+        Default implementation delegates to the freestanding
+        ``helpers._classif_objective_kwargs`` dispatcher. Strategies can
+        override to customise (e.g. force a specific eval_metric on
+        multilabel).
+        """
+        from .helpers import _classif_objective_kwargs
+
+        flavor_map = {
+            "CatBoostStrategy": "catboost",
+            "XGBoostStrategy": "xgboost",
+            "TreeModelStrategy": "lightgbm",  # default tree model is LGB
+            "HGBStrategy": "hgb",
+            "LinearModelStrategy": "linear",
+        }
+        flavor = flavor_map.get(type(self).__name__, "")
+        return _classif_objective_kwargs(flavor, target_type, n_classes)
+
+    def wrap_multilabel(self, estimator, target_type, multilabel_config=None,
+                       n_labels: Optional[int] = None):
+        """Multilabel dispatch: native vs wrapper vs chain ensemble.
+
+        Default delegates to ``helpers._maybe_wrap_multilabel`` with the
+        strategy's ``supports_native_multilabel`` flag. CatBoostStrategy
+        overrides this only if it needs CB-specific behaviour beyond the
+        flag check (currently doesn't).
+        """
+        from .helpers import _maybe_wrap_multilabel
+
+        return _maybe_wrap_multilabel(
+            estimator,
+            target_type,
+            multilabel_config=multilabel_config,
+            strategy_supports_native_multilabel=self.supports_native_multilabel,
+            n_labels=n_labels,
+        )
+
+    def feature_tier(self) -> tuple:
+        """Hashable key for grouping models by feature support level.
+
+        Models with the same tier can share trimmed DataFrames (text/embedding
+        columns dropped once per tier). Higher tiers support more feature types
+        and should train first.
+        """
+        return (self.supports_text_features, self.supports_embedding_features)
+
+    def prepare_polars_dataframe(self, df: "pl.DataFrame", cat_features: List[str]) -> "pl.DataFrame":
+        """Prepare a Polars DataFrame for models that support native Polars input.
+
+        Called in the Polars fastpath before training. Override in subclasses
+        to apply model-specific transformations (e.g., casting string columns
+        to pl.Categorical for HGB).
+
+        Default implementation returns the DataFrame unchanged (suitable for
+        CatBoost which handles all dtypes natively).
+        """
+        return df
+
+    def build_pipeline(
+        self,
+        base_pipeline: Optional[Pipeline],
+        cat_features: List[str],
+        category_encoder: Optional[Any] = None,
+        imputer: Optional[Any] = None,
+        scaler: Optional[Any] = None,
+    ) -> Optional[Pipeline]:
+        """
+        Build the preprocessing pipeline for this model type.
+
+        Feature selectors (MRMR, RFECV, SelectorMixin) run FIRST (before preprocessing); custom
+        transformers (PCA, etc.) run LAST (after preprocessing).
+
+        Per audit FE-L-1: set_output is hard-wired to ``"pandas"`` (the only format any caller ever
+        used). Polars-native consumers take the polars fastpath upstream of this builder; the sklearn
+        pipeline always emits pandas.
+        """
+        from sklearn.feature_selection import SelectorMixin
+        from mlframe.feature_selection.filters import MRMR
+
+        steps = []
+
+        # Determine if base_pipeline is a feature selector (runs FIRST) or transformer (runs LAST)
+        is_feature_selector = False
+        if base_pipeline is not None:
+            is_feature_selector = (
+                isinstance(base_pipeline, SelectorMixin)
+                or isinstance(base_pipeline, MRMR)
+                or isinstance(base_pipeline, Pipeline)  # nested sklearn Pipeline is treated as pre-step
+                or hasattr(base_pipeline, 'get_support')  # RFECV and similar
+            )
+
+        # Feature selectors go FIRST (before preprocessing)
+        if base_pipeline is not None and is_feature_selector:
+            steps.append(("pre", base_pipeline))
+
+        # Add category encoding if required and categorical features exist.
+        # Observability guard (2026-04-19 round-9 probe): if the strategy
+        # declares ``requires_encoding=True`` AND there are cat_features
+        # in the data BUT the caller passed ``category_encoder=None``,
+        # silently skipping the step meant unbounded categorical string
+        # values fed to a model that expected numeric -- sklearn then
+        # raised opaquely inside ``LinearRegression.fit`` / etc. Now: WARN
+        # so operators see the missing dependency at the source. We don't
+        # raise because some tests/callers legitimately pre-encode cats
+        # upstream and pass encoder=None; the WARN is enough signal.
+        if self.requires_encoding and cat_features:
+            if category_encoder is not None:
+                steps.append(("ce", category_encoder))
+            else:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "%s.build_pipeline: requires_encoding=True and %d "
+                    "categorical feature(s) present, but category_encoder "
+                    "is None. Encoding step skipped -- downstream model.fit "
+                    "may raise on raw string categoricals. Supply a "
+                    "category_encoder (e.g. sklearn.preprocessing."
+                    "OrdinalEncoder) or pre-encode cats upstream.",
+                    type(self).__name__, len(cat_features),
+                )
+
+        # Add imputation if required.
+        # WARN when requires_imputation=True but caller passed imputer=None: silently skipping the step sent raw NaN into LinearRegression.fit (prod log 2026-05-14 4M-row regression suite).
+        # Mirrors the requires_encoding WARN above. Root-cause was in caller (ctx.imputer not propagated from _get_pipeline_components); see ef123ff + regression suite in test_strategy_imputer_propagation.py.
+        if self.requires_imputation:
+            if imputer is not None:
+                steps.append(("imp", imputer))
+            else:
+                logger.warning(
+                    "%s.build_pipeline: requires_imputation=True but imputer is None. Imputation step skipped - downstream model.fit may raise ValueError on NaN input. "
+                    "Supply a sklearn.impute.SimpleImputer or pre-impute upstream.",
+                    type(self).__name__,
+                )
+
+        # Add scaling if required.
+        # Same defence-in-depth: WARN on silent skip when requires_scaling=True but scaler=None (LinearRegression doesn't crash without scaling but regularised variants converge slower; surface the misconfiguration).
+        if self.requires_scaling:
+            if scaler is not None:
+                steps.append(("scaler", scaler))
+            else:
+                logger.warning(
+                    "%s.build_pipeline: requires_scaling=True but scaler is None. Scaling step skipped - Ridge/Lasso/ElasticNet regularisation will be feature-magnitude-dependent. Supply a sklearn.preprocessing.StandardScaler.",
+                    type(self).__name__,
+                )
+
+        # Custom transformers go LAST (after preprocessing)
+        if base_pipeline is not None and not is_feature_selector:
+            steps.append(("transform", base_pipeline))
+
+        if not steps:
+            return base_pipeline
+
+        # Avoid wrapping base_pipeline in redundant Pipeline when it's the only step
+        if len(steps) == 1 and steps[0][0] == "pre":
+            return base_pipeline
+        if len(steps) == 1 and steps[0][0] == "transform":
+            return base_pipeline
+
+        pipeline = Pipeline(steps=steps)
+        # Ensure DataFrame dtypes (pd.Categorical, object, pl.Enum) survive the chain.
+        # sklearn's default returns numpy, which destroys categoricals -- LGB/CB/XGB
+        # then receive numpy with string values and crash on Dataset construction
+        # (e.g. "could not convert string to float: 'HOURLY'"). set_output keeps
+        # the frame as pandas so downstream isinstance(X, pd.DataFrame) branches
+        # take the native fastpath. Best-effort: some nested transformers
+        # (custom, third-party) don't declare get_feature_names_out and sklearn
+        # refuses to configure; swallow and continue.
+        try:
+            pipeline = pipeline.set_output(transform="pandas")
+        except Exception:
+            pass
+        return pipeline
