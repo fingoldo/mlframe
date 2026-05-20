@@ -315,11 +315,42 @@ def get_training_configs(
         # and Windows raises ``CatBoostError: Error 5: Access is denied
         # ... can't open catboost_info\catboost_training.json with mode
         # CreateAlways`` (observed 2026-05-20 on S: fuzz_3way
-        # c0290_cb_lgb_linear-pandas-n5000). mlframe maintains its own
-        # metadata pipeline so the CB-side artefacts are redundant;
-        # callers who need them can re-enable via
-        # ``hyperparams_config={"cb_kwargs": {"allow_writing_files":
-        # True, "train_dir": "<path>"}}``.
+        # c0290_cb_lgb_linear-pandas-n5000).
+        #
+        # What this disables (i.e. what we LOSE by default):
+        #   - ``catboost_info/catboost_training.json`` -- per-iteration
+        #     loss + custom-metric trace; only useful for offline
+        #     plotting of the learning curve.
+        #   - ``catboost_info/learn_error.tsv`` /
+        #     ``test_error.tsv`` / ``time_left.tsv`` -- TSV mirrors of
+        #     the above, consumed by CatBoost's stand-alone visualiser
+        #     and by ``catboost.MetricVisualizer`` notebooks. mlframe
+        #     does not call either.
+        #   - ``catboost_info/tmp/`` -- scratch dir for the in-memory
+        #     ``plot=True`` parameter and snapshot/resume features
+        #     (``snapshot_file=...``). Snapshot/resume is meaningful
+        #     only for very long fits and mlframe doesn't expose it
+        #     through CB_GENERAL_PARAMS.
+        #   - ``catboost_info/fold_info.json`` and ``fold_*.tsv`` -- per
+        #     fold metrics when ``cv()`` is used; mlframe builds its
+        #     own CV through sklearn and never calls catboost.cv.
+        #
+        # What we KEEP (unaffected by this flag):
+        #   - The fitted booster itself (returned from .fit() in
+        #     memory; ``save_model()`` still works because that's an
+        #     explicit user call, not a write-during-fit).
+        #   - SHAP / feature_importances / get_evals_result() return
+        #     values -- those are populated in-memory regardless.
+        #   - mlframe's own metadata / metric / plot pipeline, which is
+        #     the actual source of truth for training history in this
+        #     project.
+        #
+        # Callers who genuinely want CatBoost's artefacts re-enable via::
+        #
+        #     hyperparams_config={"cb_kwargs": {
+        #         "allow_writing_files": True,
+        #         "train_dir": "<process-unique path>",
+        #     }}
         allow_writing_files=False,
     )
     CB_GENERAL_PARAMS.update(cb_kwargs)
