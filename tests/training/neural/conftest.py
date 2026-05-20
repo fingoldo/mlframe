@@ -41,7 +41,19 @@ def _reset_torch_lightning_global_state():
 
     try:
         import lightning
-        lightning.seed_everything(42, workers=True, verbose=False)
+        # ``verbose`` kwarg was added in lightning 2.2; older installs (and
+        # the pytorch_lightning compat shim) raise TypeError on it. Probe
+        # the signature once per call and pass only kwargs the installed
+        # version supports.
+        import inspect
+        _kw = {"workers": True}
+        try:
+            _sig = inspect.signature(lightning.seed_everything)
+            if "verbose" in _sig.parameters:
+                _kw["verbose"] = False
+        except (TypeError, ValueError):
+            pass
+        lightning.seed_everything(42, **_kw)
     except ImportError:
         pass
 
