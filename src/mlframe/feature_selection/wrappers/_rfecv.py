@@ -469,12 +469,28 @@ class RFECV(BaseEstimator, TransformerMixin):
             return
         dir_name = os.path.dirname(os.path.abspath(path)) or "."
         os.makedirs(dir_name, exist_ok=True)
+        # Wave 36 Low fix (2026-05-20): mirror the ``_fd_adopted`` flag
+        # pattern used canonically across the project
+        # (``training/io.py:atomic_write_bytes``,
+        # ``composite_cache.py._save_lru``). If ``os.fdopen(fd, "wb")``
+        # raises BEFORE the BufferedWriter adopts ``fd`` (rare: MemoryError
+        # on the buffered-writer allocation, future refactor with an
+        # invalid mode), the raw ``fd`` is never adopted by a
+        # context-manager and leaks. Track adoption explicitly + close
+        # the raw fd in the failure branch.
         fd, tmp = tempfile.mkstemp(prefix=".rfecv_ckpt_", dir=dir_name)
+        _fd_adopted = False
         try:
             with os.fdopen(fd, "wb") as fh:
+                _fd_adopted = True  # fdopen returned -> the with-block owns fd
                 pickle.dump(state, fh, protocol=pickle.HIGHEST_PROTOCOL)
             os.replace(tmp, path)
         except Exception:
+            if not _fd_adopted:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             try:
                 os.remove(tmp)
             except OSError:
