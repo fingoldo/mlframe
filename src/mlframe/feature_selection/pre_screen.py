@@ -132,11 +132,18 @@ def compute_unsupervised_drops(
             if null_count > null_cutoff:
                 drops.add(col_name)
                 continue
-            if not np.issubdtype(col.dtype, np.number):
+            # ``np.issubdtype(col.dtype, np.number)`` raises TypeError on pandas
+            # extension dtypes (CategoricalDtype, StringDtype, DatetimeTZDtype) because
+            # those are NOT numpy dtypes. Pre-fix the raise bubbled out of this function
+            # entirely on any frame containing a Categorical / String column, taking the
+            # whole pre-screen pass down with it. Use pd.api.types.is_numeric_dtype which
+            # handles every pandas extension dtype gracefully (returns False for cats /
+            # strings, True for the nullable Int / Float ExtensionDtypes).
+            if not pd.api.types.is_numeric_dtype(col.dtype):
                 continue
             try:
                 var_val = float(col.var())
-            except Exception:
+            except (TypeError, ValueError):
                 var_val = None
             if var_val is None or np.isnan(var_val):
                 drops.add(col_name)
