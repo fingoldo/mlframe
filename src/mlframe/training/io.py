@@ -150,6 +150,15 @@ _SAFE_MODULE_PREFIXES: tuple = (
     # the schema-hash caching mechanism for any suite that includes linear
     # models. Package is a widely-used sklearn-family transformer, safe to allow.
     "category_encoders",
+    # Fix date 2026-05-20: recent pandas builds (>=2.0 with the pyarrow extension
+    # backend, or 2.2+ where pyarrow is preferred for object-dtype Series)
+    # pickle DataFrames through pyarrow.lib._restore_array. Without this entry
+    # round-tripping any DataFrame through save_mlframe_model + load_mlframe_model
+    # fails with "Unsafe class blocked by _SafeUnpickler allowlist:
+    # pyarrow.lib._restore_array" and load_mlframe_model returns None
+    # (observed 2026-05-20 in test_roundtrip_complex_nested_object on S:).
+    # pyarrow is a first-party Apache project, safe to allow.
+    "pyarrow",
 )
 
 # Specific safe names. `typing.TypeAlias` lands in pickled MLPRegressor
