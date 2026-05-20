@@ -203,6 +203,63 @@ def _fallback_for_joint_size(joint_size: int) -> dict:
     return _hw_aware_fallback(joint_size)
 
 
+def lookup_mi_classif_backend(n_samples: int, k: int,
+                               *, run_auto_tune: bool = False) -> str:
+    """Return ``"njit"`` or ``"cuda"`` for the plug-in MI dispatcher.
+
+    Hits the pyutilz ``KernelTuningCache`` for ``plugin_mi_classif_dispatch``.
+    On cache miss + ``run_auto_tune=True`` triggers a one-time sweep
+    via :func:`auto_tune.ensure_mi_classif_dispatch_tuning`. Returns
+    the measurement-backed hardcoded fallback (75k single / 10k batch
+    on GTX 1050 Ti cc 6.1, 2026-05-20) if pyutilz is unavailable or
+    the kernel hasn't been tuned yet.
+
+    The fallback values are conservative per-HW measurements; the
+    auto-tune sweep refines per-host (e.g. A100 / H100 will have lower
+    crossovers due to faster atomics + bus). Sweep runs in ~10-30s
+    once per host and persists via the same JSON file used by
+    ``joint_hist_batched``.
+    """
+    cache = _get_cache()
+    if cache is False or cache is None:
+        return _fallback_mi_backend(n_samples, k)
+
+    choice = cache.lookup(
+        "plugin_mi_classif_dispatch", n_samples=n_samples, k=k,
+    )
+    if choice is not None:
+        return str(choice.get("backend_choice", _fallback_mi_backend(n_samples, k)))
+
+    if run_auto_tune:
+        try:
+            from . import auto_tune as _auto_tune
+            _auto_tune.ensure_mi_classif_dispatch_tuning(force=False)
+            choice = cache.lookup(
+                "plugin_mi_classif_dispatch", n_samples=n_samples, k=k,
+            )
+            if choice is not None:
+                return str(choice.get(
+                    "backend_choice", _fallback_mi_backend(n_samples, k),
+                ))
+        except Exception as e:
+            logger.debug("mi_classif_dispatch auto_tune failed: %s", e)
+
+    return _fallback_mi_backend(n_samples, k)
+
+
+def _fallback_mi_backend(n_samples: int, k: int) -> str:
+    """Hard-coded fallback used when the cache is absent. Crossovers
+    measured 2026-05-20 on GTX 1050 Ti cc 6.1:
+    - Single-column (k=1): cuda wins from n>=75k
+    - Batch (k>=5):        cuda wins from n>=10k
+
+    Values pad ~30% above raw crossover to absorb run-to-run noise.
+    """
+    if k == 1:
+        return "cuda" if n_samples >= 75_000 else "njit"
+    return "cuda" if n_samples >= 10_000 else "njit"
+
+
 def reset_cache() -> None:
     """Drop the in-memory cache singleton; next lookup re-loads from disk
     (or re-runs auto-tune if forced). For tests + driver-update hooks."""
@@ -216,4 +273,4 @@ def reset_cache() -> None:
         _CACHE_SINGLETON = None
 
 
-__all__ = ["lookup_joint_hist", "reset_cache"]
+__all__ = ["lookup_joint_hist", "lookup_mi_classif_backend", "reset_cache"]

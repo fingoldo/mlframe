@@ -275,4 +275,170 @@ def ensure_joint_hist_tuning(force: bool = False) -> Optional[list[dict]]:
     return regions
 
 
-__all__ = ["ensure_joint_hist_tuning"]
+def _run_sweep_mi_classif_dispatch(n_iters: int = 5) -> list[dict]:
+    """Sweep ``(n_samples, k)`` grid for the ``plugin_mi_classif`` njit vs
+    cuda dispatcher decision. Returns regions with ``backend_choice`` in
+    ``{"njit", "cuda"}`` per measured cell.
+
+    Crossover varies dramatically per host:
+    - GTX 1050 Ti (tested 2026-05-20): single-col crossover ~75k, batch
+      k=20 crossover ~10k.
+    - A100 / H100 (untested here): expected lower crossover due to
+      faster H2D bus + atomic throughput.
+
+    Hand-coded thresholds were 1_000_000 (single) / 300_000 (batch) which
+    left 2-4x speedups on the table for cc 6.1 hardware. This sweep
+    measures per-host then persists via ``KernelTuningCache``, eliminating
+    the conservative-default-vs-actual-hardware gap.
+    """
+    from mlframe.feature_selection.filters.hermite_fe import (
+        _plugin_mi_classif_njit,
+        _plugin_mi_classif_cuda,
+        _plugin_mi_classif_batch_njit,
+        _plugin_mi_classif_batch_cuda,
+    )
+
+    rng = np.random.default_rng(11)
+    # (n_samples, k) grid that brackets the typical CMA-ES inner scale
+    # (n=1500-200k, k=1-20) plus a couple of large-n points to verify
+    # the cuda asymptote.
+    n_axis = (5_000, 20_000, 50_000, 100_000, 200_000, 500_000, 1_000_000)
+    k_axis = (1, 5, 20)
+    best_per_combo: dict[tuple[int, int], dict] = {}
+
+    # Warmup both backends with a tiny case so the JIT + cupy compile
+    # cost doesn't pollute the first measurement.
+    _x = rng.normal(size=2000)
+    _y = rng.integers(0, 3, size=2000).astype(np.int64)
+    try:
+        _plugin_mi_classif_njit(_x, _y, 20)
+        _plugin_mi_classif_cuda(_x, _y, 20)
+        _X = rng.normal(size=(2000, 5))
+        _plugin_mi_classif_batch_njit(_X, _y, 20)
+        _plugin_mi_classif_batch_cuda(_X, _y, 20)
+    except Exception as exc:
+        logger.warning("mi_dispatch warmup failed; aborting sweep: %s", exc)
+        return []
+
+    for n, k in itertools.product(n_axis, k_axis):
+        try:
+            if k == 1:
+                x = rng.normal(size=n)
+                y = rng.integers(0, 3, size=n).astype(np.int64)
+                t_njit = []
+                t_cuda = []
+                for _ in range(n_iters):
+                    t0 = time.perf_counter()
+                    _plugin_mi_classif_njit(x, y, 20)
+                    t_njit.append(time.perf_counter() - t0)
+                    t0 = time.perf_counter()
+                    _plugin_mi_classif_cuda(x, y, 20)
+                    t_cuda.append(time.perf_counter() - t0)
+            else:
+                X = rng.normal(size=(n, k))
+                y = rng.integers(0, 3, size=n).astype(np.int64)
+                t_njit = []
+                t_cuda = []
+                for _ in range(n_iters):
+                    t0 = time.perf_counter()
+                    _plugin_mi_classif_batch_njit(X, y, 20)
+                    t_njit.append(time.perf_counter() - t0)
+                    t0 = time.perf_counter()
+                    _plugin_mi_classif_batch_cuda(X, y, 20)
+                    t_cuda.append(time.perf_counter() - t0)
+            m_njit = float(np.median(t_njit) * 1000)
+            m_cuda = float(np.median(t_cuda) * 1000)
+            backend = "cuda" if m_cuda < m_njit else "njit"
+            best_per_combo[(n, k)] = {
+                "backend_choice": backend,
+                "njit_ms": round(m_njit, 4),
+                "cuda_ms": round(m_cuda, 4),
+            }
+            logger.info(
+                "auto_tune mi_classif n=%d k=%d -> %s (njit=%.2fms cuda=%.2fms)",
+                n, k, backend, m_njit, m_cuda,
+            )
+        except Exception as exc:
+            logger.debug("mi_classif sweep skipped n=%d k=%d: %s", n, k, exc)
+            continue
+
+    if not best_per_combo:
+        return []
+
+    regions: list[dict] = []
+    for (n_samples, k), choice in sorted(best_per_combo.items()):
+        regions.append({
+            "n_samples_max": int(n_samples),
+            "k_max": int(k),
+            "backend_choice": choice["backend_choice"],
+            "njit_ms": choice["njit_ms"],
+            "cuda_ms": choice["cuda_ms"],
+        })
+    # Catch-all region: largest measured combo decides the asymptote.
+    largest_key = max(best_per_combo.keys(), key=lambda kv: (kv[0], kv[1]))
+    largest = best_per_combo[largest_key]
+    regions.append({
+        "n_samples_max": None,
+        "k_max": None,
+        "backend_choice": largest["backend_choice"],
+        "njit_ms": None,
+        "cuda_ms": None,
+    })
+    return regions
+
+
+def ensure_mi_classif_dispatch_tuning(force: bool = False) -> Optional[list[dict]]:
+    """Return cached regions for ``plugin_mi_classif_dispatch``; run the
+    sweep + persist via pyutilz KernelTuningCache if missing. Returns
+    None if CUDA / pyutilz unavailable.
+
+    Mirrors :func:`ensure_joint_hist_tuning` for the
+    ``plugin_mi_classif`` njit-vs-cuda backend choice. Sweep takes
+    ~10-30s once per host; subsequent processes read the cached JSON
+    in ~1ms.
+    """
+    try:
+        from pyutilz.core.pythonlib import is_cuda_available
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        if not is_cuda_available():
+            return None
+    except ImportError:
+        return None
+
+    cache = KernelTuningCache()
+    if not force:
+        regions = cache.get_regions("plugin_mi_classif_dispatch")
+        if regions:
+            return regions
+
+    logger.info(
+        "kernel_tuning_cache: plugin_mi_classif_dispatch sweep starting "
+        "(one-time per host)"
+    )
+    t0 = time.perf_counter()
+    try:
+        regions = _run_sweep_mi_classif_dispatch(n_iters=5)
+    except Exception as e:
+        logger.warning(
+            "kernel_tuning_cache: plugin_mi_classif_dispatch sweep failed: %s", e,
+        )
+        return None
+    logger.info(
+        "kernel_tuning_cache: plugin_mi_classif_dispatch sweep done in %.2fs",
+        time.perf_counter() - t0,
+    )
+
+    if regions:
+        try:
+            cache.update(
+                "plugin_mi_classif_dispatch",
+                axes=["n_samples", "k"],
+                regions=regions,
+            )
+        except OSError as e:
+            logger.warning("kernel_tuning_cache: cache save failed: %s", e)
+
+    return regions
+
+
+__all__ = ["ensure_joint_hist_tuning", "ensure_mi_classif_dispatch_tuning"]

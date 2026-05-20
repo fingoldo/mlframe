@@ -72,7 +72,11 @@ class TestPluginMIClassifDispatcher:
 
     def test_dispatcher_routes_to_njit_below_threshold(self) -> None:
         rng = np.random.default_rng(11)
-        n = 5_000  # well below _MI_BATCH_CUDA_THRESHOLD = 300_000
+        # n=5_000, k=10: under the kernel_tuning_cache fallback this is
+        # below the batch (k>1) crossover (~10k on cc 6.1) so the
+        # dispatcher must route to njit. Per-host KTC may refine this
+        # boundary but the worst-case fallback still keeps n=5k on njit.
+        n = 5_000
         X = rng.normal(size=(n, 10))
         y = rng.integers(0, 3, size=n).astype(np.int64)
         out = plugin_mi_classif_batch_dispatch(X, y, 20)

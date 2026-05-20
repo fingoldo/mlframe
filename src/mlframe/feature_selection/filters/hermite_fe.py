@@ -252,6 +252,14 @@ def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray,
     -> **~1.9x speedup** on the hottest path. Numerical result is
     bit-for-bit identical (same quantile-bin recipe, same plug-in MI
     formula).
+
+    Usage scope: SINGLE-COLUMN (k=1) hot paths only. For batch (k>=5),
+    the parallel ``_plugin_mi_classif_batch_njit`` (prange over columns)
+    wins over the per-column-numpy-argsort loop here. Exposed publicly
+    for ad-hoc callers that compute single-column MI in a tight loop
+    (e.g. residualised baseline pairs); ``plugin_mi_classif_dispatch``
+    does NOT auto-route here because it already passes batches through
+    the prange path which beats this implementation at k>=5.
     """
     x_binned = _quantile_bin_numpy(x, n_bins)
     return float(_plugin_mi_from_binned_njit(
@@ -357,17 +365,21 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray,
     return float(res[0])
 
 
-# Thresholds for the MI dispatcher (in array length n). Single-column
-# CUDA crossover is much higher than the polyeval one because the MI
-# kernel is launch-cost-bound for small k. Batch path uses a lower
-# threshold because the cost of H2D + argsort is amortised across k.
+# MI dispatcher backend choice. The 2026-05-20 fix routes through the
+# ``pyutilz.system.kernel_tuning_cache`` infrastructure (already used for
+# joint_hist_batched) instead of hardcoded global thresholds. The KTC
+# pipeline:
+#   1. ``lookup_mi_classif_backend(n, k)`` -> consults the per-host JSON
+#      cache (~/.pyutilz/kernel_tuning/<hw_fingerprint>.json) and returns
+#      "njit" or "cuda".
+#   2. On cache miss: auto-tune sweep (~10-30s once per host) measures
+#      the (n_samples, k) grid and persists.
+#   3. Fallback (no pyutilz / no cuda): hand-coded measurements per HW
+#      fingerprint -- on GTX 1050 Ti cc 6.1 (2026-05-20 sweep):
+#      single-col cuda from n>=75k, batch (k>=5) cuda from n>=10k.
+# Env-var ``MLFRAME_MI_BACKEND`` (``njit`` / ``cuda``) still force-
+# overrides regardless of cache.
 import os as _mi_os
-_MI_CUDA_THRESHOLD = int(_mi_os.environ.get(
-    "MLFRAME_MI_CUDA_THRESHOLD", "1000000",
-))
-_MI_BATCH_CUDA_THRESHOLD = int(_mi_os.environ.get(
-    "MLFRAME_MI_BATCH_CUDA_THRESHOLD", "300000",
-))
 
 
 def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
@@ -375,15 +387,31 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
     """Single-column plug-in MI for continuous x and discrete y.
 
     Routes to :func:`_plugin_mi_classif_njit` (CPU) or
-    :func:`_plugin_mi_classif_cuda` (GPU) based on ``len(x)`` and
-    ``cupy`` availability. Override via ``MLFRAME_MI_BACKEND`` env var
-    (``njit`` | ``cuda``).
+    :func:`_plugin_mi_classif_cuda` (GPU) via the kernel tuning cache
+    (per-host measurement-backed). Override via ``MLFRAME_MI_BACKEND``
+    env var (``njit`` | ``cuda``) to force a specific backend.
     """
     forced = _mi_os.environ.get("MLFRAME_MI_BACKEND", "")
     n = x.shape[0]
-    if forced == "cuda" or (forced == "" and n >= _MI_CUDA_THRESHOLD and _CUDA_AVAILABLE):
+    if forced == "njit":
+        return float(_plugin_mi_classif_njit(x, y, n_bins))
+    if forced == "cuda":
         if _CUDA_AVAILABLE:
             return _plugin_mi_classif_cuda(x, y, n_bins)
+        return float(_plugin_mi_classif_njit(x, y, n_bins))
+    # Consult the kernel tuning cache. Fallback to njit when cuda
+    # unavailable regardless of cache choice.
+    if not _CUDA_AVAILABLE:
+        return float(_plugin_mi_classif_njit(x, y, n_bins))
+    try:
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
+            lookup_mi_classif_backend,
+        )
+        backend = lookup_mi_classif_backend(n, 1, run_auto_tune=False)
+    except Exception:
+        backend = "cuda" if n >= 75_000 else "njit"
+    if backend == "cuda":
+        return _plugin_mi_classif_cuda(x, y, n_bins)
     return float(_plugin_mi_classif_njit(x, y, n_bins))
 
 
@@ -392,15 +420,28 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
     """Batch plug-in MI per column of ``X_cols`` against discrete ``y``.
 
     Routes to :func:`_plugin_mi_classif_batch_njit` (prange CPU) or
-    :func:`_plugin_mi_classif_batch_cuda` (GPU) based on ``len(X_cols)``
-    and ``cupy`` availability. Override via ``MLFRAME_MI_BACKEND`` env
-    var (``njit`` | ``cuda``).
+    :func:`_plugin_mi_classif_batch_cuda` (GPU) via the kernel tuning
+    cache. Override via ``MLFRAME_MI_BACKEND`` env var.
     """
     forced = _mi_os.environ.get("MLFRAME_MI_BACKEND", "")
-    n = X_cols.shape[0]
-    if forced == "cuda" or (forced == "" and n >= _MI_BATCH_CUDA_THRESHOLD and _CUDA_AVAILABLE):
+    n, k = X_cols.shape
+    if forced == "njit":
+        return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+    if forced == "cuda":
         if _CUDA_AVAILABLE:
             return _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
+        return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+    if not _CUDA_AVAILABLE:
+        return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
+    try:
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
+            lookup_mi_classif_backend,
+        )
+        backend = lookup_mi_classif_backend(n, k, run_auto_tune=False)
+    except Exception:
+        backend = "cuda" if (k == 1 and n >= 75_000) or (k > 1 and n >= 10_000) else "njit"
+    if backend == "cuda":
+        return _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
     return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
 
 
