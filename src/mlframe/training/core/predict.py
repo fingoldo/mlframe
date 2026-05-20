@@ -558,6 +558,145 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features):
     return input_for_model
 
 
+def _apply_pre_pipeline_with_passthrough(
+    input_for_model,
+    *,
+    model,
+    model_obj,
+    pipeline,
+    df,
+    df_pre_pipeline,
+    metadata,
+    model_name,
+    verbose,
+):
+    """Apply ``model_obj.pre_pipeline.transform`` with text/embedding passthrough stash + feature-subset fallback.
+
+    Wave 90 (2026-05-21): extracted from the predict.py:1372 mega-try body
+    (was a 192-line nested ``if hasattr(model_obj, "pre_pipeline") ...``).
+    Behaviour preserved bit-for-bit. Returns the (possibly transformed,
+    possibly subsetted) input_for_model.
+
+    No-op paths (returns input unchanged):
+      - model_obj has no ``pre_pipeline`` attribute or it is None;
+      - ``model_obj.pre_pipeline is pipeline`` (suite-level pipeline already applied);
+      - ``check_is_fitted`` says the per-model pre_pipeline is unfitted
+        (tree-model placeholder Pipelines carried for sklearn-compat).
+
+    Active path:
+      1. Stash text+embedding passthrough cols (from ``metadata``) by reading
+         them off the broadest source frame -- prefer df_pre_pipeline, fall
+         back to df, then input_for_model.
+      2. Call ``pre_pipeline.transform(input_for_model)``.
+      3. Re-attach stashed cols to the post-transform pandas frame so the
+         downstream model sees the same frame width as at fit time.
+      4. On transform failure (e.g. NotFittedError on a cloned-not-refit
+         MRMR/RFECV/BorutaShap), fall back to subsetting input_for_model
+         to the inner model's ``feature_names_in_`` / ``feature_names_``.
+      5. Every narrow-except path WARN-logs which (col, error_type) pair
+         failed so silent corruption is impossible.
+    """
+    if not hasattr(model_obj, "pre_pipeline") or model_obj.pre_pipeline is None:
+        return input_for_model
+    if model_obj.pre_pipeline == pipeline:
+        return input_for_model
+
+    from sklearn.utils.validation import check_is_fitted
+    try:
+        check_is_fitted(model_obj.pre_pipeline)
+        _pp_fitted = True
+    except Exception:
+        _pp_fitted = False
+
+    if not _pp_fitted:
+        if verbose:
+            logger.debug(
+                "predict_from_models: %s has unfitted pre_pipeline; "
+                "skipping .transform (main pipeline already prepared the frame)",
+                model_name,
+            )
+        return input_for_model
+
+    _meta_text = list(metadata.get("text_features") or [])
+    _meta_emb = list(metadata.get("embedding_features") or [])
+    _passthrough_cols = _meta_text + _meta_emb
+    _stashed_passthrough: dict[str, Any] = {}
+    if _passthrough_cols:
+        _src_for_stash = None
+        for _candidate in (df_pre_pipeline, df, input_for_model):
+            if _candidate is None or not hasattr(_candidate, "columns"):
+                continue
+            if all(c in _candidate.columns for c in _passthrough_cols):
+                _src_for_stash = _candidate
+                break
+        if _src_for_stash is not None:
+            for _pc in _passthrough_cols:
+                try:
+                    if isinstance(_src_for_stash, pl.DataFrame):
+                        _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
+                    else:
+                        _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
+                except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:
+                    logger.warning(
+                        "predict_from_models: %s passthrough col %r failed to stash "
+                        "(%s: %s); downstream model will receive a frame missing this "
+                        "column. Predictions on rows whose pre-fit pipeline depended on "
+                        "it may be wrong.",
+                        model_name, _pc, type(_stash_err).__name__, _stash_err,
+                    )
+
+    try:
+        input_for_model = model_obj.pre_pipeline.transform(input_for_model)
+        if _stashed_passthrough and isinstance(input_for_model, pd.DataFrame):
+            for _pc, _vals in _stashed_passthrough.items():
+                if _pc in input_for_model.columns:
+                    continue
+                try:
+                    _vals_aligned = _vals
+                    if hasattr(_vals_aligned, "reset_index"):
+                        _vals_aligned = _vals_aligned.reset_index(drop=True)
+                    input_for_model = input_for_model.reset_index(drop=True)
+                    input_for_model[_pc] = _vals_aligned
+                except (KeyError, ValueError, TypeError) as _reattach_err:
+                    logger.warning(
+                        "predict_from_models: %s passthrough col %r stashed but "
+                        "failed to re-attach after pre_pipeline.transform "
+                        "(%s: %s); model will see a frame missing this column.",
+                        model_name, _pc, type(_reattach_err).__name__, _reattach_err,
+                    )
+    except Exception as _pp_exc:
+        _inner_feat_names = getattr(model, "feature_names_in_", None)
+        if _inner_feat_names is None:
+            _inner_feat_names = getattr(model, "feature_names_", None)
+        if _inner_feat_names is not None and hasattr(input_for_model, "columns"):
+            try:
+                _inner_list = [str(c) for c in _inner_feat_names]
+                _have = {str(c) for c in input_for_model.columns}
+                if all(c in _have for c in _inner_list):
+                    if isinstance(input_for_model, pl.DataFrame):
+                        input_for_model = input_for_model.select(_inner_list)
+                    else:
+                        input_for_model = input_for_model.loc[:, _inner_list]
+            except (KeyError, ValueError, TypeError, AttributeError) as _subset_err:
+                logger.warning(
+                    "predict_from_models: %s feature_names_in_ subset failed "
+                    "(%s: %s); falling through to model.predict on unsubset frame, "
+                    "which will likely raise a shape mismatch downstream.",
+                    model_name, type(_subset_err).__name__, _subset_err,
+                )
+        logger.warning(
+            "predict_from_models: %s pre_pipeline.transform "
+            "raised %s: %s. Skipping pre_pipeline (main "
+            "pipeline already encoded cat_features); subsetted "
+            "input to inner model's feature_names_in_ when "
+            "available, then passing to model.predict.",
+            model_name, type(_pp_exc).__name__,
+            str(_pp_exc).splitlines()[0][:160],
+        )
+
+    return input_for_model
+
+
 def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
     """Detect whether ``model_obj`` is a post-hoc calibrated wrapper.
 
@@ -1656,203 +1795,22 @@ def predict_from_models(
                             else:
                                 input_for_model = input_for_model.drop(columns=_drop_extra)
 
-                    # Per-model pre_pipeline (sklearn Pipeline of imputer +
-                    # scaler for linear / ridge / sgd; identity for tree
-                    # models that handle NaN natively). Apply AFTER the
-                    # per-model column subset so text/embedding columns
-                    # don't reach the pre_pipeline's input-feature checker.
-                    if hasattr(model_obj, "pre_pipeline") and model_obj.pre_pipeline is not None:
-                        if model_obj.pre_pipeline != pipeline:
-                            # Tree models (hgb / lgb / xgb / cb) with a
-                            # polars-ds main pipeline often carry an
-                            # UNFITTED placeholder sklearn Pipeline in
-                            # ``pre_pipeline`` (the strategy set it up
-                            # for sklearn-compat introspection but never
-                            # called ``.fit()`` because the main pipeline
-                            # did all preprocessing). Calling .transform
-                            # on it raises ``NotFittedError``. Skip the
-                            # transform when the pipeline has no fitted
-                            # steps; the main pipeline already prepared
-                            # the frame. Surfaced by fuzz iter#79
-                            # (regression x lgb,hgb x polars).
-                            from sklearn.utils.validation import check_is_fitted
-                            try:
-                                check_is_fitted(model_obj.pre_pipeline)
-                                _pp_fitted = True
-                            except Exception:
-                                # ``Exception`` subsumes NotFittedError; broad catch is intentional - any
-                                # check_is_fitted internal raise means "not safely fitted; skip transform".
-                                _pp_fitted = False
-                            if _pp_fitted:
-                                # Double-encoding guard. When the main polars-ds
-                                # pipeline already encoded cat_features (cat_low
-                                # -> Float64 etc.) AND the model strategy attached
-                                # its own pre_pipeline with a category encoder
-                                # (sklearn HGB carries category_encoders.
-                                # CatBoostEncoder with requires_encoding=True),
-                                # the encoder receives numeric input it cannot
-                                # match against its string-fit vocabulary and
-                                # raises "ufunc 'isnan' not supported" or
-                                # similar dtype errors. Plus the iter#55 global
-                                # cat-cast at the top of this function wraps
-                                # the column in pandas Categorical, which the
-                                # encoder also rejects. Skip with a WARN: the
-                                # main pipeline already did the encoder's job;
-                                # the model's raw .predict on the post-main-
-                                # pipeline frame produces equivalent output.
-                                # Surfaced by fuzz iter#80 (lgb+hgb on Polars+
-                                # cat: hgb's CatBoostEncoder crashed).
-                                #
-                                # iter-59 (cb-only + MRMR + text_features):
-                                # the saved pre_pipeline's MRMR selector drops
-                                # non-numeric cols (text/embedding) at
-                                # transform-time, but at fit time the trainer
-                                # wrapped pre_pipeline.fit_transform with
-                                # ``_passthrough_cols_fit_transform`` so text/
-                                # embedding cols survived the selector and
-                                # reached CB.fit. CB then stored the integer
-                                # column index for ``text_features`` against
-                                # the re-attached frame. Without the same
-                                # re-attach at predict, CB sees a narrower
-                                # frame and raises ``Invalid text_features[0]
-                                # = N value: index must be < N``.
-                                #
-                                # The fix has to stash the passthrough col
-                                # VALUES from the pre-subset frame (because
-                                # iter-49's expected-cols subset above may
-                                # have dropped them when pre_pipeline.
-                                # feature_names_in_ doesn't include them),
-                                # then re-attach AFTER pre_pipeline.transform.
-                                _meta_text = list(metadata.get("text_features") or [])
-                                _meta_emb = list(metadata.get("embedding_features") or [])
-                                _passthrough_cols = (_meta_text + _meta_emb)
-                                # Source frame for stashing: prefer the raw
-                                # pre-pipeline frame (df_pre_pipeline) which
-                                # carries the un-encoded text/embedding cols
-                                # untouched by any prior column reduction.
-                                _stashed_passthrough: dict[str, Any] = {}
-                                if _passthrough_cols:
-                                    _src_for_stash = None
-                                    for _candidate in (df_pre_pipeline, df, input_for_model):
-                                        if _candidate is None or not hasattr(_candidate, "columns"):
-                                            continue
-                                        _have_all = all(c in _candidate.columns for c in _passthrough_cols)
-                                        if _have_all:
-                                            _src_for_stash = _candidate
-                                            break
-                                    if _src_for_stash is not None:
-                                        for _pc in _passthrough_cols:
-                                            try:
-                                                if isinstance(_src_for_stash, pl.DataFrame):
-                                                    _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
-                                                else:
-                                                    _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
-                                            except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:
-                                                # Narrow: only the failures that mean "col missing / wrong shape / wrong type".
-                                                # Pre-fix swallowed bare Exception silently; the missing col then never
-                                                # made it into _stashed_passthrough, so the re-attach loop at L1446 simply
-                                                # skipped it, and the downstream model was fed a frame MISSING a passthrough
-                                                # column it was TRAINED on -- wrong predictions on production traffic with
-                                                # no log line. Log at WARNING so the operator sees which passthrough cols
-                                                # failed to round-trip.
-                                                logger.warning(
-                                                    "predict_from_models: %s passthrough col %r failed to stash "
-                                                    "(%s: %s); downstream model will receive a frame missing this "
-                                                    "column. Predictions on rows whose pre-fit pipeline depended on "
-                                                    "it may be wrong.",
-                                                    model_name, _pc, type(_stash_err).__name__, _stash_err,
-                                                )
-                                try:
-                                    input_for_model = model_obj.pre_pipeline.transform(input_for_model)
-                                    # Re-attach stashed passthrough cols so the
-                                    # downstream model sees the same frame
-                                    # width as at fit time (iter-59).
-                                    if _stashed_passthrough and isinstance(input_for_model, pd.DataFrame):
-                                        for _pc, _vals in _stashed_passthrough.items():
-                                            if _pc in input_for_model.columns:
-                                                continue
-                                            try:
-                                                _vals_aligned = _vals
-                                                if hasattr(_vals_aligned, "reset_index"):
-                                                    _vals_aligned = _vals_aligned.reset_index(drop=True)
-                                                input_for_model = input_for_model.reset_index(drop=True)
-                                                input_for_model[_pc] = _vals_aligned
-                                            except (KeyError, ValueError, TypeError) as _reattach_err:
-                                                # Narrow: shape / dtype mismatch on the re-attach assignment. Pre-fix
-                                                # silently swallowed; the col never made it back, model.predict ran on
-                                                # an incomplete frame, predictions silently wrong. Log at WARNING so
-                                                # operator can see WHICH cols failed to round-trip vs which were stashed.
-                                                logger.warning(
-                                                    "predict_from_models: %s passthrough col %r stashed but "
-                                                    "failed to re-attach after pre_pipeline.transform "
-                                                    "(%s: %s); model will see a frame missing this column.",
-                                                    model_name, _pc, type(_reattach_err).__name__, _reattach_err,
-                                                )
-                                except Exception as _pp_exc:
-                                    # When pre_pipeline.transform fails (most
-                                    # commonly NotFittedError on a cloned-not-
-                                    # refitted MRMR / RFECV / BorutaShap),
-                                    # recover by subsetting ``input_for_model``
-                                    # to the inner model's own feature names
-                                    # (LightGBM / XGB / sklearn:
-                                    # ``feature_names_in_``; CatBoost:
-                                    # ``feature_names_``). The inner model was
-                                    # fit on the SELECTOR-output column subset,
-                                    # so passing the un-subset full feature
-                                    # set raises "data (8) vs training (5)"
-                                    # in LGB and a similar shape error in
-                                    # CB / XGB. Pre-fix iter-59 / iter-301
-                                    # path: predict skipped pre_pipeline and
-                                    # blindly passed the full frame to the
-                                    # inner model -> LightGBMError; with this
-                                    # fallback subset the inner model sees
-                                    # the expected K columns and predict
-                                    # succeeds. Surfaced by fuzz iter-301
-                                    # (lgb binary MRMR) / iter-326 (lgb+xgb
-                                    # regression MRMR).
-                                    _inner_feat_names = getattr(model, "feature_names_in_", None)
-                                    if _inner_feat_names is None:
-                                        _inner_feat_names = getattr(model, "feature_names_", None)
-                                    if (
-                                        _inner_feat_names is not None
-                                        and hasattr(input_for_model, "columns")
-                                    ):
-                                        try:
-                                            _inner_list = [str(c) for c in _inner_feat_names]
-                                            _have = {str(c) for c in input_for_model.columns}
-                                            if all(c in _have for c in _inner_list):
-                                                if isinstance(input_for_model, pl.DataFrame):
-                                                    input_for_model = input_for_model.select(_inner_list)
-                                                else:
-                                                    input_for_model = input_for_model.loc[:, _inner_list]
-                                        except (KeyError, ValueError, TypeError, AttributeError) as _subset_err:
-                                            # Narrow: subset failures (missing col, dtype mismatch, polars/pandas mismatch).
-                                            # Pre-fix swallow let the fallback silently SKIP the inner-model feature
-                                            # subset, then model.predict raised a cryptic shape error downstream.
-                                            # Log so the cascade is debuggable instead of producing two unrelated-looking
-                                            # errors.
-                                            logger.warning(
-                                                "predict_from_models: %s feature_names_in_ subset failed "
-                                                "(%s: %s); falling through to model.predict on unsubset frame, "
-                                                "which will likely raise a shape mismatch downstream.",
-                                                model_name, type(_subset_err).__name__, _subset_err,
-                                            )
-                                    logger.warning(
-                                        "predict_from_models: %s pre_pipeline.transform "
-                                        "raised %s: %s. Skipping pre_pipeline (main "
-                                        "pipeline already encoded cat_features); subsetted "
-                                        "input to inner model's feature_names_in_ when "
-                                        "available, then passing to model.predict.",
-                                        model_name, type(_pp_exc).__name__,
-                                        str(_pp_exc).splitlines()[0][:160],
-                                    )
-                            elif verbose:
-                                logger.debug(
-                                    "predict_from_models: %s has unfitted "
-                                    "pre_pipeline; skipping .transform (main "
-                                    "pipeline already prepared the frame)",
-                                    model_name,
-                                )
+                    # Wave 90 (2026-05-21): per-model pre_pipeline.transform
+                    # (with text/embedding passthrough stashing + feature-
+                    # subset fallback on NotFittedError) lifted to the
+                    # module-level _apply_pre_pipeline_with_passthrough.
+                    # Same 192 lines, one call -- behaviour preserved.
+                    input_for_model = _apply_pre_pipeline_with_passthrough(
+                        input_for_model,
+                        model=model,
+                        model_obj=model_obj,
+                        pipeline=pipeline,
+                        df=df,
+                        df_pre_pipeline=df_pre_pipeline,
+                        metadata=metadata,
+                        model_name=model_name,
+                        verbose=verbose,
+                    )
 
                     # Wave 89 (2026-05-21): LGB + XGB cat dtype coercion lifted
                     # to module-level _coerce_cat_dtype_for_lgb_xgb. Same logic,
