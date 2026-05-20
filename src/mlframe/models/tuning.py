@@ -229,7 +229,7 @@ def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.Data
             if var in df:
                 del df[var]
 
-        cat_features = df.select_dtypes(include="object").columns.values.tolist()
+        cat_features = df.select_dtypes(include=["object", "string"]).columns.values.tolist()
 
         preprocess_df(df, cat_features)
 

@@ -183,7 +183,13 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             if pd.api.types.is_categorical_dtype(_dtype):
                 df[_col] = _ser.cat.codes.astype("int32")
                 touched.append(str(_col))
-            elif _dtype == object:
+            elif pd.api.types.is_string_dtype(_dtype):
+                # Use ``is_string_dtype`` (not ``== object``) so pandas
+                # 2.1+ ``infer_string`` / pyarrow-backed string columns
+                # also get encoded. Pre-fix the ``== object`` gate
+                # missed StringDtype columns on modern pandas and the
+                # surrogate fit downstream crashed with the original
+                # "pandas dtypes must be int, float or bool" error.
                 df[_col] = pd.Categorical(_ser).codes.astype("int32")
                 touched.append(str(_col))
         return touched
@@ -711,7 +717,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         if isinstance(self.X_shadow, pd.DataFrame):
             # append
-            obj_col = self.X_shadow.select_dtypes("object").columns.tolist()
+            obj_col = self.X_shadow.select_dtypes(include=["object", "string"]).columns.tolist()
             if obj_col == []:
                 pass
             else:

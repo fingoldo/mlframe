@@ -601,7 +601,7 @@ def categorize_dataset(
         numerical_cols = [name for name, dt in df.schema.items() if not _is_pl_cat(dt)]
         categorical_cols_detected = [name for name, dt in df.schema.items() if _is_pl_cat(dt)]
     else:
-        numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "bool")).columns.values.tolist()
+        numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "string", "bool")).columns.values.tolist()
         categorical_cols_detected = None
 
     if _is_polars:
@@ -659,7 +659,7 @@ def categorize_dataset(
             categorical_cols = []
             new_vals = None
     else:
-        categorical_factors = df.select_dtypes(include=("category", "object", "bool"))
+        categorical_factors = df.select_dtypes(include=("category", "object", "string", "bool"))
         categorical_cols = []
         if categorical_factors.shape[1] > 0:
             categorical_cols = categorical_factors.columns.values.tolist()

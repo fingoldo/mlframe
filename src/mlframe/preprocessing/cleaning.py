@@ -124,9 +124,11 @@ def _clean_cat_and_obj_columns(
 
         if verbose:
             logger.info("Cleaning object columns...")
-        for col in tqdmu(head.select_dtypes("object").columns):
+        for col in tqdmu(head.select_dtypes(include=["object", "string"]).columns):
             # .map beats .apply for elementwise pure functions on object columns: it uses a
             # cached-dict fast path for repeated values where applicable.
+            # Include "string" so pandas 2.1+ StringDtype / pyarrow-backed
+            # string columns get the clean_fcn applied too.
             df[col] = df[col].map(obj_vars_clean_fcn)
         collect()
 
@@ -142,7 +144,7 @@ def _clean_cat_and_obj_columns(
 
         if verbose:
             logger.info("Replacing vals in object columns: %s", obj_vars_replace)
-        for col in tqdmu(head.select_dtypes("object").columns):
+        for col in tqdmu(head.select_dtypes(include=["object", "string"]).columns):
             df[col] = df[col].replace(obj_vars_replace)
             collect()
 

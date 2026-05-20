@@ -1386,7 +1386,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 or (hasattr(_pl, "Enum") and isinstance(dt, _pl.Enum))
             ]
         else:
-            categorical_vars_names = X.head().select_dtypes(include=("category", "object", "bool")).columns.values.tolist()
+            categorical_vars_names = X.head().select_dtypes(include=("category", "object", "string", "bool")).columns.values.tolist()
         categorical_vars = [cols.index(col) for col in categorical_vars_names]
 
         if fe_max_steps > 0:
