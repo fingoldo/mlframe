@@ -4282,11 +4282,27 @@ def compute_fairness_metrics(
                 # Compute quantiles of the metric value.
                 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-                performances = np.array(list(metric_perf.values()))
+                # ``np.array(list(metric_perf.values()))`` materialised an
+                # intermediate Python list (one allocation + one ndarray
+                # alloc). ``np.fromiter`` consumes the dict_values view
+                # directly: one buffer alloc, ~2x less peak memory on
+                # large groupings. Performance is sub-second here, but
+                # the cleaner shape also makes the dtype contract
+                # explicit (was object-dtype-by-accident if any metric
+                # returned non-float).
+                # ``numba.njit`` was considered but is not applicable:
+                # ``metric_func`` is a Python callable / closure (sklearn
+                # metric), ``metric_perf`` is a sorted Python dict, and
+                # the dominant cost upstream is the per-bin metric call
+                # itself, not the quantile compute. Numba would not
+                # touch the bottleneck.
+                performances = np.fromiter(
+                    metric_perf.values(),
+                    dtype=np.float64,
+                    count=len(metric_perf),
+                )
                 # Wave 21 P2: nanquantile so a NaN bin (degenerate metric)
-                # doesn't poison the Tukey outlier thresholds below. Pre-fix
-                # all quantile columns of the row became NaN and IQR-based
-                # boundaries became NaN -> outlier detection silently broken.
+                # doesn't poison the Tukey outlier thresholds below.
                 quantiles = np.nanquantile(performances, q=quantiles_to_compute)
                 iqr = quantiles[-1] - quantiles[0]
                 min_boundary = quantiles[0] - tukey_mult * iqr
@@ -4297,8 +4313,11 @@ def compute_fairness_metrics(
                     line[f"q{q:.2f}"] = value
                 """
 
-                line[f"metric_mean"] = performances.mean()
-                line[f"metric_std"] = performances.std()
+                # Wave 21 P2 follow-up: nanmean / nanstd so the
+                # metric_mean / metric_std columns aren't silently NaN
+                # whenever a single bin emits NaN.
+                line[f"metric_mean"] = float(np.nanmean(performances))
+                line[f"metric_std"] = float(np.nanstd(performances))
 
                 # -----------------------------------------------------------------------------------------------------------------------------------------------------
                 # Show top-n best/worst groups. postfix * means metric value for the bin is an outlier.
