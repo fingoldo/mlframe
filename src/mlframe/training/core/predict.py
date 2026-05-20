@@ -375,6 +375,110 @@ def _combine_probs(
     return combined
 
 
+def _try_predict_with_pp_fallback(
+    fn,
+    primary,
+    fallback,
+    *,
+    model,
+    expected_list,
+    pandas_view_cache: dict,
+    model_name: str,
+    verbose: int = 0,
+):
+    """Call ``fn(primary)`` with two fallback paths for predict-time dtype mismatches.
+
+    Wave 88 (2026-05-21): extracted from the 525-line predict_from_models per-model
+    try-block body. Logic identical to the prior nested closure; named-arg surface
+    now explicit, lifetime no longer scoped to a single for-loop iteration.
+
+    Behaviour contract:
+
+      1. Primary attempt routes through ``_predict_with_fallback`` when fn is
+         ``predict`` / ``predict_proba`` so the CB val Pool cache + NaN guard +
+         LGBM polars auto-convert kick in (was the SKEW-CB-POOL-CACHE site that
+         re-paid 50-70s on every predict).
+      2. On TypeError matching the "isnan on strings" / "'<' not supported
+         between float and str" pattern, retry on ``fallback`` (the pre-pipeline
+         frame) -- the model's internal OrdinalEncoder was fit on raw strings.
+      3. On polars-input rejection (older CB / sklearn-wrapped XGB), retry via
+         a cached pandas view (no re-conversion).
+    """
+    _method = getattr(fn, "__name__", None)
+    _initial_exc: Optional[BaseException] = None
+    if _method in ("predict", "predict_proba"):
+        try:
+            return _predict_with_fallback(model, primary, method=_method, verbose=bool(verbose))
+        except TypeError as _te:
+            # Fall through to the in-line handler below so the encoder-mismatch retry path is preserved.
+            _initial_exc = _te
+        except (ValueError, AttributeError) as _ve:
+            _initial_exc = _ve
+    try:
+        if _initial_exc is None:
+            return fn(primary)
+        raise _initial_exc
+    except TypeError as _te:
+        _msg = str(_te)
+        # Same root cause -- HGB's internal OrdinalEncoder fit on raw strings
+        # called at predict with numeric input. Two equivalent symptoms:
+        #   1. "ufunc 'isnan' not supported" (isnan probe on str vocabulary)
+        #   2. "'<' not supported between instances of 'float' and 'str'"
+        # Both retry on the pre-main-pipeline frame where cat cols are strings.
+        _is_encoder_mismatch = (
+            ("isnan" in _msg and "supported" in _msg)
+            or ("'<' not supported" in _msg and "'float'" in _msg and "'str'" in _msg)
+        )
+        if _is_encoder_mismatch and fallback is not None:
+            logger.warning(
+                "predict_from_models: %s.%s on post-pipeline "
+                "frame tripped encoder dtype mismatch (%s); "
+                "retrying on pre-pipeline frame (the model's "
+                "internal OrdinalEncoder was fit on raw strings).",
+                model_name, fn.__name__,
+                _msg.splitlines()[0][:120],
+            )
+            _fb = fallback
+            if expected_list is not None and hasattr(_fb, "columns"):
+                _drop_fb = [c for c in _fb.columns if c not in expected_list]
+                if _drop_fb:
+                    if isinstance(_fb, pl.DataFrame):
+                        _fb = _fb.drop(_drop_fb)
+                    else:
+                        _fb = _fb.drop(columns=_drop_fb)
+                # Normalise column ORDER to fit-time expectation: LGB/XGB
+                # silently accept all-required-cols + wrong-order then produce
+                # nonsense predictions (feature_names_in_ consulted only at fit
+                # time). Cheap view-only reorder.
+                _fb_have = {str(c) for c in _fb.columns}
+                _order = [c for c in expected_list if str(c) in _fb_have]
+                if _order and list(map(str, _fb.columns)) != list(map(str, _order)):
+                    if isinstance(_fb, pl.DataFrame):
+                        _fb = _fb.select(_order)
+                    else:
+                        _fb = _fb.loc[:, _order]
+            return fn(_fb)
+        # Polars-input rejection (older CB / sklearn-wrapped XGB): retry via shared pandas view.
+        if isinstance(primary, pl.DataFrame):
+            logger.warning(
+                "predict_from_models: %s.%s rejected polars frame (%s); retrying on cached pandas view.",
+                model_name, fn.__name__, _msg.splitlines()[0][:160],
+            )
+            return fn(_ensure_pandas_view(primary, pandas_view_cache))
+        raise
+    except (ValueError, AttributeError) as _exc:
+        # Polars-input rejection paths in older library versions raise ValueError /
+        # AttributeError; fall back to the pandas view rather than dropping the model.
+        if isinstance(primary, pl.DataFrame):
+            logger.warning(
+                "predict_from_models: %s.%s rejected polars frame (%s: %s); retrying on cached pandas view.",
+                model_name, fn.__name__, type(_exc).__name__,
+                str(_exc).splitlines()[0][:160],
+            )
+            return fn(_ensure_pandas_view(primary, pandas_view_cache))
+        raise
+
+
 def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
     """Detect whether ``model_obj`` is a post-hoc calibrated wrapper.
 
@@ -1769,98 +1873,21 @@ def predict_from_models(
                     # (correct for LGB / linear / etc.) and fall back to
                     # pre-pipeline on the specific isnan-on-strings TypeError.
                     # Surfaced by fuzz iter#80 (lgb+hgb on Polars+cat).
+                    # Wave 88 (2026-05-21): the 90-line nested _try_predict closure
+                    # was extracted to the module-level _try_predict_with_pp_fallback.
+                    # Behaviour identical; the per-iteration def overhead is gone and
+                    # the function is now unit-testable in isolation.
                     _exp_list_for_fallback = list(_expected) if _expected is not None else None
 
                     def _try_predict(fn, primary, fallback):
-                        # Route the primary attempt through _predict_with_fallback so the CB val Pool cache /
-                        # NaN guard / LGBM polars auto-convert kick in at predict (the direct fn(primary)
-                        # bypass was the SKEW-CB-POOL-CACHE site that re-paid 50-70s on every predict).
-                        _method = getattr(fn, "__name__", None)
-                        if _method in ("predict", "predict_proba"):
-                            try:
-                                return _predict_with_fallback(model, primary, method=_method, verbose=bool(verbose))
-                            except TypeError as _te:
-                                # Fall through to the in-line handler below so the encoder-mismatch retry path is preserved.
-                                _initial_exc: BaseException = _te
-                            except (ValueError, AttributeError) as _ve:
-                                _initial_exc = _ve
-                            else:
-                                _initial_exc = None  # unreachable; here for type-narrowing
-                        else:
-                            _initial_exc = None
-                        try:
-                            if _initial_exc is None:
-                                return fn(primary)
-                            raise _initial_exc
-                        except TypeError as _te:
-                            _msg = str(_te)
-                            # Two related symptoms of the same root cause
-                            # (HGB's internal OrdinalEncoder fit on raw
-                            # strings, called at predict with numeric input):
-                            #   1. ``ufunc 'isnan' not supported`` - the
-                            #      encoder probes its string vocabulary
-                            #      with isnan, which rejects strings.
-                            #   2. ``'<' not supported between instances
-                            #      of 'float' and 'str'`` - the encoder
-                            #      tries to sort/compare the numeric input
-                            #      against its string categories.
-                            # Both indicate the same dtype mismatch and
-                            # should retry on the pre-main-pipeline frame
-                            # where cat columns are still strings.
-                            _is_encoder_mismatch = (
-                                ("isnan" in _msg and "supported" in _msg)
-                                or ("'<' not supported" in _msg and "'float'" in _msg and "'str'" in _msg)
-                            )
-                            if _is_encoder_mismatch and fallback is not None:
-                                logger.warning(
-                                    "predict_from_models: %s.%s on post-pipeline "
-                                    "frame tripped encoder dtype mismatch (%s); "
-                                    "retrying on pre-pipeline frame (the model's "
-                                    "internal OrdinalEncoder was fit on raw strings).",
-                                    model_name, fn.__name__,
-                                    _msg.splitlines()[0][:120],
-                                )
-                                _fb = fallback
-                                if _exp_list_for_fallback is not None and hasattr(_fb, "columns"):
-                                    _drop_fb = [c for c in _fb.columns if c not in _exp_list_for_fallback]
-                                    if _drop_fb:
-                                        # Polars-aware drop (iter#145 fix pattern)
-                                        if isinstance(_fb, pl.DataFrame):
-                                            _fb = _fb.drop(_drop_fb)
-                                        else:
-                                            _fb = _fb.drop(columns=_drop_fb)
-                                    # Normalise column ORDER to match the model's fit-time expectation. LGB and
-                                    # XGB silently accept a frame with all-required cols but wrong order, then
-                                    # produce nonsense predictions because feature_names_in_ is consulted only at
-                                    # fit time. Reordering to the fit-time list is cheap (view-only on pandas /
-                                    # polars 1.x select) and the only safe way to avoid the silent miscompute.
-                                    _fb_have = {str(c) for c in _fb.columns}
-                                    _order = [c for c in _exp_list_for_fallback if str(c) in _fb_have]
-                                    if _order and list(map(str, _fb.columns)) != list(map(str, _order)):
-                                        if isinstance(_fb, pl.DataFrame):
-                                            _fb = _fb.select(_order)
-                                        else:
-                                            _fb = _fb.loc[:, _order]
-                                return fn(_fb)
-                            # Polars-input rejection (older CB / sklearn-wrapped XGB): retry via shared pandas view.
-                            if isinstance(primary, pl.DataFrame):
-                                logger.warning(
-                                    "predict_from_models: %s.%s rejected polars frame (%s); retrying on cached pandas view.",
-                                    model_name, fn.__name__, _msg.splitlines()[0][:160],
-                                )
-                                return fn(_ensure_pandas_view(primary, _pandas_view_cache))
-                            raise
-                        except (ValueError, AttributeError) as _exc:
-                            # Polars-input rejection paths in older library versions raise ValueError / AttributeError;
-                            # fall back to the pandas view rather than dropping the model.
-                            if isinstance(primary, pl.DataFrame):
-                                logger.warning(
-                                    "predict_from_models: %s.%s rejected polars frame (%s: %s); retrying on cached pandas view.",
-                                    model_name, fn.__name__, type(_exc).__name__,
-                                    str(_exc).splitlines()[0][:160],
-                                )
-                                return fn(_ensure_pandas_view(primary, _pandas_view_cache))
-                            raise
+                        return _try_predict_with_pp_fallback(
+                            fn, primary, fallback,
+                            model=model,
+                            expected_list=_exp_list_for_fallback,
+                            pandas_view_cache=_pandas_view_cache,
+                            model_name=model_name,
+                            verbose=verbose,
+                        )
 
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = _try_predict(model.predict_proba, input_for_model, df_pre_pipeline)
