@@ -173,7 +173,24 @@ def categorize_1d_array(
     else:
         new_vals = ordinal_encoder.fit_transform(vals)
 
-    return new_vals.ravel().astype(dtype)
+    # Wave 40 (2026-05-20): auto-promote dtype to avoid silent wraparound on
+    # high-cardinality columns; matches categorize_dataset's promotion ladder.
+    out = new_vals.ravel()
+    out_max = int(out.max()) if out.size else 0
+    if out_max > np.iinfo(dtype).max:
+        for _candidate in (np.int16, np.int32, np.int64):
+            if out_max <= np.iinfo(_candidate).max:
+                logger.warning(
+                    "categorize_1d_array: max code %d exceeds dtype %s; auto-promoting to %s to avoid silent wraparound.",
+                    out_max, dtype, _candidate,
+                )
+                dtype = _candidate
+                break
+        else:
+            raise ValueError(
+                f"categorize_1d_array: cardinality {out_max} exceeds int64 max; cannot encode."
+            )
+    return out.astype(dtype)
 
 
 # =============================================================================
@@ -624,11 +641,31 @@ def categorize_dataset(
         else:
             new_vals = None
     if categorical_cols and new_vals is not None:
+        # Wave 40 (2026-05-20): the prior log-warn-then-truncate pattern silently wrapped
+        # category codes past the target dtype's max (e.g. id 128 -> -128 for int8),
+        # then nbins below read the post-wrap max and the joint-histogram in mi.py was
+        # sized to the wrapped value. Auto-promote dtype to fit the actual max code so
+        # high-cardinality categoricals (user_id / product_sku / hash-encoded targets)
+        # produce honest codes; fall back to the original log+truncate only if the
+        # caller explicitly forbids promotion via _force_dtype=True kwarg (not exposed
+        # at this signature -> always promote).
         max_cats = new_vals.max(axis=0)
-        exc_idx = max_cats > np.iinfo(dtype).max
-        n_max_cats = exc_idx.sum()
-        if n_max_cats:
-            logger.warning(f"{n_max_cats:_} factors exceeded dtype {dtype} and were truncated: {np.asarray(categorical_cols)[exc_idx]}")
+        global_max = int(max_cats.max())
+        if global_max > np.iinfo(dtype).max:
+            for _candidate in (np.int16, np.int32, np.int64):
+                if global_max <= np.iinfo(_candidate).max:
+                    logger.warning(
+                        "categorize_dataset: %d category code(s) exceeded dtype %s; auto-promoting to %s to avoid silent wraparound.",
+                        int((max_cats > np.iinfo(dtype).max).sum()),
+                        dtype,
+                        _candidate,
+                    )
+                    dtype = _candidate
+                    break
+            else:
+                raise ValueError(
+                    f"categorize_dataset: category cardinality {global_max} exceeds int64 max; cannot encode."
+                )
         new_vals = new_vals.astype(dtype)
 
         if data is None:

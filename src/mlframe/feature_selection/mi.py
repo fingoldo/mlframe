@@ -181,7 +181,20 @@ def chatgpt_compute_mutual_information(
                       Row k = MI(target_indices[k], all columns)
     """
     # Safety – make sure the array is C-contiguous int8 for maximum speed.
-    if data.dtype != np.int8 or not data.flags.c_contiguous:
+    # Wave 40 (2026-05-20): if caller binned with bin_dtype=Int16 + num_bins>128, the
+    # unchecked int8 cast wraps values 128+ to negative, then the numba kernel indexes
+    # joint[x[k], y[k]] with negative ints (boundscheck=off) and writes to wrong cells.
+    # Validate the input range BEFORE the cast; honest failure beats silent wraparound.
+    if data.dtype != np.int8:
+        _d_min, _d_max = int(data.min()) if data.size else 0, int(data.max()) if data.size else 0
+        if _d_min < 0 or _d_max > 127:
+            raise ValueError(
+                f"chatgpt_compute_mutual_information: input bin codes must be in [0, 127] for "
+                f"int8 kernel; got range [{_d_min}, {_d_max}]. Re-bin with num_bins<=128 or "
+                f"use a wider kernel variant."
+            )
+        data = np.ascontiguousarray(data, dtype=np.int8)
+    elif not data.flags.c_contiguous:
         data = np.ascontiguousarray(data, dtype=np.int8)
 
     targets = np.asarray(target_indices, dtype=np.int64)

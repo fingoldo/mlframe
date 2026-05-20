@@ -4241,7 +4241,15 @@ def create_fairness_subgroups_indices(
 def create_robustness_standard_bins(group_name: str, npoints: int, cont_nbins: int) -> tuple:
 
     step_size = npoints // cont_nbins
-    bins = np.empty(shape=npoints, dtype=np.int16)
+    # Wave 40 (2026-05-20): int16 wraps if cont_nbins > 32767. Use a range-aware narrowest
+    # dtype that fits the caller's cont_nbins-1 max so unusual callers don't wrap silently.
+    if cont_nbins - 1 <= np.iinfo(np.int8).max:
+        _bin_dtype = np.int8
+    elif cont_nbins - 1 <= np.iinfo(np.int16).max:
+        _bin_dtype = np.int16
+    else:
+        _bin_dtype = np.int32
+    bins = np.empty(shape=npoints, dtype=_bin_dtype)
     start = 0
     unique_bins = range(cont_nbins)
     for i in unique_bins:

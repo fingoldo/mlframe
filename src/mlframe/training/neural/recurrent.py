@@ -1104,7 +1104,15 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
             (n_samples,) array of predictions
         """
         proba = self.predict_proba(features, sequences)
-        return proba.argmax(axis=1).astype(np.int8)
+        # Wave 40 (2026-05-20): argmax returns 0..(n_classes-1); int8 wraps class 128 -> -128
+        # silently mis-classifying any class id > 127. Use the range-aware ladder shared by
+        # extractors.intize_targets() instead of the hardcoded int8.
+        classes = proba.argmax(axis=1)
+        cmax = int(classes.max()) if classes.size else 0
+        for _dt in (np.int8, np.int16, np.int32, np.int64):
+            if cmax <= np.iinfo(_dt).max:
+                return classes.astype(_dt)
+        return classes
 
 
 # ----------------------------------------------------------------------------------------------------------------------------
