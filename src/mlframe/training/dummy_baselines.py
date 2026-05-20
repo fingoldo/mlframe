@@ -791,8 +791,29 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
         if ts.dtype.kind == "M":
             ts = ts.astype("datetime64[ns]").astype("int64")
         elif ts.dtype.kind == "O":
-            # mixed types or pd.Timestamp -- try pandas conversion
-            ts = pd.to_datetime(ts, utc=True, errors="coerce").astype("datetime64[ns]").astype("int64")
+            # Object array: could be pd.Timestamp instances, datetime strings, OR
+            # bare numeric ints that fell into an object Series (e.g. from a
+            # df['ts'].values on a mixed-dtype frame). Sniff the first non-null
+            # element: numeric ints go through the audit unit-detector to avoid
+            # the ns-default trap; otherwise let pandas parse strings / Timestamps.
+            _first_non_null = next(
+                (v for v in ts if v is not None and not (isinstance(v, float) and np.isnan(v))),
+                None,
+            )
+            if isinstance(_first_non_null, (int, np.integer)) and not isinstance(_first_non_null, bool):
+                from .target_temporal_audit import coerce_timestamps_for_audit as _coerce_ts
+                _num = np.asarray([v if v is not None else 0 for v in ts], dtype=np.int64)
+                # coerce returns datetime64[ns]; view-cast directly to int64 ns since epoch.
+                ts = _coerce_ts(_num).view("int64")
+            else:
+                # tz_convert(None) strips tz so the .view("int64") below produces ns-since-epoch
+                # rather than ns-since-tz-offset-epoch (which the prior .astype("datetime64[ns]")
+                # could not do at all on tz-aware DatetimeIndex -- raised TypeError that the outer
+                # try/except swallowed, returning None and silently disabling temporal logic).
+                _dti = pd.to_datetime(ts, utc=True, errors="coerce")
+                if getattr(_dti, "tz", None) is not None:
+                    _dti = _dti.tz_convert(None)
+                ts = _dti.to_numpy().view("int64")
         # Else assume already numeric (epoch ints, floats).
         return ts
     except Exception:

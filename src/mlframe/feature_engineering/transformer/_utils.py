@@ -135,6 +135,27 @@ def validate_numeric_input(
             f"{name} has d={X.shape[1]} > 32768 (hard cap). At this width the projection matrix alone exceeds 1 GB and indicates an upstream one-hot / "
             "pre-densification mistake. Reduce dimensionality first (PCA, feature_selection, polars one-hot to Enum, etc.)."
         )
+    # Float32 precision warning: every transformer in this package follows the validator
+    # with ``np.asarray(X, dtype=np.float32)``. float32 mantissa is 24 bits (~16.7M);
+    # int inputs with values larger than that lose the low bits SILENTLY when cast,
+    # corrupting kNN distances / SMOTE neighbour lookups / RFF projections without any
+    # user-visible error. Common offenders: epoch-seconds timestamps (~1.7e9),
+    # high-cardinality hash IDs, monotone counters. Surface this at validation time
+    # so the caller can promote to float64 or rescale upstream.
+    if X.dtype.kind in ("i", "u"):
+        _abs_max = int(np.abs(X).max()) if X.size else 0
+        _F32_SAFE_MAX = 1 << 24  # 16_777_216 -- float32 mantissa
+        if _abs_max >= _F32_SAFE_MAX:
+            import warnings as _w
+            _w.warn(
+                f"{name}: integer dtype {X.dtype} with abs-max {_abs_max:,} >= 2^24 "
+                f"({_F32_SAFE_MAX:,}). Downstream transformers in this package cast "
+                f"to float32, which has a 24-bit mantissa; values above that limit "
+                f"lose low bits SILENTLY (kNN / SMOTE / RFF compute on rounded values, "
+                f"degrading model quality with no error). Either promote to float64 "
+                f"upstream, rescale to a smaller range, or accept the precision loss.",
+                stacklevel=2,
+            )
 
 
 def sigma_median_heuristic(
