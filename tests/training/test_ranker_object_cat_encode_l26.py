@@ -115,6 +115,18 @@ def test_lgb_ranker_smoke_with_object_cats() -> None:
         "rel": rng.integers(0, 4, size=n).astype(np.int32),
     })
 
+    # Standard FTE contract per train_mlframe_ranker_suite: ``transform``
+    # returns a 5+-tuple ``(df_features, target_by_type, group_ids_raw,
+    # group_ids, timestamps, ...)``. The previous 3-tuple shape
+    # ``(features, target, groups)`` always tripped the suite's
+    # ``transformed[3]`` lookup with None and raised "FTE produced no
+    # group_ids despite group_field being set", which the test then
+    # swallowed via ``pytest.skip("unrelated error")`` -- masking the
+    # actual object-cats-encoded-to-int contract this test is supposed
+    # to verify. Now we return the correct shape so the test runs end
+    # to end.
+    from mlframe.training.configs import TargetTypes
+
     class _FTE:
         target_column = "rel"
         target_type = None
@@ -128,24 +140,18 @@ def test_lgb_ranker_smoke_with_object_cats() -> None:
             features = features.drop(columns=["qid"]) if "qid" in features.columns else features
             target = np.asarray(frame["rel"]) if "rel" in frame.columns else None
             groups = np.asarray(frame["qid"]) if "qid" in frame.columns else None
-            return features, target, groups
+            target_by_type = {TargetTypes.LEARNING_TO_RANK: {"rel": target}}
+            return features, target_by_type, groups, groups, None
 
     fte = _FTE()
-    try:
-        out = train_mlframe_ranker_suite(
-            df=df,
-            target_name="rel",
-            model_name="ltr_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["lgb"],
-            ranking_config=LearningToRankConfig(ensemble_method="rrf"),
-            iterations=5,
-            verbose=0,
-        )
-    except Exception as e:
-        # The contract is "no crash on object cats" -- if LTR-suite
-        # raises for an unrelated reason (e.g. group_field plumbing in
-        # the synthetic FTE), surface that as a skip rather than
-        # masking the no-crash assertion.
-        pytest.skip(f"ranker suite raised unrelated error: {e!r}")
-    assert out is not None
+    out = train_mlframe_ranker_suite(
+        df=df,
+        target_name="rel",
+        model_name="ltr_test",
+        features_and_targets_extractor=fte,
+        mlframe_models=["lgb"],
+        ranking_config=LearningToRankConfig(ensemble_method="rrf"),
+        iterations=5,
+        verbose=0,
+    )
+    assert out is not None, "ranker suite must complete without crashing on object cats"
