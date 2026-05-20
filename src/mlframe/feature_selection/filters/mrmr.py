@@ -2126,155 +2126,42 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Orthogonal-polynomial pair FE: Chebyshev default basis (empirically robust); tight coef range [-2, 2],
             # fixed degree per study, L2 regularisation, identity-baseline filter. Override basis via
             # ``self.fe_polynomial_basis``. See feature_selection.filters.hermite_fe and bench_polynomial_bases.
-            from .hermite_fe import optimise_hermite_pair
-
-            for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
-                if _is_polars_input:
-                    vals_a = X[:, raw_vars_pair[0]].to_numpy()
-                    vals_b = X[:, raw_vars_pair[1]].to_numpy()
-                else:
-                    vals_a = X.iloc[:, raw_vars_pair[0]].values
-                    vals_b = X.iloc[:, raw_vars_pair[1]].values
-
-                # Skip if any column is constant after extraction.
-                if np.std(vals_a) < 1e-12 or np.std(vals_b) < 1e-12:
-                    continue
-
-                # Iterations correspond to study restarts: run fe_smart_polynom_iters full optimise_hermite_pair
-                # calls with different seeds and pick the global best.
-                best_res = None
-                fe_basis = getattr(self, "fe_polynomial_basis", "chebyshev")
-                fe_mi_est = getattr(self, "fe_mi_estimator", "plugin")
-                fe_optimizer = getattr(self, "fe_optimizer", "cma")
-                fe_warm_start = getattr(self, "fe_warm_start", True)
-                fe_multi_fidelity = getattr(self, "fe_multi_fidelity", True)
-                for seed_offset in range(fe_smart_polynom_iters):
-                    res = optimise_hermite_pair(
-                        x_a=vals_a, x_b=vals_b, y=classes_y,
-                        discrete_target=True,  # mRMR target is always classification-class-coded
-                        max_degree=fe_max_polynom_degree,
-                        min_degree=fe_min_polynom_degree,
-                        n_trials=fe_smart_polynom_optimization_steps,
-                        coef_range=(fe_min_polynom_coeff, fe_max_polynom_coeff),
-                        l2_penalty=getattr(self, "fe_hermite_l2_penalty", 0.05),
-                        n_neighbors=None,  # auto by n
-                        seed=42 + seed_offset,
-                        sweep_degrees=True,
-                        basis=fe_basis,
-                        mi_estimator=fe_mi_est,
-                        optimizer=fe_optimizer,
-                        warm_start=fe_warm_start,
-                        multi_fidelity=fe_multi_fidelity,
-                    )
-                    if res is not None and (best_res is None or res.mi > best_res.mi):
-                        best_res = res
-
-                if best_res is not None and verbose:
-                    logger.info(
-                        "Polynomial-pair FE (%s): pair=%s baseline_mi=%.4f best_mi=%.4f uplift=%.2fx "
-                        "degree=%d bf=%s |c|2=(%.2f, %.2f)",
-                        best_res.basis, raw_vars_pair, best_res.baseline_mi, best_res.mi,
-                        best_res.uplift, best_res.degree_a, best_res.bin_func_name,
-                        np.linalg.norm(best_res.coef_a), np.linalg.norm(best_res.coef_b),
-                    )
-                # 2026-05-18 #1: actually USE the best_res. Production
-                # TVT log spent 88 min in this loop and the result was
-                # logged + discarded ("# future work"). Now we inject
-                # best_res.transform(vals_a, vals_b) as a new engineered
-                # column whenever the optimisation cleared the engineered-
-                # MI gate. The column name is unique per pair + basis so
-                # downstream code can identify the source.
-                #
-                # NOTE: predict-time replay via EngineeredRecipe is the
-                # follow-up (the polynom coefficients + bin_func + preprocess
-                # params need to be serialised to a recipe; current
-                # build_unary_binary_recipe handles named unary/binary
-                # transformations only). For now self._hermite_features_
-                # stores (name, src_a, src_b, best_res) so a downstream
-                # caller can rebuild predict-time if needed.
-                if best_res is None:
-                    continue
-                _uplift_gate = float(fe_min_engineered_mi_prevalence)
-                if best_res.mi <= best_res.baseline_mi * _uplift_gate:
-                    continue
-                try:
-                    _t_vals = np.asarray(
-                        best_res.transform(vals_a, vals_b), dtype=np.float64,
-                    ).reshape(-1)
-                    if not np.all(np.isfinite(_t_vals)):
-                        # Skip if the polynom blows up; safer than feeding NaN downstream.
-                        continue
-                    _src_a = (
-                        cols[raw_vars_pair[0]]
-                        if 0 <= raw_vars_pair[0] < len(cols)
-                        else f"col{raw_vars_pair[0]}"
-                    )
-                    _src_b = (
-                        cols[raw_vars_pair[1]]
-                        if 0 <= raw_vars_pair[1] < len(cols)
-                        else f"col{raw_vars_pair[1]}"
-                    )
-                    _new_col_name = (
-                        f"_polynom_{best_res.basis}_{best_res.bin_func_name}"
-                        f"__{_src_a}__{_src_b}"
-                    )
-                    if _new_col_name in cols:
-                        # Already added (defensive against repeat pair eval).
-                        continue
-                    # Add discretized column to ``data`` so screening / downstream code sees it.
-                    _new_binned = discretize_array(
-                        arr=_t_vals,
-                        n_bins=self.quantization_nbins,
-                        method=self.quantization_method,
-                        dtype=self.quantization_dtype,
-                    ).reshape(-1, 1)
-                    data = np.append(data, _new_binned, axis=1)
-                    nbins = np.concatenate([
-                        np.asarray(nbins),
-                        np.asarray([int(self.quantization_nbins)], dtype=nbins.dtype),
-                    ])
-                    cols = cols + [_new_col_name]
-                    # Also add to X so subsequent pipeline operations (check_prospective_fe_pairs below) can read.
-                    if _is_polars_input:
-                        X = X.with_columns(pl.Series(_new_col_name, _t_vals))  # type: ignore[name-defined]
-                    else:
-                        X[_new_col_name] = _t_vals
-                    engineered_features.add(_new_col_name)
-                    if not hasattr(self, "_hermite_features_"):
-                        self._hermite_features_ = []
-                    self._hermite_features_.append({
-                        "name": _new_col_name,
-                        "src_a": _src_a, "src_b": _src_b,
-                        "basis": best_res.basis,
-                        "bin_func_name": best_res.bin_func_name,
-                        "degree_a": int(best_res.degree_a),
-                        "degree_b": int(best_res.degree_b),
-                        "best_mi": float(best_res.mi),
-                        "baseline_mi": float(best_res.baseline_mi),
-                    })
-                    # T1#3 2026-05-18 #1 Hermite recipe: persist best_res as an EngineeredRecipe so MRMR.transform replays it on test data.
-                    # Pre-fix this path stored a structured dict in _hermite_features_ but the predict-time replay path (apply_recipe) had no Hermite kind.
-                    # Now engineered_recipes carries the recipe; the fit-end splitter copies it into self._engineered_recipes_ when the column survives MRMR selection.
-                    from .engineered_recipes import build_hermite_pair_recipe
-                    engineered_recipes[_new_col_name] = build_hermite_pair_recipe(
-                        name=_new_col_name,
-                        src_names=(_src_a, _src_b),
-                        hermite_result=best_res,
-                    )
-                    if verbose:
-                        logger.info(
-                            "Polynomial-pair FE injected new feature '%s' "
-                            "(mi=%.4f, baseline_mi=%.4f, uplift=%.2fx).",
-                            _new_col_name, float(best_res.mi),
-                            float(best_res.baseline_mi), float(best_res.uplift),
-                        )
-                except Exception as _inj_err:
-                    if verbose:
-                        logger.warning(
-                            "Polynomial-pair FE injection failed for pair=%s: %s. "
-                            "Standard FE block below still runs.",
-                            raw_vars_pair, _inj_err,
-                        )
+            #
+            # 2026-05-18: extracted from inline ~200 LOC block into
+            # ``polynom_pair_fe.run_polynom_pair_fe`` (joblib-threaded pair
+            # eval + serial inject). ``self._hermite_features_`` is fed
+            # through as a target list so the helper stays method-free.
+            from .polynom_pair_fe import run_polynom_pair_fe
+            if not hasattr(self, "_hermite_features_"):
+                self._hermite_features_ = []
+            data, nbins, cols, X = run_polynom_pair_fe(
+                X=X, is_polars_input=_is_polars_input,
+                prospective_pairs=prospective_pairs,
+                classes_y=classes_y,
+                cols=cols, nbins=nbins, data=data,
+                engineered_features=engineered_features,
+                engineered_recipes=engineered_recipes,
+                hermite_features_list=self._hermite_features_,
+                feature_names_in=self.feature_names_in_,
+                fe_smart_polynom_iters=fe_smart_polynom_iters,
+                fe_smart_polynom_optimization_steps=fe_smart_polynom_optimization_steps,
+                fe_min_polynom_degree=fe_min_polynom_degree,
+                fe_max_polynom_degree=fe_max_polynom_degree,
+                fe_min_polynom_coeff=fe_min_polynom_coeff,
+                fe_max_polynom_coeff=fe_max_polynom_coeff,
+                fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
+                fe_hermite_l2_penalty=getattr(self, "fe_hermite_l2_penalty", 0.05),
+                fe_polynomial_basis=getattr(self, "fe_polynomial_basis", "chebyshev"),
+                fe_mi_estimator=getattr(self, "fe_mi_estimator", "plugin"),
+                fe_optimizer=getattr(self, "fe_optimizer", "cma"),
+                fe_warm_start=getattr(self, "fe_warm_start", True),
+                fe_multi_fidelity=getattr(self, "fe_multi_fidelity", True),
+                quantization_nbins=self.quantization_nbins,
+                quantization_method=self.quantization_method,
+                quantization_dtype=self.quantization_dtype,
+                n_jobs=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
+                verbose=int(verbose),
+            )
 
         # The standard check_prospective_fe_pairs path used to live in
         # ``else:`` of the Hermite block, which meant enabling
