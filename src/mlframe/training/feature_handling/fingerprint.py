@@ -299,7 +299,10 @@ def fingerprint_df(
             cols = []
     else:
         cols = list(columns)
-    cols_sorted = sorted(cols)
+    # Wave 61 (2026-05-20): pandas tolerates mixed-type column labels (e.g.
+    # [0, "a", 1] from a stitched join / pivot). sorted() raises TypeError on
+    # str-vs-int; coerce via str-key so fingerprinting stays robust.
+    cols_sorted = sorted(cols, key=str)
     n_cols = len(cols_sorted)
 
     # Stride-sample row indices.

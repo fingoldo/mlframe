@@ -554,10 +554,14 @@ class IdentityEstimator(BaseEstimator):
 
     def fit(self, X, y, **fit_params):
         if isinstance(self, ClassifierMixin):
-            if isinstance(y, pd.Series):
-                self.classes_ = np.array(sorted(y.unique()))
+            # Wave 61 (2026-05-20): object-dtype label set with mixed types
+            # (None + str) would TypeError on Python sorted(); use np.sort
+            # when dtype is numeric, str-key fallback otherwise.
+            _y_arr = y.unique() if isinstance(y, pd.Series) else np.unique(y)
+            if hasattr(_y_arr, "dtype") and _y_arr.dtype != object:
+                self.classes_ = np.sort(_y_arr)
             else:
-                self.classes_ = np.array(sorted(np.unique(y)))
+                self.classes_ = np.array(sorted(_y_arr, key=lambda v: (v is None, str(v))))
         return self
 
     def predict(self, X):

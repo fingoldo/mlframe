@@ -204,7 +204,14 @@ def apply_polars_categorical_fixes(
                 if len(union) > _DICT_ALIGN_SKIP_CARD:
                     skipped_cols.append((col, len(union)))
                     continue
-                union_sorted = sorted(union)
+                # Wave 61 (2026-05-20): precomputed_category_union may contain
+                # ints from an unstringified Categorical -- mixing str("__MISSING__")
+                # with int raises TypeError on sort, which the broad except below
+                # would swallow and the cat-alignment would be skipped, then
+                # XGB/CB would crash later on val DMatrix with a misleading
+                # unseen-category error. Coerce via str-key so the alignment
+                # works on heterogeneous input.
+                union_sorted = sorted(union, key=str)
                 enum_dt = pl.Enum(union_sorted)
                 _enum_domains_built[col] = union_sorted
                 train_df_polars = train_df_polars.with_columns(pl.col(col).cast(enum_dt))

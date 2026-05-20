@@ -304,11 +304,14 @@ class MBHOptimizer:
             sampled_inputs = set(sampled_inputs) - set(seeded_inputs)
 
             # sometimes it's required to process samples in certain order (like in FE/RFECV tasks, it's better to start with higher number of features, to have more accurate estimates)
+            # Wave 61 (2026-05-20): user-seeded inputs may be heterogeneous;
+            # str-key fallback so mixed-type sets don't TypeError on sort.
+            _sort_key = lambda v: (v is None, str(v))
             if init_evaluate_ascending:
-                sampled_inputs = sorted(sampled_inputs)
+                sampled_inputs = sorted(sampled_inputs, key=_sort_key)
             else:
                 if init_evaluate_descending:
-                    sampled_inputs = sorted(sampled_inputs)[::-1]
+                    sampled_inputs = sorted(sampled_inputs, key=_sort_key)[::-1]
 
             # actual evaluation of initial samples
             if len(sampled_inputs) > 0:

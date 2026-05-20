@@ -317,7 +317,13 @@ class PytorchLightningEstimator(BaseEstimator):
                     # Must be ndarray (not list) for numpy fancy indexing in evaluation.py::report_probabilistic_model_perf
                     # (line ``preds = model.classes_[preds]`` fails on list + ndarray index). Sklearn convention is classes_ ndarray.
                     _y_arr = (y.unique() if isinstance(y, pd.Series) else np.unique(y))
-                    self.classes_ = np.asarray(sorted(_y_arr))
+                    # Wave 61 (2026-05-20): object-dtype y (mixed-type label set
+                    # incl. None / np.nan + str) would TypeError on Python sorted();
+                    # use np.sort for ndarrays and str-key fallback for object dtype.
+                    if hasattr(_y_arr, "dtype") and _y_arr.dtype != object:
+                        self.classes_ = np.sort(_y_arr)
+                    else:
+                        self.classes_ = np.asarray(sorted(_y_arr, key=lambda v: (v is None, str(v))))
                 num_classes = len(self.classes_)
         else:
             num_classes = 1
