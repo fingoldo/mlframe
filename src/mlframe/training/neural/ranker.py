@@ -457,6 +457,41 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             return X.to_numpy(dtype=np.float32, copy=False)
         return np.asarray(X, dtype=np.float32)
 
+    def _fit_imputer(self, X_arr: np.ndarray) -> None:
+        # Tree rankers (CB/XGB/LGB) handle NaN/Inf natively; MLP doesn't. Without
+        # this, even one NaN in the input scrambles the forward pass to NaN, the
+        # loss becomes NaN, Lightning's NaN-guard halts training after epoch 0,
+        # and EarlyStopping never reports the failure (observed 2026-05-21 on
+        # fuzz combo c0063 with fillna_value_cfg=None: val_loss=nan, total
+        # ranknet calls dropped from expected n_epochs*n_queries to one pass).
+        # Per-column mean imputation matches sklearn SimpleImputer semantics;
+        # all-NaN columns fall back to zero so the model still trains on the
+        # remaining feature axes.
+        finite_mask = np.isfinite(X_arr)
+        col_has_any = finite_mask.any(axis=0)
+        sums = np.where(finite_mask, X_arr, 0.0).sum(axis=0)
+        counts = np.maximum(finite_mask.sum(axis=0), 1)
+        means = np.where(col_has_any, sums / counts, 0.0)
+        self._impute_means_ = means.astype(np.float32, copy=False)
+
+    def _apply_imputer(self, X_arr: np.ndarray) -> np.ndarray:
+        means = getattr(self, "_impute_means_", None)
+        if means is None:
+            return X_arr
+        bad = ~np.isfinite(X_arr)
+        if not bad.any():
+            return X_arr
+        # Wave 80 (2026-05-21): always copy. The prior inverse logic
+        # `X_arr.copy() if not X_arr.flags.writeable else X_arr` silently
+        # mutated the caller's writable buffer (the most common case), leaking
+        # NaN/Inf replacements back into the user's frame. Caller-aliasing is
+        # the bug class flagged by wave-38; do not propagate it here.
+        X_out = X_arr.copy()
+        # Broadcast the (n_features,) mean vector across rows; only NaN/Inf cells
+        # are replaced so legitimate finite values pass through untouched.
+        X_out[bad] = np.broadcast_to(means, X_arr.shape)[bad]
+        return X_out
+
     def fit(
         self,
         X,
@@ -491,6 +526,10 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         X_arr = self._x_to_array(X)
         y_arr = np.asarray(y, dtype=np.float32).ravel()
         n_features = X_arr.shape[1]
+        # Fit imputer on train statistics before sanitising train or val; reused
+        # in validation and predict so OOF / OOS see the same column means.
+        self._fit_imputer(X_arr)
+        X_arr = self._apply_imputer(X_arr)
 
         network = generate_mlp(
             num_features=n_features,
@@ -524,7 +563,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
 
         val_loader = None
         if X_val is not None and y_val is not None and group_ids_val is not None:
-            X_val_arr = self._x_to_array(X_val)
+            X_val_arr = self._apply_imputer(self._x_to_array(X_val))
             y_val_arr = np.asarray(y_val, dtype=np.float32).ravel()
             val_ds = _RankerDataset(X_val_arr, y_val_arr)
             val_sampler = GroupBatchSampler(
@@ -573,7 +612,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
 
     def predict(self, X) -> np.ndarray:
         """Return per-row scores (1-D, higher=more relevant)."""
-        X_arr = self._x_to_array(X)
+        X_arr = self._apply_imputer(self._x_to_array(X))
         self.module_.eval()
         device = next(self.module_.parameters()).device
         with torch.no_grad():
