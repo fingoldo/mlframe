@@ -2287,7 +2287,10 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
                 group_y_score = sorted_y_score[start_idx:end_idx]
 
                 # Sort by score for this group
-                group_desc_indices = np.argsort(group_y_score, kind="stable")[::-1]  # Wave 57: stable sort
+                # numba @njit np.argsort accepts kind="mergesort" (stable
+                # algorithm) but rejects kind="stable" (synonym alias).
+                # See iter106 ranking.py fix for the same TypingError.
+                group_desc_indices = np.argsort(group_y_score, kind="mergesort")[::-1]  # Wave 57: stable sort
 
                 # Compute AUCs for this group
                 roc_auc, pr_auc = fast_numba_aucs_simple(group_y_true, group_y_score, group_desc_indices)
