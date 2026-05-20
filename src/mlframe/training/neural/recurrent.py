@@ -689,7 +689,11 @@ class _RecurrentWrapperBase(BaseEstimator):
 
         # Stratified sampler: skip for multilabel (np.bincount fails on 2-D)
         # and for regression (continuous y has no class structure).
-        _is_multilabel_ds = (dataset.labels.ndim == 2)
+        # ``shape[1] >= 2`` (not just ``ndim == 2``): single-label targets
+        # delivered as a 1-column 2-D array are still SINGLE-label; treating
+        # them as multilabel suppresses the stratified sampler for what is
+        # actually a stratifiable single-label classification dataset.
+        _is_multilabel_ds = (dataset.labels.ndim == 2 and dataset.labels.shape[1] >= 2)
         if shuffle and self.config.use_stratified_sampler and not self._is_regression and not _is_multilabel_ds:
             labels = dataset.labels.numpy()
             # np.bincount needs non-negative contiguous integer labels and
@@ -973,7 +977,15 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
 
         # Detect multilabel from 2-D y: switches model to BCEWithLogitsLoss + sigmoid output.
         # Multilabel torchmetrics are skipped here (metrics come from the suite's downstream evaluation pipeline).
-        self._is_multilabel = bool(hasattr(labels, "ndim") and labels.ndim == 2)
+        # ``shape[1] >= 2`` lower bound: a single-label target delivered as
+        # a 1-column 2-D array is still single-label - same gotcha as the
+        # flat MLPClassifier in base.py (see commit + comment there); the
+        # consequence here would be a misconfigured BCEWithLogitsLoss with
+        # a num_classes=1 output head for what is actually multi-class
+        # classification.
+        self._is_multilabel = bool(
+            hasattr(labels, "ndim") and labels.ndim == 2 and np.asarray(labels).shape[1] >= 2
+        )
         if self._is_multilabel:
             self._n_labels = int(np.asarray(labels).shape[1])
             # Override config.num_classes to match label count so the MLP head builds the right number of output units.

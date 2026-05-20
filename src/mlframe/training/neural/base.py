@@ -269,11 +269,26 @@ class PytorchLightningEstimator(BaseEstimator):
         self.prediction_datamodule = dm
 
         if isinstance(self, ClassifierMixin):
-            # Detect multilabel target (2-D y of shape (N, K)). Multilabel has independent binary labels - no single classes_ array;
-            # instead store n_labels_ + skip the np.unique enumeration (which would collapse all labels' values into one set).
+            # Detect multilabel target (2-D y of shape (N, K) with K >= 2).
+            # Multilabel has independent binary labels - no single classes_
+            # array; instead store n_labels_ + skip the np.unique enumeration
+            # (which would collapse all labels' values into one set).
+            #
+            # The K >= 2 lower bound matters: a single-column 1-D-ish 2-D
+            # target (N, 1) is still SINGLE-LABEL classification (the
+            # upstream just delivered it as a 1-column frame instead of a
+            # 1-D array). Treating it as multilabel sets num_classes=1, so
+            # MLP gets output_dim=1, predictions squeeze to (N,), labels
+            # also squeeze to (N,), then CrossEntropyLoss interprets
+            # predictions.shape == labels.shape as the class-probabilities
+            # input mode and rejects Long labels with
+            # ``Expected floating point type for target with class
+            # probabilities, got Long``. Observed 2026-05-20 on S: in
+            # fuzz_3way combo cb_lgb_mlp_xgb-pl_nullable-n1000 binary
+            # classification.
             _y_check = y.values if isinstance(y, pd.Series) else y
             _y_check = np.asarray(_y_check) if not isinstance(_y_check, np.ndarray) else _y_check
-            self._is_multilabel = bool(_y_check.ndim == 2 and _y_check.shape[1] >= 1)
+            self._is_multilabel = bool(_y_check.ndim == 2 and _y_check.shape[1] >= 2)
 
             if self._is_multilabel:
                 self.n_labels_ = int(_y_check.shape[1])
