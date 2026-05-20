@@ -95,7 +95,24 @@ def prewarm_numba_cache():
     """Pre-warm Numba JIT cache to avoid compilation overhead during profiling.
 
     Calls all @njit functions with small dummy data to trigger JIT compilation before timing-sensitive operations. Warms up both float32 and float64 paths.
+
+    Re-entrancy guard: this function calls ``training.dummy_baselines._warmup_numba_kernels``
+    (forward), and that function calls back into us (reverse). Without the
+    ``_in_progress`` sentinel the pair mutually recurses past the stack limit
+    before either try/except sees the failure (observed 2026-05-20 on S:
+    full-suite run). Flag is set on the function itself so it's process-local
+    and visible from both sides.
     """
+    if getattr(prewarm_numba_cache, "_in_progress", False):
+        return
+    prewarm_numba_cache._in_progress = True
+    try:
+        _prewarm_numba_cache_body()
+    finally:
+        prewarm_numba_cache._in_progress = False
+
+
+def _prewarm_numba_cache_body():
     # Kick the loky/wmic physical-core-count probe in a background thread before numba JIT. The probe is a Windows wmic subprocess (~1.5s wall) that loky caches per-process; running it in parallel with the JIT compile overlaps the wait so the suite never pays the 1.5s when it later asks for cpu_count via joblib.
     try:
         import threading
@@ -486,19 +503,25 @@ def set_gpu_thresholds(*, n: Optional[int] = None, m: Optional[int] = None) -> N
 
 
 def is_gpu_metrics_available() -> bool:
-    """True iff cupy is importable AND a CUDA device is visible.
+    """True iff cupy is importable AND a CUDA device is visible AND a small reduction kernel actually compiles via NVRTC.
 
-    Result is cached after the first call. Failures during the import path return False silently - the dispatcher uses CPU when GPU is unavailable.
+    The NVRTC compile probe is essential: cupy can import cleanly and report devices on hosts with renamed/mismatched cublas/nvrtc DLLs, then crash later inside ``_SimpleReductionKernel._get_function`` with a RecursionError when its softlink-retry path re-enters itself (observed 2026-05-20 on S: full-suite run after the user renamed cublas64_11.dll to unblock torch).
+
+    Result is cached after the first call. ``except BaseException`` covers RecursionError too.
     """
     global _GPU_AVAILABLE
     if _GPU_AVAILABLE is not None:
         return _GPU_AVAILABLE
     try:
         import cupy as cp  # type: ignore
-        if cp.cuda.runtime.getDeviceCount() >= 1:
-            _GPU_AVAILABLE = True
-            return True
-    except Exception:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            _GPU_AVAILABLE = False
+            return False
+        # NVRTC compile probe - mirrors _utils.is_gpu_available().
+        _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
+        _GPU_AVAILABLE = True
+        return True
+    except BaseException:
         pass
     _GPU_AVAILABLE = False
     return False

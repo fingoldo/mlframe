@@ -360,6 +360,14 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
     Idempotent: numba caches compilations process-wide, so calling
     this multiple times is essentially free after the first.
 
+    Re-entrancy guard: this function calls
+    ``metrics.core.prewarm_numba_cache`` (forward), and that function
+    calls back into us (reverse). Without the ``_in_progress`` sentinel
+    the pair mutually recurses past the stack limit before either
+    try/except sees the failure (observed 2026-05-20 on S: full-suite
+    run). The flag is set on the function itself so it's process-local
+    and visible from both sides.
+
     Cost: ~2-5 seconds on the first call (one-time JIT compilation per
     kernel). Subsequent calls are <10ms. Returns silently on numba
     unavailable; logs at DEBUG by default (set ``verbose=True`` for
@@ -367,6 +375,16 @@ def _warmup_numba_kernels(verbose: bool = False) -> None:
     """
     if not _NUMBA_AVAILABLE:
         return
+    if getattr(_warmup_numba_kernels, "_in_progress", False):
+        return
+    _warmup_numba_kernels._in_progress = True
+    try:
+        _warmup_numba_kernels_body(verbose)
+    finally:
+        _warmup_numba_kernels._in_progress = False
+
+
+def _warmup_numba_kernels_body(verbose: bool = False) -> None:
     import time as _time
     log = logger.info if verbose else logger.debug
     t0 = _time.time()
