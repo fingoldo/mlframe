@@ -677,12 +677,12 @@ def _ensure_ctx_artifacts(ctx) -> dict:
     return artifacts
 
 
-def _get_feature_side_cache(ctx) -> dict:
+def _ensure_feature_side_cache(ctx) -> dict:
     """Return the (creating-if-needed) suite-scoped feature-side cache off ctx.artifacts."""
     return _ensure_ctx_artifacts(ctx).setdefault(_FEATURE_SIDE_CACHE_KEY, {})
 
 
-def _get_dataset_reuse_cache(ctx) -> dict:
+def _ensure_dataset_reuse_cache(ctx) -> dict:
     """Return the (creating-if-needed) suite-scoped dataset-reuse cache off ctx.artifacts.
 
     Keyed by ``(mlframe_model_name, pp_name)`` post-fix (DSET-REUSE-NO-PP-KEY): pre-fix the key was
@@ -809,7 +809,7 @@ def _capture_dataset_reuse_cache(
             continue
         captured[_attr] = _val
     if captured:
-        _get_dataset_reuse_cache(ctx)[_dataset_reuse_cache_key(mlframe_model_name, pp_name)] = captured
+        _ensure_dataset_reuse_cache(ctx)[_dataset_reuse_cache_key(mlframe_model_name, pp_name)] = captured
 
 
 def _restore_dataset_reuse_cache(
@@ -1452,7 +1452,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         # the inner loop. Both inner caches are scoped to the current ``pre_pipeline_name`` since
         # different pre_pipelines may keep different columns (MRMR / RFECV vs ordinary), and the
         # tier-DFs / Enum maps depend on the column set after pre-pipeline column trimming.
-        _suite_feature_cache = _get_feature_side_cache(ctx)
+        _suite_feature_cache = _ensure_feature_side_cache(ctx)
         _per_pp_cache = _suite_feature_cache.setdefault(pre_pipeline_name, {})
         tier_dfs_cache: dict[tuple, dict[str, Any]] = _per_pp_cache.setdefault("tier_dfs", {})
         # Leak-free pl.Enum map built from train+val UNION only (test EXCLUDED to avoid label-time leakage).
@@ -1582,16 +1582,16 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # invalidate the cache; pandas frames don't reach this branch typed-distinct enough to
             # need the suffix (handled upstream in split_features), so it's safe to skip there.
             _cache_key_train_df = train_df_polars if strategy.supports_polars else None
-            # 2026-05-18 fix: replace strategy.cache_key (name-based) with a
-            # CONTENT-based key derived from preprocessing requirements
-            # tuple. Pre-fix: LinearStrategy.cache_key="linear" and
-            # NeuralStrategy.cache_key="neural" produced DIFFERENT cache
-            # keys even when both used IDENTICAL ``imp+scaler`` pipelines,
-            # causing the second tier (e.g. MLP after Ridge) to re-do the
-            # 17s pre_pipeline transform on the same 4M rows. The content
-            # key folds (requires_imputation, requires_scaling,
-            # requires_encoding) into a stable string so any two
-            # strategies with matching requirements share the cache slot.
+            # Use a CONTENT-based cache key derived from the preprocessing-
+            # requirements tuple instead of strategy.cache_key (name-based).
+            # Two strategies that consume IDENTICAL ``imp+scaler`` pipelines
+            # MUST hit the same cache slot; name-keyed lookups
+            # (LinearStrategy.cache_key="linear" vs NeuralStrategy.cache_key=
+            # "neural") miss-on-name and re-do the 17s pre_pipeline transform
+            # for the second tier (e.g. MLP after Ridge) on the same 4M rows.
+            # The content key folds (requires_imputation, requires_scaling,
+            # requires_encoding) into a stable string so any two strategies
+            # with matching requirements share the cache slot.
             _content_key = (
                 f"imp{int(getattr(strategy, 'requires_imputation', False))}"
                 f"_scale{int(getattr(strategy, 'requires_scaling', False))}"

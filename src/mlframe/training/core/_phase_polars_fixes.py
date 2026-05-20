@@ -94,6 +94,22 @@ def apply_polars_categorical_fixes(
     supplied for a column, it wins over the post-OD train+val recomputation.
     Mitigates the silent val->null cast that happens when OD filtered out
     the only row in train carrying a rare category level.
+
+    ``defer_pandas_conv`` contract: this flag controls WHICH pandas aliases
+    get re-pointed to the post-fill+align polars frames at the end of the
+    function. When ``True``, ``train_df_pd`` / ``val_df_pd`` / ``test_df_pd``
+    / ``filtered_train_df`` / ``filtered_val_df`` were aliased to the ORIGINAL
+    (pre-fill, pre-Enum-cast) polars frames at caller time and we re-point
+    them HERE so downstream consumers see the cleaned frames. When ``False``,
+    those pandas aliases were already converted from polars to pandas earlier
+    in the suite and we DO NOT re-point them (re-pointing would silently
+    swap a pandas DataFrame for a polars DataFrame in the same ctx slot, and
+    every downstream isinstance() check would flip behaviour).
+
+    A caller that toggles ``defer_pandas_conv`` between calls of this function
+    on the same NamedTuple result will see ``*_pd`` slots backed by different
+    Python types (polars vs pandas) per branch -- that asymmetry is intentional
+    but easy to miss when reading the function in isolation.
     """
     # Track which cat columns got null-filled with __MISSING__ so phase-2 Enum union below can include
     # the sentinel in the union -- without that, ``pl.col(c).cast(Enum(union))`` silently casts every
