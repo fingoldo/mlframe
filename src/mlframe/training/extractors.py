@@ -715,6 +715,12 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             datetime_features=datetime_features,
             group_field=group_field,
             columns_to_drop=columns_to_drop,
+            # ``allowed_targets`` was documented as a filter at lines 648-649 but pre-fix the
+            # subclass __init__ silently swallowed the kwarg without forwarding to the base
+            # class (which DOES accept + store it via store_params_in_object). A caller
+            # passing allowed_targets=["a"] alongside classification_targets=["a","b","c"]
+            # expecting filtering got all three trained instead.
+            allowed_targets=allowed_targets,
             verbose=verbose,
             sequence_columns=sequence_columns,
             sequence_group_column=sequence_group_column,
@@ -824,6 +830,30 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                 targets[col] = df[col]
                 self.columns_to_drop.add(col)
             target_by_type[TargetTypes.REGRESSION] = targets
+
+        # Apply allowed_targets filter (docstring promised feature, never implemented pre-fix).
+        # When set, only keep target NAMES present in the set across every TargetTypes bucket.
+        # Names that don't match any built target are reported at WARNING so the caller catches
+        # typos in their allowlist rather than silently training an empty target_by_type.
+        _allowed = getattr(self, "allowed_targets", None)
+        if _allowed is not None:
+            _allowed_set = set(_allowed) if not isinstance(_allowed, set) else _allowed
+            _filtered: dict = {}
+            _kept: set[str] = set()
+            for _tt, _named in target_by_type.items():
+                if isinstance(_named, dict):
+                    _kept_for_tt = {k: v for k, v in _named.items() if k in _allowed_set}
+                    if _kept_for_tt:
+                        _filtered[_tt] = _kept_for_tt
+                        _kept.update(_kept_for_tt.keys())
+            _missing = _allowed_set - _kept
+            if _missing and self.verbose:
+                logger.warning(
+                    "allowed_targets filter: %d name(s) not found in built targets: %s. "
+                    "Built names: %s.",
+                    len(_missing), sorted(_missing), sorted(_kept),
+                )
+            target_by_type = _filtered
 
         return target_by_type
 

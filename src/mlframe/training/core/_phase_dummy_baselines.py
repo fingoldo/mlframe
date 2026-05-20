@@ -295,7 +295,24 @@ def run_dummy_baselines(
             "Training continues without baseline floor.",
             cur_target_name, target_type, _db_err,
         )
+        # Surface failure on TWO keys so CI gates can detect "baselines silently failed"
+        # without having to scan logs:
+        #   - dummy_baselines_failures[tt][target_name] = error message (rich detail)
+        #   - dummy_baselines_status                    = "failed" (top-level boolean-like sentinel)
+        # Pre-fix only the deep-nested failures key was set; a CI assertion checking
+        # ``"dummy_baselines" in metadata`` for release-gating saw the slot remain absent on
+        # failure (which read as "step never ran" rather than "step failed") AND the failure
+        # key was easy to miss because it's not part of the standard happy-path key set.
         metadata.setdefault("dummy_baselines_failures", {}) \
             .setdefault(str(target_type), {})[cur_target_name] = str(_db_err)
+        # Top-level status sentinel: any failure flips this from missing/"ok" to "failed".
+        # Callers can gate on ``metadata.get("dummy_baselines_status") != "failed"``.
+        metadata["dummy_baselines_status"] = "failed"
+        metadata.setdefault("dummy_baselines_status_detail", []).append({
+            "target_type": str(target_type),
+            "target_name": cur_target_name,
+            "error_type": type(_db_err).__name__,
+            "error": str(_db_err),
+        })
 
     return metadata

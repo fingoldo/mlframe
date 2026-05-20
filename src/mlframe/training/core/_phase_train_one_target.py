@@ -254,7 +254,21 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
     aren't independent candidates. ``_diversity`` is a side-channel report stamped by
     ``score_ensemble`` rather than an ensemble; skip it too.
 
-    Returns ``None`` when no candidate exposes any of the canonical ranking metrics.
+    Return values:
+      - ``None`` only when ``ensembles_dict`` is empty / not-a-dict / contains zero non-skip candidates.
+      - First-emitted flavour name (deterministic via ``ensembling_methods`` insertion order) when at
+        least one candidate exists but NONE expose any of the canonical ranking metrics. A WARN log
+        line is emitted in this fallback path so an operator grepping the suite log for
+        ``no candidate exposed`` can distinguish a fallback win from a metric-driven win. The
+        ``metadata["ensembles_chosen"]`` slot does NOT carry a fallback-vs-win marker; if the caller
+        needs that distinction reliably, capture the WARN via a log handler.
+      - Otherwise the flavour name whose ranking metric scored best per
+        ``_ENSEMBLE_RANK_METRIC_CANDIDATES``.
+
+    Pre-fix the docstring promised ``None`` on the no-metric path but the implementation returned the
+    first flavour to keep the predict path deterministic; the docstring is now reconciled with the
+    fallback behaviour rather than the other way around (changing return to None on no-metric would
+    break the deterministic predict-path contract that downstream callers depend on).
     """
     if not isinstance(ensembles_dict, dict) or not ensembles_dict:
         return None
@@ -975,6 +989,26 @@ def _maybe_run_feature_handling_apply(
         fhc = ctx.artifacts.get("feature_handling_config") if isinstance(getattr(ctx, "artifacts", None), dict) else None
     if fhc is None:
         return None
+    # sample_weight is accepted for forward compatibility but feature_handling_apply does NOT yet
+    # consume it. Under target-encoder handlers (LeakageSafeEncoder), the OOF means are computed
+    # UNWEIGHTED even when the suite is running recency-weighted training. Loud-warn so the operator
+    # sees this BEFORE diagnosing "production AUC degraded vs uniform-trained baseline" -- the
+    # silent discard was the cause. Once apply.py grows the sample_weight kwarg + threads it into
+    # the handler chain, drop the WARN and pass the value through.
+    if sample_weight is not None:
+        # Rate-limit log: emit at most once per process per (target, handler-count) to avoid
+        # spamming the log on multi-target suites where the warning is the same root cause.
+        _key = ("_fhc_sw_discard_warned", cur_target_name)
+        if not getattr(ctx, "artifacts", {}).get(_key):
+            logger.warning(
+                "_maybe_run_feature_handling_apply: sample_weight provided for target %r but "
+                "feature_handling_apply does not yet consume it; target-encoder OOF means will "
+                "compute UNWEIGHTED. Production AUC may degrade vs uniform-trained baseline. "
+                "Track removal of this warning when apply.py threads sample_weight through.",
+                cur_target_name,
+            )
+            if isinstance(getattr(ctx, "artifacts", None), dict):
+                ctx.artifacts[_key] = True
     try:
         from mlframe.training.feature_handling import feature_handling_apply  # local: avoid suite-import cost when FHC is off
     except ImportError:  # pragma: no cover

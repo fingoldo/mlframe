@@ -145,9 +145,21 @@ def feature_handling_apply(
         keyed on (session_id, df_id, train_idx, column, params, provider).
         Cache survives across multiple model fits within one
         ``train_mlframe_models_suite`` call.
-    candidate_text_columns / candidate_cat_columns : optional explicit
-        lists to skip the auto-detector. When ``None``, the helper
-        auto-detects via :func:`detect_text_columns`.
+    candidate_text_columns : optional explicit list to skip the text
+        auto-detector. When ``None``, the helper auto-detects via
+        :func:`detect_text_columns`.
+    candidate_cat_columns : explicit list of cat columns. When ``None``,
+        NO cat detection happens and the cat handler chain runs over zero
+        columns (silently dropping any ``target_mean`` / WoE / etc handlers
+        the FHC configured). Pre-2026-05-20 the docstring claimed symmetric
+        auto-detect with text but the implementation was "phase Q v1 --
+        caller passes explicit cat cols". Documenting the asymmetry so the
+        caller doesn't get a silent feature drop when they relied on the
+        symmetric promise. Pass an explicit list (e.g. from a polars
+        ``cs.string() / cs.categorical()`` selector or a pandas
+        ``select_dtypes(['category','object']).columns`` snapshot) to enable
+        cat handlers; a symmetric ``detect_cat_columns`` analog is a
+        follow-up item.
     numeric_block_* : optional pre-built numeric matrices (post-imputer
         / scaler from the legacy pipeline). Concatenated to the
         assembled matrix as the "numeric" block.
