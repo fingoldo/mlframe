@@ -805,11 +805,13 @@ def test_consec_layers_neurons_ratio_exactly_one():
 
 
 def test_consec_layers_neurons_ratio_below_one_raises():
-    """Test that ratio < 1.0 raises assertion error.
+    """Test that ratio < 1.0 raises ValueError.
 
     Kills mutation: boundary conditions on consec_layers_neurons_ratio.
+    (Audit 2026: bare ``assert`` was promoted to ``raise ValueError`` at
+    module boundaries so the validation isn't elided under ``python -O``.)
     """
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="consec_layers_neurons_ratio"):
         generate_mlp(
             num_features=10,
             num_classes=2,
@@ -820,11 +822,12 @@ def test_consec_layers_neurons_ratio_below_one_raises():
 
 
 def test_nlayers_zero_raises_error():
-    """Test that nlayers=0 raises assertion error.
+    """Test that nlayers=0 raises ValueError.
 
-    Kills mutation: `nlayers >= 1` to `nlayers >= 0`.
+    Kills mutation: ``nlayers >= 1`` to ``nlayers >= 0``. (Audit 2026: bare
+    ``assert`` was promoted to ``raise ValueError`` at module boundaries.)
     """
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="nlayers"):
         generate_mlp(
             num_features=10,
             num_classes=2,
