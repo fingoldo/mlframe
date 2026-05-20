@@ -892,7 +892,15 @@ def _release_ctx_polars_frames(
     # silently hit a cached entry whose state belonged to the dropped frame.
     _purge_fh_cache_by_df_tokens(ctx, released_df_tokens)
     new_baseline = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason=reason)
-    if expected_mb > 0.0:
+    # Only emit the lingering-refs warning when the expected reclaim is large enough for the
+    # actual delta to be measurable above RSS-measurement noise. Windows / Linux RSS reporting
+    # rounds to page-granularity (~4 KiB) and the resident-set is also affected by OS-managed
+    # caching outside our control. For small frames (<10 MB expected reclaim) a delta of 0
+    # is well within noise and the warning is just chatter that fires on every fuzz / unit test
+    # suite call. Keep the warning loud for the real-production case (gigabyte-scale frames
+    # where a missed release is a real leak).
+    _POLARS_RELEASE_MIN_EXPECTED_MB = 10.0
+    if expected_mb >= _POLARS_RELEASE_MIN_EXPECTED_MB:
         rss_after_mb = get_process_rss_mb()
         delta_mb = rss_before_mb - rss_after_mb
         if delta_mb < _POLARS_RELEASE_MIN_RECLAIM_FRACTION * expected_mb:
