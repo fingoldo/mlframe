@@ -39,166 +39,24 @@ from .utils import log_ram_usage
 logger = logging.getLogger(__name__)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# Pipeline structural-identity cache
-# ═══════════════════════════════════════════════════════════════════
-
-from collections import OrderedDict  # noqa: E402
-import threading as _threading  # noqa: E402
-
-_PRE_PIPELINE_CACHE_LOCK = _threading.Lock()
-_PRE_PIPELINE_CACHE: OrderedDict[tuple, tuple] = OrderedDict()
-# Default LRU bound; overridable per call via TrainingBehaviorConfig.pre_pipeline_cache_max so long-running services can tune memory vs reuse rate without monkey-patching.
-# Audit D P2-1 (2026-05-18): pre-fix default was 4 which silently evicted on the typical suite
-# (cb + lgb + xgb + mlp + linear == 5 models). Bumped to 8 so a standard suite fits without
-# thrashing; callers needing tighter bounds still set TrainingBehaviorConfig.pre_pipeline_cache_max.
-_PRE_PIPELINE_CACHE_MAX: int = 8
-
-
-# Audit D P0-3 (2026-05-18): a content-fingerprint failure must force a MISS, not a stable
-# cache hit. The previous ``("uncached", id(arr))`` return was a stable tuple key, so two
-# consecutive targets passing the SAME filtered_train_df id produced an IDENTICAL cache key
-# for both targets -- target-2 silently consumed target-1's fit-transform output. The sentinel
-# below is a unique-per-invocation marker; default identity equality / hash make two instances
-# NEVER compare equal even when wrapping the same input id.
-class _UncachableSentinel:
-    """Per-instance identity marker; two instances NEVER compare equal under default object
-    eq/hash, so cache keys built around two sentinels cannot collide."""
-
-    __slots__ = ()
-
-    def __repr__(self) -> str:  # pragma: no cover - cosmetic only
-        return "<UncachableSentinel>"
-
-
-def _fresh_uncachable() -> tuple:
-    """Return a never-equal-to-anything-else sentinel tuple. Used in place of the unsafe
-    ``("uncached", id(arr))`` which collided cross-target."""
-    return ("uncached", _UncachableSentinel())
-
-
-def _content_fingerprint_for_cache(arr) -> tuple:
-    """Content-based fingerprint of an array / DataFrame / target.
-
-    id()-keying is unsafe: GC recycles ids and the suite's per-target loop
-    persists ``filtered_train_df`` across targets with the same id() so
-    target-2 would otherwise reuse target-1's fit-transform output. The
-    fingerprint folds in (n_rows, n_cols, per-column dtypes, column names)
-    as cheap drift-detection signature, then point-samples 4 whole rows
-    (first, near-head, midpoint, last) without materialising the frame --
-    a polars row is a tuple pulled by direct column indexing, so cost is
-    O(n_cols) regardless of n_rows. The previous ``arr.to_numpy()`` path
-    materialised the entire frame just to slice 10 cells, defeating the
-    very cache the per-target loop relies on (fingerprint cost > cache
-    benefit on 100+ GB frames). Falls back to ``("uncached", id)`` so a
-    failure forces a miss rather than a wrong-cache hit.
-    """
-    if arr is None:
-        return ("none",)
-    try:
-        # Polars DataFrame: row(i) is a tuple of n_cols scalars -- O(n_cols), no full materialisation.
-        if pl is not None and isinstance(arr, pl.DataFrame):
-            n_rows, n_cols = int(arr.height), int(arr.width)
-            col_names = tuple(str(c) for c in arr.columns)
-            dtypes_str = tuple(str(dt) for dt in arr.dtypes)
-            # Nested dtypes (List / Array / Struct) yield Python list/dict cells inside `arr.row(i)`;
-            # lists are unhashable, so the fingerprint tuple cannot be used as a dict key. Force-uncached
-            # on detection -- embedding columns are the common trigger (warning fired in
-            # get_pandas_view_of_polars_df) and the cache contract is content-isolated regardless.
-            if any(s.startswith(("List", "Array", "Struct")) for s in dtypes_str):
-                return _fresh_uncachable()
-            if n_rows == 0:
-                return ("pl", (n_rows, n_cols), col_names, dtypes_str, ())
-            sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
-            try:
-                rows = tuple(arr.row(i) for i in sample_idx)
-            except Exception:
-                return _fresh_uncachable()
-            return ("pl", (n_rows, n_cols), col_names, dtypes_str, rows)
-
-        # Polars Series: iloc-equivalent is ``arr[i]`` -- O(1), no full materialisation.
-        if pl is not None and isinstance(arr, pl.Series):
-            n = int(arr.len())
-            dtype_str = str(arr.dtype)
-            # List / Array / Struct dtypes yield Python list/dict cells; lists are unhashable so the
-            # fingerprint tuple cannot be used as a dict key. Force-uncached on detection.
-            if dtype_str.startswith(("List", "Array", "Struct")):
-                return _fresh_uncachable()
-            if n == 0:
-                return ("pls", (n,), dtype_str, ())
-            sample_idx = (0, min(8, n - 1), n // 2, n - 1)
-            try:
-                cells = tuple(arr[i] for i in sample_idx)
-            except Exception:
-                return _fresh_uncachable()
-            return ("pls", (n,), dtype_str, cells)
-
-        # Pandas DataFrame: .iat / .iloc[i].values -- O(n_cols), no full materialisation.
-        if isinstance(arr, pd.DataFrame):
-            n_rows, n_cols = int(arr.shape[0]), int(arr.shape[1])
-            col_names = tuple(str(c) for c in arr.columns)
-            dtypes = tuple(str(dt) for dt in arr.dtypes)
-            if n_rows == 0:
-                return ("pd", (n_rows, n_cols), col_names, dtypes, ())
-            sample_idx = (0, min(8, n_rows - 1), n_rows // 2, n_rows - 1)
-            try:
-                # object-dtype cells from pyarrow ListArray materialise as Python lists -- unhashable.
-                # Coerce row cells to a hashable form: leave scalars alone, repr() any list/dict/ndarray.
-                # Audit D L-7 (2026-05-18): ``repr()`` on a 100-element numpy array is O(n_elements)
-                # in characters; on a List-of-floats embedding column each repr is hundreds of
-                # chars. We sample only 4 rows so the worst-case cost is 4 × O(embedding_len)
-                # chars per fingerprint call -- bounded and small relative to the cache-hit
-                # savings; a blake2b pre-hash would compact it further but is not currently
-                # actionable (only 4-row bound makes this <<1ms even on wide embedding frames).
-                def _row_to_hashable(r):
-                    out = []
-                    for v in r.values.tolist():
-                        if isinstance(v, (list, dict)) or hasattr(v, "tolist"):
-                            out.append(repr(v))
-                        else:
-                            out.append(v)
-                    return tuple(out)
-                rows = tuple(_row_to_hashable(arr.iloc[i]) for i in sample_idx)
-            except Exception:
-                return _fresh_uncachable()
-            return ("pd", (n_rows, n_cols), col_names, dtypes, rows)
-
-        # Pandas Series: .iat[i] -- O(1).
-        if isinstance(arr, pd.Series):
-            n = int(arr.shape[0])
-            dtype_str = str(arr.dtype)
-            if n == 0:
-                return ("pds", (n,), dtype_str, ())
-            sample_idx = (0, min(8, n - 1), n // 2, n - 1)
-            try:
-                cells = tuple(arr.iat[i] for i in sample_idx)
-            except Exception:
-                return _fresh_uncachable()
-            return ("pds", (n,), dtype_str, cells)
-
-        # NumPy / array-like: a 1-D / 2-D array is already in RAM; the previous flat-index sample is fine.
-        if isinstance(arr, np.ndarray):
-            np_arr = arr
-        elif hasattr(arr, "values") and not hasattr(arr, "to_numpy"):
-            np_arr = arr.values
-        else:
-            np_arr = np.asarray(arr)
-        if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
-            return _fresh_uncachable()
-        shape = tuple(int(s) for s in np_arr.shape)
-        dtype_str = str(np_arr.dtype)
-        flat = np_arr.ravel()
-        n = int(flat.size)
-        if n == 0:
-            return ("np", shape, dtype_str, b"")
-        idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
-        try:
-            sampled = bytes(np.ascontiguousarray(flat[idx]).tobytes())
-        except Exception:
-            return _fresh_uncachable()
-        return ("np", shape, dtype_str, sampled)
-    except Exception:
-        return _fresh_uncachable()
+# Wave 93 (2026-05-21): Pipeline structural-identity + content cache moved
+# to sibling file _pipeline_cache.py to drop _pipeline_helpers.py below
+# the 1k-line monolith threshold. Re-exported here so existing callers
+# (`from ._pipeline_helpers import _content_fingerprint_for_cache`, etc.)
+# keep working.
+from ._pipeline_cache import (  # noqa: F401, E402
+    _PRE_PIPELINE_CACHE,
+    _PRE_PIPELINE_CACHE_LOCK,
+    _PRE_PIPELINE_CACHE_MAX,
+    _UncachableSentinel,
+    _fresh_uncachable,
+    _content_fingerprint_for_cache,
+    _pipeline_signature_for_cache,
+    _pre_pipeline_cache_key,
+    _pre_pipeline_cache_get,
+    _pre_pipeline_cache_set,
+    _pre_pipeline_cache_clear,
+)
 
 
 def _prepare_test_split(
@@ -547,120 +405,9 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
     return out
 
 
-# Cache + lock are defined once near the top; the duplicate definitions used to live here.
-
-
-def _pipeline_signature_for_cache(pipeline) -> str:
-    """Stable signature for the pipeline structure + per-step shallow params.
-
-    Two structurally identical pipelines (same step classes, same per-step
-    kwargs) get the same string and hit the cache; any divergence (e.g. a
-    custom scaler with different ``with_mean``) misses. Failures inside
-    ``get_params`` (custom transformers without sklearn API) fall back to a
-    class-only signature -- a conservative "no cache" since the same class
-    might have different state.
-    """
-    if pipeline is None:
-        return "None"
-    parts = []
-    steps = getattr(pipeline, "steps", None)
-    if steps is None:
-        # Single transformer (not a Pipeline) -- include its repr.
-        return f"single:{type(pipeline).__name__}:{repr(pipeline)}"
-    for name, step in steps:
-        kls = type(step).__name__
-        try:
-            params = step.get_params(deep=False)
-            kw = ",".join(f"{k}={params[k]!r}" for k in sorted(params))
-        except Exception:
-            kw = "?"
-        parts.append(f"{name}:{kls}({kw})")
-    return "|".join(parts)
-
-
-def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, target_name=None, sample_weight=None):
-    """Compose a CONTENT-based cache key.
-
-    id()-keying was unsafe on two axes: GC-recycled ids can collide and
-    the per-target loop re-uses ``filtered_train_df`` (same id) across
-    different targets - the second target would otherwise see the first
-    target's fit-transform output. Including the target fingerprint AND
-    the target name guarantees per-target isolation.
-
-    Audit D P1-3 (2026-05-18): the target-fingerprint AND target-name are deliberately BOTH
-    folded for defence-in-depth, NOT because both are required for correctness. Either alone is
-    sufficient: the content fingerprint detects any cell-level divergence and the name detects
-    name-only swaps where two targets happen to share content. Keeping both means a future
-    refactor that drops one does not silently re-enable cross-target contamination. Do NOT
-    refactor to a single dimension assuming the other is redundant.
-
-    ``sample_weight`` is folded only when the inner selector is marked
-    weight-aware (``_mlframe_use_sample_weights_in_fs_``); otherwise FS is
-    weight-invariant and the cache stays valid across weight schemas.
-    Weight fingerprinting uses the cheap 10-cell sampler shared with other
-    content-based keys so the cost is O(1) regardless of n_rows.
-    """
-    sig = _pipeline_signature_for_cache(pipeline)
-    _wants_sw = False
-    try:
-        # Walk the pipeline to find a selector with the marker set.
-        if pipeline is not None:
-            if hasattr(pipeline, "_mlframe_use_sample_weights_in_fs_"):
-                _wants_sw = bool(getattr(pipeline, "_mlframe_use_sample_weights_in_fs_", False))
-            elif hasattr(pipeline, "steps"):
-                for _, _step in pipeline.steps:
-                    if getattr(_step, "_mlframe_use_sample_weights_in_fs_", False):
-                        _wants_sw = True
-                        break
-    except Exception:
-        _wants_sw = False
-    _sw_fp = _content_fingerprint_for_cache(sample_weight) if (_wants_sw and sample_weight is not None) else ("no_sw",)
-    return (
-        _content_fingerprint_for_cache(train_df),
-        _content_fingerprint_for_cache(val_df),
-        _content_fingerprint_for_cache(train_target),
-        str(target_name) if target_name is not None else "",
-        sig,
-        _sw_fp,
-    )
-
-
-def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None):
-    """LRU-touch lookup; returns ``(train_out, val_out)`` or ``None``."""
-    if train_df is None or pipeline is None:
-        return None
-    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
-    with _PRE_PIPELINE_CACHE_LOCK:
-        if key in _PRE_PIPELINE_CACHE:
-            _PRE_PIPELINE_CACHE.move_to_end(key)
-            return _PRE_PIPELINE_CACHE[key]
-    return None
-
-
-def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None):
-    """Insert under LRU, evicting the oldest entry if over capacity.
-
-    ``cache_max`` overrides the module default; pass through from the
-    caller's ``TrainingBehaviorConfig.pre_pipeline_cache_max`` so
-    long-running services can tune memory vs hit-rate.
-    """
-    if train_df is None or pipeline is None:
-        return
-    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
-    _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
-    with _PRE_PIPELINE_CACHE_LOCK:
-        # Store the pipeline as third element so future hits can transfer fit state.
-        _PRE_PIPELINE_CACHE[key] = (train_out, val_out, pipeline)
-        _PRE_PIPELINE_CACHE.move_to_end(key)
-        while len(_PRE_PIPELINE_CACHE) > _cap:
-            _PRE_PIPELINE_CACHE.popitem(last=False)
-
-
-def _pre_pipeline_cache_clear() -> None:
-    """Manual eviction hook -- mainly for tests + edge cases where the
-    per-target loop wants to drop stale state explicitly."""
-    with _PRE_PIPELINE_CACHE_LOCK:
-        _PRE_PIPELINE_CACHE.clear()
+# Wave 93 (2026-05-21): _pipeline_signature_for_cache /
+# _pre_pipeline_cache_key / _get / _set / _clear moved to sibling file
+# _pipeline_cache.py and re-exported from this module's top-level imports.
 
 
 def _apply_pre_pipeline_transforms(
