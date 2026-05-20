@@ -99,9 +99,15 @@ def _process_special_values(
             if verbose:
                 num_view = df[num_cols]
                 null_count = int(num_view.isna().sum().sum())
-                float_view = df.select_dtypes(include=["floating"])
-                if float_view.shape[1] > 0:
-                    inf_count = int(np.isinf(float_view.to_numpy()).sum())
+                # _pandas_float_like_columns covers both legacy np.float and pandas nullable
+                # extension Float dtypes; the prior select_dtypes(include="floating") silently
+                # MISSED pd.Float32Dtype / Float64Dtype columns and inf in them slipped past
+                # the diagnostic + the scrub below, then crashed XGB/HGB downstream.
+                _float_cols = _pandas_float_like_columns(df)
+                if _float_cols:
+                    # to_numpy(na_value=nan) so nullable Float arrays survive the np.isinf call.
+                    _inf_arr = df[_float_cols].to_numpy(dtype=np.float64, na_value=np.nan)
+                    inf_count = int(np.isinf(_inf_arr).sum())
                 else:
                     inf_count = 0
                 parts = []
@@ -112,8 +118,8 @@ def _process_special_values(
                 if parts:
                     logger.info("Preprocessing: %s", ", ".join(parts))
             # Restrict inf -> NaN to floats: integer columns cannot hold inf and pandas .replace on int dtypes would coerce them to float unnecessarily.
-            float_cols = df.select_dtypes(include=["floating"]).columns
-            if len(float_cols) > 0:
+            float_cols = _pandas_float_like_columns(df)
+            if float_cols:
                 df[float_cols] = df[float_cols].replace([float("inf"), float("-inf")], float("nan"))
     return df
 
@@ -122,6 +128,34 @@ def _process_special_values(
 # Kept as a thin pass-through so existing imports don't break; the
 # canonical name above drops the misleading "_fused" suffix.
 _process_special_values_fused = _process_special_values
+
+
+def _pandas_float_like_columns(df) -> list:
+    """Return the names of every "float-like" column in a pandas DataFrame.
+
+    Includes BOTH the legacy numpy float dtypes (``float32`` / ``float64``,
+    selected by ``select_dtypes(include="floating")``) AND the pandas nullable
+    extension Float dtypes (``Float32Dtype`` / ``Float64Dtype``), which the
+    bare ``"floating"`` selector silently SKIPS because they're
+    ``ExtensionDtype`` not legacy ``np.floating``.
+
+    Pre-fix shape (commits before 2026-05-20 resource wave): callers that
+    used ``df.select_dtypes(include="floating")`` to identify columns for
+    inf-scrubbing or inf-detection missed pandas nullable Float columns;
+    inf values passed through silently and crashed XGB / HGB deep in C++
+    with no log line pointing back to the unscrubbed column.
+
+    Mirrors polars ``cs.float()`` which already covers both regular and
+    extension polars float dtypes uniformly.
+    """
+    import pandas as _pd
+    cols: list = []
+    for _col in df.columns:
+        _dt = df[_col].dtype
+        if _pd.api.types.is_float_dtype(_dt):
+            # is_float_dtype returns True for both np.float32/64 AND pd.Float32Dtype/Float64Dtype
+            cols.append(_col)
+    return cols
 
 
 def _frame_contains_inf(df) -> bool:
@@ -141,17 +175,24 @@ def _frame_contains_inf(df) -> bool:
                 if df[name].is_infinite().any():
                     return True
             return False
-        # pandas: select_dtypes("number") covers float / int / nullable ext.
-        # Integers can't carry inf, but skip them anyway via .select_dtypes(float).
+        # pandas: previously used select_dtypes(include=["floating"]) which silently
+        # MISSED pandas nullable Float (Float32Dtype / Float64Dtype) -- inf in those
+        # columns would slip past the fix_infinities=False loud-fail check too, and
+        # then crash XGB/HGB downstream with no log line. Route through the
+        # _pandas_float_like_columns helper that covers both legacy and extension floats.
         try:
-            num = df.select_dtypes(include=["floating"])
-        except Exception:
+            _float_cols = _pandas_float_like_columns(df)
+        except (AttributeError, TypeError):
             return False
+        if not _float_cols:
+            return False
+        num = df[_float_cols]
         if num.shape[1] == 0:
             return False
         try:
-            return bool(np.isinf(num.to_numpy()).any())
-        except Exception:
+            # na_value=nan so pandas nullable Float dtypes don't fall through to object dtype.
+            return bool(np.isinf(num.to_numpy(dtype=np.float64, na_value=np.nan)).any())
+        except (TypeError, ValueError):
             return False
     except Exception:
         return False
