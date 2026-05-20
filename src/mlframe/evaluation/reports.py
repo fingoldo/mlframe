@@ -244,7 +244,9 @@ def evaluate_estimators(
                         # inverted the threshold's meaning. Use an explicit column threshold:
                         preds = (probs[:, pos_label] > threshold).astype(np.int8)
                     else:
-                        preds = np.argmax(probs, axis=1)
+                        # Wave 21 P2: nan-safe argmax.
+                        from ..utils.nan_safe import argmax_classes_safe
+                        preds = argmax_classes_safe(probs, context="evaluation.reports")
 
                     mes = f"Balanced accuracy on {test_size} samples: {balanced_accuracy_score(y_test_test,preds):.2%}"
                     if classification_thresholds is not None:

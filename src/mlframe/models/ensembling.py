@@ -535,11 +535,16 @@ def compute_member_quality_gate(
                 np.add.at(_group_size, _inv, 1.0)
                 _sw = (_group_sum / np.where(_group_size > 0, _group_size, 1.0))[_inv]
         try:
-            median_preds = np.quantile(arr, 0.5, axis=0, weights=np.full(arr.shape[0], 1.0), method="inverted_cdf")
+            # Wave 21 P1: np.nanquantile so a NaN in any single member's
+            # preds_list[k] doesn't poison median_preds across all members.
+            # Pre-fix: that NaN-poisoned median made per_member_mae[k] NaN,
+            # then the `tot_mae > max_mae` quality-gate test returned False
+            # so the BAD member was silently kept in the ensemble.
+            median_preds = np.nanquantile(arr, 0.5, axis=0, weights=np.full(arr.shape[0], 1.0), method="inverted_cdf")
         except TypeError:
-            median_preds = np.quantile(arr, 0.5, axis=0)
+            median_preds = np.nanquantile(arr, 0.5, axis=0)
     else:
-        median_preds = np.quantile(arr, 0.5, axis=0)
+        median_preds = np.nanquantile(arr, 0.5, axis=0)
     # Vectorised per-member MAE/STD: collapses the explicit Python loop to a single broadcast
     # over (K, N, ...). diffs has shape (K, N[, C]); collapse all non-member axes to a per-member
     # scalar via mean / population-std. LOOP-MAE / PER-MEMBER-MAE-LOOP fix; bench script in
@@ -572,8 +577,12 @@ def compute_member_quality_gate(
                     for i in range(diffs.shape[0])
                 ])
 
-    median_mae = float(np.median(per_member_mae))
-    median_std = float(np.median(per_member_std))
+    # Wave 21 P1: nanmedian so a NaN-bearing per-member statistic doesn't
+    # silently make the threshold NaN -- pre-fix that NaN threshold then
+    # made `tot_mae > rel_mae_threshold` return False for every member,
+    # silently keeping members the gate was supposed to drop.
+    median_mae = float(np.nanmedian(per_member_mae))
+    median_std = float(np.nanmedian(per_member_std))
     rel_mae_threshold = max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
     rel_std_threshold = max_std_relative * median_std if max_std_relative > 0 else 0.0
 

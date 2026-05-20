@@ -4283,7 +4283,11 @@ def compute_fairness_metrics(
                 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
                 performances = np.array(list(metric_perf.values()))
-                quantiles = np.quantile(performances, q=quantiles_to_compute)
+                # Wave 21 P2: nanquantile so a NaN bin (degenerate metric)
+                # doesn't poison the Tukey outlier thresholds below. Pre-fix
+                # all quantile columns of the row became NaN and IQR-based
+                # boundaries became NaN -> outlier detection silently broken.
+                quantiles = np.nanquantile(performances, q=quantiles_to_compute)
                 iqr = quantiles[-1] - quantiles[0]
                 min_boundary = quantiles[0] - tukey_mult * iqr
                 max_boundary = quantiles[-1] + tukey_mult * iqr

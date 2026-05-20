@@ -45,7 +45,10 @@ def _confusion_panel(y_true, y_proba, classes) -> HeatmapPanelSpec:
     predicted class; diagonal = correct. Cell text overlays the
     fraction.
     """
-    y_pred = np.argmax(y_proba, axis=1)
+    # Wave 21 P2: nan-safe argmax so NaN-proba rows don't silently collapse
+    # to class-0 in confusion matrix / per-class metrics.
+    from ...utils.nan_safe import argmax_classes_safe
+    y_pred = argmax_classes_safe(y_proba, context="reporting.charts.multiclass")
     K = len(classes)
     matrix = np.zeros((K, K), dtype=np.float64)
     for t, p in zip(y_true, y_pred):
@@ -72,7 +75,10 @@ def _pr_f1_panel(y_true, y_proba, classes) -> BarPanelSpec:
     """Per-class precision / recall / F1 grouped bar."""
     from sklearn.metrics import precision_recall_fscore_support
 
-    y_pred = np.argmax(y_proba, axis=1)
+    # Wave 21 P2: nan-safe argmax so NaN-proba rows don't silently collapse
+    # to class-0 in confusion matrix / per-class metrics.
+    from ...utils.nan_safe import argmax_classes_safe
+    y_pred = argmax_classes_safe(y_proba, context="reporting.charts.multiclass")
     K = len(classes)
     precision, recall, f1, _ = precision_recall_fscore_support(
         y_true, y_pred, labels=list(range(K)), average=None, zero_division=0,

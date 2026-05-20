@@ -132,7 +132,22 @@ def _predict_from_probs(probs_NK, target_type, classes_=None, threshold=0.5):
         return idx
 
     if target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
-        idx = np.argmax(arr, axis=1)
+        # Wave 21 P1: if a buggy estimator emits NaN probas, np.argmax picks
+        # the NaN column -> silent misclassification for that row. Detect
+        # any all-NaN row and WARN; nanargmax raises if a row is all-NaN
+        # which loudly surfaces the data corruption.
+        if np.any(~np.isfinite(arr)):
+            _bad_rows = int(np.sum(~np.isfinite(arr).all(axis=1)))
+            if _bad_rows > 0:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "argmax on probabilistic predictions: %d row(s) contain "
+                    "non-finite probabilities; using nanargmax (will raise "
+                    "on any all-NaN row).", _bad_rows,
+                )
+            idx = np.nanargmax(arr, axis=1)
+        else:
+            idx = np.argmax(arr, axis=1)
         if classes_ is not None:
             cls = np.asarray(classes_)
             return cls[idx]

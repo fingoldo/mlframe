@@ -197,9 +197,14 @@ def estimate_features_relevancy(
             continue
 
         if not permuted_max_mi_quantile:
-            baseline_mi = all_permuted_mis[target_name].max() * min_mi_prevalence
+            # Wave 21 P1: nanmax so NaN-MI permutations don't poison the max.
+            baseline_mi = np.nanmax(all_permuted_mis[target_name]) * min_mi_prevalence
         else:
-            baseline_mi = np.quantile(all_permuted_mis[target_name], permuted_max_mi_quantile) * min_mi_prevalence
+            # Wave 21 P1: nanquantile so degenerate target/feature pairs
+            # (which the MI estimator emits NaN for) don't make baseline_mi
+            # NaN -> downstream `passed_permutation` comparison would
+            # evaluate inconsistently (NaN <= x is always False).
+            baseline_mi = np.nanquantile(all_permuted_mis[target_name], permuted_max_mi_quantile) * min_mi_prevalence
 
         target_features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
         # test #1: original MI must be above highest permuted MI for this feature

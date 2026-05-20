@@ -872,7 +872,9 @@ def report_probabilistic_model_perf(
             classes_ = model.classes_ if (model is not None and hasattr(model, "classes_")) else np.array([0, 1])
             preds = np.where(probs[:, 1] >= 0.5, classes_[1], classes_[0])
         else:
-            preds = np.argmax(probs, axis=1)
+            # Wave 21 P2: nan-safe argmax.
+            from ..utils.nan_safe import argmax_classes_safe
+            preds = argmax_classes_safe(probs, context="_reporting.report_perf")
             if model is not None and hasattr(model, "classes_"):
                 preds = model.classes_[preds]
 

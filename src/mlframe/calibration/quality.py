@@ -197,8 +197,12 @@ def bin_predictions(
             r = s
         else:
             r = l + bin_size
-        avg_x = np.mean(y_pred[indices[l:r]])
-        avg_y = np.mean(y_true[indices[l:r]])
+        # Wave 21 P2: nanmean so a NaN in y_pred/y_true within a bin doesn't
+        # poison the (avg_x, avg_y) pair -> propagates into ECE/MCE numbers
+        # reported on the calibration chart. Operator may spot the NaN bin
+        # but the numeric metrics would be silently wrong.
+        avg_x = np.nanmean(y_pred[indices[l:r]])
+        avg_y = np.nanmean(y_true[indices[l:r]])
         pockets_predicted[i] = avg_x
         pockets_true[i] = avg_y
         data[i, :] = np.array([avg_x, avg_y * (r - l), r - l, avg_y], dtype=np.float64)

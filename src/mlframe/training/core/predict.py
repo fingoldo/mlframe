@@ -961,7 +961,14 @@ def predict_mlframe_models_suite(
                     if probs.shape[1] == 2:
                         preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                     else:
-                        preds = np.argmax(probs, axis=1)
+                        # Wave 21 P2: nan-safe argmax. Pre-fix np.argmax
+                        # on a NaN-bearing proba row silently classified
+                        # as class 0 -> confusion matrix + per-class
+                        # P/R/F1 wrong with no upstream signal.
+                        from ...utils.nan_safe import argmax_classes_safe
+                        preds = argmax_classes_safe(
+                            probs, context=f"predict.{model_name}",
+                        )
                 else:
                     preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                 results["predictions"][model_name] = preds
@@ -1866,7 +1873,12 @@ def predict_from_models(
                             if probs.shape[1] == 2:
                                 preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                             else:
-                                preds = np.argmax(probs, axis=1)
+                                # Wave 21 P2: nan-safe argmax (second predict
+                                # entry point; symmetric to L964 fix).
+                                from ...utils.nan_safe import argmax_classes_safe
+                                preds = argmax_classes_safe(
+                                    probs, context=f"predict_from_models.{model_name}",
+                                )
                         else:
                             preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                         results["predictions"][model_name] = preds

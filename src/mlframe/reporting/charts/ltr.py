@@ -297,7 +297,15 @@ def _top1_by_qsize_panel(y_true, y_score, group_ids) -> LinePanelSpec:
         scores_q = y_score[q_idx]
         if rels_q.max() <= 0:
             continue  # no relevant doc -> degenerate query
-        top_pred_idx = int(np.argmax(scores_q))
+        # Wave 21 P2: nan-safe argmax. NaN score picked as top would
+        # under-report correct@1 silently.
+        _finite = np.isfinite(scores_q)
+        if not _finite.any():
+            continue  # all-NaN query: cannot pick top
+        if _finite.all():
+            top_pred_idx = int(np.argmax(scores_q))
+        else:
+            top_pred_idx = int(np.nanargmax(scores_q))
         # "Correct" = predicted top has the maximum relevance in the query
         # (allow ties: the top-pred relevance equals the max relevance).
         is_correct = rels_q[top_pred_idx] == rels_q.max()
