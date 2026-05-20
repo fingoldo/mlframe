@@ -1364,8 +1364,20 @@ class CompositeTargetDiscovery:
         ]
 
     def report(self) -> list[dict[str, Any]]:
-        """All evaluated candidates including rejected ones with reasons."""
-        return list(getattr(self, "report_", []))
+        """All evaluated candidates including rejected ones with reasons.
+
+        Wave 26 P1 fix (2026-05-20): pre-fix did a shallow ``list(...)``
+        over a list of dicts, so the outer list was decoupled but the
+        inner per-candidate dicts (incl. ``score`` / ``reason`` / base
+        column metadata) were returned by REFERENCE. A caller doing
+        ``discovery.report()[0]["score"] = 999`` mutated the persisted
+        internal record; subsequent ``report()`` calls returned the
+        corrupted value.
+        Sibling ``export_specs()`` above (~30 lines up) already builds
+        fresh inner dicts via comprehension -- this was inconsistent
+        defensive copying.
+        """
+        return [dict(r) for r in getattr(self, "report_", [])]
 
     @property
     def tiny_rerank_scores_(self) -> dict[str, float]:
@@ -1394,8 +1406,12 @@ class CompositeTargetDiscovery:
         when discovery seems to "miss" an obvious base candidate -- the
         most common cause is a corr-threshold false positive on a
         legitimate autoregressive lag feature.
+
+        Wave 26 P1 fix (2026-05-20): same shape as ``report()`` above.
+        Inner dicts are defensively copied to prevent caller mutation
+        from poisoning the persisted internal state.
         """
-        return list(getattr(self, "_filter_drops", []))
+        return [dict(d) for d in getattr(self, "_filter_drops", [])]
 
     # ------------------------------------------------------------------
     # Internals
