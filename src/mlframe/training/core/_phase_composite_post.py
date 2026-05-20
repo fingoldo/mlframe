@@ -392,7 +392,18 @@ def _run_composite_target_wrapping(
                                 "composite='%s' split='%s': %s",
                                 _composite_name, _split_name, _watchdog_err,
                             )
-                    except Exception:
+                    except Exception as _split_err:
+                        # Per-split metric block can fail on shape / predict
+                        # mismatch (especially during composite-target rerank
+                        # where wrapper.predict may raise on edge geometries).
+                        # Log at DEBUG so per-target failures are visible in
+                        # verbose logs without spamming WARN -- caller still
+                        # gets the model in metadata; just missing this entry's
+                        # split metrics.
+                        logger.debug(
+                            "[composite y-scale metrics] split='%s' composite='%s' skipped: %s",
+                            _split_name, _composite_name, _split_err,
+                        )
                         continue
                 _metrics_dict.append({
                     "model_name": getattr(_entry, "model_name", None),
