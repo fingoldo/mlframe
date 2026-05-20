@@ -263,7 +263,19 @@ def best_trivial_pair(
         else:
             y_njit = np.asarray(y, dtype=np.float64)
             mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
-        best_idx = int(np.argmax(mi_arr))
+        # Wave 21 P0: MI batch kernel may return NaN for degenerate
+        # features. Pre-fix np.argmax picks the NaN's index -> wrong "best
+        # baseline" + bogus float(mi_arr[best_idx]) feeds downstream MI gate.
+        _finite_mask = np.isfinite(mi_arr)
+        if not _finite_mask.any():
+            # All-NaN: no valid baseline -- caller treats None as
+            # "no baseline beat the gate" which is the correct semantic.
+            return None, None, float("nan")
+        if not _finite_mask.all():
+            _finite_idx = np.where(_finite_mask)[0]
+            best_idx = int(_finite_idx[np.argmax(mi_arr[_finite_idx])])
+        else:
+            best_idx = int(np.argmax(mi_arr))
         return valid_names[best_idx], valid_cols[best_idx], float(mi_arr[best_idx])
     # KSG path: no batch kernel, fall back to per-feature loop.
     best_name, best_arr, best_mi = None, None, -np.inf

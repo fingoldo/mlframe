@@ -2085,7 +2085,21 @@ class RFECV(BaseEstimator, TransformerMixin):
             mean_arr = np.array(cv_mean_perf)
             std_arr = np.array(cv_std_perf)
             nz_idx = np.where(nonzero_mask)[0]
-            best_mean_idx = nz_idx[np.argmax(mean_arr[nz_idx])]
+            # Wave 21 P0: mask out NaN candidates before argmax. cv_mean_perf
+            # can hold NaN when every fold for that N was degenerate
+            # (_helpers.py:337). Pre-fix np.argmax picks the NaN slot ->
+            # ``best_mean_idx`` refers to a never-evaluated N and the caller
+            # silently returns a bogus support_ for that count.
+            _finite_mask = np.isfinite(mean_arr[nz_idx])
+            if not _finite_mask.any():
+                raise ValueError(
+                    "RFECV: cv_mean_perf is all-NaN across non-zero "
+                    "candidates; cannot pick a winner. Re-run with more "
+                    "data or check that the inner-CV folds aren't all "
+                    "degenerate (all-one-class)."
+                )
+            _finite_nz_idx = nz_idx[_finite_mask]
+            best_mean_idx = _finite_nz_idx[np.argmax(mean_arr[_finite_nz_idx])]
             threshold = mean_arr[best_mean_idx] - std_arr[best_mean_idx]
             in_band = [i for i in nz_idx if mean_arr[i] >= threshold]
             if not in_band:
@@ -2266,6 +2280,15 @@ class RFECV(BaseEstimator, TransformerMixin):
             return getattr(self, "n_features_", 0)
         nf, m, s = nfeatures[nonzero], means[nonzero], stds[nonzero]
         # mean_perf_weight + std_perf_weight are baked into final_score; for 1-SE we need the unadjusted mean - cv_mean_perf is raw.
+        # Wave 21 P0: same shape as the other winner-picker above -- mask
+        # NaN candidates before argmax. Pre-fix argmax picks NaN slot when
+        # any candidate's cv_mean_perf is all-NaN-folds.
+        _finite_mask = np.isfinite(m)
+        if not _finite_mask.any():
+            # No usable candidates -- fall back to the cached n_features_.
+            return getattr(self, "n_features_", 0)
+        if not _finite_mask.all():
+            nf, m, s = nf[_finite_mask], m[_finite_mask], s[_finite_mask]
         best_idx = int(np.argmax(m))
         threshold = m[best_idx] - s[best_idx]
         # Smallest N whose mean >= threshold.

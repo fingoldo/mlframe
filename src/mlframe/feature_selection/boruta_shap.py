@@ -658,7 +658,24 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         """
 
-        shadow_threshold = np.percentile(self.Shadow_feature_import, self.percentile)
+        # Wave 21 P0: use nanpercentile so a NaN in shadow_feature_import
+        # (some boosters emit NaN for never-split features) doesn't poison
+        # the threshold. Pre-fix any single NaN made shadow_threshold == NaN,
+        # then ``X_feature_import > NaN`` returned all-False, silently
+        # rejecting every feature from the Boruta gate.
+        shadow_threshold = np.nanpercentile(self.Shadow_feature_import, self.percentile)
+        # If EVERY shadow importance was NaN (degenerate input), nanpercentile
+        # also returns NaN; surface that loudly rather than silently rejecting
+        # all features.
+        if not np.isfinite(shadow_threshold):
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "BorutaShap: shadow_threshold is non-finite (all shadow "
+                "feature importances were NaN/inf); the gate cannot "
+                "discriminate. Returning an empty hits vector and "
+                "letting the caller's iteration cap decide.",
+            )
+            shadow_threshold = float("inf")  # ensures all `X > thr` return False predictably
 
         padded_hits = np.zeros(self.ncols)
         hits = self.X_feature_import > shadow_threshold

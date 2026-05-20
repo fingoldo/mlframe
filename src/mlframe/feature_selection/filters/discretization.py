@@ -193,7 +193,13 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
 
 
 def edges(arr, quantiles):
-    bin_edges = np.asarray(np.percentile(arr, quantiles))
+    # Wave 21 P0: use nanpercentile so NaN in arr doesn't poison every
+    # bin edge. ``discretize_array`` calls this 6000+ times per FS fit
+    # (per the module docstring); pre-fix any NaN-bearing column made
+    # bin_edges all-NaN, then digitize / searchsorted silently bucketed
+    # every row to bin 0 -- the entire discretised feature collapsed to
+    # a constant with no upstream signal.
+    bin_edges = np.asarray(np.nanpercentile(arr, quantiles))
     return bin_edges
 
 
@@ -231,8 +237,11 @@ def discretize_array(
     if method == "uniform":
         return discretize_uniform(arr=arr, n_bins=n_bins, min_value=min_value, max_value=max_value, dtype=dtype)
     # quantile path -- raw numpy.
+    # Wave 21 P0: nanpercentile so NaN-bearing columns don't collapse to a
+    # constant via the all-NaN bin_edges trap. Same finding as the ``edges``
+    # helper above.
     quantiles = np.linspace(0, 100, n_bins + 1)
-    bins_edges = np.percentile(arr, quantiles)
+    bins_edges = np.nanpercentile(arr, quantiles)
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
 
 
@@ -439,8 +448,18 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
             min_value, max_value = arrayMinMax(arr)
         bin_edges = np.linspace(min_value, max_value, n_bins + 1)
     elif method == "quantile":
+        # Wave 21 P0: numba's njit doesn't expose np.nanpercentile, so we
+        # filter NaN inline before delegating to np.percentile. Pre-fix any
+        # NaN in arr poisoned every edge -> downstream digitize silently
+        # bucketed all rows to bin 0. The mask path is array-allocate +
+        # one pass, cheaper than the percentile sort that follows.
+        _mask = ~np.isnan(arr)
+        if _mask.all():
+            arr_finite = arr
+        else:
+            arr_finite = arr[_mask]
         quantiles = np.linspace(0, 100, n_bins + 1)
-        bin_edges = np.asarray(np.percentile(arr, quantiles))
+        bin_edges = np.asarray(np.percentile(arr_finite, quantiles))
     return bin_edges
 
 

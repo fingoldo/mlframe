@@ -41,7 +41,18 @@ def compute_apriori_itemsets_features(
         d = X_ref.shape[1]
         bin_cols = []
         for j in range(d):
-            edges = np.quantile(X_ref[:, j], np.linspace(0, 1, n_bins + 1))
+            # Wave 21 P0: use nanquantile so a NaN-bearing column doesn't
+            # poison every edge -> np.digitize then clamps every target row
+            # to bin 0 -> the entire discretised feature collapses to a
+            # constant. nanquantile returns NaN only when ALL inputs are
+            # NaN; guard that explicitly.
+            edges = np.nanquantile(X_ref[:, j], np.linspace(0, 1, n_bins + 1))
+            if not np.all(np.isfinite(edges)):
+                # Column is degenerate (all-NaN). Emit an all-zero set of
+                # bin columns rather than letting NaN propagate downstream.
+                for _ in range(n_bins):
+                    bin_cols.append(np.zeros(X_target.shape[0], dtype=bool))
+                continue
             target_bins = np.clip(np.digitize(X_target[:, j], edges[1:-1]), 0, n_bins - 1)
             for b in range(n_bins):
                 bin_cols.append(target_bins == b)
