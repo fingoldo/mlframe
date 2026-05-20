@@ -98,7 +98,17 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     for _col in train_df.columns:
         try:
             _dt = train_df[_col].dtype
-        except Exception:
+        except Exception as _e_dt:
+            # Same shape as the per-col dtype-access pattern elsewhere in
+            # this module: silent skip means a Categorical that should be
+            # aligned across train/val/test silently isn't, then later
+            # asserts on category-set equality may misreport.
+            import logging as _logging
+            _logging.getLogger(__name__).debug(
+                "_eval_helpers: train_df dtype access failed for col=%r "
+                "(%s); col will NOT be added to cat-alignment list.",
+                _col, _e_dt,
+            )
             continue
         if isinstance(_dt, pd.CategoricalDtype):
             cat_cols_to_align.append(_col)
@@ -201,13 +211,29 @@ def _decategorise_float_cat_columns(train_df, val_df=None, test_df=None):
         for _col in df.columns:
             try:
                 _dt = df[_col].dtype
-            except Exception:
+            except Exception as _e_dt:
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "_eval_helpers: dtype access failed for col=%r (%s) in "
+                    "de-cat helper; col not considered for de-cat.",
+                    _col, _e_dt,
+                )
                 continue
             if not isinstance(_dt, pd.CategoricalDtype):
                 continue
             try:
                 _cat_kind = _dt.categories.dtype.kind
-            except Exception:
+            except Exception as _e_cat:
+                # Categorical with broken categories.dtype is the warning
+                # signal: silent skip leaves the mis-tagged column as cat,
+                # which then surfaces as a CatBoost crash on float
+                # category values downstream.
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "_eval_helpers: cat.categories.dtype access failed for "
+                    "col=%r (%s); col not considered for de-cat.",
+                    _col, _e_cat,
+                )
                 continue
             # 'f'=float, 'c'=complex. Both signal a target-encoded
             # column that's been mis-tagged as categorical.
@@ -564,7 +590,21 @@ def run_confidence_analysis(
                 continue
             try:
                 _dt = test_df[_c].dtype
-            except Exception:
+            except Exception as _e_dt:
+                # Pre-fix `continue` silent. Pandas dtype access shouldn't
+                # raise on a column known to be in ``test_df.columns``, so
+                # this branch firing is itself a signal of upstream
+                # corruption (custom Series subclass with broken __dtype__,
+                # or column became inaccessible mid-iteration). DEBUG log
+                # so operators see the trail when CB Pool later crashes
+                # because this col wasn't added to _drop_for_conf.
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "_eval_helpers: pandas dtype access failed for col=%r (%s); "
+                    "col will NOT be auto-dropped from confidence analysis. "
+                    "If CB Pool crashes downstream, this skipped col may be "
+                    "the cause.", _c, _e_dt,
+                )
                 continue
             # ``_dt is object`` is wrong: np.dtype('O') is NOT the Python
             # type ``object`` (it's a numpy dtype wrapper). Identity check
@@ -595,7 +635,16 @@ def run_confidence_analysis(
                 continue
             try:
                 _dt = test_df.schema[_c]
-            except Exception:
+            except Exception as _e_dt:
+                # Same shape as the pandas branch above: schema lookup
+                # shouldn't raise on a known column; DEBUG-log so the
+                # trail exists when CB Pool crashes later.
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "_eval_helpers: polars schema lookup failed for col=%r "
+                    "(%s); col will NOT be auto-dropped from confidence "
+                    "analysis.", _c, _e_dt,
+                )
                 continue
             _dt_name = str(_dt)
             _is_string = _dt in (pl.Utf8, pl.Object) or _dt_name in ("Utf8", "String", "Object")
