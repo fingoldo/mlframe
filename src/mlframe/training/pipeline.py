@@ -532,7 +532,7 @@ def apply_preprocessing_extensions(
                 if not _fallback_warned[0]:
                     logger.warning(
                         "polars.to_pandas(split_blocks=True) unsupported (polars version too old); "
-                        "falling back to bare .to_pandas() — wide-frame conversion will be ~30x slower."
+                        "falling back to bare .to_pandas() -- wide-frame conversion will be ~30x slower."
                     )
                     _fallback_warned[0] = True
                 return df.to_pandas()

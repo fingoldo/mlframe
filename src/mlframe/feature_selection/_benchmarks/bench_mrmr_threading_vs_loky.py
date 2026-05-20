@@ -111,7 +111,7 @@ def main() -> None:
     threading = _run_one(df, y, backend="threading", n_jobs=args.n_jobs, verbose=args.verbose)
     print(threading)
 
-    print("\n--- run 3: backend=loky n_jobs={n} (legacy default — may break on env w/ pickle issues) ---")
+    print(f"\n--- run 3: backend=loky n_jobs={args.n_jobs} (legacy default -- may break on env w/ pickle issues) ---")
     try:
         loky = _run_one(df, y, backend="loky", n_jobs=args.n_jobs, verbose=args.verbose)
         print(loky)
