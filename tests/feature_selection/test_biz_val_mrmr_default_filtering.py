@@ -209,21 +209,23 @@ class TestPolynomFeDiscoversLowDegreeInteractions:
 
 
 class TestScreeningKeepsBorderlineSignificantFeature:
-    """Surfaces audit finding #5 (screening ``min_nonzero_confidence=0.99`` +
-    ``full_npermutations=3`` may still be over-strict). The gate is "0
+    """Audit finding #5 sentinel: screening ``min_nonzero_confidence=0.99``
+    + ``full_npermutations=3`` was suspected over-strict (gate is "0
     failures out of 3" - any borderline-significant feature whose
-    permutation-test produces even ONE failure is dropped. Pinned with
-    ``xfail`` because the flip is not yet committed; if this test starts
-    passing without ``xfail`` being removed, the gate is loose enough.
+    permutation-test produces even ONE failure could be dropped).
+
+    Empirical verdict 2026-05-18: on n=500 sparse-signal scenario both real
+    features SURVIVE default screening. Originally marked ``xfail`` as
+    a documentation guard pending the flip; xfail dropped 2026-05-18
+    because: (a) the test consistently xpasses across multiple sessions,
+    (b) the corrected polynom-FE bench at n=1M (where support_size=4 for
+    all features after my flips) independently corroborates the finding.
+    Now a STRICT assert: if future tightening drops a real feature, this
+    test fails - the early-warning the original xfail was hoping to
+    serve.
     """
 
     @pytest.mark.timeout(300)
-    @pytest.mark.xfail(
-        reason="audit finding #5 not yet flipped; biz_val gate surfaces "
-        "over-filtering of borderline-significant features under "
-        "min_nonzero_confidence=0.99 + full_npermutations=3 default",
-        strict=False,
-    )
     def test_screening_keeps_borderline_significant_feature(self):
         """Sparse-signal scenario with n=500 so each feature's permutation
         confidence is BORDERLINE. Both real features must survive default

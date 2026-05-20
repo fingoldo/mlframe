@@ -44,6 +44,13 @@ def _build_problem(n: int, seed: int = 42):
 def _run_mrmr(*, X, y, n_jobs, subsample_n) -> tuple[float, int]:
     from mlframe.feature_selection.filters.mrmr import MRMR
 
+    # CRITICAL: clear class-level fit-cache so prior runs don't HIT.
+    # CRITICAL: ``random_seed=42`` so CMA-ES trajectory is deterministic
+    # across cases - without it, MRMR derives seed from pid ^ id(self)
+    # which varies per call and produces variance-of-30x between runs
+    # (verified 2026-05-18 - the original 135s "njit_par anomaly" was
+    # entirely explained by random_seed variation, NOT polyeval bug).
+    MRMR.clear_fit_cache()
     t0 = time.perf_counter()
     m = MRMR(
         fe_smart_polynom_iters=2,
@@ -54,10 +61,17 @@ def _run_mrmr(*, X, y, n_jobs, subsample_n) -> tuple[float, int]:
         fe_min_engineered_mi_prevalence=0.0,
         fe_min_nonzero_confidence=0.0, min_nonzero_confidence=0.0,
         fe_smart_polynom_subsample_n=subsample_n,
+        random_seed=42,
         n_jobs=n_jobs, verbose=0,
         mrmr_skip_when_prior_was_identity=False,
     )
-    m.fit(X, y)
+    # CRITICAL: fresh X clone per call - the polynom-FE block mutates X
+    # by adding ``_polynom_*`` columns (polynom_pair_fe.py:206
+    # ``X[_new_col_name] = _t_vals``). Shared X across cases produces
+    # accumulating col-count and DIFFERENT prospective pairs - the
+    # original bench's "cuda OOM at 7.63 MiB" was this leak compounded
+    # with cupy memory pool fragmentation across cases.
+    m.fit(X.copy(), y)
     return time.perf_counter() - t0, len(getattr(m, "_hermite_features_", None) or [])
 
 
