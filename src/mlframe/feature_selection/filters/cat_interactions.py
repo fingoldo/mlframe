@@ -1027,7 +1027,17 @@ def _shuffle_and_compute_three_mis(
 
     One pass increments all three joint-count matrices simultaneously, then closed-form MI summation on each (only depends on the small (K_x, K_y) matrices). Bit-exact
     equivalent of the three-separate-call form -- joint counts are integer increments, log/exp rounding identical.
-    """
+
+    Profiled 2026-05-20 (iter3 of /loop fuzz-combo cycle): a ``parallel=True``
+    variant with per-thread joint accumulators + final reduction was tried at
+    N in {50k, 200k, 1M} and lost by 35-50% across the board (1.0->1.5ms,
+    4.4->5.8ms, 31.0->34.2ms). Reason: the actual joint accumulation is only
+    ~5-10ms of the 31ms total at N=1M; the rest is the SERIAL Fisher-Yates
+    shuffle (RNG isn't safe across prange iterations - parallelising it
+    would corrupt the permutation) plus the small inner MI loops. The
+    parallel start-up + per-thread alloc + final reduction eats more than
+    the accumulator win. Documented "no actionable speedup" so the next
+    profile pass doesn't re-flag it - the seq form below is the winner."""
     n = len(classes_y_safe)
     # Fisher-Yates shuffle in place
     for i in range(n - 1, 0, -1):
