@@ -214,7 +214,15 @@ from ._data_helpers import (  # noqa: E402,F401
     _validate_trusted_path, get_function_param_names,
 )
 
-_CB_POOL_CACHE: dict[tuple, Any] = {}
+# Backward-compat re-export. The live CatBoost-train Pool cache lives in
+# mlframe.training._cb_pool; previously this module had its own dead stub at this
+# slot that nothing wrote to, so any external caller doing
+# ``mlframe.training.trainer._CB_POOL_CACHE.clear()`` (e.g. the suite-startup clear
+# at _phase_config_setup.py and 4 sites in tests/training/test_misc_fixes_jolly_wishing_deer.py)
+# silently cleared an empty dict and the real cache kept its stale Pool entries.
+# Aliasing here so the existing clear-callers route through to the real cache without
+# code changes; new code should import _CB_POOL_CACHE from mlframe.training._cb_pool directly.
+from mlframe.training._cb_pool import _CB_POOL_CACHE  # noqa: E402,F401
 
 logger = logging.getLogger(__name__)
 
