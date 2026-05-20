@@ -122,8 +122,8 @@ class TestRecipeBuilding:
             baseline_npermutations=5,
             fe_max_steps=2,
             fe_npermutations=5,
-            fe_unary_preset="default",  # adds squared/log/sin so mul/abs find synergy
-            fe_binary_preset="default",
+            fe_unary_preset="medium",  # adds squared/log/sin so mul/abs find synergy
+            fe_binary_preset="medium",
             fe_min_pair_mi_prevalence=1.05,
             verbose=0,
             n_jobs=1,
@@ -175,8 +175,8 @@ class TestRecipeBuilding:
             baseline_npermutations=5,
             fe_max_steps=2,  # forces the FE-step path that hits the bug-line
             fe_npermutations=5,
-            fe_unary_preset="default",
-            fe_binary_preset="default",
+            fe_unary_preset="medium",
+            fe_binary_preset="medium",
             fe_min_pair_mi_prevalence=1.05,
             verbose=0,
             n_jobs=1,

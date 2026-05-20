@@ -392,22 +392,33 @@ def check_prospective_fe_pairs(
             if this_pair_features:
 
                 # Bulk add the found & checked best features.
+                # ``this_pair_features`` is a SET of (config, j) tuples
+                # with sparse, non-contiguous ``j`` indices into
+                # ``final_transformed_vals``. The consumer (mrmr.py
+                # ``_run_fe_step``) iterates
+                # ``for k in range(len(this_pair_features)):
+                # transformed_vals[:, k]``, so the buffer MUST have
+                # exactly ``len(this_pair_features)`` columns packed
+                # densely 0..N-1, not the sparse ``j``-indexed layout
+                # with holes. Pre-fix code wrote to ``transformed_vals[:, j]``
+                # then sliced to ``[:, :last_j + 1]`` -- this gives
+                # either a too-short buffer (if last_j was small) and
+                # IndexError downstream, or holes (if last_j was large).
+                # Pack each (config, j) into a compact column index
+                # ``idx = 0..len(this_pair_features)-1`` instead.
                 if fe_max_steps > 1:
-                    transformed_vals = np.empty(shape=(len(X), fe_max_pair_features), dtype=quantization_dtype)
+                    transformed_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=quantization_dtype)
                 new_nbins = []
                 new_cols = []
 
-                for config, j in this_pair_features:
+                for idx, (config, j) in enumerate(this_pair_features):
                     new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
                     transformations_pair, bin_func_name, i = config
 
                     if fe_max_steps > 1:
-                        transformed_vals[:, j] = final_transformed_vals[:, i]
+                        transformed_vals[:, idx] = final_transformed_vals[:, i]
                         new_nbins += [quantization_nbins]
                     new_cols += [new_feature_name]
-
-                if fe_max_steps > 1:
-                    transformed_vals = transformed_vals[:, : min(fe_max_pair_features, j + 1)]
 
             res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins, messages)
 
