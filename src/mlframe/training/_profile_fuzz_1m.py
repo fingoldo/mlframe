@@ -916,6 +916,26 @@ def _run_suite_profiled(
             # Suite-level metadata. load_mlframe_suite reads metadata.pkl.zst
             # first; zstd-compressed pickle for compatibility with the loader.
             try:
+                # Wrap polars-ds Pipeline so pickle goes via to_json/from_json
+                # rather than per-PyExpr Rust deserialization (avoided the
+                # 100-200ms per expr observed at seed=20260522 / 100k binary;
+                # see _setup_helpers._PolarsDsPipelineJsonProxy docstring).
+                # Validate roundtrip BEFORE wrapping -- some step types
+                # raise ComputeError on from_json (encoder variants in
+                # particular). Fall back to plain pickle if so.
+                try:
+                    from mlframe.training.core._setup_helpers import _PolarsDsPipelineJsonProxy
+                    from polars_ds.pipeline import Pipeline as _PdsPipeline
+                    _pl_pipeline = _meta_for_save.get("pipeline")
+                    if _pl_pipeline is not None and isinstance(_pl_pipeline, _PdsPipeline):
+                        try:
+                            _PdsPipeline.from_json(_pl_pipeline.to_json())
+                            _meta_for_save = dict(_meta_for_save)
+                            _meta_for_save["pipeline"] = _PolarsDsPipelineJsonProxy(_pl_pipeline)
+                        except Exception:
+                            pass  # roundtrip failed; ship as plain pickle
+                except ImportError:
+                    pass  # polars-ds unavailable; nothing to wrap
                 _meta_path = _save_root / "metadata.pkl.zst"
                 _cctx = _zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1)
                 with open(_meta_path, "wb") as _mf:
