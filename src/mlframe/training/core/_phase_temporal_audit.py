@@ -10,6 +10,7 @@ from pyutilz.strings import slugify
 
 from ..target_temporal_audit import (
     audit_targets_over_time as _audit_targets_over_time,
+    coerce_timestamps_for_audit as _coerce_timestamps_for_audit_lib,
     format_temporal_audit_report as _format_temporal_audit_report,
     plot_target_over_time as _plot_target_over_time,
 )
@@ -17,80 +18,12 @@ from ..target_temporal_audit import (
 logger = logging.getLogger(__name__)
 
 
-# Lower / upper datetime sanity bounds for auto-unit detection. 1970 is the unix
-# epoch (anything earlier than that under any unit reads as negative or huge);
-# 2200 is well past anyone's practical training-data horizon while still covering
-# legitimate future-dated test scenarios. A unit choice is "in-range" iff every
-# observed timestamp falls between these two when interpreted with that unit.
-_AUDIT_DATETIME_LOW_NS = np.int64(0)  # 1970-01-01 in nanoseconds-since-epoch
-_AUDIT_DATETIME_HIGH_NS = np.int64(7258118400_000_000_000)  # 2200-01-01 in ns
-_AUDIT_UNIT_NS_FACTOR: dict[str, int] = {
-    "s":  1_000_000_000,
-    "ms":     1_000_000,
-    "us":         1_000,
-    "ns":             1,
-}
-
-
-def _coerce_timestamps_for_audit(
-    arr: np.ndarray,
-    *,
-    explicit_unit: str | None = None,
-) -> np.ndarray:
-    """Coerce a 1-D numeric timestamp array to numpy datetime64[ns] for audit binning.
-
-    Unit auto-detection (when ``explicit_unit`` is None):
-    - Pure datetime64 input: returned as-is.
-    - Numeric input: try each candidate unit in (s, ms, us, ns) in COARSEST-first
-      order. For each, compute resulting timestamp range. Accept the first unit
-      whose entire min..max range lands in [1970-01-01, 2200-01-01]; this gives
-      the audit the widest meaningful time-span for binning. Coarsest-first matters
-      because a value like 1_700_000_000 is legal as ns (= 1.7 sec past epoch,
-      degenerate single-bin audit) AND as s (= 2023-11-14, useful audit); we want
-      the latter.
-    - If no unit is in-range, log a warning and fall back to ns to preserve
-      pre-existing behaviour (which silently produced a single-bin result --
-      bug-compatible until the operator wires an explicit unit).
-
-    ``explicit_unit`` (optional): forces the unit interpretation. Must be one of
-    {'s', 'ms', 'us', 'ns'}.
-    """
-    if np.issubdtype(arr.dtype, np.datetime64):
-        return arr
-    if not (np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.floating)):
-        # Object / string / pd.Timestamp etc. -- let pandas figure it out.
-        return pd.to_datetime(arr).to_numpy()
-
-    if arr.size == 0:
-        return pd.to_datetime(arr, unit=explicit_unit or "ns").to_numpy()
-
-    if explicit_unit is not None:
-        if explicit_unit not in _AUDIT_UNIT_NS_FACTOR:
-            raise ValueError(
-                f"target_temporal_audit_unit={explicit_unit!r} not in "
-                f"{sorted(_AUDIT_UNIT_NS_FACTOR)!r}"
-            )
-        return pd.to_datetime(arr, unit=explicit_unit).to_numpy()
-
-    # Auto-detect: coarsest-first so degenerate ns-as-seconds reads pick "s" not "ns".
-    _vmin_f = float(np.nanmin(arr))
-    _vmax_f = float(np.nanmax(arr))
-    for _unit in ("s", "ms", "us", "ns"):
-        _ns_factor = _AUDIT_UNIT_NS_FACTOR[_unit]
-        _lo_ns = _vmin_f * _ns_factor
-        _hi_ns = _vmax_f * _ns_factor
-        if _AUDIT_DATETIME_LOW_NS <= _lo_ns and _hi_ns <= _AUDIT_DATETIME_HIGH_NS:
-            return pd.to_datetime(arr, unit=_unit).to_numpy()
-
-    # No unit yields an in-range datetime: log and fall back to ns (preserves prior behaviour).
-    logger.warning(
-        "target_temporal_audit: timestamp values (min=%g, max=%g) fall outside "
-        "[1970-01-01, 2200-01-01] under every candidate unit (s/ms/us/ns). "
-        "Falling back to ns interpretation; audit may degenerate to a single bin. "
-        "Set behavior_config.target_temporal_audit_unit to override.",
-        _vmin_f, _vmax_f,
-    )
-    return pd.to_datetime(arr, unit="ns").to_numpy()
+# Re-export the lib-level helper under the legacy name so the test suite (and any
+# external callers of the now-private symbol introduced in commit 9a1855e) keeps
+# working unchanged. The canonical home is now ``target_temporal_audit`` (one
+# level up) so the public ``RegimeAuditResult.segment_mask`` / ``_pick_granularity``
+# can use the same helper without an upward import.
+_coerce_timestamps_for_audit = _coerce_timestamps_for_audit_lib
 
 
 def run_temporal_audit_batch(

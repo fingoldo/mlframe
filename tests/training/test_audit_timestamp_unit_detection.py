@@ -14,7 +14,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training.core._phase_temporal_audit import _coerce_timestamps_for_audit
+from mlframe.training.target_temporal_audit import (
+    coerce_timestamps_for_audit as _coerce_timestamps_for_audit,
+    _pick_granularity,
+)
 
 
 def test_int64_epoch_seconds_auto_detected_as_s():
@@ -93,7 +96,7 @@ def test_explicit_unit_override_forces_interpretation():
 
 def test_explicit_unit_invalid_raises():
     ts = np.arange(10, dtype=np.int64)
-    with pytest.raises(ValueError, match="target_temporal_audit_unit"):
+    with pytest.raises(ValueError, match="audit timestamp unit"):
         _coerce_timestamps_for_audit(ts, explicit_unit="bogus")
 
 
@@ -106,6 +109,27 @@ def test_yyyymmdd_integers_get_seconds_interpretation():
     out = _coerce_timestamps_for_audit(ts)
     out_pd = pd.to_datetime(out)
     assert out_pd[0].year == 1970  # coerced via 's' interpretation
+
+
+def test_pick_granularity_int64_epoch_seconds_picks_meaningful_bin():
+    """Regression: _pick_granularity used to call bare pd.to_datetime(pd.Series(ts))
+    on int64 epoch-seconds, which collapsed the entire span to ~2 nanoseconds and
+    returned 'month' as the fallback. With the lib-level coerce helper threaded in,
+    a 25k-row span of ~7 hours now picks a sub-day granularity (minute/hour)."""
+    n = 25_000
+    ts = (1_700_000_000 + np.arange(n, dtype=np.int64))  # epoch seconds, ~7 hours span
+    gran = _pick_granularity(ts)
+    # 25k seconds = ~6.9 hours; sub-day granularity expected (minute, hour).
+    # Old broken behaviour: span collapsed to ns scale -> "month" fallback.
+    assert gran in ("minute", "hour"), f"expected sub-day granularity, got {gran!r}"
+
+
+def test_pick_granularity_int64_epoch_seconds_long_span_picks_day_or_week():
+    """A 1-year epoch-seconds span (n=365*24*3600 sec) should pick day/week, not 'month' fallback."""
+    span_seconds = 365 * 86_400  # ~1 year
+    ts = (1_700_000_000 + np.linspace(0, span_seconds, num=1000, dtype=np.int64))
+    gran = _pick_granularity(ts)
+    assert gran in ("day", "week", "month"), f"got {gran!r}"
 
 
 def test_truly_out_of_range_negative_falls_back_with_warning(caplog):

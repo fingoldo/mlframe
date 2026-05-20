@@ -68,6 +68,80 @@ def _import_ruptures():
 logger = logging.getLogger(__name__)
 
 
+# Lower / upper datetime sanity bounds for auto-unit detection.
+_AUDIT_DATETIME_LOW_NS = np.int64(0)  # 1970-01-01 in nanoseconds-since-epoch
+_AUDIT_DATETIME_HIGH_NS = np.int64(7258118400_000_000_000)  # 2200-01-01 in ns
+_AUDIT_UNIT_NS_FACTOR: dict[str, int] = {
+    "s":  1_000_000_000,
+    "ms":     1_000_000,
+    "us":         1_000,
+    "ns":             1,
+}
+
+
+def coerce_timestamps_for_audit(
+    arr,
+    *,
+    explicit_unit: str | None = None,
+) -> np.ndarray:
+    """Coerce a numeric timestamp array to numpy datetime64[ns] for audit binning.
+
+    Unit auto-detection (when ``explicit_unit`` is None):
+    - Pure datetime64 input or pd.DatetimeIndex / pd.Series of datetimes: returned as-is.
+    - Numeric input: try each candidate unit in (s, ms, us, ns) in COARSEST-first
+      order. For each, compute resulting timestamp range. Accept the first unit
+      whose entire min..max range lands in [1970-01-01, 2200-01-01]; this gives
+      the audit the widest meaningful time-span for binning. Coarsest-first matters
+      because a value like 1_700_000_000 is legal as ns (=1.7 sec past epoch,
+      degenerate single-bin audit) AND as s (=2023-11-14, useful audit); we want
+      the latter.
+    - If no unit is in-range, log a warning and fall back to ns to preserve
+      pre-existing behaviour.
+
+    ``explicit_unit`` (optional): forces the unit interpretation. Must be one of
+    {'s', 'ms', 'us', 'ns'}.
+
+    Returns a 1-D numpy datetime64[ns] array. Accepts numpy ndarray, list,
+    pd.Series, or any 1-D ``Sequence``-like input.
+    """
+    arr = np.asarray(arr) if not isinstance(arr, np.ndarray) else arr
+
+    if np.issubdtype(arr.dtype, np.datetime64):
+        return arr
+    if not (np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.floating)):
+        # Object / string / pd.Timestamp etc. -- let pandas figure it out (string parsing path).
+        return pd.to_datetime(arr).to_numpy()
+
+    if arr.size == 0:
+        return pd.to_datetime(arr, unit=explicit_unit or "ns").to_numpy()
+
+    if explicit_unit is not None:
+        if explicit_unit not in _AUDIT_UNIT_NS_FACTOR:
+            raise ValueError(
+                f"audit timestamp unit={explicit_unit!r} not in "
+                f"{sorted(_AUDIT_UNIT_NS_FACTOR)!r}"
+            )
+        return pd.to_datetime(arr, unit=explicit_unit).to_numpy()
+
+    # Auto-detect: coarsest-first so degenerate ns-as-seconds reads pick "s" not "ns".
+    _vmin_f = float(np.nanmin(arr))
+    _vmax_f = float(np.nanmax(arr))
+    for _unit in ("s", "ms", "us", "ns"):
+        _ns_factor = _AUDIT_UNIT_NS_FACTOR[_unit]
+        _lo_ns = _vmin_f * _ns_factor
+        _hi_ns = _vmax_f * _ns_factor
+        if _AUDIT_DATETIME_LOW_NS <= _lo_ns and _hi_ns <= _AUDIT_DATETIME_HIGH_NS:
+            return pd.to_datetime(arr, unit=_unit).to_numpy()
+
+    logger.warning(
+        "audit timestamp values (min=%g, max=%g) fall outside [1970-01-01, 2200-01-01] "
+        "under every candidate unit (s/ms/us/ns). Falling back to ns interpretation; "
+        "audit may degenerate to a single bin. Set explicit unit to override.",
+        _vmin_f, _vmax_f,
+    )
+    return pd.to_datetime(arr, unit="ns").to_numpy()
+
+
 DEFAULT_MIN_BIN_FRACTION_FOR_FILTER: float = 0.5
 """A bin is kept (plotted, used in change-point detection) only if its
 n_obs >= this fraction × median bin size. Filters out the tiny tail
@@ -203,12 +277,12 @@ class TemporalAuditResult:
             inclusion is half-open as Pelt segments are).
         """
         if not self.segments or not self.bins:
-            ts = pd.to_datetime(pd.Series(timestamps))
+            ts = coerce_timestamps_for_audit(timestamps)
             return np.zeros(len(ts), dtype=bool)
 
         kept = [b for b in self.bins if b.kept]
         if not kept:
-            ts = pd.to_datetime(pd.Series(timestamps))
+            ts = coerce_timestamps_for_audit(timestamps)
             return np.zeros(len(ts), dtype=bool)
 
         chosen_segs: list[dict[str, Any]]
@@ -244,7 +318,7 @@ class TemporalAuditResult:
         gran_seconds = _GRANULARITY_SECONDS.get(self.granularity, 30.44 * 86_400.0)
         gran_delta = pd.Timedelta(seconds=gran_seconds)
 
-        ts = pd.to_datetime(pd.Series(timestamps))
+        ts = pd.Series(coerce_timestamps_for_audit(timestamps))
         mask = np.zeros(len(ts), dtype=bool)
         for s in chosen_segs:
             start_idx = int(s["start_idx"])
@@ -298,7 +372,7 @@ def _pick_granularity(
     else:
         if len(timestamps) == 0:
             return "month"
-        ts = pd.to_datetime(pd.Series(timestamps))
+        ts = pd.Series(coerce_timestamps_for_audit(timestamps))
         span_seconds = (ts.max() - ts.min()).total_seconds()
         if span_seconds <= 0:
             return "month"
