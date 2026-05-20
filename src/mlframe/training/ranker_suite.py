@@ -557,8 +557,15 @@ def train_mlframe_ranker_suite(
                         continue
                     if _c in _split.columns:
                         _vmap = _vocabs[_c]
+                        # Cast to object before .map(): Categorical[string]
+                        # propagates its dtype through .map(), and the resulting
+                        # Categorical[int] rejects .fillna(-1) ("Cannot setitem
+                        # on a Categorical with a new category") because -1 is
+                        # not in the mapped vocabulary. Plain object dtype
+                        # demotes to float64 on missing cells and lets fillna(-1)
+                        # land cleanly.
                         _new_series[_c] = (
-                            _split[_c].map(_vmap).fillna(-1).astype("int32")
+                            _split[_c].astype(object).map(_vmap).fillna(-1).astype("int32")
                         )
                 if _new_series:
                     _kept = [c for c in _orig_cols if c not in _new_series]
