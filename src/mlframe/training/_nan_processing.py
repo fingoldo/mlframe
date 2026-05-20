@@ -129,10 +129,17 @@ def _process_special_values(
                 if fill_func_name is None:
                     raise ValueError("fill_func_name is required for Polars DataFrames when fill_value is provided")
                 if fill_func_name == "replace":
-                    # For infinities: only ±inf are replaced. NaN is preserved here
-                    # (cs.numeric().replace does not touch NaN). Callers that also want
-                    # NaN filled should run `process_nans` first.
-                    df = df.with_columns(cs.numeric().replace([float("inf"), float("-inf")], fill_value))
+                    # For infinities: only ±inf are replaced. Gate to cs.float()
+                    # rather than cs.numeric() because integer columns cannot
+                    # hold ±inf (storage-wise impossible) AND polars 1.x raises
+                    # ``InvalidOperationError: conversion from f64 to i32
+                    # failed ... for [inf, -inf]`` if the replace touches an
+                    # integer column - it tries to cast the search values
+                    # down to the column dtype, which is undefined for inf.
+                    # NaN is preserved here (.replace does not touch NaN);
+                    # callers that also want NaN filled should run
+                    # ``process_nans`` first.
+                    df = df.with_columns(cs.float().replace([float("inf"), float("-inf")], fill_value))
                 else:
                     df = df.with_columns(getattr(cs.numeric(), fill_func_name)(fill_value))
             else:
