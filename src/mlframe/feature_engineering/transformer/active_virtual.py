@@ -87,15 +87,17 @@ def _filter_boundary_virtuals(X_train: np.ndarray, y_train: np.ndarray, virtuals
     filtered = virtuals[keep_mask]
     if filtered.shape[0] < 10:
         # Fallback: keep top-N most uncertain virtuals.
+        # Wave 62 (2026-05-20): lexsort with row-index tiebreak so tied uncertainty
+        # (rounded proba/pred values) gives deterministic top-K across runs.
         if task == "binary":
             uncertainty = -np.abs(proba - 0.5)  # higher = more uncertain
             top_k = min(max(10, len(virtuals) // 5), len(virtuals))
-            top_idx = np.argsort(-uncertainty)[:top_k]
+            top_idx = np.lexsort((np.arange(len(uncertainty)), -uncertainty))[:top_k]
             filtered = virtuals[top_idx]
         else:
             uncertainty = -np.abs(pred - y_median)
             top_k = min(max(10, len(virtuals) // 5), len(virtuals))
-            top_idx = np.argsort(-uncertainty)[:top_k]
+            top_idx = np.lexsort((np.arange(len(uncertainty)), -uncertainty))[:top_k]
             filtered = virtuals[top_idx]
     return filtered
 

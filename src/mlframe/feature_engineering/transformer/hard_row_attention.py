@@ -115,16 +115,17 @@ def compute_hard_row_attention_features(
         # Pick top-K hardest rows by |residual|.
         n_train_rows = Xt_s.shape[0]
         k_eff = min(n_hard, n_train_rows)
+        # Wave 62 (2026-05-20): lexsort replaces argpartition (impl-defined tie)
+        # + secondary key on row index so tied |residual| (duplicate rows / near-
+        # equal residuals on rounded predictions) gives deterministic top-K
+        # hardest-rows across runs.
         if k_eff < n_hard:
             # Pad with the same row if not enough training rows.
-            top_idx = np.argsort(abs_residuals)[::-1][:k_eff]
+            top_idx = np.lexsort((np.arange(len(abs_residuals)), -abs_residuals))[:k_eff]
             pad = np.full(n_hard - k_eff, top_idx[-1])
             top_idx = np.concatenate([top_idx, pad])
         else:
-            # Use argpartition for top-K; then sort by |residual| descending for stable feature ordering.
-            unsorted_top = np.argpartition(abs_residuals, -n_hard)[-n_hard:]
-            order = np.argsort(abs_residuals[unsorted_top])[::-1]
-            top_idx = unsorted_top[order]
+            top_idx = np.lexsort((np.arange(len(abs_residuals)), -abs_residuals))[:n_hard]
 
         anchors_X = Xt_s[top_idx]                  # (n_hard, d)
         anchors_y = y_t[top_idx].astype(np.float32)

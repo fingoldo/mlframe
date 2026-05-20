@@ -58,7 +58,11 @@ def compute_multi_threshold_ordinal_features(
             preds = np.zeros((Xq_s.shape[0], 3), dtype=np.float32)
             m_base = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1, random_state=int(fold_seed), verbose=-1, n_jobs=-1).fit(Xt_s, y_t.astype(np.int32))
             importances = m_base.feature_importances_
-            top3 = np.argsort(importances)[-3:]
+            # Wave 62 (2026-05-20): lexsort with feature-index tiebreak so tied
+            # LGB feature_importances_ (often rounded to ints) give deterministic
+            # top-3 across runs.
+            _imp = np.asarray(importances)
+            top3 = np.lexsort((-np.arange(len(_imp)), _imp))[-3:]
             for i, j in enumerate(top3):
                 median_j = float(np.median(Xt_s[:, j]))
                 target = ((y_t > 0.5) & (Xt_s[:, j] > median_j)).astype(np.int32)

@@ -94,8 +94,11 @@ def compute_apriori_itemsets_features(
                 cond_mean = float(np.mean(y_t[mask_train]))
                 lift = abs(cond_mean - target_mean) / (float(np.std(y_t)) + 1e-9)
             lifts.append(lift)
-        # Sort by lift, take top_k
-        order = np.argsort(lifts)[::-1][:top_k]
+        # Sort by lift, take top_k.
+        # Wave 62 (2026-05-20): lexsort with itemset-index tiebreak so tied
+        # lifts (rare items often saturate) give deterministic top-K.
+        _lifts_arr = np.asarray(lifts)
+        order = np.lexsort((np.arange(len(_lifts_arr)), -_lifts_arr))[:top_k]
         top_indicators_q = np.zeros((Xq.shape[0], top_k), dtype=np.float32)
         for k_i, idx in enumerate(order):
             itemset = list(frequent.iloc[idx]["itemsets"])

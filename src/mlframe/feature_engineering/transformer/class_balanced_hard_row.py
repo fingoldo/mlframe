@@ -79,7 +79,8 @@ def _topk_within_subset(values: np.ndarray, subset_idx: np.ndarray, k: int) -> n
         return np.array([], dtype=np.int64)
     k_eff = min(k, subset_idx.size)
     sub_values = values[subset_idx]
-    sub_top = np.argsort(sub_values)[::-1][:k_eff]
+    # Wave 62 (2026-05-20): lexsort tiebreak for deterministic top-K within subset.
+    sub_top = np.lexsort((np.arange(len(sub_values)), -sub_values))[:k_eff]
     return subset_idx[sub_top]
 
 

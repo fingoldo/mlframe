@@ -90,13 +90,15 @@ def _fit_aux_lgb_and_filter(X_train: np.ndarray, y_train: np.ndarray, virtuals: 
     filtered = virtuals[keep_mask]
     if filtered.shape[0] < 10:
         # Fallback: if too few pass filter, lower threshold to keep top-N most confident.
+        # Wave 62 (2026-05-20): lexsort with row-index tiebreak for deterministic
+        # top-K across runs on tied proba/pred values.
         if task == "binary":
             top_k = min(max(10, len(virtuals) // 10), len(virtuals))
-            top_idx = np.argsort(-proba)[:top_k]
+            top_idx = np.lexsort((np.arange(len(proba)), -proba))[:top_k]
             filtered = virtuals[top_idx]
         else:
             top_k = min(max(10, len(virtuals) // 10), len(virtuals))
-            top_idx = np.argsort(-pred)[:top_k]
+            top_idx = np.lexsort((np.arange(len(pred)), -pred))[:top_k]
             filtered = virtuals[top_idx]
     return filtered
 
