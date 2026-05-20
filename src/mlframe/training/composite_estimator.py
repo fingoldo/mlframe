@@ -630,8 +630,20 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             estimator.fit(X_valid, t_train, **fit_kwargs)
 
         # Stash post-inverse y-clip bounds + train median for fallback.
+        # Wave 21 P1: use np.nanmedian so a NaN-bearing y_train doesn't
+        # silently make y_train_median == NaN -- the fallback constant is
+        # used at predict time when transform is unsafe; pre-fix the
+        # fallback predicted NaN for ALL rows that triggered it.
         y_clip_low, y_clip_high = _y_train_clip_bounds(y_train)
-        y_train_median = float(np.median(y_train))
+        y_train_median = float(np.nanmedian(y_train))
+        if not np.isfinite(y_train_median):
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "composite_estimator: y_train has no finite values; "
+                "y_train_median fallback set to 0.0. Predict-time "
+                "fallback will return 0 instead of NaN.",
+            )
+            y_train_median = 0.0
 
         self.estimator_ = estimator
         self.fitted_params_ = {

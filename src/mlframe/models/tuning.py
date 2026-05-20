@@ -333,7 +333,20 @@ def justify_estimator(
     logging.info(f"Checking if ML gains some predictive power already on {len(y):_} samples...")
 
     cv_results = cross_validate(est, X, y, cv=cv, scoring=scoring)
-    mean_score = np.mean(cv_results["test_score"])
+    # Wave 21 P1: use np.nanmean so a single degenerate fold (e.g. all-one-
+    # class y, sklearn returns NaN) doesn't make mean_score == NaN; pre-fix
+    # the >= gate then returned False and the function silently reported
+    # "ML can't be used" + returned None, even when most folds were fine.
+    _test_scores = np.asarray(cv_results["test_score"], dtype=float)
+    _n_nan = int(np.sum(~np.isfinite(_test_scores)))
+    if _n_nan > 0:
+        logging.warning(
+            "ml_check_min_dataset_size: %d/%d CV folds returned non-finite "
+            "scores; using nanmean over surviving folds. If most folds are "
+            "degenerate, the gate may still reject; check for class "
+            "imbalance / leaky split.", _n_nan, len(_test_scores),
+        )
+    mean_score = float(np.nanmean(_test_scores))
 
     if mean_score >= min_score:
         logging.info("OOS mean %s=%s, so ML can be used.", scoring, mean_score)
