@@ -362,6 +362,9 @@ def batch_pair_mi_cupy(
     n_samples = int(factors_data.shape[0])
     n_pairs = int(pa_arr.shape[0])
     n_classes_y = int(d_freqs_y.shape[0])
+    # Wave 47 (2026-05-20): empty factors_data divides by zero in inv_n; return zeros.
+    if n_samples == 0:
+        return np.zeros(n_pairs, dtype=np.float64)
     inv_n = 1.0 / n_samples
     out_host = np.empty(n_pairs, dtype=np.float64)
 

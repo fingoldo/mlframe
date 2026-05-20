@@ -326,6 +326,12 @@ def batch_pair_mi_prange(
     out = np.empty(n_pairs, dtype=np.float64)
     n_classes_y = freqs_y.shape[0]
 
+    # Wave 47 (2026-05-20): empty factors_data divides by zero in `1/n_samples`
+    # inside the per-pair MI inner loop; return zeros (no-information baseline).
+    if n_samples == 0:
+        out[:] = 0.0
+        return out
+
     for p in prange(n_pairs):
         a = pair_a[p]
         b = pair_b[p]

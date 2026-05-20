@@ -87,6 +87,11 @@ def grok_compute_mutual_information(
     K = len(target_indices)
     mi_results = np.zeros((K, n_columns), dtype=out_dtype)
 
+    # Wave 47 (2026-05-20): n_samples==0 (empty data) divides by zero in the njit
+    # kernel below; early-return zero-MI matching the no-information answer.
+    if n_samples == 0:
+        return mi_results
+
     inv_n_samples = 1.0 / n_samples
     log_n_samples = np.log(n_samples)
 

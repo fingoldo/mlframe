@@ -395,6 +395,9 @@ def anderson_darling_statistic(pit_values):
         float: Anderson-Darling statistic.
     """
     n = len(pit_values)
+    # Wave 47 (2026-05-20): (1/n) on empty pit_values divides by zero.
+    if n == 0:
+        return float("nan")
     sorted_pit = np.sort(pit_values)
     i = np.arange(1, n + 1)  # Index from 1 to n
 

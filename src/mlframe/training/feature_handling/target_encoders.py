@@ -698,13 +698,19 @@ class LeakageSafeEncoder:
             _p = self._global_prior if self._global_prior is not None else 0.5
             _p = float(min(max(_p, 1e-12), 1.0 - 1e-12))
             unseen_logodds = float(np.log(_p) - np.log(1.0 - _p))
+            # Wave 47 (2026-05-20): with smoothing=0 a category that has zero positives
+            # OR zero negatives in train yields p==0 or q==0; np.log(0)=-inf and the
+            # subtraction becomes nan. Clip with the same Laplace cushion the kfold
+            # path uses so caller-visible features stay finite.
             for i, c in enumerate(cats):
                 p = self._woe_pos.get(c)
                 q = self._woe_neg.get(c)
                 if p is None or q is None:
                     out[i] = unseen_logodds
                 else:
-                    out[i] = float(np.log(p) - np.log(q))
+                    p_safe = float(min(max(p, 1e-12), 1.0 - 1e-12))
+                    q_safe = float(min(max(q, 1e-12), 1.0 - 1e-12))
+                    out[i] = float(np.log(p_safe) - np.log(q_safe))
             return out
         for i, c in enumerate(cats):
             n_c = self._category_counts.get(c, 0)

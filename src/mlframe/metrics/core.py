@@ -3897,6 +3897,12 @@ def fast_r2_score(
                 # weights are what matters for the average; using SS_tot
                 # directly preserves the proportions sklearn uses.
                 wsum = float(w.sum())
+                # Wave 47 (2026-05-20): sample_weight that sums to zero (zero-weighted
+                # excluded fold rows) divided by 0 here BEFORE the ss_tots.sum()==0
+                # degenerate guard could observe it.
+                if wsum <= 0.0:
+                    ss_tots[j] = 0.0
+                    continue
                 wmean = float((col_yt * w).sum() / wsum)
                 ss_tots[j] = float(((col_yt - wmean) ** 2 * w).sum())
         if ss_tots.sum() == 0.0:

@@ -186,7 +186,9 @@ def row_attention_stage4_njit(  # pragma: no cover
     n_queries = q_proj.shape[0]
     head_dim = q_proj.shape[1]
     k = topk_ids.shape[1]
-    inv_temp = 1.0 / softmax_temp
+    # Wave 47 (2026-05-20): mirror the sibling kernel's guard at line 120;
+    # user-provided softmax_temp can be 0 (or extremely small) and would divide-by-zero.
+    inv_temp = 1.0 / softmax_temp if softmax_temp > 1e-12 else 1.0
     for q in numba.prange(n_queries):
         # Per-query scratch: logits/weights array and a (k, head_dim) gather buffer.
         weights = np.empty(k, dtype=np.float32)

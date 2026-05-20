@@ -472,7 +472,12 @@ def compute_numerical_aggregates_numba(
 
     arithmetic_mean = arithmetic_mean / size
     if weights is not None:
-        weighted_arithmetic_mean = weighted_arithmetic_mean / sum_weights
+        # Wave 47 (2026-05-20): zero-sum weights vector (all-zero weight column or
+        # entirely filtered-out fold) divides by 0 in the njit kernel and aborts.
+        if sum_weights == 0.0:
+            weighted_arithmetic_mean = np.nan
+        else:
+            weighted_arithmetic_mean = weighted_arithmetic_mean / sum_weights
 
     if return_exotic_means:
         quadratic_mean = np.sqrt(quadratic_mean / size)
@@ -490,7 +495,11 @@ def compute_numerical_aggregates_numba(
             harmonic_mean = np.nan
 
         if weights is not None:
-            weighted_quadratic_mean = np.sqrt(weighted_quadratic_mean / sum_weights)
+            # Wave 47 (2026-05-20): same sum_weights==0 guard as above.
+            if sum_weights == 0.0:
+                weighted_quadratic_mean = np.nan
+            else:
+                weighted_quadratic_mean = np.sqrt(weighted_quadratic_mean / sum_weights)
             weighted_qubic_mean = (weighted_qubic_mean / sum_weights) ** (1 / 3)
             if npositive and sum_weights != 0.0:
                 if not geomean_log_mode:
@@ -1028,7 +1037,12 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                 weighted_std += weighted_std_c
                 weighted_skew += weighted_skew_c
                 weighted_kurt += weighted_kurt_c
-            weighted_std = np.sqrt(weighted_std / sum_weights)
+            # Wave 47 (2026-05-20): sum_weights==0 (all-zero weight column)
+            # used to crash the njit kernel here.
+            if sum_weights == 0.0:
+                weighted_std = np.nan
+            else:
+                weighted_std = np.sqrt(weighted_std / sum_weights)
 
         if not directional_only:
             mad = mad / size
@@ -1044,7 +1058,11 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                     kurt = kurt / factor - 3.0
 
             if weights is not None:
-                weighted_mad = weighted_mad / sum_weights
+                # Wave 47 (2026-05-20): same sum_weights==0 guard.
+                if sum_weights == 0.0:
+                    weighted_mad = np.nan
+                else:
+                    weighted_mad = weighted_mad / sum_weights
                 if weighted_std == 0:
                     weighted_skew, weighted_kurt = 0.0, 0.0
                 else:
