@@ -309,10 +309,17 @@ class TestBizValStackedDiscovery:
             f"stacked yielded fewer specs ({stacked_n}) than plain ({plain_n}) -- bug"
         )
 
+    @pytest.mark.no_xdist
     def test_stacked_improves_holdout_mae_on_2level_synthetic(self) -> None:
         """The real biz_val claim for stacked discovery: when the target has
         two distinct signal sources, the BEST stacked spec must achieve a
         lower y-scale holdout MAE than the BEST plain spec.
+
+        @no_xdist: the stacked-discovery body runs a chain of in-process
+        Ridge fits against a 6000-row frame; passes cleanly in isolation
+        (~15s) but native-crashes the xdist worker under heavy parallel
+        load (observed 2026-05-20 on S: with 14 parallel workers). Skip
+        when xdist is active; run sequentially or with -n0 for coverage.
 
         Synthetic: y = 1.5 * x_a + cube(x_b) + small_noise. Plain discovery
         absorbs the linear signal via linres-x_a but leaves the cube(x_b)

@@ -804,8 +804,15 @@ def test_iter117_kin8nm_cb_r2_iter102():
 # ---------- iter118 - cross-scale boundary test: iter102 large-N, iter104 small-N ----------
 
 
+@pytest.mark.no_xdist
 def test_iter118_year100k_cb_r2_iter102():
-    """iter102 (+ExtraTrees) on Year-100k CB R2 (does it beat iter104's +5.25% at large N?)."""
+    """iter102 (+ExtraTrees) on Year-100k CB R2 (does it beat iter104's +5.25% at large N?).
+
+    @no_xdist: Year-100k dataset (100k rows x 90 features) + 3 seeds + CB
+    fits. Native-crashed the xdist worker under 14-parallel load on S:
+    2026-05-20 (likely RAM ceiling: each CB fit holds the full 100k frame
+    plus the ExtraTrees feature builder side-set). Run sequentially.
+    """
     _validate_scale(_load_year_100k, _build_iter102, "cb", "R2", 0.0525, "iter118_iter102_Year100k_cb")
 
 

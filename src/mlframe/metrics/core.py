@@ -4065,7 +4065,19 @@ def create_fairness_subgroups(
 
         val_cnts = feature_vals.value_counts()
 
-        if feature_vals.dtype.name not in ("category", "object", "date", "datetime"):
+        # qcut requires a NUMERIC dtype (it computes quantile cut-points).
+        # The previous blacklist ``not in ("category","object","date","datetime")``
+        # silently let pandas StringDtype / pyarrow large_string slip past
+        # ("string" is none of those names) and pd.qcut then crashed deep in
+        # pyarrow with
+        # ``ArrowNotImplementedError: Function 'quantile' has no kernel
+        # matching input types (large_string)`` (observed 2026-05-20 on S:
+        # in fuzz_3way c0133_7257609a-cb_hgb_lgb_linear-pl_utf8-n5000;
+        # the ``pl_utf8`` input type converted to pyarrow-backed large_string
+        # on the pandas side). Switch to ``is_numeric_dtype`` so the gate is
+        # whitelist-style: only int/float/bool/numeric extension types reach
+        # qcut; everything else uses the value_counts categorical path below.
+        if pd.api.types.is_numeric_dtype(feature_vals):
             if len(val_cnts) > cont_nbins:
                 feature_vals = pd.qcut(feature_vals, q=cont_nbins, labels=None)  # use qcut for equipopulated binning
                 val_cnts = feature_vals.value_counts()  # this needs recalculation now

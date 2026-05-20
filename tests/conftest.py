@@ -127,6 +127,12 @@ def pytest_configure(config):
         "datasets, multi-boosting); deselected unless --run-biz-transformer "
         "is passed.",
     )
+    config.addinivalue_line(
+        "markers",
+        "no_xdist: skip when pytest-xdist parallelism is active (test needs "
+        "sequential execution: native-crash-prone composite fits, numba cache "
+        "lock contention, shared file-system state).",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -152,6 +158,21 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "biz_transformer" in item.keywords:
                 item.add_marker(skip_bt)
+
+    # Skip ``no_xdist``-marked items when xdist parallelism is active. Tests
+    # that touch shared FS state (numba cache wipe), do heavy in-process
+    # composite fits, or rely on a stable cwd will native-crash under load
+    # even though they pass in isolation (observed 2026-05-20 on S: with
+    # test_stacked_improves_holdout_mae_on_2level_synthetic and
+    # test_iter118_year100k_cb_r2_iter102).
+    _dist_opt = getattr(config.option, "dist", "no")
+    if _dist_opt != "no":
+        skip_xdist = pytest.mark.skip(
+            reason="requires sequential execution; xdist parallelism active"
+        )
+        for item in items:
+            if "no_xdist" in item.keywords:
+                item.add_marker(skip_xdist)
 
     if not is_fast_mode():
         return
