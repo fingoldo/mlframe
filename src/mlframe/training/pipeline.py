@@ -670,6 +670,19 @@ def apply_preprocessing_extensions(
     def _filter_to_numeric(_df):
         if _df is None or not isinstance(_df, pd.DataFrame):
             return _df, []
+        # 2026-05-18: bool columns are numerically valid for sklearn
+        # KBins / StandardScaler / PolynomialFeatures (False=0, True=1).
+        # ``select_dtypes(include="number")`` EXCLUDES bool dtype - so the
+        # default code path was silently dropping useful binary features
+        # (e.g. ``is_after_ps`` event-membership flags). Cast bool -> int8
+        # in place so they pass the "number" gate. int8 is the smallest
+        # dtype that round-trips True/False without precision loss; mass
+        # cast is cheap (~1 byte per row).
+        import numpy as _np_local
+        _bool_cols = _df.select_dtypes(include="bool").columns.tolist()
+        if _bool_cols:
+            _df = _df.copy()  # avoid mutating caller's frame
+            _df[_bool_cols] = _df[_bool_cols].astype(_np_local.int8)
         _num_cols = _df.select_dtypes(include="number").columns.tolist()
         _dropped = [c for c in _df.columns if c not in _num_cols]
         return _df[_num_cols], _dropped
