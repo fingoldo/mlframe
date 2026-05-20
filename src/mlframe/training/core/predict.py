@@ -1435,8 +1435,21 @@ def predict_from_models(
                                                     _stashed_passthrough[_pc] = _src_for_stash.get_column(_pc).to_pandas()
                                                 else:
                                                     _stashed_passthrough[_pc] = _src_for_stash[_pc].reset_index(drop=True)
-                                            except Exception:
-                                                pass
+                                            except (KeyError, AttributeError, ValueError, TypeError) as _stash_err:
+                                                # Narrow: only the failures that mean "col missing / wrong shape / wrong type".
+                                                # Pre-fix swallowed bare Exception silently; the missing col then never
+                                                # made it into _stashed_passthrough, so the re-attach loop at L1446 simply
+                                                # skipped it, and the downstream model was fed a frame MISSING a passthrough
+                                                # column it was TRAINED on -- wrong predictions on production traffic with
+                                                # no log line. Log at WARNING so the operator sees which passthrough cols
+                                                # failed to round-trip.
+                                                logger.warning(
+                                                    "predict_from_models: %s passthrough col %r failed to stash "
+                                                    "(%s: %s); downstream model will receive a frame missing this "
+                                                    "column. Predictions on rows whose pre-fit pipeline depended on "
+                                                    "it may be wrong.",
+                                                    model_name, _pc, type(_stash_err).__name__, _stash_err,
+                                                )
                                 try:
                                     input_for_model = model_obj.pre_pipeline.transform(input_for_model)
                                     # Re-attach stashed passthrough cols so the
@@ -1452,8 +1465,17 @@ def predict_from_models(
                                                     _vals_aligned = _vals_aligned.reset_index(drop=True)
                                                 input_for_model = input_for_model.reset_index(drop=True)
                                                 input_for_model[_pc] = _vals_aligned
-                                            except Exception:
-                                                pass
+                                            except (KeyError, ValueError, TypeError) as _reattach_err:
+                                                # Narrow: shape / dtype mismatch on the re-attach assignment. Pre-fix
+                                                # silently swallowed; the col never made it back, model.predict ran on
+                                                # an incomplete frame, predictions silently wrong. Log at WARNING so
+                                                # operator can see WHICH cols failed to round-trip vs which were stashed.
+                                                logger.warning(
+                                                    "predict_from_models: %s passthrough col %r stashed but "
+                                                    "failed to re-attach after pre_pipeline.transform "
+                                                    "(%s: %s); model will see a frame missing this column.",
+                                                    model_name, _pc, type(_reattach_err).__name__, _reattach_err,
+                                                )
                                 except Exception as _pp_exc:
                                     # When pre_pipeline.transform fails (most
                                     # commonly NotFittedError on a cloned-not-
@@ -1491,8 +1513,18 @@ def predict_from_models(
                                                     input_for_model = input_for_model.select(_inner_list)
                                                 else:
                                                     input_for_model = input_for_model.loc[:, _inner_list]
-                                        except Exception:
-                                            pass
+                                        except (KeyError, ValueError, TypeError, AttributeError) as _subset_err:
+                                            # Narrow: subset failures (missing col, dtype mismatch, polars/pandas mismatch).
+                                            # Pre-fix swallow let the fallback silently SKIP the inner-model feature
+                                            # subset, then model.predict raised a cryptic shape error downstream.
+                                            # Log so the cascade is debuggable instead of producing two unrelated-looking
+                                            # errors.
+                                            logger.warning(
+                                                "predict_from_models: %s feature_names_in_ subset failed "
+                                                "(%s: %s); falling through to model.predict on unsubset frame, "
+                                                "which will likely raise a shape mismatch downstream.",
+                                                model_name, type(_subset_err).__name__, _subset_err,
+                                            )
                                     logger.warning(
                                         "predict_from_models: %s pre_pipeline.transform "
                                         "raised %s: %s. Skipping pre_pipeline (main "
