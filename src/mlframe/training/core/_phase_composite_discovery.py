@@ -310,18 +310,26 @@ def run_composite_target_discovery(
 
             if _cached_payload is not None:
                 # Replay the cached output into metadata without refitting.
+                # Defensive copy at the load boundary: DiscoveryCache.get() today does a fresh
+                # pickle.load (safe in isolation), but the class docstring at composite_cache.py:649
+                # mentions a future LRU in-memory sidecar. If that lands, the SAME list / dict
+                # reference would be returned across calls; a downstream phase that ever does
+                # ``.clear()`` / ``.append()`` on these values (composite_target_y_scale_metrics
+                # at _phase_composite_post.py:174-177 already does ``.clear()`` on a sibling
+                # metadata list) would corrupt the cache entry in place. Same shape as the CB
+                # Pool id-recycle bug from wave 7 -- catch it BEFORE the LRU sidecar lands.
                 metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = (
-                    _cached_payload.get("specs_export", [])
+                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = list(
+                    _cached_payload.get("specs_export") or []
                 )
                 metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = (
-                    _cached_payload.get("failures", [])
+                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = list(
+                    _cached_payload.get("failures") or []
                 )
                 metadata.setdefault("composite_target_filter_drops", {})
                 metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = (
-                    _cached_payload.get("filter_drops", {})
+                metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = dict(
+                    _cached_payload.get("filter_drops") or {}
                 )
                 metadata.setdefault("composite_target_cache", {}) \
                     .setdefault(str(_tt_disc), {})[_tname_disc] = {

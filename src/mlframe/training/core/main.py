@@ -614,7 +614,12 @@ def train_mlframe_models_suite(
     if _precomp_fp_ok and precomputed is not None and precomputed.composite_target_specs:
         if verbose:
             logger.info("Using caller-supplied composite_target_specs (precomputed bundle); skipping discovery.")
-        metadata["composite_target_specs"] = precomputed.composite_target_specs
+        # Deep-copy so a downstream phase that ever appends to metadata['composite_target_specs']
+        # doesn't mutate the caller's precomputed bundle. Pre-fix this was a shared reference;
+        # a notebook calling the suite once per fold while reusing the same precomputed bundle
+        # would see call N's late-arrived spec stamped INTO the bundle and resurface in call N+1.
+        import copy as _copy
+        metadata["composite_target_specs"] = _copy.deepcopy(precomputed.composite_target_specs)
     else:
         target_by_type, metadata = pr.run_composite_target_discovery(
             composite_target_discovery_config=composite_target_discovery_config,
@@ -676,7 +681,10 @@ def train_mlframe_models_suite(
     if _precomp_fp_ok and precomputed is not None and precomputed.dummy_baselines:
         if verbose:
             logger.info("Using caller-supplied dummy_baselines (precomputed bundle); skipping per-target compute.")
-        metadata["dummy_baselines"] = precomputed.dummy_baselines
+        # Deep-copy: same cross-suite alias hazard as composite_target_specs above. Caller's
+        # bundle stays immutable across multiple suite calls reusing the same precomputed object.
+        import copy as _copy_db
+        metadata["dummy_baselines"] = _copy_db.deepcopy(precomputed.dummy_baselines)
         try:
             dummy_baselines_config = dummy_baselines_config.model_copy(update={"enabled": False})
         except AttributeError:

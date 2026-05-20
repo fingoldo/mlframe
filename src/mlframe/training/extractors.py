@@ -567,6 +567,23 @@ class FeaturesAndTargetsExtractor:
             - columns_to_drop: Set of columns to drop
             - sample_weights: Dict of sample weight arrays
         """
+        # Reset per-call state so the same FTE instance can be re-used across multiple
+        # train_mlframe_models_suite calls (CV loop, A/B sweeps, fold-by-fold retraining)
+        # without leaking N's target columns into N+1's drop list and N's emitted
+        # date-decomposition columns into N+1's metadata. Pre-2026-05-20 build_targets
+        # called ``self.columns_to_drop.add(col)`` per target column and
+        # add_features did ``self.ftextractor_emitted_columns[self.ts_field] = ...``,
+        # both growing monotonically per FTE-instance lifetime and contaminating the
+        # downstream suite metadata on every subsequent call.
+        #
+        # Snapshot of the user-supplied initial columns_to_drop is captured on first
+        # transform() entry (pre-fix this set's identity was the user's set; we
+        # preserved that bug-compatibly but now also reset to its initial contents
+        # at the top of every transform).
+        if not hasattr(self, "_initial_columns_to_drop_snapshot"):
+            self._initial_columns_to_drop_snapshot = set(self.columns_to_drop or ())
+        self.columns_to_drop = set(self._initial_columns_to_drop_snapshot)
+        self.ftextractor_emitted_columns = {}
         self.show_raw_data(df)
 
         df = self.add_features(df)

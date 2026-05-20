@@ -803,10 +803,16 @@ def _finalize_and_save_metadata(ctx: TrainingContext, *, verbose: int | None = N
         }
     )
 
+    # Defensive dict() copy so metadata's slug maps are decoupled from ctx (and from the
+    # picklable suite metadata that a long-running serving process loads ONCE and uses
+    # across many predict calls). Pre-fix the assignment aliased ctx's dict; any
+    # predict-side ``setdefault`` for a fallback slug would mutate the loaded metadata
+    # in place and leak the entry into the next predict call -- effectively building up
+    # phantom slug entries across the serving session.
     if ctx.slug_to_original_target_type:
-        metadata["slug_to_original_target_type"] = ctx.slug_to_original_target_type
+        metadata["slug_to_original_target_type"] = dict(ctx.slug_to_original_target_type)
     if ctx.slug_to_original_target_name:
-        metadata["slug_to_original_target_name"] = ctx.slug_to_original_target_name
+        metadata["slug_to_original_target_name"] = dict(ctx.slug_to_original_target_name)
 
     # Wrap the polars-ds Pipeline with a JSON-serializing proxy BEFORE pickling.
     # Pre-fix: pickle descended through every internal pl.Expr in the Pipeline,
