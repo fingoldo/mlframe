@@ -169,6 +169,29 @@ def make_train_test_split(
     if timestamps is not None and not isinstance(timestamps, pd.Series):
         timestamps = pd.Series(timestamps)
 
+    # 2026-05-18 explicit log: surface group-aware splitting status so the
+    # operator sees at a glance whether GroupShuffleSplit is in effect.
+    # Pre-fix this was implicit ("if groups is not None: ..."). Users with
+    # ``SimpleFeaturesAndTargetsExtractor(group_field=...)`` could not tell
+    # from the log whether the group_field propagated through to the
+    # splitter.
+    if groups is not None:
+        try:
+            _n_groups = int(np.unique(np.asarray(groups)).shape[0])
+        except Exception:
+            _n_groups = -1
+        logger.info(
+            "Group-aware splitting: ENABLED (n_groups=%d). "
+            "Each group stays within ONE split (no per-row leakage).",
+            _n_groups,
+        )
+    else:
+        logger.info(
+            "Group-aware splitting: disabled (groups=None; rows split "
+            "independently). To enable, supply group_field= in your "
+            "extractor and keep TrainingSplitConfig.use_groups=True (default)."
+        )
+
     # Backward placement is time-axis-specific. Without timestamps there is
     # no "before/after" to place val relative to train, so we silently fall
     # back to forward -- the sklearn-shuffle path below doesn't order rows
@@ -192,13 +215,34 @@ def make_train_test_split(
         # the requested semantics is silently lost; INFO would let it disappear in noise.
         # Operator needs to know to pass timestamps_column / non-zero val_size if they
         # care about temporal generalization estimates.
+        #
+        # IMPORTANT clarification: if ``groups`` were supplied (e.g. via
+        # SimpleFeaturesAndTargetsExtractor(group_field=...) and
+        # TrainingSplitConfig.use_groups=True), GroupShuffleSplit still
+        # keeps each group entirely on ONE side - no per-row leakage of
+        # a group across val/test. What's lost is only the TEMPORAL
+        # ordering of WHICH groups go to val vs test (assignment is random
+        # instead of by-recency). Without timestamps a true temporal split
+        # is impossible regardless of group_field.
+        if groups is not None:
+            try:
+                _ng = int(np.unique(np.asarray(groups)).shape[0])
+            except Exception:
+                _ng = -1
+            _group_clause = (
+                f", but groups (n_groups={_ng}) ARE respected via "
+                f"GroupShuffleSplit - each group stays within ONE split "
+                f"(no per-row group leakage)"
+            )
+        else:
+            _group_clause = ""
         logger.warning(
             "val_placement=%r requested but downgraded to %r (timestamps=%s, val_size=%s). "
-            "Temporal honesty lost - val/test rows are randomly mixed across time. "
+            "Temporal honesty lost - val/test rows are randomly mixed across time%s. "
             "Pass timestamps_column kwarg with a per-row timestamp Series to enable a true temporal split.",
             val_placement, _effective_val_placement,
             "present" if timestamps is not None else "None",
-            val_size,
+            val_size, _group_clause,
         )
     elif val_placement != "forward":
         logger.info("val_placement=%r (Mazzanti backward layout)", val_placement)
