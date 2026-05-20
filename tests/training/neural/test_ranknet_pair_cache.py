@@ -89,6 +89,24 @@ def test_cache_populated_and_reused():
     assert len(_ranknet_pair_cache) == 2
 
 
+def test_cache_size_holds_realistic_ltr_workload():
+    """Regression sensor: the cache cap must comfortably hold the working set
+    of a typical LTR fit (~20k unique queries on a 200k-row dataset with ~10
+    docs per query). Profile of fuzz combo c0063 (iter104, 2026-05-20)
+    showed 17939/18000 ranknet calls were MISSES under the prior 4096 cap,
+    because every per-query relevance pattern was a unique key and FIFO
+    eviction kept popping cold entries before they could be re-hit.
+
+    This test does NOT exercise actual eviction (slow under pytest) — it just
+    pins the configured cap above the realistic working-set size so a future
+    PR that cuts the cap back triggers this gate."""
+    from mlframe.training.neural.ranker import _RANKNET_PAIR_CACHE_SIZE
+    assert _RANKNET_PAIR_CACHE_SIZE >= 20_000, (
+        f"cache cap {_RANKNET_PAIR_CACHE_SIZE} is below the typical 200k-row "
+        f"LTR working set (~20k unique queries); see iter104 regression notes"
+    )
+
+
 def test_cache_bypassed_for_large_n():
     """N exceeding _RANKNET_PAIR_CACHE_MAX_N must NOT populate the cache —
     tuple hashing for huge queries would be wasteful, and the subsampling

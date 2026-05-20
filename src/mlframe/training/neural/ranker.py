@@ -53,8 +53,18 @@ _RANKNET_MAX_PAIRS_PER_QUERY: int = 2_000_000  # ~16MB float32 per (i,j) tensor
 # Only enabled when N is small enough that hashing is cheap AND the
 # subsampling path is NOT taken (subsampling uses torch.randperm which produces
 # a different pair distribution per call and would corrupt the cache).
+# Cache cap: a 200k-row LTR fit averages ~10 docs/query -> ~20000 unique queries,
+# vs the prior 4096 cap. Profile of fuzz combo c0063 (iter104, 2026-05-20)
+# showed 17939/18000 ranknet calls were cache MISSES because of constant FIFO
+# eviction (13843 pop() events visible in the callees breakdown); torch.where
+# was rebuilt on nearly every call, eating 5.16s of tottime. Bumping the cap
+# to 65536 fits any realistic LTR workload (~58 MB at N=11 with ~50 pair
+# indices each), making the cache actually hit ~n_epochs/n_epochs times after
+# the first pass. The MAX_N gate stays at 256: tuple-of-tolist hashing is
+# cheap for small queries but the (N, N) where-mask cost is what we cache,
+# not the key cost.
 _RANKNET_PAIR_CACHE_MAX_N: int = 256
-_RANKNET_PAIR_CACHE_SIZE: int = 4096
+_RANKNET_PAIR_CACHE_SIZE: int = 65536
 _ranknet_pair_cache: dict = {}
 
 
