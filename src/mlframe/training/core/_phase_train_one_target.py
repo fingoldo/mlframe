@@ -21,17 +21,30 @@ except ImportError:
 
 # Cache for ``inspect.signature(cls.__init__)`` results -- the NGBoost / sklearn TypeError fallback
 # branch calls ``inspect.signature`` on every TypeError, paying ~0.5-1ms per hit. The signature is
-# purely a property of the class, so we memoize by ``id(cls)`` and reuse across iterations.
-_INIT_SIG_CACHE: dict[int, set[str]] = {}
+# purely a property of the class, so we memoize per-class and reuse across iterations.
+#
+# Keyed via WeakKeyDictionary on cls itself, NOT id(cls). Pre-fix used id() which Python recycles
+# across GC events; a dynamically-built shim class (XGBClassifierWithDatasetReuse vs
+# XGBRegressorWithDatasetReuse rebuilt between suite calls) could id()-collide with a freed
+# predecessor and the cache returned the WRONG kwarg set, silently dropping a hyperparameter or
+# pass-through extra-kwarg to a method that doesn't accept it. Weakref-keyed: when the class is
+# GC'd, the cache entry vanishes too -- no recycle hazard.
+import weakref as _weakref
+_INIT_SIG_CACHE: "_weakref.WeakKeyDictionary[type, set[str]]" = _weakref.WeakKeyDictionary()
 
 
 def _cached_init_params(cls) -> set[str]:
-    """Return the set of accepted ``__init__`` kwargs for ``cls`` (excl. ``self``), cached by id."""
-    key = id(cls)
-    cached = _INIT_SIG_CACHE.get(key)
+    """Return the set of accepted ``__init__`` kwargs for ``cls`` (excl. ``self``), memoised per-class."""
+    cached = _INIT_SIG_CACHE.get(cls)
     if cached is None:
         cached = set(inspect.signature(cls.__init__).parameters) - {"self"}
-        _INIT_SIG_CACHE[key] = cached
+        try:
+            _INIT_SIG_CACHE[cls] = cached
+        except TypeError:
+            # WeakKeyDictionary rejects classes that can't be weakref'd (rare:
+            # some C-extension types). Fall back to no caching for these -- the
+            # signature lookup costs ~0.5-1ms which is fine on the slow path.
+            pass
     return cached
 
 from sklearn.base import clone

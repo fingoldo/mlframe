@@ -42,7 +42,17 @@ DEFAULT_FI_FIGSIZE = (7.5, 2.5)
 # Module-level cache for the plot-sample index. Hot report paths re-draw the same
 # scatter repeatedly with identical (len(preds), seed) -- caching the choice avoids
 # rebuilding the RNG and resampling each call.
-_PLOT_IDX_CACHE: "dict[tuple, np.ndarray]" = {}
+#
+# Bounded + thread-safe: pre-fix this was an unbounded dict with no lock. A long-
+# running notebook reporting on many target sizes (per-target, per-fold) could grow
+# the cache to 10k+ entries; at the typical sample_size=10_000 (80 KB per int64
+# index), a 10k-entry cache leaks 800 MB RSS. Now: OrderedDict + LRU cap so
+# bounded growth, threading.Lock so concurrent fold reporters don't race the write.
+import threading as _threading
+from collections import OrderedDict as _OrderedDict
+_PLOT_IDX_CACHE: "OrderedDict[tuple, np.ndarray]" = _OrderedDict()
+_PLOT_IDX_CACHE_LOCK = _threading.Lock()
+_PLOT_IDX_CACHE_MAX = 256
 
 # Suite-level override for the residual_audit block. Set by ``train_mlframe_models_suite`` from ``behavior_config.report_residual_audit``. None means "use default True" so direct callers of ``report_model_perf`` outside the suite keep the historical behaviour.
 _RESIDUAL_AUDIT_OVERRIDE: "Optional[bool]" = None
@@ -61,13 +71,21 @@ def _get_residual_audit_enabled() -> bool:
 
 def _get_cached_plot_idx(n: int, sample_size: int, seed: int) -> "np.ndarray":
     key = (n, sample_size, seed)
-    cached = _PLOT_IDX_CACHE.get(key)
-    if cached is not None:
-        return cached
+    with _PLOT_IDX_CACHE_LOCK:
+        cached = _PLOT_IDX_CACHE.get(key)
+        if cached is not None:
+            _PLOT_IDX_CACHE.move_to_end(key)  # LRU touch
+            return cached
+    # Build the index OUTSIDE the lock so two threads with different keys don't
+    # serialise on the np.random.choice call. The lock is only re-acquired briefly
+    # to store + evict.
     import numpy as _np
     _rng = _np.random.default_rng(seed)
     idx = _rng.choice(_np.arange(n), size=min(sample_size, n), replace=False)
-    _PLOT_IDX_CACHE[key] = idx
+    with _PLOT_IDX_CACHE_LOCK:
+        _PLOT_IDX_CACHE[key] = idx
+        while len(_PLOT_IDX_CACHE) > _PLOT_IDX_CACHE_MAX:
+            _PLOT_IDX_CACHE.popitem(last=False)
     return idx
 
 import polars as pl

@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import functools
 import logging
+import threading
 import time
+from collections import OrderedDict
 from typing import Any, Callable, Iterable
 
 import psutil
@@ -136,7 +138,16 @@ class _LoggingProxy:
 # process (notebook kernel, daemonised serving worker). Same (cls, label,
 # methods) signature always produces identical instrumented methods, so the
 # subclass is safe to memoise.
-_PROXY_CLS_CACHE: dict = {}
+#
+# Concurrency + cap: OrderedDict + lock + LRU cap. Pre-fix dict had no lock so
+# two joblib threads wrapping the same estimator type raced lines 159-177; both
+# built fresh subclasses, both setattr, last writer won, the other thread instantiated
+# a transient subclass already GC-unrooted from cache. Also no cap: in serving
+# processes that hot-reload models the type() of the wrapped object changes per
+# reload, so cache_key grows monotonically.
+_PROXY_CLS_CACHE: "OrderedDict[tuple, type]" = OrderedDict()
+_PROXY_CLS_CACHE_LOCK = threading.Lock()
+_PROXY_CLS_CACHE_MAX = 128
 
 
 def wrap_with_logging(
@@ -156,25 +167,34 @@ def wrap_with_logging(
     # cache key reflects what was instrumented (not what was requested).
     instrumented = tuple(name for name in methods if getattr(obj, name, None) is not None)
     cache_key = (type(obj), label, instrumented)
-    ProxyCls = _PROXY_CLS_CACHE.get(cache_key)
-    if ProxyCls is None:
-        ProxyCls = type("_LoggingProxy", (_LoggingProxy,), {})
+    with _PROXY_CLS_CACHE_LOCK:
+        ProxyCls = _PROXY_CLS_CACHE.get(cache_key)
+        if ProxyCls is not None:
+            # LRU touch: move existing entry to most-recent slot.
+            _PROXY_CLS_CACHE.move_to_end(cache_key)
+        else:
+            ProxyCls = type("_LoggingProxy", (_LoggingProxy,), {})
 
-        for name in instrumented:
-            # Bind name per-iteration via default args to avoid the
-            # classic lambda-in-loop late-binding pitfall.
-            def _make(_name: str):
-                def _call(self, *a, **kw):
-                    return getattr(self._inner, _name)(*a, **kw)
+            for name in instrumented:
+                # Bind name per-iteration via default args to avoid the
+                # classic lambda-in-loop late-binding pitfall.
+                def _make(_name: str):
+                    def _call(self, *a, **kw):
+                        return getattr(self._inner, _name)(*a, **kw)
 
-                _call.__name__ = _name
-                _call.__qualname__ = f"_LoggingProxy.{_name}"
-                return _call
+                    _call.__name__ = _name
+                    _call.__qualname__ = f"_LoggingProxy.{_name}"
+                    return _call
 
-            bound = _make(name)
-            wrapped = log_resources(stage=f"{label}.{name}")(bound)
-            setattr(ProxyCls, name, wrapped)
-        _PROXY_CLS_CACHE[cache_key] = ProxyCls
+                bound = _make(name)
+                wrapped = log_resources(stage=f"{label}.{name}")(bound)
+                setattr(ProxyCls, name, wrapped)
+            _PROXY_CLS_CACHE[cache_key] = ProxyCls
+            # Evict oldest if over cap. Cap is generous (128) so production paths that
+            # wrap a fixed set of estimator types never see eviction churn; only the
+            # pathological "wrap a freshly-built type() on every call" pattern is bounded.
+            while len(_PROXY_CLS_CACHE) > _PROXY_CLS_CACHE_MAX:
+                _PROXY_CLS_CACHE.popitem(last=False)
 
     return ProxyCls(obj)
 
