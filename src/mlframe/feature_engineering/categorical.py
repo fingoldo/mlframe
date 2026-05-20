@@ -80,7 +80,7 @@ def compute_countaggs(
             processed_numerical_kwargs["directional_only"] = True
             extra_features = compute_numaggs(arr=values, **processed_numerical_kwargs)
             if len(extra_features) != len(_directional_numaggs_names_cache):
-                raise AssertionError(
+                raise RuntimeError(
                     f"compute_numaggs(directional_only=True) returned {len(extra_features)} values "
                     f"but {len(_directional_numaggs_names_cache)} names are registered; the two must agree."
                 )

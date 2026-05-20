@@ -113,18 +113,24 @@ def generate_mlp(
         raise ValueError(
             f"consec_layers_neurons_ratio must be >= 1.0, got {consec_layers_neurons_ratio!r}"
         )
-    if not (isinstance(nlayers, int) and nlayers >= 1):
-        raise ValueError(f"nlayers must be a positive int, got {nlayers!r}")
-    if not (isinstance(min_layer_neurons, int) and min_layer_neurons >= 1):
-        raise ValueError(f"min_layer_neurons must be a positive int, got {min_layer_neurons!r}")
-    if num_classes is not None and not (isinstance(num_classes, int) and num_classes >= 0):
-        raise ValueError(f"num_classes must be None or a non-negative int, got {num_classes!r}")
-    if not (
-        isinstance(first_layer_num_neurons, int)
-        and first_layer_num_neurons >= min_layer_neurons
-    ):
+    if not isinstance(nlayers, int):
+        raise TypeError(f"nlayers must be an int, got {type(nlayers).__name__}")
+    if nlayers < 1:
+        raise ValueError(f"nlayers must be >= 1, got {nlayers!r}")
+    if not isinstance(min_layer_neurons, int):
+        raise TypeError(f"min_layer_neurons must be an int, got {type(min_layer_neurons).__name__}")
+    if min_layer_neurons < 1:
+        raise ValueError(f"min_layer_neurons must be >= 1, got {min_layer_neurons!r}")
+    if num_classes is not None:
+        if not isinstance(num_classes, int):
+            raise TypeError(f"num_classes must be None or an int, got {type(num_classes).__name__}")
+        if num_classes < 0:
+            raise ValueError(f"num_classes must be >= 0, got {num_classes!r}")
+    if not isinstance(first_layer_num_neurons, int):
+        raise TypeError(f"first_layer_num_neurons must be an int, got {type(first_layer_num_neurons).__name__}")
+    if first_layer_num_neurons < min_layer_neurons:
         raise ValueError(
-            f"first_layer_num_neurons must be an int >= min_layer_neurons "
+            f"first_layer_num_neurons must be >= min_layer_neurons "
             f"({min_layer_neurons}), got {first_layer_num_neurons!r}"
         )
 
@@ -424,7 +430,7 @@ class MLPTorchModel(L.LightningModule):
                 return batch[0], batch[1], batch[2]
             elif len(batch) == 2:
                 return batch[0], batch[1], None
-        raise ValueError(f"Unexpected batch format: {type(batch)}")
+        raise TypeError(f"Unexpected batch format: {type(batch).__name__}")
 
     def _loss_unreduced(self, predictions: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         """Per-sample loss via self.loss_fn with reduction='none' when available.

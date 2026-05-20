@@ -155,7 +155,7 @@ def run_pysr_feature_engineering(
         if len(numeric_cols):
             tmp_df[numeric_cols] = tmp_df[numeric_cols].fillna(0)
     else:
-        raise ValueError("Input must be a pandas or polars DataFrame.")
+        raise TypeError(f"Input must be a pandas or polars DataFrame, got {type(df).__name__}.")
 
     clean_ram()
 

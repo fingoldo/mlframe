@@ -684,7 +684,9 @@ def predict_mlframe_models_suite(
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
     if len(df) == 0:
         raise ValueError("df cannot be empty")
-    if not isinstance(models_path, str) or not os.path.isdir(models_path):
+    if not isinstance(models_path, str):
+        raise TypeError(f"models_path must be a str, got {type(models_path).__name__}")
+    if not os.path.isdir(models_path):
         raise ValueError(f"models_path must be a valid directory, got: {models_path}")
 
     if predict_batch_rows is not None and predict_batch_rows > 0 and len(df) > predict_batch_rows:

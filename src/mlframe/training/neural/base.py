@@ -557,7 +557,9 @@ class PytorchLightningEstimator(BaseEstimator):
         """
 
         if not hasattr(self, "model") or self.model is None:
-            raise RuntimeError("Model has not been fitted yet. Call fit() before predict().")
+            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("Model has not been fitted yet. Call fit() before predict().")
 
         if not hasattr(self, "prediction_datamodule") or self.prediction_datamodule is None:
             # Create a minimal datamodule for prediction if not available
@@ -718,7 +720,7 @@ class PytorchLightningEstimator(BaseEstimator):
             # y_pred is already class labels from PytorchLightningClassifier.predict()
             return accuracy_score(y, y_pred, sample_weight=sample_weight)
         else:
-            raise ValueError("Estimator must be a RegressorMixin or ClassifierMixin")
+            raise TypeError(f"Estimator must be a RegressorMixin or ClassifierMixin, got {type(self).__name__}")
 
 
 class PytorchLightningRegressor(RegressorMixin, PytorchLightningEstimator):  # RegressorMixin must come first
@@ -844,8 +846,10 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
 
 class PeriodicLearningRateFinder(LearningRateFinder):
     def __init__(self, period: int, *args, **kwargs):
-        if not (isinstance(period, int) and period > 0):
-            raise ValueError(f"period must be a positive int, got {period!r}")
+        if not isinstance(period, int):
+            raise TypeError(f"period must be an int, got {type(period).__name__}")
+        if period <= 0:
+            raise ValueError(f"period must be positive, got {period!r}")
         super().__init__(*args, **kwargs)
         self.period = period
 

@@ -172,9 +172,12 @@ class PolynomialFeatureExpander:
 
     def transform(self, X: Any) -> np.ndarray:
         if not self._fitted:
-            raise RuntimeError(
-                "PolynomialFeatureExpander not fitted -- call .fit() first"
-            )
+            # Wave 37 P1 fix (2026-05-20): sklearn convention is
+            # NotFittedError. Pipeline / cross-val machinery catches
+            # NotFittedError, not RuntimeError; pre-fix unfitted-state
+            # failures leaked past expected handlers.
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("PolynomialFeatureExpander not fitted -- call .fit() first")
         X_np = np.asarray(X, dtype=np.float32)
         if self._skipped:
             return X_np
@@ -190,13 +193,15 @@ class PolynomialFeatureExpander:
     @property
     def n_features_in(self) -> int:
         if self._n_features_in is None:
-            raise RuntimeError("not fitted yet")
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("PolynomialFeatureExpander not fitted yet")
         return self._n_features_in
 
     @property
     def feature_names_out(self) -> List[str]:
         if not self._fitted:
-            raise RuntimeError("not fitted yet")
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("PolynomialFeatureExpander not fitted yet")
         return list(self._feature_names) if self._feature_names else []
 
     def __repr__(self) -> str:

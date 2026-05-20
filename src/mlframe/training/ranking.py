@@ -258,7 +258,7 @@ def fit_ranker(
             obj_kwargs, model_kwargs, cat_features,
             early_stopping_rounds=early_stopping_rounds, verbose=verbose,
         )
-    raise AssertionError("unreachable")
+    raise RuntimeError("unreachable: unhandled ranker family after backend dispatch")
 
 
 def _fit_cb_ranker(
@@ -484,7 +484,7 @@ def predict_ranker_scores(fitted: dict, X: Any, group_ids: np.ndarray | None = N
     elif flavor == "mlp":
         scores = model.predict(X)
     else:
-        raise AssertionError(f"unknown flavor {flavor!r}")
+        raise ValueError(f"unknown ranker flavor {flavor!r}; expected one of catboost/xgboost/lightgbm/mlp")
     return np.asarray(scores).ravel()
 
 

@@ -2219,7 +2219,12 @@ class RFECV(BaseEstimator, TransformerMixin):
         (ColumnTransformer, set_output).
         """
         if not hasattr(self, "support_"):
-            raise ValueError("RFECV is not fitted; call fit() first.")
+            # Wave 37 P1 fix (2026-05-20): sklearn convention is
+            # NotFittedError (ValueError-compatible subclass), so existing
+            # ``except ValueError`` chains stay green AND
+            # ``except NotFittedError`` discriminators work.
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("RFECV is not fitted; call fit() first.")
         cache = getattr(self, "_selected_cols_cache", None)
         if cache is not None:
             return np.asarray(cache, dtype=object)
@@ -2244,7 +2249,9 @@ class RFECV(BaseEstimator, TransformerMixin):
             at n_features_.
         """
         if not hasattr(self, "feature_importances_") or not hasattr(self, "n_features_"):
-            raise ValueError("RFECV is not fitted; call fit() first.")
+            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("RFECV is not fitted; call fit() first.")
         if self.n_features_ == 0:
             return float("nan")
         # Pull per-fold FI runs at the chosen N: keys are 'N_fold' strings.

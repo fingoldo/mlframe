@@ -1055,7 +1055,9 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
             (n_samples, num_classes) array of probabilities
         """
         if self.model is None:
-            raise RuntimeError("Model not trained. Call fit() first.")
+            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("Model not trained. Call fit() first.")
 
         self._validate_inputs(features, sequences)
 
@@ -1222,7 +1224,9 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
             (n_samples,) array of predictions
         """
         if self.model is None:
-            raise RuntimeError("Model not trained. Call fit() first.")
+            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("Model not trained. Call fit() first.")
 
         self._validate_inputs(features, sequences)
 
