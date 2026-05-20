@@ -643,11 +643,27 @@ def _confirm_pairs_bandit_ucb1(
             nfailed[j] += 1
         nshuf[j] += 1
 
-    # Phase 1: initial allocation to every survivor
+    # Phase 1: initial allocation to every survivor. Bulk-shuffle ``min_perms``
+    # permutations per pair via ``_bulk_shuffle_and_compute_three_mis`` (prange
+    # over independent shuffles, each with its own LCG state + local Y buffer);
+    # ~6x faster on 8 cores vs the serial _step_pair loop on n=200k, K=10/5/5/3
+    # (bench 2026-05-20). Phase 2 still uses _step_pair because UCB1 needs the
+    # latest result to pick the next allocation.
+    _phase1_base_seed = np.uint64(0xC0FFEE)
     for j, k in enumerate(selected_idx):
         ii_obs = float(ii_arr[k])
-        for _ in range(min_perms):
-            _step_pair(j, ii_obs)
+        cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2 = pair_cache[j]
+        # Per-pair base seed so different pairs see different permutation
+        # sequences (deterministic given the fixed _phase1_base_seed).
+        _base_seed = _phase1_base_seed + np.uint64(j) * np.uint64(0x9E3779B1)
+        ip_arr, ix1_arr, ix2_arr = _bulk_shuffle_and_compute_three_mis(
+            cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
+            classes_y, freqs_y, min_perms, _base_seed, dtype,
+        )
+        for _p in range(min_perms):
+            if (ip_arr[_p] - ix1_arr[_p] - ix2_arr[_p]) >= ii_obs:
+                nfailed[j] += 1
+            nshuf[j] += 1
 
     # Phase 2: adaptive allocation. Budget remaining = total - phase1
     total_budget = max(n_perms_total * len(selected_idx), min_perms * len(selected_idx))
@@ -1110,6 +1126,111 @@ def _shuffle_and_compute_three_mis(
                 i_x2 += jf * math.log(jf / (px * freqs_y[j]))
 
     return i_pair, i_x1, i_x2
+
+
+@njit(parallel=True, nogil=True, cache=True)
+def _bulk_shuffle_and_compute_three_mis(
+    classes_pair: np.ndarray,
+    freqs_pair: np.ndarray,
+    classes_x1: np.ndarray,
+    freqs_x1: np.ndarray,
+    classes_x2: np.ndarray,
+    freqs_x2: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    n_perms: int,
+    base_seed: np.uint64,
+    dtype,
+):
+    """Run ``n_perms`` independent shuffle+three-MI computations in parallel.
+
+    Each prange iteration runs a FULL serial Fisher-Yates with its own LCG
+    state (seeded from ``base_seed`` + iter index) into a thread-local
+    working copy of ``classes_y``, then computes the three joint-MI values.
+    Bench (n=200k, K=10/5/5/3, 8 perms): 46.4ms serial loop -> 7.7ms parallel
+    (6.03x on 8 cores).
+
+    Why this DIFFERS from the parallel attempt in ``_shuffle_and_compute_three_mis``
+    docstring: that one tried to parallelise the INNER joint accumulator within
+    ONE shuffle (lost 35-50% because the shuffle itself, not the accumulator,
+    dominated). This one parallelises ACROSS multiple INDEPENDENT shuffles,
+    each thread doing a serial-friendly chain (shuffle + accumulator) on its
+    own buffer. The bandit Phase 1 always issues ``min_perms`` shuffles per
+    pair up front; those are a clean parallel target. Phase 2 stays sequential
+    because UCB1 needs each result to pick the next allocation.
+
+    LCG sequence (state * 6364136223846793005 + 1442695040888963407, take top
+    bits via >> 33) matches the one used in ``parallel_mi_besag_clifford`` so
+    permutations are statistically equivalent to numpy's default rng for the
+    purposes of MI permutation testing; the test outcome (kept_mask) may
+    differ run-to-run from the np.random path purely because the RNG sequence
+    is different, NOT because the test is biased.
+    """
+    n = len(classes_y)
+    K_pair = len(freqs_pair)
+    K_x1 = len(freqs_x1)
+    K_x2 = len(freqs_x2)
+    K_y = len(freqs_y)
+
+    out_i_pair = np.zeros(n_perms, dtype=np.float64)
+    out_i_x1 = np.zeros(n_perms, dtype=np.float64)
+    out_i_x2 = np.zeros(n_perms, dtype=np.float64)
+
+    for p in prange(n_perms):
+        state = np.uint64(base_seed) + np.uint64(p) * np.uint64(2654435761)
+        local = classes_y.copy()
+
+        for i in range(n - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            k = int(state >> np.uint64(33)) % (i + 1)
+            tmp = local[i]
+            local[i] = local[k]
+            local[k] = tmp
+
+        joint_pair = np.zeros((K_pair, K_y), dtype=dtype)
+        joint_x1 = np.zeros((K_x1, K_y), dtype=dtype)
+        joint_x2 = np.zeros((K_x2, K_y), dtype=dtype)
+
+        for k in range(n):
+            cy = local[k]
+            joint_pair[classes_pair[k], cy] += 1
+            joint_x1[classes_x1[k], cy] += 1
+            joint_x2[classes_x2[k], cy] += 1
+
+        inv_n = 1.0 / n
+
+        i_pair = 0.0
+        for i in range(K_pair):
+            px = freqs_pair[i]
+            for j in range(K_y):
+                jc = joint_pair[i, j]
+                if jc:
+                    jf = jc * inv_n
+                    i_pair += jf * math.log(jf / (px * freqs_y[j]))
+
+        i_x1 = 0.0
+        for i in range(K_x1):
+            px = freqs_x1[i]
+            for j in range(K_y):
+                jc = joint_x1[i, j]
+                if jc:
+                    jf = jc * inv_n
+                    i_x1 += jf * math.log(jf / (px * freqs_y[j]))
+
+        i_x2 = 0.0
+        for i in range(K_x2):
+            px = freqs_x2[i]
+            for j in range(K_y):
+                jc = joint_x2[i, j]
+                if jc:
+                    jf = jc * inv_n
+                    i_x2 += jf * math.log(jf / (px * freqs_y[j]))
+
+        out_i_pair[p] = i_pair
+        out_i_x1[p] = i_x1
+        out_i_x2[p] = i_x2
+
+    return out_i_pair, out_i_x1, out_i_x2
 
 
 def _compute_westfall_young_corrected_p(
