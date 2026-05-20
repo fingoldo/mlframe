@@ -471,7 +471,14 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
     pickle-only payload on disk raises :class:`CachePickleRefusedError`
     instead of executing the pickle stream."""
     try:
-        npz = np.load(path, allow_pickle=allow_pickle, mmap_mode="r")
+        # Wave 42 (2026-05-20): np.load returns an NpzFile wrapping a zipfile +
+        # mmap-backed handle when the payload is npz. Prior code never called
+        # npz.close(), leaking one OS handle per successful cache read; on
+        # Windows this blocks later overwrite/eviction (PermissionError), on
+        # Linux it eventually hits EMFILE in long CV/RFECV loops. Use the with-
+        # block and materialise arrays via np.array(...) before exiting so the
+        # caller gets owned buffers (mmap views would go invalid on close).
+        loaded = np.load(path, allow_pickle=allow_pickle, mmap_mode="r")
     except Exception:
         if not allow_pickle:
             raise CachePickleRefusedError(
@@ -484,31 +491,36 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
     # ``np.load`` with ``allow_pickle=True`` on a pure-pickle file (no
     # npy / npz magic header) returns the unpickled object directly.
     # NpzFile exposes ``.files``; anything else is already the value.
-    if not isinstance(npz, np.lib.npyio.NpzFile):
-        return npz
-    kind_arr = npz.get("kind") if "kind" in npz.files else None
-    if kind_arr is None:
-        # Older format without sentinel -- assume single array stored
-        # as 'value'.
-        if "value" in npz.files:
-            return npz["value"]
-        # fall through to first key
-        return npz[npz.files[0]]
-    # ``kind`` is a uint8 ASCII-byte vector (post-audit format) OR a
-    # legacy object-dtype length-1 array. Decode both.
-    if kind_arr.dtype == np.uint8:
-        kind = bytes(kind_arr).decode("ascii")
-    else:
-        kind = str(kind_arr[0])
-    if kind == "ndarray":
-        return npz["value"]
-    if kind == "csr":
-        try:
-            import scipy.sparse as sp
-        except ImportError:  # pragma: no cover
-            raise
-        return sp.csr_matrix((npz["data"], npz["indices"], npz["indptr"]), shape=tuple(npz["shape"]))
-    raise ValueError(f"unknown serialised kind {kind!r} at {path!r}")
+    if not isinstance(loaded, np.lib.npyio.NpzFile):
+        return loaded
+    # NpzFile path: materialise then close.
+    with loaded as npz:
+        kind_arr = npz.get("kind") if "kind" in npz.files else None
+        if kind_arr is None:
+            # Older format without sentinel -- assume single array stored
+            # as 'value'.
+            if "value" in npz.files:
+                return np.array(npz["value"])
+            # fall through to first key
+            return np.array(npz[npz.files[0]])
+        # ``kind`` is a uint8 ASCII-byte vector (post-audit format) OR a
+        # legacy object-dtype length-1 array. Decode both.
+        if kind_arr.dtype == np.uint8:
+            kind = bytes(kind_arr).decode("ascii")
+        else:
+            kind = str(kind_arr[0])
+        if kind == "ndarray":
+            return np.array(npz["value"])
+        if kind == "csr":
+            try:
+                import scipy.sparse as sp
+            except ImportError:  # pragma: no cover
+                raise
+            return sp.csr_matrix(
+                (np.array(npz["data"]), np.array(npz["indices"]), np.array(npz["indptr"])),
+                shape=tuple(npz["shape"]),
+            )
+        raise ValueError(f"unknown serialised kind {kind!r} at {path!r}")
 
 
 __all__ = ["FeatureCache"]
