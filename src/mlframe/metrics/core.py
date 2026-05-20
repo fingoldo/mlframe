@@ -1860,6 +1860,14 @@ def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray) -> Tup
     return max_err, n_zero
 
 
+# Module-level set: (n_zero, n_total) tuples for which the
+# ``maximum_absolute_percentage_error: N of M y_true entries are zero``
+# warning has already fired this process. Auto-cleared by interpreter
+# shutdown. NOT thread-safe but the worst case is a duplicate warning in
+# a rare race - the correctness signal is preserved.
+_MAPE_ZERO_WARN_SEEN: set = set()
+
+
 def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     # Auto seq/par dispatch. Parallel only wins at large N (race-free
     # max via per-thread accumulator + final reduction; lose-band runs
@@ -1869,11 +1877,21 @@ def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) ->
     else:
         value, n_zero = _max_abs_pct_error_kernel(y_true, y_pred)
     if n_zero > 0:
-        logger.warning(
-            "maximum_absolute_percentage_error: %d of %d y_true entries are zero; "
-            "the epsilon fallback makes those ratios dominate the result.",
-            n_zero, len(y_true),
-        )
+        # Rate-limit: emit the warning once per (n_zero, n_total) shape per
+        # process. The metric is computed on train/val/test/OOF splits and
+        # often by the per-feature ablation loop in BaselineDiagnostics, so
+        # the same warning fires 4-15 times per training run with identical
+        # content. Once is enough to alert the user that MAPE is mathematically
+        # unreliable on their target; the rest is noise.
+        _key = (int(n_zero), int(len(y_true)))
+        if _key not in _MAPE_ZERO_WARN_SEEN:
+            _MAPE_ZERO_WARN_SEEN.add(_key)
+            logger.warning(
+                "maximum_absolute_percentage_error: %d of %d y_true entries are zero; "
+                "the epsilon fallback makes those ratios dominate the result. "
+                "(further identical warnings suppressed this process)",
+                n_zero, len(y_true),
+            )
     return value
 
 

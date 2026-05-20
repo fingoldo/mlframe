@@ -240,16 +240,25 @@ def _patch_dataset_constructors_with_logging() -> None:
                     shape_str = f"{shape[0]}x?"
                 else:
                     shape_str = "?x?"
-                # I3 fix (2026-05-11): demote composite-screening builds to DEBUG so 50+
-                # log lines per discovery pass don't drown out the actually-useful build events
-                # on production-size datasets. Tightened 2026-05-16: only demote when callsite
-                # actually originates in the composite/screening modules. The previous "OR row
-                # count below 50K" half of the heuristic was too greedy - it hid every legitimate
-                # small-data DMatrix/Pool/Dataset build from INFO, including direct user calls
-                # (caught by test_fix9_build_logging_fires_on_dmatrix on a 200x5 frame).
+                # I3 fix (2026-05-11): demote internal-diagnostic build events to
+                # DEBUG so per-feature ablation / per-trial discovery loops don't
+                # drown out actually-useful build events on production-size datasets.
+                # Tightened 2026-05-16: only demote when callsite originates in
+                # one of the known internal-loop modules (the previous "OR row
+                # count below 50K" half of the heuristic hid every legitimate
+                # small-data build from INFO; caught by
+                # test_fix9_build_logging_fires_on_dmatrix on a 200x5 frame).
+                # Extended 2026-05-20: BaselineDiagnostics' ablation loop fits a
+                # fresh LGB.Dataset per feature-subset (7-15 builds per training
+                # run on a wide frame) - same nuisance pattern as composite /
+                # screening, demote it too.
                 _callsite_lc = (callsite or "").lower()
-                _is_screening = "composite" in _callsite_lc or "screening" in _callsite_lc
-                _level = logging.DEBUG if _is_screening else logging.INFO
+                _is_internal_loop = (
+                    "composite" in _callsite_lc
+                    or "screening" in _callsite_lc
+                    or "baseline_diagnostics" in _callsite_lc
+                )
+                _level = logging.DEBUG if _is_internal_loop else logging.INFO
                 _build_logger.log(
                     _level,
                     "[dataset-build] %s shape=%s took=%.3fs site=%s",
