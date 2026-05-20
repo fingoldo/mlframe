@@ -212,10 +212,12 @@ class TestPlotlyRenderer:
         out = str(tmp_path / "scatter.json")
         renderer.save(fig, out, "json")
         assert os.path.exists(out)
-        # Valid JSON with data + layout.
+        # Valid JSON with data + layout. mlframe rule: orjson over json,
+        # so use orjson.loads on the file bytes. orjson has no streaming
+        # load() so we read the whole file (~few KB for this test) first.
         import orjson
-        with open(out, encoding="utf-8") as f:
-            obj = json.load(f)
+        with open(out, "rb") as f:
+            obj = orjson.loads(f.read())
         assert "data" in obj
         assert "layout" in obj
 

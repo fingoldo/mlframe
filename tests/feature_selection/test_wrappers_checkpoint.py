@@ -85,8 +85,12 @@ class TestCheckpointSave:
         # nsteps must equal number of fully-completed outer iters (==max_refits
         # when fit didn't early-stop on max_noimproving_iters / time / etc.)
         assert state["nsteps"] >= 1
-        # signature is the same tuple shape as fit()'s computation
-        assert isinstance(state["signature"], tuple) and len(state["signature"]) == 3
+        # signature is the same tuple shape as fit()'s computation:
+        # ``(X_shape, y_shape, feature_names, X_hash, y_hash)`` -- the
+        # final two hash fields were added so the checkpoint identifies
+        # the exact (X, y) it was fit on, not just the shapes. Older
+        # 3-tuple shape (shape_X, shape_y, feature_names) is gone.
+        assert isinstance(state["signature"], tuple) and len(state["signature"]) == 5
 
     def test_checkpoint_file_size_excludes_estimators(self, small_problem, tmp_path):
         """fitted_estimators is intentionally NOT pickled to keep file small.
