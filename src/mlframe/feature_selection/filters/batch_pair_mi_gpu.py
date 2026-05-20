@@ -457,7 +457,7 @@ def _lookup_batch_pair_mi_thresholds(n_samples: int, n_pairs: int) -> dict | Non
         cache = KernelTuningCache.load_or_create()
         return cache.lookup(
             "batch_pair_mi",
-            {"n_samples": n_samples, "n_pairs": n_pairs},
+            n_samples=int(n_samples), n_pairs=int(n_pairs),
         )
     except Exception:
         # Cache lookup failed (corrupt sidecar / missing key / unknown HW);

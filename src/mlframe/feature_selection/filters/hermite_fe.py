@@ -972,7 +972,7 @@ def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
     try:
         from pyutilz.system.kernel_tuning_cache import KernelTuningCache
         _cache = KernelTuningCache.load_or_create()
-        _entry = _cache.lookup("polyeval", {"basis": basis, "n_samples": n})
+        _entry = _cache.lookup("polyeval", basis=basis, n_samples=n)
         _par = int(_entry["par_threshold"]) if _entry and "par_threshold" in _entry else _PAR_THRESHOLD
         _cuda = int(_entry["cuda_threshold"]) if _entry and "cuda_threshold" in _entry else _CUDA_THRESHOLD
         return _par, _cuda

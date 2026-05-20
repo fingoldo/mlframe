@@ -97,7 +97,7 @@ def knn_search(
         try:
             from pyutilz.system.kernel_tuning_cache import KernelTuningCache
             _cache = KernelTuningCache.load_or_create()
-            _e = _cache.lookup("knn_hnsw_crossover", {"n_subset": n_sub, "d": X_subset.shape[1]})
+            _e = _cache.lookup("knn_hnsw_crossover", n_subset=n_sub, d=int(X_subset.shape[1]))
             if _e and "n_threshold" in _e:
                 prefer_hnsw_at_n = int(_e["n_threshold"])
         except Exception:

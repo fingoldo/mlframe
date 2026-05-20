@@ -1028,7 +1028,7 @@ def _perm_kernel_dispatch_use_gpu(
             _cache = KernelTuningCache.load_or_create()
             _entry = _cache.lookup(
                 "cat_fe_perm_kernel",
-                {"n_samples": n_samples, "n_perms": n_perms},
+                n_samples=int(n_samples), n_perms=int(n_perms),
             )
             _threshold = int(_entry["crossover_n"]) if _entry and "crossover_n" in _entry else _GPU_PERM_KERNEL_THRESHOLD_N
         except Exception:

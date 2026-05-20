@@ -276,7 +276,7 @@ def _resolve_use_gpu(
     try:
         from pyutilz.system.kernel_tuning_cache import KernelTuningCache
         _cache = KernelTuningCache.load_or_create()
-        _e = _cache.lookup("rff_matmul", {"work": int(work)})
+        _e = _cache.lookup("rff_matmul", work=int(work))
         _crossover = int(_e["work_threshold"]) if _e and "work_threshold" in _e else (5_000_000 * 256)
     except Exception:
         _crossover = 5_000_000 * 256  # placeholder fallback

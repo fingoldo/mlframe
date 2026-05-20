@@ -9,13 +9,22 @@ Inspect / refresh / clear the per-host kernel-tuning cache. Useful for:
 
 Subcommands::
 
-    show              dump the live cache as JSON to stdout
-    where             print the on-disk path
-    clear             delete the live host's cache file
-    refresh           force-rerun the joint_hist auto-tune sweep (~30s)
-    refresh-mi        force-rerun the plugin_mi_classif_dispatch sweep (~30s)
-    refresh-polyeval  force-rerun the polyeval (Hermite/Legendre/...) sweep (~30s)
-    refresh-all       force-rerun every registered kernel sweep
+    show                            dump the live cache as JSON to stdout
+    where                           print the on-disk path
+    clear                           delete the live host's cache file
+    refresh                         force-rerun joint_hist_batched auto-tune (~30s)
+    refresh-mi                      force-rerun plugin_mi_classif_dispatch (~30s)
+    refresh-polyeval                force-rerun the polyeval sweep (~30s)
+    refresh-joint-hist-single-perm  force-rerun joint_hist_single_perm
+    refresh-joint-hist-multi-pair   force-rerun joint_hist_multi_pair
+    refresh-batch-pair-mi           force-rerun batch_pair_mi
+    refresh-cat-fe-perm-kernel      force-rerun cat_fe_perm_kernel
+    refresh-rmse-partial-sum        force-rerun rmse_partial_sum
+    refresh-unary-elementwise       force-rerun unary_elementwise
+    refresh-rff-matmul              force-rerun rff_matmul
+    refresh-knn-hnsw-crossover      force-rerun knn_hnsw_crossover (CPU)
+    refresh-discretize-2d-array     force-rerun discretize_2d_array
+    refresh-all                     force-rerun every registered kernel sweep
 
 The cache lives at ``pyutilz.system.kernel_tuning_cache.cache_path()``
 (``~/.pyutilz/kernel_tuning/{hw_fingerprint}.json`` by default; override
@@ -79,51 +88,121 @@ def _cmd_clear(args) -> int:
     return 0
 
 
-def _cmd_refresh(args) -> int:
+def _refresh_generic(kernel_label: str, ensure_fn) -> int:
+    """Shared wrapper used by every refresh-X subcommand. Returns 0 when
+    ``ensure_fn(force=True)`` returns at least one region; 1 otherwise.
+    The Wave 24 sweeps that genuinely can't run on the live HW (e.g.
+    hnswlib not installed) return [] -- that's a successful no-op for
+    the API surface but a non-success exit for the operator, so the CLI
+    still reports rc=1. ``refresh-all`` folds these into its rollup."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    regions = ensure_fn(force=True)
+    if not regions:
+        print(
+            f"# {kernel_label} auto-tune produced 0 regions (skipped or failed)",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"# {kernel_label}: re-tuned, {len(regions)} regions saved")
+    return 0
+
+
+def _cmd_refresh(args) -> int:
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
         ensure_joint_hist_tuning,
     )
-    regions = ensure_joint_hist_tuning(force=True)
-    if not regions:
-        print("# joint_hist auto-tune failed; cache unchanged", file=sys.stderr)
-        return 1
-    print(f"# joint_hist_batched: re-tuned, {len(regions)} regions saved")
-    return 0
+    return _refresh_generic("joint_hist_batched", ensure_joint_hist_tuning)
 
 
 def _cmd_refresh_mi(args) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
         ensure_mi_classif_dispatch_tuning,
     )
-    regions = ensure_mi_classif_dispatch_tuning(force=True)
-    if not regions:
-        print(
-            "# plugin_mi_classif_dispatch auto-tune failed; cache unchanged",
-            file=sys.stderr,
-        )
-        return 1
-    print(
-        f"# plugin_mi_classif_dispatch: re-tuned, {len(regions)} regions saved"
+    return _refresh_generic(
+        "plugin_mi_classif_dispatch", ensure_mi_classif_dispatch_tuning,
     )
-    return 0
 
 
 def _cmd_refresh_polyeval(args) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
         ensure_polyeval_tuning,
     )
-    regions = ensure_polyeval_tuning(force=True)
-    if not regions:
-        print(
-            "# polyeval auto-tune failed; cache unchanged",
-            file=sys.stderr,
-        )
-        return 1
-    print(f"# polyeval: re-tuned, {len(regions)} regions saved")
-    return 0
+    return _refresh_generic("polyeval", ensure_polyeval_tuning)
+
+
+def _cmd_refresh_joint_hist_single_perm(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_joint_hist_single_perm_tuning,
+    )
+    return _refresh_generic(
+        "joint_hist_single_perm", ensure_joint_hist_single_perm_tuning,
+    )
+
+
+def _cmd_refresh_joint_hist_multi_pair(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_joint_hist_multi_pair_tuning,
+    )
+    return _refresh_generic(
+        "joint_hist_multi_pair", ensure_joint_hist_multi_pair_tuning,
+    )
+
+
+def _cmd_refresh_batch_pair_mi(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_batch_pair_mi_tuning,
+    )
+    return _refresh_generic("batch_pair_mi", ensure_batch_pair_mi_tuning)
+
+
+def _cmd_refresh_cat_fe_perm_kernel(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_cat_fe_perm_kernel_tuning,
+    )
+    return _refresh_generic(
+        "cat_fe_perm_kernel", ensure_cat_fe_perm_kernel_tuning,
+    )
+
+
+def _cmd_refresh_rmse_partial_sum(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_rmse_partial_sum_tuning,
+    )
+    return _refresh_generic("rmse_partial_sum", ensure_rmse_partial_sum_tuning)
+
+
+def _cmd_refresh_unary_elementwise(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_unary_elementwise_tuning,
+    )
+    return _refresh_generic(
+        "unary_elementwise", ensure_unary_elementwise_tuning,
+    )
+
+
+def _cmd_refresh_rff_matmul(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_rff_matmul_tuning,
+    )
+    return _refresh_generic("rff_matmul", ensure_rff_matmul_tuning)
+
+
+def _cmd_refresh_knn_hnsw_crossover(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_knn_hnsw_crossover_tuning,
+    )
+    return _refresh_generic(
+        "knn_hnsw_crossover", ensure_knn_hnsw_crossover_tuning,
+    )
+
+
+def _cmd_refresh_discretize_2d_array(args) -> int:
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_discretize_2d_array_tuning,
+    )
+    return _refresh_generic(
+        "discretize_2d_array", ensure_discretize_2d_array_tuning,
+    )
 
 
 def _cmd_refresh_all(args) -> int:
@@ -133,10 +212,21 @@ def _cmd_refresh_all(args) -> int:
     succeeded, 1 if any failed (the others still ran + persisted on their
     own merit, so partial success is not a no-op).
     """
-    rc1 = _cmd_refresh(args)
-    rc2 = _cmd_refresh_mi(args)
-    rc3 = _cmd_refresh_polyeval(args)
-    return 0 if (rc1 == 0 and rc2 == 0 and rc3 == 0) else 1
+    rcs = [
+        _cmd_refresh(args),
+        _cmd_refresh_mi(args),
+        _cmd_refresh_polyeval(args),
+        _cmd_refresh_joint_hist_single_perm(args),
+        _cmd_refresh_joint_hist_multi_pair(args),
+        _cmd_refresh_batch_pair_mi(args),
+        _cmd_refresh_cat_fe_perm_kernel(args),
+        _cmd_refresh_rmse_partial_sum(args),
+        _cmd_refresh_unary_elementwise(args),
+        _cmd_refresh_rff_matmul(args),
+        _cmd_refresh_knn_hnsw_crossover(args),
+        _cmd_refresh_discretize_2d_array(args),
+    ]
+    return 0 if all(rc == 0 for rc in rcs) else 1
 
 
 def main(argv=None) -> int:
@@ -163,16 +253,63 @@ def main(argv=None) -> int:
         help="force-rerun the polyeval (Hermite/Legendre/...) sweep (~30s)",
     )
     sub.add_parser(
+        "refresh-joint-hist-single-perm",
+        help="force-rerun the joint_hist_single_perm sweep",
+    )
+    sub.add_parser(
+        "refresh-joint-hist-multi-pair",
+        help="force-rerun the joint_hist_multi_pair sweep",
+    )
+    sub.add_parser(
+        "refresh-batch-pair-mi",
+        help="force-rerun the batch_pair_mi backend-choice sweep",
+    )
+    sub.add_parser(
+        "refresh-cat-fe-perm-kernel",
+        help="force-rerun the cat_fe_perm_kernel crossover sweep",
+    )
+    sub.add_parser(
+        "refresh-rmse-partial-sum",
+        help="force-rerun the rmse_partial_sum block_n sweep",
+    )
+    sub.add_parser(
+        "refresh-unary-elementwise",
+        help="force-rerun the unary_elementwise (cupy vs numpy) sweep",
+    )
+    sub.add_parser(
+        "refresh-rff-matmul",
+        help="force-rerun the rff_matmul (cupy vs numpy) sweep",
+    )
+    sub.add_parser(
+        "refresh-knn-hnsw-crossover",
+        help="force-rerun the knn_hnsw_crossover (hnswlib vs sklearn) sweep",
+    )
+    sub.add_parser(
+        "refresh-discretize-2d-array",
+        help="force-rerun the discretize_2d_array crossover sweep",
+    )
+    sub.add_parser(
         "refresh-all",
         help="force-rerun every registered kernel sweep",
     )
     args = parser.parse_args(argv)
 
     return {
-        "show": _cmd_show, "where": _cmd_where,
-        "clear": _cmd_clear, "refresh": _cmd_refresh,
+        "show": _cmd_show,
+        "where": _cmd_where,
+        "clear": _cmd_clear,
+        "refresh": _cmd_refresh,
         "refresh-mi": _cmd_refresh_mi,
         "refresh-polyeval": _cmd_refresh_polyeval,
+        "refresh-joint-hist-single-perm": _cmd_refresh_joint_hist_single_perm,
+        "refresh-joint-hist-multi-pair": _cmd_refresh_joint_hist_multi_pair,
+        "refresh-batch-pair-mi": _cmd_refresh_batch_pair_mi,
+        "refresh-cat-fe-perm-kernel": _cmd_refresh_cat_fe_perm_kernel,
+        "refresh-rmse-partial-sum": _cmd_refresh_rmse_partial_sum,
+        "refresh-unary-elementwise": _cmd_refresh_unary_elementwise,
+        "refresh-rff-matmul": _cmd_refresh_rff_matmul,
+        "refresh-knn-hnsw-crossover": _cmd_refresh_knn_hnsw_crossover,
+        "refresh-discretize-2d-array": _cmd_refresh_discretize_2d_array,
         "refresh-all": _cmd_refresh_all,
     }[args.cmd](args)
 

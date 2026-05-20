@@ -159,7 +159,7 @@ def check_prospective_fe_pairs(
                                 _cache = KernelTuningCache.load_or_create()
                                 _e = _cache.lookup(
                                     "unary_elementwise",
-                                    {"n_samples": int(vals.size)},
+                                    n_samples=int(vals.size),
                                 )
                                 _min_cells = int(_e["min_cells"]) if _e and "min_cells" in _e else 500_000
                             except Exception:

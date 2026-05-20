@@ -642,7 +642,7 @@ def gpu_multiple_rmse_scores(actual, predicted):
             from pyutilz.system.kernel_tuning_cache import KernelTuningCache
             _cache = KernelTuningCache.load_or_create()
             _choice = _cache.lookup(
-                "rmse_partial_sum", {"n_samples": N, "n_cols": M},
+                "rmse_partial_sum", n_samples=int(N), n_cols=int(M),
             )
             BLOCK_N = int(_choice["block_n"]) if _choice and "block_n" in _choice else 256
         except Exception:
