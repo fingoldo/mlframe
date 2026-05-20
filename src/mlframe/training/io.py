@@ -23,9 +23,11 @@ unrelated to the unpickler trust boundary.
 from __future__ import annotations
 
 
+import itertools
 import logging
 import os
 import tempfile
+import uuid
 import warnings
 from types import SimpleNamespace
 from typing import Callable, Optional, Dict, Any
@@ -34,6 +36,17 @@ import dill
 import zstandard as zstd
 
 logger = logging.getLogger(__name__)
+
+
+# Monotonic counter for the atomic-write temp-file name suffix. Combined
+# with PID + 8-byte uuid hex this gives a unique name without paying
+# mkstemp's O_EXCL retry loop (which is ~30x slower than direct os.open
+# on Windows due to Defender / FS-filter intercepts).
+_ATOMIC_WRITE_COUNTER = itertools.count(0)
+
+
+def _atomic_write_counter() -> int:
+    return next(_ATOMIC_WRITE_COUNTER)
 
 
 _LEAN_STRIP_FIELDS = frozenset({
@@ -102,11 +115,20 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
         ``fsync=True`` explicitly when writing irreplaceable state.
     """
     target_dir = os.path.dirname(target_path) or "."
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=os.path.basename(target_path) + ".",
-        suffix=".tmp",
-        dir=target_dir,
+    # mkstemp on Windows is ~30x slower than direct os.open because Microsoft
+    # Defender / file-system filter drivers intercept the O_EXCL probe + the
+    # secure-name generation. Surfaced by the 2026-05-19 multi-model fuzz
+    # profile after the fsync skip + pickle-first land: nt.open was 33% of
+    # save wall (15 mkstemp calls x 29ms each = 0.44s of 1.32s). We don't
+    # need mkstemp's "secure unique name" guarantee for an internal temp file
+    # inside our own directory -- a pid + counter + 8-byte uuid suffix avoids
+    # collisions cheaply.
+    _tmp_basename = (
+        f"{os.path.basename(target_path)}.tmp."
+        f"{os.getpid()}.{_atomic_write_counter():d}.{uuid.uuid4().hex[:8]}"
     )
+    tmp_path = os.path.join(target_dir, _tmp_basename)
+    fd = os.open(tmp_path, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
     try:
         with os.fdopen(fd, "wb") as f:
             writer_fn(f)
@@ -303,19 +325,42 @@ def save_mlframe_model(
     try:
         # Atomic write prevents corruption when two train runs save to
         # the same file concurrently (2026-04-19 probe finding).
+        #
+        # Serialize to bytes BEFORE writing to disk so a pickle-vs-dill
+        # fallback decision is made cleanly: dumping straight to the
+        # zstd stream would leave the stream half-written if pickle.dump
+        # raises mid-graph on an unpicklable closure/lambda, and the
+        # subsequent dill.dump would corrupt the output. Worst case the
+        # whole bundle lives briefly in RAM at ~payload-size; the dill
+        # path is rare so this is a small extra alloc for the typical
+        # pickle-fast path.
+        import pickle as _pickle
+        try:
+            _payload_bytes = _pickle.dumps(_payload, protocol=_pickle.HIGHEST_PROTOCOL)
+        except (TypeError, AttributeError, _pickle.PicklingError) as _pickle_err:
+            # Non-picklable object in the graph -- dill handles closures /
+            # lambdas / generators that vanilla pickle rejects.
+            logger.info(
+                "save_mlframe_model: pickle rejected the payload "
+                "(%s); falling back to dill.dumps for %s",
+                type(_pickle_err).__name__, file,
+            )
+            _payload_bytes = dill.dumps(_payload)
+
         def _writer(f):
             compressor = zstd.ZstdCompressor(**zstd_kwargs)
             # closefd=False: stream_writer.__exit__ would otherwise close the wrapped
             # file (deterministic on Windows when threads=-1 hands the descriptor to
             # a background flush thread). atomic_write_bytes still needs the fd open
-            # for its post-write f.flush() / os.fsync(fileno()) — the durability
+            # for its post-write f.flush() / os.fsync(fileno()) -- the durability
             # invariant established for the same-FS atomic rename.
+            #
+            # BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
+            # 2026-04-14 on a fitted RandomForest + 1M-element ndarray payload --
+            # all sizes landed within +/-5% of the direct write (high variance).
+            # Direct write retained.
             with compressor.stream_writer(f, closefd=False) as zf:
-                # Note: BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
-                # 2026-04-14 on a fitted RandomForest + 1M-element ndarray payload —
-                # all sizes landed within ±5% of the direct write (high variance).
-                # Direct write retained.
-                dill.dump(_payload, zf)
+                zf.write(_payload_bytes)
 
         atomic_write_bytes(file, _writer, fsync=durable)
         if verbose > 0:
