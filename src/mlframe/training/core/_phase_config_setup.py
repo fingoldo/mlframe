@@ -290,6 +290,11 @@ def setup_configuration(
         quantile_regression_config=quantile_regression_config,
         composite_target_discovery_config=composite_target_discovery_config,
         ranking_config=ranking_config,
+        # Caller's verbose level. Without this the TrainingContext class default (1) was
+        # always used regardless of user-passed value, so every ``if ctx.verbose:`` block
+        # across phases fired even on verbose=0 runs (including the _phase_finalize.py:438
+        # plotly-import for kaleido telemetry, ~25ms cold-start). Fixed 2026-05-20.
+        verbose=int(verbose) if verbose is not None else 1,
         data_dir=data_dir,
         models_dir=models_dir,
         save_charts=save_charts,
