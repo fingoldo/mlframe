@@ -283,6 +283,19 @@ try:
             kwargs.setdefault("verbose", 0)
             return _orig_rfecv_init(self, *args, **kwargs)
 
+        # sklearn's clone() / get_params() / BaseEstimator._get_param_names()
+        # introspects ``__init__.__signature__`` and REFUSES the estimator if
+        # it sees ``*args`` / ``**kwargs`` ("scikit-learn estimators should
+        # always specify their parameters in the signature of their
+        # __init__"). Copy the original signature onto the wrapper so the
+        # introspection succeeds; the wrapper still injects ``verbose=0`` at
+        # the kwargs level when the caller omits it.
+        import inspect as _inspect
+        try:
+            _quiet_rfecv_init.__signature__ = _inspect.signature(_orig_rfecv_init)
+        except (TypeError, ValueError):  # pragma: no cover - non-introspectable
+            pass
+        _quiet_rfecv_init.__wrapped__ = _orig_rfecv_init
         _quiet_rfecv_init._mlframe_test_quieted = True
         _RFECV.__init__ = _quiet_rfecv_init
 except (ImportError, OSError, RuntimeError):  # pragma: no cover
