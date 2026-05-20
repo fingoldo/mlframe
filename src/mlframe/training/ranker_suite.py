@@ -631,7 +631,22 @@ def train_mlframe_ranker_suite(
     for flavor in selected:
         strategy = _strategy_for_model(flavor)
         iter_kw = "iterations" if flavor == "cb" else "n_estimators"
-        model_kwargs = {iter_kw: iterations, "learning_rate": learning_rate}
+        # The suite-level ``learning_rate`` default (0.1) is calibrated
+        # for tree boosters (CB / XGB / LGB) where 0.1 is a sensible
+        # shrinkage. For MLP it is DISASTROUS: AdamW + LayerNorm + ReLU
+        # at lr=0.1 blows up the weights within the first few steps,
+        # the post-Linear pre-activations saturate negative, every
+        # ReLU dies, and the final Linear collapses to outputting its
+        # bias for every input (observed 2026-05-21:
+        # std(val_scores)=4.77e-07, identical -4.430379 per row). The
+        # zero-variance gate in the rank-fusion ensemble then drops
+        # MLP entirely. Skip the suite-level lr forward for MLP and
+        # let MLPRanker's own default (1e-3) apply; callers wanting
+        # MLP-specific lr override via ``mlp_kwargs={"learning_rate": ...}``.
+        if flavor == "mlp":
+            model_kwargs = {iter_kw: iterations}
+        else:
+            model_kwargs = {iter_kw: iterations, "learning_rate": learning_rate}
         # MLPRanker-specific knobs (e.g. enable_checkpointing,
         # hidden_layers, dropout) are forwarded only for the mlp
         # flavor; for cb / xgb / lgb they would be unknown init
