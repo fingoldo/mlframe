@@ -384,7 +384,9 @@ class _WelfordAccumulator(StreamingAccumulator):
 # aggregator for mean/std/min/max. Median in streaming mode raises
 # NotImplementedError in `ensemble_probabilistic_predictions_streaming`.
 #
-# Tracked as: TODO(session-5+) P^2-Quantile numba-jit per-cell impl
+# Tracked as: explicit-design-decision (wave 69, 2026-05-20) P^2-Quantile
+# numba-jit per-cell impl deferred until a real workload exceeds the budget
+# documented in `ensemble_probabilistic_predictions` below.
 
 # *****************************************************************************************************************************************************
 # Core ensembling functionality
@@ -930,11 +932,14 @@ def ensemble_probabilistic_predictions(
     # ONCE here eliminates that churn -- full Welford-streaming refactor
     # for the big-N case (N=9M+) is tracked as TODO below.
     #
-    # TODO(future): For N*K*M*8 > EnsemblingConfig.quantile_budget_bytes,
-    # switch to streaming Welford accumulators (mean/std/geomean via
-    # log-mean/M2) + P^2-Quantile sketch for median/quantile aggregations.
-    # Estimated gain: ~5x peak-memory drop on prod-sized frames; not
-    # needed for fuzz-sized data.
+    # Wave 69 (2026-05-20): explicit-design-decision (was TODO):
+    # For N*K*M*8 > EnsemblingConfig.quantile_budget_bytes, switching to
+    # streaming Welford + P^2-Quantile sketch would give ~5x peak-memory drop
+    # on prod-sized frames. Intentionally NOT implemented today: fuzz-sized
+    # data + typical N*K*M does not hit the budget, and the Welford-mode median
+    # path already raises NotImplementedError as a signal-to-caller that
+    # streaming mode is incomplete. Revisit only when a real workload exceeds
+    # the budget; the implementation gates on a single config knob today.
     _preds_arr = np.asarray(preds, dtype=np.float64)
 
     if len(preds) > 2:

@@ -1803,7 +1803,8 @@ def optimise_hermite_pair(
     canonical_seeds_func = basis_info.get("canonical_seeds_func")
 
     # Factory-based bases (RBF, Sigmoid) eval depends on train-fold-fitted centres / thresholds. Build per-basis
-    # eval once preprocess params are known. TODO: separate eval for x_a and x_b when factory-based.
+    # eval once preprocess params are known. Wave 69 (2026-05-20): separate eval for x_a and x_b already implemented
+    # below -- factory is called twice with preprocess_a vs preprocess_b, producing distinct eval kernels per side.
     factory = basis_info.get("eval_njit_factory")
     if factory is not None:
         eval_func = factory(preprocess_a)

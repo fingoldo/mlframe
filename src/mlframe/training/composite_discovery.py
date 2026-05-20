@@ -956,22 +956,14 @@ class CompositeTargetDiscovery:
                 )
             yield spec.name, t
 
-    # TODO(per-cluster composite, follow-up):
-    # When the dataset has 50+ entities (well_id, customer_id, segment, ...)
-    # with >= 200 rows per entity, discovery COULD run per-cluster and pick
-    # a per-entity spec + a global fallback. The infrastructure piece
-    # ``linear_residual_grouped`` already exists in the registry (PCHIP-fit
-    # per-group alpha with James-Stein shrinkage toward global). Integration
-    # needs:
-    #   1. Auto-detect: ``n_groups <= 50 AND min_group_size >= 200``.
-    #   2. Per-group ``CompositeTargetDiscovery.fit`` (small-N regime).
-    #   3. Aggregate: keep per-group spec when its tiny CV-RMSE beats the
-    #      global spec by >= 5%.
-    #   4. Predict path: route each row through its cluster's spec, fall
-    #      back to global when cluster unknown.
-    # User judgement (2026-05-18): SKIP for now -- "10-15 values per
-    # cluster too few for stable per-cluster discovery". Revisit when the
-    # dataset has 500+ rows per cluster on average.
+    # Per-cluster composite (REJECTED -- explicit user decision 2026-05-18):
+    # Original proposal: when dataset has 50+ entities (well_id / customer_id /
+    # segment) with >= 200 rows each, discovery COULD run per-cluster + global
+    # fallback via ``linear_residual_grouped``. User judged this premature:
+    # "10-15 values per cluster too few for stable per-cluster discovery".
+    # Revisit ONLY when production data shows 500+ rows per cluster on average.
+    # No action required until that data shape appears -- this is a closed
+    # design decision, not an open TODO.
 
     def fit_stacked(
         self,

@@ -782,7 +782,9 @@ def create_windowed_features(
     past_vars_names: list = []
     future_vars_names: list = []
 
-    past_nwindows_expected = get_nwindows_expected(past_windows)  # noqa: F841 -- !TODO! computed for symmetry with future_nwindows_expected (used below for sanity check); the past-side check was deferred to a follow-up.
+    # Wave 69 (2026-05-20): symmetric past/future window-count expectation; the
+    # past-side check fires below after past_windows_features is computed.
+    past_nwindows_expected = get_nwindows_expected(past_windows)
     future_nwindows_expected = get_nwindows_expected(future_windows)
 
     for index in tqdmu(range(start_index, end_index, step_size), desc="dataset range", leave=False):
@@ -822,6 +824,17 @@ def create_windowed_features(
             create_features_names=(index == start_index),
             verbose=verbose,
         )
+
+        # Wave 69 (2026-05-20): past-side window-count sanity check, symmetric
+        # with the future-side check at the future-windows branch above. Skip
+        # the row when past windows didn't produce the expected count (data
+        # boundary -- not enough history yet at this base_point).
+        if (
+            past_nwindows_expected
+            and not past_windows_features
+            and (features_creation_fcn or not row_features)
+        ):
+            continue
 
         if row_features or past_windows_features:
             features.append(row_features)

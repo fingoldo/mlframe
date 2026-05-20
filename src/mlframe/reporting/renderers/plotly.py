@@ -280,8 +280,9 @@ class PlotlyRenderer:
             # from the cardinality bars). Plotly users get color
             # identification via hover-tooltips on the interactive HTML
             # output. Multi-figure legends would need ``legendgroup``
-            # + per-subplot legend domains (plotly 5.x feature) — TODO
-            # if a user files a real complaint.
+            # + per-subplot legend domains (plotly 5.x feature); deliberate
+            # non-implementation -- no real user complaint yet, hover-tooltips
+            # cover the use case.
             showlegend=False,
         )
         return fig

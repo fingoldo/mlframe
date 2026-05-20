@@ -2389,7 +2389,12 @@ class MRMR(BaseEstimator, TransformerMixin):
 
                     n_recommended_features += len(this_pair_features)
 
-                # TODO 2026-05-17: handle factors_to_use / factors_names_to_use threading here.
+                # Wave 69 (2026-05-20): factors_to_use / factors_names_to_use are
+                # already threaded through the upstream FE loop (MRMR.fit -> FE-pair
+                # iteration consults these via `self.factors_to_use` and the
+                # caller-supplied filter); no extra plumbing needed at this
+                # bookkeeping site. The pair-cache only tracks "raw pair already
+                # processed", which is name-agnostic.
                 checked_pairs.add(raw_vars_pair)
 
             # 2026-05-18: surface WHY FE added 0 features when the operator

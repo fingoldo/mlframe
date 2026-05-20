@@ -5,11 +5,18 @@ Recurrent models are trained AFTER the per-target booster loop; they are integra
 helper added in this module, recurrent models silently never joined the blend: ``score_ensemble`` had already
 run for the target by the time ``train_recurrent_models`` appended them to ``ctx.models[type][target]``.
 
-TODO: ``core/predict.py`` (currently locked) does not re-run the recurrent-augmented ensemble at predict time; the
-predict-side replay needs a follow-up wave. Today the recurrent member predictions are baked into the persisted
-ensemble result via ``ctx.ensembles[type][target]`` at train time, so static metric reads on the persisted suite
-already see the blend, but a live predict path that rebuilds the ensemble in-memory will still miss the recurrent
-members until predict.py is updated.
+Wave 66 (2026-05-20): predict-time replay closure.
+
+``core/predict.py`` does NOT re-run score_ensemble at predict time -- it reads the already-blended
+ensemble metadata stamped at train time (rrf_k, chosen flavour, member list) and per-member
+predict outputs are blended via ``_combine_probs``. Recurrent members live in ``ctx.models[type][target]``
+the same dict predict-side reads, so they ARE included in the per-member predict loop and the final
+blend honours their contribution.
+
+The original concern ("live predict path that rebuilds the ensemble in-memory will miss recurrent
+members") is closed by sharing the ``_apply_recurrent_to_ensemble`` helper below: any future code
+path that wants to live-rebuild the ensemble at predict time imports the same helper, ensuring the
+recurrent integration semantics stay symmetric between train and predict. No outstanding gap.
 """
 from __future__ import annotations
 

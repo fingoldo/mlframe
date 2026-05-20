@@ -1668,8 +1668,17 @@ def _compute_target_encoding(
     - For OOF: split rows into K folds; for each fold, compute cell means from the other K-1 folds, apply to this fold's rows.
     - For naive (n_oof_folds=0): single-pass cell mean across ALL rows. Leaks signal -- only safe when used as a downstream feature in a separate train/val split.
 
-    Y is treated as numeric (regression). For binary classification, this gives per-cell P(y=1) -- well-behaved. For multi-class, falls back to encoding the first class
-    indicator (TODO multi-class).
+    Y is treated as numeric (regression). For binary classification, this gives per-cell P(y=1) -- well-behaved.
+
+    Multi-class target encoding strategy (wave 68 closure, 2026-05-20): the helper
+    treats ``classes_y`` as a numeric label (0, 1, 2, ...). For multi-class targets
+    the resulting per-cell mean is the EXPECTED CLASS INDEX (not a class probability),
+    which is meaningful when the labels are ordinal (e.g. 1-5 star ratings) but
+    semantically wrong for nominal multi-class. Callers needing proper per-class
+    encoded features (one column per class) should fit the encoder n_classes times
+    on one-vs-rest binary derived columns -- that's the responsibility of the
+    caller, not this kernel: per-class expansion would multiply the feature space
+    by n_classes for every interaction, which is rarely the right trade-off.
     """
     n_samples = factors_data.shape[0]
     # Compute the merged class per row

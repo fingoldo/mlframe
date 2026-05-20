@@ -389,9 +389,11 @@ def _phase_pandas_conversion_and_cat_prep(
     val_df_polars = val_df_polars_pre
     test_df_polars = test_df_polars_pre
 
-    # TODO: surface the per-model strategy list to feed the ``defer_pandas_conv``
-    # heuristic when it lands. Until then the list is built on-demand inside the verbose-only
-    # log branches below (its only consumer), avoiding a get_strategy() pass on every call.
+    # Wave 69 (2026-05-20) closure: defer_pandas_conv heuristic landed in wave 4
+    # of the F6 audit (predict-skew closure); it consults ctx.strategy_by_model
+    # directly rather than rebuilding the per-model strategy list here. The
+    # on-demand build inside the verbose-only log branches below is intentional
+    # -- it avoids a get_strategy() pass on every call when verbose=False.
     _has_rfecv = bool(rfecv_models)
     # The earlier disjunction ``all_models_polars_native OR _has_non_native_mlframe_strategy`` was always True
     # given ``was_polars_input`` (the second disjunct collapses to ``was_polars_input AND NOT first``), so
