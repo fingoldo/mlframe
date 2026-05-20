@@ -1890,9 +1890,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         if _cache_key is not None:
             MRMR._FIT_CACHE[_cache_key] = self
             MRMR._FIT_CACHE.move_to_end(_cache_key)
-            _cap = int(getattr(self, "fit_cache_max", 4) or 4)
-            while len(MRMR._FIT_CACHE) > _cap:
-                MRMR._FIT_CACHE.popitem(last=False)
+            # ``fit_cache_max=0`` is the operator-explicit "disable LRU" sentinel
+            # (e.g. for memory-constrained suites where the 4-entry cache pins
+            # too much state). The previous ``or 4`` form silently restored the
+            # default cap, so cache-off was a no-op. ``None`` (unset attr) still
+            # folds to 4.
+            _cap_raw = getattr(self, "fit_cache_max", 4)
+            _cap = int(4 if _cap_raw is None else _cap_raw)
+            if _cap <= 0:
+                MRMR._FIT_CACHE.clear()
+            else:
+                while len(MRMR._FIT_CACHE) > _cap:
+                    MRMR._FIT_CACHE.popitem(last=False)
         return self
 
 

@@ -289,6 +289,18 @@ class CompositeTargetDiscovery:
         _unary_evaluated: set[str] = set()
 
         candidates: list[dict[str, Any]] = []
+
+        # 2026-05-20 #2: hoist the per-base setup OUT of the candidate
+        # evaluation loop so a single parallel dispatch can span all
+        # (base, transform) pairs. The previous serial outer loop over
+        # bases bottlenecked total parallelism at ``n_transforms`` per
+        # base; flattening lifts the cap to ``sum(transforms_per_base)``
+        # and lets ``discovery_n_jobs`` saturate even when a single base
+        # has fewer eligible transforms than CPU cores. Per-base setup
+        # itself (column extraction, X-without-base matrix, pre-binning,
+        # ``mi_y_for_base``) stays serial because it writes
+        # ``self._auto_base_pool`` and is cheap relative to MI compute.
+        _base_contexts: dict[str, dict[str, Any]] = {}
         for base in base_candidates:
             base_train = _extract_column_array(df, base)[train_idx]
             self._auto_base_pool[base] = base_train
@@ -299,24 +311,11 @@ class CompositeTargetDiscovery:
             x_remaining_matrix = self._build_feature_matrix(
                 df, x_remaining, train_idx_screen,
             )
-
-            # Pre-bin feature columns for this base so all transforms
-            # evaluated against it reuse the same quantile edges + bin
-            # indices (~50% of MI wall time).
             _x_prebinned = (
                 _prebin_feature_columns(
                     x_remaining_matrix, nbins=int(self.config.mi_nbins),
                 )
                 if self.config.mi_estimator == "bin" else None
-            )
-
-            # MI(y, X_remaining) -- baseline for THIS base. The model
-            # trained on raw y from X_remaining (base dropped from
-            # features) sets the bar; a composite target only earns
-            # its keep if MI(T, X_remaining) > this.
-            _mi_fn = (
-                _mi_to_target_prebinned
-                if _x_prebinned is not None else _mi_to_target
             )
             _mi_kwargs: dict[str, Any] = dict(
                 nbins=int(self.config.mi_nbins),
@@ -334,231 +333,252 @@ class CompositeTargetDiscovery:
                     estimator=self.config.mi_estimator,
                     **_mi_kwargs,
                 )
+            _base_contexts[base] = dict(
+                base_train=base_train,
+                base_screen=base_screen,
+                x_remaining_matrix=x_remaining_matrix,
+                _x_prebinned=_x_prebinned,
+                mi_y_for_base=mi_y_for_base,
+                _mi_kwargs=_mi_kwargs,
+            )
 
-            # T1#1 2026-05-18 Pack #6 real parallel composite candidates.
-            # Pre-filter transforms once per base (UnknownTransformError +
-            # Pack J unary dedup) so the parallel dispatch sees only the
-            # already-vetted (name, transform) pairs. Keeping the dedup
-            # serial outside the parallel loop avoids a race on
-            # ``_unary_evaluated`` and preserves bit-for-bit identical
-            # behaviour vs the serial path on the same input.
-            _transforms_to_eval: list[tuple[str, Any]] = []
+        # Build flat (base, transform_name, transform) work list with
+        # unary-dedup. Unary transforms ignore base, so a single
+        # evaluation against the first base they appear under is
+        # sufficient. Keeping dedup serial outside the parallel
+        # dispatch preserves bit-for-bit identical behaviour vs the
+        # serial path on the same input.
+        _work_items: list[tuple[str, str, Any]] = []
+        for base in base_candidates:
+            if base not in _base_contexts:
+                continue
             for transform_name in self.config.transforms:
                 try:
                     transform = get_transform(transform_name)
                 except UnknownTransformError as exc:
-                    logger.warning("[CompositeTargetDiscovery] %s; skipping.", exc)
+                    logger.warning(
+                        "[CompositeTargetDiscovery] %s; skipping.", exc,
+                    )
                     continue
                 if not transform.requires_base:
                     if transform_name in _unary_evaluated:
                         continue
                     _unary_evaluated.add(transform_name)
-                _transforms_to_eval.append((transform_name, transform))
+                _work_items.append((base, transform_name, transform))
 
-            def _eval_one_transform(transform_name: str, transform) -> list[dict[str, Any]]:
-                """Returns 0 or 1 candidate dict for one (base, transform) pair.
+        def _eval_one_transform(
+            base: str, transform_name: str, transform,
+        ) -> list[dict[str, Any]]:
+            """Returns 0 or 1 candidate dict for one (base, transform) pair.
 
-                Reads closure variables (base, base_train, base_screen,
-                x_remaining_matrix, _x_prebinned, mi_y_for_base, y_train,
-                y_screen, valid_screen, _mi_fn, _mi_kwargs, self.config,
-                self._reject) - all read-only inside the body. Writes go
-                to the returned list, never to the enclosing candidates
-                list, so calling this concurrently from a thread pool is
-                safe.
-                """
-                _local: list[dict[str, Any]] = []
-                # Domain check on train, drop invalids, fit transform
-                # params on the surviving rows only.
-                valid = transform.domain_check(y_train, base_train)
-                valid_frac = float(valid.mean()) if valid.size else 0.0
-                if valid_frac < self.config.min_valid_domain_frac:
-                    _local.append(self._reject(
-                        base, transform_name, mi_y_for_base, valid_frac,
-                        reason=f"valid_domain_frac={valid_frac:.3f} "
-                               f"< {self.config.min_valid_domain_frac:.3f}",
-                    ))
-                    return _local
-                if not valid.any():
-                    return _local
+            Pulls per-base arrays from ``_base_contexts[base]`` (read-only
+            once setup completes). Writes go to the returned list, never
+            to the enclosing ``candidates`` list, so calling this
+            concurrently from a thread pool is safe.
+            """
+            _ctx = _base_contexts[base]
+            base_train = _ctx["base_train"]
+            base_screen = _ctx["base_screen"]
+            x_remaining_matrix = _ctx["x_remaining_matrix"]
+            _x_prebinned = _ctx["_x_prebinned"]
+            mi_y_for_base = _ctx["mi_y_for_base"]
+            _mi_kwargs = _ctx["_mi_kwargs"]
+            _local: list[dict[str, Any]] = []
+            # Domain check on train, drop invalids, fit transform
+            # params on the surviving rows only.
+            valid = transform.domain_check(y_train, base_train)
+            valid_frac = float(valid.mean()) if valid.size else 0.0
+            if valid_frac < self.config.min_valid_domain_frac:
+                _local.append(self._reject(
+                    base, transform_name, mi_y_for_base, valid_frac,
+                    reason=f"valid_domain_frac={valid_frac:.3f} "
+                           f"< {self.config.min_valid_domain_frac:.3f}",
+                ))
+                return _local
+            if not valid.any():
+                return _local
 
-                fitted_params = transform.fit(y_train[valid], base_train[valid])
-                # Pack D 2026-05-18: reject identity / near-identity transforms early.
-                # Some bivariate transforms can collapse to a constant residual
-                # (T = y - const) when the base does not actually carry the
-                # signal -- e.g. ``monotonic_residual`` on a base where the
-                # fitted PCHIP knots are essentially flat. Discovery then
-                # spends 5+ minutes training models that produce IDENTICAL
-                # predictions to raw-y (production TVT-monres-Y log). The
-                # transform's ``fit`` flags this via ``is_degenerate=True``
-                # on the returned params dict; reject the spec here.
-                if isinstance(fitted_params, dict) and fitted_params.get("is_degenerate"):
-                    _ve = fitted_params.get("var_explained", float("nan"))
-                    _local.append(self._reject(
-                        base, transform_name, mi_y_for_base, valid_frac,
-                        reason=(
-                            f"transform fitted to a near-identity function: "
-                            f"var_explained={_ve:.4f} -- T == y up to noise, "
-                            f"downstream models will produce SAME predictions "
-                            f"as on raw y"
-                        ),
-                    ))
-                    return _local
-                # T on the screening sample (which is a subset of train).
-                valid_screen = transform.domain_check(y_screen, base_screen)
-                if valid_screen.sum() < 50:
-                    _local.append(self._reject(
-                        base, transform_name, mi_y_for_base, valid_frac,
-                        reason="too few rows in screening sample after domain filter",
-                    ))
-                    return _local
-                t_screen = transform.forward(
-                    y_screen[valid_screen], base_screen[valid_screen], fitted_params,
+            fitted_params = transform.fit(y_train[valid], base_train[valid])
+            # Pack D 2026-05-18: reject identity / near-identity transforms early.
+            # Some bivariate transforms can collapse to a constant residual
+            # (T = y - const) when the base does not actually carry the
+            # signal -- e.g. ``monotonic_residual`` on a base where the
+            # fitted PCHIP knots are essentially flat. Discovery then
+            # spends 5+ minutes training models that produce IDENTICAL
+            # predictions to raw-y (production TVT-monres-Y log). The
+            # transform's ``fit`` flags this via ``is_degenerate=True``
+            # on the returned params dict; reject the spec here.
+            if isinstance(fitted_params, dict) and fitted_params.get("is_degenerate"):
+                _ve = fitted_params.get("var_explained", float("nan"))
+                _local.append(self._reject(
+                    base, transform_name, mi_y_for_base, valid_frac,
+                    reason=(
+                        f"transform fitted to a near-identity function: "
+                        f"var_explained={_ve:.4f} -- T == y up to noise, "
+                        f"downstream models will produce SAME predictions "
+                        f"as on raw y"
+                    ),
+                ))
+                return _local
+            # T on the screening sample (which is a subset of train).
+            valid_screen = transform.domain_check(y_screen, base_screen)
+            if valid_screen.sum() < 50:
+                _local.append(self._reject(
+                    base, transform_name, mi_y_for_base, valid_frac,
+                    reason="too few rows in screening sample after domain filter",
+                ))
+                return _local
+            t_screen = transform.forward(
+                y_screen[valid_screen], base_screen[valid_screen], fitted_params,
+            )
+
+            # MI(T, X_remaining) on the same valid rows -- comparable
+            # to mi_y_for_base computed on the same x_remaining.
+            x_screen_valid = x_remaining_matrix[valid_screen]
+            if _x_prebinned is not None:
+                _x_pb_valid = _x_prebinned[valid_screen]
+                mi_t = _mi_to_target_prebinned(
+                    _x_pb_valid, t_screen, **_mi_kwargs,
                 )
-
-                # MI(T, X_remaining) on the same valid rows -- comparable
-                # to mi_y_for_base computed on the same x_remaining.
-                x_screen_valid = x_remaining_matrix[valid_screen]
+            else:
+                mi_t = _mi_to_target(
+                    x_screen_valid, t_screen,
+                    n_neighbors=self.config.mi_n_neighbors,
+                    random_state=self.config.random_state,
+                    estimator=self.config.mi_estimator,
+                    **_mi_kwargs,
+                )
+            # When the screening sample shrunk after domain
+            # filtering (logratio with negative rows in train),
+            # the mi_y baseline for THIS base must also be
+            # recomputed on the same valid_screen subset to keep
+            # comparison fair.
+            if valid_screen.sum() < y_screen.size:
                 if _x_prebinned is not None:
-                    _x_pb_valid = _x_prebinned[valid_screen]
-                    mi_t = _mi_to_target_prebinned(
-                        _x_pb_valid, t_screen, **_mi_kwargs,
+                    mi_y_compare = _mi_to_target_prebinned(
+                        _x_pb_valid, y_screen[valid_screen], **_mi_kwargs,
                     )
                 else:
-                    mi_t = _mi_to_target(
-                        x_screen_valid, t_screen,
+                    mi_y_compare = _mi_to_target(
+                        x_screen_valid, y_screen[valid_screen],
                         n_neighbors=self.config.mi_n_neighbors,
                         random_state=self.config.random_state,
                         estimator=self.config.mi_estimator,
                         **_mi_kwargs,
                     )
-                # When the screening sample shrunk after domain
-                # filtering (logratio with negative rows in train),
-                # the mi_y baseline for THIS base must also be
-                # recomputed on the same valid_screen subset to keep
-                # comparison fair.
-                if valid_screen.sum() < y_screen.size:
-                    if _x_prebinned is not None:
-                        mi_y_compare = _mi_to_target_prebinned(
-                            _x_pb_valid, y_screen[valid_screen], **_mi_kwargs,
-                        )
-                    else:
-                        mi_y_compare = _mi_to_target(
-                            x_screen_valid, y_screen[valid_screen],
-                            n_neighbors=self.config.mi_n_neighbors,
-                            random_state=self.config.random_state,
-                            estimator=self.config.mi_estimator,
-                            **_mi_kwargs,
-                        )
-                else:
-                    mi_y_compare = mi_y_for_base
-                mi_gain = mi_t - mi_y_compare
-
-                # Bootstrap CI on mi_gain. The
-                # point-estimate has a noise floor that scales with
-                # screening-sample size and y-tail heaviness; the
-                # absolute eps_mi_gain threshold misses this. Bootstrap
-                # produces a 95% CI; the gate compares against the
-                # LOWER CI bound (LCB), not the point estimate. Spec
-                # is rejected if LCB <= eps_mi_gain.
-                bootstrap_n = int(getattr(
-                    self.config, "mi_gain_bootstrap_n", 0,
-                ))
-                mi_gain_lcb = mi_gain  # default: point estimate.
-                if bootstrap_n > 0:
-                    boot_rng = np.random.default_rng(
-                        int(getattr(
-                            self.config, "mi_gain_bootstrap_random_state", 12345,
-                        ))
-                    )
-                    n_screen = int(valid_screen.sum())
-                    boot_gains = np.empty(bootstrap_n)
-                    # Hoist the valid_screen slices once. The pre-fix re-sliced
-                    # ``y_screen[valid_screen]`` and ``_x_prebinned[valid_screen]`` per replicate
-                    # even though they are constants across replicates.
-                    _y_screen_valid = y_screen[valid_screen]
-                    _x_pb_valid_const = (
-                        _x_prebinned[valid_screen] if _x_prebinned is not None else None
-                    )
-                    for b in range(bootstrap_n):
-                        idx_b = boot_rng.integers(0, n_screen, size=n_screen)
-                        x_boot = x_screen_valid[idx_b]
-                        t_boot = t_screen[idx_b]
-                        y_boot = _y_screen_valid[idx_b]
-                        try:
-                            if _x_pb_valid_const is not None:
-                                _x_pb_boot = _x_pb_valid_const[idx_b]
-                                mi_t_b = _mi_to_target_prebinned(
-                                    _x_pb_boot, t_boot, **_mi_kwargs,
-                                )
-                                mi_y_b = _mi_to_target_prebinned(
-                                    _x_pb_boot, y_boot, **_mi_kwargs,
-                                )
-                            else:
-                                mi_t_b = _mi_to_target(
-                                    x_boot, t_boot,
-                                    n_neighbors=self.config.mi_n_neighbors,
-                                    random_state=self.config.random_state,
-                                    estimator=self.config.mi_estimator,
-                                    **_mi_kwargs,
-                                )
-                                mi_y_b = _mi_to_target(
-                                    x_boot, y_boot,
-                                    n_neighbors=self.config.mi_n_neighbors,
-                                    random_state=self.config.random_state,
-                                    estimator=self.config.mi_estimator,
-                                    **_mi_kwargs,
-                                )
-                            boot_gains[b] = mi_t_b - mi_y_b
-                        except Exception:
-                            boot_gains[b] = float("nan")
-                    boot_finite = boot_gains[np.isfinite(boot_gains)]
-                    if boot_finite.size >= bootstrap_n // 2:
-                        mi_gain_lcb = float(np.percentile(boot_finite, 2.5))
-
-                spec = CompositeSpec(
-                    name=compose_target_name(target_col, transform_name, base),
-                    target_col=target_col,
-                    transform_name=transform_name,
-                    base_column=base,
-                    fitted_params=dict(fitted_params),
-                    mi_gain=mi_gain,
-                    mi_y=mi_y_compare,
-                    mi_t=mi_t,
-                    valid_domain_frac=valid_frac,
-                    n_train_rows=int(valid.sum()),
-                )
-                _local.append({
-                    "spec": spec,
-                    "kept": False,  # set after filtering
-                    "reason": "",
-                    "mi_gain_lcb": float(mi_gain_lcb),
-                })
-                return _local
-
-            # T1#1 dispatch: run the per-transform body in parallel when ``discovery_n_jobs > 1``.
-            # joblib threading backend keeps closure capture cheap (no pickling),
-            # which is critical for the large ``x_remaining_matrix`` / ``_x_prebinned``
-            # arrays the body reads. Most of the compute (transform.fit /
-            # transform.forward / _mi_to_target_prebinned / bootstrap MI loop)
-            # is numpy / numba which releases the GIL, so threading yields the
-            # promised 5-10x speedup at n_jobs=8.
-            _n_jobs_disc = int(getattr(self.config, "discovery_n_jobs", 1) or 1)
-            if _n_jobs_disc > 1 and len(_transforms_to_eval) > 1:
-                from joblib import Parallel as _Parallel, delayed as _delayed
-                _results = _Parallel(
-                    n_jobs=_n_jobs_disc, backend="threading", prefer="threads",
-                )(
-                    _delayed(_eval_one_transform)(_tn, _t)
-                    for _tn, _t in _transforms_to_eval
-                )
             else:
-                _results = [
-                    _eval_one_transform(_tn, _t)
-                    for _tn, _t in _transforms_to_eval
-                ]
-            for _r in _results:
-                if _r:
-                    candidates.extend(_r)
+                mi_y_compare = mi_y_for_base
+            mi_gain = mi_t - mi_y_compare
+
+            # Bootstrap CI on mi_gain. The
+            # point-estimate has a noise floor that scales with
+            # screening-sample size and y-tail heaviness; the
+            # absolute eps_mi_gain threshold misses this. Bootstrap
+            # produces a 95% CI; the gate compares against the
+            # LOWER CI bound (LCB), not the point estimate. Spec
+            # is rejected if LCB <= eps_mi_gain.
+            bootstrap_n = int(getattr(
+                self.config, "mi_gain_bootstrap_n", 0,
+            ))
+            mi_gain_lcb = mi_gain  # default: point estimate.
+            if bootstrap_n > 0:
+                boot_rng = np.random.default_rng(
+                    int(getattr(
+                        self.config, "mi_gain_bootstrap_random_state", 12345,
+                    ))
+                )
+                n_screen = int(valid_screen.sum())
+                boot_gains = np.empty(bootstrap_n)
+                # Hoist the valid_screen slices once. The pre-fix re-sliced
+                # ``y_screen[valid_screen]`` and ``_x_prebinned[valid_screen]`` per replicate
+                # even though they are constants across replicates.
+                _y_screen_valid = y_screen[valid_screen]
+                _x_pb_valid_const = (
+                    _x_prebinned[valid_screen] if _x_prebinned is not None else None
+                )
+                for b in range(bootstrap_n):
+                    idx_b = boot_rng.integers(0, n_screen, size=n_screen)
+                    x_boot = x_screen_valid[idx_b]
+                    t_boot = t_screen[idx_b]
+                    y_boot = _y_screen_valid[idx_b]
+                    try:
+                        if _x_pb_valid_const is not None:
+                            _x_pb_boot = _x_pb_valid_const[idx_b]
+                            mi_t_b = _mi_to_target_prebinned(
+                                _x_pb_boot, t_boot, **_mi_kwargs,
+                            )
+                            mi_y_b = _mi_to_target_prebinned(
+                                _x_pb_boot, y_boot, **_mi_kwargs,
+                            )
+                        else:
+                            mi_t_b = _mi_to_target(
+                                x_boot, t_boot,
+                                n_neighbors=self.config.mi_n_neighbors,
+                                random_state=self.config.random_state,
+                                estimator=self.config.mi_estimator,
+                                **_mi_kwargs,
+                            )
+                            mi_y_b = _mi_to_target(
+                                x_boot, y_boot,
+                                n_neighbors=self.config.mi_n_neighbors,
+                                random_state=self.config.random_state,
+                                estimator=self.config.mi_estimator,
+                                **_mi_kwargs,
+                            )
+                        boot_gains[b] = mi_t_b - mi_y_b
+                    except Exception:
+                        boot_gains[b] = float("nan")
+                boot_finite = boot_gains[np.isfinite(boot_gains)]
+                if boot_finite.size >= bootstrap_n // 2:
+                    mi_gain_lcb = float(np.percentile(boot_finite, 2.5))
+
+            spec = CompositeSpec(
+                name=compose_target_name(target_col, transform_name, base),
+                target_col=target_col,
+                transform_name=transform_name,
+                base_column=base,
+                fitted_params=dict(fitted_params),
+                mi_gain=mi_gain,
+                mi_y=mi_y_compare,
+                mi_t=mi_t,
+                valid_domain_frac=valid_frac,
+                n_train_rows=int(valid.sum()),
+            )
+            _local.append({
+                "spec": spec,
+                "kept": False,  # set after filtering
+                "reason": "",
+                "mi_gain_lcb": float(mi_gain_lcb),
+            })
+            return _local
+
+        # 2026-05-20 #2: single parallel dispatch over the flat
+        # ``_work_items`` list. Joblib preserves input order so
+        # ``candidates`` ends up in (base, transform) iteration order
+        # identical to the legacy nested-loop serial path. joblib
+        # threading backend keeps closure capture cheap (no pickling),
+        # which is critical for the large ``x_remaining_matrix`` /
+        # ``_x_prebinned`` arrays the body reads. Most of the compute
+        # (transform.fit / transform.forward / _mi_to_target_prebinned
+        # / bootstrap MI loop) is numpy / numba which releases the GIL,
+        # so threading scales close to linearly up to cpu_count.
+        _n_jobs_disc = int(getattr(self.config, "discovery_n_jobs", 1) or 1)
+        if _n_jobs_disc > 1 and len(_work_items) > 1:
+            from joblib import Parallel as _Parallel, delayed as _delayed
+            _results = _Parallel(
+                n_jobs=_n_jobs_disc, backend="threading", prefer="threads",
+            )(
+                _delayed(_eval_one_transform)(_b, _tn, _t)
+                for _b, _tn, _t in _work_items
+            )
+        else:
+            _results = [
+                _eval_one_transform(_b, _tn, _t)
+                for _b, _tn, _t in _work_items
+            ]
+        for _r in _results:
+            if _r:
+                candidates.extend(_r)
 
         # Filter + sort.
         kept_specs: list[CompositeSpec] = []
@@ -2041,46 +2061,64 @@ class CompositeTargetDiscovery:
         # when ``per_bin_enabled_pre`` is True.
         _per_bin_first_pass: dict[str, np.ndarray] = {}
         _per_base_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+        # Pre-build per-base cache serially (one entry per unique
+        # base_column). Doing this before the parallel rerank avoids a
+        # lazy-init serialization point inside the threaded loop and
+        # ensures the read-only cache is fully populated by the time
+        # workers run.
         for spec in kept_specs:
-            cached = _per_base_cache.get(spec.base_column)
-            if cached is None:
-                base_screen = (
-                    _extract_column_array(df, spec.base_column)[train_idx_screen]
-                )
-                x_remaining = [
-                    c for c in usable_features if c != spec.base_column
-                ]
-                x_matrix = self._build_feature_matrix(
-                    df, x_remaining, train_idx_screen,
-                )
-                _per_base_cache[spec.base_column] = (base_screen, x_matrix)
-            else:
-                base_screen, x_matrix = cached
+            if spec.base_column in _per_base_cache:
+                continue
+            base_screen = (
+                _extract_column_array(df, spec.base_column)[train_idx_screen]
+            )
+            x_remaining = [
+                c for c in usable_features if c != spec.base_column
+            ]
+            x_matrix = self._build_feature_matrix(
+                df, x_remaining, train_idx_screen,
+            )
+            _per_base_cache[spec.base_column] = (base_screen, x_matrix)
+
+        n_seed_repeats = max(1, int(getattr(
+            self.config, "tiny_model_n_seed_repeats", 1,
+        )))
+        use_wilcoxon = bool(getattr(
+            self.config, "use_wilcoxon_gate", False,
+        ))
+
+        def _rerank_one_spec(spec: CompositeSpec):
+            """Per-spec worker for the rerank loop.
+
+            Returns a tuple ``(spec.name, family_rmses, per_seed_by_family,
+            per_bin_first_or_none)`` so the parallel reduce can rebuild
+            ``per_family_scores`` / ``_wilcoxon_per_seed_composite`` /
+            ``_per_bin_first_pass`` in spec order on the main thread.
+            """
+            base_screen_local, x_matrix_local = _per_base_cache[spec.base_column]
             transform = get_transform(spec.transform_name)
-            n_seed_repeats = max(1, int(getattr(
-                self.config, "tiny_model_n_seed_repeats", 1,
-            )))
-            use_wilcoxon = bool(getattr(
-                self.config, "use_wilcoxon_gate", False,
-            ))
             # Auto-detect monotone base (lag features, timestamps) and switch
             # this spec's tiny-CV to TimeSeriesSplit. Random K-fold on a lag
             # base leaks future->past, over-rating ``linres-TVT_prev``-style
             # specs.
-            _base_t_aware = bool(_is_monotone_nondecreasing(base_screen))
+            base_t_aware = bool(_is_monotone_nondecreasing(base_screen_local))
+            fam_rmses: dict[str, float] = {}
+            per_seed_by_family: dict[str, np.ndarray] = {}
+            per_bin_first_local: Optional[np.ndarray] = None
             for family in families:
                 # ENS-P2-5: capture per-bin alongside RMSE in the SAME pass
                 # for the first family only (per-bin breakdown only checks
                 # families[0] in the legacy second pass).
-                _is_first_family = (family == families[0])
-                want_per_bin = bool(per_bin_enabled_pre and _is_first_family)
+                is_first_family = (family == families[0])
+                want_per_bin = bool(per_bin_enabled_pre and is_first_family)
                 if use_wilcoxon:
                     result = _tiny_cv_rmse_y_scale_multiseed(
                         y_train=y_screen,
-                        base_train=base_screen,
+                        base_train=base_screen_local,
                         transform=transform,
                         fitted_params=spec.fitted_params,
-                        x_train_matrix=x_matrix,
+                        x_train_matrix=x_matrix_local,
                         family=family,
                         n_estimators=self.config.tiny_model_n_estimators,
                         num_leaves=self.config.tiny_model_num_leaves,
@@ -2095,30 +2133,23 @@ class CompositeTargetDiscovery:
                         return_per_seed=True,
                         return_per_bin=want_per_bin,
                         n_bins=per_bin_n_bins_pre or 5,
-                        time_aware=_base_t_aware,
+                        time_aware=base_t_aware,
                     )
                     if want_per_bin:
-                        # (rmse, per_bin, per_seed)
-                        rmse, per_bin_first, per_seed = result[0], result[1], result[-1]
-                        _per_bin_first_pass[spec.name] = per_bin_first
+                        rmse, per_bin_first, per_seed = (
+                            result[0], result[1], result[-1],
+                        )
+                        per_bin_first_local = per_bin_first
                     else:
                         rmse, per_seed = result[0], result[-1]
-                    # Stash per-seed array on the discovery instance
-                    # (keyed by spec.name + family) for the Wilcoxon
-                    # gate to compare against raw-y per-seed.
-                    self._wilcoxon_per_seed_composite = getattr(
-                        self, "_wilcoxon_per_seed_composite", {}
-                    )
-                    self._wilcoxon_per_seed_composite[
-                        (spec.name, family)
-                    ] = per_seed
+                    per_seed_by_family[family] = per_seed
                 else:
                     result = _tiny_cv_rmse_y_scale_multiseed(
                         y_train=y_screen,
-                        base_train=base_screen,
+                        base_train=base_screen_local,
                         transform=transform,
                         fitted_params=spec.fitted_params,
-                        x_train_matrix=x_matrix,
+                        x_train_matrix=x_matrix_local,
                         family=family,
                         n_estimators=self.config.tiny_model_n_estimators,
                         num_leaves=self.config.tiny_model_num_leaves,
@@ -2132,14 +2163,54 @@ class CompositeTargetDiscovery:
                         base_random_state=self.config.random_state,
                         return_per_bin=want_per_bin,
                         n_bins=per_bin_n_bins_pre or 5,
-                        time_aware=_base_t_aware,
+                        time_aware=base_t_aware,
                     )
                     if want_per_bin and isinstance(result, tuple):
                         rmse, per_bin_first = result[0], result[1]
-                        _per_bin_first_pass[spec.name] = per_bin_first
+                        per_bin_first_local = per_bin_first
                     else:
                         rmse = result
-                per_family_scores[family].append(rmse)
+                fam_rmses[family] = rmse
+            return spec.name, fam_rmses, per_seed_by_family, per_bin_first_local
+
+        # ``tiny_rerank_n_jobs=0`` is the documented sentinel for "auto-pick"
+        # (the branch right below this assignment). The previous ``or 1`` form
+        # collapsed 0->1 BEFORE the sentinel check ran, making the auto-pick
+        # branch unreachable. ``None`` (Pydantic-default-unset) still folds to
+        # 1 (the historical default).
+        _rerank_raw = getattr(self.config, "tiny_rerank_n_jobs", 1)
+        _rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)
+        if _rerank_n_jobs_cfg == 0:
+            # Auto: cap at len(kept_specs) and at cpu_count to avoid
+            # oversubscription when tiny_model_n_jobs > 1 internally.
+            try:
+                import os as _os
+                _cpu = _os.cpu_count() or 1
+            except Exception:
+                _cpu = 1
+            _rerank_n_jobs = max(1, min(len(kept_specs), _cpu))
+        else:
+            _rerank_n_jobs = max(1, _rerank_n_jobs_cfg)
+        if _rerank_n_jobs > 1 and len(kept_specs) > 1:
+            from joblib import Parallel as _Parallel, delayed as _delayed
+            _rerank_results = _Parallel(
+                n_jobs=_rerank_n_jobs, backend="threading", prefer="threads",
+            )(_delayed(_rerank_one_spec)(s) for s in kept_specs)
+        else:
+            _rerank_results = [_rerank_one_spec(s) for s in kept_specs]
+
+        # Serial reduce — preserve spec order for per_family_scores
+        # (joblib.Parallel preserves input order).
+        self._wilcoxon_per_seed_composite = getattr(
+            self, "_wilcoxon_per_seed_composite", {},
+        )
+        for _spec_name, _fam_rmses, _per_seed_by_family, _per_bin_first in _rerank_results:
+            for family in families:
+                per_family_scores[family].append(_fam_rmses.get(family, float("nan")))
+            if _per_bin_first is not None:
+                _per_bin_first_pass[_spec_name] = _per_bin_first
+            for family, _per_seed in _per_seed_by_family.items():
+                self._wilcoxon_per_seed_composite[(_spec_name, family)] = _per_seed
 
         # Aggregate -> single score per spec.
         consensus = self.config.tiny_consensus

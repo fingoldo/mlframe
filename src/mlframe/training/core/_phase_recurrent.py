@@ -298,7 +298,21 @@ def _apply_recurrent_to_ensemble(
             target_name, exc,
         )
         return ensemble_dict
-    return rebuilt or ensemble_dict
+    # ``rebuilt is None`` => score_ensemble decided not to return an ensemble
+    # (caller may want the prior); ``rebuilt == {}`` => rebuild succeeded but
+    # the gate pruned every member, which is operationally distinct from "no
+    # rebuild". The previous ``rebuilt or ensemble_dict`` form conflated the
+    # two and silently swapped {} for the pre-recurrent ensemble, masking the
+    # signal that recurrent member dragged the gate too tight.
+    if rebuilt is None:
+        return ensemble_dict
+    if not rebuilt:
+        logger.warning(
+            "apply_recurrent_to_ensemble: rebuilt ensemble is empty for target %s "
+            "(all members gated out); returning empty dict, not prior ensemble.",
+            target_name,
+        )
+    return rebuilt
 
 
 def _rerun_ensemble_with_recurrent(

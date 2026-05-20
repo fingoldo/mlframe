@@ -282,9 +282,16 @@ def run_composite_target_discovery(
             if discovery_cache_dir is not None:
                 try:
                     _disc_cache = DiscoveryCache(discovery_cache_dir)
+                    # ``random_state=0`` is a legitimate sklearn seed and MUST
+                    # reach the row-sampler verbatim. The previous ``or 42`` form
+                    # silently rewrote 0->42, collapsing seed=0 and seed=42 to
+                    # the same data_signature and breaking reproducibility for
+                    # any caller that passed 0. ``None`` (no attribute / unset)
+                    # still folds to 42 (the historical default).
+                    _rs_raw = getattr(_disc_cfg, "random_state", 42)
                     _df_sig = data_signature(
                         _disc_df, _tname_disc, _disc_feature_cols,
-                        random_state=int(getattr(_disc_cfg, "random_state", 42) or 42),
+                        random_state=int(42 if _rs_raw is None else _rs_raw),
                     )
                     _cfg_sig = _discovery_config_signature(_disc_cfg)
                     # random_state is already folded into _df_sig (seeds the row-sample) and into
