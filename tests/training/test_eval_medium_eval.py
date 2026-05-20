@@ -280,6 +280,20 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     """
     from mlframe.training import baseline_diagnostics
 
+    # Build the dummy frame BEFORE monkeypatching np.asarray -- pd.DataFrame
+    # internally calls np.asarray, so constructing it after the patch would
+    # trigger KeyboardInterrupt outside the ``pytest.raises`` block and abort
+    # the session (KI escapes pytest's regular-exception handler).
+    import pandas as _pd
+    dummy_df = _pd.DataFrame({"a": [1.0, 2.0]})
+    dummy_target = [0, 1]
+    feature_cols = ["a"]
+    # Must be in BaselineDiagnosticsConfig.apply_to_target_types, otherwise
+    # fit_and_report short-circuits via _skipped before any asarray call --
+    # KI would never get a chance to fire.
+    target_type = "binary_classification"
+    target_name = "y"
+
     # Find a callable attribute fit_and_report calls early. We patch
     # numpy.asarray as a generic early-call interceptor; any time the
     # diagnostics path touches numpy (it always does), KI must escape.
@@ -291,12 +305,15 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     monkeypatch.setattr(_np, "asarray", _ki)
 
     bd_cls = baseline_diagnostics.BaselineDiagnostics
+    # Newer versions require a config argument; build a real one so the
+    # downstream ``self.config.enabled`` check doesn't fire before the
+    # monkeypatched np.asarray has a chance to escape with KI.
     try:
         instance = bd_cls()
     except TypeError:
-        # newer versions might require args; try positional defaults
         try:
-            instance = bd_cls(None)
+            from mlframe.training.configs import BaselineDiagnosticsConfig
+            instance = bd_cls(BaselineDiagnosticsConfig())
         except Exception:
             pytest.skip("Cannot construct BaselineDiagnostics for this version")
     fit_method = getattr(instance, "fit_and_report", None)
@@ -305,15 +322,8 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     # fit_and_report has 5 required positional args:
     # (train_df, train_target, feature_cols, target_type, target_name).
     # The monkeypatched numpy.asarray fires inside _to_1d_numpy long before
-    # any of these are actually consumed, so dummy non-None values suffice
+    # any of them is actually consumed, so dummy non-None values suffice
     # to satisfy the signature; KI must escape the outer try.
-    import pandas as _pd
-    import numpy as _real_np  # captured by closure before monkeypatch fires
-    dummy_df = _pd.DataFrame({"a": [1.0, 2.0]})
-    dummy_target = [0, 1]
-    feature_cols = ["a"]
-    target_type = "binary"
-    target_name = "y"
     with pytest.raises(KeyboardInterrupt):
         fit_method(dummy_df, dummy_target, feature_cols, target_type, target_name)
 
