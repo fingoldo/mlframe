@@ -22,48 +22,7 @@ import pytest
 warnings.filterwarnings("ignore")
 
 
-def _check_julia():
-    """Return True if Julia is available AND pysr imports.
-
-    Tries a list of well-known Windows install locations and also `shutil.which("julia")` so
-    Julia in PATH (e.g. juliaup-managed) is honoured. Previously hard-coded `D:/Julia/bin` and
-    used `os.environ.setdefault("PATH", ...)` which never appended (PATH always exists), so the
-    Julia bindir was never actually exposed to pysr's subprocess - check skipped even when
-    Julia was installed in the standard location.
-    """
-    import shutil
-
-    candidate_exes = []
-    julia_from_path = shutil.which("julia")
-    if julia_from_path:
-        candidate_exes.append(julia_from_path)
-    for bindir in ("D:/Julia/bin", r"C:\\Program Files\\Julia\\bin"):
-        julia_exe = os.path.join(bindir, "julia.exe")
-        if os.path.isfile(julia_exe):
-            candidate_exes.append(julia_exe)
-
-    for julia_exe in candidate_exes:
-        bindir = os.path.dirname(julia_exe)
-        os.environ["JULIA_EXE"] = julia_exe
-        # Prepend (not setdefault) so pysr finds julia.exe in subprocesses.
-        os.environ["PATH"] = bindir + os.pathsep + os.environ.get("PATH", "")
-        # SUBPROCESS PROBE: pysr's transitive import chain (Julia + PyJuliaCall +
-        # torch on some installs) can native-crash on broken environments,
-        # tearing down the xdist worker. A subprocess probe contains the blast
-        # radius: a crash in the child returns non-zero exit, we skip the
-        # whole module instead of taking down the test session.
-        try:
-            r = subprocess.run(
-                [sys.executable, "-c", "import pysr"],
-                env=os.environ,
-                capture_output=True,
-                timeout=30,
-            )
-            if r.returncode == 0:
-                return True
-        except (subprocess.TimeoutExpired, OSError):
-            continue
-    return False
+from tests._pysr_gate import pysr_works as _check_julia  # noqa: F401  -- imported for back-compat with any test that referenced the legacy name
 
 
 _MINI_PYSR = {
@@ -96,8 +55,7 @@ def _make_synth(n=200, seed=42):
 pytestmark = [
     pytest.mark.skipif(
         not _check_julia(),
-        reason="Julia runtime not available (D:/Julia/bin/julia.exe missing "
-               "or pysr import failed)",
+        reason="PySR / Julia runtime not usable (probe failed)",
     ),
     pytest.mark.slow_only,
 ]

@@ -17,15 +17,23 @@ import pandas as pd
 import pytest
 
 
-def _maybe_pysr_available() -> bool:
-    try:
-        import pysr  # noqa: F401
-        return True
-    except Exception:
-        return False
+from tests._pysr_gate import pysr_works
 
 
-@pytest.mark.skipif(not _maybe_pysr_available(), reason="PySR / Julia runtime not installed")
+pytestmark = [
+    pytest.mark.skipif(
+        not pysr_works(),
+        reason="PySR / Julia runtime not usable (probe failed)",
+    ),
+    # Cold Julia fit costs ~30s + has access-violated the xdist worker on S:
+    # 2026-05-20 inside PythonCall.jl. slow_only keeps it out of --fast; the
+    # subprocess probe in pysr_works() blocks import-time crashes from
+    # reaching the worker; --max-worker-restart at the pytest level covers
+    # fit-time crashes that the probe cannot pre-detect.
+    pytest.mark.slow_only,
+]
+
+
 def test_pysr_replay_parity(tmp_path):
     from mlframe.training.pipeline import (
         apply_preprocessing_extensions,

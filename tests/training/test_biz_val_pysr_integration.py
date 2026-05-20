@@ -24,46 +24,20 @@ import pytest
 warnings.filterwarnings("ignore")
 
 
-def _check_julia():
-    # Look for julia in well-known install roots plus the user's PATH. On
-    # Windows D:/Julia/bin/julia.exe is the typical install; on Linux/macOS
-    # users usually have julia on PATH already.
-    candidates = [
-        ("D:/Julia/bin", "julia.exe"),
-        ("/usr/local/bin", "julia"),
-        ("/usr/bin", "julia"),
-        (os.path.expanduser("~/.juliaup/bin"), "julia"),
-    ]
-    for bindir, exe_name in candidates:
-        julia_exe = os.path.join(bindir, exe_name)
-        if os.path.isfile(julia_exe):
-            os.environ.setdefault("JULIA_EXE", julia_exe)
-            break
-    else:
-        # Fall through to PATH lookup.
-        from shutil import which
-        julia_on_path = which("julia") or which("julia.exe")
-        if julia_on_path:
-            os.environ.setdefault("JULIA_EXE", julia_on_path)
-    try:
-        import pysr  # noqa: F401
-        return True
-    except (ImportError, OSError, subprocess.CalledProcessError):
-        return False
+from tests._pysr_gate import pysr_works
 
 
-# PySR fits trigger Julia compilation + symbolic regression - 30-60s per fit
-# even on small data. On Windows the Julia FFI also occasionally raises
-# fatal-exit codes that propagate up and kill the whole pytest process
-# (observed 2026-05-15 on test_biz_val_pysr_pipeline_improves_downstream_model
-# at session timestamp 16:30 local). Mark slow so the default
-# `-m "not slow"` selector skips it and a dedicated PySR run can pick it up.
+# PySR fits trigger Julia compilation + symbolic regression - 30-60s per fit.
+# On Windows the Julia FFI has also access-violated and torn down the xdist
+# worker (observed 2026-05-15, 2026-05-20). The shared gate runs ``import
+# pysr`` in a subprocess so import-time crashes don't propagate up; slow_only
+# keeps these out of --fast.
 pytestmark = [
     pytest.mark.skipif(
-        not _check_julia(),
-        reason="Julia runtime not available",
+        not pysr_works(),
+        reason="PySR / Julia runtime not usable (probe failed)",
     ),
-    pytest.mark.slow,
+    pytest.mark.slow_only,
 ]
 
 

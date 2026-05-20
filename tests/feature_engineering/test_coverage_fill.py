@@ -976,50 +976,22 @@ class TestMpsPlotAndIo:
 # ============================================================================
 
 
+from tests._pysr_gate import pysr_works as _pysr_works  # noqa: E402
+
+
 @pytest.mark.slow_only
+@pytest.mark.skipif(not _pysr_works(), reason="PySR / Julia runtime not usable (probe failed)")
 class TestBasicPysrPath:
     """Exercise run_pysr_fe via a tiny synthetic polars frame. Skipped
     when Julia is missing OR when pysr's transitive import chain native-
     crashes the worker (access violation in PythonCall.jl during fit).
 
     Marked slow_only because a cold Julia + PySR fit costs ~30-60s and
-    has been observed to access-violate on some hosts (S: machine 2026-05-20
-    inside ``pysr.sr.fit`` -> PythonCall.jl JlWrap.any:__call__). The
-    subprocess probe below contains the blast radius -- a crash in the
-    child returns non-zero, the whole class is skipped instead of taking
-    down the xdist worker mid-session.
+    has been observed to access-violate on some hosts. The shared
+    pysr_works() gate runs ``import pysr`` in a subprocess so an
+    import-time crash returns a clean non-zero exit rather than killing
+    the xdist worker.
     """
-
-    @pytest.fixture(autouse=True)
-    def _gate_julia(self, monkeypatch):
-        import os, shutil, subprocess, sys
-        # Same gate as test_biz_val_bruteforce: prefer PATH julia, fall back to D:/Julia/bin.
-        # We use monkeypatch.setenv so JULIA_EXE / PATH mutations auto-teardown at test end --
-        # pre-fix this fixture wrote os.environ directly with no teardown, bleeding into every
-        # later test in the session.
-        julia = shutil.which("julia") or "D:/Julia/bin/julia.exe"
-        if not os.path.isfile(julia):
-            pytest.skip("Julia runtime not available")
-        bindir = os.path.dirname(julia)
-        monkeypatch.setenv("JULIA_EXE", julia)
-        monkeypatch.setenv("PATH", bindir + os.pathsep + os.environ.get("PATH", ""))
-        # Subprocess probe: native-crashes in pysr / PythonCall.jl tear down
-        # the xdist worker. Doing the import in a child returns a clean exit
-        # code we can branch on without losing the suite.
-        try:
-            r = subprocess.run(
-                [sys.executable, "-c", "import pysr"],
-                env=os.environ,
-                capture_output=True,
-                timeout=60,
-            )
-            if r.returncode != 0:
-                pytest.skip(
-                    f"pysr import subprocess returncode={r.returncode}; "
-                    f"stderr={r.stderr.decode('utf-8', 'ignore')[:200]}"
-                )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            pytest.skip(f"pysr import subprocess failed: {type(exc).__name__}: {exc}")
 
     def test_run_pysr_fe_polars_basic(self):
         from mlframe.feature_engineering.basic import run_pysr_fe
@@ -1701,41 +1673,14 @@ class TestTimeseriesFinalGaps:
 
 
 @pytest.mark.slow_only
+@pytest.mark.skipif(not _pysr_works(), reason="PySR / Julia runtime not usable (probe failed)")
 class TestBruteforceFinalGaps:
     """Narrow tests targeting the last ~17 missed lines in bruteforce.py.
 
-    Marked slow_only and gated with a subprocess probe: pysr.sr.fit has
-    been observed to native-crash (access violation in PythonCall.jl)
-    on hosts with mismatched Julia / PythonCall versions. An in-process
-    try/except cannot catch a Windows access violation; the subprocess
-    probe contains the blast radius.
+    Marked slow_only and gated on the shared pysr_works() probe; same
+    rationale as TestBasicPysrPath above (native crash containment via
+    subprocess probe).
     """
-
-    @pytest.fixture(autouse=True)
-    def _gate_julia(self, monkeypatch):
-        import os, shutil, subprocess, sys
-        julia = shutil.which("julia") or "D:/Julia/bin/julia.exe"
-        if not os.path.isfile(julia):
-            pytest.skip("Julia runtime not available")
-        bindir = os.path.dirname(julia)
-        # monkeypatch.setenv auto-restores at teardown so the JULIA_EXE / PATH
-        # mutations don't bleed into later tests in the same worker.
-        monkeypatch.setenv("JULIA_EXE", julia)
-        monkeypatch.setenv("PATH", bindir + os.pathsep + os.environ.get("PATH", ""))
-        try:
-            r = subprocess.run(
-                [sys.executable, "-c", "import pysr"],
-                env=os.environ,
-                capture_output=True,
-                timeout=60,
-            )
-            if r.returncode != 0:
-                pytest.skip(
-                    f"pysr import subprocess returncode={r.returncode}; "
-                    f"stderr={r.stderr.decode('utf-8', 'ignore')[:200]}"
-                )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            pytest.skip(f"pysr import subprocess failed: {type(exc).__name__}: {exc}")
 
     def test_run_pysr_polars_input(self):
         """polars.DataFrame branch (calls cs.numeric().fill_null(...))."""
@@ -1825,36 +1770,13 @@ class TestBruteforceFinalGaps:
 
 
 @pytest.mark.slow_only
+@pytest.mark.skipif(not _pysr_works(), reason="PySR / Julia runtime not usable (probe failed)")
 class TestBruteforceAdvancedCoverage:
     """Targets the remaining ~27 missed lines: leakage_free=True path, encode_categoricals=False
     cat-drop, datetime/string-col branches with high cardinality, pysr_params (not override).
 
-    Same slow_only + subprocess probe rationale as TestBruteforceFinalGaps.
+    Same protection as TestBruteforceFinalGaps via the shared pysr_works() gate.
     """
-
-    @pytest.fixture(autouse=True)
-    def _gate_julia(self, monkeypatch):
-        import os, shutil, subprocess, sys
-        julia = shutil.which("julia") or "D:/Julia/bin/julia.exe"
-        if not os.path.isfile(julia):
-            pytest.skip("Julia runtime not available")
-        bindir = os.path.dirname(julia)
-        monkeypatch.setenv("JULIA_EXE", julia)
-        monkeypatch.setenv("PATH", bindir + os.pathsep + os.environ.get("PATH", ""))
-        try:
-            r = subprocess.run(
-                [sys.executable, "-c", "import pysr"],
-                env=os.environ,
-                capture_output=True,
-                timeout=60,
-            )
-            if r.returncode != 0:
-                pytest.skip(
-                    f"pysr import subprocess returncode={r.returncode}; "
-                    f"stderr={r.stderr.decode('utf-8', 'ignore')[:200]}"
-                )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            pytest.skip(f"pysr import subprocess failed: {type(exc).__name__}: {exc}")
 
     def test_run_pysr_leakage_free_path_with_categorical(self):
         """Exercise the leakage_free=True OOF KFold encoding branch."""
