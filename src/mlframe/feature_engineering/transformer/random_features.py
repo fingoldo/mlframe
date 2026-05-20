@@ -59,8 +59,15 @@ def compute_rff_features(
     seed = require_seed(seed)
     if n_features < 2 or n_features % 2 != 0:
         raise ValueError(f"n_features must be even and >= 2; got {n_features}.")
-    if standardize is not True and standardize is not False:
-        raise TypeError(f"standardize must be bool; got {type(standardize).__name__}.")
+    # Wave 28 P0 fix (2026-05-20): the strict ``is not True and is not False``
+    # type-guard rejected ``np.bool_(True)`` / ``numpy.True_`` / ``int(1)``
+    # from upstream config or sklearn output, all of which are semantically
+    # valid bools. isinstance covers Python bool + numpy bool uniformly.
+    import numpy as _np_for_bool
+    if not isinstance(standardize, (bool, _np_for_bool.bool_)):
+        raise TypeError(
+            f"standardize must be bool (or numpy bool); got {type(standardize).__name__}."
+        )
 
     X_arr, _input_names = _coerce_input(X, dtype=dtype)
     validate_numeric_input(X_arr, name="X", allow_fp16=True)
@@ -254,15 +261,24 @@ def _resolve_use_gpu(
     - ``use_gpu='auto'`` AND ``threshold is None`` -> dispatch via cached micro-bench bucket; first-call cost is a single mini-bench (~50 ms).
     - ``use_gpu='auto'`` AND ``threshold is set`` -> GPU iff available AND work >= threshold.
     """
-    if use_gpu is False:
-        return False
-    if use_gpu is True:
+    # Wave 28 P0 fix (2026-05-20): pre-fix used ``is True``/``is False``,
+    # which silently rejected ``np.bool_(True)`` and ``np.bool_(False)``
+    # from config dicts -- numpy bools fail the identity check and
+    # fell through to the ``!= "auto"`` ValueError. Normalise: handle
+    # the string "auto" first explicitly, then ``bool(use_gpu)``
+    # accepts both Python bool and numpy bool uniformly.
+    if isinstance(use_gpu, str):
+        if use_gpu != "auto":
+            raise ValueError(f"use_gpu must be True, False, or 'auto'; got {use_gpu!r}.")
+        # Fall through to auto-dispatch below.
+    else:
+        _flag = bool(use_gpu)
+        if not _flag:
+            return False
         if not is_gpu_available():
             logger.info("use_gpu=True but GPU is not available; using CPU.")
             return False
         return True
-    if use_gpu != "auto":
-        raise ValueError(f"use_gpu must be True, False, or 'auto'; got {use_gpu!r}.")
     if not is_gpu_available():
         return False
     if threshold is not None:

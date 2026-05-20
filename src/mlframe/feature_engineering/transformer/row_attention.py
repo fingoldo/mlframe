@@ -345,16 +345,23 @@ def _select_stage4_backend(
     ``n_queries_hint`` argument lets us future-proof: at very small n_queries (<256) kernel launch overhead approaches the work, so we may want to fall back to
     CPU in that corner. v1 always picks GPU when available; revisit if profiling shows the threshold matters.
     """
-    if gpu_stage4 is False:
-        return row_attention_stage4_njit
-    if gpu_stage4 is True:
+    # Wave 28 P0 fix (2026-05-20): symmetric with the random_features.py
+    # use_gpu fix. ``is True``/``is False`` silently rejected
+    # ``np.bool_(True/False)`` from config dicts; the bool() coerce
+    # accepts both Python bool and numpy bool uniformly.
+    if isinstance(gpu_stage4, str):
+        if gpu_stage4 != "auto":
+            raise ValueError(f"gpu_stage4 must be True, False, or 'auto'; got {gpu_stage4!r}.")
+        # Fall through to auto-dispatch below.
+    else:
+        _flag = bool(gpu_stage4)
+        if not _flag:
+            return row_attention_stage4_njit
         if not is_gpu_available():
             logger.info("gpu_stage4=True but GPU is not available; using CPU njit stage 4.")
             return row_attention_stage4_njit
         from ._kernels_cupy import row_attention_stage4_cupy
         return row_attention_stage4_cupy
-    if gpu_stage4 != "auto":
-        raise ValueError(f"gpu_stage4 must be True, False, or 'auto'; got {gpu_stage4!r}.")
     if not is_gpu_available():
         return row_attention_stage4_njit
     # v1 corner: skip GPU when n_queries is so small that launch overhead dominates.

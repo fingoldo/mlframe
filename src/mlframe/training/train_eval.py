@@ -338,8 +338,20 @@ def select_target(
     # unit-test callers that don't go through the suite).
 
     def _select(target_arr, idx):
-        """Slice target by index array (np / pd / pl-aware)."""
-        if idx is None or idx is False or (hasattr(idx, "__len__") and len(idx) == 0):
+        """Slice target by index array (np / pd / pl-aware).
+
+        Wave 28 P1 fix (2026-05-20): pre-fix ``idx is False`` matched
+        only the Python ``False`` singleton; ``numpy.False_`` from
+        upstream caller (e.g. result of ``mask.any()`` style code)
+        slipped past the guard and the function tried to slice with a
+        scalar bool. Match against both Python bool and numpy scalar
+        bool explicitly via ``isinstance``.
+        """
+        if idx is None:
+            return None
+        if isinstance(idx, (bool, np.bool_)) and not bool(idx):
+            return None
+        if hasattr(idx, "__len__") and len(idx) == 0:
             return None
         if isinstance(target_arr, (pl.Series, np.ndarray)):
             return target_arr[idx]

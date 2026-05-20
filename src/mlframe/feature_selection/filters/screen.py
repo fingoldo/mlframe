@@ -446,7 +446,13 @@ def screen_predictors(
 
                     if (
                         n_workers > 1
-                        and (use_simple_mode is False or len(cached_MIs) < num_possible_candidates)
+                        # Wave 28 P1 fix (2026-05-20): pre-fix
+                        # ``use_simple_mode is False`` rejected
+                        # ``np.bool_(False)`` from config, silently
+                        # forcing the ``len < n`` branch instead of the
+                        # parallel path. ``not use_simple_mode`` works
+                        # uniformly for Python bool + numpy bool.
+                        and (not use_simple_mode or len(cached_MIs) < num_possible_candidates)
                         and len(feasible_candidates) > NMAX_NONPARALLEL_ITERS
                     ):
                         temp_cached_cond_MIs = sanitize(cached_cond_MIs)
