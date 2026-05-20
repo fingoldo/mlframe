@@ -1106,7 +1106,13 @@ def report_probabilistic_model_perf(
                 class_metrics["class_robust_integral_error"] = class_robust_integral_error
             metrics.update({class_id: class_metrics})
 
-    if print_report:
+    if print_report and logger.isEnabledFor(logging.INFO):
+        # Logger.isEnabledFor gate: when verbose=0 / file handler filters out
+        # INFO, the multilabel branch below would still pay sklearn's
+        # ``classification_report`` cost (~45 ms/call x 62 calls = 2.94s on
+        # fuzz combo c0140) and then immediately drop the formatted text in
+        # logger.info(). Skipping the whole block when no handler will accept
+        # INFO recovers the full 2.94s on the multilabel-suite path.
         # Route through logger so file handlers (e.g.
         # pyutilz.logginglib.init_logging) capture the report block.
         # See sibling fix in report_regression_model_perf at line 659.
