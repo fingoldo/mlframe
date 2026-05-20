@@ -566,5 +566,21 @@ def train_postcalibrators(
         ens_name = f"ens_{_resolved_method}"
         calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator_{slugify(calib_name)}.dump")
         joblib.dump(calibrator, calib_fpath, compress=("lzma", 6))
+        # Wave 19 P1: write the .meta.json sidecar so calibrator-loaders
+        # surface mlframe-version drift. Calibrator classes
+        # (_PerClassIsotonicCalibrator / _PostHocMultiCalibratedModel) carry
+        # attributes (n_classes, is_exclusive, _target_type) whose semantics
+        # could shift across mlframe versions; predict-time uses getattr
+        # blindly.
+        try:
+            from ..training.io import _write_save_meta_sidecar as _wsms
+            _wsms(calib_fpath, durable=False)
+        except Exception as _meta_e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "calibration: failed to write .meta.json sidecar for %s: %s. "
+                "Calibrator saved; load-time version validation will fall "
+                "through to back-compat.", calib_fpath, _meta_e,
+            )
 
     return test_calibrators

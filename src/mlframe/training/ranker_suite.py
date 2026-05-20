@@ -899,6 +899,22 @@ def train_mlframe_ranker_suite(
         for flavor in flavor_order:
             artefact_path = os.path.join(save_dir, f"{model_name}_{flavor}.joblib")
             joblib.dump(models_dict[flavor]["model"], artefact_path)
+            # Wave 19 P0 #3: write the .meta.json sidecar that records the
+            # booster + mlframe library versions at save time. Without this,
+            # the agent's analysis: "CB/LGB/XGB minor upgrades silently
+            # mis-restore booster internals" -- load-side has no way to
+            # detect the skew until predict() crashes deep with a cryptic
+            # AttributeError. Reuses the io.py helper for consistent shape.
+            try:
+                from .io import _write_save_meta_sidecar as _wsms
+                _wsms(artefact_path, durable=False)
+            except Exception as _meta_e:
+                logger.warning(
+                    "ranker_suite: failed to write .meta.json sidecar for "
+                    "%s: %s. Booster artefact saved; load-time version "
+                    "validation will fall through to back-compat path.",
+                    artefact_path, _meta_e,
+                )
             if verbose:
                 logger.info("  saved %s -> %s", flavor, artefact_path)
         # Metadata json

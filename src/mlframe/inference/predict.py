@@ -164,6 +164,19 @@ def read_trained_models(
         if not _verify_sidecar(model_file):
             logger.error("sha256 mismatch for model %s; skipping", model_file)
             continue
+        # Wave 19 P1: validate the .meta.json sidecar (written since
+        # 2026-05-20) before unpickling so library-version drift gets a
+        # WARN log instead of producing a cryptic AttributeError deep
+        # inside predict(). Non-fatal: legacy bundles (no sidecar) keep
+        # loading silently per back-compat contract.
+        try:
+            from mlframe.training.io import validate_load_meta_sidecar as _vlms
+            _vlms(model_file, strict=False)
+        except Exception as _meta_e:
+            logger.debug(
+                "inference.read_trained_models: sidecar validation raised "
+                "for %s: %s; proceeding with load.", model_file, _meta_e,
+            )
         try:
             model = joblib.load(model_file)
         except Exception as e:
