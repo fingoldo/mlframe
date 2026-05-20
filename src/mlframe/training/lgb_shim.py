@@ -267,6 +267,17 @@ class _DatasetReuseMixin:
         # stale-key-looking-valid trap on load.
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             state[_attr] = None
+        # Wave 19 P1: stamp the lightgbm version at save time. The booster
+        # JSON inside the unmodified __dict__ is library-version-sensitive;
+        # without this stamp the load side has no way to detect a minor
+        # upgrade silently changing booster internals.
+        try:
+            import lightgbm as _lgb
+            state["_saved_lgb_version"] = str(getattr(_lgb, "__version__", "unknown"))
+        except Exception:
+            # lightgbm should always be importable in this code path (the
+            # class wraps it) but be defensive.
+            state["_saved_lgb_version"] = "unknown"
         return state
 
     def __setstate__(self, state) -> None:
@@ -280,6 +291,27 @@ class _DatasetReuseMixin:
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             if not hasattr(self, _attr):
                 setattr(self, _attr, None)
+        # Wave 19 P1: compare the saved lightgbm version against the live
+        # one. WARN-only (booster libs are typically forward-compatible
+        # for minor versions) so loads of older artifacts don't fail; the
+        # operator just sees the skew before chasing weird predict crashes.
+        _saved_ver = getattr(self, "_saved_lgb_version", None)
+        if _saved_ver is not None and _saved_ver != "unknown":
+            try:
+                import lightgbm as _lgb
+                _live_ver = str(getattr(_lgb, "__version__", "unknown"))
+            except Exception:
+                _live_ver = "unknown"
+            if _live_ver != "unknown" and _live_ver != _saved_ver:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "lgb_shim.__setstate__: lightgbm version drift -- "
+                    "artifact saved with lightgbm==%s, loaded under "
+                    "lightgbm==%s. Booster internals may have changed "
+                    "between versions; if predict() raises AttributeError "
+                    "or returns suspicious values, retrain on the live "
+                    "lightgbm install.", _saved_ver, _live_ver,
+                )
 
     # ------------------------------------------------------------------
     # Explicit cache release

@@ -214,6 +214,14 @@ class _DMatrixReuseMixin:
         # stale-key-looking-valid trap on load).
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             state[_attr] = None
+        # Wave 19 P1: stamp the xgboost version at save time so the load
+        # side can detect skew (booster JSON in the unmodified __dict__
+        # is library-version-sensitive across minor versions).
+        try:
+            import xgboost as _xgb
+            state["_saved_xgb_version"] = str(getattr(_xgb, "__version__", "unknown"))
+        except Exception:
+            state["_saved_xgb_version"] = "unknown"
         return state
 
     def __setstate__(self, state) -> None:
@@ -227,6 +235,24 @@ class _DMatrixReuseMixin:
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             if not hasattr(self, _attr):
                 setattr(self, _attr, None)
+        # Wave 19 P1: compare saved xgboost version with the live one.
+        _saved_ver = getattr(self, "_saved_xgb_version", None)
+        if _saved_ver is not None and _saved_ver != "unknown":
+            try:
+                import xgboost as _xgb
+                _live_ver = str(getattr(_xgb, "__version__", "unknown"))
+            except Exception:
+                _live_ver = "unknown"
+            if _live_ver != "unknown" and _live_ver != _saved_ver:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "xgb_shim.__setstate__: xgboost version drift -- "
+                    "artifact saved with xgboost==%s, loaded under "
+                    "xgboost==%s. Booster internals may have changed "
+                    "between versions; if predict() raises AttributeError "
+                    "or returns suspicious values, retrain on the live "
+                    "xgboost install.", _saved_ver, _live_ver,
+                )
 
     # ------------------------------------------------------------------
     # Explicit cache release — call after you're done with a run if you
