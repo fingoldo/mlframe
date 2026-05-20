@@ -115,11 +115,17 @@ def setup_configuration(
     _set_resid_audit(getattr(behavior_config, "report_residual_audit", True))
 
     # None = clear override (auto-detect via __IPYTHON__ / sys.ps1); True/False = explicit.
-    try:
-        from mlframe.reporting.renderers.save import set_inline_display_mode as _set_idm
-        _set_idm(getattr(reporting_config, "plot_inline_display", None))
-    except Exception:
-        pass
+    # Only import the renderers.save module when the caller actually set a non-None value.
+    # The import triggers the mlframe.reporting -> renderers chain (~12ms on cold-start, measured 2026-05-20)
+    # which is pure overhead on suites that never touch charts (plot_outputs='matplotlib[png]'
+    # + save_charts=False).
+    _inline_display = getattr(reporting_config, "plot_inline_display", None)
+    if _inline_display is not None:
+        try:
+            from mlframe.reporting.renderers.save import set_inline_display_mode as _set_idm
+            _set_idm(_inline_display)
+        except Exception:
+            pass
 
     # Process-wide; None keeps the user's pre-suite matplotlib/plotly settings intact.
     _apply_plot_style_overrides(
