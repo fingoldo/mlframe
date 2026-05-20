@@ -734,6 +734,25 @@ class FeatureTypesConfig(BaseConfig):
     # to False to restore legacy ordering for byte-for-byte reproducibility.
     feature_types_first: bool = True
 
+    @model_validator(mode="after")
+    def _check_master_toggle_vs_explicit_lists(self):
+        """Raise when use_text_features=False but an explicit text_features list is set
+        (same for embedding). Pre-2026-05-20 the master-off silently dropped the
+        explicit list per the docstring at lines 670-677; operator who composed a preset
+        stack (e.g. tfidf_only -> text_features=[...], then lite_mode flipping
+        use_text_features=False) lost their text columns to the cat path silently --
+        CatBoost burned minutes on a degenerate ordinal encoding of a 10k-unique
+        text column.
+        """
+        if self.text_features and not self.use_text_features:
+            raise ValueError(
+                "FeatureTypesConfig: text_features=%r supplied but use_text_features=False. "
+                "The list would be silently dropped + columns routed to the cat path. "
+                "Either drop the text_features list OR set use_text_features=True."
+                % (self.text_features,)
+            )
+        return self
+
 
 class FeatureSelectionConfig(BaseConfig):
     """Configuration for feature selection methods.
@@ -858,6 +877,39 @@ class FeatureSelectionConfig(BaseConfig):
                 f"Valid keys: {sorted(valid_keys)}"
             )
         return v
+
+    @model_validator(mode="after")
+    def _check_kwargs_have_matching_master_flag(self):
+        """Raise when kwargs are configured but the matching master toggle is off.
+
+        Pre-2026-05-20 the field validators above (lines 813-860) verified the kwarg
+        keys exist on MRMR.__init__ / BorutaShap.__init__, then the dict was silently
+        IGNORED if use_mrmr_fs / use_boruta_shap stayed False (or rfecv_models stayed
+        None). Operator pattern: hyperparameter-sweep notebook copy-pastes mrmr_kwargs
+        from a previous run without re-enabling use_mrmr_fs=True; the sweep reports
+        "no effect" and the operator suspects the kwargs instead of the off toggle.
+
+        Refuse the silent ignore at config-construction time so the gate is loud.
+        """
+        if self.mrmr_kwargs and not self.use_mrmr_fs:
+            raise ValueError(
+                "FeatureSelectionConfig: mrmr_kwargs supplied but use_mrmr_fs=False. "
+                "The kwargs would be silently ignored. Set use_mrmr_fs=True OR drop "
+                "mrmr_kwargs to make the intent explicit."
+            )
+        if self.rfecv_kwargs and not self.rfecv_models:
+            raise ValueError(
+                "FeatureSelectionConfig: rfecv_kwargs supplied but rfecv_models is None/empty. "
+                "The kwargs would be silently ignored. Set rfecv_models=[...] OR drop "
+                "rfecv_kwargs to make the intent explicit."
+            )
+        if self.boruta_shap_kwargs and not self.use_boruta_shap:
+            raise ValueError(
+                "FeatureSelectionConfig: boruta_shap_kwargs supplied but use_boruta_shap=False. "
+                "The kwargs would be silently ignored. Set use_boruta_shap=True OR drop "
+                "boruta_shap_kwargs to make the intent explicit."
+            )
+        return self
 
 
 class ModelConfig(BaseConfig):
@@ -1418,6 +1470,42 @@ class MultilabelDispatchConfig(BaseConfig):
     # XGBoostStrategy.supports_native_multilabel which is gated on this
     # flag at runtime.
     force_native_xgb_multilabel: bool = False
+
+    @model_validator(mode="after")
+    def _check_chain_strategy_invariants(self):
+        """Validate strategy choice + chain_order_user shape.
+
+        Pre-2026-05-20 a typo ``strategy="wrappr"`` was silently accepted (no
+        Literal validation on the string), and ``chain_order_strategy="user"``
+        with missing chain_order_user was accepted as well -- ClassifierChain
+        silently fell back to a default ordering, the operator's hand-crafted
+        order was ignored with no log line.
+        """
+        _STRATEGY = {"auto", "wrapper", "chain", "native"}
+        _ORDER = {"random", "by_frequency", "user"}
+        if self.strategy not in _STRATEGY:
+            raise ValueError(
+                f"MultilabelDispatchConfig.strategy={self.strategy!r} not in {sorted(_STRATEGY)}"
+            )
+        if self.chain_order_strategy not in _ORDER:
+            raise ValueError(
+                f"MultilabelDispatchConfig.chain_order_strategy={self.chain_order_strategy!r} "
+                f"not in {sorted(_ORDER)}"
+            )
+        if self.chain_order_strategy == "user":
+            if self.chain_order_user is None:
+                raise ValueError(
+                    "MultilabelDispatchConfig: chain_order_strategy='user' but "
+                    "chain_order_user is None. Either supply chain_order_user=[[...], ...] "
+                    "with one ordering per chain, or pick chain_order_strategy='random' / "
+                    "'by_frequency'."
+                )
+            if len(self.chain_order_user) != self.n_chains:
+                raise ValueError(
+                    f"MultilabelDispatchConfig: chain_order_user has {len(self.chain_order_user)} "
+                    f"orderings but n_chains={self.n_chains}. Sizes must match."
+                )
+        return self
 
 
 class LearningToRankConfig(BaseConfig):
@@ -1995,6 +2083,33 @@ class OutputConfig(BaseConfig):
     plot_file: Optional[str] = ""
     save_charts: bool = True
 
+    @model_validator(mode="after")
+    def _check_save_charts_has_destination(self):
+        """Raise when the user EXPLICITLY set save_charts=True but left data_dir empty.
+
+        Pre-2026-05-20 the save branch silently short-circuited on falsy data_dir
+        (per the comment at L2040-2044), so every chart the suite rendered got dropped
+        on the floor. An operator who explicitly opted into save_charts but forgot to
+        configure data_dir saw no saved artifacts and no log line.
+
+        Only fires when BOTH conditions hold AND save_charts was explicitly passed by
+        the caller (via ``model_fields_set``) -- bare ``OutputConfig()`` defaults keep
+        working (silent no-save by design, the legacy contract callers depend on).
+        """
+        if (
+            "save_charts" in self.model_fields_set
+            and self.save_charts
+            and not self.data_dir
+        ):
+            raise ValueError(
+                "OutputConfig: save_charts=True was explicitly set but data_dir is empty; "
+                f"got data_dir={self.data_dir!r}. The save branch silently short-circuits "
+                "on falsy data_dir and every chart would be dropped on the floor. Either "
+                "set data_dir='<path>' or drop the save_charts=True override to fall back "
+                "to the default-no-save behaviour."
+            )
+        return self
+
 
 class OutlierDetectionConfig(BaseConfig):
     """Configuration for the once-per-suite outlier-detection pass.
@@ -2159,10 +2274,11 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #   tail caps total speedup at ~10%.
     #
     # To get the originally-claimed 5-10x speedup the ``_tiny_model_rerank``
-    # block would need parallelisation as well. That is a separate
-    # follow-up. For now ``discovery_n_jobs > 1`` shaves ~7% off wall
-    # time at the cost of joblib coordination overhead - small win
-    # for production callers; default 1 is a sensible baseline.
+    # block now also parallelises per-spec via ``tiny_rerank_n_jobs`` (set
+    # both to N for the full Phase A + Phase B speedup). ``discovery_n_jobs > 1``
+    # alone shaves ~7% off wall time at the cost of joblib coordination
+    # overhead - small win for production callers; default 1 is a sensible
+    # baseline.
     #
     # ``discovery_n_jobs=1`` (default, back-compat) runs the closure in a
     # plain list-comprehension - no joblib overhead. Unary-transform dedup
@@ -2333,6 +2449,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     tiny_model_sample_n: int = 20_000  # rows used per tiny-model fit
     top_m_after_tiny: int = 3  # final top-M after Phase B re-rank
     tiny_model_n_jobs: int = 1  # >1 = parallelise CV folds via joblib
+
+    # 2026-05-20 #10: parallelise the per-spec rerank loop in
+    # ``_tiny_model_rerank``. Each spec runs ``_tiny_cv_rmse_y_scale_multiseed``
+    # per family — typically the dominant wall-time slice of Phase B on
+    # subsample=200k+ configs. Threads share base/x_matrix arrays via
+    # ``backend="threading"``; LightGBM and the inner CV release the GIL.
+    # Set to 0 = auto (min(len(kept_specs)*len(families), cpu_count)).
+    # Default 1 preserves serial behaviour for back-compat.
+    tiny_rerank_n_jobs: int = 1
 
     # Force deterministic mode on the tiny models built INSIDE Phase B
     # (``_build_tiny_model``). When True, injects the well-known

@@ -106,6 +106,22 @@ def test_ftextractor_emitted_columns_reset_between_calls():
     )
 
 
+def test_columns_to_drop_initial_none_handled():
+    """Edge: caller passes columns_to_drop=None (the default). Must NOT crash;
+    snapshot becomes empty set and only this-call adds appear after transform()."""
+    fte = SimpleFeaturesAndTargetsExtractor(
+        classification_targets=["y_a"],
+        columns_to_drop=None,  # explicit None
+    )
+    df = _make_df()
+    _ = fte.transform(df)
+    # Snapshot must exist (initialized to empty set when input was None).
+    assert hasattr(fte, "_initial_columns_to_drop_snapshot")
+    assert fte._initial_columns_to_drop_snapshot == set()
+    # After transform, only this-call's target should be in the set.
+    assert fte.columns_to_drop == {"y_a"}
+
+
 def test_transform_idempotent_across_three_calls():
     """Sanity: three identical transform() calls must produce identical
     columns_to_drop + ftextractor_emitted_columns shape (no monotonic growth)."""
