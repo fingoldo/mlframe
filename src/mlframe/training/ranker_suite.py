@@ -492,10 +492,20 @@ def train_mlframe_ranker_suite(
     # consumers (_fit_lgb_ranker, predict_ranker_scores, dummy_baselines)
     # see int codes uniformly. LGB treats each unique int code as a
     # category. NaN/null cells map to -1 which LGB treats as missing.
+    #
+    # Use ``is_string_dtype`` rather than ``dtype == object`` because
+    # pandas 2.1+ with ``future.infer_string=True`` (default in pd 3.x)
+    # and pyarrow-backed strings report ``pd.StringDtype()`` instead of
+    # numpy ``object``. ``is_string_dtype`` is True for BOTH, so the
+    # gate fires on legacy + modern + pyarrow string columns alike.
+    # Pre-fix the modern envs silently skipped encoding -> LGB saw
+    # string columns -> the original "pandas dtypes must be int, float
+    # or bool" crash returned (test_object_cats_encoded... regressed on
+    # pandas 2.3+).
     if isinstance(X_tr, pd.DataFrame) and cat_features:
         _to_encode = [
             c for c in cat_features
-            if c in X_tr.columns and X_tr[c].dtype == object
+            if c in X_tr.columns and pd.api.types.is_string_dtype(X_tr[c])
         ]
         if _to_encode:
             _splits_for_vocab = [X_tr]

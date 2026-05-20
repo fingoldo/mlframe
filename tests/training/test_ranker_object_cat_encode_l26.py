@@ -46,9 +46,14 @@ def test_object_cats_encoded_to_int_codes_via_shared_vocab() -> None:
     cat_features = ["cat_0", "cat_1"]
 
     # Replay the exact encoding logic from train_mlframe_ranker_suite.
+    # Uses ``is_string_dtype`` (not ``dtype == object``) so pandas 2.1+
+    # ``infer_string`` / pyarrow-backed string columns also get caught;
+    # the prior ``dtype == object`` check failed on modern pandas because
+    # the dataframe constructor auto-converted np.array(..., dtype=object)
+    # of strings into pd.StringDtype.
     _to_encode = [
         c for c in cat_features
-        if c in train_df.columns and train_df[c].dtype == object
+        if c in train_df.columns and pd.api.types.is_string_dtype(train_df[c])
     ]
     assert _to_encode == cat_features
 
