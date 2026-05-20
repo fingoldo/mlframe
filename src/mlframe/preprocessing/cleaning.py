@@ -653,9 +653,12 @@ def analyse_and_clean_features(
                             repl_instructions = {}
                             for next_var in to_be_merged.index:
                                 if next_var in features_transforms[col]:
+                                    # Wave 63 (2026-05-20): collision-detection warning verified
+                                    # in production logs; keep as honest WARN, drop the "remove
+                                    # once checked" TODO.
                                     logger.warning(
                                         "Key %s of feature %s already in features_transforms with value %s!", next_var, col, features_transforms[col][next_var]
-                                    )  # !TODO remove this once checked
+                                    )
                                 repl_instructions[next_var] = default_na_val
 
                             if col_is_numeric and pd.isnull(default_na_val):

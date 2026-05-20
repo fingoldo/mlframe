@@ -207,7 +207,10 @@ def train_mlframe_ranker_suite(
         df_features = transformed[0]
         target_by_type = transformed[1]
         group_ids = transformed[3] if len(transformed) > 3 else None
-        timestamps = transformed[4] if len(transformed) > 4 else None  # noqa: F841 -- !TODO! timeseries-aware ranker path not yet wired; FTE 5-tuple contract carries timestamps for future-use.
+        # Wave 63 (2026-05-20): drop the unused timestamps capture. The
+        # timeseries-aware ranker path doesn't consume this slot today; if/when
+        # it lands, this assignment can be re-added. Removing the F841-bait
+        # keeps the static-analysis surface clean.
     else:
         raise ValueError(
             f"FTE.transform returned {type(transformed)!r}; expected tuple. "

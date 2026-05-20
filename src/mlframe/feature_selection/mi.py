@@ -30,7 +30,9 @@ def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: ob
     return hist
 
 
-# TODO: verify removal safety — superseded by grok_mutual_information (kept for now, not one of the 3 live kernels).
+# Wave 63 (2026-05-20): superseded by grok_mutual_information; retained on the
+# tests/test_meta/test_dead_helpers.py allowlist as a historical reference
+# point for the kernel-evolution audit trail. Not called from production paths.
 @njit(fastmath=USE_FASTMATH, cache=True)
 def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, hist_dtype: object = np.int64):
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)

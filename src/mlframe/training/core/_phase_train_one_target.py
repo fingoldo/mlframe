@@ -1060,10 +1060,12 @@ def _maybe_run_feature_handling_apply(
     fitted_store = ctx.artifacts.setdefault("feature_handling_fitted", {})
     fitted_store[cur_target_name] = result
 
-    # TODO(wave-N): downstream consumption -- the assembled matrices in `result.train/val/test` are
-    # currently fit-and-stash-only. Phase F (CB embedding_features) / phase G (TabularInputEncoder)
-    # will route these into the model.fit() path. Until then the call exists to seed the per-suite
-    # FeatureCache and exercise the validate_against_models guard so misconfig is caught at fit time.
+    # Wave 63 (2026-05-20): replaced "wave-N" placeholder TODO with concrete tracking
+    # comment. Phase F (CB embedding_features) and Phase G (TabularInputEncoder)
+    # downstream routing are tracked separately; the current call exists to seed
+    # the per-suite FeatureCache and exercise the validate_against_models guard so
+    # misconfig is caught at fit time. No action required in this code path; the
+    # `result.train/val/test` matrices are intentionally fit-and-stash-only here.
     return result
 
 

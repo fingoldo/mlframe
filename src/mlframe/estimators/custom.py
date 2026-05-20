@@ -87,9 +87,9 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
             y_2d = y            
         # transform y and convert back to 1d array if needed
         y_trans = self.transformer_.transform(y_2d)
-        # FIXME(2026-04-28): a FunctionTransformer can return a 1D array even
-        # when validate is set to True. Therefore, we need to check the dim
-        # first.
+        # Wave 63 (2026-05-20): sklearn FunctionTransformer can return a 1D array
+        # even with validate=True (when the wrapped func returns a 1D array
+        # itself). The dim-check below handles both shapes; not actionable.
         if y_trans.ndim == 2 and y_trans.shape[1] == 1:
             y_trans = y_trans.squeeze(axis=1)
 
