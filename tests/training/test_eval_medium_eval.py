@@ -302,12 +302,20 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     fit_method = getattr(instance, "fit_and_report", None)
     if fit_method is None:
         pytest.skip("fit_and_report not present on this BaselineDiagnostics version")
+    # fit_and_report has 5 required positional args:
+    # (train_df, train_target, feature_cols, target_type, target_name).
+    # The monkeypatched numpy.asarray fires inside _to_1d_numpy long before
+    # any of these are actually consumed, so dummy non-None values suffice
+    # to satisfy the signature; KI must escape the outer try.
+    import pandas as _pd
+    import numpy as _real_np  # captured by closure before monkeypatch fires
+    dummy_df = _pd.DataFrame({"a": [1.0, 2.0]})
+    dummy_target = [0, 1]
+    feature_cols = ["a"]
+    target_type = "binary"
+    target_name = "y"
     with pytest.raises(KeyboardInterrupt):
-        # Pass dummy args; the KI will fire before any real work.
-        try:
-            fit_method()
-        except TypeError:
-            fit_method(None, None, None)
+        fit_method(dummy_df, dummy_target, feature_cols, target_type, target_name)
 
 
 # ---------------------------------------------------------------------------

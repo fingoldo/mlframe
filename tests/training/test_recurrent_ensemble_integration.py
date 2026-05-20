@@ -126,7 +126,9 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
     # Force predict to emit NaN. The helper must return None and the member should NOT join the ensemble.
     real_predict = _pr._safe_predict_recurrent
 
-    def _nan_predict(*, model, sequences, features, is_classification):  # noqa: ARG001
+    def _nan_predict(*, model, sequences, features, is_classification, **_extra):  # noqa: ARG001
+        # **_extra absorbs newly-added kwargs (ctx, split) so this patch keeps
+        # working when the production helper grows signature parameters.
         return None  # mimic predict-failure path
 
     monkeypatch.setattr(_pr, "_safe_predict_recurrent", _nan_predict)

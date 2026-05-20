@@ -44,14 +44,23 @@ def test_excludes_clear_outlier_relative():
 
 def test_two_member_is_noop():
     """Filter only fires for 3+ members; with exactly 2 the median-vs-self
-    distance is degenerate so we deliberately skip the gate."""
+    distance is degenerate so we deliberately skip the gate.
+
+    K=2 path additionally stamps observability scalars (k2_disagreement +
+    filter_too_restrictive=False) so the suite caller can surface heavy
+    disagreement; the gate still does not drop either member.
+    """
     members = _make_members(2)
     kept, excluded, stats = compute_member_quality_gate(
         members, max_mae_relative=2.5,
     )
     assert kept == [0, 1]
     assert excluded == []
-    assert stats == {}
+    # No drop, but K=2 path stamps observability scalars; ensure no
+    # exclusion-related thresholds leaked in (filter is not active).
+    assert stats.get("filter_too_restrictive") is False
+    assert "k2_disagreement" in stats
+    assert "rel_mae_threshold" not in stats and "median_mae" not in stats
 
 
 def test_one_member_is_noop():
@@ -149,6 +158,11 @@ def test_score_ensemble_label_drops_excluded_member(caplog):
             df=None, verbose=True,
             max_mae_relative=2.5,
             ensembling_methods=("arithm",),
+            # Test members have val/test/train preds but no OOF; without this
+            # the gate WARN-skips and the per-member quality-gate log never
+            # fires, so the test would observe the inner-flavor "ens member 3
+            # excluded" line that doesn't carry the model_name.
+            require_oof_for_gate=False,
         )
 
     # The gate log line should mention the dropped outlier so user can

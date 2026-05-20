@@ -91,9 +91,12 @@ def test_empty_train_details_also_guarded_for_row_timestamps():
 
 def test_single_date_wholeday_warns_on_empty_val(caplog):
     """When all rows share a single date and ``wholeday_splitting=True``,
-    ``int(1 * 0.1) == 0`` collapses val/test to empty even though the user
-    asked for non-zero fractions. A warning must fire so the user notices
-    the split silently lost what they requested.
+    ``int(1 * 0.1) == 0`` would collapse val/test to empty. Production
+    falls back to a row-based split AND surfaces a WARN so the user can
+    spot that they accidentally fed a single-day frame. We pin both:
+    (a) val/test come out non-empty (row-based fallback) and (b) a
+    descriptive WARN fires so the silent-loss-of-coverage failure mode
+    stays observable.
     """
     df = pd.DataFrame({"x": range(100)})
     ts = pd.Series([pd.Timestamp("2024-01-01")] * 100)
@@ -101,11 +104,17 @@ def test_single_date_wholeday_warns_on_empty_val(caplog):
         _, val_idx, test_idx, *_ = make_train_test_split(
             df, test_size=0.1, val_size=0.1, timestamps=ts,
         )
-    assert len(val_idx) == 0
-    assert len(test_idx) == 0
+    # Row-based fallback fills non-empty val/test instead of silently
+    # dropping the user's requested fractions.
+    assert len(val_idx) > 0
+    assert len(test_idx) > 0
     warnings_text = " ".join(r.message for r in caplog.records if r.levelname == "WARNING")
-    assert "val split is empty" in warnings_text or "val_size" in warnings_text.lower()
-    assert "test split is empty" in warnings_text or "test_size" in warnings_text.lower()
+    # WARN must mention either wholeday-fallback or the empty-predicted state.
+    assert (
+        "wholeday_splitting" in warnings_text
+        or "unique day" in warnings_text
+        or "predicted_n_val" in warnings_text
+    ), warnings_text
 
 
 def test_no_warning_when_split_intentionally_zero(caplog):

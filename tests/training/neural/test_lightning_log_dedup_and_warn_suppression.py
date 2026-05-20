@@ -70,17 +70,30 @@ def test_early_stopping_constructed_silently(monkeypatch):
     monkeypatch.setattr(_es.EarlyStopping, "__init__", _spy_init)
 
     import numpy as np
+    import torch
 
-    from mlframe.training.neural import MLPTorchModel, PytorchLightningRegressor
+    from mlframe.training.neural import (
+        MLPTorchModel,
+        PytorchLightningRegressor,
+        TorchDataModule,
+    )
 
     est = PytorchLightningRegressor(
         model_class=MLPTorchModel,
-        model_params={"input_size": 4, "hidden_sizes": [4], "output_size": 1},
-        trainer_params={
-            "max_epochs": 1, "enable_progress_bar": False,
-            "enable_checkpointing": False, "logger": False, "accelerator": "cpu",
+        model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-3},
+        network_params={"nlayers": 2},
+        datamodule_class=TorchDataModule,
+        datamodule_params={
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
+            "dataloader_params": {"batch_size": 16, "num_workers": 0},
         },
-        datamodule_params={"batch_size": 16, "num_workers": 0},
+        trainer_params={
+            "max_epochs": 1, "logger": False, "accelerator": "cpu",
+            "devices": 1,
+        },
         early_stopping_rounds=2,
     )
     X = np.random.randn(32, 4).astype(np.float32)
