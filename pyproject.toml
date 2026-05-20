@@ -222,6 +222,7 @@ dev = [
     "pytest-benchmark>=4.0",
     "pytest-order>=1.2",          # pytest.mark.order(index=N) in tests/training/test_biz_val_training_core.py
     "pytest-randomly>=3.0",       # plugin referenced by `-p no:randomly` in addopts
+    "pytest-instafail>=0.5",      # --instafail: streams tracebacks immediately on failure so worker-death INTERNALERRORs don't swallow the FAILURES section
     "coverage>=7.2",
     "hypothesis>=6.80",
     "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
