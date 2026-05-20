@@ -1624,12 +1624,25 @@ def configure_training_params(
     data_size_gb = (train_df_size + val_df_size) / (1024**3)
     _t_mem = timer() - _t0_mem
 
-    # Skip expensive GPU probe (nvidia-smi subprocess ~0.5s) when GPU configs
-    # are disabled or CatBoost is explicitly on CPU -- the result is unused.
+    # Skip expensive GPU probe (nvidia-smi subprocess ~0.5s, also pulls GPUtil
+    # ~50ms transitive distutils import) when GPU configs are unreachable. Three
+    # opt-out conditions, any one enough:
+    #   - prefer_gpu_configs=False (caller explicit opt-out)
+    #   - cb_kwargs.task_type == "CPU" (CatBoost forced to CPU)
+    #   - No GPU-eligible model in mlframe_models: no CatBoost AND
+    #     (no XGBoost OR prefer_cpu_for_xgboost). LightGBM is excluded
+    #     because prefer_cpu_for_lightgbm=True by default and lgb GPU uses
+    #     OpenCL, not the CUDA topology this probe reports.
     _t0_gpu = timer()
     cb_task_type = config_params.get("cb_kwargs", {}).get("task_type")
     cb_devices = config_params.get("cb_kwargs", {}).get("devices")
-    if not prefer_gpu_configs or cb_task_type == "CPU":
+    _cb_requested = models_set is None or "cb" in models_set
+    _xgb_gpu_eligible = (
+        (models_set is None or "xgb" in models_set)
+        and not prefer_cpu_for_xgboost
+    )
+    _no_gpu_model_needed = not (_cb_requested or _xgb_gpu_eligible)
+    if not prefer_gpu_configs or cb_task_type == "CPU" or _no_gpu_model_needed:
         all_gpus = {}
         data_fits_gpu_ram = False
         data_fits_cb_gpu_ram = False
