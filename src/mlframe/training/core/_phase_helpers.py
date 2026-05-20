@@ -185,7 +185,20 @@ def _defensive_copy_and_expand_multilabel_regression(
     composite_target_discovery_config,
     metadata,
 ):
-    """Defensive copy of ``target_by_type`` with optional 2-D regression target expansion into 1-D sub-targets."""
+    """Defensive copy of ``target_by_type`` with optional 2-D regression target expansion into 1-D sub-targets.
+
+    MUTATION SIDE EFFECT: when multilabel expansion fires (config's
+    ``multilabel_strategy == "per_target"`` and any regression target is 2-D),
+    this function ALSO writes the expansion map to
+    ``metadata["multilabel_target_expansion"][str(TargetTypes.REGRESSION)]``
+    so the downstream report / save can name the sub-targets. The "defensive_copy"
+    in the function name signals the deep-copy of ``target_by_type``; the
+    metadata write is an additional side effect the name does NOT advertise.
+
+    Renaming would touch 5 import sites including CHANGELOG; documenting the
+    side effect here is the bounded fix. Future refactor candidate:
+    ``_expand_multilabel_regression_and_record(...)``.
+    """
     new_target_by_type = {
         tt: dict(named) if isinstance(named, dict) else named
         for tt, named in target_by_type.items()
