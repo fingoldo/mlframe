@@ -72,6 +72,16 @@ def run_polynom_pair_fe(
     # dispatch
     n_jobs: int,
     verbose: int,
+    # 2026-05-18: subsample inside the CMA-ES / Optuna search to bound
+    # per-pair MI compute. On production n=4M data each trial evaluates
+    # MI on the full y -- ``_plugin_mi_classif_njit`` then takes ~100ms
+    # per call x ~250 trials per restart x N_restarts x N_pairs blows
+    # past acceptable wall time. With subsample_n=50_000 the inner
+    # optimisation operates on a representative slice; the final
+    # injected column is computed from the FULL (n, 1) source so no
+    # train-time precision is lost. 0 = use full data (legacy).
+    subsample_n: int = 0,
+    subsample_seed: int = 42,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], Any]:
     """Run polynom-pair FE: parallel evaluate prospective pairs, serially inject survivors.
 
@@ -108,17 +118,30 @@ def run_polynom_pair_fe(
 
     def _eval_one_pair(raw_vars_pair):
         if is_polars_input:
-            vals_a = X[:, raw_vars_pair[0]].to_numpy()
-            vals_b = X[:, raw_vars_pair[1]].to_numpy()
+            vals_a_full = X[:, raw_vars_pair[0]].to_numpy()
+            vals_b_full = X[:, raw_vars_pair[1]].to_numpy()
         else:
-            vals_a = X.iloc[:, raw_vars_pair[0]].values
-            vals_b = X.iloc[:, raw_vars_pair[1]].values
-        if np.std(vals_a) < 1e-12 or np.std(vals_b) < 1e-12:
+            vals_a_full = X.iloc[:, raw_vars_pair[0]].values
+            vals_b_full = X.iloc[:, raw_vars_pair[1]].values
+        if np.std(vals_a_full) < 1e-12 or np.std(vals_b_full) < 1e-12:
             return None
+        # 2026-05-18 subsample for CMA-ES inner search. Final transform on
+        # FULL source array preserves precision; only the optimiser's MI
+        # evaluation uses the slice.
+        if subsample_n and 0 < subsample_n < len(vals_a_full):
+            _ss_rng = np.random.default_rng(subsample_seed + int(raw_vars_pair[0]) * 1000 + int(raw_vars_pair[1]))
+            _ss_idx = _ss_rng.choice(len(vals_a_full), size=subsample_n, replace=False)
+            vals_a_sub = vals_a_full[_ss_idx]
+            vals_b_sub = vals_b_full[_ss_idx]
+            classes_y_sub = classes_y[_ss_idx] if hasattr(classes_y, "__getitem__") else classes_y
+        else:
+            vals_a_sub = vals_a_full
+            vals_b_sub = vals_b_full
+            classes_y_sub = classes_y
         best_res = None
         for seed_offset in range(fe_smart_polynom_iters):
             res = optimise_hermite_pair(
-                x_a=vals_a, x_b=vals_b, y=classes_y,
+                x_a=vals_a_sub, x_b=vals_b_sub, y=classes_y_sub,
                 discrete_target=True,
                 max_degree=fe_max_polynom_degree,
                 min_degree=fe_min_polynom_degree,
@@ -136,7 +159,9 @@ def run_polynom_pair_fe(
             )
             if res is not None and (best_res is None or res.mi > best_res.mi):
                 best_res = res
-        return (raw_vars_pair, best_res, vals_a, vals_b)
+        # Return FULL arrays so the injection step applies the polynomial
+        # to all rows (subsampling was only for the optimiser's MI loop).
+        return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
 
     _poly_t0 = time.perf_counter()
     if _polynom_n_jobs > 1 and _n_pairs_to_eval > 1:

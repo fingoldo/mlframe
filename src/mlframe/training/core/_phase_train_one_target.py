@@ -1019,11 +1019,34 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # cold-start (measured 2026-05-20). Saves that wall on every suite call that doesn't
             # also use MRMR (which is the majority of fuzz iters / non-FS production combos).
             from mlframe.feature_selection.pre_screen import compute_unsupervised_drops, apply_drops
-            _protected = set()
+            _protected: set[str] = set()
+            # Pre-screen runs ONCE per suite (gated by ctx._pre_screen_done). The protected set
+            # must therefore cover EVERY target across EVERY (target_type, target_name) pair in
+            # the suite, not just the first target's siblings. Pre-fix used the local ``targets``
+            # arg which is target_type-scoped, so a multi-target-type suite (regression + binary)
+            # would protect only the type that won the iteration order and drop its sibling's
+            # target column if it satisfied the variance/null thresholds. Same hazard for
+            # group/timestamp columns referenced via ctx.
+            for _tt_targets in (ctx.target_by_type or {}).values():
+                if isinstance(_tt_targets, dict):
+                    _protected.update(str(k) for k in _tt_targets.keys())
             if isinstance(targets, dict):
                 _protected.update(str(k) for k in targets.keys())
+            # Cat features were meant to be added here but the original code had
+            # ``if ctx.cat_features: pass`` -- a dead no-op that silently dropped categorical
+            # columns from the suite if they happened to be near-constant or near-all-null.
+            # Same for text / embedding features and group / timestamp columns: those carry
+            # semantic meaning the model relies on, so they must never be pre-screened out.
             if ctx.cat_features:
-                pass
+                _protected.update(str(c) for c in ctx.cat_features)
+            if getattr(ctx, "text_features", None):
+                _protected.update(str(c) for c in ctx.text_features)
+            if getattr(ctx, "embedding_features", None):
+                _protected.update(str(c) for c in ctx.embedding_features)
+            for _attr in ("group_id_col", "ts_field"):
+                _val = getattr(ctx, _attr, None)
+                if isinstance(_val, str) and _val:
+                    _protected.add(_val)
             _train_for_screen = ctx.filtered_train_df if ctx.filtered_train_df is not None else (ctx.train_df_polars or ctx.train_df_pd)
             _drops = compute_unsupervised_drops(
                 _train_for_screen,
@@ -1559,8 +1582,23 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # invalidate the cache; pandas frames don't reach this branch typed-distinct enough to
             # need the suffix (handled upstream in split_features), so it's safe to skip there.
             _cache_key_train_df = train_df_polars if strategy.supports_polars else None
+            # 2026-05-18 fix: replace strategy.cache_key (name-based) with a
+            # CONTENT-based key derived from preprocessing requirements
+            # tuple. Pre-fix: LinearStrategy.cache_key="linear" and
+            # NeuralStrategy.cache_key="neural" produced DIFFERENT cache
+            # keys even when both used IDENTICAL ``imp+scaler`` pipelines,
+            # causing the second tier (e.g. MLP after Ridge) to re-do the
+            # 17s pre_pipeline transform on the same 4M rows. The content
+            # key folds (requires_imputation, requires_scaling,
+            # requires_encoding) into a stable string so any two
+            # strategies with matching requirements share the cache slot.
+            _content_key = (
+                f"imp{int(getattr(strategy, 'requires_imputation', False))}"
+                f"_scale{int(getattr(strategy, 'requires_scaling', False))}"
+                f"_enc{int(getattr(strategy, 'requires_encoding', False))}"
+            )
             cache_key = _compute_pipeline_cache_key(
-                strategy.cache_key,
+                _content_key,
                 pre_pipeline_name,
                 strategy.feature_tier(),
                 strategy.supports_polars,

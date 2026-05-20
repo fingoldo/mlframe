@@ -648,6 +648,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         # opt in with a positive value after measuring on their data.
         fe_smart_polynom_iters: int = 0,
         fe_smart_polynom_optimization_steps: int = 1000,
+        # 2026-05-18: subsample inside the CMA-ES / Optuna inner search to
+        # bound per-pair MI compute on production-size frames. cProfile on
+        # n=500k showed ``_eval_coef_pair`` + ``_plugin_mi_classif_njit``
+        # dominate (32% + 22% of fit time); each MI call scales linearly
+        # with n. At n=4M with default config (10 restarts x 200 trials
+        # x C(25,2)=300 pairs) per-pair cost projects to ~5 min, ~25
+        # hours serial. Default 100_000 caps inner-MI work at a
+        # deterministic constant; the FINAL injected column is still
+        # computed from FULL source so no train-time precision is lost.
+        # Set to ``None`` / 0 / negative to disable (use full data).
+        fe_smart_polynom_subsample_n: int = 100_000,
         # 2026-05-18 audit-fixes flip #3 (``fe_min_polynom_degree`` 3->1):
         # pre-fix the Hermite/Chebyshev optimiser was locked to a minimum
         # cubic basis. Degree-1 (linear product, the XOR / multiplicative
@@ -2134,6 +2145,9 @@ class MRMR(BaseEstimator, TransformerMixin):
             from .polynom_pair_fe import run_polynom_pair_fe
             if not hasattr(self, "_hermite_features_"):
                 self._hermite_features_ = []
+            # None / 0 / negative all map to "no subsample" (use full data).
+            _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
+            _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0
             data, nbins, cols, X = run_polynom_pair_fe(
                 X=X, is_polars_input=_is_polars_input,
                 prospective_pairs=prospective_pairs,
@@ -2161,6 +2175,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 quantization_dtype=self.quantization_dtype,
                 n_jobs=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
                 verbose=int(verbose),
+                subsample_n=_subsample_n,
             )
 
         # The standard check_prospective_fe_pairs path used to live in
