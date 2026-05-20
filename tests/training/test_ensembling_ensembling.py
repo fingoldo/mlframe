@@ -133,7 +133,9 @@ def test_score_ensemble_threads_sample_weight_to_lower_call():
     # Just smoke-test that score_ensemble signature accepts sample_weight kwarg and
     # short-circuits in the K==1 case without raising.
     sw = np.linspace(0.1, 1.0, 100)
-    # Single member -> SINGLE-MEMBER early-exit returns {}
+    # Single member -> SINGLE-MEMBER early-exit returns the diagnostic
+    # sentinel ({"_reason": "single_member", "_n_members": 1}); flavour
+    # keys (non-underscore) are empty.
     res = score_ensemble(
         [members[0]],
         ensemble_name="[m]",
@@ -142,15 +144,23 @@ def test_score_ensemble_threads_sample_weight_to_lower_call():
         build_votenrank_leaderboard=False,
         verbose=False,
     )
-    assert res == {}
+    assert {k for k in res if not k.startswith("_")} == set()
+    assert res.get("_reason") == "single_member"
 
 
 # --------------------------- SINGLE-MEMBER ---------------------------
 
 
 def test_score_ensemble_returns_empty_for_single_member():
-    """SINGLE-MEMBER: K==1 short-circuits without iterating any flavour."""
+    """SINGLE-MEMBER: K==1 short-circuits without iterating any flavour.
 
+    Contract: the return contains ONLY diagnostic underscore-prefixed keys
+    (``_reason``, ``_n_members``) and no real flavour entries. Underscore
+    keys are filtered out by callers iterating ``res.items()``, so the
+    flavour-set is effectively empty while the diagnostic info is still
+    available for finalize/metadata to distinguish "single-member suite"
+    from "ensemble failed silently".
+    """
     m = SimpleNamespace(
         val_preds=np.array([0.1, 0.2, 0.3]),
         test_preds=np.array([0.1, 0.2, 0.3]),
@@ -164,7 +174,9 @@ def test_score_ensemble_returns_empty_for_single_member():
         model_name="m",
     )
     out = score_ensemble([m], ensemble_name="[m]", build_votenrank_leaderboard=False, verbose=False)
-    assert out == {}
+    assert out == {"_reason": "single_member", "_n_members": 1}
+    # And the public flavour-set (non-underscore keys) is empty.
+    assert {k for k in out if not k.startswith("_")} == set()
 
 
 # --------------------------- NO-GUARD-IDENTICAL ---------------------------
