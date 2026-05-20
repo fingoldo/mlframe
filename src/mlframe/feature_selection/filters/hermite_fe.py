@@ -965,19 +965,39 @@ _PAR_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_PAR_THRESHOLD", "50000"))
 _CUDA_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_CUDA_THRESHOLD", "500000"))
 
 
+def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
+    """Wave 23 P2 (2026-05-20): consult kernel_tuning_cache for HW-tuned
+    (par_threshold, cuda_threshold) crossovers; fall back to the
+    source-code defaults (which are env-var-overridable for tests)."""
+    try:
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        _cache = KernelTuningCache.load_or_create()
+        _entry = _cache.lookup("polyeval", {"basis": basis, "n_samples": n})
+        _par = int(_entry["par_threshold"]) if _entry and "par_threshold" in _entry else _PAR_THRESHOLD
+        _cuda = int(_entry["cuda_threshold"]) if _entry and "cuda_threshold" in _entry else _CUDA_THRESHOLD
+        return _par, _cuda
+    except Exception:
+        return _PAR_THRESHOLD, _CUDA_THRESHOLD
+
+
 def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Size + hardware-aware polynomial evaluator. Routes to njit / njit_par / cuda backend based on len(x)
-    and CUDA availability. Override the chosen backend via MLFRAME_POLYEVAL_BACKEND env var (njit | njit_par | cuda)."""
+    and CUDA availability. Override the chosen backend via MLFRAME_POLYEVAL_BACKEND env var (njit | njit_par | cuda).
+
+    Crossover thresholds consult ``kernel_tuning_cache`` first
+    (HW-tuned) and fall back to the source-code defaults
+    (env-var-overridable for tests) when no cache entry exists."""
     forced = _os.environ.get("MLFRAME_POLYEVAL_BACKEND", "")
     n = x.shape[0]
-    if forced == "njit" or n < _PAR_THRESHOLD:
+    _par_threshold, _cuda_threshold = _lookup_polyeval_thresholds(basis, n)
+    if forced == "njit" or n < _par_threshold:
         return _NJIT_FUNCS[basis](x, c)
     if (forced == "cuda" or
-            (forced == "" and n >= _CUDA_THRESHOLD and _CUDA_AVAILABLE)):
+            (forced == "" and n >= _cuda_threshold and _CUDA_AVAILABLE)):
         if _CUDA_AVAILABLE:
             return _polyeval_cuda(basis, x, c)
         # User asked for cuda but it isn't available -- silent fallback.
-    if forced == "njit_par" or n >= _PAR_THRESHOLD:
+    if forced == "njit_par" or n >= _par_threshold:
         return _NJIT_PAR_FUNCS[basis](x, c)
     return _NJIT_FUNCS[basis](x, c)
 

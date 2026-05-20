@@ -423,10 +423,47 @@ def batch_pair_mi_cupy(
 # stay defensive.
 #
 # Callers can override the heuristic via ``dispatch_batch_pair_mi(..., force_backend=)``.
+# Wave 23 P1 (2026-05-20): the 4 hardcoded thresholds below are
+# "measured on GTX 1050 Ti cc 6.1" defaults; per
+# `feedback_use_kernel_tuning_cache_for_gpu` they should be lookup-
+# driven via ``pyutilz.system.kernel_tuning_cache`` so that consumer
+# Ampere GPUs (~5-10x lower cuda crossover) and high-VRAM cards don't
+# leave 2-4x on the table.
+#
+# These remain as the source-code fallback; the live dispatch path
+# below now consults the cache first and uses these only when the
+# cache has no entry for the live HW yet (first-run / no-sweep state).
 CUDA_MIN_ROWS = 400_000
 CUDA_MIN_PAIRS = 16
 CUPY_MIN_ROWS = 5_000_000
 CUPY_MIN_PAIRS = 200
+
+
+def _lookup_batch_pair_mi_thresholds(n_samples: int, n_pairs: int) -> dict | None:
+    """Consult ``pyutilz.system.kernel_tuning_cache`` for HW-tuned crossover
+    points. Returns a dict like ``{"cuda_min_rows": ..., "cuda_min_pairs":
+    ..., "cupy_min_rows": ..., "cupy_min_pairs": ...}`` on cache hit, or
+    ``None`` when the cache helper is unavailable / no entry recorded for
+    the live HW.
+
+    Mirrors the integration pattern in `plugin_mi_classif_dispatch` and
+    `joint_hist_batched` (committed 2026-05-20 in `be27efa`).
+    """
+    try:
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+    except ImportError:
+        return None
+    try:
+        cache = KernelTuningCache.load_or_create()
+        return cache.lookup(
+            "batch_pair_mi",
+            {"n_samples": n_samples, "n_pairs": n_pairs},
+        )
+    except Exception:
+        # Cache lookup failed (corrupt sidecar / missing key / unknown HW);
+        # fall through to source-code defaults rather than raise on a
+        # best-effort perf optimisation.
+        return None
 
 
 def dispatch_batch_pair_mi(
@@ -456,11 +493,20 @@ def dispatch_batch_pair_mi(
             return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
         return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
 
+    # Wave 23 P1 fix (2026-05-20): consult kernel_tuning_cache for HW-tuned
+    # crossover points; fall through to the source-code defaults below
+    # when the cache helper is unavailable / no entry for live HW.
+    _tuned = _lookup_batch_pair_mi_thresholds(n_samples=n_samples, n_pairs=n_pairs)
+    _cuda_min_rows = int(_tuned["cuda_min_rows"]) if _tuned and "cuda_min_rows" in _tuned else CUDA_MIN_ROWS
+    _cuda_min_pairs = int(_tuned["cuda_min_pairs"]) if _tuned and "cuda_min_pairs" in _tuned else CUDA_MIN_PAIRS
+    _cupy_min_rows = int(_tuned["cupy_min_rows"]) if _tuned and "cupy_min_rows" in _tuned else CUPY_MIN_ROWS
+    _cupy_min_pairs = int(_tuned["cupy_min_pairs"]) if _tuned and "cupy_min_pairs" in _tuned else CUPY_MIN_PAIRS
+
     # Heuristic
     if (
         _CUPY_AVAIL
-        and n_samples >= CUPY_MIN_ROWS
-        and n_pairs >= CUPY_MIN_PAIRS
+        and n_samples >= _cupy_min_rows
+        and n_pairs >= _cupy_min_pairs
     ):
         try:
             return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
@@ -469,8 +515,8 @@ def dispatch_batch_pair_mi(
 
     if (
         _CUDA_AVAIL
-        and n_samples >= CUDA_MIN_ROWS
-        and n_pairs >= CUDA_MIN_PAIRS
+        and n_samples >= _cuda_min_rows
+        and n_pairs >= _cuda_min_pairs
     ):
         try:
             return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"

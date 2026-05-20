@@ -269,5 +269,15 @@ def _resolve_use_gpu(
         return work >= threshold
     # Auto without explicit threshold: heuristic until a real micro-bench landing.
     # For RFF: GPU wins clearly when N * d > ~5M (work = N * d * n_features but the bandwidth-bound piece is N * d).
-    # The placeholder threshold below is conservative; the dedicated bench script in profiling/ replaces it after calibration.
-    return work >= 5_000_000 * 256  # default n_features=256, so N * d >= 5M
+    # Wave 23 P2 (2026-05-20): consult kernel_tuning_cache for HW-tuned
+    # crossover. The 5_000_000 * 256 was a documented "placeholder ...
+    # replaces it after calibration"; calibration never landed. Cache
+    # lookup falls back to the placeholder when no entry exists yet.
+    try:
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        _cache = KernelTuningCache.load_or_create()
+        _e = _cache.lookup("rff_matmul", {"work": int(work)})
+        _crossover = int(_e["work_threshold"]) if _e and "work_threshold" in _e else (5_000_000 * 256)
+    except Exception:
+        _crossover = 5_000_000 * 256  # placeholder fallback
+    return work >= _crossover

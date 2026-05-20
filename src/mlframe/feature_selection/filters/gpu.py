@@ -638,8 +638,21 @@ def mi_direct_gpu_batched_streamed(
     freqs_y_gpu = cp.asarray(freqs_y).astype(cp.float64)
 
     joint_size = nbins_x * nbins_y
-    use_shared_hist = joint_size <= 4096
-    block_size = 512 if use_shared_hist else GPU_MAX_BLOCK_SIZE
+    # Wave 23 #1 fix (2026-05-20): mirror the sibling lookup at L466-475
+    # so this streamed variant adapts to live HW. Pre-fix it open-coded
+    # the same hand-tuned defaults from before kernel_tuning_cache landed
+    # and silently fell behind on non-dev hardware.
+    try:
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import (
+            lookup_joint_hist,
+        )
+        _choice = lookup_joint_hist(n_samples=n, joint_size=joint_size)
+        use_shared_hist = _choice["kernel_variant"] == "shared"
+        block_size = int(_choice["block_size"])
+    except Exception:
+        # Hand-tuned source-code fallback (matches the pre-cache defaults).
+        use_shared_hist = joint_size <= 4096
+        block_size = 512 if use_shared_hist else GPU_MAX_BLOCK_SIZE
     shared_mem_bytes = joint_size * 4 if use_shared_hist else 0
     grid_x = (n + block_size - 1) // block_size
 
@@ -998,11 +1011,23 @@ def mi_direct_gpu_batched_pairs(
     grid_x = (n_rows + block_size - 1) // block_size
 
     # Kernel-variant dispatch: shared-mem multi-pair kernel wins for small
-    # per-pair joint_size_y (typical cat-FE nbins=5, ny=3 -> joint=15;
-    # 5*5*3=75 cells × int32 = 300 bytes per pair). Cap conservatively at
-    # 4096 cells (16 KB shared per block) to leave runtime headroom.
+    # per-pair joint_size_y. Pre-fix the 4096-cell cap was a hardcoded
+    # cc 6.x 16 KB assumption; cc 7+ opt-in shared memory reaches 96-227 KB.
+    # Wave 23 P1 fix (2026-05-20): probe live device's shared-mem budget
+    # via pyutilz.system.gpu_dispatch.get_shared_mem_budget_per_block
+    # (the helper that batch_pair_mi_gpu._derive_max_joint_bins already
+    # uses); fall back to 4096 only when the probe is unavailable.
     max_joint_size_y = int(pair_joint_sizes.max()) if len(pair_joint_sizes) else 0
-    _SHARED_MULTI_PAIR_MAX = 4096
+    try:
+        from pyutilz.system.gpu_dispatch import get_shared_mem_budget_per_block as _shared_budget
+        # Reserve 1/8th of the shared budget per pair (matches the
+        # _derive_max_joint_bins partitioning in batch_pair_mi_gpu).
+        # Each cell is int32 (4 bytes), so capacity in CELLS = budget // 4 // 8.
+        _budget_bytes = _shared_budget()
+        _SHARED_MULTI_PAIR_MAX = max(4096, _budget_bytes // 4 // 8)
+    except Exception:
+        # No probe available -> fall back to the pre-2026-05-20 default.
+        _SHARED_MULTI_PAIR_MAX = 4096
     use_shared_multi_pair = (
         max_joint_size_y > 0 and max_joint_size_y <= _SHARED_MULTI_PAIR_MAX
     )

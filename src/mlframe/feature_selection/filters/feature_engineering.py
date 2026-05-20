@@ -148,12 +148,24 @@ def check_prospective_fe_pairs(
                             # transformation is GPU-compatible, AND the
                             # column is large enough to amortise the H2D
                             # + D2H round trip, run the elementwise op on
-                            # GPU via cupy. Threshold 500k cells matches
-                            # ``discretize_2d_array_cuda``'s breakeven on
-                            # cc 6.1. Smaller cols stay on the numpy path.
+                            # GPU via cupy. Threshold matches
+                            # ``discretize_2d_array_cuda``'s breakeven; on
+                            # cc 6.1 ~500k cells. Wave 23 P1 fix (2026-05-20):
+                            # consult kernel_tuning_cache so the crossover
+                            # adapts to live HW; fall back to 500_000.
                             _gpu_used = False
+                            try:
+                                from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+                                _cache = KernelTuningCache.load_or_create()
+                                _e = _cache.lookup(
+                                    "unary_elementwise",
+                                    {"n_samples": int(vals.size)},
+                                )
+                                _min_cells = int(_e["min_cells"]) if _e and "min_cells" in _e else 500_000
+                            except Exception:
+                                _min_cells = 500_000
                             if (
-                                vals.size >= 500_000
+                                vals.size >= _min_cells
                                 and tr_name in gpu_compatible_unary_names()
                             ):
                                 try:

@@ -632,7 +632,21 @@ def gpu_multiple_rmse_scores(actual, predicted):
     if can_use_numba:
         from numba import cuda
         kernel = _get_numba_rmse_kernel()
-        BLOCK_N = 256
+        # Wave 23 P1 fix (2026-05-20): BLOCK_N was hardcoded at 256
+        # (Ampere-tuned default; wrong on Pascal at 128 and Hopper at
+        # 512+). Per `feedback_use_kernel_tuning_cache_for_gpu` route
+        # through kernel_tuning_cache so the dispatcher adapts to live
+        # HW. Fall back to 256 when the cache helper is unavailable or
+        # no entry exists for the live HW yet.
+        try:
+            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            _cache = KernelTuningCache.load_or_create()
+            _choice = _cache.lookup(
+                "rmse_partial_sum", {"n_samples": N, "n_cols": M},
+            )
+            BLOCK_N = int(_choice["block_n"]) if _choice and "block_n" in _choice else 256
+        except Exception:
+            BLOCK_N = 256
         grid_x = (N + BLOCK_N - 1) // BLOCK_N
         partial = cp.zeros((grid_x, M), dtype=cp.float64)
         kernel[(grid_x, M), BLOCK_N](

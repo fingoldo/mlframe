@@ -1002,7 +1002,22 @@ def _perm_kernel_dispatch_use_gpu(
         except ImportError:
             return False
     if backend == "auto":
-        if n_samples >= _GPU_PERM_KERNEL_THRESHOLD_N:
+        # Wave 23 P1 fix (2026-05-20): _GPU_PERM_KERNEL_THRESHOLD_N is
+        # tuned on a specific dev box; the GPU launch cost (30-40 ms)
+        # depends on PCIe gen + driver model (WDDM vs TCC) + cc. Consult
+        # kernel_tuning_cache for HW-tuned crossover; fall through to the
+        # source-code default when no entry exists yet.
+        try:
+            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            _cache = KernelTuningCache.load_or_create()
+            _entry = _cache.lookup(
+                "cat_fe_perm_kernel",
+                {"n_samples": n_samples, "n_perms": n_perms},
+            )
+            _threshold = int(_entry["crossover_n"]) if _entry and "crossover_n" in _entry else _GPU_PERM_KERNEL_THRESHOLD_N
+        except Exception:
+            _threshold = _GPU_PERM_KERNEL_THRESHOLD_N
+        if n_samples >= _threshold:
             try:
                 import cupy as _cp  # noqa: F401
                 return True
