@@ -53,7 +53,19 @@ def _reset_torch_lightning_global_state():
                 _kw["verbose"] = False
         except (TypeError, ValueError):
             pass
-        lightning.seed_everything(42, **_kw)
+        # On lightning < 2.2 (no verbose kwarg) seed_everything still emits
+        # ``INFO: Seed set to 42`` via the ``lightning.fabric.utilities.seed``
+        # logger - one line per test. Temporarily raise that logger's level
+        # to WARNING so the test log isn't flooded with one redundant info
+        # line per case. Restore on the way out.
+        import logging as _lg
+        _seed_logger = _lg.getLogger("lightning.fabric.utilities.seed")
+        _seed_prev_level = _seed_logger.level
+        _seed_logger.setLevel(_lg.WARNING)
+        try:
+            lightning.seed_everything(42, **_kw)
+        finally:
+            _seed_logger.setLevel(_seed_prev_level)
     except ImportError:
         pass
 
