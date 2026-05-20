@@ -80,14 +80,25 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
         n = _max_n
 
     rel = relevance.view(-1).to(scores.dtype)
-    # Pairwise diff matrices (N, N) required to identify informative pairs; N^2 in N (small per-query).
-    rel_diff = rel.unsqueeze(1) - rel.unsqueeze(0)  # rel_i - rel_j
-    pair_mask = rel_diff > 0
-    if not pair_mask.any():
+    # Pairwise informative-pair indices via torch.where(rel_i > rel_j). The
+    # (N, N) rel_diff mask is materialised once; the score_diff matrix is
+    # NOT materialised. Old code did
+    #     score_diff = scores.unsqueeze(1) - scores.unsqueeze(0)  # (N, N)
+    #     ... softplus(-score_diff[pair_mask]).mean()
+    # which allocated a full (N, N) float32 tensor per call (~64KB at N=128,
+    # called 90k times per train epoch on a typical LTR fuzz combo - 5.8GB
+    # of throwaway tensor allocs amortised across the training loop, profile
+    # 2026-05-20 attributed 64s self-time to ranknet_pairwise_loss). The
+    # indexed form below allocates only a 1-D (n_pairs,) score_diff tensor
+    # (~n_pairs * 4 bytes), strictly subset of the matrix that was being
+    # indexed out anyway. Same gradient (verified analytically: the matrix
+    # form's masked subset IS exactly scores[i_idx] - scores[j_idx]).
+    i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
+    if i_idx.numel() == 0:
         return scores.new_zeros(())
-    score_diff = scores.unsqueeze(1) - scores.unsqueeze(0)
+    score_diff_pairs = scores[i_idx] - scores[j_idx]
     # softplus(-x) = -log(sigmoid(x)) = BCE-w-logits(x, t=1) on informative (rel_i > rel_j) diffs.
-    return F.softplus(-score_diff[pair_mask]).mean()
+    return F.softplus(-score_diff_pairs).mean()
 
 
 def listnet_top1_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torch.Tensor:
