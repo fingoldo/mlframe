@@ -1,0 +1,274 @@
+"""Post-hoc probability calibration wrappers.
+
+Wave 94 (2026-05-21): split out from `_training_loop.py` to keep that
+file below the 1k-line threshold. Behaviour preserved bit-for-bit; every
+calibrator symbol is re-exported from `_training_loop` so existing
+``from ._training_loop import _PostHocCalibratedModel`` (and the other
+four moved names) imports continue to work.
+
+What lives here:
+  - ``_SigmoidAdapter`` (LogisticRegression -> Isotonic-style API)
+  - ``_PostHocCalibratedModel`` (single-output binary classifier wrapper)
+  - ``_PerClassIsotonicCalibrator`` (K-independent isotonic fits, used
+    for MULTICLASS / MULTILABEL)
+  - ``_PostHocMultiCalibratedModel`` (multi-output classifier wrapper)
+  - ``_maybe_apply_posthoc_calibration`` (no-op hook kept for API
+    compat; pre-fit CalibratedClassifierCV handles the work)
+"""
+from __future__ import annotations
+
+import logging
+
+from sklearn.isotonic import IsotonicRegression
+
+logger = logging.getLogger(__name__)
+
+
+class _SigmoidAdapter:
+    """Thin adapter giving a fitted LogisticRegression an IsotonicRegression-
+    style .predict() API that returns positive-class probabilities."""
+
+    def __init__(self, lr):
+        self.lr = lr
+
+    def predict(self, x):
+        import numpy as _np
+
+        return self.lr.predict_proba(_np.asarray(x).reshape(-1, 1))[:, 1]
+
+
+class _PostHocCalibratedModel:
+    """Transparent wrapper that applies isotonic post-hoc calibration to
+    predict_proba outputs of a fitted binary classifier.
+
+    Makes ``prefer_calibrated_classifiers=True`` actually calibrate tree
+    classifiers. The naive path only swapped the early-stopping
+    eval_metric, which was a no-op when early stopping did not trigger -- so
+    calibrated and uncalibrated runs produced bit-identical probabilities.
+
+    The wrapper delegates every attribute to the underlying ``base`` model
+    except ``predict_proba``, which runs the base classifier and then maps
+    the positive-class probability through a fitted IsotonicRegression.
+    """
+
+    def __init__(self, base, calibrator):
+        object.__setattr__(self, "base", base)
+        object.__setattr__(self, "_calibrator", calibrator)
+
+    def __getattr__(self, name):  # delegate unknown attrs to base
+        # During unpickling __getattr__ may fire before __dict__ is populated.
+        # Guard against that to avoid infinite recursion / KeyError.
+        if name in ("base", "_calibrator", "__setstate__", "__getstate__", "__reduce__", "__reduce_ex__"):
+            raise AttributeError(name)
+        try:
+            base = object.__getattribute__(self, "__dict__")["base"]
+        except KeyError:
+            raise AttributeError(name) from None
+        return getattr(base, name)
+
+    def __getstate__(self):
+        return {"base": self.base, "_calibrator": self._calibrator}
+
+    def __setstate__(self, state):
+        object.__setattr__(self, "base", state["base"])
+        object.__setattr__(self, "_calibrator", state["_calibrator"])
+
+    def predict_proba(self, X):
+        import numpy as _np
+
+        raw = self.base.predict_proba(X)
+        raw = _np.asarray(raw)
+        if raw.ndim == 2 and raw.shape[1] == 2:
+            p1 = self._calibrator.predict(raw[:, 1])
+            p1 = _np.clip(p1, 0.0, 1.0)
+            out = _np.column_stack([1.0 - p1, p1])
+            return out
+        return raw
+
+    def predict(self, X):
+        import numpy as _np
+
+        probs = self.predict_proba(X)
+        if probs.ndim == 2 and probs.shape[1] == 2:
+            classes = getattr(self.base, "classes_", _np.array([0, 1]))
+            return classes[(probs[:, 1] >= 0.5).astype(int)]
+        return self.base.predict(X)
+
+
+class _PerClassIsotonicCalibrator:
+    """Multi-output post-hoc calibrator: K independent IsotonicRegression fits.
+
+    Unblocks calibration on ``MULTICLASS_CLASSIFICATION`` and
+    ``MULTILABEL_CLASSIFICATION``
+    target types (previously raised ``NotImplementedError`` in
+    ``evaluation.post_calibrate_model``).
+
+    Semantics per target_type:
+      - **MULTICLASS** (exclusive labels, softmax output): fit one
+        isotonic per class on ``probs[:, k]`` vs ``(y_true == k)``.
+        At predict time, each column is mapped independently through
+        its own isotonic; then re-normalised row-wise so probabilities
+        sum to 1 (preserves the exclusive-class invariant).
+      - **MULTILABEL** (independent binary outputs, per-label sigmoid):
+        fit one isotonic per label on ``probs[:, k]`` vs ``y_true[:, k]``.
+        At predict time, each column is mapped independently; no
+        re-normalisation (labels are independent).
+
+    Numerical guards:
+      - Each per-class isotonic needs >=2 samples of both classes in
+        training; if a class is near-constant in the calibration set,
+        we skip that class's calibrator (identity mapping applied).
+      - Output clipped to [0, 1] post-isotonic (isotonic can over/
+        undershoot at boundaries).
+
+    Wrapped in _PostHocCalibratedModel for transparent predict_proba /
+    predict delegation. Stored as a dict {class_idx: IsotonicRegression}
+    plus a boolean mode flag (exclusive vs independent).
+    """
+
+    def __init__(self, calibrators, is_exclusive: bool, n_classes: int):
+        """
+        calibrators: dict {class_idx: IsotonicRegression or None (skip)}
+        is_exclusive: True for MULTICLASS softmax, False for MULTILABEL sigmoid
+        n_classes: K
+        """
+        self.calibrators = calibrators
+        self.is_exclusive = is_exclusive
+        self.n_classes = n_classes
+
+    @classmethod
+    def fit(cls, probs_NK, y_true, target_type):
+        """Fit K independent isotonic regressions on the calibration set.
+
+        Parameters
+        ----------
+        probs_NK : np.ndarray (N, K)
+            Canonical (N, K) probability matrix (use
+            ``_canonical_predict_proba_shape`` to coerce first).
+        y_true : np.ndarray
+            - MULTICLASS: shape (N,) with int labels 0..K-1
+            - MULTILABEL: shape (N, K) binary indicator matrix
+        target_type : TargetTypes
+        """
+        import numpy as _np
+        from .configs import TargetTypes
+
+        probs = _np.asarray(probs_NK, dtype=_np.float64)
+        K = probs.shape[1]
+        is_exclusive = target_type == TargetTypes.MULTICLASS_CLASSIFICATION
+        y = _np.asarray(y_true)
+
+        calibrators = {}
+        for k in range(K):
+            # Per-class binary target
+            if is_exclusive:
+                y_k = (y == k).astype(_np.int8)
+            else:
+                # Multilabel: y is (N, K)
+                y_k = y[:, k].astype(_np.int8)
+            # Guard: skip constant-label calibrators (1-class or near-so)
+            n_pos = int(y_k.sum())
+            if n_pos < 2 or n_pos >= (len(y_k) - 1):
+                calibrators[k] = None  # identity mapping
+                continue
+            iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+            iso.fit(probs[:, k], y_k)
+            calibrators[k] = iso
+
+        return cls(calibrators, is_exclusive, K)
+
+    def predict_proba(self, probs_NK):
+        """Apply per-class isotonic to the (N, K) probability matrix.
+
+        Returns a new (N, K) array with each column independently
+        calibrated. For MULTICLASS, row-normalise so rows sum to 1.
+        """
+        import numpy as _np
+
+        probs = _np.asarray(probs_NK, dtype=_np.float64)
+        out = _np.empty_like(probs)
+        for k in range(self.n_classes):
+            iso = self.calibrators.get(k)
+            if iso is None:
+                out[:, k] = probs[:, k]  # identity
+            else:
+                out[:, k] = _np.clip(iso.predict(probs[:, k]), 0.0, 1.0)
+        if self.is_exclusive:
+            # Softmax-space: re-normalise rows to sum to 1. Guard against
+            # all-zero rows (rare but possible after clip).
+            row_sums = out.sum(axis=1, keepdims=True)
+            row_sums = _np.where(row_sums == 0.0, 1.0, row_sums)
+            out = out / row_sums
+        return out
+
+
+class _PostHocMultiCalibratedModel:
+    """Multi-output variant of _PostHocCalibratedModel.
+
+    Wraps ``base`` classifier + per-class isotonic calibrator.
+    ``predict_proba(X)`` runs the base model and routes through
+    ``_PerClassIsotonicCalibrator.predict_proba`` for (N, K) output.
+
+    Uses ``_canonical_predict_proba_shape`` to normalise ``MultiOutputClassifier``'s
+    List[(N, 2)] output to (N, K) before calibration.
+    """
+
+    def __init__(self, base, calibrator: _PerClassIsotonicCalibrator, target_type, classes_=None):
+        object.__setattr__(self, "base", base)
+        object.__setattr__(self, "_calibrator", calibrator)
+        object.__setattr__(self, "_target_type", target_type)
+        object.__setattr__(self, "_classes", classes_)
+
+    def __getattr__(self, name):
+        if name in ("base", "_calibrator", "_target_type", "_classes", "__setstate__", "__getstate__", "__reduce__", "__reduce_ex__"):
+            raise AttributeError(name)
+        try:
+            base = object.__getattribute__(self, "__dict__")["base"]
+        except KeyError:
+            raise AttributeError(name) from None
+        return getattr(base, name)
+
+    def __getstate__(self):
+        return {
+            "base": self.base,
+            "_calibrator": self._calibrator,
+            "_target_type": self._target_type,
+            "_classes": self._classes,
+        }
+
+    def __setstate__(self, state):
+        for k, v in state.items():
+            object.__setattr__(self, k, v)
+
+    def predict_proba(self, X):
+        from .helpers import _canonical_predict_proba_shape
+
+        raw = self.base.predict_proba(X)
+        classes_ = getattr(self.base, "classes_", self._classes)
+        probs_NK = _canonical_predict_proba_shape(raw, classes_=classes_)
+        return self._calibrator.predict_proba(probs_NK)
+
+    def predict(self, X):
+        from .helpers import _predict_from_probs
+
+        probs = self.predict_proba(X)
+        return _predict_from_probs(probs, self._target_type, classes_=self._classes)
+
+
+def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=False):
+    """If the fitted estimator was tagged for post-hoc calibration and an
+    eval_set is available, fit an IsotonicRegression on (val_preds, val_y)
+    and return a wrapped model. Otherwise return the model unchanged.
+    """
+    try:
+        inner = model.steps[-1][1] if hasattr(model, "steps") else model
+    except Exception:
+        inner = model
+
+    want_calib = getattr(inner, "_mlframe_posthoc_calibrate", False) or getattr(model, "_mlframe_posthoc_calibrate", False)
+    if not want_calib:
+        return model
+    # Post-hoc calibration hook is now a no-op. Calibration is handled
+    # pre-fit by wrapping classifiers in CalibratedClassifierCV (see
+    # _configure_*_params). This avoids the val-set overfitting problem.
+    return model

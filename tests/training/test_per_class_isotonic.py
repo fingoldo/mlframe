@@ -237,25 +237,48 @@ def test_metrics_registry_user_registration():
     assert "my_test_metric" not in list_registered(TargetTypes.MULTILABEL_CLASSIFICATION)
 
 
-def test_metrics_registry_failing_metric_skipped():
-    """A metric that raises is silently skipped — doesn't break iteration."""
+def test_metrics_registry_documented_failure_modes_are_skipped():
+    """A metric that raises one of the DOCUMENTED recoverable failure modes
+    (ValueError / ZeroDivisionError / TypeError / FloatingPointError) is
+    skipped with a WARN log; other exceptions (RuntimeError / programming
+    bugs) bubble up so they don't masquerade as "metric not applicable".
+
+    Pre-wave-94 this test asserted that RuntimeError was silently swallowed,
+    which contradicted the code's docstring at metrics_registry.py:94-99.
+    Rewritten to match the design intent (narrow catch, fail-loud on
+    unexpected exceptions) and to cover both branches.
+    """
     from mlframe.training.metrics_registry import (
         register_metric, unregister_metric, iter_extra_metrics,
     )
 
-    def broken_metric(y_true, probs_NK, preds_NK):
+    def value_error_metric(y_true, probs_NK, preds_NK):
+        raise ValueError("only one class present in y_true")
+
+    def runtime_error_metric(y_true, probs_NK, preds_NK):
         raise RuntimeError("oh no")
 
-    register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "broken", broken_metric)
+    # Branch 1: documented recoverable -> silently skipped.
+    register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "recoverable", value_error_metric)
     try:
-        # Should NOT propagate the RuntimeError
         results = dict(iter_extra_metrics(
             TargetTypes.MULTILABEL_CLASSIFICATION,
             np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2)),
         ))
-        assert "broken" not in results  # skipped silently
+        assert "recoverable" not in results  # skipped silently
     finally:
-        unregister_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "broken")
+        unregister_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "recoverable")
+
+    # Branch 2: undocumented exception -> bubbles up (intentional).
+    register_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "unexpected", runtime_error_metric)
+    try:
+        with pytest.raises(RuntimeError, match="oh no"):
+            list(iter_extra_metrics(
+                TargetTypes.MULTILABEL_CLASSIFICATION,
+                np.zeros((1, 2)), np.zeros((1, 2)), np.zeros((1, 2)),
+            ))
+    finally:
+        unregister_metric(TargetTypes.MULTILABEL_CLASSIFICATION, "unexpected")
 
 
 # E-P0.5: polars DataFrame input parametrize completion.
