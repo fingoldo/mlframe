@@ -115,17 +115,19 @@ class TestBorda:
 
 
 class TestScoreMean:
-    """score_mean requires assume_comparable_scales=True else fallback to RRF."""
+    """score_mean requires assume_comparable_scales=True; otherwise hard-fail.
 
-    def test_score_mean_warns_and_falls_back_without_flag(self, three_aligned_models, caplog):
+    Audit C-P1-4 (2026): hard-fail replaces the previous silent fallback to
+    RRF. Operators previously saw 'score_mean' in config + metadata while
+    RRF math actually executed; method choice is a contract, not a
+    suggestion. Calibrate scores externally and pass the flag, OR pick
+    rrf/borda explicitly.
+    """
+
+    def test_score_mean_without_flag_raises(self, three_aligned_models):
         scores_per_model, gids = three_aligned_models
-        with caplog.at_level(logging.WARNING):
-            out = ensemble_ranker_scores(scores_per_model, gids, method="score_mean")
-        # WARN logged
-        assert any("assume_comparable_scales" in r.message for r in caplog.records)
-        # Result equals RRF result.
-        rrf_out = ensemble_ranker_scores(scores_per_model, gids, method="rrf")
-        np.testing.assert_allclose(out, rrf_out)
+        with pytest.raises(ValueError, match="assume_comparable_scales"):
+            ensemble_ranker_scores(scores_per_model, gids, method="score_mean")
 
     def test_score_mean_with_flag_returns_arithmetic_mean(self, three_aligned_models):
         scores_per_model, gids = three_aligned_models
