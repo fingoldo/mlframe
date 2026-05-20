@@ -1863,8 +1863,10 @@ class MRMR(BaseEstimator, TransformerMixin):
                         _key = (_i, -1)  # (feature_idx, target_idx=-1 is target)
                         _mi = self.cached_MIs.get(_key, 0.0) if hasattr(self, "cached_MIs") else 0.0
                         _raw_mi.append((_i, float(_mi)))
-                    # Sort by MI desc; pick top-K
-                    _raw_mi.sort(key=lambda kv: kv[1], reverse=True)
+                    # Sort by MI desc; pick top-K.
+                    # Wave 57 (2026-05-20): secondary key on feature index so
+                    # tied MI doesn't make the empty-support fallback drift.
+                    _raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))
                     _topk = [i for i, _ in _raw_mi[:_min_fb]]
                     if _topk:
                         self.support_ = np.array(_topk)

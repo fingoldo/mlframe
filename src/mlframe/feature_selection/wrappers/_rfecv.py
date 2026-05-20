@@ -358,11 +358,17 @@ class RFECV(BaseEstimator, TransformerMixin):
         fi_mean = {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
 
         # Worst K kept (features with no FI history get 0).
-        kept_sorted = sorted(best_set, key=lambda f: fi_mean.get(f, 0.0))
+        # Wave 57 (2026-05-20): add feature name as deterministic tiebreaker --
+        # many features tie at fi_mean=0 (no FI history); without the tiebreak,
+        # which feature wins the swap depends on Python set/list iteration
+        # order, silently flipping selection across runs.
+        kept_sorted = sorted(best_set, key=lambda f: (fi_mean.get(f, 0.0), str(f)))
         swap_out = kept_sorted[:K]
         # Best K dropped.
         not_in_set = [f for f in original_features if f not in set(best_set)]
-        not_sorted = sorted(not_in_set, key=lambda f: fi_mean.get(f, 0.0), reverse=True)
+        # For the reverse-desc side, negate score then ascend alphabetically
+        # so the deterministic tiebreaker is uniform-direction.
+        not_sorted = sorted(not_in_set, key=lambda f: (-fi_mean.get(f, 0.0), str(f)))
         swap_in = not_sorted[:K]
 
         cur_set = list(best_set)
@@ -2004,7 +2010,12 @@ class RFECV(BaseEstimator, TransformerMixin):
             # Top-K from this bootstrap (across-estimator mean importance).
             if per_feature_score_sum.sum() <= 0:
                 continue
-            top_idx = np.argsort(per_feature_score_sum)[::-1][:top_k]
+            # Wave 57 (2026-05-20): np.lexsort with feature-index tiebreaker so tied
+            # scores don't make the top-K pick depend on feature_names insertion
+            # order; stability_selection's public support_mask was sensitive to this.
+            top_idx = np.lexsort(
+                (np.arange(len(per_feature_score_sum)), -per_feature_score_sum)
+            )[:top_k]
             selection_counts[top_idx] += 1
 
         selection_freq = selection_counts / max(1, int(self.stability_n_bootstrap))
@@ -2042,7 +2053,9 @@ class RFECV(BaseEstimator, TransformerMixin):
                 "Top-10 by frequency: %s",
                 self.n_features_, n_features, self.stability_threshold,
                 [(feature_names[i], round(float(selection_freq[i]), 3))
-                 for i in np.argsort(selection_freq)[::-1][:10]],
+                 # Wave 57: lexsort with feature-index tiebreaker for deterministic
+                 # log output across runs.
+                 for i in np.lexsort((np.arange(len(selection_freq)), -selection_freq))[:10]],
             )
         return self
 
@@ -2268,8 +2281,11 @@ class RFECV(BaseEstimator, TransformerMixin):
                 continue
             if len(fi) < self.n_features_:
                 continue
-            # Top-N features in this fold by importance value
-            top_ids = sorted(fi.keys(), key=lambda k: fi[k], reverse=True)[: self.n_features_]
+            # Top-N features in this fold by importance value.
+            # Wave 57 (2026-05-20): secondary key on feature name so tied
+            # zero-importance features don't shift across runs and the
+            # downstream Jaccard / Dice between fold-sets stays stable.
+            top_ids = sorted(fi.keys(), key=lambda k: (-fi[k], str(k)))[: self.n_features_]
             per_fold_top.append(set(top_ids))
         if len(per_fold_top) < 2:
             return float("nan")

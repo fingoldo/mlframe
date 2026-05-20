@@ -286,10 +286,13 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
         _scored = [(k, s) for k, s in _scored if s is not None]
         if not _scored:
             continue
+        # Wave 57 (2026-05-20): secondary key on ensemble name (kv[0]) so tied
+        # val metric (small holdout / coarse metric) gives a deterministic winner
+        # rather than depending on dict iteration order.
         if _direction == "lower":
-            _scored.sort(key=lambda kv: kv[1])
+            _scored.sort(key=lambda kv: (kv[1], kv[0]))
         else:
-            _scored.sort(key=lambda kv: -kv[1])
+            _scored.sort(key=lambda kv: (-kv[1], kv[0]))
         return _scored[0][0]
     # No candidate exposed any ranking metric: fall back to the first flavour the suite emitted so the
     # predict path has a deterministic answer rather than None. ``score_ensemble``'s iteration order

@@ -1226,7 +1226,11 @@ class CompositeCrossTargetEnsemble:
                     setattr(copy_inst, _attr, getattr(self, _attr))
             return copy_inst
         # Pick top-N by |weight|.
-        order = np.argsort(-np.abs(np.asarray(self.weights, dtype=np.float64)))
+        # Wave 57 (2026-05-20): lexsort with component-index tiebreaker so tied
+        # weights (NNLS shrinkage saturation, convex weights pinned at 0) don't
+        # silently flip which components survive across stack-row orderings.
+        _abs_w = np.abs(np.asarray(self.weights, dtype=np.float64))
+        order = np.lexsort((np.arange(len(_abs_w)), -_abs_w))
         keep = sorted(order[:max_components].tolist())
         new = CompositeCrossTargetEnsemble(
             component_models=[self.component_models[i] for i in keep],

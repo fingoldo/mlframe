@@ -213,7 +213,11 @@ def plot_feature_importance(
         ax = plt.gca()  # visible=True
         # Rank by |FI| descending. Use original signed values for the bar so
         # negative coefficients show as left-bars.
-        _abs_order_full = np.argsort(np.abs(feature_importances))[::-1]
+        # Wave 57 (2026-05-20): lexsort with feature-position tiebreaker so tied
+        # zero-importance features (common after model pruning) pick the same
+        # set across runs and the displayed bar chart stays reproducible.
+        _abs_fi = np.abs(feature_importances)
+        _abs_order_full = np.lexsort((np.arange(len(_abs_fi)), -_abs_fi))
         _picked = _abs_order_full[:n]
         # 2026-05-12 (user request): drop excess zero-FI bars so the chart
         # stays compact when most features got pruned by the model. ``eps``

@@ -614,7 +614,10 @@ class CompositeTargetDiscovery:
             kept_specs.append(spec)
             entry["kept"] = True
 
-        kept_specs.sort(key=lambda s: -s.mi_gain)
+        # Wave 57 (2026-05-20): plugin MI quantises to a fixed grid -> tied
+        # mi_gain realistic. Secondary key on spec name for deterministic
+        # top-K selection across runs.
+        kept_specs.sort(key=lambda s: (-s.mi_gain, getattr(s, "name", "")))
         kept_specs = kept_specs[: self.config.top_k_after_mi]
 
         # R10b stat #6: rolling-origin alpha drift detection for
@@ -2623,7 +2626,11 @@ class CompositeTargetDiscovery:
                 agg_scores = [sc for _, _, sc in survivors]
 
         # Sort by aggregated score (ascending: lowest RMSE wins).
-        order = np.argsort(agg_scores)
+        # Wave 57 (2026-05-20): stable sort + spec-name tiebreak so tied RMSE
+        # (common on small synthetic / regression tests) doesn't make top-M
+        # pick depend on dict iteration order.
+        _names = [getattr(s, "name", str(i)) for i, s in enumerate(kept_specs)]
+        order = np.lexsort((_names, agg_scores))
         reranked = [kept_specs[i] for i in order]
         # Trim to top-M.
         top_m = max(1, self.config.top_m_after_tiny)

@@ -451,7 +451,7 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
-    desc_score_indices = np.argsort(y_score)[::-1]
+    desc_score_indices = np.argsort(y_score, kind="stable")[::-1]  # Wave 57: stable sort for reproducibility on tied scores
     return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
 
@@ -2083,7 +2083,7 @@ def fast_aucs(y_true: np.ndarray, y_score: np.ndarray) -> tuple[float, float]:
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
-    desc_score_indices = np.argsort(y_score)[::-1]
+    desc_score_indices = np.argsort(y_score, kind="stable")[::-1]  # Wave 57: stable sort for reproducibility on tied scores
     return fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
 
@@ -2156,7 +2156,7 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
         y_score = y_score[:, -1]
 
     # Overall AUCs
-    desc_score_indices = np.argsort(y_score)[::-1]
+    desc_score_indices = np.argsort(y_score, kind="stable")[::-1]  # Wave 57: stable sort for reproducibility on tied scores
     overall_roc_auc, overall_pr_auc = fast_numba_aucs(y_true, y_score, desc_score_indices)
 
     # Per-group AUCs
@@ -2169,7 +2169,7 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
         group_y_score = y_score[group_mask]
 
         if len(group_y_true) > 1:  # Need at least 2 samples
-            group_desc_indices = np.argsort(group_y_score)[::-1]
+            group_desc_indices = np.argsort(group_y_score, kind="stable")[::-1]  # Wave 57: stable sort
             roc_auc, pr_auc = fast_numba_aucs(group_y_true, group_y_score, group_desc_indices)
             group_aucs[int(group_id)] = (roc_auc, pr_auc)
         else:
@@ -2195,7 +2195,7 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
         y_score = y_score[:, -1]
 
     # Overall AUCs
-    desc_score_indices = np.argsort(y_score)[::-1]
+    desc_score_indices = np.argsort(y_score, kind="stable")[::-1]  # Wave 57: stable sort for reproducibility on tied scores
     overall_roc_auc, overall_pr_auc = fast_numba_aucs(y_true, y_score, desc_score_indices)
 
     # By group very efficiently
@@ -2287,7 +2287,7 @@ def compute_grouped_group_aucs(sorted_group_ids: np.ndarray, sorted_y_true: np.n
                 group_y_score = sorted_y_score[start_idx:end_idx]
 
                 # Sort by score for this group
-                group_desc_indices = np.argsort(group_y_score)[::-1]
+                group_desc_indices = np.argsort(group_y_score, kind="stable")[::-1]  # Wave 57: stable sort
 
                 # Compute AUCs for this group
                 roc_auc, pr_auc = fast_numba_aucs_simple(group_y_true, group_y_score, group_desc_indices)
@@ -2846,7 +2846,9 @@ def _batch_per_class_ice_kernel(
         # Descending-sort argsort on y_p, then walk through (y_t, y_p)
         # in score-desc order, accumulating TP / FP / current_precision /
         # current_recall as in sklearn.average_precision_score.
-        desc_idx = np.argsort(-y_p)
+        # Wave 57 (2026-05-20): stable sort so tied probabilities don't shift
+        # AUC values across runs when the input row order changes.
+        desc_idx = np.argsort(-y_p, kind="stable")
         y_t_sorted = y_t[desc_idx]
         y_p_sorted = y_p[desc_idx]
         total_pos = 0

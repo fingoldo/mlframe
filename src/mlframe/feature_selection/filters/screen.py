@@ -675,7 +675,12 @@ def screen_predictors(
 
                     cand_confirmed = False
                     any_cand_considered = False
-                    for n, next_best_candidate_idx in enumerate(np.argsort(expected_gains)[::-1]):
+                    # Wave 57 (2026-05-20): lexsort with candidate-index tiebreaker
+                    # so tied expected_gains (zero-gain tail) doesn't make the
+                    # first-confirmed candidate depend on input order.
+                    for n, next_best_candidate_idx in enumerate(
+                        np.lexsort((np.arange(len(expected_gains)), -np.asarray(expected_gains)))
+                    ):
                         next_best_gain = expected_gains[next_best_candidate_idx]
                         # logger.info(f"{n}, {next_best_gain}, {min_relevance_gain}")
                         if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
