@@ -37,7 +37,14 @@ SIMPLE_ENSEMBLING_METHODS: list = "arithm harm median quad qube geo".split()
 try:  # pragma: no cover -- env-dependent
     import numba as _numba
 
-    @_numba.njit(parallel=True, fastmath=True, cache=True)
+    # Wave 25 P1 fix (2026-05-20): switched from the naive E[X^2]-E[X]^2
+    # variance formula to a two-pass mean+deviation form, which is
+    # numerically stable for the regression-scale inputs (|d| ~ 1e3+) that
+    # the previous form lost precision on. The ``< 0`` clamp left behind
+    # in the source proved the cancellation was real. ``fastmath=False``
+    # now so reductions stay associative-stable; for K independent members
+    # the prange parallelism still gives the speedup we want.
+    @_numba.njit(parallel=True, fastmath=False, cache=True)
     def _per_member_mae_std_njit(arr, median_preds):
         K = arr.shape[0]
         N = arr.shape[1]
@@ -45,19 +52,24 @@ try:  # pragma: no cover -- env-dependent
         out_std = np.empty(K, dtype=np.float64)
         if arr.ndim == 2:
             for k in _numba.prange(K):
+                # Pass 1: compute mean(|d|).
                 _s_diff = 0.0
-                _s_sq = 0.0
                 for i in range(N):
                     d = arr[k, i] - median_preds[i]
                     if d < 0:
                         d = -d
                     _s_diff += d
-                    _s_sq += d * d
                 mae = _s_diff / N
-                # Population variance of |diff|: E[|d|^2] - (E[|d|])^2.
-                _var = _s_sq / N - mae * mae
-                if _var < 0:
-                    _var = 0.0
+                # Pass 2: accumulate (|d| - mae)^2 directly. No catastrophic
+                # cancellation: each summand is non-negative.
+                _s_dev_sq = 0.0
+                for i in range(N):
+                    d = arr[k, i] - median_preds[i]
+                    if d < 0:
+                        d = -d
+                    dev = d - mae
+                    _s_dev_sq += dev * dev
+                _var = _s_dev_sq / N
                 out_mae[k] = mae
                 out_std[k] = _var ** 0.5
         else:
@@ -65,19 +77,25 @@ try:  # pragma: no cover -- env-dependent
             C = arr.shape[2]
             tot = N * C
             for k in _numba.prange(K):
+                # Pass 1: compute mean(|d|).
                 _s_diff = 0.0
-                _s_sq = 0.0
                 for i in range(N):
                     for c in range(C):
                         d = arr[k, i, c] - median_preds[i, c]
                         if d < 0:
                             d = -d
                         _s_diff += d
-                        _s_sq += d * d
                 mae = _s_diff / tot
-                _var = _s_sq / tot - mae * mae
-                if _var < 0:
-                    _var = 0.0
+                # Pass 2: deviation sum-of-squares.
+                _s_dev_sq = 0.0
+                for i in range(N):
+                    for c in range(C):
+                        d = arr[k, i, c] - median_preds[i, c]
+                        if d < 0:
+                            d = -d
+                        dev = d - mae
+                        _s_dev_sq += dev * dev
+                _var = _s_dev_sq / tot
                 out_mae[k] = mae
                 out_std[k] = _var ** 0.5
         return out_mae, out_std

@@ -84,12 +84,35 @@ NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
 
 def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
-    """Entropy of a continuous distribution"""
+    """Shannon entropy of a continuous distribution (binned).
+
+    Wave 25 bonus fix (2026-05-20): pre-fix computed
+    ``-(hist * log(hist + eps)).sum()`` where ``hist`` was raw integer
+    counts, not normalised probabilities. That formula is NOT Shannon
+    entropy; it scales with bin count and total sample size, giving
+    arbitrary values like 12_345 nats instead of the expected
+    (0, log(n_bins)) range. The commented hint
+    ``# np.histogram(arr, bins=bins, density=True)`` shows the author
+    spotted the missing normalisation but didn't apply it.
+
+    Post-fix: compute probabilities from counts (``p = counts / counts.sum()``)
+    then apply the Shannon formula ``-sum(p * log(p))`` over the
+    nonzero-probability bins (``p == 0`` contributions are zero by the
+    ``0 * log(0) = 0`` convention; we filter them to avoid log(0)
+    instead of adding an epsilon that biases the result).
+    """
     try:
-        hist, bin_edges = histogram(arr, bins=bins)  # np.histogram(arr, bins=bins, density=True)
-        ent = -(hist * np.log(hist + 1e-60)).sum()
+        hist, _bin_edges = histogram(arr, bins=bins)
+        total = float(hist.sum())
+        if total <= 0:
+            return float("nan")
+        p = np.asarray(hist, dtype=np.float64) / total
+        nonzero = p > 0.0
+        if not np.any(nonzero):
+            return 0.0
+        ent = -float(np.sum(p[nonzero] * np.log(p[nonzero])))
     except Exception:
-        return np.nan
+        return float("nan")
     return ent
 
 
