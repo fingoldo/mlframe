@@ -104,10 +104,29 @@ def clean_ram_and_gpu(verbose: bool = False) -> None:
         import torch
 
         if torch.cuda.is_available():
-            # Synchronize all CUDA streams before cleanup
-            torch.cuda.synchronize()
-            # Empty the CUDA memory cache
-            torch.cuda.empty_cache()
+            # Synchronize all CUDA streams before cleanup. cuda.synchronize() can raise
+            # on a kernel error (out-of-memory mid-launch, async illegal-access from a
+            # prior op). Pre-fix the raise would skip empty_cache() + gc.collect() below
+            # so the GPU memory pool stayed full and the next allocation OOM'd with no
+            # signal that the prior error caused it. Wrap in try/finally so the cache
+            # release runs even when synchronize fails.
+            try:
+                torch.cuda.synchronize()
+            except RuntimeError as _sync_err:
+                logger.warning(
+                    "torch.cuda.synchronize raised %s: %s; proceeding with empty_cache "
+                    "anyway to reclaim what we can. Likely a prior kernel error.",
+                    type(_sync_err).__name__, _sync_err,
+                )
+            # Empty the CUDA memory cache. Also robust to its own RuntimeError (very
+            # rare: only on a broken CUDA context).
+            try:
+                torch.cuda.empty_cache()
+            except RuntimeError as _empty_err:
+                logger.warning(
+                    "torch.cuda.empty_cache raised %s: %s; CUDA context may be broken.",
+                    type(_empty_err).__name__, _empty_err,
+                )
             # Force garbage collection again after GPU cleanup
             gc.collect()
 

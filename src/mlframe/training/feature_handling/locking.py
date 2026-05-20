@@ -134,6 +134,15 @@ class PIDAwareFileLock:
                     # FileLock retry below will still produce the right
                     # behaviour (Timeout if contention, success if free).
                     pass
+                # Release the first lock object before discarding it. ``filelock``
+                # generally cleans up in ``__del__`` but on Windows + AV scanners
+                # the OS handle can outlive the Python reference long enough for
+                # the retry on the same path to see a phantom contender. Explicit
+                # release drops the OS handle deterministically.
+                try:
+                    self._lock.release(force=True)
+                except (AttributeError, RuntimeError, OSError):
+                    pass
                 # Fresh lock object so any closed-handle state from the
                 # earlier failed acquire doesn't bleed into the retry.
                 self._lock = _BaseFileLock(self.path)

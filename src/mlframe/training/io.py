@@ -129,8 +129,17 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
     )
     tmp_path = os.path.join(target_dir, _tmp_basename)
     fd = os.open(tmp_path, os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+    # ``fd`` ownership: passed to ``os.fdopen`` -> the resulting BufferedWriter takes
+    # ownership and closes on context exit. But if ``os.fdopen`` itself raises (rare:
+    # MemoryError during buffer alloc, or invalid-mode TypeError after a future
+    # refactor), the raw fd is never adopted and Python leaks it. Under sustained
+    # fuzz / cache-write pressure (composite_cache writes thousands of files per
+    # suite call) this exhausts the process fd ceiling. Track adoption via a flag
+    # and explicitly close in the except branch when adoption never happened.
+    _fd_adopted = False
     try:
         with os.fdopen(fd, "wb") as f:
+            _fd_adopted = True  # BufferedWriter now owns fd; on with-exit it closes.
             writer_fn(f)
             if fsync:
                 # fsync inside the with-block: pickle.dump / dill.dump / numpy.save
@@ -141,10 +150,16 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
                 os.fsync(f.fileno())
         os.replace(tmp_path, target_path)
     except Exception:
+        if not _fd_adopted:
+            # os.fdopen raised before adopting; close fd manually so it doesn't leak.
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         try:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
-        except Exception:
+        except OSError:
             pass
         raise
 

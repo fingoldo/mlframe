@@ -74,6 +74,30 @@ _PREWARM_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mlfram
 _PREWARM_FUTURES: dict = {}  # signature -> Future
 
 
+def shutdown_prewarm_executor(wait: bool = False) -> None:
+    """Explicitly shut down the module-level prewarm ThreadPoolExecutor.
+
+    Long-running services that hot-reload mlframe accumulate 2 zombie worker
+    threads per reload because the executor is created at import time and
+    only torn down at interpreter exit (Python's default ``atexit``). Test
+    suites and service code that want to release threads earlier can call
+    this helper.
+    """
+    try:
+        _PREWARM_EXECUTOR.shutdown(wait=wait)
+    except (RuntimeError, OSError):
+        # Already shut down or interpreter mid-teardown; either way the threads
+        # are or will be gone soon.
+        pass
+
+
+# Register the shutdown so interpreter exit reliably reclaims the executor's
+# worker threads even if a hot-reload path didn't call shutdown_prewarm_executor
+# explicitly. ``wait=False`` so the exit isn't delayed by in-flight prewarms.
+import atexit as _atexit  # noqa: E402 -- module-level state block
+_atexit.register(shutdown_prewarm_executor, wait=False)
+
+
 # =====================================================================
 # Registry mutators
 # =====================================================================

@@ -166,24 +166,38 @@ class LocalDiskBackend:
     @contextlib.contextmanager
     def _lru_locked(self):
         """Serialise sidecar read-modify-write across threads and
-        processes. The in-process ``threading.Lock`` is the fast path;
-        the ``PIDAwareFileLock`` covers sibling processes. Falls back
-        to the in-process lock alone if the cross-process layer cannot
-        be acquired (filelock missing on minimal installs).
+        processes. Order: cross-process file lock FIRST (waits for sibling
+        processes up to 30s), then in-process threading.Lock (held only for
+        the actual critical section, microseconds). Pre-fix this order was
+        inverted -- the threading.Lock was held DURING the up-to-30s file-lock
+        acquisition window, so every other thread in this process queued
+        behind one cross-process contender even though they don't conflict
+        with each other once the file lock is held. Under multi-thread joblib
+        backends or async prewarm this created a serial bottleneck on every
+        cache write.
+
+        Falls back to in-process lock alone if the cross-process layer
+        cannot be acquired (filelock missing on minimal installs).
         """
-        with self._lru_mem_lock:
-            file_lock = PIDAwareFileLock(self._lru_cross_proc_lock_path, timeout=30.0)
-            try:
-                file_lock.__enter__()
-            except Exception:
-                # Cross-process layer unavailable; in-process lock
-                # still protects this interpreter's threads.
+        file_lock = PIDAwareFileLock(self._lru_cross_proc_lock_path, timeout=30.0)
+        try:
+            file_lock.__enter__()
+        except Exception:
+            # Cross-process layer unavailable; in-process lock still protects
+            # this interpreter's threads. Hold only for the critical section.
+            with self._lru_mem_lock:
                 yield
-                return
-            try:
+            return
+        try:
+            # File lock now held; ALL sibling processes are excluded.
+            # In-process threading.Lock prevents racing local threads but is
+            # released as soon as the caller's read-modify-write completes
+            # -- no other thread in this process waits behind us for the
+            # 30s file-lock acquisition we already paid above.
+            with self._lru_mem_lock:
                 yield
-            finally:
-                file_lock.__exit__(None, None, None)
+        finally:
+            file_lock.__exit__(None, None, None)
 
     def _load_lru(self) -> "dict[str, float]":
         import json

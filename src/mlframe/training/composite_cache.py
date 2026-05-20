@@ -576,13 +576,24 @@ class DiscoveryCache:
         # Same atomic-rename + fsync discipline as the value writes - LRU
         # corruption would silently break eviction order.
         fd, tmp_path = tempfile.mkstemp(dir=self.cache_dir, prefix=".lru.", suffix=".tmp")
+        # ``fd`` ownership tracking: BufferedWriter from os.fdopen adopts on success;
+        # if os.fdopen itself raises (rare: MemoryError) we manually close fd to avoid
+        # a per-failure fd leak. _save_lru runs on every cache touch so leaks compound
+        # quickly under sustained load (Windows 8192 default fd ceiling).
+        _fd_adopted = False
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
+                _fd_adopted = True
                 json.dump(lru, f, sort_keys=True)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, self._lru_path)
         except Exception:
+            if not _fd_adopted:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             try:
                 os.remove(tmp_path)
             except OSError:
@@ -756,8 +767,14 @@ class DiscoveryCache:
         path = self._path(key)
         # Write to a temp file in the same directory, then rename atomically.
         fd, tmp_path = tempfile.mkstemp(dir=self.cache_dir, suffix=".tmp")
+        # ``fd`` ownership tracking (see io.py:atomic_write_bytes for the canonical pattern).
+        # On the rare path where os.fdopen itself raises BEFORE the BufferedWriter adopts fd,
+        # the raw fd would otherwise leak. set() runs on every cache write so leaks compound
+        # quickly. Track adoption + manually close on failure.
+        _fd_adopted = False
         try:
             with os.fdopen(fd, "wb") as f:
+                _fd_adopted = True
                 pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
                 # fsync inside the with-block so the data is on stable storage
                 # BEFORE rename makes the path visible to readers. Without this,
@@ -785,6 +802,11 @@ class DiscoveryCache:
                 except OSError:
                     pass
         except Exception:
+            if not _fd_adopted:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
             try:
                 os.remove(tmp_path)
             except OSError:
