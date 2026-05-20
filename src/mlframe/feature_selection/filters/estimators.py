@@ -170,7 +170,10 @@ def ksg_mi_with_significance(
 
     significant = np.where(p_values <= alpha)[0]
     # Sort the surviving indices by their MI descending.
-    order = significant[np.argsort(-observed[significant])]
+    # Wave 58 (2026-05-20): lexsort with significant-index tiebreaker for
+    # deterministic order across runs when MIs tie.
+    _obs_sig = observed[significant]
+    order = significant[np.lexsort((significant, -_obs_sig))]
     support = np.asarray([feature_indices[i] for i in order], dtype=np.int64)
 
     return observed, p_values, support

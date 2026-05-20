@@ -2501,10 +2501,11 @@ def _select_top_k_pairs(
         return idx_eligible[order]
 
     # Otherwise argpartition on score then sort the top.
+    # Wave 58 (2026-05-20): argpartition tie-break is impl-defined; switch to
+    # full lexsort with pair-index secondary key so tied scores give the same
+    # top-K pairs across runs.
     masked_score = np.where(eligible, score, -np.inf)
-    top_idx = np.argpartition(-masked_score, cfg.top_k_pairs - 1)[: cfg.top_k_pairs]
-    # Sort the top-K block descending so the heap is in priority order.
-    top_idx = top_idx[np.argsort(-masked_score[top_idx])]
+    top_idx = np.lexsort((np.arange(len(masked_score)), -masked_score))[: cfg.top_k_pairs]
     return top_idx
 
 
@@ -3132,8 +3133,10 @@ def run_cat_interaction_step(
             # Phase 2 (fallback): all pairs
             _expand_seeds(range(len(pairs_a)))
 
-        # Sort k-way results by joint_MI desc and cap by top_k_pairs
-        kway_results.sort(key=lambda r: -r[3])
+        # Sort k-way results by joint_MI desc and cap by top_k_pairs.
+        # Wave 58 (2026-05-20): secondary key on the var-index tuple so tied
+        # joint_MI doesn't make the surviving k-way set drift across runs.
+        kway_results.sort(key=lambda r: (-r[3], tuple(r[0]) if r and r[0] is not None else ()))
         kway_results = kway_results[: cfg.top_k_pairs]
         if verbose:
             logger.info(

@@ -599,7 +599,9 @@ class BaselineDiagnostics:
 
         top_k = max(1, min(self.config.ablation_top_k, len(feature_cols)))
         # Indices of top-K features by FI, descending.
-        order = np.argsort(-raw_fi)[:top_k]
+        # Wave 58 (2026-05-20): lexsort with feature-index tiebreaker so tied
+        # zero FIs don't make the logged "top-K ranked" output drift.
+        order = np.lexsort((np.arange(len(raw_fi)), -raw_fi))[:top_k]
 
         # Build the per-feature work list once. Skipping zero-importance
         # features at this stage avoids both the joblib dispatch and

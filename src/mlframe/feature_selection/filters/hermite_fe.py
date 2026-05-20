@@ -1387,7 +1387,9 @@ def _select_diverse_topm(history: list, top_m: int,
     """
     if not history:
         return []
-    sorted_h = sorted(history, key=lambda r: -r[0])
+    # Wave 58 (2026-05-20): secondary key on bf_idx (r[2]) so tied top-MI
+    # Hermite history doesn't shift `kept[0]` across iteration orders.
+    sorted_h = sorted(history, key=lambda r: (-r[0], r[2]))
     # Pad lengths to the max coef vector for cross-degree comparison.
     max_a = max(e[3].shape[0] for e in sorted_h)
     max_b = max(e[4].shape[0] for e in sorted_h)
@@ -2232,5 +2234,7 @@ def optimise_pair_multimode(
             preprocess_a=preprocess_a,
             preprocess_b=preprocess_b,
         ))
-    results.sort(key=lambda r: -r.mi)
+    # Wave 58 (2026-05-20): secondary key on (deg_a, deg_b, bf_name) so tied
+    # mi doesn't make results[0] depend on insertion order.
+    results.sort(key=lambda r: (-r.mi, getattr(r, "degree_a", 0), getattr(r, "degree_b", 0), getattr(r, "bf_name", "")))
     return results

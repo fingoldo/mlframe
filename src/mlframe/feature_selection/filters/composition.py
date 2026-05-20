@@ -77,7 +77,9 @@ def compose_pair_fe(
                          mi_estimator=mi_estimator,
                          plugin_n_bins=plugin_n_bins)
             single_mi.append((j, mi))
-        single_mi.sort(key=lambda kv: -kv[1])
+        # Wave 58 (2026-05-20): plugin MI quantises -> ties realistic; secondary
+        # key on feature index for deterministic top-K across runs.
+        single_mi.sort(key=lambda kv: (-kv[1], kv[0]))
         top_idx = [j for j, _ in single_mi[: 2 * top_k_per_round]]
         if len(top_idx) < 2:
             if verbose:
@@ -96,7 +98,9 @@ def compose_pair_fe(
                         mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins),
             )
             pair_scores.append((i, j, mi_pair))
-        pair_scores.sort(key=lambda kv: -kv[2])
+        # Wave 58 (2026-05-20): secondary key on (i, j) for deterministic
+        # pair selection across runs when MIs tie.
+        pair_scores.sort(key=lambda kv: (-kv[2], kv[0], kv[1]))
         top_pairs = pair_scores[: top_k_per_round]
 
         new_cols = []

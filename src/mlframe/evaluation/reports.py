@@ -443,7 +443,9 @@ def _precision_at_top_decile(y_true: np.ndarray, preds: np.ndarray) -> float:
     if n == 0:
         return 0.0
     k = max(1, n // 10)
-    idx = np.argsort(-preds)[:k]
+    # Wave 58 (2026-05-20): lexsort with row-position tiebreak so tied
+    # predictions don't make the top-decile pick depend on input row order.
+    idx = np.lexsort((np.arange(n), -preds))[:k]
     return float(np.mean(y_true[idx]))
 
 

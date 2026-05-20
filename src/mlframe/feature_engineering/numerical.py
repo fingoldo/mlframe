@@ -689,8 +689,9 @@ def compute_nunique_modes_quantiles_numpy(
 
         max_modes = min(max_modes, len(counts))
 
-        modes_indices = np.argpartition(counts, -max_modes)[-max_modes:]
-        modes_indices = modes_indices[np.argsort(counts[modes_indices])][::-1]
+        # Wave 58 (2026-05-20): lexsort with value as tiebreaker so tied
+        # counts give a deterministic mode pick across runs.
+        modes_indices = np.lexsort((vals, -counts))[:max_modes]
 
         first_mode_count = counts[modes_indices[0]]
 

@@ -193,7 +193,9 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
     if not np.isfinite(tau):
         return []
     selected = [(n, v) for n, v in W.items() if v >= tau]
-    selected.sort(key=lambda kv: kv[1], reverse=True)
+    # Wave 58 (2026-05-20): secondary key on feature name; tied |W| (shrinkage
+    # saturation) no longer makes downstream [:topN] slicing drift.
+    selected.sort(key=lambda kv: (-kv[1], kv[0]))
     return [n for n, _ in selected]
 
 

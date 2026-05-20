@@ -137,7 +137,9 @@ def score_trivial_baselines(
                 mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
                 n_neighbors=n_neighbors,
             )
-    return dict(sorted(scores.items(), key=lambda kv: -kv[1]))
+    # Wave 58 (2026-05-20): secondary key on name; tied MIs no longer make
+    # next(iter(...)) winner depend on dict insertion order.
+    return dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
@@ -223,7 +225,9 @@ def score_triplet_baselines(x_a, x_b, x_c, y, *,
                               mi_estimator=mi_estimator,
                               plugin_n_bins=plugin_n_bins,
                               n_neighbors=n_neighbors)
-    return dict(sorted(scores.items(), key=lambda kv: -kv[1]))
+    # Wave 58 (2026-05-20): secondary key on name; tied MIs no longer make
+    # next(iter(...)) winner depend on dict insertion order.
+    return dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 def best_trivial_pair(
