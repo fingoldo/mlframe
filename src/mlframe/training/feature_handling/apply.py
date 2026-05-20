@@ -524,11 +524,14 @@ def _extract_column_values(df: Any, column: str) -> List:
 
 
 def _text_column_content_token(train_df: Any, column: str) -> int:
-    """63-bit content fingerprint for a single text column used to disambiguate text-encoder cache
-    entries when ``id(train_df)`` recycles across OD-masked / pre-clone variants. Mirrors the
-    ``_target_content_token`` strategy below but operates on a single column to avoid full-frame
-    hashing cost. Returns 0 on any backend error; the caller still keys on (df_token, column, params)
-    so collision risk degrades to the literal-zero baseline (no worse than pre-fix)."""
+    """63-bit content fingerprint for a single text column used to disambiguate text-encoder
+    cache entries when ``id(train_df)`` recycles across OD-masked / pre-clone variants. Mirrors
+    the ``_target_content_token`` strategy below but operates on a single column to avoid
+    full-frame hashing cost.
+
+    On hash failure, falls back to ``id(train_df)`` + WARN log so distinct DataFrames still get
+    distinct tokens (pre-fix returned literal 0, which collided across all callers that hit the
+    fallback path)."""
     try:
         import polars as pl
         if isinstance(train_df, pl.DataFrame):
@@ -549,21 +552,33 @@ def _text_column_content_token(train_df: Any, column: str) -> int:
                 return 0
         digest = hashlib.blake2b(buf, digest_size=8).digest()
         return int.from_bytes(digest, "big") & ((1 << 63) - 1)
-    except Exception:
-        return 0
+    except Exception as _e:
+        # Pre-fix this returned a literal 0, which collides across all callers
+        # that hit the fallback path. Different train_df objects then shared
+        # the same InMemoryKey slot, replaying one suite's fitted encoder for
+        # another suite's frame. Fall back to ``id(train_df)`` so distinct
+        # frames at least get distinct tokens (id-recycle hazard is bounded by
+        # the per-process lifetime of train_df; the fallback path is rare).
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "_text_column_content_token: hash failed for column=%r (%s); using "
+            "id(train_df) fallback to avoid cross-frame cache collisions.",
+            column, _e,
+        )
+        return id(train_df) & ((1 << 63) - 1)
 
 
 def _target_content_token(train_target: Any) -> int:
     """Return a 63-bit integer fingerprint of ``train_target`` for the InMemoryKey.
 
-    The literal ``0`` placeholder collides across targets: a multi-target suite using a target-mean /
-    WoE encoder for two different y's would hit the same cache slot and reuse target-1's OOF
-    encodings for target-2. We hash the actual y content so distinct targets always produce
-    distinct keys, even within one session.
+    A literal ``0`` placeholder fallback collides across targets: a multi-target suite
+    using a target-mean / WoE encoder for two different y's would hit the same cache
+    slot and reuse target-1's OOF encodings for target-2. We hash the actual y content
+    so distinct targets always produce distinct keys, even within one session.
 
-    Returns ``0`` on conversion failure (the caller will then still collide -- documented fallback
-    rather than a silent wrong result, because the encoder will at least be re-fit at the next
-    call when this helper recovers).
+    On conversion failure we fall back to ``id(train_target)`` (NOT 0) plus a WARN
+    log so distinct y objects still get distinct tokens; id-recycle hazard is
+    bounded by the per-process lifetime of ``train_target``.
     """
     try:
         if hasattr(train_target, "to_numpy"):
@@ -580,8 +595,14 @@ def _target_content_token(train_target: Any) -> int:
         # Re-hash to 8 bytes (folded with shape/dtype) and clip to 63 bits to stay in signed int range.
         final = hashlib.blake2b(digest, digest_size=8).digest()
         return int.from_bytes(final, "big") & ((1 << 63) - 1)
-    except Exception:
-        return 0
+    except Exception as _e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "_target_content_token: hash failed (%s); using id(train_target) fallback "
+            "to avoid cross-target cache collisions (target-mean / WoE encoders would "
+            "otherwise replay target-1's fitted state for target-2).", _e,
+        )
+        return id(train_target) & ((1 << 63) - 1)
 
 
 __all__ = [

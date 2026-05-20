@@ -197,8 +197,19 @@ def prepare_df_for_catboost(
                             # Int64 / UInt64 / unknown extension: widen to float64.
                             target = np.float64
                         df[var] = df[var].astype(target)
-                    except Exception:
-                        pass
+                    except Exception as _e_cast:
+                        # Sibling branch at L179 logs WARN; this pd.NA-clearing
+                        # branch was added later WITHOUT a log. Silent failure
+                        # here leaves the nullable extension dtype intact, then
+                        # CatBoost crashes downstream on pd.NA -- the exact
+                        # corruption this code targets to PREVENT.
+                        logger.warning(
+                            "Could not convert extension-dtype column %s "
+                            "(dtype=%s, target=%s) for CatBoost: %s. "
+                            "Column still carries pd.NA which CatBoost cannot "
+                            "handle - downstream fit/predict will fail loudly.",
+                            var, df[var].dtype, target, _e_cast,
+                        )
 
     return df
 

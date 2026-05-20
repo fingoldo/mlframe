@@ -141,19 +141,51 @@ def _categorical_to_string_array(values: Sequence) -> np.ndarray:
 
 
 def _objectwise_isnull(arr: np.ndarray) -> np.ndarray:
-    """Vectorised None / NaN mask for object-dtype arrays. Falls back per-row when ufuncs fail on the
-    heterogeneous payload."""
+    """Vectorised None / NaN mask for object-dtype arrays.
+
+    Pre-fix this returned an all-False mask on per-row introspection failure,
+    so target-encoder fit silently treated None/NaN rows as valid encoded
+    values (their non-numeric content getting averaged into the per-category
+    mean / WoE). The "fall back per-row when ufuncs fail" docstring was
+    aspirational; the fallback was actually "pretend nothing is null."
+
+    Post-fix: try pandas.isna (the proper vectorised fallback for object-dtype
+    arrays). If THAT also fails, raise: silent target-encoder corruption is
+    strictly worse than a loud failure that surfaces the bad input early.
+    """
     try:
         is_none = np.array([x is None for x in arr], dtype=bool)
-    except Exception:
-        is_none = np.zeros(arr.shape, dtype=bool)
+    except Exception as _e_none:
+        # Per-row `is None` should never raise on a finite-iterable object
+        # array; if it does, the input is malformed enough that pandas.isna
+        # is the right tool. Don't silently zero - that's the bug we're
+        # fixing.
+        import pandas as _pd
+        try:
+            is_none = _pd.isna(arr).astype(bool)
+            # pandas.isna already covers NaN for floats; return early.
+            return is_none
+        except Exception as _e_pd:
+            raise ValueError(
+                f"_objectwise_isnull: both per-row `is None` ({_e_none}) and "
+                f"pandas.isna ({_e_pd}) failed on object array. Refusing to "
+                f"return an all-False mask, which would silently corrupt "
+                f"target-encoder fit by treating null rows as valid."
+            ) from _e_pd
     try:
         is_nan = np.array(
             [isinstance(x, float) and np.isnan(x) for x in arr],
             dtype=bool,
         )
-    except Exception:
-        is_nan = np.zeros(arr.shape, dtype=bool)
+    except Exception as _e_nan:
+        import pandas as _pd
+        try:
+            is_nan = _pd.isna(arr).astype(bool)
+        except Exception as _e_pd:
+            raise ValueError(
+                f"_objectwise_isnull: per-row NaN check failed ({_e_nan}) and "
+                f"pandas.isna fallback also failed ({_e_pd})."
+            ) from _e_pd
     return is_none | is_nan
 
 

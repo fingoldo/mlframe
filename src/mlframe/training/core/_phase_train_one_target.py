@@ -1126,8 +1126,19 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     if _f is not None:
                         try:
                             setattr(ctx, _frame_attr, apply_drops(_f, _drops))
-                        except Exception:
-                            pass
+                        except Exception as _drop_e:
+                            # Per-frame failure is best-effort but MUST be loud:
+                            # if one mirror keeps the pre-screen-dropped cols while
+                            # siblings have them removed, downstream training hits
+                            # opaque "feature missing" errors. The outer except at
+                            # the end of this block only catches whole-pre-screen
+                            # failure, not per-frame.
+                            logger.warning(
+                                "[pre-screen] apply_drops failed for ctx.%s: %s; "
+                                "this frame keeps the dropped columns while other "
+                                "frames have them removed - schema drift hazard.",
+                                _frame_attr, _drop_e,
+                            )
                 if ctx.verbose:
                     logger.info(
                         "[pre-screen] dropped %d column(s) suite-wide (variance=%s, null_fraction>%s): %s",
