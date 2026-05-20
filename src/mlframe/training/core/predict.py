@@ -35,6 +35,96 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
+_SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
+_CURRENT_SCHEMA_VERSION = 2
+
+
+def _validate_metadata_version_envelope(metadata: dict, models_path: str) -> None:
+    """Wave 19 P0 #2: validate the version-envelope fields the WRITE side
+    has been populating but the READ side previously ignored.
+
+    Pre-fix (before 2026-05-20) the load path never checked
+    ``metadata["schema_version"]`` or
+    ``metadata["composite_target_env_signature"]``, so a bundle written
+    by code path A could be silently consumed by code path B that
+    interpreted the same field set differently. Worst case: composite
+    targets specs (schema_version=2 contract) interpreted by code that
+    still assumed the v1 layout, then silent wrong predictions.
+
+    Severity policy:
+    - Missing ``schema_version`` AND no composite_target_specs ->
+      treat as legacy v1; INFO-log once, accept (back-compat).
+    - Missing ``schema_version`` AND composite_target_specs present ->
+      raise: the bundle can't be safely loaded without the version
+      stamp because the composite-spec contract changed at v2.
+    - Unsupported ``schema_version`` (not in
+      ``_SUPPORTED_SCHEMA_VERSIONS``) -> raise.
+    - ``schema_version`` < ``_CURRENT_SCHEMA_VERSION`` -> WARN, continue.
+    - ``composite_target_env_signature`` recorded but the live
+      ``env_signature()`` differs in major/minor lib versions -> WARN
+      with both signatures; predict proceeds (booster libraries are
+      typically forward-compatible for minor versions, but operators
+      should see the skew before chasing weird metric drift).
+    """
+    if not isinstance(metadata, dict):
+        # Some legacy bundles used a SimpleNamespace; nothing to validate.
+        return
+    schema_version = metadata.get("schema_version")
+    has_composite = bool(metadata.get("composite_target_specs"))
+    if schema_version is None:
+        if has_composite:
+            raise ValueError(
+                f"mlframe predict: bundle at {models_path!r} contains "
+                f"composite_target_specs but lacks schema_version. The "
+                f"composite-spec contract requires schema_version >= 2. "
+                f"Refusing to load: this bundle was written by code "
+                f"older than 2026-02 and the spec semantics it expects "
+                f"are unknowable from the artifact alone. Retrain on "
+                f"current mlframe."
+            )
+        logger.info(
+            "mlframe predict: bundle at %s has no schema_version "
+            "(legacy v1 artifact, no composite specs) -- loading with "
+            "v1 semantics.", models_path,
+        )
+        return
+    if schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
+        raise ValueError(
+            f"mlframe predict: bundle at {models_path!r} has unsupported "
+            f"schema_version={schema_version!r}. This mlframe build "
+            f"supports {sorted(_SUPPORTED_SCHEMA_VERSIONS)}. Either "
+            f"retrain on current mlframe OR pin to the mlframe version "
+            f"that wrote this schema."
+        )
+    if schema_version < _CURRENT_SCHEMA_VERSION:
+        logger.warning(
+            "mlframe predict: bundle at %s was written with "
+            "schema_version=%d, current is %d. Loading with backward-"
+            "compat semantics; some newer attributes may be missing.",
+            models_path, schema_version, _CURRENT_SCHEMA_VERSION,
+        )
+    # Composite-target env_signature drift check (booster lib versions).
+    saved_sig = metadata.get("composite_target_env_signature")
+    if saved_sig is not None:
+        try:
+            from ..composite import env_signature as _env_sig
+            live_sig = _env_sig()
+        except Exception as _e_env:
+            logger.debug(
+                "mlframe predict: env_signature() unavailable (%s); "
+                "skipping composite-env skew check.", _e_env,
+            )
+            return
+        if live_sig != saved_sig:
+            logger.warning(
+                "mlframe predict: composite-target env signature drift "
+                "between train and predict. Saved: %r. Live: %r. Booster "
+                "libraries are typically forward-compatible for minor "
+                "versions; if you see unexplained metric drift, retrain "
+                "on the live environment.", saved_sig, live_sig,
+            )
+
+
 def _polars_native_class_names() -> tuple[str, ...]:
     """Bare class-name allowlist for the polars fastpath: CatBoost and XGBoost sklearn-API estimators (and the
     DMatrix-reuse shim subclasses).
@@ -657,6 +747,15 @@ def predict_mlframe_models_suite(
             metadata = _pickle.load(_f)
     else:
         metadata = joblib.load(metadata_file)
+    # Wave 19 P0 #2: validate the schema_version + composite_target_env_signature
+    # fields that the WRITE side has populated since 2026-02 (see
+    # _phase_config_setup.py:312 + _phase_helpers.py:253). The READ side never
+    # checked them, so an artifact written by code path A could be silently
+    # consumed by code path B that interprets the same field-set differently.
+    # Validation is WARN-only on minor skew (lib versions, schema_version 1
+    # vs 2) and HARD-FAIL on missing schema_version when the bundle claims
+    # composite targets (those require schema_version >= 2 semantics).
+    _validate_metadata_version_envelope(metadata, models_path)
     results["metadata"] = metadata
 
     pipeline = metadata.get("pipeline")
@@ -1957,6 +2056,9 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
             metadata = _pickle.load(_f)
     else:
         metadata = joblib.load(metadata_file)
+    # Wave 19 P0 #2: validate version envelope here too (the second predict
+    # entry point at predict_from_models had the same dead-stamp blind spot).
+    _validate_metadata_version_envelope(metadata, models_path)
 
     slug_to_original_target_type = metadata.get("slug_to_original_target_type", {})
     slug_to_original_target_name = metadata.get("slug_to_original_target_name", {})
