@@ -625,11 +625,18 @@ def compute_ml_perf_by_time(
     y_true/y_pred/timestamps interface. Returns a DataFrame indexed by time
     bucket with columns [metric, n_samples].
     """
+    # Use the audit timestamp coercer so int64 epoch-seconds (~1.7e9) read as 2023-11
+    # not 1970-01-01T00:00:01.7 (the default pd.to_datetime(int64) = ns interpretation).
+    # Without this the pd.Grouper(freq=_freq) collapses every row into a single bucket
+    # spanning the entire data, silently turning a *time-resolved* metric report into a
+    # *single-bucket* report -- caller sees one row with the global metric value and
+    # cannot tell from the output that the time axis collapsed.
+    from .target_temporal_audit import coerce_timestamps_for_audit as _coerce_ts
     df = pd.DataFrame(
         {
             "y_true": np.asarray(y_true),
             "y_pred": np.asarray(y_pred, dtype=float),
-            "ts": pd.to_datetime(pd.Series(timestamps).values),
+            "ts": _coerce_ts(np.asarray(timestamps)),
         }
     )
     df = df.set_index("ts").sort_index()
