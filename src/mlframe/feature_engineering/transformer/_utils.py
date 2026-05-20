@@ -24,13 +24,23 @@ _GPU_AVAILABLE: Optional[bool] = None
 
 
 def is_gpu_available() -> bool:
-    """Return True iff cupy imports AND a 1-element device allocation round-trips successfully.
+    """Return True iff cupy imports AND can actually compile + run a reduction kernel.
 
-    Smoke-call (``cp.zeros(1).get()``) is essential: ``cupy-cuda12x`` on a host with only the CUDA 11.x driver imports cleanly but raises ``CUDARuntimeError`` on the
-    first actual kernel call. Without this probe, the dispatcher would route to GPU based on a successful import and then crash mid-pipeline.
+    Two-step probe:
+      1) ``cp.zeros(1).get()`` - device allocation + D2H copy. Catches the
+         ``cupy-cuda12x`` vs CUDA-11-driver mismatch (imports cleanly,
+         raises CUDARuntimeError on first kernel call).
+      2) ``cp.asarray([1.0]).sum().item()`` - forces an NVRTC kernel
+         compilation. Catches broken nvrtc/cublas DLL installs where the
+         allocation succeeds but kernel compilation enters cupy's softlink
+         retry loop and raises RecursionError (observed 2026-05-20 on a
+         host with renamed cublas64_11 DLLs - cupy's _get_nvrtc_version
+         exception handler re-enters _get_softlink and recurses).
 
-    The result is memoised per-process. Children spawned via ``multiprocessing`` re-probe in their own CUDA context (avoids a parent-process detection silently
-    propagating to a child without a usable GPU).
+    ``except BaseException`` covers RecursionError too (it's a RuntimeError
+    subclass so ``except Exception`` would also catch it, but be explicit
+    in case future cupy versions raise SystemError or similar).
+    Result is memoised per-process.
     """
     global _GPU_AVAILABLE
     if _GPU_AVAILABLE is not None:
@@ -38,10 +48,12 @@ def is_gpu_available() -> bool:
     try:
         import cupy as cp
         _ = cp.zeros(1, dtype=cp.float32).get()
+        _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
         _GPU_AVAILABLE = True
         logger.info("GPU (cupy) detected and usable.")
-    except Exception as exc:  # pragma: no cover - environment-dependent
-        # Catch broad Exception so an ImportError, a CUDARuntimeError, or any driver/runtime mismatch all fall back to CPU silently.
+    except BaseException as exc:  # pragma: no cover - environment-dependent
+        # Broad catch: ImportError, CUDARuntimeError, RecursionError from
+        # broken nvrtc DLL retry loop, any driver/runtime mismatch.
         _GPU_AVAILABLE = False
         logger.info("GPU (cupy) unavailable, falling back to CPU. Reason: %s: %s", type(exc).__name__, exc)
     return _GPU_AVAILABLE

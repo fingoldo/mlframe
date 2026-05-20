@@ -2656,20 +2656,30 @@ def run_cat_interaction_step(
     # - "auto": GPU only at large-N regime (N>=200 cols AND n>=500k rows)
     use_gpu = False
     if cfg.backend == "gpu":
+        # Bare `import cupy` succeeds on broken CUDA installs (cupy-cuda12x
+        # against a CUDA-11 driver, renamed cublas/nvrtc DLLs, ...). Probe
+        # via is_gpu_available() which compiles a kernel and catches the
+        # RecursionError-loop that broken nvrtc DLLs trigger inside cupy's
+        # _get_softlink retry path.
+        from mlframe.feature_engineering.transformer._utils import is_gpu_available
+        if not is_gpu_available():
+            raise RuntimeError(
+                "cat-FE: backend='gpu' requested but cupy/CUDA is not usable. "
+                "Install cupy matching your CUDA toolkit, or set backend='cpu'."
+            )
         use_gpu = True
     elif cfg.backend == "auto":
         n_cols_eff = len(candidate_idxs_arr)
         if n_cols_eff >= 200 and n_samples >= 500_000:
-            try:
-                import cupy  # noqa: F401
+            from mlframe.feature_engineering.transformer._utils import is_gpu_available
+            if is_gpu_available():
                 use_gpu = True
-            except ImportError:
-                if verbose:
-                    logger.info(
-                        "cat-FE: backend='auto' wanted GPU at N=%d, n=%d "
-                        "but CuPy not installed; falling back to CPU.",
-                        n_cols_eff, n_samples,
-                    )
+            elif verbose:
+                logger.info(
+                    "cat-FE: backend='auto' wanted GPU at N=%d, n=%d "
+                    "but cupy is unavailable; falling back to CPU.",
+                    n_cols_eff, n_samples,
+                )
 
     # Choose weighted vs unweighted kernel. Use weighted only when weights are actually non-uniform; uniform weights are equivalent to unweighted and the weighted
     # kernel costs extra ops, so skip in that case.
