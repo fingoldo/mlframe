@@ -251,6 +251,10 @@ except (ImportError, OSError, RuntimeError):  # pragma: no cover
 # for the rationale.
 try:
     import pyutilz.system as _pus  # noqa: E402
+    # Inner module holds the LIVE definition; pyutilz.system re-exports via
+    # ``from .system import *`` so the two names are separate bindings to the
+    # same function object until we rebind one of them.
+    import pyutilz.system.system as _pus_inner  # noqa: E402
     if not getattr(_pus.tqdmu, "_mlframe_test_quieted", False):
         _orig_tqdmu = _pus.tqdmu
 
@@ -260,19 +264,31 @@ try:
 
         _quiet_tqdmu._mlframe_test_quieted = True
         _pus.tqdmu = _quiet_tqdmu
-        # Re-export to any module that already imported the symbol at top level.
-        # Each refresh is also idempotent because we just point at the already-
-        # patched _quiet_tqdmu.
+        # Patch the INNER binding too. ``tqdmu_lazy_start`` (also in
+        # pyutilz.system.system) does ``bar = tqdmu(iter([]), **kwargs)`` --
+        # the bare ``tqdmu`` name resolves against the inner module's own
+        # globals, NOT against pyutilz.system. Without this rebind the
+        # ``pre_pipeline`` / ``mlframe model`` bars built via lazy_start
+        # keep spamming the test log even after the outer rebind. Observed
+        # 2026-05-20 on S: in fuzz_3way output. Once the inner tqdmu is
+        # the quiet variant, lazy_start automatically inherits the
+        # ``disable=True`` default - no separate wrapper needed.
+        _pus_inner.tqdmu = _quiet_tqdmu
+        # Re-export to any mlframe module that already imported the symbol
+        # at top level. Each refresh is idempotent (we just point at the
+        # already-patched _quiet_tqdmu).
         for _mod_path in (
             "mlframe.feature_selection.filters.mrmr",
             "mlframe.feature_selection.filters.feature_engineering",
             "mlframe.feature_selection.wrappers._rfecv",
             "mlframe.feature_selection.filters.screen",
+            "mlframe.training.core._phase_train_one_target",
         ):
             try:
                 import importlib
                 _mod = importlib.import_module(_mod_path)
-                _mod.tqdmu = _quiet_tqdmu
+                if hasattr(_mod, "tqdmu"):
+                    _mod.tqdmu = _quiet_tqdmu
             except Exception:
                 pass
 except (ImportError, OSError, RuntimeError):  # pragma: no cover
