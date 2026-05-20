@@ -505,11 +505,14 @@ def _run_suite_end_dummy_baselines_summary(
                 _model_list = models.get(_tt, {}).get(_tname, [])
                 if not _model_list:
                     continue
-                # Minimize for RMSE/MAE/log_loss/pinball; maximize otherwise (NDCG/AUC).
-                _is_minimize = (
-                    "RMSE" in _metric_name or "MAE" in _metric_name
-                    or "log_loss" in _metric_name or "pinball" in _metric_name
-                )
+                # Wave 20 fix: registry dispatcher (same as dummy_baselines).
+                # Substring whitelist missed MAPE / MSE / ICE / brier / KL /
+                # perplexity -- those would silently route through the
+                # else-branch and pick the WORST model as "best" for the
+                # suite-end verdict block.
+                from ..metrics_registry import metric_name_higher_is_better as _mhb
+                _direction = _mhb(_metric_name)
+                _is_minimize = True if _direction is None else (not _direction)
                 # For composite targets prefer y-scale metrics (post-inverse, comparable to raw / y-scale dummy).
                 _yscale_entries = (
                     metadata.get("composite_target_y_scale_metrics", {})

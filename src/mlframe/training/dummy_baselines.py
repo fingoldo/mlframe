@@ -599,17 +599,20 @@ class BaselineReport(NamedTuple):
             if trivial_name is not None and trivial_name != self.strongest:
                 trivial_val = self.table.loc[trivial_name].get(self.primary_metric, float("nan"))
                 if np.isfinite(primary_val) and np.isfinite(trivial_val) and trivial_val != 0:
-                    # Direction-aware lift. Maximize metrics (NDCG/MAP/MRR/AUC):
-                    # lift = (primary - trivial) / trivial. Minimize metrics
-                    # (RMSE / log_loss / pinball): lift = (trivial - primary) / trivial.
-                    # Sign convention: positive lift always means "strongest beat trivial".
-                    _maximize_metrics = (
-                        "val_NDCG@10", "val_NDCG@5", "val_NDCG@1",
-                        "val_MAP@10", "val_MRR", "val_AUC", "val_roc_auc",
-                    )
-                    if self.primary_metric in _maximize_metrics:
+                    # Wave 20 fix: registry dispatcher. The previous tuple
+                    # whitelist missed val_F1, val_accuracy, val_R2, val_AP,
+                    # val_precision, val_recall and reported inverted lift_pct
+                    # in the operator-facing summary (P1: model still trained
+                    # correctly upstream, but the user-visible verdict was
+                    # silently flipped).
+                    from .metrics_registry import metric_name_higher_is_better as _mhb
+                    _direction = _mhb(self.primary_metric)
+                    if _direction is True:
                         lift_pct = (primary_val - trivial_val) / abs(trivial_val) * 100
                     else:
+                        # False (lower-is-better) or None (unknown) -> use
+                        # the minimize convention; unknowns default toward
+                        # not-flipping silently in the operator's face.
                         lift_pct = (trivial_val - primary_val) / abs(trivial_val) * 100
                     lift_str = f" lift_vs_{trivial_name}={lift_pct:+.1f}%"
             tie_suffix = ""
@@ -1802,9 +1805,25 @@ def _pick_strongest(
     else:
         return None, None
 
-    # Strongest = lowest for minimize-metrics (RMSE / log_loss / pinball);
-    # highest for NDCG / MAP / MRR.
-    minimize = primary_metric not in ("val_NDCG@10", "val_MAP@10", "val_MRR", "val_NDCG@5", "val_NDCG@1")
+    # Wave 20 fix: delegate metric direction to the central registry
+    # dispatcher instead of an ad-hoc whitelist that missed common
+    # higher-is-better classification metrics (val_AUC, val_F1,
+    # val_accuracy, val_R2, val_AP, val_precision, val_recall) -- those
+    # would otherwise pick the WORST baseline as strongest via idxmin.
+    from .metrics_registry import metric_name_higher_is_better as _mhb
+    _direction = _mhb(primary_metric)
+    if _direction is None:
+        # Unknown metric: WARN and default to "minimize" (the prior
+        # behaviour for unknowns); the operator should register the
+        # metric to get the right direction.
+        logger.warning(
+            "_pick_strongest: cannot determine direction for primary_metric=%r; "
+            "defaulting to minimize=True. Register via metrics_registry to fix.",
+            primary_metric,
+        )
+        minimize = True
+    else:
+        minimize = not _direction
     metric_col = eligible[ref_metric].dropna()
     if metric_col.empty:
         return None, None
@@ -2099,7 +2118,10 @@ def _paired_bootstrap_vs_runner_up(
     series = table[ref_col].dropna()
     if strongest not in series.index or len(series) < 2:
         return None
-    minimize = primary_metric not in ("val_NDCG@10", "val_MAP@10", "val_MRR", "val_NDCG@5", "val_NDCG@1")
+    # Wave 20 fix: registry dispatcher (same shape as _pick_strongest above).
+    from .metrics_registry import metric_name_higher_is_better as _mhb
+    _direction = _mhb(primary_metric)
+    minimize = True if _direction is None else (not _direction)
     series_excl_strongest = series.drop(index=strongest)
     if series_excl_strongest.empty:
         return None
@@ -2796,15 +2818,16 @@ def format_suite_end_summary(
                     model_val = model_metrics.get(primary_metric)
                     best_model_name = model_metrics.get("model_name", "--")
 
-            # Compute lift. Minimize-metrics (RMSE / log_loss): lift =
-            # dummy / model. Maximize-metrics (NDCG@k / AUC): lift = model
-            # / dummy. Heuristic by metric name.
-            is_minimize = (
-                "RMSE" in primary_metric
-                or "MAE" in primary_metric
-                or "log_loss" in primary_metric
-                or "pinball" in primary_metric
-            )
+            # Wave 20 fix: registry dispatcher. The previous substring
+            # whitelist missed val_MAPE (MAPE not in 'MAE' substring),
+            # val_MSE (not in 'RMSE'), val_ICE, val_brier, val_KL,
+            # val_perplexity -- all lower-is-better metrics whose lift
+            # was silently computed as model_val/dummy_val (giving
+            # "TASK_NON_TRIVIAL" verdict on degenerate models).
+            from .metrics_registry import metric_name_higher_is_better as _mhb
+            _direction = _mhb(primary_metric)
+            # Unknown -> default to minimize (the prior heuristic-default).
+            is_minimize = True if _direction is None else (not _direction)
             lift_str = "-"
             verdict = "-"
             if model_val is not None and np.isfinite(dummy_val) and np.isfinite(model_val):

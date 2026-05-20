@@ -71,36 +71,36 @@ class UniversalCallback:
             logger.debug("Updated metric history: %s", metrics_dict)
 
     def derive_mode(self, metric_name: str) -> str:
-        known_metric_modes = {
-            "auc": "max",
-            "accuracy": "max",
-            "acc": "max",
-            "f1": "max",
-            "map": "max",
-            "ndcg": "max",
-            "ice": "min",
-            "mae": "min",
-            "mse": "min",
-            "mape": "min",
-            "rmse": "min",
-            "logloss": "min",
-            "error": "min",
-            "loss": "min",
-        }
+        """Wave 20 fix: delegate to ``metric_name_higher_is_better`` instead
+        of the prior heuristic ladder that ended in ``endswith("e") -> "min"``.
 
-        name = metric_name.lower()
-        for key, default_mode in known_metric_modes.items():
-            if key == name:
-                return default_mode
-        if "score" in name or "auc" in name or "accuracy" in name:
+        The old fallback silently classified custom metric names (``gini``,
+        ``kappa``, ``r2``, ``accuracy_score``, ``pr_auc``, etc.) as ``"min"``
+        because they didn't match the hard-coded substring rules. ``should_stop()``
+        then early-stopped at the WORST iteration. This is a P0 (drives actual
+        training, not just reporting).
+
+        Unknown metric names now WARN and default to ``"min"`` only as a
+        deliberate fallback -- the caller can override via the configured
+        ``mode=`` kwarg if they pass a custom metric the registry doesn't
+        know about.
+        """
+        from .metrics_registry import metric_name_higher_is_better
+        direction = metric_name_higher_is_better(metric_name)
+        if direction is True:
             return "max"
-        elif "loss" in name or "error" in name:
+        if direction is False:
             return "min"
-        elif name.endswith("e"):
-            return "min"
-        else:
-            logger.warning(f"Unsure about correct optimization mode for metric={name}, using min for now.")
-            return "min"  # fallback default
+        # Genuinely unknown -- WARN loudly with names of both built-in tables
+        # so the operator either registers the metric or passes mode= explicitly.
+        logger.warning(
+            "derive_mode: cannot determine optimization direction for metric=%r. "
+            "Register it via mlframe.training.metrics_registry.register_metric "
+            "or pass mode='min'/'max' explicitly. Falling back to 'min' which "
+            "may cause early-stop at the WORST iteration if the metric is "
+            "actually higher-is-better.", metric_name,
+        )
+        return "min"  # explicit-fallback default
 
     def set_default_monitor_metric(self, metrics_dict: dict[str, dict[str, float]]) -> None:
         if self.monitor_dataset not in metrics_dict:

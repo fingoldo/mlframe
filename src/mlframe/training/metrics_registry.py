@@ -142,6 +142,120 @@ def get_metric_direction(
     return None if spec is None else spec.higher_is_better
 
 
+# Built-in known directions for common metric NAMES (independent of target
+# type). Wave 20 fix: 6 production sites previously rolled their own
+# ad-hoc substring / whitelist tables that DISAGREED with each other
+# (e.g. dummy_baselines.py:606 included AUC; dummy_baselines.py:1807
+# excluded it). This single table replaces all of them.
+#
+# The lookup is case-insensitive and strips common prefixes (val_, test_,
+# oof_, train_) and `@k` rank-cutoff suffixes (NDCG@10 -> NDCG).
+#
+# Higher-is-better metrics: rank quality, classification quality, R^2.
+# Lower-is-better metrics: regression losses, calibration losses,
+# probabilistic losses.
+#
+# Names should be stored canonicalised (lowercase, prefix-stripped, @k-stripped)
+# in the table; lookup canonicalises the query the same way.
+_KNOWN_METRIC_DIRECTIONS_HIGHER: frozenset[str] = frozenset({
+    # Ranking-quality metrics
+    "ndcg", "map", "mrr", "ap", "average_precision", "precision_at_k",
+    "recall_at_k", "hit_rate", "hit_at_k",
+    # Classification-quality metrics
+    "auc", "roc_auc", "pr_auc", "auprc",
+    "accuracy", "accuracy_score",
+    "f1", "f1_score", "f1_macro", "f1_micro", "f1_weighted",
+    "precision", "precision_macro", "precision_micro",
+    "recall", "recall_macro", "recall_micro", "sensitivity", "specificity",
+    "balanced_accuracy", "matthews_corrcoef", "mcc",
+    "cohen_kappa", "kappa",
+    "subset_accuracy", "jaccard_score_multilabel", "jaccard",
+    "gini",
+    # Regression-quality metrics where higher means better
+    "r2", "r2_score", "explained_variance",
+})
+
+_KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
+    # Regression losses
+    "rmse", "mae", "mse", "mape", "smape", "huber_loss",
+    "median_absolute_error", "max_error",
+    # Probabilistic / calibration losses
+    "log_loss", "logloss", "brier", "brier_score", "cross_entropy",
+    "kl_divergence", "kl", "perplexity",
+    "ice", "integral_error", "integral_calibration_error",
+    "ece", "expected_calibration_error",
+    # Multilabel losses
+    "hamming_loss", "hamming",
+    # Quantile losses
+    "pinball", "pinball_loss", "quantile_loss",
+})
+
+
+def _canonicalise_metric_name(name: str) -> str:
+    """Strip common prefixes (val_/test_/oof_/train_) and @k rank-cutoff
+    suffixes; lowercase. Used by ``metric_name_higher_is_better``."""
+    if not isinstance(name, str):
+        return ""
+    s = name.strip().lower()
+    for prefix in ("val_", "test_", "oof_", "train_", "holdout_"):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+            break
+    if "@" in s:
+        s = s.split("@", 1)[0]
+    return s
+
+
+def metric_name_higher_is_better(name: str) -> Optional[bool]:
+    """Target-type-agnostic direction lookup for a metric name.
+
+    Returns:
+        True if the metric is in the known higher-is-better set.
+        False if the metric is in the known lower-is-better set.
+        None if the name is genuinely unknown (caller must decide whether
+        to raise / default / warn). Returning None rather than a default
+        prevents the ``endswith("e") -> 'min'`` anti-pattern that wave 20
+        identified as the root cause of training the WORST iteration on
+        custom metric names.
+
+    Wave 20 fix: replaces 6 ad-hoc substring/whitelist tables in
+    dummy_baselines.py / _callbacks.py / _phase_composite_post.py that
+    disagreed with each other and missed common classification metrics
+    (F1, accuracy, R2, precision, recall, AP) AND common regression
+    losses (MAPE, MSE, ICE, brier, KL, perplexity).
+
+    Example:
+        >>> metric_name_higher_is_better("val_AUC")
+        True
+        >>> metric_name_higher_is_better("test_RMSE")
+        False
+        >>> metric_name_higher_is_better("val_NDCG@10")
+        True
+        >>> metric_name_higher_is_better("custom_unregistered_metric")  # None
+    """
+    s = _canonicalise_metric_name(name)
+    if not s:
+        return None
+    if s in _KNOWN_METRIC_DIRECTIONS_HIGHER:
+        return True
+    if s in _KNOWN_METRIC_DIRECTIONS_LOWER:
+        return False
+    # Fallback: scan the per-target registry for ANY match. A metric
+    # registered for one target type usually has the same direction for
+    # all (a single metric callable doesn't change meaning across target
+    # types). Return None if no match anywhere.
+    for _tt_specs in _REGISTRY.values():
+        spec = _tt_specs.get(name)
+        if spec is not None:
+            return spec.higher_is_better
+        # Also try canonicalised registry key in case the registry stored
+        # the un-prefixed name.
+        spec = _tt_specs.get(s)
+        if spec is not None:
+            return spec.higher_is_better
+    return None
+
+
 # ----------------------------------------------------------------------------
 # Built-in registrations — land at import time
 # ----------------------------------------------------------------------------
