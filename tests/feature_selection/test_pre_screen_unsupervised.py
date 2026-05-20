@@ -11,7 +11,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from mlframe.feature_selection.filters.pre_screen import apply_drops, compute_unsupervised_drops
+from mlframe.feature_selection.pre_screen import apply_drops, compute_unsupervised_drops
 
 
 def _build_pandas_train_df(n=200):

@@ -992,7 +992,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     _fs_cfg = ctx.feature_selection_config
     if _fs_cfg is not None and getattr(_fs_cfg, "pre_screen_unsupervised", False) and not ctx._pre_screen_done:
         try:
-            from mlframe.feature_selection.filters.pre_screen import compute_unsupervised_drops, apply_drops
+            # Canonical home is ``mlframe.feature_selection.pre_screen`` (not under ``.filters``).
+            # The shorter path avoids triggering ``filters/__init__.py``'s ``from ._legacy import *``,
+            # which cascades into ``_numba_utils`` and pays ~0.8s of @njit decorator init on
+            # cold-start (measured 2026-05-20). Saves that wall on every suite call that doesn't
+            # also use MRMR (which is the majority of fuzz iters / non-FS production combos).
+            from mlframe.feature_selection.pre_screen import compute_unsupervised_drops, apply_drops
             _protected = set()
             if isinstance(targets, dict):
                 _protected.update(str(k) for k in targets.keys())
