@@ -508,10 +508,14 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
             return np.array(npz[npz.files[0]])
         # ``kind`` is a uint8 ASCII-byte vector (post-audit format) OR a
         # legacy object-dtype length-1 array. Decode both.
+        # Wave 77 (2026-05-21): handle legacy bytes-typed object arrays too --
+        # `str(b"ndarray") == "b'ndarray'"` would silently miss the kind==
+        # checks below and raise ValueError("unknown serialised kind ...").
         if kind_arr.dtype == np.uint8:
             kind = bytes(kind_arr).decode("ascii")
         else:
-            kind = str(kind_arr[0])
+            raw = kind_arr[0]
+            kind = raw.decode("ascii") if isinstance(raw, (bytes, bytearray)) else str(raw)
         if kind == "ndarray":
             return np.array(npz["value"])
         if kind == "csr":
