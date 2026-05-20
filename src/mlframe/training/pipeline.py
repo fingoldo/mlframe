@@ -414,7 +414,14 @@ def _apply_pysr_fe(
         # except-return path. The previous duplicate drop here was redundant.
         return []
     finally:
-        train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")
+        # Wave 52 (2026-05-20): wrap drop in try/except so a pandas KeyError chain
+        # on a corrupted MultiIndex column or a read-only frame doesn't mask the
+        # in-flight exception (errors="ignore" covers the missing-column case but
+        # not deeper pandas-internal failures).
+        try:
+            train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")
+        except Exception as _drop_err:
+            logger.debug("pipeline: temp_target_col drop failed in finally: %s", _drop_err)
 
     # Apply top-K equations (by score)
     eq_df = model.equations_

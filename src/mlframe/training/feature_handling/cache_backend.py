@@ -201,7 +201,19 @@ class LocalDiskBackend:
             with self._lru_mem_lock:
                 yield
         finally:
-            file_lock.__exit__(None, None, None)
+            # Wave 52 (2026-05-20): forward in-flight exception info to __exit__
+            # (CM contract) AND wrap in try/except so PIDAwareFileLock cleanup
+            # errors (unlink races, release timeouts) don't mask the yield-body
+            # exception. Without forwarding, the inner lock manager couldn't run
+            # exception-aware suppression / logging.
+            import sys as _sys, logging as _lg
+            _exc = _sys.exc_info()
+            try:
+                file_lock.__exit__(*_exc)
+            except Exception as _exit_err:
+                _lg.getLogger(__name__).warning(
+                    "DiskBackend LRU filelock __exit__ failed: %s", _exit_err,
+                )
 
     def _load_lru(self) -> "dict[str, float]":
         import json

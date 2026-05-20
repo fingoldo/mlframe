@@ -149,8 +149,18 @@ def compute_row_attention(
                     ann_ef_search=ann_ef_search, num_threads=num_threads, stage4_callable=stage4_callable, dtype=dtype,
                 )
             finally:
+                # Wave 52 (2026-05-20): wrap free_device in try/except so CUDA cleanup
+                # errors on a broken context (e.g. after attend() OOM) don't mask the
+                # original failure the operator needs to see.
                 if keep_key_bank_on_gpu:
-                    bank.free_device()
+                    try:
+                        bank.free_device()
+                    except Exception as _free_err:
+                        import logging as _lg
+                        _lg.getLogger(__name__).warning(
+                            "row_attention: bank.free_device() failed (likely after upstream CUDA error): %s",
+                            _free_err,
+                        )
         # Tag each k-scale's output keys with the k value to keep column names unique across scales. The tag must be a PREFIX (k32_y_mean_h0) so the
         # ``stack_outputs_to_array`` lookup pattern ``f"{agg}_h{h}"`` continues to find the right key (k32_y_mean is the aggregate, h0 is appended by the stack).
         if len(ks_to_run) > 1:

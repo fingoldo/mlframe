@@ -705,12 +705,21 @@ class DiscoveryCache:
             return 0
         # Same lock as _touch_lru: eviction reads + writes the sidecar AND removes files; another
         # process eviction sweep racing here could double-delete or leave the sidecar inconsistent.
+        # Wave 52 (2026-05-20): capture sys.exc_info() so the in-flight exception is
+        # forwarded to the lock manager's __exit__ (preserves CM contract), AND wrap
+        # __exit__ itself in try/except so a filelock cleanup error doesn't mask the
+        # eviction-body exception.
+        import sys as _sys
         _lock_ctx = self._maybe_filelock(self._lock_path())
         _lock_ctx.__enter__()
         try:
             return self._evict_to_caps_locked()
         finally:
-            _lock_ctx.__exit__(None, None, None)
+            _exc = _sys.exc_info()
+            try:
+                _lock_ctx.__exit__(*_exc)
+            except Exception as _exit_err:
+                logger.warning("DiscoveryCache eviction filelock __exit__ failed: %s", _exit_err)
 
     def _evict_to_caps_locked(self) -> int:
         lru = self._load_lru()

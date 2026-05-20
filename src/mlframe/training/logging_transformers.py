@@ -59,7 +59,13 @@ def log_resources(
                 return func(self, *args, **kwargs)
             finally:
                 dt = time.perf_counter() - t0
-                rss1 = proc.memory_info().rss / 1024 ** 2
+                # Wave 52 (2026-05-20): wrap RSS read in try/except. psutil can raise
+                # NoSuchProcess on zombie children / pool worker shutdown -- and a
+                # raise in finally would mask the func() exception we just caught.
+                try:
+                    rss1 = proc.memory_info().rss / 1024 ** 2
+                except Exception:
+                    rss1 = 0.0
                 label = stage or func.__qualname__
                 cls_name = type(self).__name__
                 extra = {

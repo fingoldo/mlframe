@@ -172,7 +172,17 @@ class PIDAwareFileLock:
                 os.unlink(self._meta_path())
             except FileNotFoundError:
                 pass
-            self._lock.release()
+            # Wave 52 (2026-05-20): wrap release() in its own try/except so
+            # a filelock Timeout / OSError on lock-file unlink (Windows paging
+            # stress) doesn't mask the in-flight exception from the `with` body
+            # AND doesn't propagate a release-side error past the user.
+            try:
+                self._lock.release()
+            except Exception as _rel_err:
+                import logging as _lg
+                _lg.getLogger(__name__).warning(
+                    "PIDAwareFileLock.release() failed for %s: %s", self.path, _rel_err,
+                )
         finally:
             self._held = False
 
