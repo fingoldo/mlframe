@@ -318,7 +318,13 @@ def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constan
     """We can't created such estimator directly, as y_true is never passed during predict().
     So this helper func is just for train set.
     """
-    assert strategy in ("constant_lag", "adaptive_lag")
+    # Wave 31 (2026-05-20): assert -> ValueError so -O doesn't strip the
+    # check. Pre-fix invalid strategy slipped past + ``y_pred`` was
+    # never assigned, causing UnboundLocalError far from root.
+    if strategy not in ("constant_lag", "adaptive_lag"):
+        raise ValueError(
+            f"strategy must be 'constant_lag' or 'adaptive_lag'; got {strategy!r}."
+        )
     if strategy == "constant_lag":
         if y_true.ndim == 1:
             shift_params = lag
@@ -389,12 +395,24 @@ def soft_winsorize(
     array([  1.8,   2. , 145. ,   3. ,   4. ,   5. , 142.5], dtype=float32)
 
     """
-    assert distribution in ("linear", "quantile")
+    # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
+    if distribution not in ("linear", "quantile"):
+        raise ValueError(
+            f"distribution must be 'linear' or 'quantile'; got {distribution!r}."
+        )
 
     rel_max_real_diff = np.max(data) - abs_upper_threshold
     rel_min_real_diff = abs_lower_threshold - np.min(data)
-    assert rel_max_real_diff >= 0
-    assert rel_min_real_diff >= 0
+    if rel_max_real_diff < 0:
+        raise ValueError(
+            f"abs_upper_threshold={abs_upper_threshold} is above the data max "
+            f"({np.max(data)}); no data to winsorize above."
+        )
+    if rel_min_real_diff < 0:
+        raise ValueError(
+            f"abs_lower_threshold={abs_lower_threshold} is below the data min "
+            f"({np.min(data)}); no data to winsorize below."
+        )
 
     if inplace:
         target = data
@@ -430,13 +448,25 @@ def identity(x):
 
 def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "winsor_quantile", winsor_rel_muliplier: float = 0.05) -> np.ndarray:
     """Clips ndarray to its symmetric quantiles either soft (soft_winsorize) or hard (np.clip) way."""
-    assert method in ("hard", "winsor_linear", "winsor_quantile")
-
-    assert isinstance(quantile, Number)
-    assert 0 <= quantile <= 1
-
-    assert isinstance(winsor_rel_muliplier, Number)
-    assert 0 <= winsor_rel_muliplier <= 1
+    # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
+    # Pre-fix bad ``method`` slipped past and the elif chain returned None.
+    if method not in ("hard", "winsor_linear", "winsor_quantile"):
+        raise ValueError(
+            f"method must be 'hard', 'winsor_linear', or 'winsor_quantile'; "
+            f"got {method!r}."
+        )
+    if not isinstance(quantile, Number):
+        raise TypeError(f"quantile must be a number; got {type(quantile).__name__}.")
+    if not (0 <= quantile <= 1):
+        raise ValueError(f"quantile must be in [0, 1]; got {quantile!r}.")
+    if not isinstance(winsor_rel_muliplier, Number):
+        raise TypeError(
+            f"winsor_rel_muliplier must be a number; got {type(winsor_rel_muliplier).__name__}."
+        )
+    if not (0 <= winsor_rel_muliplier <= 1):
+        raise ValueError(
+            f"winsor_rel_muliplier must be in [0, 1]; got {winsor_rel_muliplier!r}."
+        )
 
     if quantile > 0.5:
         quantile_from, quantile_to = np.quantile(arr, q=[1 - quantile, quantile])
@@ -506,10 +536,24 @@ class IdentityEstimator(BaseEstimator):
             if self.feature_names:
                 return X.loc[:, self.feature_names].values
             else:
-                assert self.feature_indices is not None
+                # Wave 31 (2026-05-20): assert -> ValueError so -O doesn't
+                # strip the guard. Constructor default is None for both
+                # feature_names and feature_indices; calling predict()
+                # without setting EITHER would raise an opaque IndexError
+                # rather than a clear missing-config message.
+                if self.feature_indices is None:
+                    raise ValueError(
+                        "IdentityEstimator: neither feature_names nor "
+                        "feature_indices set on the instance; pass one at "
+                        "construction time."
+                    )
                 return X.iloc[:, self.feature_indices].values
         else:
-            assert self.feature_indices is not None
+            if self.feature_indices is None:
+                raise ValueError(
+                    "IdentityEstimator: feature_indices not set; pass "
+                    "feature_indices at construction for ndarray inputs."
+                )
             return X[:, self.feature_indices]
 
 

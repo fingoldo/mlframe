@@ -182,7 +182,15 @@ def is_variable_truly_continuous(
     so probably, for vars with fractional digits, need to try iteratively with increasing max_fract_digits=(1,2,.) as long as unique_fracts keeps growing.
     """
     if values is None:
-        assert df is not None and variable_name
+        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix under -O,
+        # ``values = df[variable_name].values`` would AttributeError on
+        # None far from the root cause.
+        if df is None or not variable_name:
+            raise ValueError(
+                "is_variable_truly_continuous: when values is None, both "
+                f"df and variable_name must be provided; got df={df!r}, "
+                f"variable_name={variable_name!r}."
+            )
         values = df[variable_name].values
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -194,7 +202,12 @@ def is_variable_truly_continuous(
     if var_is_numeric is None:
         var_is_numeric = is_numeric_dtype(values)
 
-    assert var_is_numeric or var_is_datetime
+    # Wave 31 (2026-05-20): assert -> TypeError.
+    if not (var_is_numeric or var_is_datetime):
+        raise TypeError(
+            "is_variable_truly_continuous: values must be numeric or "
+            "datetime-typed; got non-numeric non-datetime data."
+        )
 
     if var_is_numeric:
         nz_fract_digits = 0
@@ -244,7 +257,11 @@ def is_variable_truly_continuous(
         if calculated_quantiles is None:
             if use_quantile > 0.5:
                 use_quantile = 1 - use_quantile
-            assert use_quantile > 0 and use_quantile < 1.0
+            # Wave 31 (2026-05-20): assert -> ValueError.
+            if not (0 < use_quantile < 1.0):
+                raise ValueError(
+                    f"use_quantile must be in (0, 1); got {use_quantile!r}."
+                )
 
             use_quantiles = (use_quantile, 1 - use_quantile)
             calculated_quantiles = np.nanquantile(values, use_quantiles)
@@ -252,7 +269,12 @@ def is_variable_truly_continuous(
                 quantile=use_quantile,
             )  # !TODO add sigma, dist+kwargs fields
         else:
-            assert tukey_fences_multiplier is not None
+            # Wave 31 (2026-05-20): assert -> ValueError.
+            if tukey_fences_multiplier is None:
+                raise ValueError(
+                    "When calculated_quantiles is provided, "
+                    "tukey_fences_multiplier MUST also be supplied."
+                )
 
         values_in_span = values[(values >= calculated_quantiles[0]) & (values <= calculated_quantiles[1])]
         iqr = calculated_quantiles[1] - calculated_quantiles[0]
@@ -332,7 +354,13 @@ def suggest_non_outlying_data_indices(values: np.ndarray, var: str = None, use_q
     
     if use_quantile > 0.5:
         use_quantile = 1 - use_quantile
-    assert use_quantile > 0 and use_quantile < 1.0
+    # Wave 31 (2026-05-20): assert -> ValueError. -O previously stripped
+    # the guard, letting use_quantile=0 / 1.0 reach nanquantile which
+    # returns +/-inf and silently propagated NaN.
+    if not (0 < use_quantile < 1.0):
+        raise ValueError(
+            f"use_quantile must be in (0, 1); got {use_quantile!r}."
+        )
     use_quantiles = (use_quantile, 1 - use_quantile)
 
     calculated_quantiles = np.nanquantile(values, use_quantiles)

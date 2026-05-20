@@ -187,12 +187,30 @@ class MBHOptimizer:
         if model_params is None:
             model_params = {"iterations": 150}
 
-        assert quantile > 0.0 and quantile < 0.5
-        assert len(search_space) > 0
-        assert acquisition_method in ("EE")
-        assert skip_best_candidate_prob >= 0.0 and skip_best_candidate_prob < 0.5
-        assert dist_scaling_coefficient > 0.0 and dist_scaling_coefficient <= 1.0
-        assert exploitation_probability >= 0.0 and exploitation_probability <= 1.0
+        # Wave 31 (2026-05-20): converted the 6-assert "Params checks" block
+        # to explicit ValueError. Under -O the whole block disappeared and
+        # invalid user config (e.g. quantile=0, empty search_space) slipped
+        # into the surrogate-model fit and crashed deeper with opaque messages.
+        if not (0.0 < quantile < 0.5):
+            raise ValueError(f"quantile must be in (0, 0.5); got {quantile!r}.")
+        if len(search_space) <= 0:
+            raise ValueError("search_space must be non-empty.")
+        if acquisition_method not in ("EE",):
+            raise ValueError(
+                f"acquisition_method must be 'EE'; got {acquisition_method!r}."
+            )
+        if not (0.0 <= skip_best_candidate_prob < 0.5):
+            raise ValueError(
+                f"skip_best_candidate_prob must be in [0, 0.5); got {skip_best_candidate_prob!r}."
+            )
+        if not (0.0 < dist_scaling_coefficient <= 1.0):
+            raise ValueError(
+                f"dist_scaling_coefficient must be in (0, 1]; got {dist_scaling_coefficient!r}."
+            )
+        if not (0.0 <= exploitation_probability <= 1.0):
+            raise ValueError(
+                f"exploitation_probability must be in [0, 1]; got {exploitation_probability!r}."
+            )
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Save params
@@ -299,7 +317,14 @@ class MBHOptimizer:
                     if x not in known_candidates and x not in pre_seeded_candidates:
                         pre_seeded_candidates.append(x)
 
-        assert len(pre_seeded_candidates) > 0
+        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix the empty
+        # list slipped past under -O and reached the surrogate-model fit
+        # with no inputs -> opaque downstream crash.
+        if len(pre_seeded_candidates) == 0:
+            raise ValueError(
+                "MBHOptimizer: pre_seeded_candidates is empty after sampling; "
+                "increase init_num_samples or provide non-empty seeded_inputs."
+            )
         self.pre_seeded_candidates = pre_seeded_candidates
 
         # ----------------------------------------------------------------------------------------------------------------------------

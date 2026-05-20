@@ -96,7 +96,11 @@ def estimate_features_relevancy(
 
     columns_to_drop = []
 
-    assert min_randomized_permutations >= 1
+    # Wave 31 (2026-05-20): assert -> ValueError.
+    if min_randomized_permutations < 1:
+        raise ValueError(
+            f"min_randomized_permutations must be >= 1; got {min_randomized_permutations!r}."
+        )
 
     # ----------------------------------------------------------------------------------------------------------------------------
     # What MI implementation is the fastest for current machine?

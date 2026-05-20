@@ -449,7 +449,10 @@ class ParamsOptimizer:
         ml_min_score: float = 0.6,
     ):
 
-        assert sampler in ("random", "ml")
+        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix typo
+        # silently skipped both branches under -O.
+        if sampler not in ("random", "ml"):
+            raise ValueError(f"sampler must be 'random' or 'ml'; got {sampler!r}.")
 
         def get_n_cands(n):
             return generate_valid_candidates(

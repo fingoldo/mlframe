@@ -497,7 +497,11 @@ def create_redundant_continuous_factor(
     """Out of a few continuous factors, craft a new factor with known relationship and amount of redundancy. Used by tests / benchmark harnesses, not by ``MRMR`` directly."""
     if dist:
         rvs = dist.rvs
-        assert rvs
+        # Wave 31 (2026-05-20): assert -> AttributeError.
+        if not callable(rvs):
+            raise AttributeError(
+                f"dist must have a callable .rvs method; got {dist!r}."
+            )
         noise = rvs(*dist_args, size=len(df))
     else:
         noise = np.random.random(len(df))

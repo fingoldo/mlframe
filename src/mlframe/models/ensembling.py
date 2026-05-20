@@ -909,10 +909,12 @@ def ensemble_probabilistic_predictions(
     The previous defaults (``max_mae=0.04`` / ``max_std=0.06`` absolute) are
     kept reachable by passing them explicitly; defaults are now relative.
     """
-    assert ensemble_method in SIMPLE_ENSEMBLING_METHODS or ensemble_method in RANK_FUSION_METHODS, (
-        f"unknown ensemble_method {ensemble_method!r}; expected one of "
-        f"{SIMPLE_ENSEMBLING_METHODS + RANK_FUSION_METHODS}"
-    )
+    # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
+    if ensemble_method not in SIMPLE_ENSEMBLING_METHODS and ensemble_method not in RANK_FUSION_METHODS:
+        raise ValueError(
+            f"unknown ensemble_method {ensemble_method!r}; expected one of "
+            f"{SIMPLE_ENSEMBLING_METHODS + RANK_FUSION_METHODS}"
+        )
     confident_indices = None
 
     preds = [p for p in preds if p is not None]
@@ -1090,7 +1092,9 @@ def ensemble_probabilistic_predictions_streaming(
         std_preds.mean(axis=1) for consistency). ``confident_indices``
         is None (no quantile-based filtering).
     """
-    assert ensemble_method in SIMPLE_ENSEMBLING_METHODS, f"unknown ensemble_method {ensemble_method!r}"
+    # Wave 31 (2026-05-20): assert -> ValueError.
+    if ensemble_method not in SIMPLE_ENSEMBLING_METHODS:
+        raise ValueError(f"unknown ensemble_method {ensemble_method!r}")
     if ensemble_method == "median":
         raise NotImplementedError(
             "ensemble_probabilistic_predictions_streaming: 'median' requires "

@@ -228,25 +228,54 @@ def screen_predictors(
     if max_confirmation_cand_nbins is None:
         max_confirmation_cand_nbins = MAX_CONFIRMATION_CAND_NBINS
 
-    assert mrmr_relevance_algo in ("fleuret", "pld")
-    assert mrmr_redundancy_algo in ("fleuret", "pld_max", "pld_mean")
+    # Wave 31 (2026-05-20): converted the "Input checks" block of 7 asserts
+    # to explicit ValueError. Under -O all of these stripped and bad user
+    # input slipped into the MRMR loop with cryptic failure modes.
+    if mrmr_relevance_algo not in ("fleuret", "pld"):
+        raise ValueError(
+            f"mrmr_relevance_algo must be 'fleuret' or 'pld'; got {mrmr_relevance_algo!r}."
+        )
+    if mrmr_redundancy_algo not in ("fleuret", "pld_max", "pld_mean"):
+        raise ValueError(
+            f"mrmr_redundancy_algo must be one of 'fleuret', 'pld_max', "
+            f"'pld_mean'; got {mrmr_redundancy_algo!r}."
+        )
 
-    assert len(factors_data) >= 10
+    if len(factors_data) < 10:
+        raise ValueError(
+            f"factors_data must have at least 10 rows; got {len(factors_data)}."
+        )
     if targets_data is None:
         targets_data = factors_data
     else:
-        assert len(factors_data) == len(targets_data)
+        if len(factors_data) != len(targets_data):
+            raise ValueError(
+                f"factors_data ({len(factors_data)} rows) and targets_data "
+                f"({len(targets_data)} rows) must have equal length."
+            )
 
     if targets_nbins is None:
         targets_nbins = factors_nbins
 
-    assert targets_data.shape[1] == len(targets_nbins)
-    assert factors_data.shape[1] == len(factors_nbins)
+    if targets_data.shape[1] != len(targets_nbins):
+        raise ValueError(
+            f"targets_data.shape[1]={targets_data.shape[1]} must equal "
+            f"len(targets_nbins)={len(targets_nbins)}."
+        )
+    if factors_data.shape[1] != len(factors_nbins):
+        raise ValueError(
+            f"factors_data.shape[1]={factors_data.shape[1]} must equal "
+            f"len(factors_nbins)={len(factors_nbins)}."
+        )
 
     if len(factors_names) == 0:
         factors_names = ["F" + str(i) for i in range(len(factors_data))]
     else:
-        assert factors_data.shape[1] == len(factors_names)
+        if factors_data.shape[1] != len(factors_names):
+            raise ValueError(
+                f"factors_data.shape[1]={factors_data.shape[1]} must equal "
+                f"len(factors_names)={len(factors_names)}."
+            )
 
     # Initialize x (factor indices to consider) with appropriate defaults
     if factors_to_use is not None:
@@ -276,7 +305,15 @@ def screen_predictors(
                         logger.info("Using only %d predefined factors: %s", len(factors_names_to_use), factors_names_to_use)
         else:
 
-            assert not set(y).issubset(set(x))
+            # Wave 31 (2026-05-20): assert -> RuntimeError. If true, MRMR
+            # would loop on self-target -- silent correctness bug under -O.
+            if set(y).issubset(set(x)):
+                raise RuntimeError(
+                    "MRMR invariant violated: target index set is a subset of "
+                    "the factor index set; MRMR would loop on self-target. "
+                    "Check that targets_data / factors_data slicing didn't "
+                    "alias columns."
+                )
 
     # ---------------------------------------------------------------------------------------------------------------
     # Inits

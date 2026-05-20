@@ -61,12 +61,21 @@ def get_tukey_fences_multiplier_for_quantile(
     >>> float(round(get_tukey_fences_multiplier_for_quantile(quantile=0.1, sd_sigma=2.7), 10))
     0.5534105972
     """
-    assert quantile > 0 and quantile < 1.0
+    # Wave 31 (2026-05-20): replaced bare ``assert`` with explicit ValueError.
+    # The assert was stripped under ``python -O`` (production-perf deploys),
+    # letting quantile=0 / 1.0 slip into dist.ppf which returns +/-inf and
+    # silently propagated NaN downstream.
+    if not (0 < quantile < 1.0):
+        raise ValueError(f"quantile must be in (0, 1); got {quantile!r}.")
     if quantile > 0.5:
         quantile = 1 - quantile
 
     if sd_sigma is None:
-        assert nonoutlying_dist_percentage > 0 and nonoutlying_dist_percentage < 1.0
+        if not (0 < nonoutlying_dist_percentage < 1.0):
+            raise ValueError(
+                f"nonoutlying_dist_percentage must be in (0, 1); "
+                f"got {nonoutlying_dist_percentage!r}."
+            )
         sd_sigma = get_sd_for_dist_percentage(nonoutlying_dist_percentage, dist=dist, **dist_kwargs)
 
     ppf = np.abs(dist.ppf(quantile, **dist_kwargs))

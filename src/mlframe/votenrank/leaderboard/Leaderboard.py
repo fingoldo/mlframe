@@ -227,8 +227,19 @@ class Leaderboard:
     ):
         group_merged = sum(list(task_groups.values()), start=[])
         group_set, group_counts = np.unique(group_merged, return_counts=True)
-        assert set(group_set) == set(self.tasks)
-        assert group_counts.max() == 1
+        # Wave 31 (2026-05-20): assert -> ValueError. SILENT-CORRECTNESS
+        # bug under -O: partition violations produced wrong meta-tables.
+        if set(group_set) != set(self.tasks):
+            raise ValueError(
+                f"get_meta_leaderboard: group partition tasks {set(group_set)} "
+                f"do not match self.tasks {set(self.tasks)}."
+            )
+        if group_counts.max() != 1:
+            raise ValueError(
+                f"get_meta_leaderboard: task assignment is not a partition "
+                f"(max group_counts={group_counts.max()}); each task must "
+                f"belong to exactly one group."
+            )
 
         meta_table = pd.DataFrame(index=self.table.index, columns=task_groups.keys())
         for key, tasks in task_groups.items():

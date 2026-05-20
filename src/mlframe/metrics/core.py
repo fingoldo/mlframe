@@ -1482,8 +1482,14 @@ def show_calibration_plot(
     keep only one.
     """
 
-    assert backend in ("plotly", "matplotlib")
-    assert prob_histogram_yscale in ("auto", "log", "linear")
+    # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
+    if backend not in ("plotly", "matplotlib"):
+        raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
+    if prob_histogram_yscale not in ("auto", "log", "linear"):
+        raise ValueError(
+            f"prob_histogram_yscale must be 'auto', 'log', or 'linear'; "
+            f"got {prob_histogram_yscale!r}."
+        )
 
     # 2026-05-09: short-circuit when there is NO plot consumer. The
     # ``show_plots=True`` default expresses "render if a human can see
@@ -2535,7 +2541,9 @@ def fast_calibration_report(
     ``TITLE_METRIC_TOKENS`` frozenset for the complete grammar.
     """
 
-    assert backend in ("plotly", "matplotlib")
+    # Wave 31 (2026-05-20): assert -> ValueError so -O preserves input validation.
+    if backend not in ("plotly", "matplotlib"):
+        raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
     if len(y_true) == 0:
         (
             brier_loss,
@@ -2969,7 +2977,14 @@ def compute_probabilistic_multiclass_error(
     ``profiling/bench_multiclass_error_parallel.py``.
     """
 
-    assert method in ("multicrit", "brier_score", "precision")
+    # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix bad method
+    # slipped past under -O and the elif chain returned a default value
+    # for the wrong metric definition.
+    if method not in ("multicrit", "brier_score", "precision"):
+        raise ValueError(
+            f"method must be 'multicrit', 'brier_score', or 'precision'; "
+            f"got {method!r}."
+        )
 
     if isinstance(y_true, (pd.Series, pd.DataFrame)):
         y_true = y_true.values
@@ -4086,11 +4101,21 @@ def create_fairness_subgroups(
 
     Final ML report includes: subgroup name, nbins, metric stdev, outliers, best/worst bins & performance."""
 
+    # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix bad values
+    # slipped past under -O and crashed deeper in pandas grouping with
+    # an opaque message.
     if isinstance(min_pop_cat_thresh, float):
-        assert min_pop_cat_thresh > 0 and min_pop_cat_thresh < 1.0
+        if not (0 < min_pop_cat_thresh < 1.0):
+            raise ValueError(
+                f"min_pop_cat_thresh (float) must be in (0, 1); got {min_pop_cat_thresh!r}."
+            )
         min_pop_cat_thresh = int(len(df) * min_pop_cat_thresh)  # convert to abs value
     elif isinstance(min_pop_cat_thresh, int):
-        assert min_pop_cat_thresh > 0 and min_pop_cat_thresh <= len(df) // 2
+        if not (0 < min_pop_cat_thresh <= len(df) // 2):
+            raise ValueError(
+                f"min_pop_cat_thresh (int) must be in (0, len(df)//2={len(df) // 2}]; "
+                f"got {min_pop_cat_thresh!r}."
+            )
 
     subgroups = {}
     for feature_name in features:
@@ -4173,7 +4198,18 @@ def create_fairness_subgroups_indices(
                 bins, unique_bins = create_robustness_standard_bins(group_name=group_name, npoints=npoints, cont_nbins=cont_nbins)
             else:
                 bins = group_params.get("bins")
-                assert bins.index.is_unique
+                # Wave 31 (2026-05-20): assert -> ValueError. THIS IS A
+                # SILENT-CORRECTNESS bug under -O: a non-unique bins.index
+                # makes ``bins.loc[arr]`` return multiple rows per key,
+                # silently corrupting the fairness-eval output with
+                # duplicated/oversized partitions. Loud failure required.
+                if not bins.index.is_unique:
+                    raise ValueError(
+                        "create_fairness_subgroups_indices: group_params['bins'] "
+                        "must have a unique index; pre-fix duplicate index "
+                        "caused bins.loc[arr] to return multiple rows per key, "
+                        "silently corrupting fairness-eval output."
+                    )
                 bins = bins.loc[arr]
                 unique_bins = None
 
@@ -4255,7 +4291,13 @@ def compute_fairness_metrics(
             else:
                 bins = group_params.get("bins")
                 if bins is not None:
-                    assert subset_index is not None
+                    # Wave 31 (2026-05-20): assert -> RuntimeError.
+                    if subset_index is None:
+                        raise RuntimeError(
+                            "compute_fairness_metrics: bins is set but "
+                            "subset_index is None; the function's state "
+                            "machine reached an unreachable branch."
+                        )
                     bins = bins.loc[subset_index]
                 bins_names = group_params.get("bins_names")
                 unique_bins = None
