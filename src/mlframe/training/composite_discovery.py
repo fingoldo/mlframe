@@ -17,6 +17,16 @@ from typing import (
 import numpy as np
 import pandas as pd
 
+# Module-level scipy import so external introspection (e.g. the
+# test_m3_spearman_demoter_uses_rankdata regression sensor) can confirm the
+# M3 fix is wired in - argsort-of-argsort fallback gives wrong ranks on
+# ties, so a revert MUST be caught at the sensor level. Graceful fallback
+# preserved for installs without scipy.
+try:
+    from scipy.stats import rankdata
+except ImportError:  # pragma: no cover - scipy is a hard dep in pyproject; allow graceful fallback
+    rankdata = None  # type: ignore[assignment]
+
 from .composite_spec import CompositeSpec
 from .composite_auto_detect import (
     detect_time_column_candidates,
@@ -1656,10 +1666,9 @@ class CompositeTargetDiscovery:
             # ``argsort(argsort(x))`` assigned arbitrary integer positions to tied values,
             # which inflated |Spearman| toward 1.0 on columns with many duplicate values
             # (e.g. integer-encoded categoricals) and silently misfired the time-index demoter.
-            try:
-                from scipy.stats import rankdata as _rankdata
-            except ImportError:  # pragma: no cover - scipy is a hard dep but allow graceful skip
-                _rankdata = None
+            # Use the module-level binding so the M3 fix is detectable from
+            # outside (see regression sensor test_m3_spearman_demoter_uses_rankdata).
+            _rankdata = rankdata
             n_screen = int(finite.sum())
             row_idx = np.arange(n_screen, dtype=np.float64)
             # R10c bug #2 extension: hint features are IMMUNE from

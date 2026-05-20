@@ -28,9 +28,19 @@ def _fake_psutil(rss_mb: float, free_mb: float):
 
 
 def _install_fake_psutil(monkeypatch, fake):
-    """Make `import psutil` inside utils.py return our fake."""
+    """Replace the LIVE ``psutil`` binding inside _ram_helpers with our fake.
+
+    ``_ram_helpers`` does ``import psutil`` at module load time, so
+    ``_ram_helpers.psutil`` is a module-local binding to the real psutil
+    module. Monkey-patching ``sys.modules["psutil"]`` is a no-op for
+    subsequent ``psutil.Process()`` calls inside _ram_helpers because the
+    name resolves against ``_ram_helpers.__dict__["psutil"]``, not against
+    sys.modules. Patch BOTH so direct lookups and any ``import psutil``
+    happening lazily elsewhere both see the fake.
+    """
     import sys
     monkeypatch.setitem(sys.modules, "psutil", fake)
+    monkeypatch.setattr(u, "psutil", fake)
 
 
 class TestAdaptiveCleanRam:
@@ -109,29 +119,33 @@ class TestAdaptiveCleanRam:
         assert u.should_clean_ram(100.0, 50.0) is True
 
     def test_get_process_rss_returns_zero_without_psutil(self, monkeypatch):
-        import builtins
-        real_import = builtins.__import__
-
-        def fake_import(name, *a, **kw):
-            if name == "psutil":
-                raise ImportError("simulated")
-            return real_import(name, *a, **kw)
-
-        monkeypatch.setattr(builtins, "__import__", fake_import)
+        """``_ram_helpers`` imports psutil at module load, so a fresh
+        ``import psutil`` never happens at call time - patching
+        ``builtins.__import__`` is a no-op. To simulate "psutil unusable"
+        we replace ``u.psutil`` with a stub whose ``.Process()`` raises;
+        the prod try/except then falls back to the 0.0 sentinel."""
+        class _PsutilRaises:
+            def Process(self):
+                raise OSError("simulated psutil failure")
+            def virtual_memory(self):
+                raise OSError("simulated psutil failure")
+        monkeypatch.setattr(u, "psutil", _PsutilRaises())
         assert u.get_process_rss_mb() == 0.0
 
     def test_no_psutil_combined_behavior_at_call_site(self, monkeypatch):
         """Trace: baseline=0.0 (from get_process_rss_mb fallback), then
-        should_clean_ram also falls through to True → clean fires."""
-        import builtins
-        real_import = builtins.__import__
+        should_clean_ram also falls through to True → clean fires.
 
-        def fake_import(name, *a, **kw):
-            if name == "psutil":
-                raise ImportError("simulated")
-            return real_import(name, *a, **kw)
-
-        monkeypatch.setattr(builtins, "__import__", fake_import)
+        Same rationale as ``test_get_process_rss_returns_zero_without_psutil``:
+        we replace the LIVE ``u.psutil`` binding with a raising stub, not
+        ``builtins.__import__`` (which the prod path never re-invokes).
+        """
+        class _PsutilRaises:
+            def Process(self):
+                raise OSError("simulated psutil failure")
+            def virtual_memory(self):
+                raise OSError("simulated psutil failure")
+        monkeypatch.setattr(u, "psutil", _PsutilRaises())
 
         calls = []
         monkeypatch.setattr(u, "clean_ram_and_gpu", lambda verbose=False: calls.append(1))
