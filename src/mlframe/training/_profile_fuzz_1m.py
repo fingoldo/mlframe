@@ -961,10 +961,22 @@ def _run_suite_profiled(
                             # durable default is False (2026-05-20); harness keeps the
                             # explicit pass for clarity (bench writes to a tempdir that
                             # gets removed afterwards -- never needed durability).
-                            save_mlframe_model(_entry, str(_path), verbose=0, lean=True, durable=False)
-                            save_n_models += 1
-                            if _path.exists():
+                            #
+                            # 2026-05-20: ONLY increment save_n_models when the call
+                            # returns truthy AND the file actually landed on disk.
+                            # save_mlframe_model returns False (logs error) on internal
+                            # failures like zstd Allocation error / dill TypeError; the
+                            # prior code blindly incremented save_n_models which then
+                            # said "1 saved" but glob found 0 .dump files at load time,
+                            # creating a confusing "save=1m/load=0m" report. With the
+                            # check the report honestly shows 0 saved on memory-pressure
+                            # combos and the load=0m result becomes consistent.
+                            _save_ok = save_mlframe_model(_entry, str(_path), verbose=0, lean=True, durable=False)
+                            if _save_ok and _path.exists():
+                                save_n_models += 1
                                 save_total_bytes += _path.stat().st_size
+                            else:
+                                status = f"{status} | SAVE_ONE_FAIL:returned={_save_ok!r} file_exists={_path.exists()}"[:200]
                         except Exception as _save_one_err:
                             status = f"{status} | SAVE_ONE:{type(_save_one_err).__name__}: {_save_one_err}"[:200]
         except Exception as e:
