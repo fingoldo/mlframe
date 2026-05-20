@@ -119,6 +119,17 @@ class EngineeredRecipe:
 
     def __hash__(self) -> int:
         # Name-based hash (names are unique per fit), since ``extra: dict`` is mutable and would normally disable __hash__.
+        # Wave 73 (2026-05-21) hardening: __eq__ (above) walks the ``extra`` dict
+        # content (incl. ndarrays via np.array_equal). Hash key (kind, name) is
+        # NARROWER than equality, so two recipes with same (kind, name) but
+        # different ``extra`` collide on the same hash bucket but DON'T compare
+        # equal. That's a valid hash-eq pair (equal-implies-equal-hash holds),
+        # but it WOULD trigger an O(N) bucket scan if recipes were ever stored
+        # in a set/dict-key with name collisions on different content.
+        # Contract: callers MUST NOT use ``EngineeredRecipe`` instances as
+        # dict/set keys when the same ``name`` can carry different ``extra``;
+        # use ``recipe.name`` (the string) as the dict key instead. All current
+        # callers store recipes as dict VALUES (engineered_recipes[r.name] = r).
         return hash((self.kind, self.name))
 
 
