@@ -15,9 +15,8 @@ import pathlib
 import pytest
 
 
-TRANSFORMER_DIR = pathlib.Path(
-    r"D:/Upd/Programming/PythonCodeRepository/mlframe/src/mlframe/feature_engineering/transformer"
-)
+import mlframe as _mlframe  # noqa: E402  -- derive transformer dir from installed package; the previous ``D:/Upd/...`` hardcode silently broke transformer-module discovery on every other clone location, with the parametrized validation test going SKIPped under "got empty parameter set".
+TRANSFORMER_DIR = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_engineering" / "transformer"
 
 
 def _list_transformer_modules() -> list[pathlib.Path]:

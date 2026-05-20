@@ -107,8 +107,13 @@ def test_finalize_source_contains_restore_block():
     this source-check catches a future refactor that removes the restore call.
     """
     import pathlib
-    src = pathlib.Path(
-        r"D:/Upd/Programming/PythonCodeRepository/mlframe/src/mlframe/training/core/_phase_finalize.py"
+    # Derive the src path from the installed package so the source-check
+    # works regardless of clone location; the previous hardcoded D:/ path
+    # raised FileNotFoundError on every other machine.
+    import mlframe as _mlframe
+    src = (
+        pathlib.Path(_mlframe.__file__).resolve().parent
+        / "training" / "core" / "_phase_finalize.py"
     ).read_text(encoding="utf-8")
     assert "_process_flag_prior_residual_audit" in src, (
         "_phase_finalize must restore the residual_audit flag from ctx.artifacts."

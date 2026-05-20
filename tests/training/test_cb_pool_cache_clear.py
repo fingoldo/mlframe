@@ -53,8 +53,12 @@ def test_phase_config_setup_imports_from_cb_pool():
     file does NOT contain the stale ``from mlframe.training.trainer import _CB_POOL_CACHE``
     pattern -- if a future refactor reintroduces it, this test fails."""
     import pathlib
-    src = pathlib.Path(
-        r"D:/Upd/Programming/PythonCodeRepository/mlframe/src/mlframe/training/core/_phase_config_setup.py"
+    # Derive path from installed package; previous hardcoded D:/ path
+    # raised FileNotFoundError on any other machine.
+    import mlframe as _mlframe
+    src = (
+        pathlib.Path(_mlframe.__file__).resolve().parent
+        / "training" / "core" / "_phase_config_setup.py"
     ).read_text(encoding="utf-8")
     assert "from mlframe.training._cb_pool import _CB_POOL_CACHE" in src, (
         "_phase_config_setup.py must import _CB_POOL_CACHE from _cb_pool (the live cache), "

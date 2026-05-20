@@ -15,9 +15,8 @@ from pathlib import Path
 import pytest
 
 
-_FH_ROOT = Path(
-    "D:/Upd/Programming/PythonCodeRepository/mlframe/src/mlframe/training/feature_handling"
-)
+import mlframe as _mlframe  # noqa: E402  -- derive src path from the package itself so the test works regardless of install location (the previous ``D:/Upd/Programming/...`` hardcode silently returned empty file lists on every other machine, with pytest auto-skipping the parametrized test under "got empty parameter set").
+_FH_ROOT = Path(_mlframe.__file__).resolve().parent / "training" / "feature_handling"
 
 _FH_FILES = sorted(_FH_ROOT.glob("*.py"))
 

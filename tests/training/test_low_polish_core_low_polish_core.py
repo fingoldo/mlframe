@@ -14,9 +14,8 @@ from pathlib import Path
 import pytest
 
 
-_CORE_ROOT = Path(
-    "D:/Upd/Programming/PythonCodeRepository/mlframe/src/mlframe/training"
-)
+import mlframe as _mlframe  # noqa: E402  -- derive src path from package; the previous ``D:/Upd/Programming/...`` hardcode silently broke every other machine and the suite SKIPped 11 tests with "main.py not present" etc.
+_CORE_ROOT = Path(_mlframe.__file__).resolve().parent / "training"
 
 _CORE_FILES = [
     _CORE_ROOT / "core" / "main.py",
