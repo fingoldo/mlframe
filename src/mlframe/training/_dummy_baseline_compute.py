@@ -2,6 +2,13 @@
 
 Per-group prediction, safe metric wrappers, regression/classification/
 quantile/multilabel baseline computation.
+
+Wave 92 (2026-05-21): the three large per-target dispatchers
+(_compute_regression_baselines, _compute_classification_baselines,
+_compute_quantile_baselines) live in sibling files
+_dummy_baseline_regression.py / _classification.py / _quantile.py.
+They are re-exported below so existing
+``from ._dummy_baseline_compute import X`` imports continue to work.
 """
 
 from __future__ import annotations
@@ -11,6 +18,14 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence,
 
 import numpy as np
 import pandas as pd
+
+# Sibling-file re-exports (Wave 92). Imports are at top-level so the symbols
+# resolve at module load; each sub-file lazy-imports back from this module
+# inside its function body, which is safe because that load happens at call
+# time (post module-load).
+from ._dummy_baseline_regression import _compute_regression_baselines
+from ._dummy_baseline_classification import _compute_classification_baselines
+from ._dummy_baseline_quantile import _compute_quantile_baselines
 
 if TYPE_CHECKING:
     # Forward annotation only -- runtime import lives inside compute_dummy_baselines() to break the circular load with dummy_baselines.py.
@@ -329,310 +344,10 @@ def _safe_metric(
 # ---------------------------------------------------------------------
 # Per-target dispatchers
 # ---------------------------------------------------------------------
-
-
-def _compute_regression_baselines(
-    target_name: str,
-    train_X: Any,
-    val_X: Any,
-    test_X: Any,
-    train_y: np.ndarray,
-    val_y: np.ndarray | None,
-    test_y: np.ndarray | None,
-    timestamps_train: np.ndarray | None,
-    timestamps_val: np.ndarray | None,
-    timestamps_test: np.ndarray | None,
-    cat_features: Sequence[str] | None,
-    config: Any,
-    target_type: str = "regression",
-) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
-    """Build {baseline_name: val_pred} + {baseline_name: test_pred} dicts.
-
-    Returns ``(val_preds, test_preds, extras)``.
-    """
-    # Lazy local imports: helpers live in dummy_baselines.py which imports our compute funcs (circular load).
-    from .dummy_baselines import _is_temporally_monotonic, _normalize_timestamps, _resolve_ts_periods
-
-    val_preds: dict[str, np.ndarray] = {}
-    test_preds: dict[str, np.ndarray] = {}
-    extras: dict[str, Any] = {}
-
-    # --- Constant baselines (mean / median / quantile) ---
-    n_val = 0 if val_y is None else len(val_y)
-    n_test = 0 if test_y is None else len(test_y)
-    train_mean = float(np.mean(train_y))
-    train_median = float(np.median(train_y))
-
-    val_preds["mean"] = np.full(n_val, train_mean)
-    test_preds["mean"] = np.full(n_test, train_mean)
-
-    val_preds["median"] = np.full(n_val, train_median)
-    test_preds["median"] = np.full(n_test, train_median)
-
-    for q_label, q_alpha in [("quantile_p25", 0.25), ("quantile_p75", 0.75)]:
-        c = float(np.quantile(train_y, q_alpha, method="linear"))
-        val_preds[q_label] = np.full(n_val, c)
-        test_preds[q_label] = np.full(n_test, c)
-
-    # --- per_group_mean ---
-    cat_col = _pick_per_group_categorical(
-        train_X, cat_features, len(train_y), config.per_group_max_cardinality_ratio,
-    )
-    if cat_col is not None:
-        try:
-            _, val_pg, test_pg, pg_diag = _per_group_predict(
-                train_X, val_X, test_X, train_y, cat_col, target_type,
-            )
-            # Use TS-aware row label when monotonic split present
-            ts_active = (
-                timestamps_train is not None
-                and timestamps_val is not None
-                and timestamps_test is not None
-                and _is_temporally_monotonic(timestamps_train, timestamps_val, timestamps_test)
-            )
-            label = "per_group_historical_mean (ts)" if ts_active else "per_group_mean"
-            # Annotate row label with high-overlap warning
-            if pg_diag["repeat_entity_rate"] >= config.per_group_high_overlap_threshold:
-                label = f"{label} (high_entity_overlap={pg_diag['repeat_entity_rate']:.2f})"
-            val_preds[label] = val_pg
-            test_preds[label] = test_pg
-            extras["per_group"] = {"cat_col": cat_col, **pg_diag}
-            # Coverage gate: exclude from strongest-pick if low
-            if (
-                pg_diag["val_coverage_pct"] < config.per_group_min_val_coverage_pct
-                or pg_diag["test_coverage_pct"] < config.per_group_min_val_coverage_pct
-            ):
-                extras.setdefault("strongest_pick_excluded", []).append(label)
-                logger.info(
-                    "[dummy-baselines] target='%s' per_group_mean coverage low "
-                    "(val=%.1f%%, test=%.1f%%) -- excluded from strongest-pick",
-                    target_name, pg_diag["val_coverage_pct"], pg_diag["test_coverage_pct"],
-                )
-        except Exception as e:
-            logger.info(
-                "[dummy-baselines] target='%s' per_group_mean failed (%s); skipping",
-                target_name, e,
-            )
-    else:
-        logger.debug(
-            "[dummy-baselines] target='%s' per_group_mean: no eligible categorical "
-            "(cat_features=%s, n_train=%d, max_cardinality_ratio=%.2f)",
-            target_name, cat_features, len(train_y), config.per_group_max_cardinality_ratio,
-        )
-
-    # --- TS baselines (prediction rules) ---
-    if (
-        timestamps_train is not None
-        and timestamps_val is not None
-        and timestamps_test is not None
-    ):
-        ts_train = _normalize_timestamps(timestamps_train)
-        ts_val = _normalize_timestamps(timestamps_val)
-        ts_test = _normalize_timestamps(timestamps_test)
-        if (
-            ts_train is not None
-            and ts_val is not None
-            and ts_test is not None
-            and _is_temporally_monotonic(ts_train, ts_val, ts_test)
-        ):
-            periods, ts_diag = _resolve_ts_periods(
-                train_y, ts_train, config.ts_extra_periods,
-            )
-            extras["ts_diagnostics"] = ts_diag
-            logger.debug(
-                "[dummy-baselines] target='%s' ts_periods: step=%s defaults=%s acf_peaks=%s using=%s",
-                target_name,
-                ts_diag.get("step_label"),
-                ts_diag.get("step_periods"),
-                ts_diag.get("acf_peaks"),
-                ts_diag.get("using"),
-            )
-
-            # naive_last (suppress when n_val > inferred_period to avoid mean-rebrand)
-            min_period = min(periods) if periods else 0
-            if n_val > 0 and (min_period == 0 or n_val <= min_period):
-                # Single-constant prediction = last train value
-                last_val = float(train_y[-1])
-                val_preds["naive_last (ts)"] = np.full(n_val, last_val)
-                test_preds["naive_last (ts)"] = np.full(n_test, last_val)
-            else:
-                logger.debug(
-                    "[dummy-baselines] target='%s' naive_last: suppressed "
-                    "(n_val=%d > inferred_period=%d; would degenerate to constant -- "
-                    "use seasonal_naive_pP instead)",
-                    target_name, n_val, min_period,
-                )
-
-            # naive_lagP / seasonal_naive_pP for each period
-            for P in periods:
-                if P < 2 or len(train_y) < P:
-                    continue
-                # seasonal_naive: predict y_train[-P + (k mod P)] for val row k
-                val_sn = np.array([train_y[-P + (k % P)] for k in range(n_val)])
-                test_sn = np.array([train_y[-P + (k % P)] for k in range(n_test)])
-                label = f"seasonal_naive_p{P} (ts)"
-                if P in (ts_diag.get("acf_peaks") or []):
-                    label = f"seasonal_naive_p{P} (ts, ACF-detected)"
-                val_preds[label] = val_sn
-                test_preds[label] = test_sn
-
-            # rolling_mean: include only when ACF detected a peak >= W
-            acf_peaks = ts_diag.get("acf_peaks") or []
-            for W in (7, 30):
-                if W < len(train_y) and any(p >= W for p in acf_peaks):
-                    c = float(np.mean(train_y[-W:]))
-                    val_preds[f"rolling_mean_w{W} (ts)"] = np.full(n_val, c)
-                    test_preds[f"rolling_mean_w{W} (ts)"] = np.full(n_test, c)
-
-            # linear_extrap: OLS y ~ ts on train tail
-            try:
-                tail_n = min(len(train_y), 10_000)
-                ts_tail = ts_train[-tail_n:].astype(np.float64)
-                y_tail = np.asarray(train_y[-tail_n:], dtype=np.float64)
-                # Center timestamps to avoid float overflow on large epoch ints
-                ts_offset = ts_tail[0]
-                ts_centered = ts_tail - ts_offset
-                slope, intercept = np.polyfit(ts_centered, y_tail, 1)
-                val_lin = slope * (ts_val.astype(np.float64) - ts_offset) + intercept
-                test_lin = slope * (ts_test.astype(np.float64) - ts_offset) + intercept
-                val_preds["linear_extrap (ts)"] = val_lin
-                test_preds["linear_extrap (ts)"] = test_lin
-            except Exception as e:
-                logger.debug(
-                    "[dummy-baselines] target='%s' linear_extrap failed (%s); skipping",
-                    target_name, e,
-                )
-        else:
-            extras["ts_skip_reason"] = (
-                "interleaved split -- TS baselines skipped; for TS-naive use val_placement='forward'"
-            )
-            logger.info(
-                "[dummy-baselines] target='%s' timestamps present but split is interleaved "
-                "(monotonic check failed) -- TS baselines skipped",
-                target_name,
-            )
-
-    return val_preds, test_preds, extras
-
-
-def _compute_classification_baselines(
-    target_name: str,
-    train_X: Any,
-    val_X: Any,
-    test_X: Any,
-    train_y: np.ndarray,
-    val_y: np.ndarray | None,
-    test_y: np.ndarray | None,
-    timestamps_train: np.ndarray | None,
-    cat_features: Sequence[str] | None,
-    config: Any,
-    target_type: str,
-    n_classes: int,
-) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
-    """Build {baseline: probs} dicts for binary / multiclass.
-
-    Returns ``(val_probs, test_probs, extras)`` where probs are
-    ``(N, K)`` matrices.
-    """
-    val_probs: dict[str, np.ndarray] = {}
-    test_probs: dict[str, np.ndarray] = {}
-    extras: dict[str, Any] = {}
-
-    n_val = 0 if val_y is None else len(val_y)
-    n_test = 0 if test_y is None else len(test_y)
-    seed = _per_target_seed(config.random_state, target_name)
-
-    # Compute train priors
-    classes = np.arange(n_classes)
-    train_y_int = train_y.astype(np.int64)
-    bincounts = np.bincount(train_y_int, minlength=n_classes).astype(np.float64)
-    train_prior = bincounts / bincounts.sum() if bincounts.sum() > 0 else np.full(n_classes, 1.0 / n_classes)
-
-    # prior baseline: constant per-class prob = train prior
-    prior_probs = np.tile(train_prior, (max(n_val, 1), 1)) if n_val > 0 else np.empty((0, n_classes))
-    if n_val > 0:
-        val_probs["prior"] = prior_probs
-        test_probs["prior"] = np.tile(train_prior, (n_test, 1))
-
-    # most_frequent: predict argmax of prior with one-hot probs
-    most_freq_class = int(np.argmax(train_prior))
-    mf_probs_row = np.zeros(n_classes)
-    mf_probs_row[most_freq_class] = 1.0
-    val_probs["most_frequent"] = np.tile(mf_probs_row, (n_val, 1))
-    test_probs["most_frequent"] = np.tile(mf_probs_row, (n_test, 1))
-
-    # uniform: 1/K per row
-    uniform_probs_row = np.full(n_classes, 1.0 / n_classes)
-    val_probs["uniform"] = np.tile(uniform_probs_row, (n_val, 1))
-    test_probs["uniform"] = np.tile(uniform_probs_row, (n_test, 1))
-
-    # all_zeros / all_ones (binary only)
-    if target_type == "binary_classification" and n_classes == 2:
-        # all-class-0: probs = [1, 0]
-        z_row = np.array([1.0, 0.0])
-        val_probs["all_zeros"] = np.tile(z_row, (n_val, 1))
-        test_probs["all_zeros"] = np.tile(z_row, (n_test, 1))
-        # all-class-1: probs = [0, 1]
-        o_row = np.array([0.0, 1.0])
-        val_probs["all_ones"] = np.tile(o_row, (n_val, 1))
-        test_probs["all_ones"] = np.tile(o_row, (n_test, 1))
-
-    # stratified: n_repeats over different seeds
-    # Predicted class sampled from prior; probs = one-hot of sampled class.
-    n_repeats = config.stratified_n_repeats
-    val_strat_runs: list[np.ndarray] = []
-    test_strat_runs: list[np.ndarray] = []
-    for r in range(n_repeats):
-        rng = np.random.default_rng(seed + r)
-        if n_val > 0:
-            val_classes = rng.choice(classes, size=n_val, p=train_prior)
-            val_strat = np.zeros((n_val, n_classes))
-            val_strat[np.arange(n_val), val_classes] = 1.0
-            val_strat_runs.append(val_strat)
-        if n_test > 0:
-            test_classes = rng.choice(classes, size=n_test, p=train_prior)
-            test_strat = np.zeros((n_test, n_classes))
-            test_strat[np.arange(n_test), test_classes] = 1.0
-            test_strat_runs.append(test_strat)
-    # Mean over repeats -- gives smoothed probs ~ train_prior on average,
-    # but with the realized variance preserved for log_loss / AUC scoring.
-    if val_strat_runs:
-        val_probs["stratified"] = np.mean(val_strat_runs, axis=0)
-    if test_strat_runs:
-        test_probs["stratified"] = np.mean(test_strat_runs, axis=0)
-    extras["stratified_n_repeats"] = n_repeats
-
-    # per_group_prior (binary only for now)
-    if target_type == "binary_classification":
-        cat_col = _pick_per_group_categorical(
-            train_X, cat_features, len(train_y), config.per_group_max_cardinality_ratio,
-        )
-        if cat_col is not None:
-            try:
-                _, val_pg, test_pg, pg_diag = _per_group_predict(
-                    train_X, val_X, test_X, train_y.astype(np.float64), cat_col, target_type,
-                )
-                # Convert to (N, 2) probs: [1-p, p]
-                val_pg_2d = np.column_stack([1 - val_pg, val_pg])
-                test_pg_2d = np.column_stack([1 - test_pg, test_pg])
-                label = "per_group_prior"
-                if pg_diag["repeat_entity_rate"] >= config.per_group_high_overlap_threshold:
-                    label = f"per_group_prior (high_entity_overlap={pg_diag['repeat_entity_rate']:.2f})"
-                val_probs[label] = val_pg_2d
-                test_probs[label] = test_pg_2d
-                extras["per_group"] = {"cat_col": cat_col, **pg_diag}
-                if (
-                    pg_diag["val_coverage_pct"] < config.per_group_min_val_coverage_pct
-                    or pg_diag["test_coverage_pct"] < config.per_group_min_val_coverage_pct
-                ):
-                    extras.setdefault("strongest_pick_excluded", []).append(label)
-            except Exception as e:
-                logger.info(
-                    "[dummy-baselines] target='%s' per_group_prior failed (%s); skipping",
-                    target_name, e,
-                )
-
-    return val_probs, test_probs, extras
+# Wave 92 (2026-05-21): _compute_regression_baselines and
+# _compute_classification_baselines moved to sibling files
+# (_dummy_baseline_regression.py, _dummy_baseline_classification.py)
+# and re-exported from the module-top imports above.
 
 
 # ---------------------------------------------------------------------
@@ -927,102 +642,7 @@ def compute_dummy_baselines(
 # ---------------------------------------------------------------------
 # Multilabel + LTR dispatchers + metrics + plot + helpers
 # ---------------------------------------------------------------------
-
-
-def _compute_quantile_baselines(
-    target_name: str,
-    train_y: np.ndarray,
-    val_y: np.ndarray | None,
-    test_y: np.ndarray | None,
-    alphas: Sequence[float],
-    config: Any,
-) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Any]]:
-    """Per-alpha empirical-quantile baselines for QUANTILE_REGRESSION.
-
-    Emits, per requested alpha:
-      - ``quantile_alpha_{a:.3f}``: constant prediction = empirical alpha-th
-        percentile of train_y (clamped to [1e-3, 1-1e-3] for boundary alpha
-        for boundary alpha; shape ``(N, K)`` where K=len(alphas).
-      - ``median_for_all``: single ``np.median(train_y)`` constant
-        broadcast across all alpha (identical to alpha=0.5 row by
-        construction; documented in row label).
-
-    Predictions are 2D ``(N, K)``. Pinball loss is computed per alpha
-    plus a ``mean_pinball`` aggregate over non-boundary alpha (alpha in
-    ``[0.05, 0.95]``).
-    """
-    val_preds: dict[str, np.ndarray] = {}
-    test_preds: dict[str, np.ndarray] = {}
-    extras: dict[str, Any] = {}
-    n_val = 0 if val_y is None else len(val_y)
-    n_test = 0 if test_y is None else len(test_y)
-    K = len(alphas)
-    if K == 0:
-        return val_preds, test_preds, extras
-
-    train_median = float(np.median(train_y))
-    boundary_log: list[tuple[float, float]] = []  # (orig, clamped)
-    n_eff_val: dict[float, int] = {}
-    n_eff_test: dict[float, int] = {}
-
-    # Per-alpha: emit one baseline whose prediction is a constant column for
-    # that alpha only, broadcast across the K-output shape so the metrics
-    # table can compute pinball@alpha uniformly.
-    consts_per_alpha: list[float] = []
-    for a in alphas:
-        clamped_a = float(min(max(a, 1e-3), 1 - 1e-3))
-        if clamped_a != a:
-            boundary_log.append((float(a), clamped_a))
-        c = float(np.quantile(train_y, clamped_a, method="linear"))
-        consts_per_alpha.append(c)
-        if val_y is not None:
-            n_eff_val[a] = int(np.sum(val_y < c))
-        if test_y is not None:
-            n_eff_test[a] = int(np.sum(test_y < c))
-
-    # Build (N, K) predictions per baseline.
-    if K > 0:
-        # Per-alpha empirical-quantile baselines: each one is a (N, K)
-        # constant matrix where every output uses its own alpha-th percentile.
-        for j, a in enumerate(alphas):
-            row_const = consts_per_alpha[j]
-            # The j-th baseline emits the j-th constant for ALL alphas
-            # (interpretation: "use this alpha-th percentile to predict every
-            # quantile" -- degenerate but informative as a reference).
-            label = f"quantile_alpha_{a:.3f}"
-            if a == 0.5:
-                label = f"quantile_alpha_{a:.3f} (=median by construction)"
-            val_preds[label] = np.full((n_val, K), row_const)
-            test_preds[label] = np.full((n_test, K), row_const)
-
-        # median_for_all: single np.median(train_y) across all alpha.
-        val_preds["median_for_all"] = np.full((n_val, K), train_median)
-        test_preds["median_for_all"] = np.full((n_test, K), train_median)
-
-        # multi_quantile_empirical: predicts the j-th alpha-th percentile in
-        # the j-th column -- the "right" multi-quantile constant baseline.
-        # This is actually what most quantile-loss models should beat.
-        consts_arr = np.asarray(consts_per_alpha, dtype=np.float64)
-        val_preds["multi_quantile_empirical"] = np.broadcast_to(
-            consts_arr, (n_val, K)
-        ).copy()
-        test_preds["multi_quantile_empirical"] = np.broadcast_to(
-            consts_arr, (n_test, K)
-        ).copy()
-
-    if boundary_log:
-        extras["quantile_boundary_clamped"] = boundary_log
-        for orig, clamped in boundary_log:
-            logger.info(
-                "[dummy-baselines] target='%s' alpha=%g: clamped to %g for empirical "
-                "baseline (degenerate at boundary)",
-                target_name, orig, clamped,
-            )
-    if n_eff_val:
-        extras["quantile_n_eff_val"] = n_eff_val
-    if n_eff_test:
-        extras["quantile_n_eff_test"] = n_eff_test
-
-    return val_preds, test_preds, extras
+# Wave 92 (2026-05-21): _compute_quantile_baselines moved to sibling file
+# _dummy_baseline_quantile.py and re-exported from the module-top imports.
 
 

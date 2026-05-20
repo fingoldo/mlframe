@@ -1,10 +1,16 @@
 """Regression tests for the 2026-05-17 evaluation/diagnostics audit.
 
 H-EVA-01: ``_compute_quantile_baselines`` had two definitions in
-``dummy_baselines.py`` — one imported from ``_dummy_baseline_compute`` and a
+``dummy_baselines.py`` -- one imported from ``_dummy_baseline_compute`` and a
 duplicate further down the file shadowing it (F811-suppressed). The shadow
 copy was removed; this test pins the resolved symbol to the canonical
-``_dummy_baseline_compute`` module so the duplicate cannot silently return.
+module so the duplicate cannot silently return.
+
+Wave 92 (2026-05-21): the canonical home moved from
+``_dummy_baseline_compute`` to the sibling file
+``_dummy_baseline_quantile`` (the original module re-exports). The
+identity check below still guards against shadowing because both
+modules expose the same underlying function object.
 """
 from __future__ import annotations
 
@@ -16,17 +22,25 @@ def test_compute_quantile_baselines_resolves_to_canonical_module():
     from mlframe.training import dummy_baselines
 
     fn = dummy_baselines._compute_quantile_baselines
-    assert fn.__module__ == "mlframe.training._dummy_baseline_compute", (
-        f"_compute_quantile_baselines must come from _dummy_baseline_compute, "
-        f"got {fn.__module__}"
+    # Wave 92: canonical module is now the sibling split file; the original
+    # _dummy_baseline_compute re-exports for backward compat. Either path is
+    # acceptable but a local shadow def (mlframe.training.dummy_baselines)
+    # would be the bug we're guarding against.
+    assert fn.__module__ in (
+        "mlframe.training._dummy_baseline_quantile",
+        "mlframe.training._dummy_baseline_compute",
+    ), (
+        f"_compute_quantile_baselines must come from the compute / quantile "
+        f"split module, got {fn.__module__}"
     )
 
 
 def test_compute_quantile_baselines_defined_only_in_compute_module():
-    """Behavioural: the canonical definition lives in _dummy_baseline_compute,
-    and the dummy_baselines module's symbol must be the SAME function object
-    (no in-file shadow def reshadowed the import). We check identity, not
-    source text, so refactors that move whitespace don't break this.
+    """Behavioural: the canonical definition lives in _dummy_baseline_compute
+    (and post-wave-92, in the _dummy_baseline_quantile sibling that the
+    compute module re-exports). The dummy_baselines module's symbol must be
+    the SAME function object as the one re-exported from
+    _dummy_baseline_compute -- not a wrapper, not a shadow.
     """
     from mlframe.training import dummy_baselines
     from mlframe.training import _dummy_baseline_compute
