@@ -675,6 +675,17 @@ def _confirm_pairs_bandit_ucb1(
             used, total_budget - used,
         )
 
+    # Phase 2 burst size: take K shuffles for the UCB1-selected pair via the
+    # parallel-prange bulk kernel (iter11) rather than 1 shuffle per loop. The
+    # MOST AMBIGUOUS pair stays the most ambiguous until its CI narrows, so
+    # committing K consecutive shuffles to it before re-checking UCB1 costs
+    # almost no fidelity and gives ~Kx speedup on the bulk vs serial path
+    # (iter11 bench: 6.03x on n_perms=8, n=200k, 8-core box). The burst is
+    # capped to remaining budget so we never overshoot total_budget.
+    _PHASE2_BURST = 8
+    _burst_seed_base = np.uint64(0xDEADBEEF)
+    _burst_counter = 0
+
     while used < total_budget:
         # Decide which pair to allocate next shuffle to. UCB1-style: pair with widest CI on current p_estimate, AMONG ACTIVES.
         best_j = -1
@@ -694,8 +705,27 @@ def _confirm_pairs_bandit_ucb1(
 
         k = selected_idx[best_j]
         ii_obs = float(ii_arr[k])
-        _step_pair(best_j, ii_obs)
-        used += 1
+        # Burst: how many shuffles to allocate to best_j in one bulk call.
+        # Bounded by remaining budget AND the configured burst cap.
+        _burst = min(_PHASE2_BURST, total_budget - used)
+        if _burst <= 1:
+            # Last-shuffle case: fall through to the cheap sequential path
+            # (the bulk kernel's njit-dispatch overhead isn't worth it for n=1).
+            _step_pair(best_j, ii_obs)
+            used += 1
+        else:
+            cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2 = pair_cache[best_j]
+            _burst_seed = _burst_seed_base + np.uint64(_burst_counter) * np.uint64(0x9E3779B1)
+            _burst_counter += 1
+            ip_arr, ix1_arr, ix2_arr = _bulk_shuffle_and_compute_three_mis(
+                cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
+                classes_y, freqs_y, _burst, _burst_seed, dtype,
+            )
+            for _p in range(_burst):
+                if (ip_arr[_p] - ix1_arr[_p] - ix2_arr[_p]) >= ii_obs:
+                    nfailed[best_j] += 1
+                nshuf[best_j] += 1
+            used += _burst
 
         # Early-stop check: 95% Clopper-Pearson-ish bound on p. Conservative bound p +/- z * sqrt(p*(1-p)/n), z=1.96.
         n_j = nshuf[best_j]
