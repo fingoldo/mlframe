@@ -307,6 +307,20 @@ def get_training_configs(
         # granularity instead of 1-iter; on a 100+-iter run this is a
         # negligible accuracy hit. CB caller can override via cb_kwargs.
         metric_period=5,
+        # allow_writing_files=False: by default CatBoost writes its
+        # training-history JSON / plot-data / fitted-info dump into a
+        # ``catboost_info/`` directory under the *current working
+        # directory*. Under pytest-xdist (or any multi-process setup
+        # without per-process CWDs) every worker hammers the same path
+        # and Windows raises ``CatBoostError: Error 5: Access is denied
+        # ... can't open catboost_info\catboost_training.json with mode
+        # CreateAlways`` (observed 2026-05-20 on S: fuzz_3way
+        # c0290_cb_lgb_linear-pandas-n5000). mlframe maintains its own
+        # metadata pipeline so the CB-side artefacts are redundant;
+        # callers who need them can re-enable via
+        # ``hyperparams_config={"cb_kwargs": {"allow_writing_files":
+        # True, "train_dir": "<path>"}}``.
+        allow_writing_files=False,
     )
     CB_GENERAL_PARAMS.update(cb_kwargs)
 
