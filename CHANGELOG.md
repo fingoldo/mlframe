@@ -1,5 +1,97 @@
 # Changelog
 
+## 2026-05-20 — Composite-discovery + polynom-FE parallel/GPU expansion
+
+Cumulative wave landing four perf improvements on top of the 2026-05-19
+MRMR GPU stack. End-to-end speedup on n=200k synthetic discovery
+bench: **1.55-1.85x** at ``tiny_rerank_n_jobs=4 + discovery_n_jobs=4``;
+production wins scale with ``len(base_candidates) * len(transforms)``.
+Plug-in MI batch path picks up an additional **2.17x at n=200k / 3.2x
+at n=1M** when CUDA is available (auto-routed by dispatcher).
+
+### #10 Phase B per-spec rerank parallelisation
+``CompositeTargetDiscovery._tiny_model_rerank`` now pre-builds the
+per-base cache serially then dispatches the per-spec rerank loop
+through ``joblib.Parallel(backend="threading")``. New config flag
+``tiny_rerank_n_jobs`` (default 1 = serial back-compat; 0 = auto-cap at
+``min(len(kept_specs), cpu_count())``). LightGBM CV releases the GIL,
+so threading scales close to linearly up to ``len(kept_specs)``.
+
+Bit-for-bit equivalence vs serial pinned by
+``tests/training/test_composite_discovery_parallel.py::TestParallelRerankEquivalence``
+(scores + per-seed Wilcoxon arrays, ``deterministic_screening_models=True``).
+
+### #2 Composite discovery flatten over (base, transform)
+``CompositeTargetDiscovery.fit`` previously nested ``for base in
+base_candidates: parallel for transform in transforms``, capping
+parallelism at ``len(transforms)`` per base. The discovery loop now
+pre-computes per-base contexts serially (``base_train``,
+``x_remaining_matrix``, ``_x_prebinned``, ``mi_y_for_base``) into
+``_base_contexts[base]`` and flattens the work list to
+``[(base, transform_name, transform), ...]`` for a single parallel
+dispatch. Unary-transform dedup stays in the work-list builder
+(serial, race-free).
+
+Joblib preserves input order so ``candidates`` list ends up
+bit-for-bit identical to the legacy nested-loop serial path; all 35
+composite discovery tests pass.
+
+### #3 cupy port of ``_plugin_mi_classif`` + size-aware dispatcher
+New ``_plugin_mi_classif_batch_cuda`` computes plug-in MI on GPU via
+``cp.argsort`` -> rank-to-bin lookup, then a single ``cp.bincount``
+across flat ``(col, bin, class)`` indices. Numerically equivalent to
+the njit version up to fp64 round-off (verified at n=1k/50k/100k x
+k=1/5/20 x n_classes=2/3/5 — max diff ~1e-15).
+
+Public dispatchers:
+- ``plugin_mi_classif_dispatch`` / ``plugin_mi_classif_batch_dispatch``
+- Thresholds: ``MLFRAME_MI_CUDA_THRESHOLD=1_000_000`` (single),
+  ``MLFRAME_MI_BATCH_CUDA_THRESHOLD=300_000`` (batch); env-overridable.
+- ``MLFRAME_MI_BACKEND=njit|cuda`` force-overrides regardless of n.
+
+Measured speedup vs ``_plugin_mi_classif_batch_njit`` (GTX 1050 Ti):
+- n=200k, k=20: **2.17x** (137ms → 63ms)
+- n=1M, k=20:   **3.20x** (1.11s → 0.35s)
+- n=1M, k=50:   **3.06x** (3.09s → 1.01s)
+
+### #4 Basis-matrix builder + GEMV invariant tests
+New ``tests/feature_selection/test_basis_matrix_builders.py`` pins:
+1. Each ``_build_basis_{hermite,legendre,chebyshev,laguerre}`` matches
+   numpy's ``polyval`` for every column slice ``B[:, :k] @ c`` up to
+   1e-10 over (max_degree, k) combinations.
+2. ``build_basis_matrix`` public dispatcher returns the same matrix as
+   the private builder; raises ``KeyError`` on unknown bases.
+3. ``B @ c`` agrees with ``polyeval_dispatch`` (the Horner backend) at
+   n=100/5k/50k — protects the GATED basis-matrix GEMV optimisation
+   from silent drift if the Horner kernels are tweaked.
+4. Edge cases: ``max_degree=0`` returns the constant column; degree=1
+   matches the first-degree polynomial.
+
+### #9 Suite-level ``PipelineCache`` HIT integration test
+New ``tests/training/test_pipeline_cache_suite_integration.py`` runs
+``train_mlframe_models_suite`` with ``mlframe_models=["linear", "mlp"]``
+(both have identical preprocessing requirements: ``imp+scale+enc``) and
+asserts that the captured ``PipelineCache HIT`` log line count is
+non-zero and ``hits >= max(1, misses // 2)``. Pre-fix name-keyed cache
+would have ``hits == 0``; the content-keyed cache (introduced
+2026-05-18) makes the second strategy in a (linear, mlp) sequence
+skip the ~17s ``SimpleImputer + StandardScaler`` re-fit.
+
+### #5 Bench script defaults moved to subsample=200k
+``profiling/bench_polynom_fe_clean.py`` and
+``profiling/bench_polynom_fe_backends.py`` updated to use 200k as the
+production-default subsample row count (was 100k). Reflects the
+2026-05-18 raise of ``fe_smart_polynom_subsample_n=100_000 -> 200_000``
+made after the 100k variant lost the genuine hermite=1 feature on
+n=1M data with 200 CMA-ES restarts.
+
+### #12 Memory entry for polynom kernels dispatcher state
+Wrote ``memory/reference_polynom_kernels_dispatcher.md`` documenting
+the 4-basis × 3-backend (``njit`` / ``njit_par`` / ``cuda`` via
+``polyeval_dispatch``) + GATED 4th basis-matrix GEMV path state as of
+this commit. Captures the critical refinement-step invariant (must
+drop ``B_a`` / ``B_b`` when switching to full z, else shape mismatch).
+
 ## 2026-05-19 — MRMR GPU stack closure: WAVE 1-5 cumulative 2.37x speedup at N=1M, p=30; persistent kernel_tuning_cache; HW-aware dispatch
 
 Five wave cumulative work landing the MRMR.fit hot path on a layered
