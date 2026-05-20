@@ -6,6 +6,14 @@ import gc
 import os
 import warnings
 
+# Best-effort silence for native-stderr chatter from Intel OpenMP. BLAS xerbla
+# output ("** On entry to DLASCLS parameter number 4 had an illegal value") is
+# printed from C via stderr and bypasses OPENBLAS_VERBOSE / MKL_VERBOSE flags;
+# filter THOSE at the log boundary instead (PowerShell ``| Where-Object {
+# $_ -notmatch '^ \*\* On entry to D[A-Z]+ parameter' } | Tee-Object``).
+# KMP_WARNINGS does cleanly silence Intel OpenMP runtime chatter, so keep it.
+os.environ.setdefault("KMP_WARNINGS", "off")
+
 import pytest
 
 # Auto-register synthetic-data fixtures from tests.training.synthetic so they're
