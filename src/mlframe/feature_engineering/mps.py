@@ -709,7 +709,7 @@ def compute_mps_targets(
                         ts=row[ts_field][:-1],
                         secid=[row[group_field]] * (len(final_prices) - 1),
                         OPTIMAL_POSITION=positions,
-                        OPTIMAL_PROFIT=np.nan_to_num(profits[:-1], copy=False, nan=0.0, posinf=0.0, neginf=0.0),
+                        OPTIMAL_PROFIT=np.nan_to_num(profits[:-1], nan=0.0, posinf=0.0, neginf=0.0),
                     )
                 )
             )

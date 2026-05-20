@@ -192,7 +192,13 @@ def _objectwise_isnull(arr: np.ndarray) -> np.ndarray:
 def _coerce_y_to_float64(y) -> np.ndarray:
     """Backend-agnostic float64 coercion. Avoids ``np.asarray(list(y))`` which materialises a Python list
     first (doubles memory + drops dtype on pandas/polars Series). Native ``.to_numpy()`` is zero-copy
-    when dtype already matches."""
+    when dtype already matches.
+
+    Return-value contract: read-only. When ``y`` is already a float64 ndarray (or a float64
+    pandas/polars Series), the returned array shares storage with the caller's input; in-place
+    mutation would corrupt the caller's target. All current callers (``_compute_prior``,
+    ``_compute_per_category``, ``_compute_woe_per_category``) treat the result as read-only.
+    Take ``.copy()`` at the call site if you need to mutate."""
     if isinstance(y, np.ndarray):
         return y.astype(np.float64, copy=False)
     try:

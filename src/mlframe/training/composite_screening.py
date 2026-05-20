@@ -42,7 +42,12 @@ logger = logging.getLogger(__name__)
 
 def _extract_column_array(df: Any, col: str) -> np.ndarray:
     """Pull a single column out as a 1-D float64 ndarray. Polars / pandas
-    only -- never materialise a whole-frame conversion."""
+    only -- never materialise a whole-frame conversion.
+
+    Return-value contract: callers MUST treat the result as read-only. When
+    the source column already has float64 dtype the polars/pandas backing
+    buffer is returned zero-copy; in-place mutation would corrupt the source
+    DataFrame. Use ``.copy()`` at the call site if mutation is required."""
     if _is_polars_df(df):
         # Polars Series.to_numpy() already returns an ndarray; the prior
         # np.asarray wrapper allocated a redundant view. copy=False keeps
