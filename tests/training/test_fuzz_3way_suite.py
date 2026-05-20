@@ -41,7 +41,16 @@ import pytest
 
 # Fuzz combos run hundreds of train_mlframe_models_suite iterations and are
 # deselected from the default test run; pass pytest --run-fuzz to include.
-pytestmark = pytest.mark.fuzz
+# Also marked `slow` (3-way covering suite: ~400 combos, 45min-5.5h
+# wall-clock depending on -n) so explicit `-m slow` selectors include it.
+# IMPORTANT: both markers must live in a single list assignment - a
+# second `pytestmark = ...` further down would silently OVERWRITE this
+# one and lose the `fuzz` gate (the conftest `--run-fuzz` filter checks
+# the `fuzz` keyword), leading to surprising behaviour where the file's
+# tests run by default. Observed 2026-05-20 on S: when an earlier
+# duplicate `pytestmark = pytest.mark.slow` at line ~79 had nuked the
+# fuzz marker.
+pytestmark = [pytest.mark.fuzz, pytest.mark.slow]
 
 from ._fuzz_combo import (
     FuzzCombo,
@@ -73,10 +82,11 @@ from .test_fuzz_suite import (
 
 # 3-wise covering suite: 400 combos x ~50s = ~5.5h serial (~45min with -n 8).
 # Per the suite docstring it's intended for nightly / pre-merge, not per-push.
-# Mark slow so the default `-m "not slow"` excludes it, matching the doctring
-# guidance. Run it explicitly via `pytest tests/training/test_fuzz_3way_suite.py`
-# or `pytest -m slow` in the FINAL phase.
-pytestmark = pytest.mark.slow
+# Both ``fuzz`` and ``slow`` markers live in the single ``pytestmark`` list
+# at the top of this module - DO NOT redeclare ``pytestmark`` here; doing
+# so silently overwrites the module-level list and breaks the --run-fuzz
+# gate. To run this file explicitly: ``pytest --run-fuzz tests/training/
+# test_fuzz_3way_suite.py``.
 
 _FUZZ_3WAY_SEED = int(os.environ.get("FUZZ_3WAY_SEED", "20260424"))
 _FUZZ_3WAY_TARGET = int(os.environ.get("FUZZ_3WAY_TARGET", "400"))
