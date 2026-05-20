@@ -857,6 +857,12 @@ def combine_probs(
     non_finite_mask = ~np.isfinite(combined)
     if non_finite_mask.any():
         _arith = np.mean(stacked, axis=0)
+        # Wave 78 (2026-05-21): hard-assert shape contract -- np.where broadcasts
+        # silently on shape mismatch, which would silently produce wrong-shape
+        # ensemble output if a future flavour returns a different reduce shape.
+        assert combined.shape == _arith.shape, (
+            f"ensemble combine: shape mismatch combined={combined.shape} vs arith fallback={_arith.shape}"
+        )
         combined = np.where(non_finite_mask, _arith, combined)
 
     if ensure_prob_limits:
@@ -1184,6 +1190,11 @@ def ensemble_probabilistic_predictions_streaming(
         n_replaced = int(np.sum(non_finite_mask))
         if verbose:
             logger.info("%s non-finite values replaced with arithmetic mean", n_replaced)
+        # Wave 78 (2026-05-21): shape-contract assert as defensive forward-compat.
+        assert ensembled_predictions.shape == arith_mean.shape, (
+            f"streaming ensemble combine: shape mismatch ensembled={ensembled_predictions.shape} "
+            f"vs raw_acc.mean={arith_mean.shape}"
+        )
         ensembled_predictions = np.where(non_finite_mask, arith_mean, ensembled_predictions)
 
     if ensure_prob_limits:
