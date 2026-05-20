@@ -972,10 +972,19 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
 
     @property
     def n_features_in_(self) -> int | None:
-        """sklearn convention: raise ``NotFittedError`` before fit so
-        callers can't probe an unfit wrapper for feature count and
-        silently receive ``None``."""
-        return getattr(self._require_fitted("n_features_in_"), "n_features_in_", None)
+        """Pre-fit return ``None`` (NOT raise) so introspection tools that
+        defensively check ``if est.n_features_in_ is None: ...`` keep working
+        across the wrapper. Distinct from the ``feature_importances_`` /
+        ``coef_`` / ``intercept_`` properties above which DO raise
+        ``NotFittedError`` pre-fit: those are coefficient-style values that
+        callers expect to be present once fitted, and silently returning
+        ``None`` for them is a footgun. ``n_features_in_`` is a metadata
+        scalar with a long-standing None-pre-fit convention in mlframe.
+        """
+        est = getattr(self, "estimator_", None)
+        if est is None:
+            return None
+        return getattr(est, "n_features_in_", None)
 
     # ------------------------------------------------------------------
     # Internals

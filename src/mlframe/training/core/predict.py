@@ -250,10 +250,21 @@ def _combine_probs(
             metadata["ensembles_calibrated"] = bool(all(_flags))
 
     stacked = np.stack(all_probs)
+    # When the caller passes ``quantile_alphas`` (even an empty list) they are
+    # signalling "this is quantile-regression mode, outputs are unbounded".
+    # ``ensure_prob_limits=True`` would clip those raw quantile predictions to
+    # [0, 1] and destroy them (observed in
+    # test_combine_probs_quantile_alphas_zero_alpha_count_passes_through:
+    # member preds in the 1.0-5.0 range were all clipped to 1.0 and the
+    # "mean" flavour returned [[1, 1, 1]] instead of the actual mean
+    # [[2, 3.5, 4.5]]). Disable the clip in quantile mode; the
+    # ``ensure_prob_limits`` flag stays the source of truth in non-quantile
+    # (classification) paths.
+    _effective_ensure_prob_limits = ensure_prob_limits and (quantile_alphas is None)
     combined = _shared_combine_probs(
         stacked, flavour or "arithm",
         rrf_k=int(rrf_k),
-        ensure_prob_limits=ensure_prob_limits,
+        ensure_prob_limits=_effective_ensure_prob_limits,
     )
 
     if quantile_alphas is not None and combined.ndim == 2:
@@ -384,7 +395,17 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
     _is_ct = isinstance(target_name, str) and target_name.startswith("_CT_ENSEMBLE__")
     _bucket = _ec.get("cross_target" if _is_ct else "simple")
     if not isinstance(_bucket, dict):
-        _bucket = None
+        # Legacy / flat-schema fallback: when the metadata was written before
+        # the Arch-3 ``simple`` / ``cross_target`` sub-keying landed,
+        # ``ensembles_chosen`` looked like ``{target_type: {target_name:
+        # flavour}}`` directly. Detect that shape by checking whether any
+        # known TargetType-style key sits at the top level; if so, use _ec
+        # itself as the bucket so old persisted metadata still resolves.
+        _looks_flat = isinstance(_ec, dict) and any(
+            (isinstance(_v, dict) and _v and all(isinstance(_kk, str) and isinstance(_vv, str) for _kk, _vv in _v.items()))
+            for _v in _ec.values()
+        )
+        _bucket = _ec if _looks_flat else None
     if _bucket is not None and target_type is not None:
         _by_tt = _bucket.get(target_type) or _bucket.get(str(target_type))
         if isinstance(_by_tt, dict):
