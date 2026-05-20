@@ -137,7 +137,17 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # Mirror FuzzCombo._canonical_text_col_count so the FeatureTypesConfig
     # text_features list agrees with what the frame builder emitted.
     _eff_text_count = combo._canonical_text_col_count()
-    emits_text = _eff_text_count > 0 and "cb" in combo.models
+    # Gate text_features on BOTH the cb-needs-text flag AND the
+    # FeatureTypesConfig.use_text_features knob. Pydantic validator on
+    # FeatureTypesConfig (correctly) rejects ``text_features=[...]`` with
+    # ``use_text_features=False`` because the list would be silently
+    # dropped and the columns mis-routed to the cat path. Surfaced
+    # 2026-05-20 by combo c0029 (cb_hgb_mlp + use_text_features=False
+    # but cb-in-models → text list assigned → validation crash before
+    # the suite even started).
+    emits_text = (
+        _eff_text_count > 0 and "cb" in combo.models and combo.use_text_features
+    )
     emits_emb = (
         combo.embedding_col_count > 0
         and "cb" in combo.models

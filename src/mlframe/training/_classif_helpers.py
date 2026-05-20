@@ -438,8 +438,55 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
         # Drop them; the inner estimator's hyperparameters are already
         # baked in via clone(), which is the only thing fit_params used to
         # influence in this codepath.
+        #
+        # NaN guard: sklearn's ClassifierChain wraps the base estimator
+        # but calls ``_validate_data(X, ensure_all_finite=True)`` BEFORE
+        # delegating to the base. Even NaN-tolerant bases (HGB / LGB /
+        # XGB / CB) cannot rescue NaN cells from this pre-check, and the
+        # raise is opaque ("ClassifierChain does not accept missing
+        # values encoded as NaN natively. ..."). When X carries any NaN
+        # cells, impute them column-wise with the per-column median
+        # before fit; for non-numeric or empty columns fall back to 0.
+        # WARNed loud so the operator sees the silent imputation.
+        # Surfaced 2026-05-20 by fuzz combo c0029 (inject_inf_nan=True,
+        # cb_hgb_mlp, multilabel_classification chain dispatch).
+        _x_for_fit = X
+        try:
+            import numpy as _np
+            import pandas as _pd
+            _arr = _x_for_fit.to_numpy() if isinstance(_x_for_fit, _pd.DataFrame) else _np.asarray(_x_for_fit)
+            if _arr.dtype.kind == "f" and not _np.all(_np.isfinite(_arr[~_np.isnan(_arr)])):
+                pass  # inf already gone here; nan handled below
+            _has_nan = (_arr.dtype.kind == "f") and bool(_np.isnan(_arr).any())
+        except Exception:
+            _has_nan = False
+        if _has_nan:
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                "_ChainEnsemble.fit: input X contains NaN cells; sklearn "
+                "ClassifierChain refuses them pre-base-estimator. "
+                "Imputing column-wise median (fallback 0 for all-NaN cols) "
+                "before chain fit. Upstream preprocessing should fill these "
+                "earlier - see PreprocessingConfig.fix_infinities / impute."
+            )
+            if isinstance(_x_for_fit, _pd.DataFrame):
+                _x_for_fit = _x_for_fit.copy()
+                for _c in _x_for_fit.columns:
+                    _s = _x_for_fit[_c]
+                    if _s.dtype.kind == "f" and _s.isna().any():
+                        _med = _s.median(skipna=True)
+                        _x_for_fit[_c] = _s.fillna(0.0 if _np.isnan(_med) else _med)
+            else:
+                _x_for_fit = _arr.copy()
+                for _j in range(_x_for_fit.shape[1]):
+                    _col = _x_for_fit[:, _j]
+                    _mask = _np.isnan(_col)
+                    if _mask.any():
+                        _finite = _col[~_mask]
+                        _fill = 0.0 if _finite.size == 0 else float(_np.median(_finite))
+                        _x_for_fit[_mask, _j] = _fill
         for chain in self.chains_:
-            chain.fit(X, y)
+            chain.fit(_x_for_fit, y)
         # Mirror sklearn estimator API.
         self.classes_ = self.chains_[0].classes_
         return self
