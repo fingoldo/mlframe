@@ -218,8 +218,15 @@ def train_mlframe_models_suite(
     # each suite starts from a fresh FH cache namespace.
     reset_fh_session()
 
+    # Wave 29 P2 fix (2026-05-20): pre-fix rejected ``pathlib.Path`` with
+    # a confusing "must be ... path string" message. Path is a natural
+    # caller idiom (yaml config + Path / Click + Path); coerce to str
+    # at the boundary so the downstream parquet-read path stays unchanged.
+    import os as _os_for_pathlike
+    if isinstance(df, _os_for_pathlike.PathLike):
+        df = str(df)
     if not isinstance(df, (pd.DataFrame, pl.DataFrame, str)):
-        raise TypeError(f"df must be pandas DataFrame, polars DataFrame, or path string, " f"got {type(df).__name__}")
+        raise TypeError(f"df must be pandas DataFrame, polars DataFrame, or path string / PathLike, " f"got {type(df).__name__}")
     if isinstance(df, str) and not df.lower().endswith(".parquet"):
         raise ValueError(f"File path must be a .parquet file, got: {df}")
 

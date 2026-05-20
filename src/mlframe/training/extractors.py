@@ -814,7 +814,15 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                     and col in self.classification_exact_values
                 ):
                     exact_val = self.classification_exact_values[col]
-                    exact_vals = exact_val if isinstance(exact_val, list) else [exact_val]
+                    # Wave 29 P1 fix (2026-05-20): pre-fix accepted only
+                    # ``list``; ``classification_exact_values={"col": (1,2,3)}``
+                    # (natural Python idiom for fixed sets) got wrapped as
+                    # ``[(1,2,3)]`` then ``col_data == (1,2,3)`` raised on
+                    # both pandas and polars. Accept any iterable container.
+                    if isinstance(exact_val, (list, tuple, set, frozenset)):
+                        exact_vals = list(exact_val)
+                    else:
+                        exact_vals = [exact_val]
 
                     for val in exact_vals:
                         target_name = f"{col}_eq_{val}"

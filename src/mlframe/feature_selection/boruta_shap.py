@@ -868,21 +868,33 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         )
         if self.classification or _y_multi:
             # for some reason shap returns values wraped in a list of length 1
-
-            self.shap_values = np.array(explainer.shap_values(basis))
-            if isinstance(self.shap_values, list):
+            # Wave 29 P1 fix (2026-05-20): pre-fix wrapped the raw return
+            # in ``np.array(...)`` BEFORE the ``isinstance(..., list)``
+            # check, which made the list branch unreachable on modern
+            # SHAP that returns ``list[ndarray]`` for multi-class. As a
+            # result multi-class SHAP aggregation silently mis-counted
+            # importances (ran the 3-D ndarray branch which sums over
+            # axis=0 = classes; the list branch's per-class abs-mean
+            # accumulation never fired).
+            # Inspect the RAW return type first; only wrap in np.array
+            # when we've confirmed it's a single-class single-array case.
+            _raw_shap = explainer.shap_values(basis)
+            if isinstance(_raw_shap, list):
+                # Multi-class SHAP path: list of per-class (n_samples, n_features) arrays.
+                self.shap_values = _raw_shap
                 class_inds = range(len(self.shap_values))
                 shap_imp = np.zeros(self.shap_values[0].shape[1])
                 for i, ind in enumerate(class_inds):
                     shap_imp += np.abs(self.shap_values[ind]).mean(0)
-                self.shap_values /= len(self.shap_values)
-
-            elif len(self.shap_values.shape) == 3:
-                self.shap_values = np.abs(self.shap_values).sum(axis=0)
-                self.shap_values = self.shap_values.mean(0)
-
+                # Final aggregated per-feature importance (averaged across classes).
+                self.shap_values = shap_imp / len(class_inds)
             else:
-                self.shap_values = np.abs(self.shap_values).mean(0)
+                self.shap_values = np.asarray(_raw_shap)
+                if self.shap_values.ndim == 3:
+                    self.shap_values = np.abs(self.shap_values).sum(axis=0)
+                    self.shap_values = self.shap_values.mean(0)
+                else:
+                    self.shap_values = np.abs(self.shap_values).mean(0)
 
         else:
             self.shap_values = explainer.shap_values(basis)

@@ -1280,6 +1280,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Convert numpy array to DataFrame if needed
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+        else:
+            # Wave 29 P1 fix (2026-05-20): pre-fix polars DataFrames
+            # slipped past the np.ndarray branch; downstream
+            # ``X[target_name] = y`` (a few lines below) assumed pandas
+            # in-place mutation and raised on polars. Coerce explicitly.
+            try:
+                import polars as _pl_for_isinstance
+                if isinstance(X, _pl_for_isinstance.DataFrame):
+                    X = X.to_pandas()
+            except ImportError:
+                pass
 
         self.feature_names_in_ = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
         self.n_features_in_ = len(self.feature_names_in_)

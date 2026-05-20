@@ -668,8 +668,23 @@ def apply_preprocessing_extensions(
     # robust against axis combinations where cat_encoding canonicalised
     # to a path that bypassed the encoder.
     def _filter_to_numeric(_df):
-        if _df is None or not isinstance(_df, pd.DataFrame):
+        if _df is None:
             return _df, []
+        # Wave 29 P2 fix (2026-05-20): pre-fix silently passed through
+        # polars DataFrames; downstream ``_df.select_dtypes(...)`` then
+        # raised AttributeError with no diagnostic naming the type. Coerce
+        # polars -> pandas explicitly (matches the sibling helpers that
+        # call ``get_pandas_view_of_polars_df``); raise on truly
+        # unsupported types so the upstream caller sees the boundary.
+        if not isinstance(_df, pd.DataFrame):
+            try:
+                import polars as _pl_local
+                if isinstance(_df, _pl_local.DataFrame):
+                    _df = _df.to_pandas()
+                else:
+                    return _df, []
+            except ImportError:
+                return _df, []
         # Bool columns are numerically valid for sklearn KBins /
         # StandardScaler / PolynomialFeatures (False=0, True=1) but
         # ``select_dtypes(include="number")`` EXCLUDES bool dtype - the
