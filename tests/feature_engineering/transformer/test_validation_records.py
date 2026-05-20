@@ -56,7 +56,7 @@ from tests.feature_engineering.transformer.test_biz_val_real_datasets import (
 )
 
 
-pytestmark = pytest.mark.fast
+pytestmark = [pytest.mark.fast, pytest.mark.biz_transformer]
 
 # Seeds for validation.
 _VALIDATION_SEEDS = (0, 7, 17, 42, 99)

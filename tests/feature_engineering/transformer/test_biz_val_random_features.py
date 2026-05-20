@@ -27,7 +27,7 @@ pytest.importorskip("lightgbm")
 pytest.importorskip("sklearn")
 
 
-pytestmark = pytest.mark.fast
+pytestmark = [pytest.mark.fast, pytest.mark.biz_transformer]
 
 
 def _make_rff_synthetic(n: int = 1500, n_signal: int = 4, n_noise: int = 16, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:

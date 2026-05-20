@@ -95,6 +95,15 @@ def pytest_addoption(parser):
              "test_fuzz_3way_suite, ...). They are deselected by default even "
              "without --fast because each runs ~150 combos through the suite.",
     )
+    parser.addoption(
+        "--run-biz-transformer",
+        action="store_true",
+        default=False,
+        help="Include the feature_engineering/transformer/test_biz_val_*.py "
+             "business-value tests. Each fits multiple boostings on real "
+             "datasets (kin8nm, mammography, California Housing, ...) and "
+             "takes minutes per case; deselected from the default run.",
+    )
 
 
 def pytest_configure(config):
@@ -112,6 +121,12 @@ def pytest_configure(config):
         "markers",
         "fuzz: long-running fuzz-combo test; deselected unless --run-fuzz is passed.",
     )
+    config.addinivalue_line(
+        "markers",
+        "biz_transformer: feature_engineering/transformer biz_val test (real "
+        "datasets, multi-boosting); deselected unless --run-biz-transformer "
+        "is passed.",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -125,6 +140,18 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "fuzz" in item.keywords:
                 item.add_marker(skip_fuzz)
+
+    # Same opt-in pattern for the feature_engineering/transformer biz_val
+    # tests: real-dataset fits across multiple boostings, several minutes
+    # per test, not standard CI loop material.
+    if not config.getoption("--run-biz-transformer"):
+        skip_bt = pytest.mark.skip(
+            reason="skipped by default; pass --run-biz-transformer to include "
+                   "feature_engineering/transformer biz_val tests"
+        )
+        for item in items:
+            if "biz_transformer" in item.keywords:
+                item.add_marker(skip_bt)
 
     if not is_fast_mode():
         return

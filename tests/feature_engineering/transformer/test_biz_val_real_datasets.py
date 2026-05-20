@@ -42,7 +42,7 @@ pytest.importorskip("catboost")
 # A single test in here cold-starts numba kernels that exceed pytest's
 # default per-test timeout. Mark the whole module slow_only so `pytest
 # --fast` skips it (the fast-mode conftest filter handles the skip).
-pytestmark = pytest.mark.slow_only
+pytestmark = [pytest.mark.slow_only, pytest.mark.biz_transformer]
 pytest.importorskip("sklearn")
 
 from mlframe.feature_engineering.transformer import (

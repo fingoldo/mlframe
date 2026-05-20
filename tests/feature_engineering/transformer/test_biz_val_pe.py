@@ -30,7 +30,7 @@ pytest.importorskip("lightgbm")
 pytest.importorskip("sklearn")
 
 
-pytestmark = pytest.mark.fast
+pytestmark = [pytest.mark.fast, pytest.mark.biz_transformer]
 
 
 def _make_pe_synthetic(n_groups: int = 500, group_len: int = 50, seed: int = 0) -> tuple[pl.DataFrame, np.ndarray]:

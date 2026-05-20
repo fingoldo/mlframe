@@ -29,7 +29,7 @@ pytest.importorskip("sklearn")
 from mlframe.feature_engineering.transformer import compute_row_attention
 
 
-pytestmark = pytest.mark.fast
+pytestmark = [pytest.mark.fast, pytest.mark.biz_transformer]
 
 
 def _make_subspace_synthetic(n: int = 2000, d: int = 200, d_signal: int = 5, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:

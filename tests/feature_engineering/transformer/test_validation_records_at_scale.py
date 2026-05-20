@@ -32,7 +32,7 @@ pytest.importorskip("sklearn")
 # Module docstring: "runtime under ~30min" with 3 seeds, real California Housing
 # (20640 rows) + Year_100k loaded from disk. Each train fit + KFold cycle
 # exceeds the fast-mode --timeout=60. Mark slow_only so --fast skips it.
-pytestmark = pytest.mark.slow_only
+pytestmark = [pytest.mark.slow_only, pytest.mark.biz_transformer]
 
 from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_california
 from tests.feature_engineering.transformer.test_validation_records import (
