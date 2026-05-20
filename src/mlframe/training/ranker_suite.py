@@ -896,8 +896,13 @@ def train_mlframe_ranker_suite(
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
         import joblib
+        # Wave 46 (2026-05-20): raw caller-supplied model_name plumbed into a path
+        # basename is a traversal vector (e.g. model_name="../../evil" produces
+        # "save_dir/../../evil_cb.joblib" which os.path.join leaves traversable).
+        from pyutilz.strings import slugify as _slugify
+        _safe_model_name = _slugify(model_name)
         for flavor in flavor_order:
-            artefact_path = os.path.join(save_dir, f"{model_name}_{flavor}.joblib")
+            artefact_path = os.path.join(save_dir, f"{_safe_model_name}_{flavor}.joblib")
             joblib.dump(models_dict[flavor]["model"], artefact_path)
             # Wave 19 P0 #3: write the .meta.json sidecar that records the
             # booster + mlframe library versions at save time. Without this,
@@ -919,7 +924,7 @@ def train_mlframe_ranker_suite(
                 logger.info("  saved %s -> %s", flavor, artefact_path)
         # Metadata json
         import json
-        meta_path = os.path.join(save_dir, f"{model_name}_metadata.json")
+        meta_path = os.path.join(save_dir, f"{_safe_model_name}_metadata.json")
         with open(meta_path, "w", encoding="utf-8") as f:
             # numpy types aren't json-serialisable; coerce.
             def _coerce(o):

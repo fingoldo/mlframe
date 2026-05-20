@@ -359,6 +359,10 @@ class PytorchLightningEstimator(BaseEstimator):
         _ckpt_root = getattr(self, "checkpoint_dir_override", None)
         if _ckpt_root is None:
             import time as _time
+            # Wave 46 (2026-05-20): trainer_params["default_root_dir"] is caller-controlled
+            # per the standard Lightning Trainer contract. Caller is responsible for any
+            # trusted-root validation upstream; this join is intentionally permissive and
+            # matches Lightning's documented behaviour for default_root_dir.
             _default_root = self.trainer_params.get("default_root_dir") or "logs"
             _ckpt_root = os.path.join(_default_root, f"_run_{id(self)}_{int(_time.time())}")
         os.makedirs(_ckpt_root, exist_ok=True)

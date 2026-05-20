@@ -560,7 +560,18 @@ def train_postcalibrators(
         include_patterns=include_patterns,
     )
 
-    final_models_dir = join(models_dir, target_name, featureset_name, task_type, model_name)
+    # Wave 46 (2026-05-20): raw caller-supplied target/featureset/task/model names
+    # plumbed into os.path.join is a path-traversal vector (one absolute component
+    # eats the prefix, "../../etc" escapes). Mirror the slugify discipline used at
+    # _setup_helpers.py:852 and _phase_finalize.py:71.
+    from pyutilz.strings import slugify as _slugify
+    final_models_dir = join(
+        models_dir,
+        _slugify(target_name),
+        _slugify(featureset_name),
+        _slugify(str(task_type)),
+        _slugify(model_name),
+    )
 
     for calib_name, calibrator in test_calibrators.items():
         ens_name = f"ens_{_resolved_method}"

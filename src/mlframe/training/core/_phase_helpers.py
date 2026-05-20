@@ -1724,7 +1724,12 @@ def _maybe_dispatch_to_ltr_ranker_suite(
     _data_dir = _cfg_get(ctx.output_config, "data_dir")
     _models_dir = _cfg_get(ctx.output_config, "models_dir") or "models"
     if _data_dir:
-        _save_dir = os.path.join(_data_dir, _models_dir, ctx.model_name)
+        # Wave 46 (2026-05-20): raw ctx.model_name plumbed into os.path.join is a path-
+        # traversal vector ("../../evil" escapes models dir; an absolute "/foo" or "C:/x"
+        # eats the prefix entirely). Slugify mirrors the non-LTR sibling paths at
+        # _setup_helpers.py:852 and _phase_finalize.py:71.
+        from pyutilz.strings import slugify as _slugify
+        _save_dir = os.path.join(_data_dir, _models_dir, _slugify(ctx.model_name))
 
     _test_size = _cfg_get(ctx.split_config, "test_size", _DEFAULT_TEST_SIZE)
     _val_size = _cfg_get(ctx.split_config, "val_size", _DEFAULT_VAL_SIZE)
