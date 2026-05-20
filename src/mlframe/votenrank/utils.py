@@ -24,13 +24,21 @@ def kendall_tau(df):
 
 
 def agreement_rate(df, k, top_k=True):
+    # Wave 60 (2026-05-20): clamp k to actual subset size so `iloc[-k:]` doesn't
+    # silently return the WHOLE subset (and divide by k anyway, inflating the
+    # agreement rate vs AM). The prior code on a 3-row leaderboard with k=10
+    # would count all 3 rows but still divide by 10 -- silently misreporting
+    # agreement.
     res_d = {}
+    _k_eff = k
     for method, subset in df.iteritems():
+        _k_eff = min(_k_eff, len(subset))
         _subset = subset.copy().iloc[:k] if top_k else subset.copy().iloc[-k:]
         res_d[method] = _subset.apply(lambda x: x.split(":")[1].strip()).tolist()
 
+    _denom = max(1, _k_eff)
     return {
-        method: round(len(set(method_top_k).intersection(set(res_d["AM"]))) / k, 2)
+        method: round(len(set(method_top_k).intersection(set(res_d["AM"]))) / _denom, 2)
         for method, method_top_k in res_d.items()
         if method != "AM"
     }
