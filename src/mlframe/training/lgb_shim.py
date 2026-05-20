@@ -578,7 +578,12 @@ class _DatasetReuseMixin:
             import os as _os
             self.n_jobs = _os.cpu_count() or 1
         params: dict = self._process_params("fit")
-        n_estimators = self.get_params().get("n_estimators", 100) or 100
+        # Wave 14 P1 (re-opened 2026-05-20): same shape as xgb_shim --
+        # pre-fix `or 100` silently rewrote n_estimators=0 to 100. lightgbm
+        # accepts n_estimators=0 (means untrained booster); the shim
+        # silently overrode that.
+        _n_est_raw = self.get_params().get("n_estimators", 100)
+        n_estimators = 100 if _n_est_raw is None else _n_est_raw
 
         # Translate eval_metric -> params["metric"] / feval. String /
         # list-of-strings go into params; callables go to feval. Mirrors

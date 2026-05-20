@@ -392,7 +392,12 @@ class _DMatrixReuseMixin:
         # missing handling, etc) and returns the C++-level booster param
         # dict. ``n_estimators`` becomes ``num_boost_round`` for native API.
         params: dict = self.get_xgb_params()
-        n_estimators = self.get_params().get("n_estimators", 100) or 100
+        # Wave 14 P1 (re-opened 2026-05-20): pre-fix `or 100` silently
+        # rewrote n_estimators=0 (legitimate xgboost intent: "construct
+        # an untrained booster; predict returns base score") to 100.
+        # The shim ran 100 boost rounds when the user wanted 0.
+        _n_est_raw = self.get_params().get("n_estimators", 100)
+        n_estimators = 100 if _n_est_raw is None else _n_est_raw
 
         # Translate a couple of sklearn-only kwargs into native form:
         # (a) ``early_stopping_rounds`` → callback or kwarg below;
