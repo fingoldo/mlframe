@@ -479,6 +479,85 @@ def _try_predict_with_pp_fallback(
         raise
 
 
+def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features):
+    """Cast cat_features to pandas ``category`` (or pl.Categorical for polars XGB).
+
+    Wave 89 (2026-05-21): extracted from the predict.py:1372 mega-try body.
+    Combines two adjacent ~40-line blocks (LGB + XGB) that share the same
+    "detect-model-family-by-module + iterate cat_features + cast non-category
+    to category" structure. Returns the possibly-mutated input_for_model.
+
+    Why this dance:
+      - LGB auto-detects categorical_feature from input dtype at predict and
+        compares against the fit-time spec; object / float64 cat_low triggers
+        "categorical_feature do not match". Cast to ``category`` only for LGB
+        so sklearn HGB / linear models that reject categorical dtype are not
+        broken.
+      - XGB's QuantileDMatrix builder rejects object / pl.String / pl.LargeString
+        cat cols with "Invalid columns: cat_low: object" (pandas path) or
+        "KeyError: DataType(large_string)" (polars path). Cast to pandas
+        ``category`` for the pandas path, pl.Categorical for the polars path.
+    """
+    if not cat_features or not hasattr(input_for_model, "columns"):
+        return input_for_model
+    _model_module = type(model).__module__ or ""
+    _model_cls_name = type(model).__name__
+    _is_lgb = (
+        _model_module.startswith("lightgbm")
+        or _model_module.endswith("lgb_shim")
+        or "LGBM" in _model_cls_name
+    )
+    _is_xgb = (
+        _model_module.startswith("xgboost")
+        or _model_module.endswith("xgb_shim")
+        or "XGB" in _model_cls_name
+    )
+    if not (_is_lgb or _is_xgb):
+        return input_for_model
+
+    # Pandas path (LGB + XGB both use the same assign(**dict) pattern --
+    # the prior implementation's input_for_model.copy() allocated a fresh
+    # copy of every column even when only 1-2 cat cols needed casting; the
+    # assign(**) keeps BlockManager-level reuse for un-cast columns on
+    # pandas >= 2.0, the biggest single allocation saving on wide frames).
+    if not isinstance(input_for_model, pl.DataFrame):
+        _to_cast: dict[str, Any] = {}
+        for _cf in cat_features:
+            if _cf not in input_for_model.columns:
+                continue
+            try:
+                if input_for_model[_cf].dtype.name != "category":
+                    _to_cast[_cf] = input_for_model[_cf].astype("category")
+            except Exception as _exc:
+                logger.debug(
+                    "predict_from_models: %s cat-cast for %r failed (%s); leaving as-is",
+                    "LGB" if _is_lgb else "XGB", _cf, type(_exc).__name__,
+                )
+        if _to_cast:
+            input_for_model = input_for_model.assign(**_to_cast)
+        return input_for_model
+
+    # Polars path: only the XGB branch needs this -- LGB on polars reads
+    # categorical dtype natively without an explicit cast.
+    if _is_xgb:
+        _pl_cast_exprs = []
+        for _cf in cat_features:
+            if _cf not in input_for_model.columns:
+                continue
+            _dt = input_for_model.schema.get(_cf)
+            if _dt in (pl.String, pl.Utf8) or str(_dt).startswith("LargeString"):
+                _pl_cast_exprs.append(pl.col(_cf).cast(pl.Categorical))
+        if _pl_cast_exprs:
+            try:
+                input_for_model = input_for_model.with_columns(_pl_cast_exprs)
+            except Exception as _exc:
+                logger.debug(
+                    "predict_from_models: XGB polars cat-cast failed (%s); leaving as-is",
+                    type(_exc).__name__,
+                )
+    return input_for_model
+
+
 def _is_post_hoc_calibrated_model(model_obj: Any) -> bool:
     """Detect whether ``model_obj`` is a post-hoc calibrated wrapper.
 
@@ -1775,93 +1854,12 @@ def predict_from_models(
                                     model_name,
                                 )
 
-                    # LGB-only cat dtype coercion. LightGBM auto-detects
-                    # categorical_feature from input dtype at predict and
-                    # compares against the fit-time spec; object / float64
-                    # cat_low triggers "categorical_feature do not match".
-                    # Cast to pandas ``category`` only for LGB so we don't
-                    # break sklearn HGB / linear models that reject
-                    # categorical dtype (iter#80). Casts ANY non-category
-                    # dtype because LGB checks dtype, not category levels.
-                    _model_module = type(model).__module__ or ""
-                    _is_lgb = (
-                        _model_module.startswith("lightgbm")
-                        or _model_module.endswith("lgb_shim")
-                        or "LGBM" in type(model).__name__
+                    # Wave 89 (2026-05-21): LGB + XGB cat dtype coercion lifted
+                    # to module-level _coerce_cat_dtype_for_lgb_xgb. Same logic,
+                    # one call instead of two adjacent ~40-line blocks.
+                    input_for_model = _coerce_cat_dtype_for_lgb_xgb(
+                        input_for_model, model=model, cat_features=_cat_features,
                     )
-                    if _is_lgb and _cat_features and hasattr(input_for_model, "columns"):
-                        # Collect only the cols that need a cat-cast, then build the cast Series objects via
-                        # a single ``DataFrame.assign(**{col: cast_series})``. ``assign`` returns a new frame
-                        # sharing memory for un-cast columns (BlockManager-level reuse on pandas >=2.0); the
-                        # prior implementation's ``input_for_model.copy()`` allocated a fresh copy of EVERY
-                        # column even when only 1-2 cat cols needed casting -- biggest single allocation on
-                        # wide frames (8GB savings on 7M x 200 in prod).
-                        _to_cast: dict[str, Any] = {}
-                        for _cf in _cat_features:
-                            if _cf in input_for_model.columns:
-                                try:
-                                    if input_for_model[_cf].dtype.name != "category":
-                                        _to_cast[_cf] = input_for_model[_cf].astype("category")
-                                except Exception as _exc:
-                                    logger.debug(
-                                        "predict_from_models: LGB cat-cast for %r failed "
-                                        "(%s); leaving as-is",
-                                        _cf, type(_exc).__name__,
-                                    )
-                        if _to_cast:
-                            input_for_model = input_for_model.assign(**_to_cast)
-
-                    # XGB cat dtype coercion (iter-101 family). XGB's
-                    # QuantileDMatrix builder rejects object / pl.String /
-                    # pl.LargeString cat cols with ``Invalid columns:
-                    # cat_low: object`` (pandas path) or
-                    # ``KeyError: DataType(large_string)`` (polars path).
-                    # Cast to pandas ``category`` so the downstream
-                    # ``enable_categorical=True``-fit XGB Booster accepts
-                    # them. Pre-fix this surfaced on every XGB predict
-                    # whose cat cols were stored as raw strings in the
-                    # serving frame (iter-228 / iter-243 / iter-258 /
-                    # iter-264 / iter-275 / iter-307 / iter-313 /
-                    # iter-322 / iter-326).
-                    _is_xgb = (
-                        _model_module.startswith("xgboost")
-                        or _model_module.endswith("xgb_shim")
-                        or "XGB" in type(model).__name__
-                    )
-                    if _is_xgb and _cat_features and hasattr(input_for_model, "columns"):
-                        if isinstance(input_for_model, pl.DataFrame):
-                            _pl_cast_exprs = []
-                            for _cf in _cat_features:
-                                if _cf not in input_for_model.columns:
-                                    continue
-                                _dt = input_for_model.schema.get(_cf)
-                                if _dt in (pl.String, pl.Utf8) or str(_dt).startswith("LargeString"):
-                                    _pl_cast_exprs.append(pl.col(_cf).cast(pl.Categorical))
-                            if _pl_cast_exprs:
-                                try:
-                                    input_for_model = input_for_model.with_columns(_pl_cast_exprs)
-                                except Exception as _exc:
-                                    logger.debug(
-                                        "predict_from_models: XGB polars cat-cast failed (%s); "
-                                        "leaving as-is",
-                                        type(_exc).__name__,
-                                    )
-                        else:
-                            _to_cast_xgb: dict[str, Any] = {}
-                            for _cf in _cat_features:
-                                if _cf in input_for_model.columns:
-                                    try:
-                                        _col_dtype = input_for_model[_cf].dtype
-                                        if getattr(_col_dtype, "name", "") != "category":
-                                            _to_cast_xgb[_cf] = input_for_model[_cf].astype("category")
-                                    except Exception as _exc:
-                                        logger.debug(
-                                            "predict_from_models: XGB cat-cast for %r failed "
-                                            "(%s); leaving as-is",
-                                            _cf, type(_exc).__name__,
-                                        )
-                            if _to_cast_xgb:
-                                input_for_model = input_for_model.assign(**_to_cast_xgb)
 
                     # Pre-main-pipeline fallback. Models with internal
                     # categorical handling fitted on string categories
