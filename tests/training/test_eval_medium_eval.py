@@ -277,37 +277,40 @@ def test_multilabel_split_summary_well_formed_object_array_stacks():
 def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monkeypatch):
     """Behavioural: KeyboardInterrupt raised from inside fit_and_report MUST
     propagate to the caller (no broad except Exception swallow).
+
+    We patch ``_to_1d_numpy`` (the FIRST function called inside the outer
+    try in fit_and_report) directly on the baseline_diagnostics module to
+    raise KI. This keeps the failure surface confined to the one production
+    call site instead of monkey-patching ``numpy.asarray`` process-wide --
+    that broader patch fires KI inside pytest's report-rendering code path
+    too, and pytest-xdist interprets that as a session interrupt and kills
+    the worker.
     """
+    import pandas as _pd
     from mlframe.training import baseline_diagnostics
 
-    # Build the dummy frame BEFORE monkeypatching np.asarray -- pd.DataFrame
-    # internally calls np.asarray, so constructing it after the patch would
-    # trigger KeyboardInterrupt outside the ``pytest.raises`` block and abort
-    # the session (KI escapes pytest's regular-exception handler).
-    import pandas as _pd
     dummy_df = _pd.DataFrame({"a": [1.0, 2.0]})
     dummy_target = [0, 1]
     feature_cols = ["a"]
     # Must be in BaselineDiagnosticsConfig.apply_to_target_types, otherwise
-    # fit_and_report short-circuits via _skipped before any asarray call --
-    # KI would never get a chance to fire.
+    # fit_and_report short-circuits via _skipped before the early
+    # _to_1d_numpy call -- KI would never get a chance to fire.
     target_type = "binary_classification"
     target_name = "y"
-
-    # Find a callable attribute fit_and_report calls early. We patch
-    # numpy.asarray as a generic early-call interceptor; any time the
-    # diagnostics path touches numpy (it always does), KI must escape.
-    import numpy as _np
 
     def _ki(*a, **kw):
         raise KeyboardInterrupt("simulated")
 
-    monkeypatch.setattr(_np, "asarray", _ki)
+    # Patch the LOCAL alias inside baseline_diagnostics, NOT numpy globally.
+    # baseline_diagnostics imports it as ``from .utils import coerce_to_1d_numpy
+    # as _to_1d_numpy`` at module load, so the patch is scoped to this one
+    # call site.
+    monkeypatch.setattr(baseline_diagnostics, "_to_1d_numpy", _ki)
 
     bd_cls = baseline_diagnostics.BaselineDiagnostics
-    # Newer versions require a config argument; build a real one so the
-    # downstream ``self.config.enabled`` check doesn't fire before the
-    # monkeypatched np.asarray has a chance to escape with KI.
+    # Newer versions require a config argument; build a real one so
+    # ``self.config.enabled`` doesn't fire AttributeError before the patched
+    # _to_1d_numpy is reached.
     try:
         instance = bd_cls()
     except TypeError:
@@ -319,11 +322,6 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     fit_method = getattr(instance, "fit_and_report", None)
     if fit_method is None:
         pytest.skip("fit_and_report not present on this BaselineDiagnostics version")
-    # fit_and_report has 5 required positional args:
-    # (train_df, train_target, feature_cols, target_type, target_name).
-    # The monkeypatched numpy.asarray fires inside _to_1d_numpy long before
-    # any of them is actually consumed, so dummy non-None values suffice
-    # to satisfy the signature; KI must escape the outer try.
     with pytest.raises(KeyboardInterrupt):
         fit_method(dummy_df, dummy_target, feature_cols, target_type, target_name)
 

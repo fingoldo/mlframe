@@ -363,6 +363,10 @@ def test_mi_direct_gpu_batched_pairs_empty_returns_empty_array():
 def test_mi_direct_gpu_batched_pairs_memory_guard_raises_on_overlarge_request():
     """The ``total_cells * 4 > 4 GiB`` guard must raise ``MemoryError``
     before any kernel launch is attempted."""
+    # The function eagerly imports cupy on the first line; on no-GPU hosts
+    # that import raises a wrapped RuntimeError, not MemoryError. The
+    # MemoryError-guard contract is only exercisable when cupy is importable.
+    pytest.importorskip("cupy")
     # nbins_a=nbins_b=2048 -> merged 2048*2048 = ~4.2M cells per pair;
     # times nbins_y=128 = ~537M cells; times 4 bytes = 2.15 GiB -- below
     # the 4 GiB ceiling. Use two pairs so we cross the limit.
