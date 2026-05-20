@@ -429,19 +429,31 @@ def _apply_pysr_fe(
     # Equation-string column lives under several possible names depending on the PySR version (``equation``, ``sympy_format``, ``lambda_format``); fall back to the row repr if none are present so the hash still has a deterministic basis.
     _eq_col = next((c for c in ("equation", "sympy_format", "lambda_format") if c in eq_df.columns), None)
     for idx in eq_df.index:
+        # Compute equation_str / col_name outside the predict try so any failure during
+        # name construction itself surfaces (it's pure computation; if it raises it's a
+        # real bug not a per-equation skip).
+        if _eq_col is not None:
+            equation_str = str(eq_df.loc[idx, _eq_col])
+        else:
+            equation_str = repr(eq_df.loc[idx].to_dict())
+        hash8 = hashlib.blake2b(equation_str.encode("utf-8"), digest_size=4).hexdigest()
+        col_name = f"pysr__{hash8}__{pysr_random_state}"
+        if col_name in train_df.columns:
+            # Same equation rediscovered in this seed -- the column already carries the
+            # same values, skip recompute.
+            if out_equations is not None:
+                out_equations[col_name] = equation_str
+            _col_to_index[col_name] = int(idx)
+            continue
+        # Per-equation try wraps all three predict-and-assign calls. Pre-fix bare
+        # ``except: continue`` left schema drift when predict succeeded on train but
+        # raised on val (e.g. odd dtype quirk, single edge value): train_df kept the
+        # column, val_df / test_df didn't, and downstream fit raised a cryptic
+        # feature-count mismatch with no log line. Now: on any failure, roll back
+        # all three frames so the column is either uniformly present or uniformly
+        # absent across splits, and log the skip so the operator sees how many
+        # equations were dropped.
         try:
-            if _eq_col is not None:
-                equation_str = str(eq_df.loc[idx, _eq_col])
-            else:
-                equation_str = repr(eq_df.loc[idx].to_dict())
-            hash8 = hashlib.blake2b(equation_str.encode("utf-8"), digest_size=4).hexdigest()
-            col_name = f"pysr__{hash8}__{pysr_random_state}"
-            if col_name in train_df.columns:
-                # Same equation rediscovered in this seed -- the column already carries the same values, skip recompute.
-                if out_equations is not None:
-                    out_equations[col_name] = equation_str
-                _col_to_index[col_name] = int(idx)
-                continue
             train_df[col_name] = np.asarray(
                 model.predict(train_df, index=idx), dtype=np.float32)
             if val_df is not None:
@@ -450,12 +462,25 @@ def _apply_pysr_fe(
             if test_df is not None:
                 test_df[col_name] = np.asarray(
                     model.predict(test_df, index=idx), dtype=np.float32)
-            new_cols.append(col_name)
-            _col_to_index[col_name] = int(idx)
-            if out_equations is not None:
-                out_equations[col_name] = equation_str
-        except Exception:
+        except Exception as _eq_err:
+            # Roll back any partial writes so train / val / test stay schema-consistent.
+            for _frame in (train_df, val_df, test_df):
+                if _frame is not None and col_name in getattr(_frame, "columns", []):
+                    try:
+                        _frame.drop(columns=[col_name], inplace=True)
+                    except (TypeError, ValueError):
+                        # polars (no inplace=) or unusual frame -- best-effort drop.
+                        pass
+            logger.warning(
+                "PySR equation idx=%s skipped (col=%s): %s: %s. Train/val/test "
+                "rolled back to keep splits schema-consistent.",
+                idx, col_name, type(_eq_err).__name__, _eq_err,
+            )
             continue
+        new_cols.append(col_name)
+        _col_to_index[col_name] = int(idx)
+        if out_equations is not None:
+            out_equations[col_name] = equation_str
     if out_transformer is not None and _col_to_index:
         out_transformer.append(PySRTransformer(model=model, col_to_index=_col_to_index, equations=out_equations or {}))
     return new_cols
