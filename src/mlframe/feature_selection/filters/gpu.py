@@ -836,16 +836,18 @@ def mi_direct_gpu(
         # (cc 7+, more registers/warp scheduler) pick a smaller block size
         # when the per-perm kernel is dispatch-bound. Cache miss -> the
         # hardcoded ``GPU_MAX_BLOCK_SIZE`` (1024), unchanged.
+        # Module-singleton cache (see ._kernel_tuning); a fresh
+        # KernelTuningCache() here would re-spawn nvidia-smi per call.
         block_size = GPU_MAX_BLOCK_SIZE
-        try:
-            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-            _ktc_entry = KernelTuningCache().lookup(
-                "joint_hist_single_perm", n_samples=int(n),
-            )
-            if _ktc_entry is not None and "block_size" in _ktc_entry:
-                block_size = int(_ktc_entry["block_size"])
-        except Exception:
-            pass
+        from ._kernel_tuning import get_kernel_tuning_cache
+        _ktc = get_kernel_tuning_cache()
+        if _ktc is not None:
+            try:
+                _ktc_entry = _ktc.lookup("joint_hist_single_perm", n_samples=int(n))
+                if _ktc_entry is not None and "block_size" in _ktc_entry:
+                    block_size = int(_ktc_entry["block_size"])
+            except Exception:
+                pass
         grid_size = math.ceil(n / block_size)
 
         classes_x_gpu = _GPU_POOL.classes_x[:n]
@@ -998,16 +1000,20 @@ def mi_direct_gpu_batched_pairs(
     # 256, the original default for atomic-heavy multi-pair). cc 8+ devices
     # often prefer 512 here; the auto-tune sweep finds the win.
     block_size = min(GPU_MAX_BLOCK_SIZE, 256)
-    try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-        _entry = KernelTuningCache().lookup(
-            "joint_hist_multi_pair",
-            n_rows=int(n_rows), n_pairs=int(n_pairs),
-        )
-        if _entry is not None and "block_size" in _entry:
-            block_size = int(_entry["block_size"])
-    except Exception:
-        pass
+    # Module-singleton cache (see ._kernel_tuning); a fresh KernelTuningCache()
+    # here would re-spawn nvidia-smi per call.
+    from ._kernel_tuning import get_kernel_tuning_cache
+    _ktc = get_kernel_tuning_cache()
+    if _ktc is not None:
+        try:
+            _entry = _ktc.lookup(
+                "joint_hist_multi_pair",
+                n_rows=int(n_rows), n_pairs=int(n_pairs),
+            )
+            if _entry is not None and "block_size" in _entry:
+                block_size = int(_entry["block_size"])
+        except Exception:
+            pass
     grid_x = (n_rows + block_size - 1) // block_size
 
     # Kernel-variant dispatch: shared-mem multi-pair kernel wins for small

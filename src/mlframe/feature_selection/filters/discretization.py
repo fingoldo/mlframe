@@ -326,16 +326,22 @@ def discretize_2d_array(
     # tuning cache (pyutilz.system.kernel_tuning_cache + auto_tune sweep)
     # when available; else the hand-tuned 500k default. Lets the dispatcher
     # adapt to faster GPUs (cc 8+ wins at smaller sizes) without code edits.
+    # Uses the module-singleton cache; building a fresh KernelTuningCache here
+    # would re-trigger _load + _build_provenance (nvidia-smi subprocess) on
+    # every call (~48ms each, observed 6x in fuzz combo c0143 profile).
     min_cells = _DISCRETIZE_2D_CUDA_MIN_CELLS
-    try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-        _cache = KernelTuningCache()
-        _entry = _cache.lookup("discretize_2d_array",
-                                arr_size=int(arr.size) if hasattr(arr, "size") else 0)
-        if _entry is not None and "min_cells" in _entry:
-            min_cells = int(_entry["min_cells"])
-    except Exception:
-        pass  # pyutilz missing or lookup error -> hand-tuned default
+    from ._kernel_tuning import get_kernel_tuning_cache
+    _cache = get_kernel_tuning_cache()
+    if _cache is not None:
+        try:
+            _entry = _cache.lookup(
+                "discretize_2d_array",
+                arr_size=int(arr.size) if hasattr(arr, "size") else 0,
+            )
+            if _entry is not None and "min_cells" in _entry:
+                min_cells = int(_entry["min_cells"])
+        except Exception:
+            pass  # lookup error -> hand-tuned default
 
     if (
         prefer_gpu
