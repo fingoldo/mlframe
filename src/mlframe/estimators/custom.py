@@ -468,6 +468,13 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
             f"winsor_rel_muliplier must be in [0, 1]; got {winsor_rel_muliplier!r}."
         )
 
+    # Wave 39 (2026-05-20): np.quantile on empty input raises an opaque IndexError
+    # in numpy>=1.22. Public utility may receive post-filter empty arrays; treat
+    # empty as identity (nothing to clip).
+    arr_arr = np.asarray(arr)
+    if arr_arr.size == 0:
+        return arr_arr.copy()
+
     if quantile > 0.5:
         quantile_from, quantile_to = np.quantile(arr, q=[1 - quantile, quantile])
     else:

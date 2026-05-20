@@ -217,6 +217,12 @@ def _coerce_y_to_float64(y) -> np.ndarray:
 
 
 def _compute_prior(y: np.ndarray, prior_kind: Literal["mean", "median"], sample_weight: np.ndarray | None = None) -> float:
+    # Wave 39 (2026-05-20): np.mean/np.median([]) returns NaN with RuntimeWarning, and the weighted-median
+    # branch's y[order[idx]] raises IndexError on empty y. _oof_encode is safe (KFold guarantees nonempty
+    # train_idx) but the direct fit/_loo_encode paths receive caller-supplied y. Treat empty as no-evidence.
+    if len(y) == 0:
+        logger.warning("_compute_prior: empty y; returning 0.0 as no-evidence prior.")
+        return 0.0
     if sample_weight is None:
         if prior_kind == "median":
             return float(np.median(y))

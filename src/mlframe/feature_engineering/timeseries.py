@@ -701,6 +701,10 @@ def compute_splitting_stats(
     captions_vars_sep: str = "-",
 ) -> None:
     """For each sub-variable, the fraction of its sum that falls before the min/max index of ``var``."""
+    # Wave 39 (2026-05-20): empty window after upstream isfinite filter is reachable;
+    # iloc[0]/iloc[-1] on empty frame raises IndexError. Treat as no-op.
+    if len(window_df) == 0:
+        return
     splitting_vals: list = []
     splitting_ratios_names: list = [] if create_features_names else None
     subvars = splitting_vars[var]

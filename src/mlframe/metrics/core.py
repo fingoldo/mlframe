@@ -1533,6 +1533,14 @@ def show_calibration_plot(
         render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
         return None
 
+    if freqs_predicted.size == 0:
+        # calibration_binning returns an empty array when all bins are filtered out
+        # (single-class preds, all-NaN preds, or the sparse-hits filter at metrics.py:600).
+        # np.min/np.max on empty raises an opaque ValueError; bail out with a warning so
+        # the surrounding training loop does not crash on degenerate calibration data.
+        logger.warning("show_calibration_plot: no bin data available; skipping plot.")
+        return None
+
     x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
 
     # nbins-derived bar width: use the bin centre spacing as the bar width.

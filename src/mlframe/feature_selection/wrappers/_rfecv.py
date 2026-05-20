@@ -2345,6 +2345,11 @@ class RFECV(BaseEstimator, TransformerMixin):
         if not hasattr(self, "cv_results_") or not self.cv_results_.get("nfeatures"):
             n = getattr(self, "n_features_", 0)
             return (n, n, n)
+        # Wave 39 (2026-05-20): n_bootstrap<=0 degenerates to empty choices_arr,
+        # then int(np.median([])) raises ValueError with a RuntimeWarning.
+        if int(n_bootstrap) <= 0:
+            n = getattr(self, "n_features_", 0)
+            return (n, n, n)
         nfeatures = np.asarray(self.cv_results_["nfeatures"], dtype=int)
         means = np.asarray(self.cv_results_["cv_mean_perf"], dtype=float)
         stds = np.asarray(self.cv_results_["cv_std_perf"], dtype=float)
