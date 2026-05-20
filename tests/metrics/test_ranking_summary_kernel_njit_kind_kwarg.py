@@ -85,3 +85,34 @@ def test_summary_kernel_handles_tied_scores_deterministically():
     assert ndcg_counts[0] == 1
     # All tied positives, perfect order trivially -> NDCG=1
     assert abs(ndcg_sums[0] - 1.0) < 1e-9
+
+
+def test_batch_per_class_ice_kernel_compiles_under_njit():
+    """iter109 regression: ``kind="stable"`` inside _batch_per_class_ice_kernel
+    raised numba 0.65 UnboundLocalError in _sort_dispatch. The crash was hidden
+    by a try/except in ``compute_probabilistic_multiclass_error`` (fell back to
+    a slow per-class Python loop), so the only symptom was a 13x slowdown:
+    c0090 took 2447s instead of ~187s because every call retriggered a failed
+    numba compile pass that ate 11.5s in copy_propagate / liveness analysis.
+
+    Pin: the kernel must compile and return finite values on a tiny example so
+    a future audit that flips back to ``kind="stable"`` fails fast at unit-test
+    time, not in production by silently halving evaluation throughput.
+    """
+    from mlframe.metrics.core import _batch_per_class_ice_kernel
+
+    rng = np.random.default_rng(20260521)
+    N, K = 200, 3
+    y_t = rng.integers(0, 2, (N, K), dtype=np.int8)
+    y_p = rng.random((N, K), dtype=np.float64)
+
+    ice_per_class = _batch_per_class_ice_kernel(
+        y_t, y_p, 10, True,
+        3.0, 2.0, 0.8,    # mae_weight, std_weight, brier_loss_weight
+        1.5, 0.1,         # roc_auc_weight, pr_auc_weight
+        0.54, 0.0,        # min_roc_auc, roc_auc_penalty
+    )
+    assert ice_per_class.shape == (K,)
+    assert np.all(np.isfinite(ice_per_class)), (
+        f"ICE per class must be finite; got {ice_per_class.tolist()}"
+    )
