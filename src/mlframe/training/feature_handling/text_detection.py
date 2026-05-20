@@ -378,7 +378,85 @@ def _is_explicit_categorical(df: Any, column: str) -> bool:
     return False
 
 
+def detect_cat_columns_by_dtype(
+    df: Any,
+    *,
+    exclude_columns: Optional[List[str]] = None,
+) -> List[str]:
+    """Return cat-like columns by explicit dtype signal.
+
+    Catches the columns a downstream cat handler (target_mean, WoE, m_estimate,
+    james_stein, loo) should operate on by default:
+
+    - **polars**: ``pl.Categorical``, ``pl.Enum``, and ``pl.String``/``pl.Utf8``
+      (strings get the cat treatment unless ``detect_text_columns`` has claimed
+      them; the caller passes the text-detected list via ``exclude_columns``).
+    - **pandas**: ``CategoricalDtype`` and ``object``/``string`` dtypes (same
+      string-vs-text exclusion rule via ``exclude_columns``).
+
+    Counterpart to ``detect_text_columns`` so callers passing
+    ``feature_handling_apply(candidate_cat_columns=None)`` get symmetric
+    auto-detection instead of the pre-2026-05-20 "empty cat list silently drops
+    every target-encoder handler" trap (docstring drift wave #4).
+
+    Pure by-dtype: low-cardinality integer columns are NOT auto-promoted to cat
+    here -- that path needs configurable thresholds + false-positive tests, kept
+    as a separate follow-up. Caller can still pass an explicit list to override.
+
+    Parameters
+    ----------
+    df : polars.DataFrame | pandas.DataFrame
+        Input frame.
+    exclude_columns : optional list
+        Names to skip (typically the result of ``detect_text_columns`` so a
+        text-promoted column doesn't also land in the cat list).
+
+    Returns
+    -------
+    list[str]
+        Column names whose dtype matches the categorical-like rule above,
+        minus anything in ``exclude_columns``.
+    """
+    _excl = set(exclude_columns or [])
+    out: List[str] = []
+    # Polars path
+    try:
+        import polars as pl
+        if isinstance(df, pl.DataFrame):
+            _cat_dtypes = (pl.Categorical, pl.Utf8, pl.String)
+            _enum_t = getattr(pl, "Enum", None)
+            for _col, _dt in df.schema.items():
+                if _col in _excl:
+                    continue
+                if isinstance(_dt, _cat_dtypes):
+                    out.append(_col)
+                    continue
+                if _enum_t is not None and isinstance(_dt, _enum_t):
+                    out.append(_col)
+            return out
+    except ImportError:  # pragma: no cover
+        pass
+    # Pandas path
+    try:
+        import pandas as pd
+        if isinstance(df, pd.DataFrame):
+            for _col in df.columns:
+                if _col in _excl:
+                    continue
+                _dt = df[_col].dtype
+                if isinstance(_dt, pd.CategoricalDtype):
+                    out.append(_col)
+                    continue
+                if pd.api.types.is_object_dtype(_dt) or pd.api.types.is_string_dtype(_dt):
+                    out.append(_col)
+            return out
+    except ImportError:  # pragma: no cover
+        pass
+    return out
+
+
 __all__ = [
     "TextDetectionDecision",
     "detect_text_columns",
+    "detect_cat_columns_by_dtype",
 ]

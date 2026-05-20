@@ -1019,6 +1019,16 @@ def _maybe_run_feature_handling_apply(
         return None
     model_kind = sorted_models[0]
 
+    # Propagate ctx.cat_features as the explicit candidate_cat_columns list. Without this
+    # the suite-internal call fell into feature_handling_apply's candidate_cat_columns=None
+    # branch which pre-2026-05-20 silently dropped EVERY target_mean / WoE handler the
+    # FHC was configured for (the by-dtype auto-detect now kicks in as a fallback, but
+    # the suite already knows the cat list via the convention at _phase_helpers.py:920-931
+    # and should pass it explicitly so the FHC handler chain operates on exactly the same
+    # cat universe the rest of the suite uses). External direct callers of
+    # feature_handling_apply still benefit from the by-dtype auto-detect when they don't
+    # set their own candidate list.
+    _cat_for_fhc = list(ctx.cat_features) if getattr(ctx, "cat_features", None) else None
     try:
         result = feature_handling_apply(
             train_df=train_df,
@@ -1027,6 +1037,7 @@ def _maybe_run_feature_handling_apply(
             train_target=current_train_target,
             fhc=fhc,
             model_kind=model_kind,
+            candidate_cat_columns=_cat_for_fhc,
         )
     except ValueError as fhc_err:
         # Surface configuration errors with the kwarg name so users grep the right place; chain so the
