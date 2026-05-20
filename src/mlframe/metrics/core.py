@@ -304,20 +304,28 @@ def _prewarm_numba_cache_body():
         pass
 
     # Warm cupy GPU AUC kernels. `compute_batch_aucs` dispatches to `gpu_multiple_roc_auc_scores` / `gpu_multiple_pr_auc_scores` when N>=100k AND M>=5. cupy compiles CUDA kernels via NVRTC on first call (~128s per fresh process). No-op when cupy isn't installed.
-    try:
-        from mlframe.metrics.core import (
-            gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores,
-            gpu_multiple_rmse_scores,
-        )
-        _yt_gpu = np.array([0, 1, 0, 1, 0, 1, 0, 1] * 16, dtype=np.int8)
-        _yp_gpu = np.random.RandomState(0).rand(len(_yt_gpu), 3).astype(np.float64)
-        _ = gpu_multiple_roc_auc_scores(_yt_gpu, _yp_gpu)
-        _ = gpu_multiple_pr_auc_scores(_yt_gpu, _yp_gpu)
-        # `gpu_multiple_rmse_scores` has separate cupy kernels for the 2-D fallback and the 1-D fastpath; each path's first call compiles a fresh NVRTC kernel.
-        _yt_rmse = _yp_gpu[:, 0]
-        _ = gpu_multiple_rmse_scores(_yt_rmse, _yp_gpu)
-    except Exception:
-        pass
+    # Gate the WHOLE block on is_gpu_metrics_available() (which now probes
+    # via an NVRTC compile, so it returns False on broken cupy / mismatched
+    # CUDA installs). The try/except below only catches Python exceptions -
+    # without the gate, a broken cupy install can HANG inside cp.argsort()
+    # rather than raising, leaving the prewarm phase wedged (observed
+    # 2026-05-20 on D: with cupy CUDA-Devices-Unavailable: prewarm timed
+    # out at 180s before any test ran).
+    if is_gpu_metrics_available():
+        try:
+            from mlframe.metrics.core import (
+                gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores,
+                gpu_multiple_rmse_scores,
+            )
+            _yt_gpu = np.array([0, 1, 0, 1, 0, 1, 0, 1] * 16, dtype=np.int8)
+            _yp_gpu = np.random.RandomState(0).rand(len(_yt_gpu), 3).astype(np.float64)
+            _ = gpu_multiple_roc_auc_scores(_yt_gpu, _yp_gpu)
+            _ = gpu_multiple_pr_auc_scores(_yt_gpu, _yp_gpu)
+            # `gpu_multiple_rmse_scores` has separate cupy kernels for the 2-D fallback and the 1-D fastpath; each path's first call compiles a fresh NVRTC kernel.
+            _yt_rmse = _yp_gpu[:, 0]
+            _ = gpu_multiple_rmse_scores(_yt_rmse, _yp_gpu)
+        except Exception:
+            pass
 
     # Warm `ranking_metrics._summary_batched_kernel` (parallel njit). On LTR combos `compute_ranking_summary` is called once per dummy baseline; the first call eats the entire JIT-compile budget. Compile with the canonical dtype combo used by `compute_ranking_summary` itself.
     try:
