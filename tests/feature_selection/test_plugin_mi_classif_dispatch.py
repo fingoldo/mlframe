@@ -111,6 +111,124 @@ class TestPluginMIClassifDispatcher:
         np.testing.assert_array_equal(out, expected)
 
 
+class TestPluginMIDispatcherConsultsKTC:
+    """The 2026-05-20 fix routes plugin_mi_classif_(batch_)dispatch
+    through ``kernel_tuning_cache.dispatch.lookup_mi_classif_backend``
+    instead of hardcoded thresholds. A silent regression to hardcoded
+    constants would defeat the per-host calibration win (2-4x at
+    production sizes on most HW).
+
+    These tests monkey-patch ``lookup_mi_classif_backend`` and assert
+    the dispatcher actually CALLS it (with the right (n, k) shape) on
+    every dispatcher invocation that has cupy available.
+    """
+
+    def test_batch_dispatcher_consults_lookup(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
+            dispatch as _ktc_dispatch,
+        )
+
+        rng = np.random.default_rng(11)
+        n, k = 50_000, 8
+        X = rng.normal(size=(n, k))
+        y = rng.integers(0, 3, size=n).astype(np.int64)
+
+        calls: list[tuple[int, int]] = []
+        original = _ktc_dispatch.lookup_mi_classif_backend
+
+        def _spy(n_samples, k_arg, **kwargs):
+            calls.append((n_samples, k_arg))
+            return original(n_samples, k_arg, **kwargs)
+
+        monkeypatch.setattr(
+            _ktc_dispatch, "lookup_mi_classif_backend", _spy,
+        )
+        # Drop any cached MLFRAME_MI_BACKEND override so the dispatcher
+        # actually walks the cache path (env-var force-override would
+        # short-circuit the lookup).
+        monkeypatch.delenv("MLFRAME_MI_BACKEND", raising=False)
+
+        plugin_mi_classif_batch_dispatch(X, y, 20)
+        assert calls, (
+            "plugin_mi_classif_batch_dispatch did NOT consult "
+            "lookup_mi_classif_backend; the KTC integration regressed "
+            "to hardcoded thresholds."
+        )
+        assert calls[-1] == (n, k), (
+            f"KTC lookup called with wrong shape: got {calls[-1]}, "
+            f"expected ({n}, {k})"
+        )
+
+    def test_single_dispatcher_consults_lookup(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
+            dispatch as _ktc_dispatch,
+        )
+
+        rng = np.random.default_rng(11)
+        n = 100_000
+        x = rng.normal(size=n)
+        y = rng.integers(0, 3, size=n).astype(np.int64)
+
+        calls: list[tuple[int, int]] = []
+        original = _ktc_dispatch.lookup_mi_classif_backend
+
+        def _spy(n_samples, k_arg, **kwargs):
+            calls.append((n_samples, k_arg))
+            return original(n_samples, k_arg, **kwargs)
+
+        monkeypatch.setattr(
+            _ktc_dispatch, "lookup_mi_classif_backend", _spy,
+        )
+        monkeypatch.delenv("MLFRAME_MI_BACKEND", raising=False)
+
+        plugin_mi_classif_dispatch(x, y, 20)
+        assert calls, (
+            "plugin_mi_classif_dispatch did NOT consult "
+            "lookup_mi_classif_backend; the KTC integration regressed."
+        )
+        assert calls[-1] == (n, 1), (
+            f"single-col KTC lookup called with wrong shape: "
+            f"got {calls[-1]}, expected ({n}, 1)"
+        )
+
+    def test_env_override_bypasses_ktc(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``MLFRAME_MI_BACKEND=njit`` / =cuda is the documented escape
+        hatch; it MUST short-circuit the KTC lookup so operators
+        debugging dispatcher behaviour aren't fighting the cache."""
+        from mlframe.feature_selection._benchmarks.kernel_tuning_cache import (
+            dispatch as _ktc_dispatch,
+        )
+
+        rng = np.random.default_rng(11)
+        n = 100_000
+        X = rng.normal(size=(n, 5))
+        y = rng.integers(0, 3, size=n).astype(np.int64)
+
+        calls: list = []
+
+        def _spy(*args, **kwargs):
+            calls.append(args)
+            return "cuda"  # would route to cuda if called
+
+        monkeypatch.setattr(
+            _ktc_dispatch, "lookup_mi_classif_backend", _spy,
+        )
+        monkeypatch.setenv("MLFRAME_MI_BACKEND", "njit")
+        plugin_mi_classif_batch_dispatch(X, y, 20)
+        assert not calls, (
+            f"MLFRAME_MI_BACKEND=njit did NOT short-circuit KTC: "
+            f"lookup got {len(calls)} call(s). The env-var escape "
+            f"hatch is the documented way to debug; it must bypass "
+            f"the cache."
+        )
+
+
 class TestPluginMIClassifFastSplitArgsort:
     """``plugin_mi_classif_fast`` / ``..._batch_fast`` hoist the
     ``np.argsort`` step OUT of numba into pure numpy (where it dispatches

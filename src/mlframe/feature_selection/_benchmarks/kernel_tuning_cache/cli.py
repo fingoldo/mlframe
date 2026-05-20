@@ -9,10 +9,12 @@ Inspect / refresh / clear the per-host kernel-tuning cache. Useful for:
 
 Subcommands::
 
-    show     dump the live cache as JSON to stdout
-    where    print the on-disk path
-    clear    delete the live host's cache file
-    refresh  force-rerun the auto-tune sweep (~30s) and overwrite the cache
+    show           dump the live cache as JSON to stdout
+    where          print the on-disk path
+    clear          delete the live host's cache file
+    refresh        force-rerun the joint_hist auto-tune sweep (~30s)
+    refresh-mi     force-rerun the plugin_mi_classif_dispatch sweep (~30s)
+    refresh-all    force-rerun every registered kernel sweep
 
 The cache lives at ``pyutilz.system.kernel_tuning_cache.cache_path()``
 (``~/.pyutilz/kernel_tuning/{hw_fingerprint}.json`` by default; override
@@ -83,10 +85,40 @@ def _cmd_refresh(args) -> int:
     )
     regions = ensure_joint_hist_tuning(force=True)
     if not regions:
-        print("# auto-tune failed; cache unchanged", file=sys.stderr)
+        print("# joint_hist auto-tune failed; cache unchanged", file=sys.stderr)
         return 1
-    print(f"# re-tuned: {len(regions)} regions saved")
+    print(f"# joint_hist_batched: re-tuned, {len(regions)} regions saved")
     return 0
+
+
+def _cmd_refresh_mi(args) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
+        ensure_mi_classif_dispatch_tuning,
+    )
+    regions = ensure_mi_classif_dispatch_tuning(force=True)
+    if not regions:
+        print(
+            "# plugin_mi_classif_dispatch auto-tune failed; cache unchanged",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"# plugin_mi_classif_dispatch: re-tuned, {len(regions)} regions saved"
+    )
+    return 0
+
+
+def _cmd_refresh_all(args) -> int:
+    """Re-tune every registered kernel sweep. Saves ~10-30s per kernel.
+
+    Each sweep's exit code is folded into a single return value: 0 if all
+    succeeded, 1 if any failed (the others still ran + persisted on their
+    own merit, so partial success is not a no-op).
+    """
+    rc1 = _cmd_refresh(args)
+    rc2 = _cmd_refresh_mi(args)
+    return 0 if (rc1 == 0 and rc2 == 0) else 1
 
 
 def main(argv=None) -> int:
@@ -100,12 +132,25 @@ def main(argv=None) -> int:
     p_clear = sub.add_parser("clear", help="delete the live host's cache file")
     p_clear.add_argument("--yes", "-y", action="store_true",
                           help="skip the y/N prompt")
-    sub.add_parser("refresh",
-                   help="force-rerun the auto-tune sweep and overwrite the cache")
+    sub.add_parser(
+        "refresh",
+        help="force-rerun the joint_hist_batched auto-tune sweep (~30s)",
+    )
+    sub.add_parser(
+        "refresh-mi",
+        help="force-rerun the plugin_mi_classif_dispatch sweep (~30s)",
+    )
+    sub.add_parser(
+        "refresh-all",
+        help="force-rerun every registered kernel sweep",
+    )
     args = parser.parse_args(argv)
 
-    return {"show": _cmd_show, "where": _cmd_where,
-            "clear": _cmd_clear, "refresh": _cmd_refresh}[args.cmd](args)
+    return {
+        "show": _cmd_show, "where": _cmd_where,
+        "clear": _cmd_clear, "refresh": _cmd_refresh,
+        "refresh-mi": _cmd_refresh_mi, "refresh-all": _cmd_refresh_all,
+    }[args.cmd](args)
 
 
 if __name__ == "__main__":

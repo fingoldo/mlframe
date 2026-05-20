@@ -92,6 +92,70 @@ the 4-basis × 3-backend (``njit`` / ``njit_par`` / ``cuda`` via
 this commit. Captures the critical refinement-step invariant (must
 drop ``B_a`` / ``B_b`` when switching to full z, else shape mismatch).
 
+### Plug-in MI dispatcher: kernel_tuning_cache integration (replaces hardcoded thresholds)
+
+Per the 2026-05-19 MRMR GPU stack pattern, the plug-in MI dispatcher
+``plugin_mi_classif_(batch_)dispatch`` now consults the per-host
+``pyutilz.system.kernel_tuning_cache`` for the njit-vs-cuda backend
+decision instead of hardcoded ``_MI_CUDA_THRESHOLD`` / ``_MI_BATCH_CUDA_THRESHOLD``
+constants.
+
+The 2026-05-20 GAP-8 audit found the hardcoded values
+(1_000_000 / 300_000) left 2-4x speedups on the table at production
+sizes (n=100k-300k) on the GTX 1050 Ti reference HW. A first-round
+fix re-hardcoded to measured crossovers (75k / 10k) — still wrong
+because those values are HW-specific. The user pushed back: the
+project already has a per-host KTC infrastructure (used by
+``joint_hist_batched`` since WAVE 4); reuse it.
+
+This commit lands:
+
+- ``auto_tune._run_sweep_mi_classif_dispatch()``: sweeps
+  ``(n_samples, k)`` grid (n ∈ {5k, 20k, 50k, 100k, 200k, 500k, 1M},
+  k ∈ {1, 5, 20}) measuring njit vs cuda wall-time per cell;
+  returns regions for ``KernelTuningCache.update()``.
+- ``auto_tune.ensure_mi_classif_dispatch_tuning()``: consults cache,
+  runs the sweep + persists if missing. Mirror of the existing
+  ``ensure_joint_hist_tuning`` entry point.
+- ``dispatch.lookup_mi_classif_backend(n, k)``: cache-backed
+  njit-vs-cuda decision with measurement-backed fallback for the
+  no-pyutilz / no-cuda case.
+- ``plugin_mi_classif_dispatch`` / ``plugin_mi_classif_batch_dispatch``
+  rewired to call the KTC lookup; env-var ``MLFRAME_MI_BACKEND``
+  force-override still honored (and short-circuits the cache for
+  debugging — verified by test).
+- CLI: ``python -m mlframe.feature_selection._benchmarks.kernel_tuning_cache.cli
+  refresh-mi`` triggers the MI sweep on demand; ``refresh-all``
+  refreshes every registered sweep.
+
+Cache file: ``~/.pyutilz/kernel_tuning/<hw_fingerprint>.json`` (same
+schema-v1 used by joint_hist_batched). First-run sweep ~10-30s;
+subsequent processes read in ~1ms. Per-HW measurement means A100 /
+H100 / cc 9 hosts get THEIR optimal thresholds, not GTX 1050 Ti's.
+
+Measured 2026-05-20 sweep on GTX 1050 Ti cc 6.1 (21 regions saved,
+27.7s wall-time):
+- Single-col cuda wins from n=50k (cuda 4.3ms vs njit 6.0ms = 1.40x);
+  at n=1M cuda is 13.7x faster.
+- Batch k=20 cuda wins from n=50k (cuda 22.7ms vs njit 33.9ms = 1.49x);
+  at n=1M cuda is 2.79x faster.
+- Surprise: at n=50k k=5, **njit STILL wins** (8.1ms vs 9.0ms cuda) —
+  the heuristic "cuda from n=10k for k>=5" would have routed this
+  wrong. Per-cell KTC measurement catches the nuance the threshold
+  approach can't.
+
+Regression tests: 3 new sensors in ``test_plugin_mi_classif_dispatch.py``
+(``TestPluginMIDispatcherConsultsKTC``) monkey-patch the lookup and
+assert the dispatcher consults it on every call, with the right
+``(n, k)`` shape, and that ``MLFRAME_MI_BACKEND=njit`` still
+short-circuits the cache.
+
+Memory rule + ``CLAUDE.md`` (mlframe project) updated with: ALWAYS
+integrate with kernel_tuning_cache for any new GPU dispatcher whose
+backend choice / block size / threshold depends on hardware. The
+pattern is so well-established that NOT using it is the surprising
+choice.
+
 ### Polynom-FE follow-up wave (NEW-A / NEW-B / NEW-D / NEW-E)
 Five additional micro-optimisations on the CMA-ES polynom-pair FE hot
 path landed in the same session after the #1-#12 block above:
