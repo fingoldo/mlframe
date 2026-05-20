@@ -112,6 +112,15 @@ def _extract_target_subset(
     """
     if idx is None:
         return target
+    # Normalise boolean masks to integer positions at the top so both backends see the
+    # same idx shape. Pre-fix: pandas branch accepted bool via numpy-style ``.values[mask]``
+    # (works because numpy supports bool indexing), but polars ``target.gather(mask)``
+    # rejects boolean and raises ``InvalidOperationError``. Same caller code -> opposite
+    # behaviour per backend. Convert with np.flatnonzero so both branches take the integer
+    # path uniformly.
+    _idx_arr = np.asarray(idx)
+    if _idx_arr.dtype == np.bool_:
+        idx = np.flatnonzero(_idx_arr)
     if isinstance(target, pd.Series):
         # ``.values[idx]`` (np take) is 9x faster than ``.iloc[idx]`` for
         # numeric targets (bench: 0.036s vs 0.324s per 100k-row subset on
