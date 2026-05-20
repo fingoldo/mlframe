@@ -2837,9 +2837,10 @@ def _batch_per_class_ice_kernel(
         # Descending-sort argsort on y_p, then walk through (y_t, y_p)
         # in score-desc order, accumulating TP / FP / current_precision /
         # current_recall as in sklearn.average_precision_score.
-        # Wave 57 (2026-05-20): stable sort so tied probabilities don't shift
-        # AUC values across runs when the input row order changes.
-        desc_idx = np.argsort(-y_p, kind="stable")
+        # numba 0.65 @njit np.argsort accepts kind="mergesort" (same stable
+        # algorithm) but rejects the "stable" alias -- UnboundLocalError in
+        # _sort_dispatch. Tie determinism preserved.
+        desc_idx = np.argsort(-y_p, kind="mergesort")
         y_t_sorted = y_t[desc_idx]
         y_p_sorted = y_p[desc_idx]
         total_pos = 0
