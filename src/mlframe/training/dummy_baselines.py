@@ -816,7 +816,19 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
                 ts = _dti.to_numpy().view("int64")
         # Else assume already numeric (epoch ints, floats).
         return ts
-    except Exception:
+    except (TypeError, ValueError, AttributeError, pd.errors.OutOfBoundsDatetime) as _exc:
+        # Narrow swallow: only the failures we expect from malformed timestamp input
+        # (unsupported dtype, unparseable strings, out-of-range datetime, missing
+        # to_numpy attribute). Anything else (MemoryError, KeyboardInterrupt, our own
+        # bugs) propagates so the operator notices. Pre-fix this caught bare Exception
+        # and silently disabled every downstream temporal-monotonicity check with no
+        # log line; the next call to _is_temporally_monotonic then defaulted to
+        # "no temporal structure" without anyone knowing why.
+        logger.warning(
+            "_normalize_timestamps: ts coercion failed (%s: %s); temporal-monotonicity "
+            "checks for this split will be skipped. Inspect the ts column dtype/values.",
+            type(_exc).__name__, _exc,
+        )
         return None
 
 

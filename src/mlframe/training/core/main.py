@@ -681,10 +681,25 @@ def train_mlframe_models_suite(
             dummy_baselines_config = dummy_baselines_config.model_copy(update={"enabled": False})
         except AttributeError:
             # Defensive: when the config slot is plain dict / SimpleNamespace fall back to attribute set.
+            # Narrow except: only the failures that mean "not a pydantic / not attr-settable" object.
+            # A pydantic v2 frozen model raises ValidationError on attribute set; treat the same.
             try:
                 dummy_baselines_config.enabled = False
-            except Exception:
-                pass
+            except (AttributeError, TypeError) as _set_err:
+                # Pre-fix this swallowed bare Exception (including ValidationError on frozen pydantic
+                # models). enabled stayed True, run_dummy_baselines would re-compute from scratch and
+                # OVERWRITE metadata["dummy_baselines"] -- silently discarding the caller-supplied
+                # precomputed payload that the user supplied via the precomputed bundle. Raise so
+                # the caller knows the precompute fast-path isn't usable for their config type
+                # rather than silently re-running and corrupting the precomputed result.
+                raise RuntimeError(
+                    f"dummy_baselines_config of type {type(dummy_baselines_config).__name__} "
+                    f"is neither pydantic-copyable (no .model_copy) nor attr-settable "
+                    f"(.enabled = False raised {type(_set_err).__name__}: {_set_err}). "
+                    f"The precompute fast-path can't disable downstream re-compute, which "
+                    f"would silently overwrite your precomputed dummy_baselines. Pass a "
+                    f"pydantic DummyBaselinesConfig or a writable dataclass / SimpleNamespace."
+                ) from _set_err
         ctx.dummy_baselines_config = dummy_baselines_config
 
     # Save metadata early so partial training runs leave already-trained models usable.

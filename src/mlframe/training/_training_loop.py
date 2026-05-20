@@ -987,6 +987,17 @@ def _maybe_wrap_for_2d_target(model, train_target):
         except Exception:
             pass
         return MultiOutputClassifier(model, n_jobs=1)
-    except Exception:
+    except ImportError as _import_err:
+        # sklearn missing or version skew. Wrapping is impossible -> caller's bare model
+        # will explode at fit with "y should be a 1d array, got (N, K)" but at least the
+        # operator will see the underlying ImportError explanation rather than the cryptic
+        # downstream message. Surface the failure rather than silently returning the
+        # unwrapped model, which would defeat this whole guard block.
+        logger.error(
+            "_maybe_wrap_for_multilabel: sklearn.multioutput.MultiOutputClassifier "
+            "import failed (%s); returning bare model unwrapped. Caller fit will likely "
+            "raise on (N, K) target shape -- upgrade scikit-learn or supply CatBoost.",
+            _import_err,
+        )
         return model
 
