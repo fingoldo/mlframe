@@ -223,6 +223,7 @@ dev = [
     "pytest-order>=1.2",          # pytest.mark.order(index=N) in tests/training/test_biz_val_training_core.py
     "pytest-randomly>=3.0",       # plugin referenced by `-p no:randomly` in addopts
     "pytest-instafail>=0.5",      # --instafail: streams tracebacks immediately on failure so worker-death INTERNALERRORs don't swallow the FAILURES section
+    "pytest-progress>=1.3",       # --show-progress: prints [NN%] [N/Total] prefix on each test result line so long xdist runs surface percent-complete instead of opaque per-line PASSED chatter
     "coverage>=7.2",
     "hypothesis>=6.80",
     "freezegun>=1.2",             # frozen-time fixtures in tests/perf and tests/training calibration suites
