@@ -976,12 +976,23 @@ class TestMpsPlotAndIo:
 # ============================================================================
 
 
+@pytest.mark.slow_only
 class TestBasicPysrPath:
-    """Exercise run_pysr_fe via a tiny synthetic polars frame. Skipped when Julia is missing."""
+    """Exercise run_pysr_fe via a tiny synthetic polars frame. Skipped
+    when Julia is missing OR when pysr's transitive import chain native-
+    crashes the worker (access violation in PythonCall.jl during fit).
+
+    Marked slow_only because a cold Julia + PySR fit costs ~30-60s and
+    has been observed to access-violate on some hosts (S: machine 2026-05-20
+    inside ``pysr.sr.fit`` -> PythonCall.jl JlWrap.any:__call__). The
+    subprocess probe below contains the blast radius -- a crash in the
+    child returns non-zero, the whole class is skipped instead of taking
+    down the xdist worker mid-session.
+    """
 
     @pytest.fixture(autouse=True)
     def _gate_julia(self, monkeypatch):
-        import os, shutil
+        import os, shutil, subprocess, sys
         # Same gate as test_biz_val_bruteforce: prefer PATH julia, fall back to D:/Julia/bin.
         # We use monkeypatch.setenv so JULIA_EXE / PATH mutations auto-teardown at test end --
         # pre-fix this fixture wrote os.environ directly with no teardown, bleeding into every
@@ -992,10 +1003,23 @@ class TestBasicPysrPath:
         bindir = os.path.dirname(julia)
         monkeypatch.setenv("JULIA_EXE", julia)
         monkeypatch.setenv("PATH", bindir + os.pathsep + os.environ.get("PATH", ""))
+        # Subprocess probe: native-crashes in pysr / PythonCall.jl tear down
+        # the xdist worker. Doing the import in a child returns a clean exit
+        # code we can branch on without losing the suite.
         try:
-            import pysr  # noqa: F401
-        except Exception:
-            pytest.skip("pysr import failed")
+            r = subprocess.run(
+                [sys.executable, "-c", "import pysr"],
+                env=os.environ,
+                capture_output=True,
+                timeout=60,
+            )
+            if r.returncode != 0:
+                pytest.skip(
+                    f"pysr import subprocess returncode={r.returncode}; "
+                    f"stderr={r.stderr.decode('utf-8', 'ignore')[:200]}"
+                )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            pytest.skip(f"pysr import subprocess failed: {type(exc).__name__}: {exc}")
 
     def test_run_pysr_fe_polars_basic(self):
         from mlframe.feature_engineering.basic import run_pysr_fe
