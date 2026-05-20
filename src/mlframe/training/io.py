@@ -52,7 +52,7 @@ _LEAN_STRIP_FIELDS = frozenset({
 })
 
 
-def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fsync: bool = True) -> None:
+def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fsync: bool = False) -> None:
     """Atomically write to ``target_path`` via write-tmp-then-rename.
 
     Previous implementation (2026-04-19 probe finding): callers used
@@ -80,19 +80,26 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
 
     Parameters
     ----------
-    fsync : bool, default True
+    fsync : bool, default False
         When True, calls ``f.flush()`` + ``os.fsync(fd)`` before the
-        rename so the new contents survive a power loss. The fsync
-        is the dominant cost on Windows: ``nt.FlushFileBuffers``
-        blocks until the disk WRITE CACHE is committed (~400ms per
-        call on commodity SSDs even for ~1MB files). Surfaced by the
-        2026-05-19 multi-model profile: 15 model saves x 406ms fsync =
-        6.09s of 7.11s save wall (86%). Set ``fsync=False`` only when
-        the caller does NOT need crash durability (e.g. bench saves to
-        a tempdir that will be deleted; integration tests writing then
-        immediately reading in the same process; bulk training runs
-        that issue a final ``os.fsync`` on the directory after all
-        files are written).
+        rename so the new contents survive a power loss BEFORE the OS
+        page-cache commits. The fsync is the dominant cost on Windows:
+        ``nt.FlushFileBuffers`` blocks until the disk WRITE CACHE is
+        committed (~400ms per call on commodity SSDs even for ~1MB
+        files). Surfaced by the 2026-05-19 multi-model profile: 15
+        model saves x 406ms fsync = 6.09s of 7.11s save wall (86%).
+
+        The default was flipped from True to False on 2026-05-20 (user
+        explicit OK + accuracy/perf-over-legacy policy). The atomic
+        ``write-tmp-then-rename`` semantics still hold WITHOUT fsync --
+        concurrent readers never see a partial file -- only the
+        post-rename DURABILITY window is shortened (the OS flushes the
+        page cache to physical disk within a few seconds; power loss
+        in that window MAY leave a freshly-renamed file with its
+        contents only on RAM-side pages). For ML model bundles this
+        trade-off is favourable: the worst case is "re-train the model"
+        (recoverable), not "data corruption" (unrecoverable). Pass
+        ``fsync=True`` explicitly when writing irreplaceable state.
     """
     target_dir = os.path.dirname(target_path) or "."
     fd, tmp_path = tempfile.mkstemp(
@@ -202,7 +209,7 @@ def save_mlframe_model(
     zstd_kwargs: Optional[Dict[str, Any]] = None,
     verbose: int = 1,
     lean: bool = False,
-    durable: bool = True,
+    durable: bool = False,
 ) -> bool:
     """
     Save an mlframe model to a compressed file.
@@ -216,17 +223,21 @@ def save_mlframe_model(
         zstd_kwargs: Optional compression parameters for zstandard.
             Defaults to level=4, with checksum and content size.
         verbose: Verbosity level. If > 0, logs the file size.
-        durable: When True (default), the underlying ``atomic_write_bytes``
-            issues a per-file ``os.fsync`` so the saved bundle survives a
-            power loss. On Windows this costs ~400ms per file (FlushFileBuffers
-            waits for the disk WRITE CACHE to commit). Set ``durable=False``
-            when the saved file is throwaway (bench harnesses, integration
-            tests that read it back in the same process, bulk save loops
-            that batch fsync at the end). Surfaced by the 2026-05-19
-            multi-model fuzz profile: 15-model save was 86% nt.fsync
-            (6.09s of 7.11s wall). Production users should leave the
-            default ``durable=True`` so a crash mid-save doesn't corrupt
-            the on-disk bundle into an unreadable state.
+        durable: Default ``False`` (flipped 2026-05-20 per accuracy/perf-
+            over-legacy policy). When True, the underlying
+            ``atomic_write_bytes`` issues a per-file ``os.fsync`` so the
+            saved bundle survives a power loss BEFORE the OS page-cache
+            commits. On Windows this costs ~400ms per file
+            (FlushFileBuffers waits for the disk WRITE CACHE to commit);
+            on the 2026-05-19 multi-model fuzz profile this was 86% of
+            save wall (6.09s of 7.11s = 5x speedup by skipping). Atomic
+            ``write-tmp-then-rename`` semantics hold either way --
+            concurrent readers never see a partial file -- only the
+            post-rename DURABILITY window is shortened.
+            For ML model bundles the worst case on power loss is
+            "re-train" (recoverable), so the default favours speed.
+            Pass ``durable=True`` explicitly when writing irreplaceable
+            state.
         lean: When True, strip inference-irrelevant heavy fields
             (train_preds/val_preds/test_preds/probs/target, train_od_idx,
             val_od_idx, trainset_features_stats) from a SHALLOW COPY of the
