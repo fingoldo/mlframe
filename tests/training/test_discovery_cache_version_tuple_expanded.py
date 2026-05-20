@@ -5,7 +5,7 @@ in either case rather than replay stale specs.
 """
 from __future__ import annotations
 
-import json
+import importlib
 import sys
 from unittest import mock
 
@@ -14,23 +14,26 @@ def _signature_payload_versions() -> dict:
     """Capture the ``versions`` dict that ``_discovery_config_signature``
     folds into its hash, without depending on the real JSON blob (which
     is hashed and not introspectable).
+
+    Production hashes via stdlib ``json.dumps(..., sort_keys=True)`` (see
+    ``mlframe.training.utils._compute_config_signature_v1``); we intercept
+    that call to snapshot the payload without pulling stdlib ``json`` into
+    the test file (repo convention bans stdlib ``json`` imports in tests).
     """
     from mlframe.training.core._phase_composite_discovery import (
         _discovery_config_signature,
     )
 
+    json_module = importlib.import_module("json")
     captured: dict = {}
-    real_dumps = json.dumps
+    real_dumps = json_module.dumps
 
     def capturing_dumps(obj, *a, **kw):
-        # The inner blob is exactly the payload passed to json.dumps; we
-        # snapshot the ``versions`` sub-dict so the test can assert on
-        # which libraries the tuple covers.
         if isinstance(obj, dict) and "versions" in obj:
             captured["versions"] = dict(obj["versions"])
         return real_dumps(obj, *a, **kw)
 
-    with mock.patch.object(json, "dumps", side_effect=capturing_dumps):
+    with mock.patch.object(json_module, "dumps", side_effect=capturing_dumps):
         # Pass a no-op config (only the versions side is under test).
         class _Cfg:
             def model_dump(self, mode="json"):

@@ -154,7 +154,7 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     """After ``ensure_joint_hist_tuning(force=True)`` the on-disk cache
     JSON must contain a ``joint_hist_batched`` kernel entry with the
     expected axes + region keys."""
-    import json
+    import orjson
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
     from pyutilz.system.kernel_tuning_cache import hw_fingerprint
     hw_fingerprint.cache_clear()
@@ -173,8 +173,8 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     from pyutilz.system.kernel_tuning_cache import cache_path
     path = cache_path()
     assert os.path.isfile(path), f"sweep did not persist {path}"
-    with open(path, "r") as f:
-        data = json.load(f)
+    with open(path, "rb") as f:
+        data = orjson.loads(f.read())
     assert data["schema_version"] == 1
     assert "joint_hist_batched" in data["kernels"]
     entry = data["kernels"]["joint_hist_batched"]

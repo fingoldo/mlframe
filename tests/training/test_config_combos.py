@@ -32,9 +32,9 @@ def test_config_combo_is_representable(cv_folds: int, calibration, early_stoppin
 
 @pytest.mark.parametrize("cv_folds,calibration,early_stopping", COMBOS)
 def test_config_combo_serializable(cv_folds: int, calibration, early_stopping: bool) -> None:
-    import json
+    import orjson
 
     cfg = {"cv_folds": cv_folds, "calibration": calibration, "early_stopping": early_stopping}
-    j = json.dumps(cfg, sort_keys=True)
-    back = json.loads(j)
+    j = orjson.dumps(cfg, option=orjson.OPT_SORT_KEYS)
+    back = orjson.loads(j)
     assert back == cfg

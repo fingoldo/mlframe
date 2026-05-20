@@ -22,11 +22,12 @@ The sidecar is best-effort:
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
 import tempfile
+
+import orjson
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -106,9 +107,9 @@ def test_lib_version_drift_warns(tmp_bundle_dir, caplog):
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(payload=7), str(bundle), verbose=0)
     sidecar = Path(_meta_sidecar_path(str(bundle)))
-    meta = json.loads(sidecar.read_text(encoding="utf-8"))
+    meta = orjson.loads(sidecar.read_bytes())
     meta["lib_versions"]["mlframe"] = "0.001-FAKE-OLD"
-    sidecar.write_text(json.dumps(meta), encoding="utf-8")
+    sidecar.write_bytes(orjson.dumps(meta))
 
     with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
         loaded = load_mlframe_model(str(bundle))
@@ -132,9 +133,9 @@ def test_lib_version_drift_strict_raises(tmp_bundle_dir):
     bundle = tmp_bundle_dir / "test.dump"
     save_mlframe_model(SimpleNamespace(payload=7), str(bundle), verbose=0)
     sidecar = Path(_meta_sidecar_path(str(bundle)))
-    meta = json.loads(sidecar.read_text(encoding="utf-8"))
+    meta = orjson.loads(sidecar.read_bytes())
     meta["lib_versions"]["mlframe"] = "0.001-FAKE-OLD"
-    sidecar.write_text(json.dumps(meta), encoding="utf-8")
+    sidecar.write_bytes(orjson.dumps(meta))
 
     with pytest.raises(ValueError, match="drift detected"):
         load_mlframe_model(str(bundle), strict_version=True)

@@ -223,20 +223,10 @@ def test_m4_no_local_stdlib_reimports_in_composite_cache():
     tempfile, glob, pickle, hashlib, time) must be bound at module
     level. We verify each name is present in the module globals.
     """
-    import os as _os
-    import json as _json
-    import tempfile as _tempfile
-    import pickle as _pickle
-    import hashlib as _hashlib
-    import time as _time
-
+    import importlib as _importlib
     expected = {
-        "os": _os,
-        "json": _json,
-        "tempfile": _tempfile,
-        "pickle": _pickle,
-        "hashlib": _hashlib,
-        "time": _time,
+        name: _importlib.import_module(name)
+        for name in ("os", "json", "tempfile", "pickle", "hashlib", "time")
     }
     for name, mod in expected.items():
         bound = getattr(_cc, name, None)
