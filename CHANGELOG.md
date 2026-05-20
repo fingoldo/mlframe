@@ -92,6 +92,54 @@ the 4-basis × 3-backend (``njit`` / ``njit_par`` / ``cuda`` via
 this commit. Captures the critical refinement-step invariant (must
 drop ``B_a`` / ``B_b`` when switching to full z, else shape mismatch).
 
+### Polynom-FE follow-up wave (NEW-A / NEW-B / NEW-D / NEW-E)
+Five additional micro-optimisations on the CMA-ES polynom-pair FE hot
+path landed in the same session after the #1-#12 block above:
+
+- **NEW-A** Pre-compute ``best_trivial_pair`` ONCE per (x_a, x_b, y)
+  pair instead of once per ``fe_smart_polynom_iters`` restart.
+  ``optimise_hermite_pair`` accepts new ``precomputed_trivial_baseline``
+  / ``precomputed_trivial_name`` kwargs; ``polynom_pair_fe._eval_one_pair``
+  hoists the call out of the restart loop. **Measured 1.58x on the
+  5-restart loop at n=200k** (617ms saved per pair). bit-exact result.
+
+- **NEW-B** Flip the basis-matrix GEMV gate from
+  ``not _multi_fidelity_active`` to ``always when basis is polynomial``.
+  Initial 2026-05-18 measurement (different hardware) found zero
+  speedup and gated it OFF; re-measured 2026-05-20: BLAS GEMV is
+  **1.13-1.19x faster** than ``@njit(parallel=True)`` Horner at the
+  1500-element inner CMA-ES scale. Refinement-step guard
+  (``full_kwargs["B_a"] = None``) unchanged, so subsample-sized
+  matrices still get dropped before evaluating on full z.
+
+- **NEW-C** (skipped) Mempool basis matrices across pairs. Measured
+  pure-alloc cost at the (1500, 5) production shape: ~3us per build.
+  Total saving across 12 pairs × 2 matrices ≈ 72us. Below detection
+  threshold; not implemented.
+
+- **NEW-D** CMA-ES plateau early-stop. ``_run_cma_search`` accepts
+  ``early_stop_no_improve_gens``; breaks out of the
+  ``while not es.stop() and n_evals < n_trials`` loop when
+  ``best_score`` has not improved for N consecutive generations.
+  ``optimise_hermite_pair`` translates the Optuna-trial-based
+  ``early_stop_no_improve`` into a CMA-generation count via popsize.
+  **Measured 5.29x on XOR-like target** (13.2s -> 2.5s); MI quality
+  identical or marginally higher vs uncapped budget. The ON path
+  also produces more consistent results across seeds.
+
+- **NEW-E** Cython port investigation. The user's premise was
+  "Cython gives ~20% over numba on hist-like kernels". cProfile at
+  n=1500: **91% of single-column ``_plugin_mi_classif_njit`` time is
+  ``np.argsort`` inside numba** (~117us), only ~10us is the histogram
+  fill + log math (where Cython's claimed 20% would apply). Cython
+  doesn't help the actual bottleneck. Added
+  ``plugin_mi_classif_fast`` / ``plugin_mi_classif_batch_fast`` /
+  ``_plugin_mi_from_binned_njit`` / ``_quantile_bin_numpy`` helpers
+  that move ``argsort`` to pure numpy then dispatch the histogram
+  math to njit; **2.51x at k=1** but slower than
+  ``_plugin_mi_classif_batch_njit`` for k>=5 (which is the actual
+  hot path). Functions exposed for k=1 callers; not auto-routed.
+
 ## 2026-05-19 — MRMR GPU stack closure: WAVE 1-5 cumulative 2.37x speedup at N=1M, p=30; persistent kernel_tuning_cache; HW-aware dispatch
 
 Five wave cumulative work landing the MRMR.fit hot path on a layered

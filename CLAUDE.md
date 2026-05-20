@@ -499,6 +499,50 @@ Conventions:
   OR if the GPU is OOM (catch `cp.cuda.runtime.CUDARuntimeError` and
   log once).
 
+### CRITICAL: integrate with kernel_tuning_cache, do NOT hardcode
+
+For ANY new GPU dispatcher whose backend choice / block size / kernel
+variant / threshold depends on data size or hardware, the FIRST move is
+to integrate with the existing `pyutilz.system.kernel_tuning_cache`
+infrastructure -- the same system already powering `joint_hist_batched`
+and `plugin_mi_classif_dispatch`. Hardcoded threshold constants
+(`_CUDA_THRESHOLD = 1_000_000`) are wrong on any HW other than the dev
+machine. 2026-05-20 incident: I hardcoded `_MI_CUDA_THRESHOLD=1_000_000`
+for plug-in MI dispatch by analogy with polyeval; re-measurement on
+actual hardware showed the real crossover was n=75k (single) / n=10k
+(batch) -- conservative defaults left **2-4x speedups on the table**.
+
+The KTC pipeline (`mlframe/feature_selection/_benchmarks/kernel_tuning_cache/`):
+
+1. `auto_tune.py` -- `_run_sweep_<kernel>()` measures (n, k, block_size,
+   variant) grid → returns regions; `ensure_<kernel>_tuning()` consults
+   `KernelTuningCache().get_regions("<kernel>")` then runs the sweep +
+   persists if missing.
+2. `dispatch.py` -- `lookup_<kernel>_backend(...)` wraps the cache
+   lookup; on cache miss + `run_auto_tune=True` triggers the sweep;
+   provides a measurement-backed hardcoded fallback for the
+   no-pyutilz / no-cuda case.
+3. Cache file: `~/.pyutilz/kernel_tuning/<hw_fingerprint>.json`
+   (schema-v1, cross-process safe via filelock + merge-on-write).
+4. Online relearn behind `MLFRAME_KTC_ONLINE_LEARN=1` (every 1000 calls
+   re-measure one region; ~50-200ms cost, gated off by default).
+
+When adding a new GPU kernel:
+- Mirror `joint_hist_batched` / `plugin_mi_classif_dispatch` end-to-end.
+- Add `_run_sweep_<your_kernel>()` + `ensure_<your_kernel>_tuning()` in
+  `auto_tune.py`.
+- Add `lookup_<your_kernel>_backend(...)` in `dispatch.py`.
+- Wire the lookup into your dispatcher (e.g.
+  `plugin_mi_classif_batch_dispatch`).
+- Keep the env-var force-override (`MLFRAME_<KERNEL>_BACKEND=njit|cuda`)
+  as an escape hatch.
+
+The pattern is so well-established that NOT using it for a new GPU
+dispatcher is the surprising choice. Per user directive 2026-05-20:
+"у нас уже есть методика оптимального подбора параметров/порогов для
+cuda kernels, с хранением таблиц per device specs на диске, используй
+её!".
+
 ### Hoist dispatch out of hot loops
 
 Per-call dispatch overhead is ~4us (env-var get, size check, dict
