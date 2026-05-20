@@ -222,6 +222,39 @@ class TorchDataset(Dataset):
 
         return x, y
 
+    def __getitems__(self, indices):
+        """Defensive batched-fetch path for callers that pair this dataset with
+        a custom ``batch_sampler`` (PyTorch >= 1.13 calls ``__getitems__`` when
+        present instead of running ``[dataset[i] for i in indices]``).
+
+        Standard mlframe flow doesn't reach this method: ``TorchDataModule``
+        configures the DataLoader with ``batch_size=None`` and lets this
+        dataset's own ``batch_size>0`` internal batching produce one stacked
+        batch per integer index — DataLoader iterates ints, not lists. Added
+        for protocol completeness so an external user pairing
+        ``TorchDataset(batch_size=0)`` with a list-yielding sampler (akin to
+        the LTR ``GroupBatchSampler``) gets one batched tensor index instead
+        of N per-row index calls.
+
+        Internal-batch mode delegates per-item — each ``__getitem__`` call
+        already returns a stacked batch and the DataLoader semantics would
+        not double-batch. Sample mode batch-indexes the underlying tensors
+        once and emits a list of per-row tuples so ``default_collate`` stacks
+        them in the standard way (no custom collate required at the
+        DataLoader side).
+        """
+        if self.batch_size > 0:
+            return [self[i] for i in indices]
+        idx_list = indices if isinstance(indices, list) else list(indices)
+        x_batch = self._extract(self.features, idx_list)
+        if self.labels is None:
+            return [x_batch[i] for i in range(x_batch.shape[0])]
+        y_batch = self.labels[idx_list]
+        if self.sample_weight is None:
+            return [(x_batch[i], y_batch[i]) for i in range(x_batch.shape[0])]
+        w_batch = self.sample_weight[idx_list]
+        return [(x_batch[i], y_batch[i], w_batch[i]) for i in range(x_batch.shape[0])]
+
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # TorchDataModule
