@@ -526,7 +526,23 @@ class CompositeTargetDiscovery:
                                 **_mi_kwargs,
                             )
                         boot_gains[b] = mi_t_b - mi_y_b
-                    except Exception:
+                    except Exception as _e_boot:
+                        # Pre-fix: silent NaN on failure; CI shifted toward
+                        # well-behaved bootstraps. Log first per-spec failure
+                        # so operators see when the CI is computed over a
+                        # reduced bootstrap sample (the `>= bootstrap_n // 2`
+                        # guard below only protects against extreme
+                        # under-sampling, not the partial-bias case).
+                        if b == 0:
+                            import logging as _logging
+                            _logging.getLogger(__name__).warning(
+                                "composite_discovery: MI-bootstrap iteration "
+                                "failed (%s); per-bootstrap result reported "
+                                "as NaN. Bootstrap CI will use surviving "
+                                "samples; with sparse failures the LCB is "
+                                "biased toward well-behaved bootstraps.",
+                                _e_boot,
+                            )
                         boot_gains[b] = float("nan")
                 boot_finite = boot_gains[np.isfinite(boot_gains)]
                 if boot_finite.size >= bootstrap_n // 2:

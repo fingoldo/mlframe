@@ -2497,14 +2497,32 @@ def _bootstrap_ci_for_strongest(
             return None
         # Bootstrap resamples
         samples: list[float] = []
+        failures = 0
+        first_err: Optional[str] = None
         for _ in range(n_resamples):
             idx = rng.integers(0, n, size=n)
             try:
                 v = fn(y[idx], p[idx])
                 if np.isfinite(v):
                     samples.append(float(v))
-            except Exception:
+            except Exception as _e_boot:
+                # Pre-fix `continue` was silent. Track failure count so we
+                # can WARN-log if more than a small fraction failed -- the
+                # `< n_resamples // 4` guard below only catches extreme
+                # under-sampling, not the partial-bias case where (say) 40%
+                # of resamples raised and the CI is computed over the
+                # surviving 60% (likely the most well-behaved tail).
+                failures += 1
+                if first_err is None:
+                    first_err = str(_e_boot)
                 continue
+        if failures > max(1, n_resamples // 10):
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "dummy_baselines: bootstrap CI: %d/%d resamples failed "
+                "(first error: %s); CI computed over %d surviving samples "
+                "may be biased.", failures, n_resamples, first_err, len(samples),
+            )
         if len(samples) < n_resamples // 4:
             return None
         lo = float(np.percentile(samples, 2.5))

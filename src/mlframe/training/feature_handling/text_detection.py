@@ -175,7 +175,19 @@ def _column_to_string_list(df: Any, column: str, max_sample: int) -> List[str]:
                 # Could be Enum (a polars sub-type) -- try cast.
                 try:
                     ser = ser.cast(pl.Utf8)
-                except Exception:
+                except Exception as _e_cast:
+                    # Pre-fix returned [] silently; the column then
+                    # silently reclassified as non-text and CatBoost may
+                    # later crash on long strings flowing through as
+                    # cat / pass-through. Log so operators see the
+                    # detection blind spot.
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "text_detection: cannot cast column %r (dtype=%s) "
+                        "to Utf8 for sampling: %s. Returning empty sample "
+                        "-> column will be treated as non-text downstream.",
+                        column, ser.dtype, _e_cast,
+                    )
                     return []
             n = len(ser)
             if n > max_sample:

@@ -2991,8 +2991,18 @@ def compute_probabilistic_multiclass_error(
         ):
             try:
                 y_true = np.stack([np.asarray(c) for c in y_true], axis=0)
-            except Exception:
-                pass
+            except Exception as _e_stack:
+                # Pre-fix: silent pass. Stack failure left y_true as
+                # object-of-arrays, then the multilabel auto-detect branch
+                # below couldn't pick it up and the metric routed through
+                # the wrong code path silently. DEBUG-log (not WARN -- the
+                # multilabel detection is best-effort) so the trail exists
+                # for triage.
+                logger.debug(
+                    "compute_probabilistic_multiclass_error: y_true stack "
+                    "failed (%s); multilabel auto-detect may misroute.",
+                    _e_stack,
+                )
     if not multilabel and isinstance(y_true, np.ndarray) and y_true.ndim == 2 and y_true.shape[1] == len(probs):
         multilabel = True
         logger.debug("compute_probabilistic_multiclass_error: detected multilabel y_true shape, enabling multilabel mode.")
