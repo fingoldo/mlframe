@@ -88,7 +88,11 @@ class TestConfig:
         assert cfg.enabled is False
         assert cfg.base_candidates == "auto"
         assert "diff" in cfg.transforms and "linear_residual" in cfg.transforms
-        assert cfg.mi_sample_n == 200_000
+        # 2026-05-18: default lowered 200_000 -> 100_000 for ~2x speedup
+        # on production-size data with adequate margin for typical
+        # regression / balanced-binary scenarios. Imbalanced classification
+        # / heavy-tail regression should override explicitly.
+        assert cfg.mi_sample_n == 100_000
         assert cfg.top_k_after_mi == 8
         assert cfg.fail_on_no_gain == "fallback_raw"
 

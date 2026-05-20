@@ -164,12 +164,26 @@ def run_polynom_pair_fe(
         return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
 
     _poly_t0 = time.perf_counter()
-    if _polynom_n_jobs > 1 and _n_pairs_to_eval > 1:
+    # 2026-05-18 threshold: at n=1M, 15 pairs, joblib threading overhead
+    # exceeded the per-pair work (11s parallel vs 5.75s serial). The
+    # joblib worker spin-up + queue + GIL contention on small workloads
+    # is a real cost. ``_PARALLEL_PAIR_THRESHOLD=16`` is a measure-first
+    # heuristic - on the n=1M bench 15 pairs went serial faster, but at
+    # 50+ pairs (typical 10-feature problem) parallel wins.
+    _PARALLEL_PAIR_THRESHOLD = 16
+    if (_polynom_n_jobs > 1
+            and _n_pairs_to_eval >= _PARALLEL_PAIR_THRESHOLD):
         _poly_pair_results = Parallel(
             n_jobs=_polynom_n_jobs, backend="threading",
             prefer="threads", verbose=10 if verbose else 0,
         )(delayed(_eval_one_pair)(rv) for rv in _pair_keys)
     else:
+        if _polynom_n_jobs > 1 and verbose:
+            logger.info(
+                "Polynomial-pair FE: n_pairs=%d < threshold %d -- "
+                "running serial to avoid joblib overhead.",
+                _n_pairs_to_eval, _PARALLEL_PAIR_THRESHOLD,
+            )
         _poly_pair_results = [_eval_one_pair(rv) for rv in _pair_keys]
     _eval_elapsed = time.perf_counter() - _poly_t0
     logger.info(

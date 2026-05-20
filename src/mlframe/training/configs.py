@@ -2229,7 +2229,23 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
 
     # MI screening. Sample to keep the diagnostic under one minute on
     # 4M-row datasets; mi_sample_n=None uses full train.
-    mi_sample_n: Optional[int] = 200_000
+    #
+    # 2026-05-18 default lowered 200_000 -> 100_000: TVT log analysis
+    # showed 5.3 min discovery dominated by 200k MI compute. Halving to
+    # 100k gives ~2x speedup with adequate sample size for typical
+    # regression / balanced-binary scenarios.
+    #
+    # HONEST CAVEAT: 100k may be insufficient for two regimes:
+    # (a) Imbalanced classification with minority-class rate < 5% --
+    #     100k * 5% = 5000 positives per 20-bin MI is borderline;
+    #     consider mi_sample_n=200_000 if you see spec drift between runs.
+    # (b) Heavy-tail regression where the tail carries the signal --
+    #     100k may under-sample the extremes; mi_sample_n=None (use full
+    #     train) eliminates the risk at the cost of 20x compute.
+    #
+    # Final ``raw_baseline_rmse`` gate AND ``tiny_model_rerank`` use
+    # FULL train_idx so final spec precision is unaffected by mi_sample_n.
+    mi_sample_n: Optional[int] = 100_000
     top_k_after_mi: int = 8
     # Pre-filter threshold for ``mi_gain = MI(T, X_no_base) - MI(y, X_no_base)``.
     # Default lowered from +0.01 -> -0.5 on 2026-05-11 (R10c bug #3)
