@@ -326,19 +326,25 @@ def showcase_features_and_targets(
                 # Show the plot
                 plt.show()
 
+                # Wave 55 (2026-05-20): unknown target type (LazyFrame / torch tensor / list)
+                # left desc_data undefined, causing NameError on the display below. Skip
+                # gracefully instead -- this is a display-only diagnostic path.
+                desc_data = None
                 if isinstance(target, (pl.Series, pd.Series)):
                     desc_data = target.describe()
                 elif isinstance(target, np.ndarray):
                     desc_data = pl.Series(target).describe()
 
-                if in_jupyter:
-                    from IPython.display import display
+                if desc_data is not None:
+                    if in_jupyter:
+                        from IPython.display import display
 
-                    display(desc_data)
-                else:
-                    print(desc_data)
+                        display(desc_data)
+                    else:
+                        print(desc_data)
 
             elif target_type == TargetTypes.BINARY_CLASSIFICATION:
+                desc_data = None
                 if isinstance(target,  pd.Series):
                     desc_data = target.value_counts(normalize=True)
                 elif isinstance(target, pl.Series):
@@ -346,12 +352,13 @@ def showcase_features_and_targets(
                 elif isinstance(target, np.ndarray):
                     desc_data = pl.Series(target).value_counts(normalize=True, sort=True)
 
-                if in_jupyter:
-                    from IPython.display import display
+                if desc_data is not None:
+                    if in_jupyter:
+                        from IPython.display import display
 
-                    display(desc_data)
-                else:
-                    print(desc_data)
+                        display(desc_data)
+                    else:
+                        print(desc_data)
 
     if in_jupyter:
         from IPython.display import display

@@ -184,6 +184,14 @@ def categorize_1d_array(
                     _, bin_edges = histogram(np.random.choice(vals.ravel(), size=astropy_sample_size, replace=False), bins=bins)
                 else:
                     _, bin_edges = histogram(vals, bins=bins)
+            else:
+                # Wave 55 (2026-05-20): pre-fix, an unknown method (typo / "quantile" / "kmeans")
+                # left bin_edges undefined and the next line raised UnboundLocalError. Raise
+                # honestly with the offender so callers see a typed contract failure.
+                raise ValueError(
+                    f"categorize_1d_array: unknown method={method!r}; expected one of "
+                    "'discretizer', 'numpy', 'astropy'."
+                )
 
             if bin_edges[0] <= vals.min():
                 bin_edges = bin_edges[1:]

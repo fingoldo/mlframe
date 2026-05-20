@@ -1103,6 +1103,16 @@ def _select_scalable_numeric_columns(
     scalable: List[str] = []
     skipped_reasons: dict = {}
 
+    # Wave 55 (2026-05-20): validate method at entry rather than silently producing
+    # zero stats for an unknown method (previously each per-col elif chain skipped
+    # the zero-spread check entirely, and the bogus method propagated to
+    # polars_ds.scale where it crashed with a cryptic message).
+    if method not in ("robust", "standard", "min_max"):
+        raise ValueError(
+            f"_select_scalable_numeric_columns: unknown method={method!r}; "
+            "expected one of 'robust', 'standard', 'min_max'."
+        )
+
     numeric_cols = [name for name, dtype in train_df.schema.items() if dtype.is_numeric()]
     if not numeric_cols:
         return scalable
