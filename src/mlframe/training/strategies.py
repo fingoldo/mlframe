@@ -685,14 +685,30 @@ class XGBoostStrategy(TreeModelStrategy):
         # train/val/test dtypes match across calls.
         if category_map is not None:
             exprs: List[Any] = []
+            _logged_cols: List[str] = []
             for c, enum_dtype in category_map.items():
                 if c in df.columns:
                     # Map is built train+val UNION (test excluded for leak-freeness),
                     # so test rows may carry OOV values. strict=False nulls them out
                     # rather than crashing -- consistent with core.py:2992 behaviour.
                     exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype, strict=False).alias(c))
+                    _logged_cols.append(c)
             if exprs:
+                # Wave 72 (2026-05-21): quantify OOV-nulling so silent test-cat loss
+                # becomes visible.
+                _null_pre = {c: int(df[c].null_count()) for c in _logged_cols}
                 df = df.with_columns(exprs)
+                _null_deltas = {
+                    c: int(df[c].null_count()) - _null_pre[c]
+                    for c in _logged_cols
+                }
+                _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
+                if _nonzero:
+                    import logging as _lg
+                    _lg.getLogger(__name__).info(
+                        "[xgb cat-cast] %d col(s) had OOV nulls cast-failed: %s",
+                        len(_nonzero), _nonzero,
+                    )
             # Still need to cover any pl.String / pl.Utf8 not present in
             # the map (e.g. brand-new columns surfacing only after the
             # map was built) -- fall back to per-DF Enum.
@@ -855,6 +871,9 @@ class HGBStrategy(ModelPipelineStrategy):
             return df
 
         casts = []
+        # Wave 72 (2026-05-21): track which cols use strict=False (test-side
+        # OOV-tolerant cast) so we can quantify cast-failure rate post-with_columns.
+        _strict_false_cols: list[str] = []
         for col in existing:
             n_unique = df[col].n_unique()
             high_card = n_unique > self._MAX_CATEGORICAL_CARDINALITY
@@ -865,6 +884,7 @@ class HGBStrategy(ModelPipelineStrategy):
                 # Use strict=False so OOV values fall through to null rather than
                 # crash the lazy collect, matching the dict-alignment routine at
                 # core.py:2992 which also passes strict=False on the test split.
+                _strict_false_cols.append(col)
                 if high_card:
                     casts.append(
                         pl.col(col).cast(pl.String).cast(enum_dt, strict=False).to_physical().cast(pl.UInt32).alias(col)
@@ -888,7 +908,22 @@ class HGBStrategy(ModelPipelineStrategy):
                 casts.append(pl.col(col).cast(pl.String).cast(local_enum).alias(col))
 
         if casts:
+            # Wave 72 (2026-05-21): pre-cast null counts for strict=False columns;
+            # post-cast delta surfaces silent OOV-nulling.
+            _null_pre = {c: int(df[c].null_count()) for c in _strict_false_cols if c in df.columns}
             df = df.with_columns(casts)
+            if _null_pre:
+                _null_deltas = {
+                    c: int(df[c].null_count()) - _null_pre[c]
+                    for c in _null_pre
+                }
+                _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
+                if _nonzero:
+                    import logging as _lg
+                    _lg.getLogger(__name__).info(
+                        "[hgb cat-cast] %d col(s) had OOV nulls cast-failed: %s",
+                        len(_nonzero), _nonzero,
+                    )
         return df
 
     def build_polars_enum_map(

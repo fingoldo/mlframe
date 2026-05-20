@@ -218,9 +218,19 @@ def apply_polars_categorical_fixes(
                 if val_df_polars is not None:
                     val_df_polars = val_df_polars.with_columns(pl.col(col).cast(enum_dt))
                 if test_df_polars is not None:
+                    # Wave 72 (2026-05-21): quantify silent OOV-nulling on test
+                    # so operators can see how many test rows got cast-failed
+                    # (was invisible before).
+                    _test_null_pre = int(test_df_polars[col].null_count())
                     test_df_polars = test_df_polars.with_columns(
                         pl.col(col).cast(enum_dt, strict=False)
                     )
+                    _test_null_post = int(test_df_polars[col].null_count())
+                    if _test_null_post > _test_null_pre:
+                        logger.info(
+                            "[cat-alignment] test col=%s: %d row(s) cast-failed to null (OOV vs train+val Enum domain)",
+                            col, _test_null_post - _test_null_pre,
+                        )
                 aligned_cols.append((col, len(union_sorted)))
             except Exception as _e:
                 logger.warning(

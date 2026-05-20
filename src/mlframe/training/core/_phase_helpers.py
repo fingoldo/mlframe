@@ -802,32 +802,64 @@ def _phase_auto_detect_feature_types(
         _str_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes)
                      if dt in _string_types and c not in _keep_as_string]
         if _str_cols:
-            # Build per-column Enum domain from train-only uniques (held-out test must stay unseen).
+            # Wave 72 (2026-05-21): build per-column Enum domain from train+val
+            # uniques (NOT train-only). val is the early-stopping detector --
+            # if a val-only categorical value gets cast to null silently, ES is
+            # biased away from val-rare-cat-sensitive splits. test stays
+            # unseen (built from train+val ONLY). Symmetric with dict-alignment
+            # in _phase_polars_fixes.py.
             _enum_domains: dict[str, list[str]] = {}
             for _c in _str_cols:
                 try:
-                    _u = train_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
-                    _enum_domains[_c] = sorted(_u)
+                    _u_train = train_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
+                    _u_val: list = []
+                    if val_df is not None and _c in set(val_df.columns):
+                        try:
+                            _u_val = val_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
+                        except Exception:
+                            _u_val = []
+                    _enum_domains[_c] = sorted(set(_u_train) | set(_u_val), key=str)
                 except Exception:
                     pass
 
-            def _enum_cast(df, strict: bool):
+            def _enum_cast(df, strict: bool, split_name: str | None = None):
                 if df is None:
                     return df
                 _existing = set(df.columns)
                 _exprs = []
+                _affected_cols = []
                 for _c in _str_cols:
                     if _c not in _existing or _c not in _enum_domains:
                         continue
                     _exprs.append(pl.col(_c).cast(pl.Enum(_enum_domains[_c]), strict=strict))
-                return df.with_columns(_exprs) if _exprs else df
+                    _affected_cols.append(_c)
+                if not _exprs:
+                    return df
+                # Wave 72 (2026-05-21): quantify silent OOV-nulling so operators
+                # can see how many rows got cast-failed (was invisible before).
+                _null_pre = {c: int(df[c].null_count()) for c in _affected_cols}
+                out = df.with_columns(_exprs)
+                if split_name is not None and not strict:
+                    _null_deltas = {
+                        c: int(out[c].null_count()) - _null_pre[c]
+                        for c in _affected_cols
+                    }
+                    _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
+                    if _nonzero:
+                        logger.info(
+                            "[enum-cast] %s split: %d col(s) had OOV nulls cast-failed (cols=%s)",
+                            split_name, len(_nonzero), _nonzero,
+                        )
+                return out
 
             train_df = _enum_cast(train_df, strict=True)
-            val_df = _enum_cast(val_df, strict=False)
-            test_df = _enum_cast(test_df, strict=False)
+            # val cast is now strict-but-domain-includes-val by construction;
+            # any cast failure here would be a logic bug, so strict=True.
+            val_df = _enum_cast(val_df, strict=True)
+            test_df = _enum_cast(test_df, strict=False, split_name="test")
             train_df_polars_pre = _enum_cast(train_df_polars_pre, strict=True)
-            val_df_polars_pre = _enum_cast(val_df_polars_pre, strict=False)
-            test_df_polars_pre = _enum_cast(test_df_polars_pre, strict=False)
+            val_df_polars_pre = _enum_cast(val_df_polars_pre, strict=True)
+            test_df_polars_pre = _enum_cast(test_df_polars_pre, strict=False, split_name="test (polars_pre)")
             if verbose:
                 logger.info("  Cast Polars string columns -> Enum once (shared across model loop)")
 
