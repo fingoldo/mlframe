@@ -356,37 +356,13 @@ class _WelfordAccumulator(StreamingAccumulator):
         return out
 
 
-# P^2-Quantile streaming sketch (Jain & Chlamtac 1985) DEFERRED.
-#
-# Honest ROI assessment after prototyping:
-# - For mlframe ensembling (typical M=5-10 models per suite), exact
-#   materialised median via `np.quantile(preds, 0.5)` is already O(1)
-#   in wallclock (sort of 5-10 floats per cell is ~instant) and O(M*N*K)
-#   in memory (fine up to N*K*8*M < ~500MB, covers the typical case).
-# - P^2 gives O(1) memory and O(1) time per sample, useful for **big-M**
-#   streams (CV with 100+ folds, online feature quantiles over huge N)
-#   but NOT for the M=5-10 ensembling regime.
-# - Correct vectorisation over (N, K) cells requires per-cell state
-#   transitions that don't reduce to numpy broadcasts (each cell has
-#   its own marker trajectory + different bucket placement per update).
-#   A naive scalar-per-i vectorisation (attempted Session 4) gave ~100%
-#   relative error -- the per-cell direction `d_sign` varies across cells,
-#   breaking the scalar marker-shift logic.
-#
-# Correct implementation paths:
-# - numba-jitted per-cell loop (O(1) per cell, full N*K parallel via
-#   @numba.njit(parallel=True)) -- ~1h focused work + bench
-# - pure-python per-cell loop (O(N*K) Python overhead per push -- slow)
-# - existing `crick.TDigest` / `pytdigest` C++ binding -- external dep
-#
-# When the big-M case arises in prod, revisit. Leaving the Welford
-# primitive (this module's `_WelfordAccumulator`) as the streaming
-# aggregator for mean/std/min/max. Median in streaming mode raises
-# NotImplementedError in `ensemble_probabilistic_predictions_streaming`.
-#
-# Tracked as: explicit-design-decision (wave 69, 2026-05-20) P^2-Quantile
-# numba-jit per-cell impl deferred until a real workload exceeds the budget
-# documented in `ensemble_probabilistic_predictions` below.
+# Streaming median (P^2-Quantile sketch, Jain & Chlamtac 1985) intentionally
+# NOT implemented. For typical M=5-10 ensembling members, exact materialised
+# median via np.quantile(preds, 0.5) is O(1) wallclock + O(M*N*K) memory which
+# fits the budget. P^2 wins only on big-M streams (CV with 100+ folds) and a
+# correct (N, K)-vectorised impl needs a numba per-cell loop. Welford-mode
+# median raises NotImplementedError in ensemble_probabilistic_predictions_streaming
+# as the explicit signal-to-caller.
 
 # *****************************************************************************************************************************************************
 # Core ensembling functionality
@@ -929,23 +905,14 @@ def ensemble_probabilistic_predictions(
     if len(preds) == 0:
         return None, None, None
 
-    # 2026-04-24: dedup memory churn. Pre-2026-04-24, this function called
-    # `np.array(preds)` ~9 times across the various ensemble methods,
-    # outlier-filter, and confidence paths -- each call materialised a full
-    # (M, N, K) tensor, peaking RAM at ~9x the steady-state cost. On
-    # multi_5 x ensembles x 2-weight_schemas (M=6, N=600, K=5) the peak hit
-    # native C++ allocator's Win32 4GB ceiling and OOM'd. Materialising
-    # ONCE here eliminates that churn -- full Welford-streaming refactor
-    # for the big-N case (N=9M+) is tracked as TODO below.
-    #
-    # Wave 69 (2026-05-20): explicit-design-decision (was TODO):
-    # For N*K*M*8 > EnsemblingConfig.quantile_budget_bytes, switching to
-    # streaming Welford + P^2-Quantile sketch would give ~5x peak-memory drop
-    # on prod-sized frames. Intentionally NOT implemented today: fuzz-sized
-    # data + typical N*K*M does not hit the budget, and the Welford-mode median
-    # path already raises NotImplementedError as a signal-to-caller that
-    # streaming mode is incomplete. Revisit only when a real workload exceeds
-    # the budget; the implementation gates on a single config knob today.
+    # Materialise the (M, N, K) tensor ONCE -- the prior pattern allocated
+    # this ~9x across ensemble flavours / outlier-filter / confidence paths,
+    # peaking RAM at ~9x steady-state and OOM-ing the Win32 4GB allocator on
+    # M=6 N=600 K=5 layouts. For N*K*M*8 > EnsemblingConfig.quantile_budget_bytes,
+    # streaming Welford + P^2-Quantile sketch would give ~5x peak-memory drop,
+    # but is intentionally NOT implemented today (Welford-median raises
+    # NotImplementedError as a signal-to-caller; fuzz-sized data never hits the
+    # budget). Revisit only when a real workload exceeds the configured budget.
     _preds_arr = np.asarray(preds, dtype=np.float64)
 
     if len(preds) > 2:

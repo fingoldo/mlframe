@@ -2251,41 +2251,12 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Forwarded to ``fit_stacked_on_residual(residual_aggregation=...)``.
     stacked_residual_aggregation: str = "mean"
 
-    # T1#1 2026-05-18 Pack #6: parallel evaluation of (base, transform)
-    # candidates in CompositeTargetDiscovery.fit. The per-transform body
-    # was extracted into a nested closure that returns a list of candidate
-    # dicts; per-base dispatch runs the closure under joblib.Parallel
-    # (backend="threading", prefer="threads") when ``discovery_n_jobs > 1``.
-    #
-    # HIGH#6 2026-05-18 MEASURED SPEEDUP + ROOT-CAUSE DIAGNOSIS:
-    # On n=200k, 3 bases x 10 transforms,
-    # ``profiling/bench_parallel_discovery_speedup.py`` measured ~1.05x
-    # at n_jobs=8 (median 4.84s vs 5.22s serial). The original "5-10x"
-    # claim was speculative and is NOT validated.
-    #
-    # Diagnostic (``profiling/bench_parallel_discovery_diag.py``)
-    # confirmed joblib DOES dispatch across 7+ worker threads (the
-    # parallel infrastructure works), but cProfile shows:
-    # - ``_tiny_model_rerank`` consumes 3.34s of 4.13s total = 81%
-    #   (LightGBM training in screening; runs AFTER and OUTSIDE the
-    #   parallel block; still serial).
-    # - My parallel block covers ~0.8s. Internal speedup of that
-    #   block is ~2x at n_jobs=4 (0.8s -> 0.4s), but the 81% serial
-    #   tail caps total speedup at ~10%.
-    #
-    # To get the originally-claimed 5-10x speedup the ``_tiny_model_rerank``
-    # block now also parallelises per-spec via ``tiny_rerank_n_jobs`` (set
-    # both to N for the full Phase A + Phase B speedup). ``discovery_n_jobs > 1``
-    # alone shaves ~7% off wall time at the cost of joblib coordination
-    # overhead - small win for production callers; default 1 is a sensible
-    # baseline.
-    #
-    # ``discovery_n_jobs=1`` (default, back-compat) runs the closure in a
-    # plain list-comprehension - no joblib overhead. Unary-transform dedup
-    # (Pack J) and ``UnknownTransformError`` filtering run serially in a
-    # pre-filter pass before the parallel dispatch, so the parallel path
-    # is bit-for-bit equivalent to the serial path (verified by
-    # ``tests/training/test_composite_discovery_parallel.py``).
+    # Parallel evaluation of (base, transform) candidates in
+    # CompositeTargetDiscovery.fit via joblib(threading) when > 1. Default 1
+    # because the parallel block covers ~20% of fit time -- _tiny_model_rerank
+    # (Phase B) dominates the tail. Use tiny_rerank_n_jobs > 1 alongside this
+    # for the full Phase A + B speedup. Parallel path is bit-equivalent to
+    # serial (covered by tests/training/test_composite_discovery_parallel.py).
     discovery_n_jobs: int = 1
 
     # 2026-05-18 #10: skip the entire composite-target training block
@@ -2305,30 +2276,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # structure datasets. Set 0.0 to restore historical "never skip".
     composite_skip_when_raw_dominates_ratio: float = 0.02
 
-    # 2026-05-18: skip the wrap-pass y-scale predict() calls per composite
-    # entry per split (train+val+test = 3 predict calls). For wide model
-    # zoos (CB + XGB + LGB + Ridge + MLP = 5 models × 3 splits = 15
-    # predicts per composite, ~30 for two composites) on 4M-row frames
-    # this can dominate wrap-pass wall time -- MLP especially (15-30s
-    # per predict). When True, the wrapper still replaces each entry's
-    # inner with ``CompositeTargetEstimator`` (so downstream consumers
-    # see y-scale predict output) but does NOT call predict to compute
-    # y-scale metrics; metadata["composite_target_y_scale_metrics"]
-    # stays empty. Safe because:
-    # 1. Pack A watchdog covers the transform (T-MAE == y-MAE for
-    #    additive-invertible transforms), so the y-scale numbers add
-    #    no information beyond the T-scale numbers already logged in
-    #    the per-target training phase.
-    # 2. Cross-target NNLS-stack will lazy-compute the predictions it
-    #    needs from the wrapped entries -- the empty train_pred_cache
-    #    just means no warm starts.
-    #
-    # Default flipped False -> True 2026-05-18 (Accuracy/perf over legacy):
-    # the metadata block is recoverable on demand via
-    # ``mlframe.training.core._phase_composite_post.recover_composite_y_scale_metrics``
-    # (T1#7) and the 5-15 min saving is real on every multi-million-row
-    # suite. Flip back to False explicitly only if you cannot make the
-    # recovery call (e.g. you've already discarded the wrapped models dict).
+    # Skip the wrap-pass y-scale predict() calls per composite entry per split
+    # (train+val+test). Wide model zoos x multi-million-row frames see 5-15
+    # min wall time on this block (MLP predict is the worst at 15-30s each).
+    # When True the wrapper still installs CompositeTargetEstimator (so
+    # downstream consumers get y-scale predict output) but the y-scale
+    # metadata block stays empty -- recover it on demand via
+    # `_phase_composite_post.recover_composite_y_scale_metrics`. Safe because
+    # T-scale metrics from the per-target phase already cover the watchdog
+    # invariants (T-MAE == y-MAE for additive-invertible transforms).
     skip_wrap_pass_predict: bool = True
 
     # HIGH#4 2026-05-18: disable the Pack G runtime watchdog when its
@@ -2700,30 +2656,11 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # - "linear_stack": Ridge regression on per-component predictions.
     # - "nnls_stack": non-negative least squares on per-component preds.
     #
-    # Default flipped from "off" -> "oof_weighted" 2026-05-10 (R10b
-    # improvement #5), then "oof_weighted" -> "nnls_stack" 2026-05-10
-    # (R10c) after the wide ensemble shootout
-    # (``mlframe/benchmarks/composite_ensemble_shootout.py``):
-    # 6 scenarios x 3 seeds = 18 (scenario, seed) datapoints, 11
-    # ensemble strategies tested. Results (mean improvement %
-    # vs best_single_by_train, sorted):
-    #
-    #   nnls_stack            +1.24%  (13/18 wins)  <- WINNER
-    #   best_single_by_train  +0.00%  (baseline)
-    #   bma_softmax           -0.60%
-    #   inverse_variance      -1.61%
-    #   linear_stack_ridge    -1.71%
-    #   inverse_rmse          -7.17%
-    #   stacked_gbdt         -12.44%
-    #   oof_weighted         -18.42%  (previous default!)
-    #   median               -19.07%
-    #   trimmed_mean         -19.07%
-    #   mean                 -23.20%
-    #
-    # NNLS is the only strategy with positive mean improvement and
-    # majority wins. Single-spec case is handled by the ensemble class
-    # via best-single fallback (no overhead). Set to "off" explicitly
-    # to skip ensemble construction.
+    # nnls_stack chosen as default after `composite_ensemble_shootout.py`
+    # (6 scenarios x 3 seeds, 11 strategies): NNLS was the only strategy
+    # with positive mean improvement vs best-single-by-train (+1.24%, 13/18
+    # wins). Single-spec case falls back to best-single inside the ensemble
+    # class. Set to "off" to skip ensemble construction entirely.
     cross_target_ensemble_strategy: str = "nnls_stack"
 
     # When True AND the per-target ``baseline_diagnostics`` reports

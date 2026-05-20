@@ -1654,23 +1654,11 @@ def show_calibration_plot(
             from matplotlib.figure import Figure
             from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-            # 2026-05-11: layout was ``"constrained"`` per 2026-04-27 batch 8
-            # to handle the multi-axis colorbar (``ax=[ax_main, ax_hist]``)
-            # without tight_layout's compat warning. But the Wave 4 1M-row
-            # fuzz aggregate showed 146 s across 108 calls (1.35 s / call)
-            # in this path -- constrained_layout's iterative bbox solver
-            # was a needless ~170 ms / call on the calibration plot
-            # geometry.
-            # Visual A/B on the actual chart (12x6 figsize, 2-line title,
-            # multi-axis colorbar, sharex'd hist below scatter) showed
-            # matplotlib's default geometry fits everything with zero
-            # clipping; the rightmost scatter dot stays inside the
-            # colorbar boundary. Switched to ``layout=None``.
-            # Bench: 430 ms -> 257 ms (1.67x, ~170 ms / call saving).
-            # See profiling/bench_calibration_layout.py for the A/B and
-            # D:/Temp/calib_ab_*.png for visual proof.
-            # 2026-05-11: honour ``dpi`` kwarg so ReportingConfig.plot_dpi
-            # propagates here; ``None`` defers to matplotlib's default.
+            # layout=None: matplotlib's default geometry already fits the
+            # multi-axis colorbar + 2-line title with no clipping; the
+            # constrained-layout solver adds ~170 ms per call without visual
+            # benefit. Honour the dpi kwarg so ReportingConfig.plot_dpi
+            # propagates; None defers to matplotlib's default.
             _fig_kwargs = {"figsize": figsize, "layout": None}
             if dpi is not None:
                 _fig_kwargs["dpi"] = dpi

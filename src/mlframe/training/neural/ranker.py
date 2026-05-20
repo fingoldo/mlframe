@@ -42,27 +42,12 @@ _RANKNET_MAX_PAIRS_PER_QUERY: int = 2_000_000  # ~16MB float32 per (i,j) tensor
 
 
 # Per-query pair-index cache. The (i_idx, j_idx) tensors returned by
-# torch.where(rel_i > rel_j) depend ONLY on the relevance pattern of a query —
-# the same query repeats every epoch (typical LTR fit: 30 epochs * ~540 queries
-# = 16k loss invocations on ~540 unique relevance patterns). Caching pair
-# indices keyed on the relevance tuple gives ~20x speedup on cache hits
-# (microbench 2026-05-20: 27.2us -> 1.35us per call at N=11). Empty
-# semantically: the entry is a (i_idx, j_idx) tuple; downstream code handles
-# i_idx.numel() == 0 the same way as the uncached path.
-#
-# Only enabled when N is small enough that hashing is cheap AND the
-# subsampling path is NOT taken (subsampling uses torch.randperm which produces
-# a different pair distribution per call and would corrupt the cache).
-# Cache cap: a 200k-row LTR fit averages ~10 docs/query -> ~20000 unique queries,
-# vs the prior 4096 cap. Profile of fuzz combo c0063 (iter104, 2026-05-20)
-# showed 17939/18000 ranknet calls were cache MISSES because of constant FIFO
-# eviction (13843 pop() events visible in the callees breakdown); torch.where
-# was rebuilt on nearly every call, eating 5.16s of tottime. Bumping the cap
-# to 65536 fits any realistic LTR workload (~58 MB at N=11 with ~50 pair
-# indices each), making the cache actually hit ~n_epochs/n_epochs times after
-# the first pass. The MAX_N gate stays at 256: tuple-of-tolist hashing is
-# cheap for small queries but the (N, N) where-mask cost is what we cache,
-# not the key cost.
+# torch.where(rel_i > rel_j) depend ONLY on the relevance pattern; the same
+# query repeats every epoch, so caching keyed on the relevance tuple gives
+# ~20x speedup on cache hits. Disabled when N > MAX_N (tuple hashing gets
+# expensive) and when the subsampling path runs (torch.randperm produces a
+# fresh pair distribution per call). MAX_N=256 covers small/medium queries;
+# SIZE=65536 fits a 200k-row LTR fit (~58 MB).
 _RANKNET_PAIR_CACHE_MAX_N: int = 256
 _RANKNET_PAIR_CACHE_SIZE: int = 65536
 _ranknet_pair_cache: dict = {}
@@ -492,6 +477,31 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         X_out[bad] = np.broadcast_to(means, X_arr.shape)[bad]
         return X_out
 
+    def _fit_scaler(self, X_arr: np.ndarray) -> None:
+        # NeuralNetStrategy.requires_scaling=True for a reason: AdamW + softplus
+        # on raw-magnitude features (one binary 0/1 column next to a float column
+        # spanning [1e3, 1e6]) bounces gradients across orders of magnitude per
+        # step, never converges, and val_loss plateaus at ln(2) for ranknet
+        # (observed 2026-05-21 on fuzz combo c0063 after the imputer fix:
+        # 30 epochs ran but val_loss stayed 0.6931 = random-init baseline).
+        # The ranker_suite caller never threads scaler= through to _fit_mlp_ranker,
+        # so MLP gets unscaled features in production paths too. Standardise here
+        # so the contract matches CB/XGB/LGB ("hand us any numeric tabular X").
+        mean = X_arr.mean(axis=0)
+        std = X_arr.std(axis=0)
+        # Constant columns -> std=0; substitute 1.0 so the divide is a no-op
+        # rather than producing inf or nan. The column already carries no signal.
+        std = np.where(std > 0, std, 1.0)
+        self._scaler_mean_ = mean.astype(np.float32, copy=False)
+        self._scaler_std_ = std.astype(np.float32, copy=False)
+
+    def _apply_scaler(self, X_arr: np.ndarray) -> np.ndarray:
+        mean = getattr(self, "_scaler_mean_", None)
+        std = getattr(self, "_scaler_std_", None)
+        if mean is None or std is None:
+            return X_arr
+        return ((X_arr - mean) / std).astype(np.float32, copy=False)
+
     def fit(
         self,
         X,
@@ -526,10 +536,14 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         X_arr = self._x_to_array(X)
         y_arr = np.asarray(y, dtype=np.float32).ravel()
         n_features = X_arr.shape[1]
-        # Fit imputer on train statistics before sanitising train or val; reused
-        # in validation and predict so OOF / OOS see the same column means.
+        # Fit imputer + scaler on train statistics before applying to train/val/predict;
+        # the same column means and z-score parameters are reused across all splits so
+        # OOF / OOS see the same transform. Order matters: impute first (NaN -> mean)
+        # so the scaler's std isn't poisoned by skipped NaN cells.
         self._fit_imputer(X_arr)
         X_arr = self._apply_imputer(X_arr)
+        self._fit_scaler(X_arr)
+        X_arr = self._apply_scaler(X_arr)
 
         network = generate_mlp(
             num_features=n_features,
@@ -563,7 +577,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
 
         val_loader = None
         if X_val is not None and y_val is not None and group_ids_val is not None:
-            X_val_arr = self._apply_imputer(self._x_to_array(X_val))
+            X_val_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X_val)))
             y_val_arr = np.asarray(y_val, dtype=np.float32).ravel()
             val_ds = _RankerDataset(X_val_arr, y_val_arr)
             val_sampler = GroupBatchSampler(
@@ -612,7 +626,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
 
     def predict(self, X) -> np.ndarray:
         """Return per-row scores (1-D, higher=more relevant)."""
-        X_arr = self._apply_imputer(self._x_to_array(X))
+        X_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X)))
         self.module_.eval()
         device = next(self.module_.parameters()).device
         with torch.no_grad():

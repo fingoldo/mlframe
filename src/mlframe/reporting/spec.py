@@ -189,27 +189,14 @@ class FigureSpec:
     suptitle: str = ""
     panels: Tuple[Tuple[PanelSpec, ...], ...] = field(default_factory=tuple)
     figsize: Tuple[float, float] = (12.0, 4.0)
-    # 2026-05-11: per-figure DPI for saved PNG. ``None`` defers to the
-    # matplotlib renderer's default (matches pre-flag behaviour). Set
-    # via ``ReportingConfig.plot_dpi`` to control globally; saves
-    # ~30% chart wall at dpi=80 vs default 100.
+    # Per-figure DPI for saved PNG. None defers to matplotlib's default; set
+    # via ReportingConfig.plot_dpi to control globally (~30% chart wall savings
+    # at dpi=80 vs default 100).
     dpi: Optional[int] = None
-    # 2026-05-11: default flipped True -> False per 1M-row c0134 profile.
-    # constrained_layout is an iterative tight-bbox solver that adds
-    # ~700-800 ms per multi-panel figure (cProfile-attributed 75 s
-    # across 112 panel calls on a single fuzz combo). Visual A/B on the
-    # canonical 6-panel multiclass figure (heatmap+colorbar + ROC + PR_F1
-    # + calib + violin + top-k acc, figsize=18x8) showed matplotlib's
-    # default geometry already fits all bounded-title panels with zero
-    # clipping; the constrained solver was overkill. Bench:
-    #   constrained: 1330 ms / figure
-    #   None       :  615 ms / figure  (2.2x faster, visually equivalent)
-    # Multi-line title figures (e.g. the calibration plot in
-    # metrics.py with a 2-line metrics_string suptitle) keep their own
-    # ``layout="constrained"`` setup -- that path is NOT routed through
-    # FigureSpec so the flip doesn't affect it. Override per-spec via
-    # ``constrained_layout=True`` for cases where bbox-aware solving is
-    # genuinely needed.
+    # constrained_layout default False: the iterative tight-bbox solver adds
+    # ~700-800 ms per multi-panel figure (~2x slowdown vs default geometry)
+    # without visible benefit on standard panel layouts. Override per-spec
+    # when bbox-aware solving is genuinely needed (e.g. multi-line suptitles).
     constrained_layout: bool = False
     suptitle_fontsize: int = 11
     # Optional: row height ratios (e.g. (3, 1) for calibration scatter +

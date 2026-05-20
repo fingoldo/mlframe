@@ -154,27 +154,12 @@ def render_and_save(
     )
     handles: Dict[str, Any] = {}
 
-    # 2026-05-11: parallelize render+save across backends when >1 backend
-    # is requested. Each backend builds its OWN renderer instance + fig
-    # from the (read-only / frozen) FigureSpec, so there's no shared
-    # mutable state. matplotlib's Agg backend is thread-safe at the
-    # ``FigureCanvasAgg`` level (the renderer uses its own canvas, not
-    # pyplot's global state machine); plotly's ``write_html`` builds an
-    # in-memory string and writes -- also thread-safe per-Figure.
-    # Both release the GIL during the heavy C-level work
-    # (Agg rasterization for PNG, JSON serialization for HTML), so a
-    # ThreadPoolExecutor with one worker per backend produces real
-    # wall-clock parallelism.
-    #
-    # On c0089 (regression + MRMR, 1M rows, default plot_outputs =
-    # "plotly[html] + matplotlib[png]"):
-    #   sequential: matplotlib 618 ms + plotly 218 ms = 836 ms / call
-    #   parallel  : max(618, 218) = ~618 ms / call
-    # 34 plot_residual_diagnostics calls -> ~7 s saved on the combo.
-    #
-    # ``interactive`` show() and matplotlib's plt.close() stay on the
-    # MAIN thread after the parallel block resolves -- pyplot's state
-    # machine + Jupyter's display hooks aren't thread-friendly.
+    # Parallelize render+save across backends: each builds its OWN renderer
+    # + fig from the frozen FigureSpec (no shared mutable state). Both Agg
+    # (matplotlib) and write_html (plotly) release the GIL during the heavy
+    # C work, so ThreadPoolExecutor yields real wall-clock speedup. show()
+    # + plt.close() stay on the main thread (pyplot global state + Jupyter
+    # display hooks are not thread-friendly).
 
     def _do_backend(backend: str, fmts) -> "Tuple[str, Any]":
         renderer = get_renderer(backend)
