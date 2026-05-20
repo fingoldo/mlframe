@@ -46,7 +46,22 @@ class EarlyStoppingWrapper(BaseEstimator):
         self.best_model_ = None
         self.no_improvement_count_ = 0
 
-        n_val_samples = int(len(X) * self.validation_fraction)
+        # Wave 24 P0 (2026-05-20): pre-fix int(len(X) * frac) could round
+        # down to 0 on small X (e.g. len=9, frac=0.1 -> int(0.9)=0). Then
+        # ``X[:-0]`` is Python's "slice from start to before index 0",
+        # i.e. an EMPTY array -- training silently collapsed with no
+        # exception, no warning. Same for X_val (``X[-0:]`` returns the
+        # WHOLE array as val, but training was already dead).
+        # Guard explicitly: clamp to >=1 and require at least one
+        # training row (len(X) - n_val_samples >= 1).
+        n_val_samples = max(1, int(len(X) * self.validation_fraction))
+        if n_val_samples >= len(X):
+            raise ValueError(
+                f"early-stopping: validation_fraction={self.validation_fraction} "
+                f"with len(X)={len(X)} leaves zero training rows "
+                f"(n_val_samples={n_val_samples}). Use a smaller "
+                f"validation_fraction or more samples."
+            )
         X_train, X_val = X[:-n_val_samples], X[-n_val_samples:]
         y_train, y_val = y[:-n_val_samples], y[-n_val_samples:]
 

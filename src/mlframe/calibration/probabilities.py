@@ -30,7 +30,16 @@ def generate_probs_from_outcomes(
     indices = np.arange(n)
     np.random.shuffle(indices)
 
-    probs = np.empty(n, dtype=np.float32)
+    # Wave 24 P0 (2026-05-20): pre-fix used ``np.empty`` for ``probs``;
+    # the chunked loop below terminates at ``r = (n // chunk_size) *
+    # chunk_size`` which is STRICTLY LESS than n whenever
+    # ``n % chunk_size != 0``. Rows ``[r:n]`` were never written and
+    # contained whatever garbage np.empty allocated. The final
+    # ``np.clip(probs, 0, 1)`` only fixed values outside [0,1] -- any
+    # garbage that happened to land in range slipped through silently.
+    # Use zeros so the worst case is a tail of zeros (which downstream
+    # detectors recognise) rather than arbitrary uninitialised floats.
+    probs = np.zeros(n, dtype=np.float32)
     bin_offsets = (np.random.random(size=nbins) - 0.5) * bins_std
 
     if flip_percent:
@@ -62,6 +71,21 @@ def generate_probs_from_outcomes(
         probs[l:r] = freq + (np.random.random(size=chunk_size) - 0.5) * scale * np.abs(freq - 0.5)
 
         l = r
+
+    # Wave 24 P0 follow-up: handle the tail rows ``[l:n]`` that the
+    # chunked loop above skipped when ``n % chunk_size != 0``. Pre-fix
+    # those rows kept their np.empty-allocated garbage value; post-fix
+    # the ``np.zeros`` init makes the worst case a tail of zeros, but
+    # we should still compute a meaningful freq for them. Use the same
+    # per-chunk synthesis routine on the residual.
+    if l < n:
+        _resid = n - l
+        freq = outcomes[l:n].mean()
+        bin_idx = int(freq * nbins)
+        if bin_idx >= nbins:
+            bin_idx = nbins - 1
+        freq = freq + bin_offsets[bin_idx]
+        probs[l:n] = freq + (np.random.random(size=_resid) - 0.5) * scale * np.abs(freq - 0.5)
 
     return np.clip(probs, 0.0, 1.0)
 

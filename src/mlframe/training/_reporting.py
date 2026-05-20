@@ -817,7 +817,33 @@ def report_probabilistic_model_perf(
 
             if hasattr(model, "classes_"):
                 n_classes = len(model.classes_)
-                class_indices = np.searchsorted(model.classes_, preds_fallback)
+                # Wave 24 P2 fix (2026-05-20): pre-fix
+                # ``np.searchsorted(classes_, preds_fallback)`` had two
+                # latent bugs: (a) sort-contract on classes_ was assumed
+                # but not asserted; (b) any preds_fallback value NOT in
+                # classes_ returned index == n_classes which IndexError'd
+                # on the subsequent ``probs[..., class_indices] = 1.0``.
+                # Use a dict lookup with explicit fallback to the first
+                # class for unseen predictions; WARN-log unseen counts.
+                _class_to_idx = {c: i for i, c in enumerate(model.classes_)}
+                _unseen = 0
+                _class_indices_list = []
+                for _p in preds_fallback:
+                    if _p in _class_to_idx:
+                        _class_indices_list.append(_class_to_idx[_p])
+                    else:
+                        _class_indices_list.append(0)
+                        _unseen += 1
+                class_indices = np.asarray(_class_indices_list, dtype=np.int64)
+                if _unseen > 0:
+                    logger.warning(
+                        "report_perf: %d/%d predict() outputs were NOT in "
+                        "model.classes_=%r; mapping them to class-0 for "
+                        "the proba-fallback one-hot encoding. The model's "
+                        "predict() returned values outside the training "
+                        "label set -- check for a buggy estimator.",
+                        _unseen, len(preds_fallback), list(model.classes_),
+                    )
             else:
                 n_classes = len(np.unique(preds_fallback))
                 class_indices = preds_fallback.astype(int)

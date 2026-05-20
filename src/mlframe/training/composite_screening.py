@@ -288,8 +288,15 @@ def _mi_to_target_prebinned(
         return 0.0
     if feature_binned.shape[0] != target.shape[0]:
         return 0.0
-    # Rows valid for MI: target finite AND first feature column not sentinel
-    finite = np.isfinite(target) & (feature_binned[:, 0] >= 0)
+    # Wave 24 P1 fix (2026-05-20): pre-fix the size-gate used
+    # ``feature_binned[:, 0] >= 0`` which masked rows where COLUMN 0
+    # had a -1 sentinel (NaN). When column 0 was NaN-heavy but other
+    # columns were clean, the early-return zeroed MI for EVERY feature
+    # in the batch silently. The inner per-column loop already filters
+    # column-specific sentinels (line 305); gate the size check on
+    # target-finite only, the per-column inner loop handles its own
+    # NaN masking.
+    finite = np.isfinite(target)
     if finite.sum() < 5 * nbins:
         return 0.0
     t_f = target[finite]
