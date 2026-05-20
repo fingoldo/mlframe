@@ -253,6 +253,31 @@ def preprocess_dataframe(
     """
     original_shape = df.shape
 
+    # Normalise pandas StringDtype -> object so downstream dtype checks
+    # (`dtype == object`, `is_object_dtype`) keep working. pandas 2.2+ may
+    # back string columns with pyarrow / nullable StringDtype by default;
+    # mlframe code paths that gate on object-dtype (auto-detect feature
+    # types, baseline diagnostics, LGB/XGB cat conversion, pre-screen)
+    # then silently skip those columns and the model fits crash with
+    # ``pandas dtypes must be int, float or bool, got cat_a: str``
+    # (observed 2026-05-20 on S: in test_each_ensemble_method_writes_its_own_perfplot).
+    # Treat StringDtype as legacy object; the explicit cat-handling path
+    # converts to ``category`` downstream when appropriate.
+    if isinstance(df, pd.DataFrame):
+        _string_cols = [
+            c for c in df.columns
+            if isinstance(df[c].dtype, pd.StringDtype)
+        ]
+        if _string_cols:
+            df = df.copy()
+            for _c in _string_cols:
+                df[_c] = df[_c].astype(object)
+            if verbose:
+                logger.info(
+                    "Normalised %d pandas StringDtype column(s) -> object: %s",
+                    len(_string_cols), _string_cols,
+                )
+
     # Remove constant columns (2026-04-21: gated on config flag; default True).
     if getattr(config, "remove_constant_columns", True):
         df = remove_constant_columns(df, verbose=verbose)
