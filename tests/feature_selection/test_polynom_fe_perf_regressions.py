@@ -128,8 +128,14 @@ class TestNewBBasisMatrixGate:
             x_b = rng.exponential(2.0, n)
         y = (x_a * x_b > 0).astype(np.int64)
 
+        # After the hermite_fe monolith split, _eval_coef_pair lives in the
+        # _hermite_fe_optimise sibling; the parent re-exports it but the actual
+        # call site inside optimise_hermite_pair resolves to the sibling's own
+        # globals. Patch there so the spy sees the live calls.
+        from mlframe.feature_selection.filters import _hermite_fe_optimise as _opt_mod
+
         captured = {"saw_non_none_B": False, "calls": 0}
-        original_eval = hermite_fe._eval_coef_pair
+        original_eval = _opt_mod._eval_coef_pair
 
         def _spy_eval(*args, **kwargs):
             captured["calls"] += 1
@@ -138,7 +144,7 @@ class TestNewBBasisMatrixGate:
                 captured["saw_non_none_B"] = True
             return original_eval(*args, **kwargs)
 
-        with patch.object(hermite_fe, "_eval_coef_pair", _spy_eval):
+        with patch.object(_opt_mod, "_eval_coef_pair", _spy_eval):
             hermite_fe.optimise_hermite_pair(
                 x_a=x_a, x_b=x_b, y=y,
                 n_trials=20, max_degree=3,

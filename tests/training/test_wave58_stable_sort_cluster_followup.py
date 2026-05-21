@@ -60,7 +60,20 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file under src/mlframe.
+
+    2026-05-21 hermite_fe monolith split compat: when the requested file is
+    ``feature_selection/filters/hermite_fe.py``, append the optimise + mi
+    siblings so source-pattern sensors that pre-date the split still match.
+    """
+    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "feature_selection/filters/hermite_fe.py":
+        _dir = MLFRAME_ROOT / "feature_selection" / "filters"
+        for nm in ("_hermite_fe_optimise.py", "_hermite_fe_mi.py"):
+            sibling = _dir / nm
+            if sibling.exists():
+                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 def test_hermite_history_uses_secondary_bf_idx() -> None:
