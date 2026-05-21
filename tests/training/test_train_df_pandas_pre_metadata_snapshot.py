@@ -103,26 +103,37 @@ def test_metadata_dict_snapshot_construction_in_phase_helpers():
     import importlib.util
     from pathlib import Path
 
-    spec = importlib.util.find_spec("mlframe.training.core._phase_helpers")
-    assert spec is not None and spec.origin is not None
-    src = Path(spec.origin).read_text(encoding="utf-8")
-    tree = ast.parse(src)
+    # Wave-105 (2026-05-21) split _phase_helpers.py into multiple sibling
+    # files under mlframe.training.core. The dict-literal landed in
+    # _phase_helpers_fit_split.py. Search both so the test survives the
+    # refactor.
+    candidate_modules = [
+        "mlframe.training.core._phase_helpers",
+        "mlframe.training.core._phase_helpers_fit_split",
+    ]
 
     found_meta_assign = False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for tgt in node.targets:
-                if isinstance(tgt, ast.Name) and tgt.id == "train_df_pandas_pre_meta":
-                    # ensure the RHS is a Dict literal with the expected keys
-                    if isinstance(node.value, ast.Dict):
-                        keys = {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
-                        if {"columns", "dtypes", "n_unique", "shape"}.issubset(keys):
-                            found_meta_assign = True
-                            break
-            if found_meta_assign:
-                break
+    for mod_name in candidate_modules:
+        spec = importlib.util.find_spec(mod_name)
+        if spec is None or spec.origin is None:
+            continue
+        src = Path(spec.origin).read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name) and tgt.id == "train_df_pandas_pre_meta":
+                        if isinstance(node.value, ast.Dict):
+                            keys = {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
+                            if {"columns", "dtypes", "n_unique", "shape"}.issubset(keys):
+                                found_meta_assign = True
+                                break
+                if found_meta_assign:
+                    break
+        if found_meta_assign:
+            break
     assert found_meta_assign, (
         "train_df_pandas_pre_meta dict-literal assignment with keys "
-        "{columns, dtypes, n_unique, shape} not found in _phase_helpers.py; "
-        "Wave-7 metadata-dict snapshot fix not landed."
+        "{columns, dtypes, n_unique, shape} not found in any of "
+        f"{candidate_modules}; Wave-7 metadata-dict snapshot fix not landed."
     )
