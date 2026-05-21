@@ -1396,16 +1396,19 @@ def _compute_ltr_baselines(
     n_test = len(g_test)
     seed = _per_target_seed(config.random_state, target_name)
 
-    # random_within_query: n_repeats deterministic seeds
+    # random_within_query: one deterministic random ranking. Prior code built
+    # a list of ``n_repeats`` independent random vectors, kept only ``[0]``
+    # for the prediction, and discarded the rest -- wasting 9 * (n_val+n_test)
+    # PRNG draws per fit (~9 ms at n_val=n_test=100k). Averaging across the
+    # repeats would converge to a constant 0.5 (mean of i.i.d. uniforms),
+    # collapsing the baseline to the degenerate ``mean_relevance`` variant;
+    # storing only the first run was the correct semantic. Now compute just
+    # that first run. The ``n_repeats`` config is kept in extras for metadata
+    # compatibility (downstream readers can detect the simplification).
     n_repeats = config.random_within_query_n_repeats
-    val_runs: list[np.ndarray] = []
-    test_runs: list[np.ndarray] = []
-    for r in range(n_repeats):
-        rng = np.random.default_rng(seed + r)
-        val_runs.append(rng.random(n_val) if n_val > 0 else np.array([]))
-        test_runs.append(rng.random(n_test) if n_test > 0 else np.array([]))
-    val_preds["random_within_query"] = val_runs[0] if val_runs else np.array([])
-    test_preds["random_within_query"] = test_runs[0] if test_runs else np.array([])
+    rng = np.random.default_rng(seed)
+    val_preds["random_within_query"] = rng.random(n_val) if n_val > 0 else np.array([])
+    test_preds["random_within_query"] = rng.random(n_test) if n_test > 0 else np.array([])
     extras["random_within_query_n_repeats"] = n_repeats
 
     # identity_input_order: predict scores in feature-row order (1 / rank-within-group)
