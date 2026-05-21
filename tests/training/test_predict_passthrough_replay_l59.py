@@ -96,10 +96,46 @@ def _build_minimal_suite():
     pre_pipeline.fit(df[["x0", "x1"]])
 
     # Inner model fitted on post-MRMR+reattach frame (numeric + text).
-    inner = Ridge(alpha=1e-3).fit(df[["x0"]], y)
-    # Override feature_names_in_ to mirror the trainer-side
-    # post-MRMR + passthrough frame layout.
-    inner.feature_names_in_ = np.array(["x0", "text_col"], dtype=object)
+    # 2026-05-21: in production this is a CatBoost / xgboost-with-text model
+    # that knows how to handle string columns natively. Ridge.predict in
+    # sklearn 1.6 strictly rejects non-numeric dtypes via validate_data, so we
+    # wrap Ridge in a thin CatBoost-style adapter that subsets to numeric
+    # feature_names BEFORE handing the frame off to Ridge -- exactly what
+    # CatBoost does internally via its text_features metadata.
+    _ridge = Ridge(alpha=1e-3).fit(df[["x0"]], y)
+
+    class _CatBoostStyleTextAwareModel:
+        """Mimics CatBoost's text_features contract: the model's
+        feature_names_in_ lists every column the FRAME carries at predict
+        time (including text), but predict() internally subsets to numeric
+        columns before delegating to the actual numeric regressor.
+        """
+
+        def __init__(self, numeric_model, all_features, numeric_features):
+            self._numeric_model = numeric_model
+            # Mirror the post-MRMR + passthrough frame layout the trainer wired.
+            self.feature_names_in_ = np.array(list(all_features), dtype=object)
+            self._numeric_features = list(numeric_features)
+
+        def predict(self, X):
+            # Subset to the numeric features the underlying regressor knows
+            # how to consume. In production the text/embedding columns would
+            # be processed by the model's own native text encoder; in this
+            # test we just drop them.
+            if isinstance(X, pd.DataFrame):
+                X_num = X.loc[:, self._numeric_features]
+            else:
+                # Numpy or polars; assume the numeric columns are at known
+                # positions in the same order as feature_names_in_.
+                idx = [list(self.feature_names_in_).index(c) for c in self._numeric_features]
+                X_num = X[:, idx]
+            return self._numeric_model.predict(X_num)
+
+    inner = _CatBoostStyleTextAwareModel(
+        numeric_model=_ridge,
+        all_features=["x0", "text_col"],
+        numeric_features=["x0"],
+    )
 
     obj = SimpleNamespace(model=inner, pre_pipeline=pre_pipeline)
     models = {"regression": {"y_MRMR": [obj]}}
