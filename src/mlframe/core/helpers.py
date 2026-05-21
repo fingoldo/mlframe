@@ -107,6 +107,12 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
     Float extension dtypes (``Float32Dtype`` / ``Float64Dtype`` with
     ``pd.NA``) are handled per-column with ``to_numpy(dtype=float, na_value=
     np.nan)`` so the isinf check works on a real float array.
+
+    bench-attempt-rejected (2026-05-21, c0095 / iter141): numba @njit
+    short-circuit walk to skip the bool-array allocation is 24% SLOWER
+    on the CLEAN production case (n=1M, no inf) because numpy's
+    np.isinf().any() is SIMD-vectorised inside the C kernel. Bench:
+    profiling/bench_any_isinf_short_circuit.py.
     """
     # Restrict to float-only columns. Integer + bool can't hold inf, so
     # there's no work to do for them; skipping avoids the extension-dtype
