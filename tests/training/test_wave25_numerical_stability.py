@@ -92,11 +92,13 @@ def test_per_member_no_negative_var_clamp_needed():
     of real numbers is non-negative), so the clamp is dead code post-fix
     -- its absence is itself the evidence that the two-pass form is in
     place."""
+    # ``_per_member_mae_std_njit`` was moved to the
+    # ``_ensembling_base.py`` leaf when ``ensembling.py`` was split below 1k LOC.
     import pathlib
     import mlframe as _mlframe
     src = (
         pathlib.Path(_mlframe.__file__).resolve().parent
-        / "models" / "ensembling.py"
+        / "models" / "_ensembling_base.py"
     ).read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert "_var = _s_sq / N - mae * mae" not in src, (

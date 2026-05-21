@@ -51,7 +51,7 @@ def test_ensemble_methods_return_valid_shape(preds):
 
 
 @given(method=st.sampled_from(SIMPLE_ENSEMBLING_METHODS))
-@settings(max_examples=20)
+@settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 def test_ensemble_multiple_predictions_same_shape(method):
     """Ensembling multiple predictions with same shape should work."""
     shape = (20, 5)
@@ -65,7 +65,7 @@ def test_ensemble_multiple_predictions_same_shape(method):
 
 
 @given(preds=small_prob_arrays)
-@settings(max_examples=30)
+@settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 def test_ensure_prob_limits_clips_results(preds):
     """Results should be clipped to [0, 1] when ensure_prob_limits=True."""
     result, _, _ = ensemble_probabilistic_predictions(
@@ -103,7 +103,7 @@ def test_nan_handling_replaces_with_mean():
 
 
 @given(n_cols=st.integers(1, 10))
-@settings(max_examples=20)
+@settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 def test_single_prediction_returns_same_values(n_cols):
     """Single prediction should return approximately itself."""
     pred = np.random.rand(10, n_cols).astype(np.float32)

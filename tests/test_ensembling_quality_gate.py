@@ -165,12 +165,17 @@ def test_score_ensemble_label_drops_excluded_member(caplog):
             require_oof_for_gate=False,
         )
 
-    # The gate log line should mention the dropped outlier so user can
-    # diagnose the exclusion.
-    gate_lines = [r.getMessage() for r in caplog.records
-                  if "member quality gate" in r.getMessage()]
-    assert any("linear" in m for m in gate_lines), (
-        f"expected gate line to flag 'linear' as excluded; got: {gate_lines}"
+    # The gate-or-catastrophic-drop log line should mention the dropped
+    # outlier so user can diagnose the exclusion. The catastrophic-drop
+    # pre-filter (K>2 absolute-MAE ratio) handles the obvious-outlier
+    # case earlier than the peer-median gate; either log surface counts
+    # because both surface the dropped member name.
+    diag_lines = [r.getMessage() for r in caplog.records
+                  if ("member quality gate" in r.getMessage()
+                      or "catastrophic-drop" in r.getMessage()
+                      or "catastrophic" in r.getMessage())]
+    assert any("linear" in m for m in diag_lines), (
+        f"expected gate/catastrophic-drop line to flag 'linear' as excluded; got: {diag_lines}"
     )
 
     # ANY downstream prefix line referencing the ensemble must NOT

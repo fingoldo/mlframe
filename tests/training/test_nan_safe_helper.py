@@ -143,10 +143,11 @@ def test_median_safe_all_nan_fallback(caplog):
     # ``_fairness_metrics.py`` sibling when ``core.py`` was split below 1k LOC.
     ("metrics/_fairness_metrics.py",
      "np.nanquantile(performances"),
-    # models/ensembling.py:538/540/542/575/576 -> nan* variants:
-    ("models/ensembling.py",
+    # ``compute_member_quality_gate`` moved to ``_ensembling_quality_gate.py``
+    # when ``models/ensembling.py`` was split below 1k LOC.
+    ("models/_ensembling_quality_gate.py",
      "np.nanmedian(per_member_mae)"),
-    ("models/ensembling.py",
+    ("models/_ensembling_quality_gate.py",
      "np.nanmedian(per_member_std)"),
     # feature_selection/general.py:200/202 -> nanmax/nanquantile:
     ("feature_selection/general.py",
