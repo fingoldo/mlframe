@@ -1373,6 +1373,77 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             fairness_subgroups=fairness_subgroups,
         )
 
+        # 2026-05-22 feature-drift auto-action: when the per-target
+        # ``feature_distribution_drift`` report carries a
+        # ``recommend_neural_overrides`` dict (FI-weighted score crossed
+        # the empirical 3.0 threshold), translate the sklearn-shape
+        # override into the nested mlframe ``mlp_kwargs`` shape and apply
+        # it as a PER-TARGET override to ``hyperparams_config.mlp_kwargs``.
+        # Other targets in the same suite keep the original mlp_kwargs.
+        # Grounded by ``profiling/bench_mlp_robustness_sweep.py``: the
+        # pick reduced mean MLP_excess_harm from 6.455 R^2 (baseline) to
+        # 0.0006 at drift_z=10 with zero degradation in the no-drift cell.
+        _target_hyperparams_config = hyperparams_config
+        try:
+            _fd_for_target = (
+                metadata.get("feature_distribution_drift", {})
+                .get(str(target_type), {})
+                .get(cur_target_name)
+            )
+            _sklearn_override = (
+                _fd_for_target.get("recommend_neural_overrides")
+                if isinstance(_fd_for_target, dict) else None
+            )
+            if _sklearn_override and "mlp" in mlframe_models:
+                from ..feature_drift_report import (
+                    translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
+                )
+                _mlframe_override = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+                    _sklearn_override,
+                )
+                _untranslated = _mlframe_override.pop("__untranslated__", None)
+                _orig_mlp_kwargs = (
+                    getattr(hyperparams_config, "mlp_kwargs", None) or {}
+                )
+                _merged_mlp_kwargs = dict(_orig_mlp_kwargs)
+                for _slot in ("model_params", "network_params"):
+                    if _slot in _mlframe_override:
+                        _merged_mlp_kwargs.setdefault(_slot, {})
+                        _merged_mlp_kwargs[_slot] = dict(
+                            {**_merged_mlp_kwargs[_slot], **_mlframe_override[_slot]}
+                        )
+                try:
+                    _target_hyperparams_config = hyperparams_config.model_copy(
+                        update={"mlp_kwargs": _merged_mlp_kwargs},
+                    )
+                except Exception:
+                    _target_hyperparams_config = hyperparams_config
+                metadata.setdefault("feature_drift_auto_action", {}) \
+                    .setdefault(str(target_type), {})[cur_target_name] = {
+                        "sklearn_override": dict(_sklearn_override),
+                        "mlframe_mlp_kwargs_override": _mlframe_override,
+                        "untranslated_keys": _untranslated or [],
+                        "weighted_drift_score": _fd_for_target.get("weighted_drift_score"),
+                    }
+                logger.warning(
+                    "[feature-drift-auto-action] target='%s' weighted_drift=%.2f "
+                    ">= 3.0 -- applying empirically-grounded MLP HPT override "
+                    "(sklearn-shape: %s; mlframe-mlp_kwargs deep-merge: %s%s). "
+                    "Grounded by profiling/bench_mlp_robustness_sweep.py "
+                    "(2026-05-22 sweep, 1440 trials, baseline harm=6.455 -> "
+                    "pick harm=0.0006 at drift_z=10).",
+                    cur_target_name,
+                    float(_fd_for_target.get("weighted_drift_score") or 0.0),
+                    _sklearn_override, _mlframe_override,
+                    f" -- untranslated keys: {_untranslated}" if _untranslated else "",
+                )
+        except Exception as _fd_aa_err:
+            logger.warning(
+                "feature-drift-auto-action failed for target='%s' (%s); "
+                "training continues without per-target MLP override.",
+                cur_target_name, _fd_aa_err,
+            )
+
         # Test set is never OD-filtered. train_df_size_bytes_cached is the pre-conversion Polars-side size
         # passed through so configure_training_params can skip a 3-min pandas memory_usage(deep=...) scan
         # on high-cardinality object columns; the OD-shrinkage approximation only feeds a GPU-RAM heuristic.
@@ -1394,7 +1465,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             cat_features=cat_features,
             text_features=text_features,
             embedding_features=embedding_features,
-            hyperparams_config=hyperparams_config,
+            hyperparams_config=_target_hyperparams_config,
             behavior_config=current_behavior_config,
             common_params=od_common_params,
             mlframe_models=mlframe_models,

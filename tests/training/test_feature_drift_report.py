@@ -15,7 +15,9 @@ import pytest
 
 from mlframe.training.feature_drift_report import (
     DEFAULT_FEATURE_DRIFT_WARN_THRESHOLD_Z,
+    WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD,
     compute_feature_distribution_drift,
+    translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
 )
 
 
@@ -103,6 +105,84 @@ class TestFeatureDriftSensor:
         assert "[feature-distribution-drift]" in msgs
         assert "weighted_drift=" in msgs
 
+    def test_recommend_neural_overrides_above_threshold_when_sweep_populated(self, monkeypatch):
+        """When weighted_drift_score crosses WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD
+        (3.0) AND the bench has populated ROBUST_MLP_OVERRIDES_UNDER_DRIFT, the
+        report must surface that override dict so the per-target model-selection
+        can merge it into MLPConfig.
+
+        Skip-neural is too blunt (loses stacking diversity). The empirical
+        approach: change the MLP HPT under drift, don't drop the model."""
+        import mlframe.training.feature_drift_report as fdr
+        monkeypatch.setattr(
+            fdr, "ROBUST_MLP_OVERRIDES_UNDER_DRIFT",
+            {"alpha": 1.0, "hidden_layer_sizes": (16,)},
+        )
+        train, val, test = _make_frames(drift_z=8.0)
+        rep = compute_feature_distribution_drift(
+            train, val, test,
+            feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+        )
+        assert rep["recommend_neural_overrides"] == {
+            "alpha": 1.0, "hidden_layer_sizes": (16,),
+        }, f"expected override dict from sweep, got {rep['recommend_neural_overrides']}"
+
+    def test_recommend_neural_overrides_silent_below_threshold(self, monkeypatch):
+        """2-sigma drift on a dominant feature -> weighted score ~= 2 < 3.0.
+        Override recommendation must NOT fire because the empirical paired
+        experiment showed weighted_drift_score < 3.0 has high false-positive
+        rate vs MLP_excess_harm > 0.1."""
+        import mlframe.training.feature_drift_report as fdr
+        monkeypatch.setattr(
+            fdr, "ROBUST_MLP_OVERRIDES_UNDER_DRIFT", {"alpha": 1.0},
+        )
+        train, val, test = _make_frames(drift_z=2.0)
+        rep = compute_feature_distribution_drift(
+            train, val, test,
+            feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+        )
+        assert rep["recommend_neural_overrides"] is None
+
+    def test_recommend_neural_overrides_requires_fi(self, monkeypatch):
+        """Without feature_importance the weighted score is None, so the
+        recommendation MUST stay None -- the per-feature z-score alone is
+        not a grounded harm signal (drift on FI=0 features is harmless)."""
+        import mlframe.training.feature_drift_report as fdr
+        monkeypatch.setattr(
+            fdr, "ROBUST_MLP_OVERRIDES_UNDER_DRIFT", {"alpha": 1.0},
+        )
+        train, val, test = _make_frames(drift_z=35.0)  # extreme drift
+        rep = compute_feature_distribution_drift(train, val, test)  # no FI
+        assert rep["weighted_drift_score"] is None
+        assert rep["recommend_neural_overrides"] is None
+
+    def test_recommend_neural_overrides_none_when_sweep_unpopulated(self, monkeypatch):
+        """If ROBUST_MLP_OVERRIDES_UNDER_DRIFT is {} (sweep not yet wired into
+        the constant), the report must not invent a recommendation -- it must
+        stay None so downstream code does no-op merge."""
+        import mlframe.training.feature_drift_report as fdr
+        monkeypatch.setattr(fdr, "ROBUST_MLP_OVERRIDES_UNDER_DRIFT", {})
+        train, val, test = _make_frames(drift_z=8.0)
+        rep = compute_feature_distribution_drift(
+            train, val, test,
+            feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+        )
+        assert rep["recommend_neural_overrides"] is None
+
+    def test_recommend_neural_overrides_carries_sweep_constant(self):
+        """When ROBUST_MLP_OVERRIDES_UNDER_DRIFT is populated (2026-05-22
+        sweep result), the report surfaces those keys at the actual default."""
+        from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
+        if not ROBUST_MLP_OVERRIDES_UNDER_DRIFT:
+            import pytest
+            pytest.skip("sweep constant not yet populated in this build")
+        train, val, test = _make_frames(drift_z=8.0)
+        rep = compute_feature_distribution_drift(
+            train, val, test,
+            feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+        )
+        assert rep["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT)
+
     def test_fi_weighted_aggregate_NOT_alarmed_when_drift_on_unimportant_feature(self, caplog):
         """Inverse scenario: f_shift drifts 8 sigma but its FI is 0; f_stable
         has FI=1 but no drift. Weighted score should be ~0 -- the system is
@@ -171,3 +251,94 @@ class TestFeatureDriftSensor:
         assert np.isnan(per["val_z"])
         assert abs(per["test_z"]) > 5.0
         assert any(c == "f_shift" for c, _z in rep["drift_candidates"])
+
+
+class TestSklearnToMlframeMlpKwargsTranslator:
+    """Coverage for the sklearn-MLP-shape -> mlframe-mlp_kwargs-shape translator.
+
+    The bench (``profiling/bench_mlp_robustness_sweep.py``) produces overrides
+    in sklearn naming (alpha / hidden_layer_sizes / activation); the mlframe
+    MLP wrapper consumes a nested ``mlp_kwargs`` shape with different field
+    names. The translator must produce that nested shape faithfully so the
+    wire-in in ``_phase_train_one_target`` can deep-merge it."""
+
+    def test_empty_input_returns_empty(self):
+        assert translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({}) == {}
+
+    def test_alpha_routes_to_adamw_weight_decay(self):
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"alpha": 0.5})
+        assert "model_params" in out
+        # AdamW is the optimizer that natively decouples weight_decay from
+        # the gradient step; pure Adam treats weight_decay as L2 in the
+        # loss (different math, less effective regularizer).
+        mp = out["model_params"]
+        assert mp["optimizer"].__name__ == "AdamW"
+        assert mp["optimizer_kwargs"] == {"weight_decay": 0.5}
+
+    def test_hidden_layer_sizes_single_layer(self):
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
+            "hidden_layer_sizes": (16,),
+        })
+        np_ = out["network_params"]
+        assert np_["nlayers"] == 1
+        assert np_["first_layer_num_neurons"] == 16
+        assert np_["min_layer_neurons"] == 16
+        assert np_["consec_layers_neurons_ratio"] == 1.0
+
+    def test_hidden_layer_sizes_two_layers_decode_ratio(self):
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
+            "hidden_layer_sizes": (32, 16),
+        })
+        np_ = out["network_params"]
+        assert np_["nlayers"] == 2
+        assert np_["first_layer_num_neurons"] == 32
+        assert np_["min_layer_neurons"] == 16
+        assert np_["consec_layers_neurons_ratio"] == 2.0
+
+    def test_activation_relu_maps_to_torch_relu(self):
+        import torch
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
+            "activation": "relu",
+        })
+        assert out["network_params"]["activation_function"] is torch.nn.ReLU
+
+    def test_activation_tanh_maps_to_torch_tanh(self):
+        import torch
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
+            "activation": "tanh",
+        })
+        assert out["network_params"]["activation_function"] is torch.nn.Tanh
+
+    def test_activation_identity_collapses_to_nlayers_0(self):
+        """The bench winner uses ``activation='identity'`` -- a linear head.
+        The mlframe MLP has no native identity activation, so we encode it as
+        ``nlayers=0`` (no hidden layer, just the final linear projection)."""
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
+            "activation": "identity",
+        })
+        assert out["network_params"]["nlayers"] == 0
+
+    def test_unknown_activation_recorded_as_untranslated(self):
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
+            "activation": "gelu",
+        })
+        assert any("activation=gelu" in s for s in out.get("__untranslated__", []))
+
+    def test_full_sweep_winner_translates_cleanly(self):
+        """End-to-end: paste the 2026-05-22 sweep winner through the translator
+        and confirm the output is the shape the consumer site assumes."""
+        import torch
+        from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
+        if not ROBUST_MLP_OVERRIDES_UNDER_DRIFT:
+            pytest.skip("sweep constant not yet populated")
+        out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+            ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
+        )
+        # The winner is {alpha=0.1, hidden=(32,16), activation='identity'}.
+        # Expect AdamW weight_decay=0.1, network nlayers=0 (identity collapse),
+        # plus the hidden topology still encoded (the wire-in's deep-merge
+        # consumes network_params).
+        assert out["model_params"]["optimizer_kwargs"]["weight_decay"] == 0.1
+        assert out["network_params"]["nlayers"] == 0
+        assert out["network_params"]["first_layer_num_neurons"] == 32
+        assert "__untranslated__" not in out

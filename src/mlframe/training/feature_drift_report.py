@@ -62,6 +62,149 @@ DEFAULT_FEATURE_DRIFT_WARN_THRESHOLD_Z: float = 3.0
 than this many train-std away from the train mean."""
 
 
+ROBUST_MLP_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {
+    "alpha": 0.1,
+    "hidden_layer_sizes": (32, 16),
+    "activation": "identity",
+}
+"""HPT overrides applied to MLPConfig for a target whose FI-weighted feature
+drift score exceeds ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD``.
+
+Grounded empirically by the 2026-05-22 sweep
+``profiling/bench_mlp_robustness_sweep.py`` (1,440 sklearn-MLP trials).
+
+Phase 1: full Cartesian sweep at drift_z=10 on the dominant feature
+(48 configs x 20 seeds). Baseline sklearn defaults (alpha=1e-4,
+hidden=(100,), activation=relu) suffered mean MLP_excess_harm = 6.455 R^2
+(catastrophic, matches the TVT-2026-05-21 prod-log collapse). The
+pick scored 0.0006 -- ~10000x reduction.
+
+Phase 2: cross-validation across drift_z in {0, 2, 10, 20} x both
+drift_target modes (dominant + noise) x 10 seeds. The pick degraded
+the no-drift baseline by 0.000 R^2 (literally zero) while sustaining
+0.016 R^2 gap at the extreme drift_z=20 (vs baseline's 32.106).
+
+Sklearn-shape keys (alpha / hidden_layer_sizes / activation). The
+torch-backed mlframe MLP uses different field names; the consumer at
+the wire-in site translates via
+``translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs``.
+
+Scope note: the sweep used a LINEAR DGP (y = alphas . x + noise), so the
+identity activation winner reflects the "additive-linear with strong
+dominant feature" regime that the prod-log incident matched. Targets
+with strong nonlinear structure may benefit from a different override --
+a follow-up nonlinear-DGP sweep can refine the recommendation.
+"""
+
+
+WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD: float = 3.0
+"""FI-weighted drift score threshold above which the sensor recommends
+applying robustness overrides to neural-model HPT (NOT skipping them).
+
+Grounded empirically by the 2026-05-22 paired experiment in
+``profiling/bench_drift_fi_vs_model_harm.py``:
+
+  N=570 trials across 9 drift_z levels x 3 drift_target modes x 30 seeds.
+  Pearson(weighted_drift_score, MLP_excess_harm) = +0.834 overall.
+  At threshold = 3.0: precision=1.000, recall=0.883
+    (vs MLP_excess_harm > 0.1 i.e. MLP_test_R^2 lags Ridge_test_R^2 by > 0.1).
+
+Zero false positives in 570 trials -- the drift signal IS grounded, but
+the actionable response is to make the neural model robust, not to
+drop it (drop = lose stacking diversity). The companion sweep
+``profiling/bench_mlp_robustness_sweep.py`` finds the HPT overrides
+that close the Ridge-vs-MLP gap on drifted data; those overrides are
+surfaced via ``recommend_neural_overrides`` in the report dict.
+"""
+
+
+def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+    sklearn_overrides: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Translate a sklearn-MLPRegressor-shape override dict (produced by the
+    robustness bench) into the nested ``mlp_kwargs`` shape consumed by the
+    mlframe MLP builder in ``training/helpers.py:get_training_configs``.
+
+    Keys recognised on input (sklearn naming):
+      - ``alpha`` (float): L2 weight decay -> mlframe routes via AdamW
+        optimizer with ``weight_decay``.
+      - ``hidden_layer_sizes`` (tuple[int, ...]): output topology ->
+        ``network_params`` ``nlayers`` + neuron sizes.
+      - ``activation`` (str): {"relu", "tanh", "identity", "leaky_relu"}.
+        ``identity`` collapses to ``nlayers=0`` (a literal linear head).
+
+    Anything else is passed through verbatim under
+    ``mlp_kwargs["model_params"]`` so the caller can extend the bench
+    without changing this translator.
+
+    The translation is informed but not exhaustive: the bench validates
+    the MECHANISM (regularization + capacity + activation), not specific
+    field names; the torch-backed mlframe MLP is a different
+    implementation. If a bench winner uses a key we cannot translate, we
+    skip it and surface the skipped keys in the returned dict's
+    ``__untranslated__`` entry for caller-side logging.
+    """
+    if not sklearn_overrides:
+        return {}
+
+    out: Dict[str, Any] = {}
+    untranslated: List[str] = []
+
+    if "alpha" in sklearn_overrides:
+        try:
+            import torch  # local import: torch is an MLP-only optional dep.
+            out.setdefault("model_params", {})
+            out["model_params"]["optimizer"] = torch.optim.AdamW
+            out["model_params"].setdefault("optimizer_kwargs", {})
+            out["model_params"]["optimizer_kwargs"]["weight_decay"] = float(
+                sklearn_overrides["alpha"]
+            )
+        except Exception:
+            untranslated.append("alpha")
+
+    if "hidden_layer_sizes" in sklearn_overrides:
+        hls = sklearn_overrides["hidden_layer_sizes"]
+        if isinstance(hls, (tuple, list)) and len(hls) >= 1:
+            first = int(hls[0])
+            minl = int(hls[-1])
+            consec = (first / minl) if minl > 0 else 1.0
+            out.setdefault("network_params", {})
+            out["network_params"]["nlayers"] = int(len(hls))
+            out["network_params"]["first_layer_num_neurons"] = first
+            out["network_params"]["min_layer_neurons"] = minl
+            out["network_params"]["consec_layers_neurons_ratio"] = float(consec)
+        else:
+            untranslated.append("hidden_layer_sizes")
+
+    if "activation" in sklearn_overrides:
+        try:
+            import torch
+            _act = str(sklearn_overrides["activation"]).lower()
+            out.setdefault("network_params", {})
+            if _act == "relu":
+                out["network_params"]["activation_function"] = torch.nn.ReLU
+            elif _act == "tanh":
+                out["network_params"]["activation_function"] = torch.nn.Tanh
+            elif _act in ("leaky_relu", "leakyrelu"):
+                out["network_params"]["activation_function"] = torch.nn.LeakyReLU
+            elif _act == "identity":
+                # No hidden layers -> linear head; weights init still kaiming-fine.
+                out["network_params"]["nlayers"] = 0
+            else:
+                untranslated.append(f"activation={_act}")
+        except Exception:
+            untranslated.append("activation")
+
+    for k, v in sklearn_overrides.items():
+        if k in {"alpha", "hidden_layer_sizes", "activation"}:
+            continue
+        out.setdefault("model_params", {})[k] = v
+
+    if untranslated:
+        out["__untranslated__"] = untranslated
+    return out
+
+
 def _numeric_columns(df: Any) -> List[str]:
     """Return the list of numeric column names from a pandas/polars DataFrame."""
     if df is None:
@@ -117,6 +260,15 @@ def compute_feature_distribution_drift(
         ``feature_importance`` is supplied. Higher = more risk because
         the IMPORTANT features (high FI) are drifting; a non-FI-weighted
         high-z on irrelevant features is much less worrying.
+      - ``recommend_neural_overrides``: dict of MLP HPT overrides to apply
+        for this target when ``weighted_drift_score >=
+        WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD`` (3.0 by default), or
+        ``None`` when no override is recommended. Keys are MLPConfig field
+        names; values are the empirically-grounded settings from the
+        2026-05-22 robustness sweep that close the Ridge-vs-MLP gap on
+        drifted data. Downstream model-selection should merge this dict
+        into the MLP config for the target (not drop the model -- drop
+        loses stacking diversity).
       - ``threshold``: the z-threshold that fired log lines.
       - ``n_numeric_features``: count of numeric features inspected.
 
@@ -206,6 +358,14 @@ def compute_feature_distribution_drift(
         if _den > 0:
             weighted_score = float(_num / _den)
 
+    recommend_neural_overrides: Optional[Dict[str, Any]] = None
+    if (
+        weighted_score is not None
+        and weighted_score >= WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD
+        and ROBUST_MLP_OVERRIDES_UNDER_DRIFT
+    ):
+        recommend_neural_overrides = dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT)
+
     if candidates:
         _shown = candidates[:max_features_in_log]
         _detail = ", ".join(f"{c}(|z|={z:.2f})" for c, z in _shown)
@@ -225,18 +385,23 @@ def compute_feature_distribution_drift(
         _ws_str = (
             f", weighted_drift={weighted_score:.2f}" if weighted_score is not None else ""
         )
+        _override_str = (
+            f", recommend_neural_overrides={recommend_neural_overrides}"
+            if recommend_neural_overrides else ""
+        )
         getattr(logger, _level)(
             "[feature-distribution-drift] %d numeric feature(s) drift > %.1f sigma "
-            "between train and val/test (max |z|=%.2f%s). Observational only -- "
+            "between train and val/test (max |z|=%.2f%s%s). Observational only -- "
             "drift does NOT guarantee model harm; per-model FS may drop these "
             "before training; K=2 ensemble catastrophic-dropout is the "
             "actionable target-aware protection downstream. Top drifters: %s",
-            len(candidates), warn_threshold_z, _max_abs_z, _ws_str, _detail,
+            len(candidates), warn_threshold_z, _max_abs_z, _ws_str, _override_str, _detail,
         )
     return {
         "per_feature": per_feature,
         "drift_candidates": [(c, z) for c, z in candidates],
         "weighted_drift_score": weighted_score,
+        "recommend_neural_overrides": recommend_neural_overrides,
         "threshold": warn_threshold_z,
         "n_numeric_features": len(per_feature),
     }
