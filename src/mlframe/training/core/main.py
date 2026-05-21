@@ -444,16 +444,53 @@ def train_mlframe_models_suite(
                 _has_time = timestamps is not None
                 if not _has_time and train_df is not None:
                     try:
-                        _cols_lower = {str(c).lower() for c in getattr(train_df, "columns", [])}
-                        if _cols_lower & set(_TIME_AXIS_HINT_NAMES):
+                        _cols_lower_map = {str(c).lower(): str(c) for c in getattr(train_df, "columns", [])}
+                        _hit_lower = set(_cols_lower_map) & set(_TIME_AXIS_HINT_NAMES)
+                        # E5.3 (2026-05-22) monotonicity gate: a column NAMED ``date`` does NOT
+                        # automatically imply rows are sorted by it. Auto-flipping has_time_axis
+                        # without checking would let the AR detector fire on randomly-shuffled
+                        # data and produce spurious low-AR readings (which is worse than
+                        # silently skipping the detector). Sample-check the column: if at least
+                        # one matching column is monotonic (non-strictly increasing or
+                        # decreasing) on a 1024-row stride, accept the time-axis hint.
+                        _verified_hits: list[str] = []
+                        for _hint_lower in sorted(_hit_lower):
+                            _orig_col = _cols_lower_map[_hint_lower]
+                            try:
+                                if hasattr(train_df, "iloc"):
+                                    _sample = train_df.iloc[::max(1, len(train_df) // 1024)][_orig_col].to_numpy()
+                                else:
+                                    # polars frame -- columns are accessed via attribute / [name]
+                                    _sample = train_df[_orig_col].to_numpy()[::max(1, len(train_df) // 1024)]
+                                _sample = np.asarray(_sample)
+                                if _sample.dtype.kind in "Mm":
+                                    _sample = _sample.astype("int64")
+                                elif _sample.dtype.kind in "OU":
+                                    # Object/string columns -- can't trivially compare; skip
+                                    # monotonicity check and trust the name.
+                                    _verified_hits.append(_orig_col)
+                                    continue
+                                if _sample.size > 1:
+                                    _diffs = np.diff(_sample.astype(np.float64))
+                                    if np.all(_diffs >= 0) or np.all(_diffs <= 0):
+                                        _verified_hits.append(_orig_col)
+                            except Exception:
+                                pass
+                        if _verified_hits:
                             _has_time = True
                             if verbose:
-                                _hit = sorted(_cols_lower & set(_TIME_AXIS_HINT_NAMES))
                                 logger.info(
-                                    "[mini-HPT] auto-detected time-axis column(s) %s; "
+                                    "[mini-HPT] auto-detected monotonic time-axis column(s) %s; "
                                     "AR detector will run on global lag-1.",
-                                    _hit,
+                                    _verified_hits,
                                 )
+                        elif _hit_lower and verbose:
+                            logger.info(
+                                "[mini-HPT] candidate time-axis column(s) %s present but NOT "
+                                "monotonic -- rows aren't sorted by them; skipping AR detector "
+                                "(per-group AR via group_ids still fires if applicable).",
+                                sorted(_hit_lower),
+                            )
                     except Exception:
                         pass
                 _td_report = analyze_target_distribution(

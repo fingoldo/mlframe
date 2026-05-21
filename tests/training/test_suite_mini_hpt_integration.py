@@ -100,6 +100,47 @@ class TestMiniHPTSuiteWiring:
         assert "f1" in fdr["drop_candidates"]
         assert "f2" in fdr["leakage_candidates"]
 
+    def test_auto_time_axis_rejects_non_monotonic_candidate_column(self, tmp_path, caplog):
+        """E5.3 monotonicity gate (2026-05-22): a column NAMED ``date`` does NOT
+        mean rows are sorted by it. The auto-detection now monotonicity-checks
+        a stride-sample BEFORE flipping has_time_axis=True. A
+        SHUFFLED-rows scenario must skip the global AR detector (and log the
+        "candidate ... NOT monotonic" line) so the AR signal isn't computed
+        on noise."""
+        rng = np.random.default_rng(13)
+        n = 3000
+        # AR(1) target ordered by depth, then SHUFFLE all rows. Column name
+        # 'depth' would trigger the name-only auto-detection but monotonicity
+        # check on the shuffled depths must reject the hint.
+        depth_sorted = np.arange(n, dtype=np.float32)
+        y_sorted = np.zeros(n, dtype=np.float64)
+        for i in range(1, n):
+            y_sorted[i] = 0.92 * y_sorted[i - 1] + rng.standard_normal() * 0.5
+        perm = rng.permutation(n)
+        df = pd.DataFrame({
+            "depth": depth_sorted[perm],
+            "f0": rng.standard_normal(n).astype(np.float32),
+            "f1": rng.standard_normal(n).astype(np.float32),
+            "target": y_sorted[perm].astype(np.float32),
+        })
+        with caplog.at_level(logging.INFO, logger="mlframe.training.core.main"):
+            _models, meta = _run_suite(df, tmp=tmp_path, enable_analyzer=True, verbose=1)
+        msgs = " | ".join(r.getMessage() for r in caplog.records)
+        assert "candidate time-axis column(s) ['depth'] present but NOT monotonic" in msgs, (
+            "Auto-detection should log the monotonicity-rejection line on shuffled "
+            "rows so operators see why the AR detector skipped. msgs=" + msgs[:500]
+        )
+        # And the global AR detector did NOT recommend use_layernorm=False
+        # (it would have if has_time_axis=True triggered without the monotonicity gate).
+        rep = meta.get("target_distribution_report") or {}
+        np_overrides = (rep.get("knob_overrides") or {}).get("mlp_kwargs", {}).get("network_params", {})
+        # Could be False from a different detector (clustered, per_group AR) -- so we only
+        # assert the AR-source diagnostic isn't "global" when monotonicity failed.
+        diag = (rep.get("diagnostics") or {})
+        assert "max_abs_autocorr" not in diag, (
+            "Global AR diagnostic should NOT be stamped when monotonicity rejected the time-axis hint."
+        )
+
     def test_auto_time_column_detection_enables_AR_detector(self, tmp_path, caplog):
         """E5.3 (2026-05-21): when caller didn't pass timestamps but the frame
         carries a recognised time-axis column (MD/depth/timestamp/date/time),
@@ -132,8 +173,9 @@ class TestMiniHPTSuiteWiring:
         )
         # And the log line confirms the auto-detection fired on the MD column.
         msgs = " | ".join(r.getMessage() for r in caplog.records)
-        assert "auto-detected time-axis column" in msgs, (
-            "Auto-time-column detection log line missing -- the suite did not flip has_time_axis=True."
+        assert "auto-detected monotonic time-axis column" in msgs, (
+            "Auto-time-column detection log line missing -- the suite did not flip has_time_axis=True. "
+            "(2026-05-22: log line now says ``auto-detected monotonic time-axis column(s) ...``.)"
         )
 
     def test_recommendation_merges_into_dict_hyperparams_config(self, tmp_path):
