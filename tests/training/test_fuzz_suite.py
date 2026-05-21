@@ -776,6 +776,19 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         # 2026-05-04: LTR combos need group_field for the ranker suite.
         group_field=("qid" if _is_ltr else None),
         target_carrier=combo.target_carrier,
+        # 2026-05-21 iter150 -- wire weight_schemas through (latent bug:
+        # the axis has existed since iter113 but the FTE init was missing
+        # the kwarg, so every combo silently fell back to
+        # ``sample_weights={}``. Combos still dedup'd distinct via the
+        # canonical_key BUT had identical runtime behaviour, leaving
+        # the recency-weight code path (FTE._build_sample_weights, the
+        # suite's per-weight loop, recency vs uniform branch in
+        # _phase_train_one_target) entirely unfuzzed).
+        weight_schemas=combo.weight_schemas,
+        # 2026-05-21 iter150 -- multi-target axis. FTE adds synthetic
+        # extra targets to target_by_type per combo.extra_targets so the
+        # suite's per-target outer loop runs more than once.
+        extra_targets=combo.extra_targets,
     )
 
     # Resolve combo-specific kwargs (outlier detector, custom prep,

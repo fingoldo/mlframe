@@ -100,7 +100,13 @@ AXES: dict[str, tuple[Any, ...]] = {
     "cat_feature_count": (0, 1, 3, 8, 15),
     "null_fraction_cats": (0.0, 0.1, 0.3),
     "use_mrmr_fs": (False, True),
-    "weight_schemas": (("uniform",), ("uniform", "recency")),
+    # 2026-05-21 iter150: added ("recency",) -- non-uniform-only schema.
+    # Exercises the _phase_train_one_target.py:1498 "uniform weighting not
+    # included" log branch + paths where every sample gets non-uniform
+    # weights (which is a real prod path when caller disables
+    # use_uniform_weighting). Pre-iter150 fuzz only exercised the
+    # uniform-present branches.
+    "weight_schemas": (("uniform",), ("uniform", "recency"), ("recency",)),
     # 2026-04-24 Session 3: multilabel_classification re-added — FTE now
     # 2-D-aware (Session-2 landing); multilabel combos generate (N, 3)
     # targets via build_frame_for_combo's correlated-label logic and the
@@ -366,6 +372,27 @@ AXES: dict[str, tuple[Any, ...]] = {
     # OR fe_ntop_features_cfg / fe_npermutations_cfg are both 0 (the FE
     # block doesn't run at all).
     "fe_check_pairs_subsample_n_cfg": (0, 50_000),
+    # 2026-05-21 iter150 -- multi-target / multi-target-type combos. Pre-
+    # iter150 every fuzz combo emitted exactly ONE (target_type, target_name)
+    # entry into target_by_type, so the suite's per-target outer loop at
+    # core/main.py:952-957 had zero multi-iteration coverage. The suite
+    # ITERATES BOTH target_type.items() AND targets.items() within type, so
+    # this axis exercises both axes simultaneously.
+    #
+    # Values:
+    #   None              -- legacy single-target behaviour.
+    #   "same_type_2"     -- 2 distinct targets of the SAME primary type
+    #                        (e.g. predict 2 regression targets); exercises
+    #                        targets.items() inner loop.
+    #   "mixed_reg_bin"   -- regression primary + binary classification
+    #                        secondary; exercises target_by_type.items()
+    #                        outer loop with 2 different keys.
+    #
+    # Canonicalised to None for ``multilabel_classification`` (already 2-D
+    # within one target) and ``learning_to_rank`` (special ranker dispatch
+    # path that doesn't iterate over multiple targets). "mixed_reg_bin"
+    # additionally canonicalises to None when primary != regression.
+    "extra_targets": (None, "same_type_2", "mixed_reg_bin"),
 }
 
 
@@ -511,6 +538,10 @@ class FuzzCombo:
     # mirrors the legacy axis behaviour; archived rows pre-dating this axis
     # deserialise as 0 (no subsample).
     fe_check_pairs_subsample_n_cfg: int = 0
+    # 2026-05-21 iter150 -- multi-target / multi-target-type axis. See AXES
+    # docstring for value semantics. Default None preserves legacy single-
+    # target fuzz behaviour for combos archived before this axis landed.
+    extra_targets: "str | None" = None
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -881,6 +912,16 @@ class FuzzCombo:
                 and (self.mrmr_fe_npermutations_cfg > 0 or self.mrmr_fe_ntop_features_cfg > 0)
                 and self.n_rows > self.fe_check_pairs_subsample_n_cfg
             ) else 0,
+            # 2026-05-21 iter150 -- extra_targets canon:
+            #  - multilabel / LTR: collapse to None (multilabel is already 2-D
+            #    within ONE target; LTR has its own ranker dispatch path that
+            #    bypasses the target_by_type loop).
+            #  - "mixed_reg_bin" requires regression primary: collapse to None
+            #    otherwise (the secondary type would conflict with the primary
+            #    target inference logic in the suite).
+            (None if self.target_type in ("multilabel_classification", "learning_to_rank")
+             else (None if (self.extra_targets == "mixed_reg_bin" and self.target_type != "regression")
+                   else self.extra_targets)),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -1489,6 +1530,8 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         fe_check_pairs_subsample_n_cfg=axes.get(
             "fe_check_pairs_subsample_n_cfg", 0
         ),
+        # 2026-05-21 iter150 -- multi-target / multi-target-type axis.
+        extra_targets=axes.get("extra_targets", None),
     )
 
 

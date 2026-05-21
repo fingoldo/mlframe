@@ -39,6 +39,7 @@ class SimpleFeaturesAndTargetsExtractor:
         group_field=None,
         weight_schemas=None,
         target_carrier="numpy",
+        extra_targets=None,
     ):
         self.target_column = target_column
         self.regression = regression
@@ -68,6 +69,21 @@ class SimpleFeaturesAndTargetsExtractor:
         # The fixture generates the actual weight arrays at transform()
         # time so the suite's per-weight loop runs once per name.
         self.weight_schemas = tuple(weight_schemas) if weight_schemas else None
+        # 2026-05-21 iter150 -- multi-target axis. When set, transform()
+        # populates target_by_type with EXTRA (target_type, target_name)
+        # entries so the suite's per-target outer loop runs more than
+        # once per fit. Values:
+        #   None              -- legacy single-target.
+        #   "same_type_2"     -- add 1 more target of the SAME primary type.
+        #                        Exercises ``targets.items()`` inner loop.
+        #   "mixed_reg_bin"   -- add a BINARY classification secondary
+        #                        target alongside the regression primary.
+        #                        Exercises ``target_by_type.items()`` outer
+        #                        loop with 2 different keys.
+        # Extra-target values are synthesised from a per-extractor RNG
+        # (seeded off the primary target_column for reproducibility) so
+        # the fuzz frame builder doesn't need to emit extra columns.
+        self.extra_targets = extra_targets
 
     def _resolve_target_type(self):
         if self._explicit_target_type is not None:
@@ -125,6 +141,46 @@ class SimpleFeaturesAndTargetsExtractor:
                 self.target_column: target_values
             }
         }
+
+        # 2026-05-21 iter150 -- inject extra synthetic targets per
+        # ``self.extra_targets``. Synthetic values come from a deterministic
+        # RNG seeded off the primary target_column hash + N so re-running
+        # the same fuzz combo produces identical extra targets.
+        if self.extra_targets:
+            _n_rows = (df.shape[0] if hasattr(df, "shape") else len(df))
+            _seed = abs(hash((self.target_column, _n_rows))) % (2**32)
+            _rng = np.random.default_rng(_seed)
+            if self.extra_targets == "same_type_2":
+                # Add a second target of the SAME primary type. Synthesise
+                # in the shape the suite expects per target_type so
+                # downstream model dispatch works without special-casing.
+                _name2 = self.target_column + "_extra"
+                if target_type == TargetTypes.REGRESSION:
+                    _extra_vals = _rng.standard_normal(_n_rows).astype(np.float32)
+                elif target_type == TargetTypes.BINARY_CLASSIFICATION:
+                    _extra_vals = (_rng.random(_n_rows) > 0.5).astype(np.int8)
+                elif target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
+                    # 3-class default; the suite's class-discovery handles
+                    # any K so this is fine even if primary K differs.
+                    _extra_vals = _rng.integers(0, 3, size=_n_rows).astype(np.int8)
+                else:
+                    _extra_vals = None
+                if _extra_vals is not None:
+                    target_by_type[target_type][_name2] = _extra_vals
+            elif self.extra_targets == "mixed_reg_bin":
+                # Add a binary secondary target alongside the primary
+                # target_type. The outer target_by_type dict ends up
+                # with at least 2 different target_type keys -- exercises
+                # the ``for target_type, targets in target_by_type.items()``
+                # outer loop at core/main.py:952. The fuzz canonicaliser
+                # collapses (mixed_reg_bin, primary!=regression) combos
+                # for dedup, but the surviving combo's actual field value
+                # still reaches here -- and adding a binary extra alongside
+                # any non-binary primary remains a valid multi-type test.
+                _bin_vals = (_rng.random(_n_rows) > 0.5).astype(np.int8)
+                target_by_type.setdefault(
+                    TargetTypes.BINARY_CLASSIFICATION, {}
+                )[self.target_column + "_bin"] = _bin_vals
 
         # group_ids extraction (Session 7 batch 7): when ``group_field``
         # is set and present in df, return the column as group_ids_raw
