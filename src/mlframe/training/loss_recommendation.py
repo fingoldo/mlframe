@@ -47,12 +47,16 @@ def _safe_moments(y: np.ndarray) -> tuple[int, float, float, float]:
     if n < 2:
         return n, mean, 0.0, 0.0
     centered = finite - mean
-    var = float((centered * centered).mean())
+    c2 = centered * centered
+    var = float(c2.mean())
     std = float(np.sqrt(var))
     if var <= 0.0:
         return n, mean, 0.0, 0.0
     # Population excess kurtosis: E[(x-mu)^4] / sigma^4 - 3.
-    m4 = float((centered ** 4).mean())
+    # c2 * c2 over centered ** 4 avoids np.power's general dispatch
+    # (~3x faster at n=50k..5M; same antipattern as iter138 fixed in
+    # _target_distribution_analyzer._excess_kurtosis).
+    m4 = float((c2 * c2).mean())
     excess_kurt = m4 / (var * var) - 3.0
     return n, mean, std, excess_kurt
 

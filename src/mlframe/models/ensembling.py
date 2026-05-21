@@ -835,7 +835,9 @@ def combine_probs(
         # can lose precision near 1e-100 because p^3 underflows below float64 min.
         # Clip the pre-cube floor at the cube root of the smallest safe float64 (~1e-103).
         _safe = np.clip(stacked, 1e-103, None) if (stacked > 0).all() else stacked
-        combined = np.cbrt(np.mean(_safe ** 3, axis=0))
+        # _safe * _safe * _safe over _safe ** 3 avoids np.power dispatch
+        # (~3x; same antipattern as iter138 fixes).
+        combined = np.cbrt(np.mean(_safe * _safe * _safe, axis=0))
     elif flav == "geo":
         with np.errstate(divide="ignore"):
             combined = np.exp(np.mean(np.log(np.clip(stacked, 1e-300, None)), axis=0))

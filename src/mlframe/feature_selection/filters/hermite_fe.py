@@ -1188,8 +1188,13 @@ def basis_route_by_moments(x: np.ndarray) -> str:
     mean = float(np.mean(x))
     std = float(np.std(x) + 1e-12)
     z = (x - mean) / std
-    skew = float(np.mean(z ** 3))
-    kurt_excess = float(np.mean(z ** 4)) - 3.0
+    # z**3 / z**4 via chained multiplication: numpy ** dispatches through
+    # np.power's general path even for integer exponents (~3x slower than
+    # z*z*z / z2*z2; same antipattern fixed in iter138 for
+    # _target_distribution_analyzer + iter129 for regression_residual_audit).
+    z2 = z * z
+    skew = float(np.mean(z2 * z))
+    kurt_excess = float(np.mean(z2 * z2)) - 3.0
     rng = float(np.max(x) - np.min(x))
     spread_ratio = rng / std
     one_sided = (np.min(x) >= 0) or (np.max(x) <= 0)

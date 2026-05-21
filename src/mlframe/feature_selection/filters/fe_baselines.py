@@ -157,13 +157,15 @@ def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
     """
     eps = 1e-9
     x = np.asarray(x, dtype=np.float64)
+    # x*x*x over x**3 avoids np.power dispatch (~3x; same antipattern
+    # as iter138 fixes). x**2 stays (numpy special-cases it via np.square).
     transforms = {
         "identity": x,
         "log_abs": np.log(np.abs(x) + eps),
         "sqrt_abs_signed": np.sign(x) * np.sqrt(np.abs(x)),
         "inv": np.sign(x) / (np.abs(x) + eps),
         "square": x ** 2,
-        "cube": x ** 3,
+        "cube": x * x * x,
         "tanh": np.tanh(x),
     }
     base = _mi_1d(x, y, discrete_target=discrete_target,

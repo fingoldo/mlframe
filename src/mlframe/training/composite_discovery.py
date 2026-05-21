@@ -213,8 +213,11 @@ class CompositeTargetDiscovery:
             y_std = float(y_finite_for_check.std())
             if y_std > 1e-12:
                 z_centered = (y_finite_for_check - y_finite_for_check.mean()) / y_std
-                skew = float(np.mean(z_centered ** 3))
-                kurt = float(np.mean(z_centered ** 4) - 3.0)
+                # z**3 / z**4 via chained mul over np.power dispatch (~3x;
+                # same antipattern as iter138 _target_distribution_analyzer).
+                z2 = z_centered * z_centered
+                skew = float(np.mean(z2 * z_centered))
+                kurt = float(np.mean(z2 * z2) - 3.0)
                 if abs(skew) > 2.0 or kurt > 5.0:
                     boost = int(getattr(
                         self.config, "mi_n_strata_heavy_tail", 30,
