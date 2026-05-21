@@ -29,13 +29,14 @@ if TYPE_CHECKING:
 # =============================================================================
 # Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals.
 # Import these instead of hardcoding type lists.
-
-# 2026-05-21: include "str" so the categorical detector also matches the
-# pandas-3.0 / `future.infer_string=True` "str" dtype that auto-converts
-# object-of-strings during pd.DataFrame construction.
-PANDAS_CATEGORICAL_DTYPES: FrozenSet[str] = frozenset({
-    "category", "object", "string", "string[pyarrow]", "large_string[pyarrow]", "str",
-})
+#
+# 2026-05-21: PANDAS_CATEGORICAL_DTYPES is the SINGLE source of truth in
+# _strategies_base.py. This module re-exports it (and includes it in __all__
+# at the bottom of the file) so all the historical
+# ``from .strategies import PANDAS_CATEGORICAL_DTYPES`` import sites keep
+# working without duplicating the set (which previously caused a wave-107-
+# related drift when only one copy was updated to include "str").
+from ._strategies_base import PANDAS_CATEGORICAL_DTYPES  # noqa: F401
 
 def _polars_categorical_dtypes():
     """Lazy import to avoid importing polars at module level."""
