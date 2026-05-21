@@ -483,18 +483,31 @@ def make_train_test_split(
         codes, uniq_index = pd.factorize(dates, sort=False)
         # uniq_index is a pandas Index of unique dates in first-occurrence
         # order; build a O(1) lookup from datetime -> position via a dict.
-        date_to_code = {d: i for i, d in enumerate(uniq_index)}
+        # 2026-05-21: normalise keys + lookups to int64 nanoseconds so the
+        # ``dict.get(d)`` calls below work regardless of whether ``train_dates``
+        # is a numpy datetime64 array (default on most pandas versions) or a
+        # pandas DatetimeIndex of Timestamps (pandas 3.0 path). The previous
+        # ``{d: i for i, d in enumerate(uniq_index)}`` keyed by Timestamps
+        # silently lost lookups when ``train_dates`` was np.datetime64 because
+        # Timestamp.__hash__ != np.datetime64.__hash__ on pandas 3.0; every
+        # label_lut entry stayed -1 and every split came out empty.
+        def _as_ns_int(_d):
+            try:
+                return int(pd.Timestamp(_d).value)
+            except (ValueError, TypeError, OverflowError):
+                return _d
+        date_to_code = {_as_ns_int(d): i for i, d in enumerate(uniq_index)}
         label_lut = np.full(len(uniq_index), -1, dtype=np.int8)
         for d in train_dates:
-            _i = date_to_code.get(d)
+            _i = date_to_code.get(_as_ns_int(d))
             if _i is not None:
                 label_lut[_i] = 0
         for d in val_dates:
-            _i = date_to_code.get(d)
+            _i = date_to_code.get(_as_ns_int(d))
             if _i is not None:
                 label_lut[_i] = 1
         for d in test_dates:
-            _i = date_to_code.get(d)
+            _i = date_to_code.get(_as_ns_int(d))
             if _i is not None:
                 label_lut[_i] = 2
         # `codes` already aligned to `dates` order; gather is a single C-loop.
@@ -510,7 +523,10 @@ def make_train_test_split(
                 return None
             subset_mask = np.zeros(len(uniq_index), dtype=bool)
             for d in dates_subset:
-                _i = date_to_code.get(d)
+                # Use the same int64-ns normalisation as the label-LUT loops
+                # so dict lookups work regardless of whether `dates_subset`
+                # is a numpy datetime64 array or a pandas DatetimeIndex.
+                _i = date_to_code.get(_as_ns_int(d))
                 if _i is not None:
                     subset_mask[_i] = True
             return np.flatnonzero(np.where(codes >= 0, subset_mask[codes], False))

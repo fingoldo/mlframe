@@ -391,6 +391,29 @@ def _fit_lgb_ranker(
 
     if cat_features:
         # LGB accepts categorical_feature as list of column names or indices.
+        # LGB rejects object / str / StringDtype dtype columns even when listed
+        # as categorical_feature: ``_check_for_bad_pandas_dtypes`` runs BEFORE
+        # the categorical metadata is consulted. Cast each declared cat column
+        # to pandas Categorical so LGB's numeric-only data path accepts the
+        # codes view. Same coercion applied to eval_set if present.
+        import pandas as _pd
+        def _coerce_cats(_df):
+            if not isinstance(_df, _pd.DataFrame):
+                return _df
+            _to_cast = {}
+            for _c in cat_features:
+                if _c not in _df.columns:
+                    continue
+                _dn = str(_df[_c].dtype)
+                if _dn in ("object", "string", "str") or "string" in _dn.lower():
+                    _to_cast[_c] = _df[_c].astype("category")
+            return _df.assign(**_to_cast) if _to_cast else _df
+
+        X_tr = _coerce_cats(X_tr)
+        if fit_kwargs.get("eval_set"):
+            fit_kwargs["eval_set"] = [
+                (_coerce_cats(_xv), _yv) for _xv, _yv in fit_kwargs["eval_set"]
+            ]
         fit_kwargs["categorical_feature"] = cat_features
 
     model.fit(

@@ -63,8 +63,14 @@ def test_text_object_column_excluded_from_cat_features():
     assert "cat_low" in cat_features, (
         f"cat_low (low-card) should be in cat_features; got {cat_features}"
     )
-    assert train_out["text_col"].dtype == object, (
-        f"text_col must remain object dtype (not category); got {train_out['text_col'].dtype}"
+    # The contract: text_col must NOT be converted to a pandas Categorical
+    # (which would route it into joint-Categorical cast). Accept any
+    # string-like dtype -- object / string / StringDtype / "str" (pandas-3
+    # future.infer_string), all of which leave the column as a string column
+    # for the auto-detect text-features step to handle.
+    _dtype_name = str(train_out["text_col"].dtype)
+    assert _dtype_name not in ("category", "categorical") and "category" not in _dtype_name.lower(), (
+        f"text_col must remain a string-like dtype (not category); got {_dtype_name}"
     )
 
 

@@ -96,8 +96,13 @@ class TestClusterMedoids:
         cluster_id = np.zeros(X.shape[1], dtype=int)
 
         # Use the absolute-corr score vectors as a proxy for "ordering".
-        corr_p = X.corr(method="pearson").abs().to_numpy()
-        corr_s = X.corr(method="spearman").abs().to_numpy()
+        # pandas 2.x ``.corr().abs().to_numpy()`` can return a read-only
+        # zero-copy view of the underlying block (Arrow-backed frames or the
+        # pandas-3.0 nullable-dtype path); ``np.fill_diagonal`` writes in
+        # place and crashes "underlying array is read-only". Force a writable
+        # copy via ``np.array(..., copy=True)``.
+        corr_p = np.array(X.corr(method="pearson").abs().to_numpy(), copy=True)
+        corr_s = np.array(X.corr(method="spearman").abs().to_numpy(), copy=True)
         np.fill_diagonal(corr_p, 0.0)
         np.fill_diagonal(corr_s, 0.0)
         scores_p = corr_p.mean(axis=1)
