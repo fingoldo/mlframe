@@ -467,10 +467,20 @@ def save_mlframe_model(
     # nn.Module that torch.compile preserves), temp-swap to the original for the
     # duration of dump, then restore. This keeps the caller's compile state intact
     # after save returns and avoids invasive changes to the model class hierarchy.
+    #
+    # 2026-05-21: also strips the Lightning bloat attrs. LightningModule._trainer
+    # and PytorchLightningEstimator.prediction_datamodule both hold DataLoader
+    # references that carry the whole training dataset. On 4M-row TVT regression
+    # this inflated MLP dumps to 311 MB for a network with 14k parameters.
+    # Neither is needed for inference. Previously each walk ran independently
+    # (2x recursion / seen-set churn for ~2400 mixed entries on c0024 / 1k LTR);
+    # merged into one pass below.
     _compile_swaps: list = []
+    _bloat_strips: list = []
     _walk_seen: set = set()
+    _BLOAT_ATTR_NAMES = ("_trainer", "prediction_datamodule")
 
-    def _collect_torch_compile_swaps(obj: object) -> None:
+    def _collect_pre_dump_swaps(obj: object) -> None:
         if id(obj) in _walk_seen:
             return
         _walk_seen.add(id(obj))
@@ -478,49 +488,31 @@ def save_mlframe_model(
         if not isinstance(_d, dict):
             return
         for _k, _v in list(_d.items()):
+            # torch.compile: swap to the un-compiled underlying nn.Module.
             _orig = getattr(_v, "_orig_mod", None)
             if _orig is not None and _orig is not _v:
                 _compile_swaps.append((obj, _k, _v))
                 _d[_k] = _orig
-            _collect_torch_compile_swaps(_v)
-
-    try:
-        _collect_torch_compile_swaps(_payload)
-    except Exception:
-        # Defensive: a malformed payload should still attempt the dump; the wrapping
-        # try/except below catches dump-time errors.
-        _compile_swaps = []
-
-    # 2026-05-21: PytorchLightning bloat strip. LightningModule._trainer
-    # and PytorchLightningEstimator.prediction_datamodule both hold
-    # DataLoader references that carry the WHOLE training dataset. On
-    # 4M-row TVT regression this inflated MLP dumps to 311 MB for a
-    # network with 14k parameters (50KB of raw weights). Neither is
-    # needed for inference: predict() rebuilds a fresh DataLoader from
-    # the input X, and the trainer is post-fit dead. Walk the payload,
-    # temp-null these attrs during pickle, restore after. Mirrors the
-    # torch.compile swap pattern above.
-    _bloat_strips: list = []
-    _bloat_walk_seen: set = set()
-    _BLOAT_ATTR_NAMES = ("_trainer", "prediction_datamodule")
-
-    def _collect_lightning_bloat_strips(obj: object) -> None:
-        if id(obj) in _bloat_walk_seen:
-            return
-        _bloat_walk_seen.add(id(obj))
-        _d = getattr(obj, "__dict__", None)
-        if not isinstance(_d, dict):
-            return
-        for _k, _v in list(_d.items()):
+                # Recurse INTO the swapped-in original; the wrapper itself isn't
+                # part of the dumped graph any more.
+                _collect_pre_dump_swaps(_orig)
+                continue
+            # Lightning bloat strip: temp-null _trainer / prediction_datamodule
+            # at the matching attr names. Don't recurse INTO them -- the whole
+            # subtree is about to be discarded for the pickle pass.
             if _k in _BLOAT_ATTR_NAMES and _v is not None:
                 _bloat_strips.append((obj, _k, _v))
                 _d[_k] = None
-            else:
-                _collect_lightning_bloat_strips(_v)
+                continue
+            _collect_pre_dump_swaps(_v)
 
     try:
-        _collect_lightning_bloat_strips(_payload)
+        _collect_pre_dump_swaps(_payload)
     except Exception:
+        # Defensive: a malformed payload should still attempt the dump; the
+        # wrapping try/except below catches dump-time errors. Reset the swap
+        # lists so the restore loop at the bottom is a no-op.
+        _compile_swaps = []
         _bloat_strips = []
 
     try:

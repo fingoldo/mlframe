@@ -1664,11 +1664,19 @@ def test_save_load_predict_in_subprocess(tmp_path):
     # from 45 prior tests pushes this past 180s and the subprocess
     # times out. 420s headroom was empirically sufficient across both
     # isolated and full-file runs 2026-04-24.
+    #
+    # mlframe isn't pip-installed; pytest's ``pythonpath = ["src"]``
+    # (pyproject.toml) only adds src/ to THIS process's sys.path. The
+    # subprocess inherits ``os.environ`` but not sys.path, so prepend
+    # the absolute src/ path to PYTHONPATH so ``import mlframe`` resolves.
+    _src_abs = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+    _env = {**os.environ, "PYTHONPATH": _src_abs + os.pathsep + os.environ.get("PYTHONPATH", "")}
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         timeout=420,
+        env=_env,
     )
     assert result.returncode == 0, (
         f"subprocess load+predict failed (rc={result.returncode}):\n"

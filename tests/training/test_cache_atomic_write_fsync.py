@@ -53,7 +53,14 @@ def test_discovery_cache_set_fsyncs_before_replace(tmp_path):
 
 
 def test_atomic_write_bytes_fsyncs_before_replace(tmp_path):
-    """``atomic_write_bytes`` (io.py helper) must fsync before the atomic rename."""
+    """``atomic_write_bytes`` must fsync before the atomic rename WHEN
+    ``fsync=True`` is passed.
+
+    Note: the default was flipped from True to False on 2026-05-20
+    (atomicity guarantee is independent of fsync; durability is the only
+    thing fsync adds and the worst case is "re-train the model"). Tests
+    that pin the fsync-before-replace order must therefore opt-in.
+    """
     from mlframe.training.io import atomic_write_bytes
 
     target = str(tmp_path / "payload.bin")
@@ -75,7 +82,7 @@ def test_atomic_write_bytes_fsyncs_before_replace(tmp_path):
 
     with mock.patch("os.fsync", side_effect=tracking_fsync) as m_fsync, \
          mock.patch("os.replace", side_effect=tracking_replace):
-        atomic_write_bytes(target, writer)
+        atomic_write_bytes(target, writer, fsync=True)
 
     assert m_fsync.called, "os.fsync was never called inside atomic_write_bytes"
     assert call_order.index("fsync") < call_order.index("replace"), (
