@@ -2274,7 +2274,25 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # composites genuinely have no headroom. The conservative case
     # (composite captures the last 2%) is rare in practice on residual-
     # structure datasets. Set 0.0 to restore historical "never skip".
-    composite_skip_when_raw_dominates_ratio: float = 0.02
+    #
+    # 2026-05-21 raised 0.02 -> 0.03: TVT regression with ratio=0.0228
+    # (R^2 already 0.9995) ran 15.6 min of discovery and produced 1
+    # spec that scored identically to raw -- pure compute loss.
+    # 0.03 = R^2 >= 0.9991, still extremely conservative; composites
+    # capturing the last 0.1% of variance are vanishingly rare and
+    # don't justify 15+ minutes per target.
+    composite_skip_when_raw_dominates_ratio: float = 0.03
+
+    # 2026-05-21: complementary skip signal using BaselineDiagnostics'
+    # ablation delta%. When the top-ranked feature's drop causes
+    # ablation RMSE to balloon by more than this fraction, the raw
+    # model is essentially auto-regressive on that one feature
+    # (production TVT log: top_ablation_delta%=3209% means dropping
+    # TVT_prev makes RMSE 33x worse -- the model literally IS
+    # ``y ~ TVT_prev``). Composite discovery in this regime spends
+    # tens of minutes finding transforms that capture the same trivial
+    # mapping; better to skip entirely. Set 0.0 to disable.
+    composite_skip_when_ablation_delta_pct: float = 500.0
 
     # Skip the wrap-pass y-scale predict() calls per composite entry per split
     # (train+val+test). Wide model zoos x multi-million-row frames see 5-15

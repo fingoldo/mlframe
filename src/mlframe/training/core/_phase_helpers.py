@@ -488,6 +488,13 @@ def _phase_pandas_conversion_and_cat_prep(
         # instead of the polars pre-conversion estimate. The pandas frame
         # ``memory_usage(deep=True)`` is heavier than ``estimated_size`` but
         # only fires when conversion already paid the materialisation cost.
+        #
+        # 2026-05-21 observability fix: prior code had NO log around the
+        # ``memory_usage(deep=True)`` call which on 4M-row x 25-col frames
+        # with any object-dtype columns scans every cell -- 6.5-min silent
+        # gap observed on the 2026-05-21 TVT run. Bracketing with t0/t1
+        # logs so operators see WHERE the wall-time goes.
+        _t0_memsize = timer()
         try:
             if isinstance(train_df_pd, pd.DataFrame):
                 train_df_size_bytes_cached = float(
@@ -499,6 +506,17 @@ def _phase_pandas_conversion_and_cat_prep(
                 )
         except Exception:
             pass
+        if verbose:
+            _memsize_elapsed = timer() - _t0_memsize
+            if _memsize_elapsed > 1.0:
+                logger.info(
+                    "  trainset_features_stats memory_usage(deep=True): %.1fs "
+                    "(train=%.1fMB, val=%.1fMB) -- runs once per suite; slow on "
+                    "wide / object-dtype frames",
+                    _memsize_elapsed,
+                    (train_df_size_bytes_cached or 0) / 1e6,
+                    (val_df_size_bytes_cached or 0) / 1e6,
+                )
 
     if cat_features and not defer_pandas_conv:
         if verbose:
@@ -506,10 +524,19 @@ def _phase_pandas_conversion_and_cat_prep(
         # Joint train+val union for stable codes across splits. Test never
         # contributes to the union (held-out must look unseen); OOV values
         # land as null codes.
+        # 2026-05-21 observability fix: bracket with t0/t1 logs so the
+        # cat-feature-prep step's wall-time is visible (silent gap on
+        # 4M-row frames previously).
+        _t0_cb_prep = timer()
         prepare_dfs_for_catboost_joint(
             train_df=train_df_pd, val_df=val_df_pd, test_df=test_df_pd,
             cat_features=cat_features,
         )
+        if verbose:
+            logger.info(
+                "  prepare_dfs_for_catboost_joint: %.1fs (cat_features=%d)",
+                timer() - _t0_cb_prep, len(cat_features),
+            )
     elif cat_features and defer_pandas_conv and verbose:
         logger.info(
             "Skipping pandas-side CatBoost prep for %d categorical "

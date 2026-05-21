@@ -526,13 +526,31 @@ def apply_preprocessing_extensions(
         if df is None:
             return None
         if isinstance(df, pl.DataFrame):
+            # 2026-05-21 fix: ``use_pyarrow_extension_array=True`` and
+            # ``split_blocks=True`` are MUTUALLY EXCLUSIVE in polars 1.x
+            # because the extension-array path internally passes
+            # ``split_blocks=False`` to pyarrow's ``to_pandas``, then
+            # user's explicit ``split_blocks=True`` produces a
+            # ``TypeError: got multiple values for keyword argument
+            # 'split_blocks'`` — the prior code mis-classified that as
+            # "polars version too old" and dropped BOTH optimisations,
+            # losing the 30x speedup AND the Arrow-backed dtypes.
+            # Modern polars (>=0.20.4) supports ``split_blocks`` via
+            # **kwargs; the user-visible warning was a false positive.
+            # Strategy: prefer ``split_blocks=True`` (the 30x win),
+            # accept that pl.Enum / pl.Categorical materialise as
+            # pandas ``object`` (downstream cat encoders already
+            # tolerate object-dtype string columns -- see the
+            # pandas-2.1+ ``is_string_dtype`` audit committed 2026-05-20).
             try:
-                return df.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
-            except TypeError:
+                return df.to_pandas(split_blocks=True, self_destruct=True)
+            except TypeError as _err:
                 if not _fallback_warned[0]:
                     logger.warning(
-                        "polars.to_pandas(split_blocks=True) unsupported (polars version too old); "
-                        "falling back to bare .to_pandas() -- wide-frame conversion will be ~30x slower."
+                        "polars.to_pandas(split_blocks=True, self_destruct=True) failed "
+                        "with %s; falling back to bare .to_pandas() -- wide-frame "
+                        "conversion will be ~30x slower. polars version=%s",
+                        _err, pl.__version__,
                     )
                     _fallback_warned[0] = True
                 return df.to_pandas()

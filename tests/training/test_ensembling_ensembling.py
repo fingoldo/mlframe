@@ -261,8 +261,10 @@ def test_prob_clip_applies_pre_blend_for_arithm():
 # --------------------------- GATE-DOUBLE-DIP ---------------------------
 
 
-def test_gate_skipped_when_require_oof_for_gate_and_oof_missing(caplog):
-    """GATE-DOUBLE-DIP: require_oof_for_gate=True skips the gate when any member lacks OOF."""
+def test_gate_falls_back_to_coarse_when_require_oof_for_gate_and_oof_missing(caplog):
+    """COARSE-GATE-FALLBACK: require_oof_for_gate=True with some members lacking OOF now runs a
+    COARSE gate against val/test/train at 5x median (catches catastrophic outliers only)
+    instead of skipping silently."""
 
     def _make(val_preds, has_oof: bool):
         return SimpleNamespace(
@@ -294,8 +296,95 @@ def test_gate_skipped_when_require_oof_for_gate_and_oof_missing(caplog):
             uncertainty_quantile=0.0,
             verbose=True,
         )
-    # The skip-gate warning should be emitted.
-    assert any("require_oof_for_gate" in rec.message for rec in caplog.records)
+    # The COARSE-gate warning should be emitted (val-coarse + 5x median thresholds).
+    assert any("COARSE gate" in rec.message and "val-coarse" in rec.message for rec in caplog.records), (
+        "Expected coarse-gate fallback warning; got: " + " | ".join(rec.message for rec in caplog.records)
+    )
+
+
+def test_gate_skipped_when_require_oof_for_gate_and_coarse_disabled(caplog):
+    """When coarse_gate_max_mae_relative<=0 AND OOF missing, the gate skips entirely with the
+    legacy "skipping quality gate" warning."""
+
+    def _make(val_preds, has_oof: bool):
+        return SimpleNamespace(
+            val_preds=val_preds,
+            test_preds=val_preds,
+            train_preds=val_preds,
+            val_probs=None,
+            test_probs=None,
+            train_probs=None,
+            oof_preds=val_preds.copy() if has_oof else None,
+            oof_probs=None,
+            model=MagicMock(),
+            model_name="m",
+        )
+
+    arr = np.array([0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float64)
+    members = [_make(arr.copy(), has_oof=False) for _ in range(3)]
+    members[0].oof_preds = arr.copy()
+    target = pd.Series(arr.copy())
+
+    with caplog.at_level(logging.WARNING):
+        score_ensemble(
+            members,
+            ensemble_name="[m+m+m]",
+            target=target,
+            ensembling_methods=["arithm"],
+            require_oof_for_gate=True,
+            coarse_gate_max_mae_relative=0.0,
+            coarse_gate_max_std_relative=0.0,
+            build_votenrank_leaderboard=False,
+            uncertainty_quantile=0.0,
+            verbose=True,
+        )
+    assert any("coarse-gate disabled" in rec.message for rec in caplog.records), (
+        "Expected coarse-disabled skip warning; got: " + " | ".join(rec.message for rec in caplog.records)
+    )
+
+
+def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
+    """COARSE-GATE-FALLBACK regression: TVT-2026-05-21 prod log had an MLP with R^2=-4.75 sitting
+    in the ensemble alongside 3 R^2~0.99 members because no member stamped OOF and the fine gate
+    was skipped via require_oof_for_gate=True. The coarse fallback at 5x median MAE must catch
+    that outlier; this test reproduces the scenario with a synthetic 4-member set whose 4th
+    member is ~30x further from median than the cluster."""
+
+    def _make(val_preds):
+        return SimpleNamespace(
+            val_preds=val_preds.astype(np.float64),
+            test_preds=val_preds.astype(np.float64),
+            train_preds=val_preds.astype(np.float64),
+            val_probs=None,
+            test_probs=None,
+            train_probs=None,
+            oof_preds=None,
+            oof_probs=None,
+            model=MagicMock(),
+            model_name="reg",
+        )
+
+    rng = np.random.default_rng(0)
+    truth = rng.normal(size=200).astype(np.float64)
+    good = [_make(truth + rng.normal(scale=0.05, size=200)) for _ in range(3)]
+    bad = _make(truth * -5.0 + rng.normal(scale=2.0, size=200))  # R^2 well below zero
+    members = good + [bad]
+    target = pd.Series(truth)
+
+    with caplog.at_level(logging.INFO):
+        score_ensemble(
+            members,
+            ensemble_name="[reg+reg+reg+reg]",
+            target=target,
+            ensembling_methods=["arithm"],
+            require_oof_for_gate=True,
+            build_votenrank_leaderboard=False,
+            uncertainty_quantile=0.0,
+            verbose=True,
+        )
+    messages = " | ".join(rec.message for rec in caplog.records)
+    assert "COARSE gate" in messages, f"Coarse gate did not run: {messages}"
+    assert "kept 3/4" in messages, f"Expected catastrophic outlier dropped (3/4 kept), got: {messages}"
 
 
 # --------------------------- VOTENRANK ---------------------------

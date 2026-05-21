@@ -420,6 +420,28 @@ class CompositeTargetDiscovery:
                     ),
                 ))
                 return _local
+            # 2026-05-21: linres_robust dedup. When the MAD-trim step in
+            # ``_linear_residual_robust_fit`` doesn't drop any rows, the
+            # second-pass OLS produces alpha/beta identical to the first
+            # pass -- i.e. the transform IS plain ``linear_residual``.
+            # The fit stamps ``is_redundant_with_linres=True`` to signal
+            # this; we skip the evaluation to avoid duplicate MI compute
+            # + duplicate downstream rerank+training. Observed 2026-05-21
+            # TVT log: ``linres-Y`` and ``linresR-Y`` produced identical
+            # RMSE=21.5433 — 100% wasted compute on the duplicate.
+            if (transform_name == "linear_residual_robust"
+                    and isinstance(fitted_params, dict)
+                    and fitted_params.get("is_redundant_with_linres")):
+                _local.append(self._reject(
+                    base, transform_name, mi_y_for_base, valid_frac,
+                    reason=(
+                        "linear_residual_robust MAD-trim found zero "
+                        "outliers above 3*sigma_MAD; second-pass OLS "
+                        "would be identical to plain linear_residual. "
+                        "Skipping the duplicate evaluation."
+                    ),
+                ))
+                return _local
             # T on the screening sample (which is a subset of train).
             valid_screen = transform.domain_check(y_screen, base_screen)
             if valid_screen.sum() < 50:
@@ -2453,18 +2475,57 @@ class CompositeTargetDiscovery:
             _raw_skip_ratio = float(getattr(
                 self.config, "composite_skip_when_raw_dominates_ratio", 0.0,
             ))
+            # 2026-05-21: complementary skip via BaselineDiagnostics
+            # ablation delta%. When the top hint feature's drop balloons
+            # ablation RMSE by more than the configured fraction, the raw
+            # model is essentially auto-regressive on that one feature --
+            # composite discovery in this regime is wasted compute (production
+            # TVT log: top_ablation_delta%=3209% on TVT_prev meant the raw
+            # model literally IS ``y ~ TVT_prev``; 15.6 min of discovery
+            # produced 1 spec that scored identically to raw).
+            _ablation_skip_pct = float(getattr(
+                self.config, "composite_skip_when_ablation_delta_pct", 0.0,
+            ))
+            _hint_strengths_pct = getattr(self, "_hint_strengths_pct", None)
+            _max_ablation_pct = (
+                float(max(_hint_strengths_pct))
+                if (_hint_strengths_pct is not None
+                    and len(_hint_strengths_pct) > 0
+                    and all(math.isfinite(_x) for _x in _hint_strengths_pct))
+                else float("nan")
+            )
             if _raw_skip_ratio > 0.0 and math.isfinite(raw_baseline):
                 _y_std = float(np.std(y_screen)) if y_screen.size > 1 else 0.0
                 if _y_std > 0:
                     _ratio = raw_baseline / _y_std
-                    if _ratio < _raw_skip_ratio:
+                    # Skip if EITHER the raw-dominance ratio OR the BD
+                    # ablation delta% signal trips. They're complementary:
+                    # ratio catches "raw R^2 already > threshold" globally,
+                    # ablation catches "one single feature explains nearly
+                    # everything" even when the raw ridge couldn't fully
+                    # capture it.
+                    _ablation_trips = (
+                        _ablation_skip_pct > 0.0
+                        and math.isfinite(_max_ablation_pct)
+                        and _max_ablation_pct >= _ablation_skip_pct
+                        and _ratio < (_raw_skip_ratio * 3.0)  # safety: R^2 must already be > 0.99
+                    )
+                    if _ratio < _raw_skip_ratio or _ablation_trips:
+                        _reason = (
+                            f"ratio={_ratio:.4f} < {_raw_skip_ratio:.4f}"
+                            if _ratio < _raw_skip_ratio
+                            else (
+                                f"BD ablation delta%={_max_ablation_pct:.1f} "
+                                f">= {_ablation_skip_pct:.1f} (raw R^2 already "
+                                f">0.99: ratio={_ratio:.4f})"
+                            )
+                        )
                         logger.info(
                             "[CompositeTargetDiscovery] target='%s' raw model "
                             "already dominates: raw_baseline=%.4f, y_std=%.4f, "
-                            "ratio=%.4f < %.4f threshold. Composite block "
-                            "skipped (Pack #10).",
+                            "%s. Composite block skipped.",
                             getattr(self, "_target_col", "?"),
-                            raw_baseline, _y_std, _ratio, _raw_skip_ratio,
+                            raw_baseline, _y_std, _reason,
                         )
                         # FIX 2026-05-18 (pytest caught): pre-fix code referenced two non-
                         # available names: ``candidates`` (lives in fit, not _tiny_model_rerank)

@@ -530,17 +530,11 @@ def compute_member_quality_gate(
                 _group_size = np.zeros(_uniq.shape[0], dtype=np.float64)
                 np.add.at(_group_size, _inv, 1.0)
                 _sw = (_group_sum / np.where(_group_size > 0, _group_size, 1.0))[_inv]
-        try:
-            # Wave 21 P1: np.nanquantile so a NaN in any single member's
-            # preds_list[k] doesn't poison median_preds across all members.
-            # Pre-fix: that NaN-poisoned median made per_member_mae[k] NaN,
-            # then the `tot_mae > max_mae` quality-gate test returned False
-            # so the BAD member was silently kept in the ensemble.
-            median_preds = np.nanquantile(arr, 0.5, axis=0, weights=np.full(arr.shape[0], 1.0), method="inverted_cdf")
-        except TypeError:
-            median_preds = np.nanquantile(arr, 0.5, axis=0)
-    else:
-        median_preds = np.nanquantile(arr, 0.5, axis=0)
+    # Wave 21 P1: np.nanquantile so a NaN in any single member's preds_list[k] doesn't poison
+    # median_preds across all members. The cross-member median is uniformly weighted across the
+    # K-axis by construction (we want "where is the typical member's prediction") -- row-level
+    # sample_weight only affects the downstream per-member MAE aggregation, not this median.
+    median_preds = np.nanquantile(arr, 0.5, axis=0)
     # Vectorised per-member MAE/STD: collapses the explicit Python loop to a single broadcast
     # over (K, N, ...). diffs has shape (K, N[, C]); collapse all non-member axes to a per-member
     # scalar via mean / population-std. LOOP-MAE / PER-MEMBER-MAE-LOOP fix; bench script in
@@ -1741,6 +1735,15 @@ def score_ensemble(
     # so every default suite ran with a val-biased gate. Setting to False explicitly re-enables
     # the legacy fallback chain (oof -> val -> test -> train) when the suite has not stamped OOF.
     require_oof_for_gate: bool = True,
+    # COARSE-GATE-FALLBACK: when require_oof_for_gate=True AND OOF is unavailable, the strict gate
+    # skips entirely. That's the right call for FINE thresholds (2.5x median), but it lets
+    # CATASTROPHIC outliers survive: 2026-05-21 prod log had an MLP with R^2=-4.75 sitting in the
+    # ensemble alongside three R^2~0.99 members because no member stamped OOF. This fallback runs
+    # a SECOND gate at a much higher relative threshold (5x median by default) against the
+    # val/test/train fallback chain -- enough to drop the catastrophic disasters while leaving
+    # honest near-median members alone. Setting to <=0 disables the coarse fallback entirely.
+    coarse_gate_max_mae_relative: float = 5.0,
+    coarse_gate_max_std_relative: float = 5.0,
     # VOTENRANK: build a votenrank.Leaderboard over the resulting per-flavour metrics and stamp it
     # in the returned dict under ``_leaderboard``. Defaults True for classification; regression-only
     # flavours skip rank-based methods automatically.
@@ -1914,9 +1917,53 @@ def score_ensemble(
             _gate_preds_for_check = _candidate
             _gate_source_split = _label
             break
-    if require_oof_for_gate and _gate_preds_for_check is None and verbose:
+    # COARSE-GATE-FALLBACK: when OOF is unavailable AND require_oof_for_gate=True, the fine-grained
+    # 2.5x gate is intentionally skipped to avoid double-dipping on val. But that lets catastrophic
+    # outliers (R^2=-4.75 alongside R^2=0.99 members) survive into the ensemble. Run a SECOND
+    # coarse-threshold pass against the val/test/train fallback chain to catch only the disasters.
+    # Marked separately in logs (split=val-coarse) so it can't be confused with the strict gate.
+    _coarse_gate_active = False
+    if (
+        require_oof_for_gate
+        and _gate_preds_for_check is None
+        and (coarse_gate_max_mae_relative > 0.0 or coarse_gate_max_std_relative > 0.0)
+    ):
+        _coarse_fallback_attrs = (
+            ("val_preds", "val-coarse"),
+            ("test_preds", "test-coarse"),
+            ("train_preds", "train-coarse"),
+            ("val_probs", "val-coarse"),
+            ("test_probs", "test-coarse"),
+            ("train_probs", "train-coarse"),
+        )
+        for _attr, _label in _coarse_fallback_attrs:
+            _candidate = [getattr(m, _attr, None) for m in level_models_and_predictions]
+            if all(isinstance(p, np.ndarray) for p in _candidate):
+                _gate_preds_for_check = _candidate
+                _gate_source_split = _label
+                _coarse_gate_active = True
+                # Coarse pass replaces fine thresholds for the single call below; the embedded
+                # per-flavor filter has already been zeroed before this block runs (or will be
+                # zeroed in the kept-survivors branch below), so this only governs the single
+                # compute_member_quality_gate invocation that follows.
+                max_mae = 0.0
+                max_std = 0.0
+                max_mae_relative = float(coarse_gate_max_mae_relative)
+                max_std_relative = float(coarse_gate_max_std_relative)
+                break
+        if verbose:
+            if _coarse_gate_active:
+                logger.warning(
+                    "[ensemble] OOF unavailable; running COARSE gate on %s at %.1fx median MAE / %.1fx median STD (catches catastrophic outliers only; theoretical val double-dip risk acknowledged).",
+                    _gate_source_split, max_mae_relative, max_std_relative,
+                )
+            else:
+                logger.warning(
+                    "[ensemble] require_oof_for_gate=True but at least one member lacks OOF preds AND no val/test/train fallback available; skipping quality gate entirely."
+                )
+    elif require_oof_for_gate and _gate_preds_for_check is None and verbose:
         logger.warning(
-            "[ensemble] require_oof_for_gate=True but at least one member lacks OOF preds; skipping quality gate to avoid double-dipping on val/test."
+            "[ensemble] require_oof_for_gate=True but at least one member lacks OOF preds; coarse-gate disabled (coarse_gate_max_mae_relative<=0); skipping quality gate."
         )
 
     # 2026-05-11 (user request): TWO tag lists:

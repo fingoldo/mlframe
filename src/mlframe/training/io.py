@@ -491,6 +491,38 @@ def save_mlframe_model(
         # try/except below catches dump-time errors.
         _compile_swaps = []
 
+    # 2026-05-21: PytorchLightning bloat strip. LightningModule._trainer
+    # and PytorchLightningEstimator.prediction_datamodule both hold
+    # DataLoader references that carry the WHOLE training dataset. On
+    # 4M-row TVT regression this inflated MLP dumps to 311 MB for a
+    # network with 14k parameters (50KB of raw weights). Neither is
+    # needed for inference: predict() rebuilds a fresh DataLoader from
+    # the input X, and the trainer is post-fit dead. Walk the payload,
+    # temp-null these attrs during pickle, restore after. Mirrors the
+    # torch.compile swap pattern above.
+    _bloat_strips: list = []
+    _bloat_walk_seen: set = set()
+    _BLOAT_ATTR_NAMES = ("_trainer", "prediction_datamodule")
+
+    def _collect_lightning_bloat_strips(obj: object) -> None:
+        if id(obj) in _bloat_walk_seen:
+            return
+        _bloat_walk_seen.add(id(obj))
+        _d = getattr(obj, "__dict__", None)
+        if not isinstance(_d, dict):
+            return
+        for _k, _v in list(_d.items()):
+            if _k in _BLOAT_ATTR_NAMES and _v is not None:
+                _bloat_strips.append((obj, _k, _v))
+                _d[_k] = None
+            else:
+                _collect_lightning_bloat_strips(_v)
+
+    try:
+        _collect_lightning_bloat_strips(_payload)
+    except Exception:
+        _bloat_strips = []
+
     try:
         # Atomic write prevents corruption when two train runs save to
         # the same file concurrently (2026-04-19 probe finding).
@@ -548,9 +580,35 @@ def save_mlframe_model(
                 "fall through to back-compat path.",
                 file, _meta_err,
             )
+        size_mb = os.path.getsize(file) / (1024 * 1024)
         if verbose > 0:
-            size_mb = os.path.getsize(file) / (1024 * 1024)
             logger.info("Model saved successfully to %s. Size: %.2f Mb", file, size_mb)
+        # 2026-05-21: suspicious-size sensor. Tabular ML model bundles
+        # (CB / XGB / LGB / MLP / Linear) post-zstd should typically
+        # land at <50 MB even on million-row training. Anything above
+        # the threshold below is almost always an unstripped DataLoader /
+        # trainer / optimizer state OR a forgotten OOF blob -- the
+        # TVT 2026-05-21 production MLP dump was 311 MB because
+        # ``LightningModule._trainer`` + ``prediction_datamodule`` held
+        # refs to the 4M-row training frame (cleaned up in this same
+        # commit; the strip step nullifies them during pickle).
+        # Emit a HARD WARNING so operators see oversized dumps in their
+        # run log instead of having to ``ls -lh`` the artefact dir.
+        _SIZE_SUSPICIOUS_MB = 50.0
+        if size_mb > _SIZE_SUSPICIOUS_MB:
+            logger.warning(
+                "[save-size-sensor] %s: dump is %.1f MB (> %.0f MB suspicious "
+                "threshold). Tabular ML bundles should be <50 MB even on million-"
+                "row training. Likely cause: a heavy attribute slipped past the "
+                "strip layer (e.g. LightningModule.trainer / "
+                "prediction_datamodule / fitted OOF preds / trainset_features_stats). "
+                "If MLP: confirm save_mlframe_model nullified ``_trainer`` and "
+                "``prediction_datamodule`` (added 2026-05-21). If tree booster: "
+                "check that ``compute_trainset_metrics`` isn't holding the train "
+                "frame on the fitted estimator. If you're saving forensics on "
+                "purpose pass ``lean=False`` and ignore this warning.",
+                file, size_mb, _SIZE_SUSPICIOUS_MB,
+            )
         return True
     except Exception:
         # Wave 41 (2026-05-20): caller sees only a False return; without the traceback,
@@ -569,6 +627,20 @@ def save_mlframe_model(
                 # If something mutated the parent during dump (rare), there's
                 # nothing useful to restore - log at debug only.
                 logger.debug("save_mlframe_model: could not restore compile-wrapped attr %r", _k)
+        # Restore Lightning bloat-strip attrs (``_trainer`` /
+        # ``prediction_datamodule``) on the caller's payload. The save
+        # path nulled them on the IN-MEMORY object during pickle to
+        # produce a slim dump (cuts MLP file size 30-60x by dropping
+        # DataLoader refs to the training dataset); restore so the
+        # caller can still e.g. predict / continue training without
+        # re-fitting.
+        for _parent, _k, _orig_v in _bloat_strips:
+            try:
+                _parent.__dict__[_k] = _orig_v
+            except Exception:
+                logger.debug(
+                    "save_mlframe_model: could not restore Lightning bloat attr %r", _k,
+                )
 
 
 def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = False) -> Optional[object]:

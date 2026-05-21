@@ -39,6 +39,11 @@ from .composite_estimator import (
     _extract_base_matrix,
     _is_polars_df,
 )
+# Wave 102 split missed re-importing get_transform alongside the parent helpers above; the
+# fitted-from-spec / fit / predict / predict_invert paths all call it through the registry, so
+# leaving it unimported turned every CompositeTargetEstimator instantiation into a NameError at
+# the very first call site (line 221 below). 2026-05-21 fix.
+from .composite_transforms import get_transform
 
 logger = logging.getLogger(__name__)
 

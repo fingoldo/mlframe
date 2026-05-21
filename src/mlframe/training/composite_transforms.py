@@ -343,10 +343,21 @@ def _linear_residual_robust_fit(
     """Trimmed-LS fit: OLS -> drop |resid|>3*MAD -> refit OLS.
 
     Returns the same ``{"alpha", "beta"}`` dict as :func:`_linear_residual_fit` so the existing forward / inverse functions work unchanged. ``sample_weight`` is honoured in BOTH passes.
+
+    When the MAD-trim step doesn't drop any rows (no outliers above
+    3*sigma_MAD), the second-pass OLS produces alpha/beta IDENTICAL to
+    the first pass — the transform is mathematically equivalent to
+    plain ``linear_residual``. We stamp ``is_redundant_with_linres=True``
+    on the returned dict so composite discovery can skip the duplicate
+    evaluation (observed 2026-05-21 TVT log: TVT-linres-Y and
+    TVT-linresR-Y produced identical RMSE=21.5433 because no outliers
+    were trimmed -- pure duplicate compute).
     """
     n = len(y)
     if n < 2:
-        return {"alpha": 0.0, "beta": float(np.mean(y)) if n > 0 else 0.0}
+        result = {"alpha": 0.0, "beta": float(np.mean(y)) if n > 0 else 0.0}
+        result["is_redundant_with_linres"] = True  # constant fit, OLS would do the same
+        return result
 
     # Pass 1: standard OLS.
     first_pass = _linear_residual_fit(y, base, sample_weight=sample_weight)
@@ -356,16 +367,25 @@ def _linear_residual_robust_fit(
     # Residuals + robust scale via MAD (sigma-equivalent multiplier 1.4826).
     resid = y.astype(np.float64) - alpha1 * base.astype(np.float64) - beta1
     if not np.all(np.isfinite(resid)):
+        first_pass["is_redundant_with_linres"] = True
         return first_pass
     med = float(np.median(resid))
     mad = float(np.median(np.abs(resid - med)))
     sigma_mad = mad * 1.4826
     if sigma_mad <= 0.0 or not np.isfinite(sigma_mad):
         # Constant residual or numerical pathology -- OLS already covers it.
+        first_pass["is_redundant_with_linres"] = True
         return first_pass
 
     keep = np.abs(resid - med) <= _LINRES_ROBUST_MAD_K * sigma_mad
-    if keep.sum() < max(2, int(_LINRES_ROBUST_MIN_KEEP_FRAC * n)):
+    n_kept = int(keep.sum())
+    if n_kept < max(2, int(_LINRES_ROBUST_MIN_KEEP_FRAC * n)):
+        first_pass["is_redundant_with_linres"] = True
+        return first_pass
+    if n_kept == n:
+        # No outliers trimmed -> pass-2 OLS on inlier set IS pass-1 OLS.
+        # Skip the redundant refit and mark for discovery-side dedup.
+        first_pass["is_redundant_with_linres"] = True
         return first_pass
 
     # Pass 2: OLS on the inlier set.
