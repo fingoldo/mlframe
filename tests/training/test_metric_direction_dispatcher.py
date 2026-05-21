@@ -147,13 +147,33 @@ def test_derive_mode_unknown_warns_and_defaults_min(caplog):
 
 
 def test_dummy_baselines_uses_metric_dispatcher():
-    """All 3 dummy_baselines sites import the dispatcher."""
+    """All 3+ dummy_baselines sites import the dispatcher.
+
+    ``dummy_baselines.py`` was split into themed siblings
+    (``_dummy_bootstrap``, ``_dummy_metrics_pick_plot``,
+    ``_dummy_report_type``, ``_dummy_summary_format``, ...). The
+    dispatcher imports moved with the call sites; this guard now
+    concatenates the parent + every sibling so the >=3 occurrence count
+    survives the split.
+    """
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "dummy_baselines.py"
-    ).read_text(encoding="utf-8")
+    root = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
+    src_parts = []
+    for rel in (
+        "dummy_baselines.py",
+        "_dummy_bootstrap.py",
+        "_dummy_metrics_pick_plot.py",
+        "_dummy_report_type.py",
+        "_dummy_summary_format.py",
+        "_dummy_compute_helpers.py",
+        "_dummy_timeseries.py",
+        "_dummy_numba_kernels.py",
+    ):
+        p = root / rel
+        if p.exists():
+            src_parts.append(p.read_text(encoding="utf-8"))
+    src = "\n".join(src_parts)
     # The pre-fix tuple/substring shapes MUST be gone:
     assert 'primary_metric not in ("val_NDCG@10",' not in src, (
         "Wave 20 P0 regression: _pick_strongest reverted to whitelist"

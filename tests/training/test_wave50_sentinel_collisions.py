@@ -71,7 +71,10 @@ def test_pd_ordinal_encoder_default_uses_minus_one() -> None:
 
 
 def test_dummy_baselines_factorize_filters_negative_codes() -> None:
-    src = _read("training/dummy_baselines.py")
+    # The LTR factorize fast-path was moved to the
+    # ``_dummy_compute_helpers.py`` sibling when ``dummy_baselines.py`` was
+    # split below 1k LOC.
+    src = _read("training/_dummy_compute_helpers.py")
     # The fix filters codes>=0 before bincount.
     assert "_factor_codes = pd.factorize(g_train)[0]" in src
     assert "np.bincount(_factor_codes[_factor_codes >= 0])" in src
