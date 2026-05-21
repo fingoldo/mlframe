@@ -184,8 +184,15 @@ def test_outer_try_body_shrunk_after_wave90() -> None:
     """Structural marker: the lifted helper exists and the per-iteration block delegates."""
     from pathlib import Path
 
-    src_path = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training" / "core" / "predict.py"
-    src = src_path.read_text(encoding="utf-8")
+    # After the 2026-05-21 predict.py monolith split, the helper lives in
+    # _predict_pre_pipeline.py and the call site moved to _predict_main.py.
+    # The structural sensor checks need to see all three files concatenated.
+    _core = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training" / "core"
+    src = "\n".join(
+        (_core / nm).read_text(encoding="utf-8")
+        for nm in ("predict.py", "_predict_main.py", "_predict_pre_pipeline.py")
+        if (_core / nm).exists()
+    )
     # The lifted helper is module-level.
     assert "\ndef _apply_pre_pipeline_with_passthrough(" in src
     # The per-iteration call site uses keyword args (full surface preserved).

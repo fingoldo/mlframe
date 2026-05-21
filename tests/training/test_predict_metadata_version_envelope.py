@@ -123,10 +123,16 @@ def test_validator_wired_at_both_predict_entry_points():
     existed; predict_from_models loaded metadata with no checks."""
     import pathlib
     import mlframe as _mlframe
+    # After the 2026-05-21 monolith split, the two entry points moved to
+    # ``_predict_main.py``; read parent + sibling so the source-pattern
+    # sensor still matches both call sites + the helper definition that
+    # stayed in parent.
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
     src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "predict.py"
-    ).read_text(encoding="utf-8")
+        (_core / "predict.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_core / "_predict_main.py").read_text(encoding="utf-8")
+    )
     # The validator name must appear at LEAST twice in call positions
     # (def + 2 call sites = 3 total occurrences).
     occurrences = src.count("_validate_metadata_version_envelope")

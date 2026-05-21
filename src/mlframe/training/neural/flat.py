@@ -113,20 +113,20 @@ def generate_mlp(
         raise ValueError(
             f"consec_layers_neurons_ratio must be >= 1.0, got {consec_layers_neurons_ratio!r}"
         )
-    if not isinstance(nlayers, int):
+    if not isinstance(nlayers, int) or isinstance(nlayers, bool):
         raise TypeError(f"nlayers must be an int, got {type(nlayers).__name__}")
     if nlayers < 1:
         raise ValueError(f"nlayers must be >= 1, got {nlayers!r}")
-    if not isinstance(min_layer_neurons, int):
+    if not isinstance(min_layer_neurons, int) or isinstance(min_layer_neurons, bool):
         raise TypeError(f"min_layer_neurons must be an int, got {type(min_layer_neurons).__name__}")
     if min_layer_neurons < 1:
         raise ValueError(f"min_layer_neurons must be >= 1, got {min_layer_neurons!r}")
     if num_classes is not None:
-        if not isinstance(num_classes, int):
+        if not isinstance(num_classes, int) or isinstance(num_classes, bool):
             raise TypeError(f"num_classes must be None or an int, got {type(num_classes).__name__}")
         if num_classes < 0:
             raise ValueError(f"num_classes must be >= 0, got {num_classes!r}")
-    if not isinstance(first_layer_num_neurons, int):
+    if not isinstance(first_layer_num_neurons, int) or isinstance(first_layer_num_neurons, bool):
         raise TypeError(f"first_layer_num_neurons must be an int, got {type(first_layer_num_neurons).__name__}")
     if first_layer_num_neurons < min_layer_neurons:
         raise ValueError(

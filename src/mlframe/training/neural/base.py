@@ -410,10 +410,13 @@ class PytorchLightningEstimator(BaseEstimator):
         if "logger" not in trainer_params:
             trainer_params["logger"] = CSVLogger(save_dir=_ckpt_root, name="")
 
-        callbacks = [
-            checkpointing,
-            TQDMProgressBar(refresh_rate=10),
-        ]
+        callbacks = [checkpointing]
+        # Lightning raises ``MisconfigurationException`` when both
+        # ``enable_progress_bar=False`` is in trainer_params AND a
+        # ``TQDMProgressBar`` is registered in callbacks. Only attach the
+        # progress-bar callback when the caller hasn't explicitly disabled it.
+        if trainer_params.get("enable_progress_bar", True):
+            callbacks.append(TQDMProgressBar(refresh_rate=10))
 
         # Only add LearningRateMonitor if logger is enabled
         if trainer_params.get("logger") is not False:
@@ -875,7 +878,7 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
 
 class PeriodicLearningRateFinder(LearningRateFinder):
     def __init__(self, period: int, *args, **kwargs):
-        if not isinstance(period, int):
+        if not isinstance(period, int) or isinstance(period, bool):
             raise TypeError(f"period must be an int, got {type(period).__name__}")
         if period <= 0:
             raise ValueError(f"period must be positive, got {period!r}")

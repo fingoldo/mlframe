@@ -115,21 +115,51 @@ def test_recovery_branch_lives_in_predict_py():
     from pathlib import Path
     from mlframe.training.core import predict as _predict_mod
 
-    path = Path(_predict_mod.__file__)
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    # After the 2026-05-21 monolith split, the recovery branch + its helper
+    # live in ``_predict_main.py`` / ``_predict_pre_pipeline.py``. Parse parent
+    # + siblings so the AST walker can find any of the three target functions.
+    _core = Path(_predict_mod.__file__).resolve().parent
+    src_combined = "\n".join(
+        (_core / nm).read_text(encoding="utf-8")
+        for nm in ("predict.py", "_predict_main.py", "_predict_pre_pipeline.py")
+        if (_core / nm).exists()
+    )
+    tree = ast.parse(src_combined)
 
-    target = None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "predict_from_models":
-            target = node
-            break
-    assert target is not None, "predict_from_models function not found in predict.py"
+    # The recovery branch lives in either ``predict_from_models`` or its helper
+    # ``_apply_pre_pipeline_with_passthrough`` (which moved out of the inline
+    # block during a refactor). Walk both function bodies and union their
+    # ast Attribute / Constant pools.
+    target_names = {
+        "predict_from_models",
+        "_apply_pre_pipeline_with_passthrough",
+        "predict_mlframe_models_suite",
+    }
+    targets = [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in target_names
+    ]
+    assert targets, f"none of {target_names} found in predict.py"
 
-    attrs = {n.attr for n in ast.walk(target) if isinstance(n, ast.Attribute)}
-    str_consts = {n.value for n in ast.walk(target) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    attrs: set[str] = set()
+    str_consts: set[str] = set()
+    for tgt in targets:
+        attrs.update(n.attr for n in ast.walk(tgt) if isinstance(n, ast.Attribute))
+        str_consts.update(
+            n.value for n in ast.walk(tgt)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+        )
 
-    assert "feature_names_in_" in attrs, "predict_from_models must reference feature_names_in_ (sklearn recovery)"
-    assert "feature_names_" in attrs, "predict_from_models must reference feature_names_ (CatBoost recovery)"
+    # The recovery refs may surface as direct ``model.feature_names_in_`` dot
+    # access (ast.Attribute) OR as ``getattr(model, "feature_names_in_", ...)``
+    # string-arg form (ast.Constant). Accept either - both produce identical
+    # runtime behaviour and both indicate the recovery block is present.
+    def _has_ref(name: str) -> bool:
+        return name in attrs or name in str_consts
+
+    assert _has_ref("feature_names_in_"), "predict_from_models must reference feature_names_in_ (sklearn recovery)"
+    assert _has_ref("feature_names_"), "predict_from_models must reference feature_names_ (CatBoost recovery)"
     assert any("Skipping pre_pipeline" in s for s in str_consts), (
         "predict.py must keep the 'Skipping pre_pipeline' log-warn in the recovery "
         "branch (iter-59 family regression marker)."

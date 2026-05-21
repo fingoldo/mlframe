@@ -41,7 +41,20 @@ MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file under src/mlframe.
+
+    2026-05-21 monolith split compat: when the requested file is
+    ``training/core/predict.py``, append the main + pp siblings so
+    source-pattern sensors for the relocated raise sites still match.
+    """
+    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "training/core/predict.py":
+        _core = MLFRAME_ROOT / "training" / "core"
+        for nm in ("_predict_main.py", "_predict_pre_pipeline.py"):
+            sibling = _core / nm
+            if sibling.exists():
+                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 # ---------------------------------------------------------------------------
