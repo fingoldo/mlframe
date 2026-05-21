@@ -38,22 +38,25 @@ from mlframe.metrics.core import compute_fairness_metrics, fast_calibration_repo
 from pyutilz.pythonlib import get_human_readable_set_size
 
 from .phases import phase
-# Wave 97: _canonical_multilabel_y / _maybe_display live in ``_reporting``; that
-# module imports us from its bottom (after both helpers are defined at module
-# top), so by the time Python resolves these names ``_reporting`` is partially
-# loaded and the symbols are already bound. No circular-load failure.
-from ._reporting import _canonical_multilabel_y, _maybe_display  # noqa: E402
+# Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the
+# DEFAULT_* constants all live in ``_reporting``; that module imports us
+# from its bottom (after the helpers + constants are bound at module top),
+# so by the time Python resolves these names ``_reporting`` is partially
+# loaded and the symbols are already there. No circular-load failure,
+# AND a single source of truth (no constant duplication across siblings).
+from ._reporting import (  # noqa: E402
+    _canonical_multilabel_y,
+    _maybe_display,
+    DEFAULT_PLOT_SAMPLE_SIZE,
+    DEFAULT_REPORT_NDIGITS,
+    DEFAULT_CALIB_REPORT_NDIGITS,
+    DEFAULT_NBINS,
+    DEFAULT_FIGSIZE,
+    DEFAULT_RANDOM_SEED,
+)
 
 if TYPE_CHECKING:
     from .configs import MultilabelDispatchConfig
-
-# Re-declare module-level constants (mirrored from _reporting; same defaults).
-DEFAULT_PLOT_SAMPLE_SIZE = 500
-DEFAULT_REPORT_NDIGITS = 2
-DEFAULT_CALIB_REPORT_NDIGITS = 2
-DEFAULT_NBINS = 10
-DEFAULT_FIGSIZE = (15, 5)
-DEFAULT_RANDOM_SEED = 42
 
 logger = logging.getLogger(__name__)
 

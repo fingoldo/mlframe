@@ -57,17 +57,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
-# Wave 106: constants + type alias mirrored from the parent module so the
-# change-point detectors compile standalone. Kept in sync with
-# target_temporal_audit.py:168-199.
-DEFAULT_MIN_BIN_FRACTION_FOR_FILTER: float = 0.5
-DEFAULT_ZSCORE_THRESHOLD: float = 3.0
-DEFAULT_ZSCORE_WINDOW: int = 7
-DEFAULT_TARGET_BINS_RANGE: tuple[int, int] = (30, 50)
-DEFAULT_PELT_MODEL: str = "l2"
-DEFAULT_PELT_MIN_SEGMENT_SIZE: int = 2
-Granularity = Literal["minute", "hour", "day", "week", "month", "quarter", "year"]
-
 import numpy as np
 import pandas as pd
 
@@ -76,6 +65,22 @@ try:
     _HAS_POLARS = True
 except ImportError:
     _HAS_POLARS = False
+
+# Wave 106 (2026-05-21): the DEFAULT_* constants + Granularity type alias
+# live in target_temporal_audit (parent module). That module imports us
+# from its BOTTOM (after these constants are defined at its TOP), so by
+# the time Python resolves these names the parent is partially loaded
+# and the symbols are already bound -- single source of truth, no
+# duplication.
+from .target_temporal_audit import (  # noqa: E402
+    DEFAULT_MIN_BIN_FRACTION_FOR_FILTER,
+    DEFAULT_ZSCORE_THRESHOLD,
+    DEFAULT_ZSCORE_WINDOW,
+    DEFAULT_TARGET_BINS_RANGE,
+    DEFAULT_PELT_MODEL,
+    DEFAULT_PELT_MIN_SEGMENT_SIZE,
+    Granularity,
+)
 
 
 def find_change_points_pelt(

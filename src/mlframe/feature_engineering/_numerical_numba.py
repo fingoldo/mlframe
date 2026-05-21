@@ -17,21 +17,22 @@ __all__ = [
     "compute_moments_slope_mi",
 ]
 
-# Module-level numba kwargs (kept in sync with parent numerical.py:83).
-NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
-
-# Module-level constants needed by the moved numba kernels. numba can't see
-# closure variables -- these MUST be defined at the sibling's module scope.
-# Kept in sync with parent numerical.py:125, 128, 129, 122.
-LARGE_CONST = 1e3
-GEOMEAN_OVERFLOW_HI: float = 1e100
-GEOMEAN_OVERFLOW_LO: float = 1e-100
-# The `distributions` tuple is sourced from scipy.stats at the parent's top;
-# we lazy-import it here to avoid a top-level scipy.stats touch.
-def _get_distributions():
-    from scipy import stats
-    return (stats.levy_l,)
-distributions = _get_distributions()
+# 2026-05-21: NUMBA_NJIT_PARAMS + the numeric constants used inside the
+# njit kernels (LARGE_CONST, GEOMEAN_OVERFLOW_HI/LO, distributions) live
+# in the parent ``numerical`` module. That module imports us from L272
+# AFTER it has defined all of these at L83-128, so by the time Python
+# resolves the names below the parent is partially loaded and the
+# bindings are already in place -- single source of truth, no duplication
+# drift. Numba reads these as module globals at @njit-decoration time
+# (which happens BELOW this import block), so the bindings are visible
+# in time for kernel compilation.
+from .numerical import (  # noqa: E402
+    NUMBA_NJIT_PARAMS,
+    LARGE_CONST,
+    GEOMEAN_OVERFLOW_HI,
+    GEOMEAN_OVERFLOW_LO,
+    distributions,
+)
 
 import logging
 import warnings
