@@ -1363,7 +1363,13 @@ def predict_mlframe_models_suite(
                 if _combined.shape[1] == 2:
                     _t_preds = (_combined[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                 else:
-                    _t_preds = np.argmax(_combined, axis=1)
+                    # NaN-safe argmax: _combine_probs (RRF / geomean / harmonic) can emit
+                    # NaN when a member row was NaN; plain np.argmax silently routes the
+                    # row to class 0 and poisons the downstream confusion matrix.
+                    from ...utils.nan_safe import argmax_classes_safe
+                    _t_preds = argmax_classes_safe(
+                        _combined, context=f"predict_mlframe_models_suite.per_target.{_key}",
+                    )
             else:
                 _t_preds = (_combined > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
             results["per_target_predictions"][_key] = _t_preds
@@ -1386,7 +1392,12 @@ def predict_mlframe_models_suite(
             if avg_probs.shape[1] == 2:
                 ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
             else:
-                ensemble_preds = np.argmax(avg_probs, axis=1)
+                # NaN-safe argmax for the suite-wide ensemble row: same reasoning as the
+                # per-target site above; plain np.argmax sent NaN rows to class 0.
+                from ...utils.nan_safe import argmax_classes_safe
+                ensemble_preds = argmax_classes_safe(
+                    avg_probs, context="predict_mlframe_models_suite.suite_ensemble",
+                )
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
         results["ensemble_predictions"] = ensemble_preds
@@ -1929,7 +1940,12 @@ def predict_from_models(
                 if _combined.shape[1] == 2:
                     _t_preds = (_combined[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
                 else:
-                    _t_preds = np.argmax(_combined, axis=1)
+                    # NaN-safe argmax: _combine_probs can emit NaN rows; plain
+                    # np.argmax routes them silently to class 0.
+                    from ...utils.nan_safe import argmax_classes_safe
+                    _t_preds = argmax_classes_safe(
+                        _combined, context=f"predict_from_models.per_target.{_key}",
+                    )
             else:
                 _t_preds = (_combined > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
             results["per_target_predictions"][_key] = _t_preds
@@ -1950,7 +1966,11 @@ def predict_from_models(
             if avg_probs.shape[1] == 2:
                 ensemble_preds = (avg_probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
             else:
-                ensemble_preds = np.argmax(avg_probs, axis=1)
+                # NaN-safe argmax for the suite-wide ensemble row.
+                from ...utils.nan_safe import argmax_classes_safe
+                ensemble_preds = argmax_classes_safe(
+                    avg_probs, context="predict_from_models.suite_ensemble",
+                )
         else:
             ensemble_preds = (avg_probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
         results["ensemble_predictions"] = ensemble_preds

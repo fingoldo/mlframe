@@ -34,12 +34,24 @@ import numpy as np
 import polars as pl
 import pytest
 
+# Need the `.pipeline` submodule specifically; some polars_ds installs ship
+# core polars_ds without the Pipeline / Blueprint classes (legacy split builds).
+# Use module-level pytestmark instead of file-level importorskip so pytest can
+# still resolve specific node-IDs on envs without the submodule.
+try:
+    import polars_ds.pipeline  # noqa: F401
+    _HAS_PDS_PIPELINE = True
+except ImportError:
+    _HAS_PDS_PIPELINE = False
+
+pytestmark = pytest.mark.skipif(
+    not _HAS_PDS_PIPELINE,
+    reason="polars_ds.pipeline submodule unavailable on this install",
+)
+
 
 def _make_pipeline():
     """Build a representative polars-ds Pipeline (impute + scale)."""
-    # Need the .pipeline submodule specifically; some polars_ds installs ship
-# core polars_ds without the Pipeline / Blueprint classes (legacy split builds).
-pytest.importorskip("polars_ds.pipeline")
     from polars_ds.pipeline import Blueprint
     df = pl.DataFrame({
         "x0": [float(i) for i in range(200)],
