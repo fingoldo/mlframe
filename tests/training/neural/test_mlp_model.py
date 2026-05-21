@@ -323,7 +323,7 @@ class TestMLPTorchModelUnpackBatch:
         assert sample_weight is None  # No sample weight in dict without it
 
     def test_unpack_batch_invalid_format_raises_error(self, simple_network, loss_function):
-        """Test that invalid batch format raises ValueError."""
+        """Test that invalid batch format raises TypeError."""
         model = MLPTorchModel(
             network=simple_network,
             loss_fn=loss_function,
@@ -333,7 +333,10 @@ class TestMLPTorchModelUnpackBatch:
 
         batch = "invalid"
 
-        with pytest.raises(ValueError, match="Unexpected batch format"):
+        # TypeError is the correct class for a type-mismatch (str is neither
+        # dict nor a 2/3-tuple); test previously asserted ValueError but the
+        # implementation raises TypeError, which is the Pythonic choice.
+        with pytest.raises(TypeError, match="Unexpected batch format"):
             model._unpack_batch(batch)
 
 

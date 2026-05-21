@@ -141,6 +141,30 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
     return F.softplus(-score_diff_pairs).mean()
 
 
+def ranknet_pairwise_loss_precomputed(
+    scores: torch.Tensor,
+    i_idx: torch.Tensor | None,
+    j_idx: torch.Tensor | None,
+) -> torch.Tensor:
+    """RankNet loss with externally-precomputed pair indices.
+
+    Skips the ``tuple(rel.tolist())`` cache-key build (which forces a GPU->CPU
+    sync each batch) by accepting (i_idx, j_idx) already built CPU-side and
+    moved to the scores' device by Lightning's batch transfer. ``None`` values
+    signal a query with no informative pair -> loss is 0.
+
+    Used by MLPRankerLightningModule when the batch sampler installed a
+    per-query pair-index cache on the Dataset. Bit-exact equivalent of
+    ``ranknet_pairwise_loss``; the only difference is who computes pair indices.
+    """
+    if scores.dim() != 1:
+        scores = scores.view(-1)
+    if i_idx is None or j_idx is None or i_idx.numel() == 0:
+        return scores.new_zeros(())
+    score_diff_pairs = scores[i_idx] - scores[j_idx]
+    return F.softplus(-score_diff_pairs).mean()
+
+
 def listnet_top1_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torch.Tensor:
     """ListNet top-1 listwise loss for one query.
 
@@ -237,6 +261,38 @@ class _RankerDataset(Dataset):
         super().__init__()
         self.X = torch.as_tensor(np.asarray(X), dtype=torch.float32)
         self.y = torch.as_tensor(np.asarray(y), dtype=torch.float32)
+        # Per-query precomputed (i_idx, j_idx) pair-index tensors, keyed by the
+        # bytes view of the sorted row-index array yielded by GroupBatchSampler.
+        # Populated by ``install_pair_index_cache`` BEFORE the DataLoader starts;
+        # leaving this attribute as None falls back to the in-loss runtime cache
+        # (tuple(rel.tolist()) key) which needs a per-call GPU->CPU sync.
+        self._pair_idx_by_query: dict[bytes, tuple] | None = None
+
+    def install_pair_index_cache(self, query_slices: list[np.ndarray]) -> None:
+        """Build (i_idx, j_idx) once per query on CPU; key by the sampler's
+        stable row-index bytes so __getitems__ can attach them at zero per-call
+        cost. Avoids the ``tuple(rel.tolist())`` device sync that
+        ranknet_pairwise_loss otherwise pays each batch (~80us per cuda call
+        on n=10 queries; 540k calls/30-epoch fit -> 43s saved on c0083).
+        """
+        cache: dict[bytes, tuple] = {}
+        for indices in query_slices:
+            rel = self.y[torch.as_tensor(indices, dtype=torch.long)]
+            if rel.dim() > 1:
+                # Multilabel y -> sum across labels matches what GBS uses to
+                # decide query inclusion. Not used by ranknet directly.
+                continue
+            i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
+            if i_idx.numel() == 0:
+                # No informative pair; the loss returns 0 without needing
+                # pair indices. Mark with sentinel so __getitems__ can skip
+                # the runtime cache build for these too.
+                cache[np.asarray(indices, dtype=np.int64).tobytes()] = (None, None)
+                continue
+            cache[np.asarray(indices, dtype=np.int64).tobytes()] = (
+                i_idx.to(torch.long), j_idx.to(torch.long),
+            )
+        self._pair_idx_by_query = cache
 
     def __len__(self) -> int:
         return self.X.shape[0]
@@ -254,8 +310,16 @@ class _RankerDataset(Dataset):
         # the DataLoader doesn't re-stack an already-stacked batch.
         if torch.is_tensor(indices):
             idx = indices
+            indices_key = None  # tensor input rare; fall through to in-loss cache
         else:
             idx = torch.as_tensor(indices, dtype=torch.long)
+            indices_key = np.asarray(indices, dtype=np.int64).tobytes()
+        # Attach precomputed pair indices if available. The 4-tuple shape is
+        # recognised by _ranker_passthrough_collate + training_step.
+        if self._pair_idx_by_query is not None and indices_key is not None:
+            pair = self._pair_idx_by_query.get(indices_key)
+            if pair is not None:
+                return [(self.X[idx], self.y[idx], pair[0], pair[1])]
         return [(self.X[idx], self.y[idx])]
 
 
@@ -272,7 +336,7 @@ def _ranker_passthrough_collate(batch):
     if (
         len(batch) == 1
         and isinstance(batch[0], tuple)
-        and len(batch[0]) == 2
+        and len(batch[0]) in (2, 4)
         and torch.is_tensor(batch[0][0])
         and torch.is_tensor(batch[0][1])
         and batch[0][0].dim() >= 2
@@ -330,28 +394,33 @@ class MLPRankerLightningModule(_L_MODULE.LightningModule):
     def forward(self, x):
         return self.network(x).view(-1)
 
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        scores = self.forward(x)
+    def _compute_loss(self, batch, scores):
+        # 4-tuple shape ``(X, y, i_idx, j_idx)`` is the precomputed-pairs fast
+        # path installed by ``_RankerDataset.install_pair_index_cache``; the
+        # 2-tuple ``(X, y)`` shape stays valid for the legacy in-loss cache.
         if self.loss_name == "ranknet":
-            loss = ranknet_pairwise_loss(scores, y)
-        elif self.loss_name == "listnet":
-            loss = listnet_top1_loss(scores, y)
-        else:
-            raise ValueError(f"unknown loss_name {self.loss_name!r}")
+            if len(batch) == 4:
+                _, _, i_idx, j_idx = batch
+                return ranknet_pairwise_loss_precomputed(scores, i_idx, j_idx)
+            return ranknet_pairwise_loss(scores, batch[1])
+        if self.loss_name == "listnet":
+            return listnet_top1_loss(scores, batch[1])
+        raise ValueError(f"unknown loss_name {self.loss_name!r}")
+
+    def training_step(self, batch, batch_idx):
+        x = batch[0]
+        scores = self.forward(x)
+        loss = self._compute_loss(batch, scores)
         # train_loss intentionally NOT logged: val_loss drives EarlyStopping and ranking
         # metrics are computed in ranker_suite.py from per-row predict scores. self.log
         # dominated ~10-15% of trainer.fit wall on tiny queries in profiling.
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch
+        x = batch[0]
         with torch.no_grad():
             scores = self.forward(x)
-            if self.loss_name == "ranknet":
-                loss = ranknet_pairwise_loss(scores, y)
-            else:
-                loss = listnet_top1_loss(scores, y)
+            loss = self._compute_loss(batch, scores)
         self.log("val_loss", loss, prog_bar=False, on_epoch=True, on_step=False)
         return loss
 
@@ -568,6 +637,13 @@ class MLPRanker(BaseEstimator, RegressorMixin):
                 "MLPRanker.fit: zero usable training queries (every query has <2 docs OR "
                 "single-class relevance). Increase rows per query OR ensure y has graded values."
             )
+        # Precompute per-query pair-index tensors on CPU so __getitems__ can
+        # attach them to each batch and the loss skips the tuple(rel.tolist())
+        # device sync on every call. Only enabled for ranknet (listnet doesn't
+        # need pair indices); skips when relevance is multilabel since the loss
+        # falls back to the legacy path on those.
+        if self.loss_fn == "ranknet" and y_arr.ndim == 1:
+            train_ds.install_pair_index_cache(train_sampler._query_slices)
         train_loader = DataLoader(
             train_ds,
             batch_sampler=train_sampler,
@@ -584,6 +660,8 @@ class MLPRanker(BaseEstimator, RegressorMixin):
                 group_ids=np.asarray(group_ids_val), relevance=y_val_arr,
                 shuffle=False, seed=self.seed,
             )
+            if self.loss_fn == "ranknet" and y_val_arr.ndim == 1:
+                val_ds.install_pair_index_cache(val_sampler._query_slices)
             if len(val_sampler) > 0:
                 val_loader = DataLoader(
                     val_ds, batch_sampler=val_sampler, num_workers=0,
@@ -639,5 +717,6 @@ __all__ = [
     "MLPRanker",
     "GroupBatchSampler",
     "ranknet_pairwise_loss",
+    "ranknet_pairwise_loss_precomputed",
     "listnet_top1_loss",
 ]
