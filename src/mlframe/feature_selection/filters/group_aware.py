@@ -51,7 +51,10 @@ def cluster_features_by_correlation(
     """
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
-    corr = X.corr(method=method).abs().to_numpy()
+    # pandas 2.x `.corr().abs().to_numpy()` may return a read-only zero-copy
+    # view of the underlying block (Arrow-backed frames especially).
+    # ``np.fill_diagonal`` writes in-place so we need a writable copy.
+    corr = np.array(X.corr(method=method).abs().to_numpy(), copy=True)
     n = corr.shape[0]
     np.fill_diagonal(corr, 0.0)
 

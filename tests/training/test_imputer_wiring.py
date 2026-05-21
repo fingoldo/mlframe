@@ -24,7 +24,9 @@ import numpy as np
 import polars as pl
 import pytest
 
-pytest.importorskip("polars_ds")
+# Need the `.pipeline` submodule specifically; some polars_ds installs ship
+# core polars_ds without the Pipeline / Blueprint classes (legacy split builds).
+pytest.importorskip("polars_ds.pipeline")
 
 
 # Module under test — imported lazily so test collection works during the

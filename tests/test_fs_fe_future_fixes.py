@@ -427,7 +427,9 @@ def test_fe_l_3_int8_date_columns_pass_through_unchanged():
     """When create_polarsds_pipeline runs over a frame containing Int8 date-decomposition
     columns (day/weekday/month/hour) those columns must stay Int8, not get widened to Float32."""
     pl = pytest.importorskip("polars")
-    pytest.importorskip("polars_ds")
+    # Need the .pipeline submodule specifically; some polars_ds installs ship
+# core polars_ds without the Pipeline / Blueprint classes (legacy split builds).
+pytest.importorskip("polars_ds.pipeline")
     from mlframe.training.pipeline import create_polarsds_pipeline
     from mlframe.training.configs import PreprocessingBackendConfig
 

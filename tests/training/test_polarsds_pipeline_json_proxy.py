@@ -37,7 +37,9 @@ import pytest
 
 def _make_pipeline():
     """Build a representative polars-ds Pipeline (impute + scale)."""
-    pytest.importorskip("polars_ds")
+    # Need the .pipeline submodule specifically; some polars_ds installs ship
+# core polars_ds without the Pipeline / Blueprint classes (legacy split builds).
+pytest.importorskip("polars_ds.pipeline")
     from polars_ds.pipeline import Blueprint
     df = pl.DataFrame({
         "x0": [float(i) for i in range(200)],

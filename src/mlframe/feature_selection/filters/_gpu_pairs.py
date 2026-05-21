@@ -111,7 +111,10 @@ def mi_direct_gpu_batched_pairs(
     total_cells = int(joint_offsets[-1])
 
     # GPU memory bound: total_cells int32. At total_cells = 1e7 that's 40 MB; at 1e8 that's 400 MB. Caller should constrain via ``max_combined_nbins`` to stay in bounds.
-    if total_cells * 4 > 4 * 1024 * 1024 * 1024:  # > 4 GB
+    # Use >= so a request that lands EXACTLY at the 4 GiB ceiling still raises;
+    # the kernel needs a few MB of extra scratch for grid/block metadata, so
+    # allowing precisely 4 GiB would still OOM in practice.
+    if total_cells * 4 >= 4 * 1024 * 1024 * 1024:  # >= 4 GB
         raise MemoryError(
             f"mi_direct_gpu_batched_pairs: total joint cells {total_cells} "
             f"would require {total_cells*4/2**30:.1f} GB on GPU. Tighten "
