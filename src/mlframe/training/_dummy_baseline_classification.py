@@ -83,27 +83,30 @@ def _compute_classification_baselines(
 
     # stratified: n_repeats over different seeds
     # Predicted class sampled from prior; probs = one-hot of sampled class.
+    # The final prob per row is the MEAN over reps of one-hot[rng.choice].
+    # Accumulator path: one (N, K) zeros allocation + per-rep += 1.0 at the
+    # sampled cells, divided once at the end. The old per-rep
+    # ``np.zeros((N, K))`` + one-hot fill + list.append + np.mean across the
+    # whole stack allocated n_repeats * N * K * 8 bytes (~200 MB at N=200k /
+    # K=3 / R=40) and added a final np.mean across a 4-D stack -- 9ms+ of
+    # allocs and a few ms of stack-mean at the c0137 shape.
     n_repeats = config.stratified_n_repeats
-    val_strat_runs: list[np.ndarray] = []
-    test_strat_runs: list[np.ndarray] = []
+    val_acc = np.zeros((n_val, n_classes)) if n_val > 0 else None
+    test_acc = np.zeros((n_test, n_classes)) if n_test > 0 else None
+    val_row_idx = np.arange(n_val) if n_val > 0 else None
+    test_row_idx = np.arange(n_test) if n_test > 0 else None
     for r in range(n_repeats):
         rng = np.random.default_rng(seed + r)
-        if n_val > 0:
+        if val_acc is not None:
             val_classes = rng.choice(classes, size=n_val, p=train_prior)
-            val_strat = np.zeros((n_val, n_classes))
-            val_strat[np.arange(n_val), val_classes] = 1.0
-            val_strat_runs.append(val_strat)
-        if n_test > 0:
+            val_acc[val_row_idx, val_classes] += 1.0
+        if test_acc is not None:
             test_classes = rng.choice(classes, size=n_test, p=train_prior)
-            test_strat = np.zeros((n_test, n_classes))
-            test_strat[np.arange(n_test), test_classes] = 1.0
-            test_strat_runs.append(test_strat)
-    # Mean over repeats -- gives smoothed probs ~ train_prior on average,
-    # but with the realized variance preserved for log_loss / AUC scoring.
-    if val_strat_runs:
-        val_probs["stratified"] = np.mean(val_strat_runs, axis=0)
-    if test_strat_runs:
-        test_probs["stratified"] = np.mean(test_strat_runs, axis=0)
+            test_acc[test_row_idx, test_classes] += 1.0
+    if val_acc is not None and n_repeats > 0:
+        val_probs["stratified"] = val_acc / n_repeats
+    if test_acc is not None and n_repeats > 0:
+        test_probs["stratified"] = test_acc / n_repeats
     extras["stratified_n_repeats"] = n_repeats
 
     # per_group_prior (binary only for now)
