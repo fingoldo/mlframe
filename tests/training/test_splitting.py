@@ -1243,14 +1243,16 @@ class TestTrainMlframeModelsSuiteUseGroups:
         """Install a spy that captures the ``groups`` kwarg and returns
         a deterministic 60/20/20 split so the rest of the suite can run.
 
-        Patches the symbol at the use site (``core._phase_helpers``). The
-        refactor that turned ``mlframe.training.core`` from a module into
-        a package moved the live binding into ``_phase_helpers`` while the
-        package ``__init__`` only re-exports a different set of symbols;
-        the previous ``setattr(core_mod, "make_train_test_split", ...)``
-        therefore raised AttributeError.
+        Patches the symbol at EVERY use site. Wave 105 (2026-05-21) moved
+        ``_phase_train_val_test_split`` (the function that actually calls
+        ``make_train_test_split``) out of ``_phase_helpers`` into the new
+        sibling ``_phase_helpers_fit_split``; both modules carry their
+        own top-level ``from ..splitting import make_train_test_split``
+        binding, so patching just one leaves the other live and the spy
+        never fires.
         """
         from mlframe.training.core import _phase_helpers as _ph_mod
+        from mlframe.training.core import _phase_helpers_fit_split as _ph_fs_mod
 
         def _fake_split(df, **kwargs):
             captured["groups"] = kwargs.get("groups")
@@ -1262,7 +1264,11 @@ class TestTrainMlframeModelsSuiteUseGroups:
             train_idx = np.arange(0, n - n_test - n_val)
             return train_idx, val_idx, test_idx, "", "", ""
 
+        # Patch both module-bindings so whichever path the suite walks
+        # (the legacy _phase_helpers path or the wave-105 sibling path)
+        # routes through the spy.
         monkeypatch.setattr(_ph_mod, "make_train_test_split", _fake_split)
+        monkeypatch.setattr(_ph_fs_mod, "make_train_test_split", _fake_split)
 
     def test_groups_flow_when_use_groups_true(self, monkeypatch, tmp_path):
         """Extractor's ``group_ids`` reaches splitter under default config."""
