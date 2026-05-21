@@ -1856,8 +1856,22 @@ def predict_from_models(
                             verbose=verbose,
                         )
 
+                    # CTE-RAW-X (2026-05-21): CompositeTargetEstimator's predict
+                    # reads the base column directly from X to apply the transform's
+                    # inverse (e.g. linear_residual: y = t_hat + alpha*base + beta).
+                    # The alpha/beta were fit on the RAW base column at discovery
+                    # time, but the default predict path passes the
+                    # pre-pipeline-scaled X (input_for_model) where the base column
+                    # is z-scored. Result: alpha*base_scaled ~ alpha*1 instead of
+                    # alpha*base_raw ~ alpha*~10000, so the inverse degenerates to
+                    # y_hat ~ t_hat (predictions stay in residual scale: mean~0,
+                    # std=residual_std). This branch hands the wrapper the RAW
+                    # frame; the inner non-composite estimators stay on the
+                    # post-pipeline path.
+                    from .._composite_target_estimator import CompositeTargetEstimator as _CTE_cls
+                    _primary_for_model = df_pre_pipeline if isinstance(model, _CTE_cls) else input_for_model
                     if return_probabilities and hasattr(model, "predict_proba"):
-                        probs = _try_predict(model.predict_proba, input_for_model, df_pre_pipeline)
+                        probs = _try_predict(model.predict_proba, _primary_for_model, df_pre_pipeline)
                         results["probabilities"][model_name] = probs
                         all_probs.append(probs)
                         per_target_probs.setdefault((target_type, target_name), []).append(probs)
@@ -1881,7 +1895,8 @@ def predict_from_models(
                         all_preds.append(preds)
                         per_target_preds.setdefault((target_type, target_name), []).append(preds)
                     else:
-                        preds = _try_predict(model.predict, input_for_model, df_pre_pipeline)
+                        # CTE-RAW-X: same rationale as the probs path above.
+                        preds = _try_predict(model.predict, _primary_for_model, df_pre_pipeline)
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
                         per_target_preds.setdefault((target_type, target_name), []).append(preds)

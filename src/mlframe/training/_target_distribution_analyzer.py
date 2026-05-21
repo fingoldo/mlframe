@@ -619,12 +619,45 @@ def _normalise_X(
     if isinstance(X, pd.DataFrame):
         df = X
     else:
-        # Polars DataFrame -> pandas (zero-copy when possible). Detect via duck-typing
-        # (hasattr to_pandas) so we don't have a hard polars import dependency.
-        _to_pandas = getattr(X, "to_pandas", None)
-        if callable(_to_pandas) and type(X).__module__.startswith("polars"):
-            df = _to_pandas()
-        else:
+        # Polars-family input handling (2026-05-21 P0 #3 + follow-up). Three
+        # shapes need explicit dispatch; the first version of this branch
+        # only handled DataFrame and the other two fell through to the
+        # numpy path with the same misclassification bug the original fix
+        # targeted:
+        #   - polars.DataFrame: to_pandas() returns a pd.DataFrame; canonical.
+        #   - polars.LazyFrame: NO to_pandas method; must collect() first then
+        #     to_pandas(). Without explicit handling np.asarray hits a 0-d
+        #     object array and every column reads as categorical.
+        #   - polars.Series: to_pandas() returns a pd.Series (NOT DataFrame),
+        #     downstream df.columns AttributeErrors. Convert to a 1-column
+        #     DataFrame.
+        _module = type(X).__module__ if X is not None else ""
+        _is_polars = isinstance(_module, str) and _module.startswith("polars")
+        df = None
+        if _is_polars:
+            _typename = type(X).__name__
+            if _typename == "LazyFrame":
+                # Materialise to DataFrame then convert. LazyFrame has neither
+                # to_pandas nor columns directly, so caller must accept the
+                # collect() cost; a LazyFrame walked through analyze_feature_
+                # distribution is going to be materialised anyway downstream.
+                try:
+                    df = X.collect().to_pandas()
+                except Exception:
+                    df = None
+            elif _typename == "Series":
+                # 1-D series -> single-column frame. Use the series name if
+                # caller didn't supply feature_names.
+                _name = (feature_names[0] if feature_names else (getattr(X, "name", None) or "f0"))
+                try:
+                    df = pd.DataFrame({_name: X.to_pandas()})
+                except Exception:
+                    df = None
+            else:
+                _to_pandas = getattr(X, "to_pandas", None)
+                if callable(_to_pandas):
+                    df = _to_pandas()
+        if df is None:
             arr = np.asarray(X)
             if arr.ndim == 1:
                 arr = arr.reshape(-1, 1)

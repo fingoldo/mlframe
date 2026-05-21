@@ -106,6 +106,22 @@ class _FakeEstimator:
         )
 
 
+def test_lean_strip_covers_oof_preds_and_probs():
+    """P0 #2 follow-up: ``oof_preds`` / ``oof_probs`` are large per-row arrays
+    stamped on the model SimpleNamespace at trainer.py:955 when
+    ``oof_n_splits >= 2``. They must be in _LEAN_STRIP_FIELDS so lean saves
+    don't leak ~16-32 MB of OOF data per model on 4M-row training as soon as
+    the caller flips oof_n_splits >= 2."""
+    from mlframe.training.io import _LEAN_STRIP_FIELDS
+    assert "oof_preds" in _LEAN_STRIP_FIELDS, (
+        "oof_preds missing from _LEAN_STRIP_FIELDS -- lean saves will leak it "
+        "whenever the caller stamps OOF on the model entry."
+    )
+    assert "oof_probs" in _LEAN_STRIP_FIELDS, (
+        "oof_probs missing from _LEAN_STRIP_FIELDS -- same risk on classifier paths."
+    )
+
+
 def test_lean_save_strips_large_per_split_arrays_under_threshold():
     """2026-05-21 P0 #2: TVT prod log MLP dump = 135.8 MB on 4M-row training.
     Root cause: ``train_eval.py:895`` called save_mlframe_model WITHOUT

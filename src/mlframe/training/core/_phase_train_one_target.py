@@ -2353,6 +2353,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # ensembles up without needing a separate dispatch.
                 _target_models = models.setdefault(target_type, {}).setdefault(cur_target_name, [])
                 for _ens_method, _ens_result in _ensembles.items():
+                    # K2-CATASTROPHIC-DROPOUT sentinel filter (2026-05-21 P0 #4 follow-up):
+                    # ``score_ensemble`` short-circuits with sentinel-only result entries
+                    # (``_reason``, ``_n_members``, ``_dropped_member``, ``_kept_member``,
+                    # ``_k2_mae_ratio``) when the K=2 catastrophic-dropout fires (or any
+                    # other early-exit branch returns a leading-underscore key). Those are
+                    # METADATA, not model entries; appending them into the per-target
+                    # model list pollutes downstream predict / metric / ensemble code
+                    # with strings / ints / floats where it expects model objects.
+                    # Skip any key starting with ``_`` to leave the model list clean.
+                    if isinstance(_ens_method, str) and _ens_method.startswith("_"):
+                        continue
                     _target_models.append(_ens_result)
                 # Stamp the winning ensemble flavour so the predict path picks the same flavour the
                 # training selection rule would have picked. Predict reads ``ensembles_chosen``

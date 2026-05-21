@@ -386,6 +386,49 @@ def test_k2_catastrophic_dropout_drops_obvious_outlier_member(caplog):
     assert any("K=2 catastrophic-dropout" in rec.message for rec in caplog.records)
 
 
+def test_k2_catastrophic_dropout_sentinel_keys_start_with_underscore():
+    """K2-CATASTROPHIC-DROPOUT sentinel keys must all start with ``_`` so the
+    suite caller can safely skip them via ``startswith("_")`` filtering.
+    Without that contract, the per-target model list at
+    _phase_train_one_target.py:2356 would inject strings / ints / floats
+    where it expects model objects, breaking downstream predict and metric
+    code."""
+    rng = np.random.default_rng(0)
+    n = 500
+    y = rng.standard_normal(n)
+    good = SimpleNamespace(
+        val_preds=(y + 0.1 * rng.standard_normal(n)).astype(np.float64),
+        test_preds=(y + 0.1 * rng.standard_normal(n)).astype(np.float64),
+        train_preds=(y + 0.1 * rng.standard_normal(n)).astype(np.float64),
+        val_probs=None, test_probs=None, train_probs=None,
+        oof_preds=None, oof_probs=None, model=MagicMock(), model_name="g",
+    )
+    bad = SimpleNamespace(
+        val_preds=(-5 * y).astype(np.float64),
+        test_preds=(-5 * y).astype(np.float64),
+        train_preds=(-5 * y).astype(np.float64),
+        val_probs=None, test_probs=None, train_probs=None,
+        oof_preds=None, oof_probs=None, model=MagicMock(), model_name="b",
+    )
+    target = pd.Series(y)
+    res = score_ensemble(
+        [good, bad], ensemble_name="[g+b]", target=target,
+        test_target=target, val_target=target,
+        ensembling_methods=["arithm"],
+        require_oof_for_gate=True,
+        build_votenrank_leaderboard=False,
+        uncertainty_quantile=0.0,
+        verbose=False,
+    )
+    assert res.get("_reason") == "k2_catastrophic_dropout"
+    # Every key in the sentinel-only result MUST start with ``_`` (metadata).
+    for k in res:
+        assert isinstance(k, str) and k.startswith("_"), (
+            f"K=2 catastrophic-dropout produced a NON-underscore key {k!r}; "
+            f"this pollutes the per-target model list downstream."
+        )
+
+
 def test_k2_catastrophic_dropout_skipped_when_no_target_available(caplog):
     """When the gate split has no matching target_arr supplied (caller passed
     target= but val_target=None and the gate fell to val-coarse), the K=2

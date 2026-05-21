@@ -35,6 +35,35 @@ class TestCleanFeatures:
         assert rep.pathologies == [], f"clean iid flagged: {rep.pathologies}"
         assert rep.drop_candidates == []
 
+    def test_polars_series_input_handled(self):
+        """P0 #3 follow-up: polars.Series should produce a 1-column frame, not
+        AttributeError on df.columns inside the analyzer."""
+        pl = pytest.importorskip("polars")
+        rng = np.random.default_rng(50)
+        s = pl.Series("my_feature", rng.normal(0, 1, 500).astype(np.float32))
+        rep = analyze_feature_distribution(s)
+        assert rep.n_features == 1
+        assert rep.diagnostics["n_numeric"] == 1
+        assert rep.diagnostics["n_categorical"] == 0
+
+    def test_polars_lazyframe_input_handled(self):
+        """P0 #3 follow-up: polars.LazyFrame has no to_pandas; the analyzer must
+        collect() it before conversion, NOT fall through to np.asarray (which
+        gave object-array misclassification on the first fix)."""
+        pl = pytest.importorskip("polars")
+        rng = np.random.default_rng(51)
+        n = 500
+        lf = pl.LazyFrame({
+            "f0": rng.normal(0, 1, n).astype(np.float32),
+            "f1": rng.normal(0, 1, n).astype(np.float32),
+            "well_id": [f"w{i % 50}" for i in range(n)],
+        })
+        rep = analyze_feature_distribution(lf)
+        assert rep.diagnostics["n_numeric"] == 2, rep.diagnostics
+        assert rep.diagnostics["n_categorical"] == 1, rep.diagnostics
+        # No false-positive high-cardinality flag on numeric columns.
+        assert not any("high_cardinality_categorical(n=2" in p for p in rep.pathologies), rep.pathologies
+
     def test_polars_dataframe_numerics_not_misclassified(self):
         """2026-05-21 P0 #3: TVT prod log flagged 25 Float32 numeric columns as
         ``high_cardinality_categorical(n=25)`` because the analyzer fell through
