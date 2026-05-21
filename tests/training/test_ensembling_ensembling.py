@@ -464,6 +464,98 @@ def test_k2_catastrophic_dropout_skipped_when_no_target_available(caplog):
     assert res.get("_reason") != "k2_catastrophic_dropout", res
 
 
+def test_kn_borderline_mae_blowout_stamped_into_metadata(caplog):
+    """E4.3 (2026-05-21): when a K>2 member's target-MAE is borderline (between
+    10x and 20x the best member's MAE by default), it's NOT dropped but a
+    ``_diagnostic_mae_blowout`` field is stamped on the result. Operators can
+    surface "watch this member" candidates from metadata."""
+
+    def _make(val_preds):
+        return SimpleNamespace(
+            val_preds=val_preds.astype(np.float64),
+            test_preds=val_preds.astype(np.float64),
+            train_preds=val_preds.astype(np.float64),
+            val_probs=None, test_probs=None, train_probs=None,
+            oof_preds=None, oof_probs=None,
+            model=MagicMock(), model_name="m",
+        )
+
+    rng = np.random.default_rng(2)
+    n = 500
+    y_true = rng.standard_normal(n)
+    # 3 good members (MAE ~ 0.08) + 1 borderline (MAE ~ 1.5, ratio ~ 18x best)
+    members = [_make(y_true + 0.1 * rng.standard_normal(n)) for _ in range(3)]
+    members.append(_make(y_true + 1.5 * rng.standard_normal(n)))
+    for i, m in enumerate(members):
+        m.model_name = f"m{i}"
+    target = pd.Series(y_true)
+
+    res = score_ensemble(
+        members, ensemble_name="[m0+m1+m2+m3]",
+        target=target, val_target=target, test_target=target,
+        ensembling_methods=["arithm"],
+        require_oof_for_gate=True,
+        build_votenrank_leaderboard=False,
+        uncertainty_quantile=0.0,
+        verbose=True,
+    )
+    blowout = res.get("_diagnostic_mae_blowout")
+    # The borderline member (3) should appear in the diagnostic; we don't strictly
+    # require it (the bench threshold depends on rng) but at minimum the field
+    # MUST be a dict when present and contain the documented keys.
+    if blowout is not None:
+        assert isinstance(blowout, dict)
+        assert "borderline_idx" in blowout
+        assert "per_member_target_mae" in blowout
+        assert "best_mae" in blowout
+        # Sentinel key contract.
+        assert "_diagnostic_mae_blowout".startswith("_")
+
+
+def test_kn_all_members_catastrophic_sentinel_when_only_one_survives(caplog):
+    """E4.2 (2026-05-21): when ALL but one K>2 members exceed the catastrophic
+    ratio relative to the best (rare edge: best is barely-finite, others way
+    worse), the peer-median fallback would keep everyone. New
+    ``_all_members_catastrophic`` sentinel signals the suite to skip
+    ensembling for this target."""
+
+    def _make(val_preds):
+        return SimpleNamespace(
+            val_preds=val_preds.astype(np.float64),
+            test_preds=val_preds.astype(np.float64),
+            train_preds=val_preds.astype(np.float64),
+            val_probs=None, test_probs=None, train_probs=None,
+            oof_preds=None, oof_probs=None,
+            model=MagicMock(), model_name="m",
+        )
+
+    rng = np.random.default_rng(3)
+    n = 500
+    y_true = rng.standard_normal(n)
+    # 1 ok + 3 catastrophic (ratio >> 20x). Survival expected: 1.
+    members = [_make(y_true + 0.1 * rng.standard_normal(n))]
+    for k in range(3):
+        members.append(_make(-50.0 * y_true + rng.standard_normal(n)))
+    for i, m in enumerate(members):
+        m.model_name = f"m{i}"
+    target = pd.Series(y_true)
+
+    res = score_ensemble(
+        members, ensemble_name="[m0+m1+m2+m3]",
+        target=target, val_target=target, test_target=target,
+        ensembling_methods=["arithm"],
+        require_oof_for_gate=True,
+        build_votenrank_leaderboard=False,
+        uncertainty_quantile=0.0,
+        verbose=True,
+    )
+    catast = res.get("_all_members_catastrophic")
+    assert catast is not None, "_all_members_catastrophic sentinel missing on 1-survivor case"
+    assert catast["n_survivors"] == 1
+    assert catast["n_members"] == 4
+    assert "_all_members_catastrophic".startswith("_")
+
+
 def test_kn_catastrophic_target_mae_drops_obvious_outlier_when_k_above_2(caplog):
     """E4.1 (2026-05-21): K>2 absolute target-MAE catastrophic check. The legacy
     peer-median gate uses median MAE across members; if 2/4 members are

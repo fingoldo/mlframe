@@ -33,7 +33,7 @@ from sklearn.base import ClassifierMixin, RegressorMixin, is_classifier
 # Metrics: use mlframe's fast njit versions, not sklearn
 from sklearn.preprocessing import LabelEncoder
 
-from mlframe.metrics.core import compute_fairness_metrics, fast_calibration_report, fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_roc_auc, fast_root_mean_squared_error
+from mlframe.metrics.core import compute_fairness_metrics, fast_calibration_report, fast_mean_absolute_error, fast_max_error, fast_r2_score, fast_regression_metrics_block, fast_roc_auc, fast_root_mean_squared_error
 from pyutilz.pythonlib import get_human_readable_set_size
 
 # .evaluation imports back from ._reporting; deferring breaks the cycle.
@@ -455,13 +455,29 @@ def report_regression_model_perf(
             "instead.",
             targets_arr.shape,
         )
-    MAE = fast_mean_absolute_error(targets_arr, preds_arr)
-    # 2-D max_error returns per-output array; the existing reporting
-    # contract is a single scalar (overall max), so reduce explicitly.
-    _max_err = fast_max_error(targets_arr, preds_arr)
-    MaxError = float(np.max(_max_err)) if isinstance(_max_err, np.ndarray) else _max_err
-    R2 = fast_r2_score(targets_arr, preds_arr)
-    RMSE = fast_root_mean_squared_error(targets_arr, preds_arr)
+    # 2026-05-22: fused single-pass kernel for the 1-D regression-reporting case.
+    # On 1-D inputs the 4 separate ``fast_*`` calls each re-touched (y_true, y_pred)
+    # from RAM (4-5 passes total); the fused 2-pass kernel produces numerically
+    # equivalent results (<1e-12 abs diff vs sklearn baseline) at 2.3-3.4x the speed
+    # across 10k/500k/5M sizes. See ``fast_regression_metrics_block`` docstring +
+    # the ``mlframe.metrics._benchmarks.bench_fused_regression_metrics`` bench.
+    # 2-D / multioutput regression keeps the legacy per-output dispatch since the
+    # multioutput aggregation has a non-trivial dispatch and fusing one target's
+    # pass doesn't compose cleanly across outputs.
+    if targets_arr.ndim == 1 and preds_arr.ndim == 1:
+        _block = fast_regression_metrics_block(targets_arr, preds_arr)
+        MAE = _block["MAE"]
+        RMSE = _block["RMSE"]
+        MaxError = _block["MaxError"]
+        R2 = _block["R2"]
+    else:
+        MAE = fast_mean_absolute_error(targets_arr, preds_arr)
+        # 2-D max_error returns per-output array; the existing reporting
+        # contract is a single scalar (overall max), so reduce explicitly.
+        _max_err = fast_max_error(targets_arr, preds_arr)
+        MaxError = float(np.max(_max_err)) if isinstance(_max_err, np.ndarray) else _max_err
+        R2 = fast_r2_score(targets_arr, preds_arr)
+        RMSE = fast_root_mean_squared_error(targets_arr, preds_arr)
 
     # Prediction-collapse sensor (2026-05-21). A regression model that
     # outputs predictions with std << target std AND simultaneously
@@ -628,7 +644,12 @@ def report_regression_model_perf(
                 idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
                 idx = idx[np.argsort(preds[idx])]
 
-                # Three-panel figure: scatter | residuals histogram | residuals vs predicted.
+                # Two-panel figure: scatter | residuals histogram.
+                # 2026-05-22: removed the "Residuals vs predicted"
+                # panel; its heteroscedasticity diagnostic (spearman
+                # of |resid|, y_hat) now lands inside the scatter
+                # title. The remaining two panels each get ~50% wider
+                # at the same total figsize.
                 # constrained_layout cached solver state -- ~13s saved
                 # vs tight_layout per-chart on multi-chart reports.
                 # Honour plot_dpi when caller set it.
@@ -638,16 +659,29 @@ def report_regression_model_perf(
                 )
                 if plot_dpi is not None:
                     _reg_subplots_kwargs["dpi"] = plot_dpi
-                fig, axes = plt.subplots(1, 3, **_reg_subplots_kwargs)
-                ax_scatter, ax_hist, ax_resid = axes
+                fig, axes = plt.subplots(1, 2, **_reg_subplots_kwargs)
+                ax_scatter, ax_hist = axes
 
                 # y=1.02 puts the suptitle ABOVE the
                 # axes region so constrained_layout auto-extends the
                 # top margin. Previously y=0.995 placed the suptitle
                 # inside the axes row, causing collision with the
-                # multiline subplot titles (hist/resid panels carry
-                # 2-line titles for hypothesis + heteroscedasticity).
+                # multiline subplot titles (hist panel carries a
+                # 2-line title for hypothesis + suggested loss).
                 fig.suptitle(header_str, fontsize=11, y=1.02)
+
+                # Scatter title: metrics + Spearman/heteroscedasticity diagnostic
+                # (moved from the dropped 3rd panel so the signal stays visible).
+                _scatter_title = metrics_str
+                if _audit is not None:
+                    _het_marker = (
+                        "(!) heteroscedastic" if _audit.hetero_significant else "homoscedastic"
+                    )
+                    if np.isfinite(_audit.hetero_spearman):
+                        _scatter_title = (
+                            f"{metrics_str}\nspearman(|resid|, y_hat) = "
+                            f"{_audit.hetero_spearman:+.3f} ({_het_marker})"
+                        )
 
                 ax_scatter.scatter(
                     preds[idx], targets[idx], marker=plot_marker, alpha=0.3,
@@ -658,18 +692,20 @@ def report_regression_model_perf(
                 )
                 ax_scatter.set_xlabel("Predictions")
                 ax_scatter.set_ylabel("True values")
-                ax_scatter.set_title(metrics_str)
+                ax_scatter.set_title(_scatter_title)
                 ax_scatter.grid(True, alpha=0.3)
                 ax_scatter.legend(loc="best", fontsize=8, framealpha=0.7)
 
                 if _audit is not None:
+                    # The residual-diagnostics helper now needs ONLY the hist
+                    # axis; passing ax_resid_vs_pred=None silences the legacy
+                    # 3rd-panel render path.
                     _plot_residual_diagnostics(
                         targets, preds, audit=_audit,
-                        ax_hist=ax_hist, ax_resid_vs_pred=ax_resid,
+                        ax_hist=ax_hist, ax_resid_vs_pred=None,
                     )
                 else:
                     ax_hist.set_visible(False)
-                    ax_resid.set_visible(False)
 
                 if plot_file:
                     fig.savefig(plot_file)

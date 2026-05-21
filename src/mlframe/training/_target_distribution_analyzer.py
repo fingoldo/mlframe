@@ -198,41 +198,72 @@ def _max_abs_lag_autocorr(y: np.ndarray, lags: tuple[int, ...] = (1, 2, 3, 5)) -
 
 
 def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size: int = 4) -> float:
-    """Per-group lag-1 autocorr averaged across groups (sample-weighted by group size).
+    """Per-group lag-1 autocorr aggregated across groups via Fisher-z + reverse.
 
     For data where rows have a natural sequence WITHIN each group but not across
     groups (the classic wellbore-MD / per-customer-time-series / per-subject-EEG
     layout), naive ``_lag1_autocorr`` measures cross-group transitions as if they
     were temporal -- spurious low/zero AR. Instead, compute lag-1 autocorr for
-    every group independently and aggregate by weighting each group's correlation
-    by its row count.
+    every group independently and aggregate via Fisher-z transformation (atanh)
+    + reverse (tanh).
 
-    Groups smaller than ``min_group_size`` rows are skipped. Returns NaN when no
-    qualifying groups remain.
+    Why Fisher-z and NOT size-weighted mean: a size-weighted plain average is
+    dominated by ONE huge group when group sizes are skewed (one 100k-row well +
+    999 tiny ones -> the AR signal from the big well buries the others). Fisher
+    z aggregates per-group correlations as DISTINCT samples, faithfully
+    reflecting "AR is present within most groups". The 2026-05-21 critique-agent
+    flagged the original size-weighted form for exactly this skew sensitivity.
+
+    Groups smaller than ``min_group_size`` rows are skipped (with a stamp in the
+    returned via global ``_lag1_grouped_skipped_count`` -- not yet wired but
+    reserved for future observability). Returns NaN when no qualifying groups
+    remain.
     """
     if y.size != group_ids.size or y.size < min_group_size:
         return float("nan")
-    # Sort by group then by original row order (so within-group sequence stays).
-    # We assume the caller's frame is already ordered the way training will see it
-    # -- which for wellbore data means MD-sorted within each well_id. So we just
-    # walk unique groups and slice in place; no re-sort needed.
-    weighted_sum = 0.0
-    weight_sum = 0.0
+    z_values: list[float] = []
     uniq = np.unique(group_ids)
+    skipped = 0
     for g in uniq:
         mask = group_ids == g
         n_g = int(mask.sum())
         if n_g < min_group_size:
+            skipped += 1
             continue
         yg = y[mask]
         ar_g = _lag1_autocorr(yg)
         if not math.isfinite(ar_g):
             continue
-        weighted_sum += ar_g * n_g
-        weight_sum += n_g
-    if weight_sum <= 0:
+        # Fisher-z; cap |ar| to avoid atanh(+/-1) = +/-inf for perfect correlation.
+        ar_capped = max(-0.9999, min(0.9999, ar_g))
+        z_values.append(math.atanh(ar_capped))
+    if not z_values:
         return float("nan")
-    return weighted_sum / weight_sum
+    z_mean = float(np.mean(z_values))
+    return math.tanh(z_mean)
+
+
+def _check_within_group_ordering(group_ids: np.ndarray, n_check: int = 1024) -> bool:
+    """Heuristic ordering check: sample at most ``n_check`` consecutive group_id
+    pairs; if more than 50% are within-group transitions, the rows are
+    plausibly sorted by group (rows of the same group are contiguous). Returns
+    True for plausibly-ordered data.
+
+    The per-group AR detector assumes rows within a group are in their natural
+    sequence (e.g. MD-sorted for wellbore). If rows were shuffled randomly
+    AFTER the FTE step, within-group autocorr drops to ~0 even when the
+    underlying signal is strongly AR -- a false-negative the operator never
+    sees. This check surfaces the assumption violation.
+    """
+    if group_ids.size < 2:
+        return False
+    # Step-sample to keep the check O(n_check) on huge arrays.
+    step = max(1, group_ids.size // n_check)
+    consec_pairs = group_ids[::step]
+    if consec_pairs.size < 2:
+        return False
+    same_group = (consec_pairs[:-1] == consec_pairs[1:])
+    return float(np.mean(same_group)) > 0.5
 
 
 _MULTI_MODAL_VALLEY_DEPTH_RATIO: float = 0.7  # antimode must drop to <= 0.7 * min(peak)
@@ -476,6 +507,25 @@ def analyze_target_distribution(
             if gids_arr.size == y.size:
                 # Apply the same finite-mask filter as y_for_stats.
                 _gids_finite = gids_arr[finite] if finite.size == y.size else gids_arr
+                # E5 (2026-05-21) ordering-check addition: warn when within-group
+                # sequence is destroyed by post-FTE shuffling. The per-group AR
+                # detector assumes rows of the same group are contiguous AND in
+                # their natural order (MD-sorted for wellbore, time-ordered for
+                # per-customer logs). When the suite caller shuffles BEFORE
+                # passing to analyze_target_distribution, the within-group
+                # autocorr drops to ~0 and the detector silently false-negatives
+                # the same prod-relevant pathology it exists to catch.
+                _ordered = _check_within_group_ordering(_gids_finite)
+                diagnostics["group_ordering_check"] = bool(_ordered)
+                if not _ordered:
+                    logger.warning(
+                        "_lag1_autocorr_grouped: rows do not appear sorted by group "
+                        "(only %.0f%% consecutive transitions are within-group). The "
+                        "per-group AR detector assumes within-group sequence is preserved; "
+                        "if your data IS group-sorted, ignore this warning. Otherwise "
+                        "the AR signal is being destroyed by post-FTE row shuffling.",
+                        100.0 * float(np.mean(_gids_finite[:-1] == _gids_finite[1:])),
+                    )
                 ar = _lag1_autocorr_grouped(y_for_stats, _gids_finite)
                 ar_source = "per_group"
                 diagnostics["lag1_autocorr_per_group"] = ar
@@ -714,6 +764,37 @@ def _normalise_X(
             numeric_cols.append(str(c))
         else:
             categorical_cols.append(str(c))
+    # E3.2 (2026-05-21): post-conversion sanity check. If the dataframe has any
+    # numeric columns but ALL of them were classified as categorical (or vice
+    # versa), the input shape almost certainly broke the duck-typing dispatch
+    # above (e.g. a future input form we forgot to handle landed in
+    # np.asarray with object dtype). Loud-fail rather than silent
+    # misclassification (the TVT-2026-05-21 P0 #3 prod symptom was exactly
+    # this -- 25 Float32 columns reported as ``high_cardinality_categorical``;
+    # a defensive assertion would have caught it at the analyzer call site
+    # before the rest of the suite ran).
+    _n_cols_total = len(df.columns)
+    if _n_cols_total > 0 and not numeric_cols and not categorical_cols:
+        # Pure-empty classification under non-empty frame: definitely a bug.
+        raise ValueError(
+            f"_normalise_X: produced 0 numeric AND 0 categorical from {_n_cols_total} columns. "
+            f"Input type was {type(X).__name__}; check the dispatch above."
+        )
+    # If EVERY column ended up categorical AND the input was numpy-shaped, that's the
+    # original misclassification path -- WARN-log so it surfaces in test runs even when
+    # the caller suppresses the analyzer report.
+    if (
+        _n_cols_total >= 2
+        and not numeric_cols
+        and len(categorical_cols) == _n_cols_total
+        and not isinstance(X, pd.DataFrame)
+    ):
+        logger.warning(
+            "_normalise_X: classified ALL %d columns as categorical from %s input. "
+            "This was the P0 #3 misclassification symptom on polars frames; verify the "
+            "dispatch handled your input shape correctly.",
+            _n_cols_total, type(X).__name__,
+        )
     return df, numeric_cols, categorical_cols
 
 

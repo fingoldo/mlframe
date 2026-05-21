@@ -96,7 +96,11 @@ def _fake_audit():
 
 
 class TestRegressionSpec:
-    def test_returns_3_panel_grid(self):
+    def test_returns_2_panel_grid(self):
+        """2026-05-22: layout dropped from 3 panels to 2. The 3rd
+        ``Residuals vs predicted`` scatter was removed; the
+        Spearman / heteroscedasticity diagnostic it carried moves
+        into the scatter (left) title."""
         rng = np.random.default_rng(0)
         y_true = rng.standard_normal(200)
         y_pred = y_true + rng.standard_normal(200) * 0.2
@@ -105,14 +109,14 @@ class TestRegressionSpec:
             header_str="VAL CB ...", metrics_str="MAE=1.2 R2=0.95",
         )
         assert spec.suptitle == "VAL CB ..."
-        # 1 row × 3 cols
         assert len(spec.panels) == 1
-        assert len(spec.panels[0]) == 3
+        assert len(spec.panels[0]) == 2
         assert isinstance(spec.panels[0][0], ScatterPanelSpec)
         assert isinstance(spec.panels[0][1], HistogramPanelSpec)
-        assert isinstance(spec.panels[0][2], ScatterPanelSpec)
 
-    def test_scatter_title_is_metrics_only(self):
+    def test_scatter_title_carries_metrics_and_spearman(self):
+        """The Spearman / heteroscedasticity diagnostic moved out of the
+        dropped 3rd panel into the scatter title (newline-separated)."""
         spec = build_regression_panel_spec(
             np.array([1.0, 2.0, 3.0]),
             np.array([1.1, 1.9, 3.2]),
@@ -120,8 +124,20 @@ class TestRegressionSpec:
             header_str="suptitle here",
             metrics_str="MAE=0.1 RMSE=0.15",
         )
-        # Left scatter title should be exactly the metrics string,
-        # NOT include header.
+        title = spec.panels[0][0].title
+        assert "MAE=0.1 RMSE=0.15" in title
+        assert "spearman(|resid|, y_hat)" in title
+
+    def test_scatter_title_metrics_only_when_audit_missing(self):
+        """When the caller passes ``audit=None`` the scatter title is
+        exactly the metrics string -- no Spearman line is fabricated."""
+        spec = build_regression_panel_spec(
+            np.array([1.0, 2.0, 3.0]),
+            np.array([1.1, 1.9, 3.2]),
+            audit=None,
+            header_str="suptitle here",
+            metrics_str="MAE=0.1 RMSE=0.15",
+        )
         assert spec.panels[0][0].title == "MAE=0.1 RMSE=0.15"
 
     def test_histogram_title_includes_hypothesis_and_suggested(self):

@@ -1,10 +1,19 @@
-"""Regression-report 3-panel chart spec builder.
+"""Regression-report 2-panel chart spec builder.
 
-Layout (single row, 3 columns):
-- left: ScatterPanelSpec (predictions vs true values, with perfect-fit diagonal)
-- middle: HistogramPanelSpec (residuals + fitted Normal overlay; carries
+Layout (single row, 2 columns):
+- left: ScatterPanelSpec (predictions vs true values, with perfect-fit
+  diagonal). Title carries MAE/RMSE/MaxError/R2 plus the Spearman(|resid|,
+  y_hat) heteroscedasticity diagnostic moved here from the dropped 3rd
+  panel.
+- right: HistogramPanelSpec (residuals + fitted Normal overlay; carries
   the noise-distribution hypothesis + suggested loss in its title)
-- right: ScatterPanelSpec (residuals vs predicted -- heteroscedasticity panel)
+
+2026-05-22: dropped the right-most "Residuals vs predicted" scatter at
+the user's request -- the heteroscedasticity signal it carried fits
+inside the scatter title via the Spearman line; the second redundant
+scatter consumed real estate without adding actionable info. With 2
+panels the remaining ones span 1.5x of the original per-panel width
+(figsize stays the same).
 
 Figure-level ``suptitle`` carries the model identity (split / model_name +
 [features/rows]) per the 2026-05-08 layout split.
@@ -30,15 +39,18 @@ def build_regression_panel_spec(
     audit: Any,                       # ResidualAudit instance (duck-typed)
     header_str: str = "",             # figure suptitle
     metrics_str: str = "",            # left-panel title (MAE/RMSE/MaxError/R2)
-    figsize: Tuple[float, float] = (18.0, 4.0),
+    figsize: Tuple[float, float] = (16.0, 5.0),
     plot_sample_size: int = 5000,
     seed: int = 42,
 ) -> FigureSpec:
-    """Build the 3-panel regression FigureSpec.
+    """Build the 2-panel regression FigureSpec.
 
     ``audit`` is a duck-typed ResidualAudit; we read ``mean``, ``std``,
     ``skew``, ``excess_kurt``, ``hypothesis``, ``suggested_loss``,
-    ``hetero_significant``, ``hetero_spearman``.
+    ``hetero_significant``, ``hetero_spearman``. The
+    Spearman(|resid|, y_hat) heteroscedasticity coefficient is folded
+    into the scatter (left) panel's title instead of carrying its own
+    chart -- the 3rd panel was redundant with the audit text block.
     """
     y_true = np.asarray(y_true, dtype=np.float64).ravel()
     y_pred = np.asarray(y_pred, dtype=np.float64).ravel()
@@ -64,10 +76,26 @@ def build_regression_panel_spec(
     sorted_pred = plot_pred[sort_order]
     sorted_true = plot_true[sort_order]
 
+    # 2026-05-22: heteroscedasticity / Spearman line moved from the dropped
+    # "Residuals vs predicted" panel into the scatter title so the diagnostic
+    # stays visible without consuming a 3rd panel. ``het_marker`` flags whether
+    # the underlying spearman is statistically significant per the audit.
+    het_marker = ""
+    spearman_line = ""
+    if audit is not None:
+        het_marker = "(!) heteroscedastic" if audit.hetero_significant else "homoscedastic"
+        if math.isfinite(audit.hetero_spearman):
+            spearman_line = (
+                f"spearman(|resid|, y_hat) = {audit.hetero_spearman:+.3f} ({het_marker})"
+            )
+    scatter_title = metrics_str
+    if spearman_line:
+        scatter_title = f"{metrics_str}\n{spearman_line}".strip("\n")
+
     scatter = ScatterPanelSpec(
         x=sorted_pred,
         y=sorted_true,
-        title=metrics_str,
+        title=scatter_title,
         xlabel="Predictions",
         ylabel="True values",
         perfect_fit_line=True,
@@ -99,28 +127,9 @@ def build_regression_panel_spec(
         overlay_normal=(audit.mean, audit.std) if (audit is not None and audit.std > 0) else None,
     )
 
-    het_marker = "(!) heteroscedastic" if (audit is not None and audit.hetero_significant) else "homoscedastic"
-    spearman_line = (
-        f"spearman(|resid|, y_hat) = {audit.hetero_spearman:+.3f}"
-        if audit is not None else ""
-    )
-    resid_vs_pred = ScatterPanelSpec(
-        x=plot_pred,
-        y=plot_resid,
-        title=f"Residuals vs predicted ({het_marker})\n{spearman_line}",
-        xlabel="Predicted (y_hat)",
-        ylabel="Residual",
-        point_color="steelblue",
-        point_alpha=0.3,
-        point_size=10.0,
-        # Perfect_fit_line would be y=x; for resid-vs-pred we want y=0 line
-        # instead. Renderers lack a generic axhline spec field; add one in
-        # PR2 if needed. For now the zero-line is implicit via gridlines.
-    )
-
     return FigureSpec(
         suptitle=header_str,
-        panels=((scatter, hist, resid_vs_pred),),
+        panels=((scatter, hist),),
         figsize=figsize,
         suptitle_fontsize=11,
     )

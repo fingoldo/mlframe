@@ -35,6 +35,27 @@ class TestCleanFeatures:
         assert rep.pathologies == [], f"clean iid flagged: {rep.pathologies}"
         assert rep.drop_candidates == []
 
+    def test_misclassification_warning_when_all_numeric_become_categorical(self, caplog):
+        """E3.2 (2026-05-21): the post-conversion dtype assertion warns when every
+        column ends up classified as categorical from a non-pandas input. Catches
+        the original P0 #3 polars-misclassification symptom even if a future
+        input form sneaks past the dispatch."""
+        # Simulate a future broken-dispatch shape by passing an object-dtype numpy
+        # array with column names; every column will be categorical because object
+        # is not numeric.
+        import logging
+        n, k = 200, 3
+        arr = np.full((n, k), "a", dtype=object)
+        with caplog.at_level(logging.WARNING):
+            rep = analyze_feature_distribution(arr, feature_names=[f"f{i}" for i in range(k)])
+        msgs = " | ".join(r.getMessage() for r in caplog.records)
+        # The post-conversion guard should WARN-log so test runs catch the
+        # misclassification even if the analyzer returns silently.
+        assert "classified ALL" in msgs and "categorical" in msgs, (
+            f"E3.2 misclassification WARN missing on object-dtype numpy input; "
+            f"got msgs: {msgs[:300]}"
+        )
+
     def test_polars_series_input_handled(self):
         """P0 #3 follow-up: polars.Series should produce a 1-column frame, not
         AttributeError on df.columns inside the analyzer."""

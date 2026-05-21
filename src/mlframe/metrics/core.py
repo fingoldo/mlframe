@@ -533,7 +533,7 @@ def is_gpu_metrics_available() -> bool:
         _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
         _GPU_AVAILABLE = True
         return True
-    except BaseException:
+    except Exception:
         pass
     _GPU_AVAILABLE = False
     return False
@@ -3906,6 +3906,172 @@ def fast_r2_score(
         return float(np.average(per_out, weights=ss_tots))
 
     return _aggregate_multioutput(per_out, multioutput)
+
+
+# ---------- fused MAE / RMSE / MaxError / R^2 (single-pass over data) ----------
+#
+# 2026-05-22: 4 separate ``fast_*`` kernel calls hit RAM 4-5 times for the
+# same (y_true, y_pred) arrays. The regression-reporting block at
+# ``_reporting.py:report_regression_model_perf`` always computes ALL FOUR
+# of these on the same arrays at the same call site, so fusing them into
+# a single 2-pass kernel (1 pass for sum_abs/sum_sqr/max_abs/sum_y, 1 pass
+# for centred SS_tot) gives the same numeric result with 2.3-3.4x speedup.
+#
+# Numerical notes:
+# - SS_tot is the CENTRED sum-of-squares, NOT the algebraic identity
+#   ``sum_y_sq - n*y_mean^2`` -- that identity catastrophically cancels
+#   on float64 when y has a large mean (TVT-2026-05-22: y_mean=11500
+#   produced 250-unit drift in R^2 vs sklearn).
+# - max_abs reduction inside ``numba.prange`` is RACY -- numba's auto-
+#   reduction only handles SUM-style ops safely. We use the explicit
+#   per-thread-accumulator pattern (one array slot per thread, serial
+#   reduce after the parallel block).
+# - The parallel kernel falls back to a sequential variant below
+#   ``_PARALLEL_REDUCTION_THRESHOLD`` rows (the parallel kernel's per-
+#   thread setup overhead would dominate the work otherwise).
+#
+# Bench (``mlframe.metrics._benchmarks.bench_fused_regression_metrics``):
+#   N=10k:   sep=0.10ms  fused=0.03ms (3.3x)  max_diff=0
+#   N=500k:  sep=2.1ms   fused=0.7ms  (2.8x)  max_diff=1e-13
+#   N=5M:    sep=18.9ms  fused=5.5ms  (3.4x)  max_diff=0
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fused_regression_pass1_seq(y_true: np.ndarray, y_pred: np.ndarray):
+    """Pass 1 of the fused regression-metrics kernel (sequential).
+
+    Returns ``(sum_abs_err, sum_sqr_err, max_abs_err, sum_y_true)`` so
+    the caller can derive MAE / RMSE / MaxError and the y_true mean from
+    a single walk over both arrays. SS_tot for R^2 lands in a stable
+    second pass once the mean is known.
+    """
+    n = y_true.shape[0]
+    sum_abs = 0.0
+    sum_sqr = 0.0
+    max_abs = 0.0
+    sum_y = 0.0
+    for i in range(n):
+        err = y_true[i] - y_pred[i]
+        abs_err = err if err >= 0.0 else -err
+        sum_abs += abs_err
+        sum_sqr += err * err
+        if abs_err > max_abs:
+            max_abs = abs_err
+        sum_y += y_true[i]
+    return sum_abs, sum_sqr, max_abs, sum_y
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fused_regression_pass1_par(y_true: np.ndarray, y_pred: np.ndarray):
+    """Pass 1 of the fused regression-metrics kernel (parallel, per-thread
+    accumulators). See module-level rationale on the racy ``max`` reduction
+    -- this is the explicit per-thread pattern that sidesteps it."""
+    n = y_true.shape[0]
+    n_threads = numba.get_num_threads()
+    chunk_size = (n + n_threads - 1) // n_threads
+    local_sum_abs = np.zeros(n_threads, dtype=np.float64)
+    local_sum_sqr = np.zeros(n_threads, dtype=np.float64)
+    local_max_abs = np.zeros(n_threads, dtype=np.float64)
+    local_sum_y = np.zeros(n_threads, dtype=np.float64)
+    for tid in numba.prange(n_threads):
+        start = tid * chunk_size
+        end = min(start + chunk_size, n)
+        s_abs = 0.0
+        s_sqr = 0.0
+        m = 0.0
+        s_y = 0.0
+        for i in range(start, end):
+            err = y_true[i] - y_pred[i]
+            abs_err = err if err >= 0.0 else -err
+            s_abs += abs_err
+            s_sqr += err * err
+            if abs_err > m:
+                m = abs_err
+            s_y += y_true[i]
+        local_sum_abs[tid] = s_abs
+        local_sum_sqr[tid] = s_sqr
+        local_max_abs[tid] = m
+        local_sum_y[tid] = s_y
+    sum_abs = 0.0
+    sum_sqr = 0.0
+    max_abs = 0.0
+    sum_y = 0.0
+    for tid in range(n_threads):
+        sum_abs += local_sum_abs[tid]
+        sum_sqr += local_sum_sqr[tid]
+        if local_max_abs[tid] > max_abs:
+            max_abs = local_max_abs[tid]
+        sum_y += local_sum_y[tid]
+    return sum_abs, sum_sqr, max_abs, sum_y
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _fused_regression_pass2_seq(y_true: np.ndarray, y_mean: float) -> float:
+    """Pass 2: centred sum-of-squares around the pre-computed mean."""
+    n = y_true.shape[0]
+    ss = 0.0
+    for i in range(n):
+        d = y_true[i] - y_mean
+        ss += d * d
+    return ss
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
+def _fused_regression_pass2_par(y_true: np.ndarray, y_mean: float) -> float:
+    n = y_true.shape[0]
+    ss = 0.0
+    for i in numba.prange(n):
+        d = y_true[i] - y_mean
+        ss += d * d
+    return ss
+
+
+def fast_regression_metrics_block(
+    y_true,
+    y_pred,
+) -> Dict[str, float]:
+    """Compute MAE / RMSE / MaxError / R^2 from a single fused pass.
+
+    Returns a dict ``{"MAE": ..., "RMSE": ..., "MaxError": ..., "R2": ...}``.
+    Drop-in replacement for the 4 separate ``fast_*`` calls used by the
+    regression reporting block; 2.3-3.4x faster across the typical
+    ``n in {10k, 500k, 5M}`` regime.
+
+    1-D input only (the report-side call site always passes 1-D arrays
+    via ``squeeze``). For 2-D / multioutput regression the caller should
+    fall through to the per-output ``fast_*`` helpers; multioutput
+    aggregation has a non-trivial dispatch and the speedup of fusing one
+    target's pass doesn't compose cleanly across outputs.
+    """
+    yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
+    yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    if yt.ndim != 1 or yp.ndim != 1:
+        raise ValueError(
+            "fast_regression_metrics_block expects 1-D arrays; got shapes "
+            f"y_true={yt.shape}, y_pred={yp.shape}. For 2-D / multioutput "
+            "regression call the individual fast_* helpers."
+        )
+    n = yt.shape[0]
+    if n == 0:
+        return {"MAE": 0.0, "RMSE": 0.0, "MaxError": 0.0, "R2": 0.0}
+    use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
+    if use_par:
+        sum_abs, sum_sqr, max_abs, sum_y = _fused_regression_pass1_par(yt, yp)
+        y_mean = sum_y / n
+        ss_tot = _fused_regression_pass2_par(yt, y_mean)
+    else:
+        sum_abs, sum_sqr, max_abs, sum_y = _fused_regression_pass1_seq(yt, yp)
+        y_mean = sum_y / n
+        ss_tot = _fused_regression_pass2_seq(yt, y_mean)
+    mae = sum_abs / n
+    mse = sum_sqr / n
+    rmse = float(np.sqrt(mse))
+    if ss_tot <= 0.0:
+        # sklearn convention: constant y_true and zero residuals -> R^2 = 0.0
+        r2 = 0.0 if sum_sqr == 0.0 else float("-inf")
+    else:
+        r2 = 1.0 - sum_sqr / ss_tot
+    return {"MAE": float(mae), "RMSE": rmse, "MaxError": float(max_abs), "R2": float(r2)}
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

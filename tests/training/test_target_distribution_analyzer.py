@@ -155,6 +155,65 @@ class TestRegressionAnalyzer:
         np_overrides = rep.knob_overrides.get("mlp_kwargs", {}).get("network_params", {})
         assert np_overrides.get("use_layernorm") is False
 
+    def test_per_group_ar_robust_to_one_huge_group_via_fisher_z(self):
+        """Per-group AR aggregation uses Fisher-z + reverse so one huge group
+        doesn't drown out 99 small groups. Prior size-weighted form would have
+        let a single dominant group's AR=0.95 vote average 0.9 even when 99
+        small groups had AR=0. The Fisher-z form weighs each group equally, so
+        the aggregate reflects 'AR is present in MOST groups, not just one'."""
+        rng = np.random.default_rng(800)
+        # 1 huge group of 10_000 rows with strong AR(1) phi=0.95
+        big_y = np.zeros(10_000, dtype=np.float64)
+        for i in range(1, 10_000):
+            big_y[i] = 0.95 * big_y[i-1] + rng.standard_normal() * 0.5
+        # 99 small groups of 100 rows each, all iid (no AR)
+        small_groups = [rng.standard_normal(100) for _ in range(99)]
+        y = np.concatenate([big_y] + small_groups)
+        group_ids = np.concatenate([
+            np.zeros(10_000, dtype=np.int32),
+            np.repeat(np.arange(1, 100, dtype=np.int32), 100),
+        ])
+        rep = analyze_target_distribution(y, group_ids=group_ids, has_time_axis=False)
+        # Fisher-z aggregates per-group correlations as INDIVIDUAL samples.
+        # 1 group with AR=~0.95 + 99 with AR=~0 -> Fisher-z mean is dominated by
+        # the 99 iid groups, so the aggregate AR should be near 0, NOT near 0.95.
+        ar = rep.diagnostics.get("lag1_autocorr_per_group")
+        assert ar is not None
+        assert abs(ar) < 0.3, (
+            f"Fisher-z aggregate should NOT inherit the single huge group's AR; got {ar:.3f}"
+        )
+
+    def test_per_group_ar_warns_on_disordered_group_rows(self, caplog):
+        """When rows of the same group are scattered (not contiguous), the
+        per-group AR detector silently false-negatives. The ordering check
+        WARN-logs so the operator sees the assumption violation."""
+        import logging
+        rng = np.random.default_rng(801)
+        # 50 groups, 100 rows each, true AR(1) phi=0.95 WITHIN each group.
+        n_groups, rpg = 50, 100
+        group_ids = np.repeat(np.arange(n_groups), rpg)
+        y = np.zeros(n_groups * rpg, dtype=np.float64)
+        for w in range(n_groups):
+            for i in range(rpg):
+                idx = w * rpg + i
+                if i == 0:
+                    y[idx] = rng.standard_normal()
+                else:
+                    y[idx] = 0.95 * y[idx-1] + rng.standard_normal() * 0.5
+        # Shuffle ALL rows so within-group sequence is destroyed.
+        perm = rng.permutation(len(y))
+        y_shuffled = y[perm]
+        group_ids_shuffled = group_ids[perm]
+        with caplog.at_level(logging.WARNING):
+            rep = analyze_target_distribution(
+                y_shuffled, group_ids=group_ids_shuffled, has_time_axis=False,
+            )
+        msgs = " | ".join(r.getMessage() for r in caplog.records)
+        assert "rows do not appear sorted by group" in msgs, (
+            "ordering-check WARN missing on shuffled data; per-group AR detector "
+            "would silently false-negative without surfacing the assumption violation."
+        )
+
     def test_strong_AR_per_group_when_time_axis_false_but_groups_supplied(self):
         """Per-group AR (2026-05-21 fix #5): TVT-like data where rows are ordered
         WITHIN each group but not across groups. Global lag-1 autocorr looks low
