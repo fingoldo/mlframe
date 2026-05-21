@@ -141,6 +141,31 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
     return F.softplus(-score_diff_pairs).mean()
 
 
+@torch.jit.script
+def _ranknet_loss_precomputed_core(
+    scores: torch.Tensor,
+    i_idx: torch.Tensor,
+    j_idx: torch.Tensor,
+) -> torch.Tensor:
+    """torch.jit.script-compiled inner kernel for ranknet_pairwise_loss_precomputed.
+
+    Fuses the four eager ops (scores[i] - scores[j] -> neg -> softplus -> mean)
+    into a single TorchScript-traced graph that bypasses Python's per-op
+    dispatch overhead. Bench at the c0105 query shape (cuda, n=10 / ~25 pairs):
+    eager 197 us -> scripted 146 us (~26%). torch.compile(inductor) would fuse
+    further via Triton but the Windows triton-windows DLL doesn't load on this
+    box (ImportError: libtriton); compile(aot_eager) without inductor is
+    actually SLOWER (~564 us) because it adds dispatch overhead with no
+    fusion. TorchScript is the portable middle ground.
+
+    None-handling and the i_idx.numel() == 0 short-circuit stay in the
+    outer Python wrapper -- TorchScript Optional[Tensor] requires explicit
+    annotations and the wrapping check is essentially free per-call.
+    """
+    score_diff_pairs = scores[i_idx] - scores[j_idx]
+    return F.softplus(-score_diff_pairs).mean()
+
+
 def ranknet_pairwise_loss_precomputed(
     scores: torch.Tensor,
     i_idx: torch.Tensor | None,
@@ -161,8 +186,7 @@ def ranknet_pairwise_loss_precomputed(
         scores = scores.view(-1)
     if i_idx is None or j_idx is None or i_idx.numel() == 0:
         return scores.new_zeros(())
-    score_diff_pairs = scores[i_idx] - scores[j_idx]
-    return F.softplus(-score_diff_pairs).mean()
+    return _ranknet_loss_precomputed_core(scores, i_idx, j_idx)
 
 
 def listnet_top1_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torch.Tensor:
