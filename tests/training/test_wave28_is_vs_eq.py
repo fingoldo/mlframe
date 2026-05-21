@@ -131,10 +131,13 @@ def test_screen_use_simple_mode_uses_not_not_is_false():
     ``not use_simple_mode`` works uniformly."""
     import pathlib
     import mlframe as _mlframe
+    # 2026-05-22 split: screen_predictors moved to _screen_predictors.py.
+    _dir = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
     src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_selection" / "filters" / "screen.py"
-    ).read_text(encoding="utf-8")
+        (_dir / "screen.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_dir / "_screen_predictors.py").read_text(encoding="utf-8")
+    )
     # Pre-fix shape MUST be gone:
     assert "and (use_simple_mode is False or len(cached_MIs)" not in src
     # Post-fix marker:

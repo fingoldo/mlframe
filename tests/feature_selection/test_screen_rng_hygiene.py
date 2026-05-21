@@ -22,6 +22,9 @@ import pytest
 
 from mlframe.feature_selection.filters import MRMR
 from mlframe.feature_selection.filters import screen as screen_mod
+# 2026-05-22: ``screen_predictors`` body lives in ``_screen_predictors.py``;
+# the live call to ``merge_vars`` resolves from THAT module's globals.
+from mlframe.feature_selection.filters import _screen_predictors as screen_predictors_mod
 
 
 def _toy_dataset(n_rows: int = 200, n_cols: int = 4, seed: int = 0):
@@ -51,7 +54,7 @@ def test_screen_restores_np_random_state_on_exception(monkeypatch):
     def _boom(*args, **kwargs):
         raise RuntimeError("forced failure inside screen_predictors after seeding")
 
-    monkeypatch.setattr(screen_mod, "merge_vars", _boom)
+    monkeypatch.setattr(screen_predictors_mod, "merge_vars", _boom)
 
     m = MRMR(
         random_seed=42,

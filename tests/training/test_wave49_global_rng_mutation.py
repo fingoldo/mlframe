@@ -60,7 +60,18 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file under src/mlframe.
+
+    2026-05-22 monolith split compat: when ``feature_selection/filters/screen.py``
+    is requested, also append the ``_screen_predictors.py`` sibling so
+    source-pattern sensors for the relocated body still match.
+    """
+    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "feature_selection/filters/screen.py":
+        sibling = MLFRAME_ROOT / "feature_selection" / "filters" / "_screen_predictors.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 # ---------------------------------------------------------------------------

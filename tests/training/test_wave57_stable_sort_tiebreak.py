@@ -76,6 +76,19 @@ def _read(rel: str) -> str:
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif rel == "feature_selection/filters/screen.py":
+        # 2026-05-22 split: screen_predictors moved to _screen_predictors.py.
+        sibling = MLFRAME_ROOT / "feature_selection" / "filters" / "_screen_predictors.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif rel == "feature_selection/wrappers/_rfecv.py":
+        # 2026-05-21 split: RFECV.fit + ._fit_stability_selection +
+        # .select_optimal_nfeatures_ moved to sibling files.
+        _dir = MLFRAME_ROOT / "feature_selection" / "wrappers"
+        for nm in ("_rfecv_fit.py", "_rfecv_stability_select.py"):
+            sibling = _dir / nm
+            if sibling.exists():
+                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     return primary
 
 
@@ -91,8 +104,16 @@ def test_rfecv_sffs_swap_uses_secondary_name_key() -> None:
 
 
 def test_rfecv_stability_topk_uses_lexsort() -> None:
+    import re
     src = _read("feature_selection/wrappers/_rfecv.py")
-    assert "np.lexsort(\n                (np.arange(len(per_feature_score_sum)), -per_feature_score_sum)" in src
+    # Indent-tolerant: the body was dedented by 4 spaces during the rfecv
+    # monolith split (class-method extraction). Match the lexsort + tiebreak
+    # tuple shape rather than the literal whitespace.
+    pattern = re.compile(
+        r"np\.lexsort\(\s*\n\s+\(np\.arange\(len\(per_feature_score_sum\)\), "
+        r"-per_feature_score_sum\)"
+    )
+    assert pattern.search(src) is not None
 
 
 def test_rfecv_per_fold_top_uses_secondary_key() -> None:

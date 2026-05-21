@@ -167,10 +167,14 @@ def test_mrmr_select_features_input_checks_raise_value_error():
     ValueError. Source-level guard (full integration fixture is too heavy)."""
     import pathlib
     import mlframe as _mlframe
+    # 2026-05-22: screen.py was split; the input-check shapes the test
+    # pins live in ``_screen_predictors.py`` now. Read both files.
+    _dir = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
     src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_selection" / "filters" / "screen.py"
-    ).read_text(encoding="utf-8")
+        (_dir / "screen.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_dir / "_screen_predictors.py").read_text(encoding="utf-8")
+    )
     # Pre-fix shapes MUST be gone:
     assert "assert mrmr_relevance_algo in (\"fleuret\", \"pld\")" not in src
     assert "assert len(factors_data) >= 10" not in src
@@ -184,10 +188,12 @@ def test_mrmr_invariant_no_self_target_raises_runtime_error():
     """Source guard for the silent-correctness 'target subset of factors' check."""
     import pathlib
     import mlframe as _mlframe
+    _dir = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
     src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_selection" / "filters" / "screen.py"
-    ).read_text(encoding="utf-8")
+        (_dir / "screen.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_dir / "_screen_predictors.py").read_text(encoding="utf-8")
+    )
     assert "assert not set(y).issubset(set(x))" not in src
     assert "target index set is a subset" in src
 
