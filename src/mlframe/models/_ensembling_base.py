@@ -396,6 +396,14 @@ class _WelfordAccumulator(StreamingAccumulator):
 
 
 def batch_numaggs(predictions: np.ndarray, get_numaggs_names_len: int, numaggs_kwds: dict, means_only: bool = True) -> np.ndarray:
+    """Row-wise numeric-aggregate features for a (N, K) prediction matrix.
+
+    Builds a ``(N, get_numaggs_names_len)`` float32 feature matrix by
+    applying :func:`compute_numerical_aggregates_numba` to each row of
+    ``predictions``. Shared by the ensembling-diversity check and quality
+    gate so each member-prediction batch only pays the numba dispatch
+    once per fold.
+    """
     row_features = np.empty(shape=(len(predictions), get_numaggs_names_len), dtype=np.float32)
     for i in range(len(predictions)):
         arr = predictions[i, :]

@@ -167,7 +167,6 @@
   "metrics/core.py::fast_numba_aucs",
   "metrics/core.py::fast_precision",
   "metrics/core.py::maximum_absolute_percentage_error",
-  "models/ensembling.py::batch_numaggs",
   "models/ensembling.py::compare_ensembles",
   "models/optimization.py::CandidateSamplingMethod",
   "models/optimization.py::OptimizationDirection",

@@ -39,11 +39,15 @@ def test_lazy_chunks_chunk_size_larger_than_input_yields_single_chunk():
 
 
 def test_run_fe_step_does_not_materialise_full_pair_list():
-    """Behavioral: monkey-patch ``combinations`` in the mrmr module, observe
+    """Behavioral: monkey-patch ``combinations`` in the FE-step sibling, observe
     that the iterator is consumed in chunks, never wrapped in a single ``list(...)``."""
     from mlframe.feature_selection.filters import mrmr as _mrmr_mod
+    # After the mrmr.py monolith split, ``_run_fe_step`` lives in
+    # ``_mrmr_fe_step.py`` and looks up ``combinations`` from that module's
+    # globals -> patch there, not on the parent re-export.
+    from mlframe.feature_selection.filters import _mrmr_fe_step as _mrmr_fe_step_mod
 
-    real_combinations = _mrmr_mod.combinations
+    real_combinations = _mrmr_fe_step_mod.combinations
 
     class _ProbeIter:
         """Wraps the real combinations iterator and records the max-burst-without-yield.
@@ -72,7 +76,7 @@ def test_run_fe_step_does_not_materialise_full_pair_list():
         observed.append(p)
         return p
 
-    _mrmr_mod.combinations = _probe
+    _mrmr_fe_step_mod.combinations = _probe
     try:
         rng = np.random.default_rng(42)
         N = 60  # >50 triggers the large (parallel) path
@@ -91,7 +95,7 @@ def test_run_fe_step_does_not_materialise_full_pair_list():
         )
         m.fit(X, y)
     finally:
-        _mrmr_mod.combinations = real_combinations
+        _mrmr_fe_step_mod.combinations = real_combinations
 
     # The probe must have been called at least once during _run_fe_step.
     # (MRMR's screening step reduces N candidates to a smaller subset BEFORE

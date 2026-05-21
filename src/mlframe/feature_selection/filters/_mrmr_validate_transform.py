@@ -1,0 +1,331 @@
+"""``MRMR.validate*`` + ``MRMR.transform`` + helpers for ``mlframe.feature_selection.filters.mrmr``.
+
+Split out of ``mrmr.py`` to keep the parent below the 1k-line monolith
+threshold. The methods here are bound onto the ``MRMR`` class at the
+parent's module bottom so ``self.transform(...)`` /
+``self._validate_inputs(...)`` call sites continue to work unchanged.
+
+Eagerly imports the parent module's ``MRMR`` class and shared symbols.
+Safe: the parent loads ``MRMR`` BEFORE the bottom-of-module
+``from ._mrmr_validate_transform import ...`` binding, so every name
+referenced here is already on the parent at the time this sibling loads.
+"""
+from __future__ import annotations
+
+import logging
+import warnings
+from typing import Any, Sequence
+
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import OrdinalEncoder
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+
+def _validate_string_params(self):
+    """Raise ValueError on bad constructor strings. Each branch lists the
+    accepted values verbatim so the error message is actionable. fix audit
+    row FS-P2-1."""
+    _checks = (
+        ("quantization_method", self._VALID_QUANTIZATION_METHODS),
+        ("nan_strategy", self._VALID_NAN_STRATEGIES),
+        ("mrmr_relevance_algo", self._VALID_MRMR_RELEVANCE_ALGOS),
+        ("mrmr_redundancy_algo", self._VALID_MRMR_REDUNDANCY_ALGOS),
+        ("fe_unary_preset", self._VALID_FE_UNARY_PRESETS),
+        ("fe_binary_preset", self._VALID_FE_BINARY_PRESETS),
+    )
+    for _name, _valid in _checks:
+        _val = getattr(self, _name, None)
+        if _val is None:
+            continue
+        if not isinstance(_val, str):
+            raise ValueError(
+                f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. "
+                f"Valid values: {_valid}."
+            )
+        if _val not in _valid:
+            raise ValueError(
+                f"MRMR: {_name}={_val!r} is not a recognised value. "
+                f"Valid values: {_valid}."
+            )
+
+# Input validation contract: explicit guards for memory-exhaustion shapes, malformed dtypes,
+# +/-inf values, single-class y, and polars LazyFrame / Expr edge cases. Each guard raises ValueError or warns.
+# All-constant features are NOT rejected here: zero-variance columns survive validation and surface as MI=0
+# in the screening loop, which is the documented downstream behaviour.
+def _validate_inputs(self, X, y):
+    # Validate string-valued constructor params on every fit. We intentionally
+    # do NOT validate inside __init__ to preserve sklearn-style "no work in
+    # __init__" semantics (clone() must not raise).
+    self._validate_string_params()
+    import warnings as _w
+    n_rows = getattr(X, "shape", (None,))[0]
+    if n_rows is not None:
+        n_cols = X.shape[1] if len(X.shape) > 1 else 1
+        if n_rows == 0:
+            raise ValueError("MRMR.fit: empty input (n_rows=0)")
+        if n_rows == 1:
+            raise ValueError("MRMR.fit: cannot fit on a single row")
+        if isinstance(n_cols, int):
+            # MRMR's binned-frame working set is roughly ``n_rows * n_cols * 4`` bytes (int32 per cell). The previous absolute 1e9 cell ceiling rejected datasets that comfortably fit in RAM on a modern 128 GB+ host while letting through wide-but-not-as-wide frames on a tiny 16 GB box. Compare to ``psutil.virtual_memory().available * 0.5`` -- half of free RAM is the standard "safe working set" headroom for one stage of the pipeline.
+            _footprint_bytes = n_rows * n_cols * 4
+            try:
+                import psutil as _psutil
+                _available_bytes = int(_psutil.virtual_memory().available)
+            except Exception:
+                _available_bytes = 0
+            _headroom_bytes = _available_bytes // 2
+            if _headroom_bytes > 0 and _footprint_bytes > _headroom_bytes:
+                raise ValueError(
+                    f"MRMR.fit: refusing to allocate for n*p={n_rows * n_cols:_} "
+                    f"(~{_footprint_bytes / 1e9:.2f} GB int32 working set) on a host with "
+                    f"{_available_bytes / 1e9:.2f} GB available RAM; threshold is half of available "
+                    f"(~{_headroom_bytes / 1e9:.2f} GB). Subsample, split the dataset, or free RAM "
+                    "headroom before fitting."
+                )
+    if self.quantization_nbins > 1000:
+        raise ValueError(f"quantization_nbins={self.quantization_nbins} > 1000 likely OOMs")
+    if self.interactions_max_order > 5:
+        raise ValueError(f"interactions_max_order={self.interactions_max_order} > 5 explodes combinatorially")
+    if getattr(self, "fe_max_steps", 0) > 20:
+        raise ValueError(f"fe_max_steps={self.fe_max_steps} > 20 unlikely to converge")
+    # Polars edge cases.
+    try:
+        import polars as _pl
+        if isinstance(X, _pl.LazyFrame):
+            _w.warn("MRMR.fit autocollecting LazyFrame; pass DataFrame to skip this copy.", stacklevel=3)
+            X = X.collect()
+        if hasattr(_pl, "Expr") and isinstance(X, _pl.Expr):
+            raise ValueError("MRMR.fit cannot accept polars Expr; materialise via .select(...) first")
+        if isinstance(X, _pl.DataFrame):
+            # Polars struct columns are not supported.
+            struct_cols = [name for name, dt in X.schema.items() if str(dt).startswith("Struct")]
+            if struct_cols:
+                raise ValueError(f"MRMR.fit: polars Struct columns not supported: {struct_cols}")
+    except ImportError:
+        pass
+    # Pandas: duplicate column names.
+    if hasattr(X, "columns"):
+        cols = list(X.columns)
+        if len(cols) != len(set(cols)):
+            from collections import Counter
+            dups = [c for c, n in Counter(cols).items() if n > 1]
+            raise ValueError(f"MRMR.fit: duplicate column names not supported: {dups}")
+    # Numeric-column extraction for NaN / Inf validation. Object-dtype frames (numeric + cat/string mixed) used to slip through because the whole frame was
+    # converted to object-dtype where dtype.kind != "f"; scan numeric columns explicitly instead.
+    try:
+        try:
+            import polars as _pl
+            if isinstance(X, _pl.DataFrame):
+                _num_cols = [n for n, d in X.schema.items() if d.is_numeric()]
+                if _num_cols:
+                    _arr = X.select(_num_cols).to_numpy()
+            elif hasattr(X, "select_dtypes"):
+                _arr = X.select_dtypes(include=["number"]).to_numpy()
+            else:
+                _arr = X.to_numpy()
+        except ImportError:
+            _arr = X.to_numpy() if hasattr(X, "to_numpy") else None
+        if _arr is not None and _arr.dtype.kind == "f":
+            if np.isinf(_arr).any():
+                raise ValueError(
+                    "MRMR.fit: input X contains +/-inf values. Replace or drop these rows before fitting; the discretization step produces undefined bins on inf."
+                )
+            # NaN is allowed and routed through `self.nan_strategy` (default
+            # "separate_bin": NaN rows get an honest dedicated bin instead of
+            # being merged into bin-0 or imputed silently). transform()
+            # preserves NaN in the returned X for downstream NaN-aware models
+            # (catboost, lightgbm, xgboost histogram tree).
+    except ValueError:
+        raise  # re-raise our own ValueError
+    except Exception:
+        pass
+    # All-same y: raise (symmetric with RFECV.fit's single-class y validation). Constant y has H(y)=0 so
+    # every MI(X_j, y) = 0; the entire MRMR pipeline produces zero-information output.
+    # Multilabel y is (N, K): require that AT LEAST ONE label column has variation
+    # (a single dead label is normal; all dead labels means the whole y is constant).
+    try:
+        _y_arr = np.asarray(y)
+        if _y_arr.ndim == 2:
+            _per_col_unique = [
+                len(np.unique(_y_arr[:, _j])) for _j in range(_y_arr.shape[1])
+            ]
+            _y_is_constant = max(_per_col_unique) == 1 if _per_col_unique else True
+        else:
+            _y_is_constant = len(np.unique(_y_arr)) == 1
+        if _y_is_constant:
+            raise ValueError(
+                "MRMR.fit: target y has only 1 unique value. H(y)=0 "
+                "so all features have MI(X_j, y)=0 by construction. "
+                "Drop or rebuild y before fitting."
+            )
+    except ValueError:
+        raise  # re-raise our own ValueError
+    except Exception:
+        pass
+    return X
+
+
+
+def transform(self, X, y=None):
+    """Apply the fitted MRMR selection + engineered-recipe replay to ``X``.
+
+    Returns the column-subset / engineered-frame matching the layout MRMR
+    produced at fit time. Raises :class:`sklearn.exceptions.NotFittedError`
+    if called before :meth:`MRMR.fit`. Bound onto the ``MRMR`` class at the
+    parent module's bottom so ``self.transform(X)`` call sites work
+    unchanged.
+    """
+    # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
+    # binding -> any top-level ``from .mrmr import ...`` here creates a hard
+    # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
+    from .mrmr import ENSURE_ARROW_DF_SUPPORT
+    # Unfitted -> NotFittedError (sklearn-canonical); previously returned X unchanged, masking config bugs.
+    if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
+        from sklearn.exceptions import NotFittedError
+        raise NotFittedError(
+            "This MRMR instance is not fitted yet. Call 'fit' before "
+            "using 'transform'."
+        )
+    support = self.support_
+    recipes = getattr(self, "_engineered_recipes_", [])
+
+    # Fast-path: when MRMR selected every input column AND produced zero engineered recipes, transform()
+    # is the identity. Return X unchanged to avoid a full-copy X[selected_cols] and to let the caller detect
+    # the no-op (checked via ``_mlframe_identity_equivalent`` downstream).
+    if not recipes and hasattr(X, "shape"):
+        _support_arr = np.asarray(support)
+        if len(_support_arr) > 0 and isinstance(_support_arr.flat[0], (bool, np.bool_)):
+            _n_selected = int(np.count_nonzero(_support_arr))
+        else:
+            _n_selected = len(_support_arr)
+        if _n_selected == X.shape[1]:
+            return X
+
+    # Empty-base-support: if no base AND no engineered recipes, return legacy empty output. Recipes but no
+    # base falls through and only the engineered cols come out.
+    if len(support) == 0 and not recipes:
+        if isinstance(X, pd.DataFrame):
+            return X.iloc[:, []]
+        else:
+            return X[:, np.array([], dtype=np.intp)]
+
+    if isinstance(X, pd.DataFrame):
+        if ENSURE_ARROW_DF_SUPPORT:
+            # Use column names to support Arrow-backed DataFrames (from polars zero-copy conversion).
+            # Arrow-backed DFs don't support .iloc[:, integer_array] reliably.
+            selected_cols = [self.feature_names_in_[i] for i in support]
+            # Fuzz-caught: in a multi-model suite where a fitted MRMR is reused across models, val_df passed
+            # to transform can have a different column set than the train_df MRMR fit on (e.g. after
+            # _filter_categorical_features narrowed the frame). Detect column drift explicitly so we raise
+            # with actionable context instead of an unhelpful KeyError.
+            missing = [c for c in selected_cols if c not in X.columns]
+            if missing:
+                # Raise on column drift (symmetric with RFECV.transform); silent intersection masked
+                # downstream column-set bugs. Callers wanting degradation can catch and intersect themselves.
+                raise RuntimeError(
+                    f"MRMR.transform: {len(missing)}/{len(selected_cols)} "
+                    f"selected columns missing from input X ({missing[:8]}). "
+                    f"The fitted support_ no longer matches the input's "
+                    f"physical columns; an upstream step (constant-col "
+                    f"removal / imputer drop / OD filter) is mutating the "
+                    f"column set BETWEEN fit and transform. Investigate."
+                )
+            base_out = X[selected_cols]
+        else:
+            base_out = X.iloc[:, support]
+        return self._append_engineered(base_out, X, recipes)
+    else:
+        base_out = X[:, support]
+        out = self._append_engineered(base_out, X, recipes)
+        # When X is polars and Pipeline has set_output(transform="pandas"), sklearn's PandasAdapter calls
+        # pd.DataFrame(out, ...) which (unlike polars' own .to_pandas()) does NOT preserve Arrow-backed
+        # dtypes: pl.Enum / pl.Categorical collapse to object; pl.Float32 turns to object-of-strings
+        # ('1.23' as text), and downstream HGB/XGB/SimpleImputer raise "could not convert string to float".
+        # Convert ourselves via polars' Arrow-preserving .to_pandas() whenever the consumer expects pandas.
+        try:
+            from sklearn.utils._set_output import _get_output_config
+            _cfg = _get_output_config("transform", estimator=self)
+            _want_pandas = (_cfg.get("dense") or "default") == "pandas"
+        except Exception:
+            _want_pandas = False
+        if _want_pandas:
+            try:
+                import polars as _pl
+                if isinstance(out, _pl.DataFrame):
+                    out = out.to_pandas()
+            except ImportError:
+                pass
+        return out
+
+def _append_engineered(self, base_out, X, recipes):
+    """Append engineered-recipe columns onto ``base_out``.
+
+    Inputs:
+    - ``base_out``: DataFrame / ndarray already restricted to the base
+      ``support_`` columns. Caller's dtype is preserved.
+    - ``X``: full input frame (DataFrame, ndarray, or polars). Recipe
+      replay reads source columns from here BY NAME, so X must
+      contain at least every ``recipe.src_names`` entry.
+    - ``recipes``: list of EngineeredRecipe to replay.
+
+    Behaviour:
+    - Returns ``base_out`` unchanged when ``recipes`` is empty (legacy
+      path, zero overhead).
+    - For pandas / polars input, engineered cols are appended as
+      named columns.
+    - For ndarray input, engineered cols are stacked as additional
+      numeric columns; column names are not preserved (caller is
+      expected to use ``get_feature_names_out`` for naming).
+    """
+    if not recipes:
+        return base_out
+
+    # Lazy import keeps import-time cost off MRMR users who never engage FE.
+    from .engineered_recipes import apply_recipe
+
+    # K-way recipes ship a chained-lookup payload (extras ``chain_lookups`` / ``chain_nuniqs``) so they
+    # replay on test data alongside pair recipes. The only filter is the legacy ``requires_refit_for_replay``
+    # flag retained for OLD pickles that pre-date the chain payload.
+    replayable = [
+        r for r in recipes
+        if r.extra.get("chain_lookups") is not None
+        or not r.extra.get("requires_refit_for_replay")
+    ]
+    if len(replayable) < len(recipes) and self.verbose:
+        logger.info(
+            "MRMR.transform: skipping %d legacy k-way recipe(s) "
+            "without chained-lookup payload (pre-D3 pickle). Re-fit "
+            "to materialise the chain.",
+            len(recipes) - len(replayable),
+        )
+    if not replayable:
+        return base_out
+    recipes = replayable
+    engineered_cols = [apply_recipe(r, X) for r in recipes]
+    if isinstance(base_out, pd.DataFrame):
+        # ``copy=False`` would risk mutating caller's view (base_out is a view into pandas X). Build a narrow
+        # new frame: engineered cols are fresh ndarrays anyway, only base cols share buffers with X.
+        engineered_df = pd.DataFrame(
+            {r.name: col for r, col in zip(recipes, engineered_cols)},
+            index=base_out.index,
+        )
+        return pd.concat([base_out, engineered_df], axis=1)
+
+    # Try polars first if available (avoid hard import).
+    try:
+        import polars as _pl
+        if isinstance(base_out, _pl.DataFrame):
+            return base_out.with_columns([
+                _pl.Series(r.name, col) for r, col in zip(recipes, engineered_cols)
+            ])
+    except ImportError:
+        pass
+
+    # ndarray fallback: hstack engineered cols. Names are lost but row order matches get_feature_names_out.
+    engineered_arr = np.column_stack(engineered_cols) if engineered_cols else np.empty((base_out.shape[0], 0))
+    if base_out.size == 0:
+        return engineered_arr.astype(base_out.dtype, copy=False)
+    return np.hstack([base_out, engineered_arr.astype(base_out.dtype, copy=False)])
+

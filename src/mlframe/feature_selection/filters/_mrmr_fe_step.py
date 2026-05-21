@@ -1,0 +1,586 @@
+"""``MRMR._run_fe_step`` -- FE-step orchestrator for ``mlframe.feature_selection.filters.mrmr``.
+
+Split out of ``mrmr.py`` to keep the parent below the 1k-line monolith
+threshold. ``_run_fe_step`` is bound back onto the ``MRMR`` class at the
+parent's module bottom, so call sites that invoke ``self._run_fe_step(...)``
+continue to work unchanged.
+
+Carries the per-fold FE expansion logic (unary / binary / hermite / pysr
+candidate generation, scoring, append-to-data) and the support-map
+bookkeeping. The parent module's helpers (``_lazy_chunks``, ``MRMR`` for
+class-level cache attrs) are imported eagerly since the parent is already
+loaded by the time this sibling is imported.
+"""
+from __future__ import annotations
+
+import copy
+import gc
+import hashlib
+import logging
+import math
+import os
+import textwrap
+import time
+import warnings
+from collections import OrderedDict, defaultdict
+from itertools import combinations, islice
+from timeit import default_timer as timer
+from typing import Any, Sequence
+
+import numpy as np
+import pandas as pd
+from joblib import Parallel, delayed
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+
+def _run_fe_step(
+    self,
+    *,
+    # Mutable state from MRMR.fit (returned updated as tuple).
+    data, cols, nbins, X,
+    target_names, target_indices,
+    selected_vars, categorical_vars,
+    classes_y, classes_y_safe, freqs_y,
+    cached_MIs, cached_confident_MIs,
+    unary_transformations, binary_transformations,
+    engineered_features, checked_pairs,
+    # Parallel dict (name -> EngineeredRecipe) populated as new columns are added to data / cols so
+    # transform() can replay them on test data. Mutated in place; MRMR.fit reads it after the FE loop
+    # and copies surviving recipes into self._engineered_recipes_. ``None`` skips recipe construction.
+    engineered_recipes=None,
+    times_spent,
+    num_fs_steps,
+    # Service.
+    n_jobs, prefetch_factor, parallel_kwargs,
+    _is_polars_input, verbose,
+    # FE config (frozen per fit).
+    fe_max_steps, fe_npermutations, fe_max_pair_features,
+    fe_print_best_mis_only, fe_min_nonzero_confidence,
+    fe_min_engineered_mi_prevalence,
+    fe_good_to_best_feature_mi_threshold,
+    fe_max_external_validation_factors,
+    fe_min_pair_mi, fe_min_pair_mi_prevalence,
+    fe_smart_polynom_iters, fe_smart_polynom_optimization_steps,
+    fe_min_polynom_degree, fe_max_polynom_degree,
+    fe_min_polynom_coeff, fe_max_polynom_coeff,
+    # Preset-name snapshot so recipes can rebuild the correct registry at replay time. Default "minimal"
+    # matches MRMR.__init__ defaults; callers that override via self.fe_unary_preset / self.fe_binary_preset
+    # get the actual values threaded through by fit().
+    fe_unary_preset: str = "minimal",
+    fe_binary_preset: str = "minimal",
+):
+    """One Feature Engineering iteration. Extracted from ``MRMR.fit`` for testability and FE experimentation.
+
+    Returns ``None`` if the FE step should not run (empty-screen + ``fe_fallback_to_all=False``); otherwise
+    ``(data, cols, nbins, X, selected_vars, n_recommended_features)``. ``n_recommended_features == 0`` signals
+    the outer loop to stop. Private; external callers should use ``MRMR.fit()`` or ``MRMR.fit_transform()``.
+    """
+    # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
+    # binding -> any top-level ``from .mrmr import ...`` here creates a hard
+    # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
+    from .mrmr import (
+        MRMR,
+        _lazy_chunks,
+        _MRMR_BATCH_PRECOMPUTE_MAX_K,
+        _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
+        check_prospective_fe_pairs,
+        compute_pairs_mis,
+        discretize_array,
+        get_new_feature_name,
+        parallel_run,
+        sort_dict_by_value,
+        tqdmu,
+    )
+    if verbose:
+        logger.info("MRMR+ selected %d out of %d features before the Feature Engineering step.", len(selected_vars), self.n_features_in_)
+
+    if len(selected_vars) == 0:
+        if self.fe_fallback_to_all:
+            logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
+            selected_vars = np.array([cols.index(col) for col in cols if col not in target_names])
+        else:
+            logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
+            return None
+
+    if _is_polars_input:
+        import polars as pl  # noqa: F401  -- pl is used in the polars dispatch branches below
+
+    n_recommended_features = 0
+    if verbose >= 2:
+        logger.info("Computing prospective FE pairs...")
+
+    if self.fe_ntop_features:
+        numeric_vars_to_consider = selected_vars[: self.fe_ntop_features]
+    else:
+        numeric_vars_to_consider = selected_vars
+
+    numeric_vars_to_consider = set(numeric_vars_to_consider) - set(categorical_vars)
+
+    # Honor factors_to_use / factors_names_to_use in the FE step too; intersect the FE pool with the user's
+    # restriction so the contract matches the screening step.
+    if self.factors_to_use is not None:
+        numeric_vars_to_consider = numeric_vars_to_consider & set(self.factors_to_use)
+    if self.factors_names_to_use is not None:
+        allowed = {cols.index(n) for n in self.factors_names_to_use if n in cols}
+        numeric_vars_to_consider = numeric_vars_to_consider & allowed
+
+    # `combinations(...)` is consumed lazily by tqdmu (small path) or by
+    # `_lazy_chunks` (large path). Pair count is closed-form, avoiding
+    # `list(combinations(...))` materialisation (O(k^2) tuples, ~300 MB at
+    # k=5000) before chunking even starts.
+    _k = len(numeric_vars_to_consider)
+    n_pairs = (_k * (_k - 1)) // 2
+
+    if verbose:
+        logger.info("Feature Engineering: Computing MIs of %d most prospective feature pairs...", n_pairs)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # Layer 3 pre-batch: compute pair MIs for every (a, b) in numeric_vars_to_consider via dispatch_batch_pair_mi
+    # (CUDA / CPU njit prange by size). Pre-fills cached_MIs[pair] so the per-pair compute_pairs_mis loop below skips
+    # the permutation-test branch entirely (since "pair in cached_MIs" short-circuits at feature_engineering.py:394).
+    #
+    # Semantic change vs the legacy path: pairs no longer go through the permutation-test confidence filter
+    # (min_nonzero_confidence). The raw original_mi is used as the FE-pair signal. Bench (commit 57f772c) shows
+    # 10-30x speedup over the per-pair joblib loop; downstream MRMR FE pair selection is regression-validated by the
+    # MRMR test suite. Disable by setting MLFRAME_MRMR_BATCH_PAIR_MI=0 (the env-var is the emergency rollback knob).
+    #
+    # Guards:
+    #   * _k > _MRMR_BATCH_PRECOMPUTE_MAX_K: the dispatcher would have to materialise O(k^2) pair tuples; for very
+    #     wide FE pools we keep the legacy lazy combinations + joblib chunking instead.
+    #   * n_pairs < _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS: pair count too small to amortise the dispatcher overhead.
+    #   * Any backend failure (CUDA driver hiccup, dtype mismatch): logged WARN, fall through to legacy path.
+    # Accept the common truthy/falsy spellings rather than require the operator
+    # to remember the exact literals we sliced earlier. Empty / missing env
+    # var defaults to ENABLED (the new behaviour).
+    _BATCH_PRECOMPUTE_ENABLED = os.environ.get(
+        "MLFRAME_MRMR_BATCH_PAIR_MI", "1",
+    ).strip().lower() not in ("0", "false", "no", "off", "")
+    _batch_prefill_count = 0
+    if (
+        _BATCH_PRECOMPUTE_ENABLED
+        and _k <= _MRMR_BATCH_PRECOMPUTE_MAX_K
+        and n_pairs >= _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS
+    ):
+        try:
+            from mlframe.feature_selection.filters.batch_pair_mi_gpu import dispatch_batch_pair_mi
+
+            _pairs_list = list(combinations(numeric_vars_to_consider, 2))
+            _pair_a_arr = np.fromiter((p[0] for p in _pairs_list), dtype=np.int64, count=len(_pairs_list))
+            _pair_b_arr = np.fromiter((p[1] for p in _pairs_list), dtype=np.int64, count=len(_pairs_list))
+            _pair_mi_batch, _backend_used = dispatch_batch_pair_mi(
+                factors_data=data,
+                pair_a=_pair_a_arr,
+                pair_b=_pair_b_arr,
+                nbins=nbins,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+            )
+            # Populate cached_MIs to short-circuit compute_pairs_mis's per-pair mi_direct call.
+            # Skip pairs already in cached_confident_MIs (those had a confident permutation outcome).
+            for _i, _p in enumerate(_pairs_list):
+                if _p not in cached_confident_MIs and _p not in cached_MIs:
+                    cached_MIs[_p] = float(_pair_mi_batch[_i])
+                    _batch_prefill_count += 1
+            if verbose:
+                logger.info(
+                    "MRMR FE: batch-prefilled %d/%d pair MIs via %s backend (permutation test skipped for these pairs)",
+                    _batch_prefill_count, len(_pairs_list), _backend_used,
+                )
+        except Exception as _exc:
+            if verbose:
+                logger.warning(
+                    "MRMR FE: dispatch_batch_pair_mi failed (%s: %s); falling back to legacy per-pair path "
+                    "[n_pairs=%d, n_rows=%d, n_classes_y=%d]",
+                    type(_exc).__name__, _exc,
+                    n_pairs, int(data.shape[0]) if hasattr(data, "shape") else -1,
+                    int(freqs_y.shape[0]) if hasattr(freqs_y, "shape") else -1,
+                )
+
+    # Parallelise whenever (a) more than one worker is configured and
+    # (b) we have at least n_jobs pairs to spread; per-pair MI compute is
+    # ~35 s with default fe_npermutations on a wide frame, so parallel
+    # overhead is amortised even at very small _k. Previously this took
+    # the single-thread branch up to _k=50 (1225 pairs), serialising what
+    # should be a 4-minute job into ~1 h on a 16-core box.
+    if n_jobs <= 1 or n_pairs < max(2, n_jobs):
+        compute_pairs_mis(
+            all_pairs=tqdmu(
+                combinations(numeric_vars_to_consider, 2),
+                total=n_pairs,
+                desc="getting pairs MIs",
+                leave=False,
+                mininterval=5,
+            ),
+            data=data,
+            target_indices=target_indices,
+            nbins=nbins,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
+            freqs_y=freqs_y,
+            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+            fe_npermutations=fe_npermutations,
+            cached_confident_MIs=cached_confident_MIs,
+            cached_MIs=cached_MIs,
+            fe_min_pair_mi=fe_min_pair_mi,
+            fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+        )
+    else:
+        chunk_size = max(1, n_pairs // (n_jobs * prefetch_factor))
+        dicts = parallel_run(
+            [
+                delayed(compute_pairs_mis)(
+                    all_pairs=chunk,
+                    data=data,
+                    target_indices=target_indices,
+                    nbins=nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                    fe_npermutations=fe_npermutations,
+                    cached_confident_MIs=cached_confident_MIs,
+                    cached_MIs=cached_MIs,
+                    fe_min_pair_mi=fe_min_pair_mi,
+                    fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+                )
+                for chunk in _lazy_chunks(combinations(numeric_vars_to_consider, 2), chunk_size)
+            ],
+            n_jobs=n_jobs,
+            **parallel_kwargs,
+        )
+        for next_dict in dicts:
+            cached_MIs.update(next_dict)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
+    # ---------------------------------------------------------------------------------------------------------------
+
+    vars_usage_counter = defaultdict(int)
+    prospective_pairs = {}
+    for raw_vars_pair, pair_mi in sort_dict_by_value(cached_MIs).items():
+        if len(raw_vars_pair) == 2:
+            if raw_vars_pair in checked_pairs:
+                continue
+            if raw_vars_pair[0] in numeric_vars_to_consider and raw_vars_pair[1] in numeric_vars_to_consider:
+                ind_elems_mi_sum = cached_MIs[(raw_vars_pair[0],)] + cached_MIs[(raw_vars_pair[1],)]
+                # Guard against ZeroDivisionError: when both individual features have zero MI with target
+                # (canonical 3-way XOR case: MI(x_i, y) = 0 for all i but the joint signal exists), any positive pair_mi
+                # qualifies as infinite uplift -- keep the pair.
+                if ind_elems_mi_sum <= 0:
+                    if pair_mi > 0:
+                        uplift = float("inf")
+                        if verbose >= 2:
+                            logger.info(
+                                f"Factors pair {raw_vars_pair} has zero individual MI but pair_mi={pair_mi:.4f} -- canonical hidden-pair case (e.g. XOR), keeping for FE"
+                            )
+                        prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
+                        for var in raw_vars_pair:
+                            vars_usage_counter[var] += 1
+                    continue
+                if pair_mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
+                    uplift = pair_mi / ind_elems_mi_sum
+                    if verbose >= 2:
+                        logger.info(
+                            f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {ind_elems_mi_sum:.4f}->{pair_mi:.4f}, rat={uplift:.2f}"
+                        )
+                    prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
+                    for var in raw_vars_pair:
+                        vars_usage_counter[var] += 1
+
+    # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
+    # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
+    prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
+
+    if fe_smart_polynom_iters:
+        # Orthogonal-polynomial pair FE: Chebyshev default basis (empirically robust); tight coef range [-2, 2],
+        # fixed degree per study, L2 regularisation, identity-baseline filter. Override basis via
+        # ``self.fe_polynomial_basis``. See feature_selection.filters.hermite_fe and bench_polynomial_bases.
+        #
+        # 2026-05-18: extracted from inline ~200 LOC block into
+        # ``polynom_pair_fe.run_polynom_pair_fe`` (joblib-threaded pair
+        # eval + serial inject). ``self._hermite_features_`` is fed
+        # through as a target list so the helper stays method-free.
+        from .polynom_pair_fe import run_polynom_pair_fe
+        if not hasattr(self, "_hermite_features_"):
+            self._hermite_features_ = []
+        # None / 0 / negative all map to "no subsample" (use full data).
+        _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
+        _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0
+        data, nbins, cols, X = run_polynom_pair_fe(
+            X=X, is_polars_input=_is_polars_input,
+            prospective_pairs=prospective_pairs,
+            classes_y=classes_y,
+            cols=cols, nbins=nbins, data=data,
+            engineered_features=engineered_features,
+            engineered_recipes=engineered_recipes,
+            hermite_features_list=self._hermite_features_,
+            feature_names_in=self.feature_names_in_,
+            fe_smart_polynom_iters=fe_smart_polynom_iters,
+            fe_smart_polynom_optimization_steps=fe_smart_polynom_optimization_steps,
+            fe_min_polynom_degree=fe_min_polynom_degree,
+            fe_max_polynom_degree=fe_max_polynom_degree,
+            fe_min_polynom_coeff=fe_min_polynom_coeff,
+            fe_max_polynom_coeff=fe_max_polynom_coeff,
+            fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
+            fe_hermite_l2_penalty=getattr(self, "fe_hermite_l2_penalty", 0.05),
+            fe_polynomial_basis=getattr(self, "fe_polynomial_basis", "chebyshev"),
+            fe_mi_estimator=getattr(self, "fe_mi_estimator", "plugin"),
+            fe_optimizer=getattr(self, "fe_optimizer", "cma"),
+            fe_warm_start=getattr(self, "fe_warm_start", True),
+            fe_multi_fidelity=getattr(self, "fe_multi_fidelity", True),
+            quantization_nbins=self.quantization_nbins,
+            quantization_method=self.quantization_method,
+            quantization_dtype=self.quantization_dtype,
+            n_jobs=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
+            verbose=int(verbose),
+            subsample_n=_subsample_n,
+        )
+
+    # The standard check_prospective_fe_pairs path used to live in
+    # ``else:`` of the Hermite block, which meant enabling
+    # ``fe_smart_polynom_iters > 0`` silently DISABLED all standard
+    # unary/binary FE (cbrt, sqrt, log, hypot, atan2, ...). De-dented the
+    # block so the standard pipeline always runs after the Hermite block;
+    # users get the unary/binary FE they asked for via
+    # ``fe_unary_preset='medium'`` regardless of whether Hermite ran.
+    if True:
+        original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
+        if verbose >= 1:
+            logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
+        if len(X) < 50_000 or len(prospective_pairs) < 2:
+            prospective_additions = check_prospective_fe_pairs(
+                prospective_pairs,
+                X,
+                unary_transformations,
+                binary_transformations,
+                classes_y,
+                classes_y_safe,
+                freqs_y,
+                num_fs_steps,
+                cols,
+                original_cols,
+                fe_max_steps,
+                fe_npermutations,
+                fe_max_pair_features,
+                fe_print_best_mis_only,
+                fe_min_nonzero_confidence,
+                fe_min_engineered_mi_prevalence,
+                fe_good_to_best_feature_mi_threshold,
+                fe_max_external_validation_factors,
+                numeric_vars_to_consider,
+                self.quantization_nbins,
+                self.quantization_method,
+                self.quantization_dtype,
+                times_spent,
+                verbose,
+                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+            )
+        else:
+
+            prospective_additions = {}
+            desired_nitems = max(1, len(prospective_pairs) // (n_jobs * prefetch_factor))
+
+            jobs_list = []
+
+            nitems = 0
+            cur_dict = {}
+            for key, value in prospective_pairs.items():
+                nitems += 1
+                cur_dict[key] = value
+                if nitems >= desired_nitems:
+                    jobs_list.append(cur_dict)
+                    nitems = 0
+                    cur_dict = {}
+            if cur_dict:
+                jobs_list.append(cur_dict)
+
+            if verbose:
+                logger.info(
+                    f"Using {desired_nitems:_} items per thread for checking {len(prospective_pairs):_} prospective_pairs with gain>{fe_min_pair_mi_prevalence:.2f}."
+                )
+
+            dicts = parallel_run(
+                [
+                    delayed(check_prospective_fe_pairs)(
+                        chunk,
+                        X,
+                        unary_transformations,
+                        binary_transformations,
+                        classes_y,
+                        classes_y_safe,
+                        freqs_y,
+                        num_fs_steps,
+                        cols,
+                        original_cols,
+                        fe_max_steps,
+                        fe_npermutations,
+                        fe_max_pair_features,
+                        fe_print_best_mis_only,
+                        fe_min_nonzero_confidence,
+                        fe_min_engineered_mi_prevalence,
+                        fe_good_to_best_feature_mi_threshold,
+                        fe_max_external_validation_factors,
+                        numeric_vars_to_consider,
+                        self.quantization_nbins,
+                        self.quantization_method,
+                        self.quantization_dtype,
+                        times_spent,
+                        verbose,
+                        subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                    )
+                    for chunk in jobs_list
+                ],
+                # max_nbytes=0,
+                n_jobs=n_jobs,
+                **parallel_kwargs,
+            )
+            for next_dict in dicts:
+                prospective_additions.update(next_dict)
+
+        for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins, messages) in prospective_additions.items():
+            if this_pair_features:
+                engineered_features.update(this_pair_features)
+                if verbose:
+                    for mes in messages:
+                        logger.info(mes)
+                    # logger.info(f"Features {new_cols} are recommended to use as new features!")
+                if fe_max_steps > 1:
+                    new_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=self.quantization_dtype)
+                    for j in range(len(this_pair_features)):
+                        new_vals[:, j] = discretize_array(
+                            arr=transformed_vals[:, j],
+                            n_bins=self.quantization_nbins,
+                            method=self.quantization_method,
+                            dtype=self.quantization_dtype,
+                        )
+                    data = np.append(data, new_vals, axis=1)
+                    # ``nbins`` is a numpy.ndarray (returned by categorize_dataset), so plain ``+`` does
+                    # element-wise addition / broadcasting, not concatenation. Use np.concatenate so nbins
+                    # grows in lockstep with data.shape[1] (otherwise screen_predictors trips its
+                    # targets_data.shape[1] == len(targets_nbins) assertion when engineered cols feed back).
+                    nbins = np.concatenate([
+                        np.asarray(nbins),
+                        np.asarray(new_nbins, dtype=nbins.dtype),
+                    ])
+                    cols = cols + new_cols
+                    if _is_polars_input:
+                        # Polars is immutable: with_columns returns a new frame sharing buffers; caller's X untouched.
+                        _series_to_add = [
+                            pl.Series(col, transformed_vals[:, j])
+                            for j, col in enumerate(new_cols)
+                        ]
+                        X = X.with_columns(_series_to_add)
+                    else:
+                        for col in new_cols:
+                            X[col] = transformed_vals[:, j]
+
+                    # Build EngineeredRecipe for each newly-appended column so transform() can replay it.
+                    # Only runs when columns were added (fe_max_steps > 1). Best-effort: parents that are
+                    # themselves engineered (higher-order interaction) are skipped (nested replay is future work).
+                    if engineered_recipes is not None:
+                        from .engineered_recipes import build_unary_binary_recipe
+                        for config, _j in this_pair_features:
+                            # config = (transformations_pair, bin_func_name, i)
+                            # transformations_pair = ((var_a_idx, unary_a_name),
+                            #                        (var_b_idx, unary_b_name))
+                            transformations_pair, bin_func_name, _ = config
+                            (var_a_idx, unary_a_name) = transformations_pair[0]
+                            (var_b_idx, unary_b_name) = transformations_pair[1]
+                            # Map cols-index -> feature_names_in_-name. If a parent is itself engineered,
+                            # cols[var] is not in feature_names_in_; skip with a warning rather than produce
+                            # an unreplayable recipe.
+                            src_a_name_raw = cols[var_a_idx]
+                            src_b_name_raw = cols[var_b_idx]
+                            if (
+                                src_a_name_raw not in self.feature_names_in_
+                                or src_b_name_raw not in self.feature_names_in_
+                            ):
+                                if verbose:
+                                    logger.info(
+                                        "Skipping recipe construction for nested "
+                                        "engineered feature '%s' (parents %s, %s "
+                                        "are not in feature_names_in_); higher-"
+                                        "order replay is future work.",
+                                        get_new_feature_name(config, cols),
+                                        src_a_name_raw, src_b_name_raw,
+                                    )
+                                continue
+                            eng_name = get_new_feature_name(config, cols)
+                            engineered_recipes[eng_name] = build_unary_binary_recipe(
+                                name=eng_name,
+                                src_a_name=src_a_name_raw,
+                                src_b_name=src_b_name_raw,
+                                unary_a_name=unary_a_name,
+                                unary_b_name=unary_b_name,
+                                binary_name=bin_func_name,
+                                unary_preset=fe_unary_preset,
+                                binary_preset=fe_binary_preset,
+                                quantization_nbins=self.quantization_nbins,
+                                quantization_method=self.quantization_method,
+                                quantization_dtype=self.quantization_dtype,
+                            )
+
+                n_recommended_features += len(this_pair_features)
+
+            # Wave 69 (2026-05-20): factors_to_use / factors_names_to_use are
+            # already threaded through the upstream FE loop (MRMR.fit -> FE-pair
+            # iteration consults these via `self.factors_to_use` and the
+            # caller-supplied filter); no extra plumbing needed at this
+            # bookkeeping site. The pair-cache only tracks "raw pair already
+            # processed", which is name-agnostic.
+            checked_pairs.add(raw_vars_pair)
+
+        # 2026-05-18: surface WHY FE added 0 features when the operator
+        # configured it explicitly. Production TVT log showed 88 min of
+        # Hermite Optuna yielding 0 engineered cols with no visible
+        # explanation (kept 25 cols, returned 25, dedup at downstream
+        # marked MRMR identity-equivalent). The summary below explains:
+        # n_pairs_considered: how many (a, b) pairs were screened
+        # n_pairs_with_additions: how many pairs produced ANY recipe
+        # n_engineered_features: total recipes that survived all gates
+        # If 0 with verbose >= 1, also log the gate thresholds so an
+        # operator can see which knob is too tight (often
+        # ``fe_min_engineered_mi_prevalence=0.98`` is the culprit on
+        # heavily-correlated feature sets).
+        try:
+            _n_pairs_considered = int(len(prospective_pairs))
+        except Exception:
+            _n_pairs_considered = -1
+        try:
+            _n_pairs_with_additions = sum(
+                1 for v in prospective_additions.values()
+                if v[0]  # this_pair_features non-empty
+            )
+        except Exception:
+            _n_pairs_with_additions = -1
+        if verbose >= 1:
+            logger.info(
+                "FE summary: %d pair(s) considered, %d produced engineered cols, "
+                "n_total_engineered=%d. Gate thresholds: "
+                "fe_min_pair_mi_prevalence=%.3f, "
+                "fe_min_engineered_mi_prevalence=%.3f, "
+                "fe_min_nonzero_confidence=%.3f, "
+                "fe_good_to_best_feature_mi_threshold=%.3f.",
+                _n_pairs_considered, _n_pairs_with_additions,
+                n_recommended_features,
+                float(fe_min_pair_mi_prevalence),
+                float(fe_min_engineered_mi_prevalence),
+                float(fe_min_nonzero_confidence),
+                float(fe_good_to_best_feature_mi_threshold),
+            )
+            if n_recommended_features == 0 and _n_pairs_considered > 0:
+                logger.warning(
+                    "FE produced 0 engineered features despite %d pair(s) "
+                    "passing the pair-MI gate. Likely cause: the "
+                    "fe_min_engineered_mi_prevalence=%.3f threshold is "
+                    "tight relative to the pair-level MI. Try lowering "
+                    "to 0.90 (5%% under the default) or set "
+                    "fe_min_pair_mi_prevalence=1.02 to widen the pool.",
+                    _n_pairs_considered,
+                    float(fe_min_engineered_mi_prevalence),
+                )
+
+    return data, cols, nbins, X, selected_vars, n_recommended_features
+
+
