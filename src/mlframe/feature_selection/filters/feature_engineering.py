@@ -37,6 +37,53 @@ from pyutilz.system import tqdmu
 # also doesn't break.
 _TIMES_SPENT_LOCK = threading.Lock()
 
+# CRITICAL #2 (2026-05-21): the hoisted shared buffer at
+# ``check_prospective_fe_pairs`` allocates ``(n, max_n_combs * len(binary))``
+# float32. With n=4M and the medium preset that's ~17.6 GiB -- production
+# MRMR crashed with numpy.core._exceptions._ArrayMemoryError on a TVT run.
+# The hoist landed in Wave Pack G (commit 068acdd) under small-n benchmarks
+# and never measured peak RAM on million-row data.
+#
+# Two-strategy dispatch:
+#   Fast path (current): if buffer < ``_FE_BUFFER_RAM_BUDGET_RATIO`` * available
+#     RAM, allocate the shared buffer and use the hoist (cheapest if it fits).
+#   Recompute fallback: drop the multi-column buffer, scratch into a fresh 1D
+#     ``np.empty(n, float32)`` per inner iteration, and rebuild the ~10
+#     survivor columns from their (transformations_pair, bin_func_name) metadata
+#     after the inner loop. Extra recompute cost: ~K bin_func calls per pair
+#     (K = num survivors, typically <= fe_max_pair_features + |leading|);
+#     <= 1% of the ~max_combs*|binary| calls already done in the inner loop.
+#
+# Subsample path remains a separate opt-in (``subsample_n`` parameter); this
+# memory dispatcher is the deterministic, accuracy-preserving fallback that
+# auto-engages when the shared buffer would OOM.
+_FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
+
+
+def _estimate_fe_shared_buffer_bytes(n_rows: int, max_n_combs: int, n_binary: int) -> int:
+    """Bytes the hoisted shared buffer would consume at full precision."""
+    return int(n_rows) * int(max_n_combs) * int(n_binary) * 4  # float32 = 4 bytes
+
+
+def _can_hoist_shared_buffer(buffer_bytes: int, budget_ratio: float = _FE_BUFFER_RAM_BUDGET_RATIO) -> tuple[bool, int, int]:
+    """Decide whether the shared scratch buffer fits in available RAM.
+
+    Uses ``psutil.virtual_memory().available`` for a conservative "RAM I can
+    take right now" reading -- ``total`` would include pages owned by other
+    processes which we cannot evict cleanly. Falls back to a permissive yes
+    when psutil is unavailable so single-test environments without it still
+    take the historical fast path (and OOM loudly on truly large n if so).
+
+    Returns (can_hoist, buffer_bytes, available_bytes).
+    """
+    try:
+        import psutil
+        available = int(psutil.virtual_memory().available)
+    except Exception:
+        # No psutil: preserve legacy behaviour (always hoist, OOM is the signal).
+        return True, buffer_bytes, -1
+    return buffer_bytes < int(available * budget_ratio), buffer_bytes, available
+
 
 # Domain-validity tags for unary transforms produced by ``create_unary_transformations(preset="maximal")``. Consumers that need to clip / reject inputs before
 # applying these transforms can look them up here. Tag vocabulary: ``-1to1``, ``-pi/2topi/2``, ``1toinf``, ``-0.(9)to0.(9)``, ``pos``, ``nonzero``. Transforms not
@@ -132,10 +179,53 @@ def check_prospective_fe_pairs(
         if len(combs) > max_n_combs:
             max_n_combs = len(combs)
 
-    final_transformed_vals_shared = np.empty(
-        shape=(len(X), max_n_combs * len(binary_transformations)),
-        dtype=np.float32,
-    ) if max_n_combs > 0 else None
+    # CRITICAL #2 (2026-05-21): memory-aware dispatch. The full hoisted buffer is the fast path
+    # but on n=4M with medium preset this lands at ~17.6 GiB and crashes the suite. Estimate the
+    # required buffer, check psutil.virtual_memory().available, and either keep the buffer (fast)
+    # or set it to None and switch to recompute-from-metadata in the inner loop and survivor
+    # rebuild stages (memory-safe; ~1% extra bin_func calls per pair).
+    _n_binary = len(binary_transformations)
+    final_transformed_vals_shared = None
+    if max_n_combs > 0:
+        _buf_bytes = _estimate_fe_shared_buffer_bytes(len(X), max_n_combs, _n_binary)
+        _can_hoist, _bb, _avail = _can_hoist_shared_buffer(_buf_bytes)
+        if _can_hoist:
+            try:
+                final_transformed_vals_shared = np.empty(
+                    shape=(len(X), max_n_combs * _n_binary),
+                    dtype=np.float32,
+                )
+            except MemoryError:
+                # psutil over-reported available; falling back stays safe.
+                final_transformed_vals_shared = None
+                if verbose:
+                    logger.warning(
+                        "check_prospective_fe_pairs: shared buffer (%.1f GiB) allocation raised "
+                        "MemoryError despite passing the available-RAM check (%.1f GiB available, "
+                        "%.0f%% budget); switching to recompute-from-metadata fallback (~1%% extra "
+                        "bin_func calls per pair).",
+                        _bb / 2**30, _avail / 2**30 if _avail >= 0 else float("nan"),
+                        _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
+                    )
+        else:
+            if verbose:
+                logger.warning(
+                    "check_prospective_fe_pairs: shared buffer would need %.1f GiB but only %.1f GiB "
+                    "RAM is available (%.0f%% budget = %.1f GiB cap); using recompute-from-metadata "
+                    "fallback path (~1%% extra bin_func calls per pair, identical survivors). To force "
+                    "the fast path either free RAM or raise _FE_BUFFER_RAM_BUDGET_RATIO; to bound "
+                    "compute, pass subsample_n>0 from the MRMR config.",
+                    _bb / 2**30, _avail / 2**30 if _avail >= 0 else float("nan"),
+                    _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
+                    (_avail * _FE_BUFFER_RAM_BUDGET_RATIO) / 2**30 if _avail >= 0 else float("nan"),
+                )
+    # In the recompute-fallback path we need to look up the
+    # ``(transformations_pair, bin_func_name)`` for any index ``i`` that
+    # was assigned in the inner loop, so the validation + survivor-packing
+    # phases can rebuild the column on demand. The shared-buffer path
+    # ignores this dict; either way it is bounded by ``max_n_combs *
+    # _n_binary`` lightweight tuples per pair.
+    _need_recompute_map = final_transformed_vals_shared is None
 
     vars_transformations = {}
     i = 0
@@ -234,8 +324,14 @@ def check_prospective_fe_pairs(
         this_pair_features = set()
         var_pairs_perf = {}
 
-        # Shared buffer; this pair uses only the first ``len(combs) * len(binary_transformations)`` columns.
+        # CRITICAL #2 dispatch: hoist path uses the shared buffer (writes into
+        # ``[:, i]``); recompute-fallback path uses a tiny 1D scratch + a
+        # config-by-i map for on-demand survivor recomputation later.
         final_transformed_vals = final_transformed_vals_shared
+        _col_buf_1d: np.ndarray | None = (
+            np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
+        )
+        _config_by_i: dict[int, tuple] = {} if _need_recompute_map else None
 
         i = 0
         for transformations_pair in combs:
@@ -249,13 +345,20 @@ def check_prospective_fe_pairs(
                 start = timer()
                 try:
                     # with np.errstate(invalid='ignore'):
-                    final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                    if final_transformed_vals is not None:
+                        final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                        _col_view = final_transformed_vals[:, i]
+                    else:
+                        # Recompute fallback: write into the shared 1D scratch.
+                        # bin_func returns a fresh ndarray; copy into the scratch
+                        # so downstream nan_to_num + discretize see contiguous
+                        # data. Avoids accumulating one alloc per inner iter.
+                        _col_buf_1d[:] = bin_func(param_a, param_b)
+                        _col_view = _col_buf_1d
                 except Exception:
                     logger.error(f"Error when performing {bin_func}")
                 else:
-                    # if np.isnan(final_transformed_vals[:, i]).sum()>0:
-                    #    final_transformed_vals[:, i] =pd.Series(final_transformed_vals[:, i] ).ffill().bfill().values
-                    np.nan_to_num(final_transformed_vals[:, i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                    np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
                     # Wave 27 P1: serialise the increment under
                     # ``_TIMES_SPENT_LOCK``; pre-fix `+=` raced on the
@@ -265,7 +368,7 @@ def check_prospective_fe_pairs(
                         times_spent[bin_func_name] += timer() - start
 
                     discretized_transformed_values = discretize_array(
-                        arr=final_transformed_vals[:, i], n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                        arr=_col_view, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
                     )
                     fe_mi, fe_conf = mi_direct(
                         discretized_transformed_values.reshape(-1, 1),
@@ -281,6 +384,10 @@ def check_prospective_fe_pairs(
 
                     config = (transformations_pair, bin_func_name, i)
                     var_pairs_perf[config] = fe_mi
+                    if _need_recompute_map:
+                        # Map i -> (a_key, b_key, bin_func_name) for downstream
+                        # rebuild; bin_func is looked up via the original dict.
+                        _config_by_i[i] = (transformations_pair[0], transformations_pair[1], bin_func_name)
 
                     if fe_mi > best_mi:
                         best_mi = fe_mi
@@ -314,7 +421,17 @@ def check_prospective_fe_pairs(
                     valid_pairs_perf = {}
 
                     for transformations_pair, bin_func_name, i in leading_features:
-                        param_a = final_transformed_vals[:, i]
+                        if final_transformed_vals is not None:
+                            param_a = final_transformed_vals[:, i]
+                        else:
+                            # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
+                            # (a_key, b_key, bin_func_name) metadata. transformed_vars is small
+                            # (deduped unary table); the bin_func call is cheap (one ufunc).
+                            _a_key, _b_key, _bin_name = _config_by_i[i]
+                            _pa = transformed_vars[:, vars_transformations[_a_key]]
+                            _pb = transformed_vars[:, vars_transformations[_b_key]]
+                            param_a = binary_transformations[_bin_name](_pa, _pb)
+                            np.nan_to_num(param_a, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
                         best_valid_mi = -1
                         config = (transformations_pair, bin_func_name, i)
@@ -416,7 +533,17 @@ def check_prospective_fe_pairs(
                     transformations_pair, bin_func_name, i = config
 
                     if fe_max_steps > 1:
-                        transformed_vals[:, idx] = final_transformed_vals[:, i]
+                        if final_transformed_vals is not None:
+                            transformed_vals[:, idx] = final_transformed_vals[:, i]
+                        else:
+                            # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
+                            # (a_key, b_key, bin_func_name) metadata (same as validation phase above).
+                            _a_key, _b_key, _bin_name = _config_by_i[i]
+                            _pa = transformed_vars[:, vars_transformations[_a_key]]
+                            _pb = transformed_vars[:, vars_transformations[_b_key]]
+                            _col = binary_transformations[_bin_name](_pa, _pb)
+                            np.nan_to_num(_col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                            transformed_vals[:, idx] = _col
                         new_nbins += [quantization_nbins]
                     new_cols += [new_feature_name]
 
