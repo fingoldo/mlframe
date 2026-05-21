@@ -39,27 +39,13 @@ def run_per_target_diagnostics(
     metadata.setdefault("label_distribution_drift", {}) \
         .setdefault(str(target_type), {})[cur_target_name] = _drift_report
 
-    # 2026-05-22: feature-side drift sensor. Complements the label-drift report
-    # above by catching the FEATURE shift that broke the TVT-2026-05-21 MLP
-    # path (Ridge tolerates 14-sigma TVT_prev drift fine; MLP collapses).
-    # WARN-only; the protective layer is K=2 catastrophic-dropout downstream.
-    if filtered_val_df is not None or filtered_test_df is not None:
-        try:
-            _fd_report = compute_feature_distribution_drift(
-                train_df=filtered_train_df,
-                val_df=filtered_val_df,
-                test_df=filtered_test_df,
-            )
-            metadata.setdefault("feature_distribution_drift", {}) \
-                .setdefault(str(target_type), {})[cur_target_name] = _fd_report
-        except Exception as _fd_err:
-            logger.warning(
-                "feature_distribution_drift failed for target='%s' (%s); training "
-                "continues without the feature-drift sensor.",
-                cur_target_name, _fd_err,
-            )
-
-    # Stored on metadata so composite-target discovery can gate on composite_recommendation.
+    # BASELINE DIAGNOSTICS FIRST -- its ablation deltas are the feature
+    # importance source we feed to the feature-drift sensor below. Per the
+    # 2026-05-22 design review: feature drift WITHOUT importance weighting
+    # isn't a grounded harm signal (drift on irrelevant features is harmless;
+    # drift on dominant features can be catastrophic). So we always compute
+    # FI first, then weight the drift report accordingly.
+    _bd_report_dict: dict | None = None
     try:
         # Reuse cached result if composite-discovery already computed one for this pair (~30-60s saved).
         _existing_bd = (
@@ -72,6 +58,7 @@ def run_per_target_diagnostics(
                 "[BaselineDiagnostics] target='%s' reusing cached diagnostic "
                 "from composite-discovery precompute (saved ~30-60s).", cur_target_name,
             )
+            _bd_report_dict = _existing_bd
         elif baseline_diagnostics_config.enabled and (
             str(target_type) in baseline_diagnostics_config.apply_to_target_types
         ):
@@ -85,13 +72,49 @@ def run_per_target_diagnostics(
                 cat_features=cat_features,
             )
             logger.info(format_baseline_diagnostics_report(_bd_report, target_name=cur_target_name))
+            _bd_report_dict = _bd_report.to_dict()
             metadata.setdefault("baseline_diagnostics", {}) \
-                .setdefault(str(target_type), {})[cur_target_name] = _bd_report.to_dict()
+                .setdefault(str(target_type), {})[cur_target_name] = _bd_report_dict
     except Exception as _bd_err:
         logger.warning(
             "baseline_diagnostics failed for target='%s' (%s): %s. "
             "Training continues without diagnostics.",
             cur_target_name, target_type, _bd_err,
         )
+
+    # 2026-05-22: feature-side drift sensor. The actionable layer downstream
+    # is the K=2 ensemble catastrophic-dropout; this sensor is COMPLEMENTARY
+    # observability that (a) stamps per-feature drift stats into metadata for
+    # post-mortem correlation and (b) escalates to WARN when the FI-weighted
+    # aggregate (drift * dominance) crosses 1.0 -- the grounded harm signal
+    # the design-review of 2026-05-22 demanded.
+    if filtered_val_df is not None or filtered_test_df is not None:
+        try:
+            # Build feature_importance from baseline_diagnostics ablation deltas.
+            # Each ablation entry is {"feature": str, "delta_pct": float, "rank": int};
+            # delta_pct > 0 means "metric got worse when this feature was dropped"
+            # i.e. the feature was important. abs(delta_pct) is the FI proxy.
+            _fi: dict[str, float] | None = None
+            if _bd_report_dict and isinstance(_bd_report_dict.get("ablation"), list):
+                _fi = {}
+                for _ab in _bd_report_dict["ablation"]:
+                    if isinstance(_ab, dict) and "feature" in _ab:
+                        _fi[str(_ab["feature"])] = float(abs(_ab.get("delta_pct", 0.0)))
+                if not _fi:
+                    _fi = None
+            _fd_report = compute_feature_distribution_drift(
+                train_df=filtered_train_df,
+                val_df=filtered_val_df,
+                test_df=filtered_test_df,
+                feature_importance=_fi,
+            )
+            metadata.setdefault("feature_distribution_drift", {}) \
+                .setdefault(str(target_type), {})[cur_target_name] = _fd_report
+        except Exception as _fd_err:
+            logger.warning(
+                "feature_distribution_drift failed for target='%s' (%s); training "
+                "continues without the feature-drift sensor.",
+                cur_target_name, _fd_err,
+            )
 
     return metadata
