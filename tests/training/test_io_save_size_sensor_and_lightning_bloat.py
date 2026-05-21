@@ -149,12 +149,104 @@ def test_save_size_sensor_auto_lean_retry_shrinks_oversized_dump(caplog):
             f"expected the auto-retry with lean=True to strip the per-split arrays."
         )
         msgs = [r.getMessage() for r in caplog.records]
-        assert any("auto-retrying with lean=True" in m for m in msgs), (
-            f"E2.1: expected the auto-retry log line; got: {msgs}"
+        # The E2.2 pre-pickle pre-check landed 2026-05-22 and supersedes the
+        # post-save auto-retry on payloads it can detect upfront. Either path
+        # is acceptable -- the contract is "oversized non-lean save ends up
+        # small on disk", which the strict size assertion above already checks.
+        assert any(
+            "auto-retrying with lean=True" in m or "[save-size-precheck]" in m
+            for m in msgs
+        ), (
+            f"E2.1: expected either the auto-retry log OR the pre-check log; got: {msgs}"
         )
         # Caller's in-memory payload must STILL have all fields (lean operates on a copy).
         assert model_entry.train_preds is not None
         assert model_entry.oof_preds is not None
+    finally:
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+
+def test_pre_pickle_size_precheck_flips_lean_upfront(caplog):
+    """E2.2 (2026-05-22): when ``pympler.asizeof`` on the in-memory payload
+    exceeds ``auto_lean_pre_check_mb`` AND ``auto_lean_retry`` is on AND the
+    caller didn't pin ``lean=`` already, the save flips lean=True BEFORE the
+    fat pickle -- saves the fat-then-lean retry double-dump.
+
+    Bench (`bench_pympler_pre_pickle_check.py`): asizeof=0.5ms vs fat save
+    ~160ms at N=5M -- pre-check is essentially free and the savings on the
+    naive case scale linearly with N."""
+    # 10M-row payload: in-memory asizeof should comfortably exceed 100 MB
+    # so the pre-check fires.
+    n_train = 10_000_000
+    rng = np.random.default_rng(42)
+    model_entry = SimpleNamespace(
+        model=SimpleNamespace(),
+        train_preds=rng.standard_normal(n_train).astype(np.float32),
+        train_target=rng.standard_normal(n_train).astype(np.float32),
+        oof_preds=rng.standard_normal(n_train).astype(np.float32),
+        metrics={}, columns=[], pre_pipeline=None,
+        test_preds=None, test_probs=None, test_target=None,
+        val_preds=None, val_probs=None, val_target=None,
+        train_probs=None, oof_probs=None,
+        train_od_idx=None, val_od_idx=None,
+        trainset_features_stats=None,
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tf:
+        fpath = tf.name
+    try:
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
+            ok = save_mlframe_model(model_entry, fpath, verbose=1)
+        assert ok is True
+        msgs = [r.getMessage() for r in caplog.records]
+        assert any("[save-size-precheck]" in m for m in msgs), (
+            f"E2.2 pre-pickle pre-check did not fire on 10M-row payload; got msgs: {msgs}"
+        )
+        # The pre-check WARN should NAME the threshold so operators see why it fired.
+        precheck_msg = next(m for m in msgs if "[save-size-precheck]" in m)
+        assert "flipping lean=True BEFORE the fat pickle" in precheck_msg
+        # And the saved file should be SMALL (lean strip ran).
+        size_mb = os.path.getsize(fpath) / (1024 * 1024)
+        assert size_mb < 5.0, (
+            f"E2.2 pre-check fired but the saved dump is still {size_mb:.1f} MB; "
+            "lean=True didn't actually strip the per-split arrays."
+        )
+        # Caller's in-memory payload is UNCHANGED.
+        assert model_entry.train_preds is not None
+    finally:
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+
+def test_pre_pickle_precheck_disabled_when_threshold_zero(caplog):
+    """E2.2 (negative): ``auto_lean_pre_check_mb=0`` disables the pre-check
+    entirely. The post-save sensor + auto-retry path still kicks in if the
+    fat dump exceeds 50 MB, so the user can keep the legacy 2-dump behaviour
+    when they want full traceability."""
+    n_train = 10_000_000
+    rng = np.random.default_rng(42)
+    model_entry = SimpleNamespace(
+        model=SimpleNamespace(),
+        train_preds=rng.standard_normal(n_train).astype(np.float32),
+        train_target=rng.standard_normal(n_train).astype(np.float32),
+        metrics={}, columns=[], pre_pipeline=None,
+        test_preds=None, test_probs=None, test_target=None,
+        val_preds=None, val_probs=None, val_target=None,
+        train_probs=None, oof_preds=None, oof_probs=None,
+        train_od_idx=None, val_od_idx=None,
+        trainset_features_stats=None,
+    )
+    with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tf:
+        fpath = tf.name
+    try:
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
+            save_mlframe_model(model_entry, fpath, verbose=1, auto_lean_pre_check_mb=0.0)
+        msgs = [r.getMessage() for r in caplog.records]
+        # Pre-check WARN must NOT appear when disabled.
+        assert not any("[save-size-precheck]" in m for m in msgs), (
+            f"E2.2 negative case: pre-check fired despite threshold=0. msgs: {msgs}"
+        )
     finally:
         if os.path.exists(fpath):
             os.remove(fpath)

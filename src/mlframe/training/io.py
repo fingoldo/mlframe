@@ -391,6 +391,7 @@ def save_mlframe_model(
     lean: bool = False,
     durable: bool = False,
     auto_lean_retry: bool = True,
+    auto_lean_pre_check_mb: float = 100.0,
 ) -> bool:
     """
     Save an mlframe model to a compressed file.
@@ -462,6 +463,46 @@ def save_mlframe_model(
             write_content_size=True,
             threads=-1,
         )
+    # E2.2 (2026-05-22): pre-pickle size pre-check via ``pympler.asizeof``.
+    # Walking the in-memory object graph is ~300x faster than the fat save
+    # itself (bench: asizeof=0.5ms vs save=160ms at N=5M). When the estimate
+    # exceeds ``auto_lean_pre_check_mb`` AND the payload is a SimpleNamespace
+    # (lean is a no-op otherwise) AND the caller didn't already pin lean,
+    # flip lean=True upfront -- saves the fat-then-lean retry double-dump.
+    # Threshold defaults to 100 MB in-memory (zstd-level-4 lean dumps land
+    # ~50 MB on disk for similar shapes; the 2x margin avoids tripping on
+    # borderline payloads that would still fit comfortably).
+    if (
+        not lean
+        and auto_lean_retry
+        and auto_lean_pre_check_mb > 0.0
+        and isinstance(model, SimpleNamespace)
+    ):
+        try:
+            from pympler import asizeof as _pa
+            _est_bytes = _pa.asizeof(model)
+            _est_mb = _est_bytes / (1024 * 1024)
+            if _est_mb > auto_lean_pre_check_mb:
+                if verbose > 0:
+                    logger.warning(
+                        "[save-size-precheck] %s: in-memory payload ~%.1f MB "
+                        "(> %.0f MB threshold) -- flipping lean=True BEFORE the "
+                        "fat pickle to skip the auto-retry double-dump. Pass "
+                        "``auto_lean_pre_check_mb=0`` to disable this pre-flip.",
+                        file, _est_mb, auto_lean_pre_check_mb,
+                    )
+                lean = True
+        except ImportError:
+            # pympler is a hard dep per pyproject.toml; if it's somehow not
+            # importable here we fall through to the post-save sensor retry.
+            pass
+        except Exception as _pa_err:
+            # ``asizeof`` can stack-overflow on deeply-recursive objects with
+            # ill-defined __dict__ traversal; never let it block a save.
+            logger.debug(
+                "[save-size-precheck] pympler.asizeof raised %s; falling through "
+                "to post-save sensor retry.", _pa_err,
+            )
     if lean and isinstance(model, SimpleNamespace):
         _lean = SimpleNamespace(**{
             k: v for k, v in vars(model).items()
