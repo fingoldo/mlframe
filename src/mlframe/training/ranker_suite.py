@@ -448,7 +448,18 @@ def train_mlframe_ranker_suite(
             if isinstance(_dt, pd.CategoricalDtype):
                 cat_features.append(col)
                 continue
-            if _dt == object:
+            # ``_dt == object`` misses pandas-3 / future.infer_string columns
+            # whose dtype is ``StringDtype(na_value=nan)`` (dtype.name == "str")
+            # or ``StringDtype`` (dtype.name == "string"). Broaden the test so
+            # those land in cat_features and the downstream LGB ranker can
+            # cast them to pandas Categorical before fit.
+            _dn = str(_dt)
+            _is_str_like = (
+                _dt == object
+                or _dn in ("string", "str")
+                or "string" in _dn.lower()
+            )
+            if _is_str_like:
                 _probe = X_tr[col].dropna()
                 if len(_probe) == 0:
                     cat_features.append(col)
