@@ -103,7 +103,10 @@ def test_set_random_seed_documents_top_of_script_contract() -> None:
 
 
 def test_cat_interactions_uses_local_cupy_rng() -> None:
-    src = _read("feature_selection/filters/cat_interactions.py")
+    # ``_count_nfailed_joint_indep_cupy`` (the cupy permutation kernel)
+    # was moved to the ``_cat_confirm_permutation.py`` sibling when
+    # ``cat_interactions.py`` was split below 1k LOC.
+    src = _read("feature_selection/filters/_cat_confirm_permutation.py")
     # The fix replaces cp.random.seed + cp.random.permutation with local RandomState.
     assert "cp.random.seed(base_seed + p)\n        y_perm = cp.random.permutation(classes_y_g)" not in src
     assert "_local_cp_rng = cp.random.RandomState(base_seed + p)" in src

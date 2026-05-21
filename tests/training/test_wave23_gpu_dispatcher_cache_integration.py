@@ -70,9 +70,11 @@ def _read(rel: str) -> str:
         "get_shared_mem_budget_per_block as _shared_budget",
         "multi_pair_shared_cap",
     ),
-    # #5: cat_interactions perm-kernel cache lookup
+    # #5: cat_interactions perm-kernel cache lookup (moved to the
+    # ``_cat_confirm_permutation.py`` sibling when ``cat_interactions.py`` was
+    # split below 1k LOC).
     (
-        "feature_selection/filters/cat_interactions.py",
+        "feature_selection/filters/_cat_confirm_permutation.py",
         '_cache.lookup(\n                "cat_fe_perm_kernel"',
         "cat_fe_perm_kernel",
     ),
@@ -125,7 +127,9 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
         # ``metrics/core.py`` was split; the RMSE GPU dispatcher lives in
         # the ``_gpu_metrics`` sibling now.
         "metrics/_gpu_metrics.py",
-        "feature_selection/filters/cat_interactions.py",
+        # ``cat_interactions.py`` was split; the perm-kernel cache lookup
+        # lives in the ``_cat_confirm_permutation`` sibling now.
+        "feature_selection/filters/_cat_confirm_permutation.py",
         "feature_selection/filters/feature_engineering.py",
         "feature_engineering/transformer/random_features.py",
     ]

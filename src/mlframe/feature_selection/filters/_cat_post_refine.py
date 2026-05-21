@@ -1,0 +1,386 @@
+"""Post-screen refinement of cat-interaction pairs for ``cat_interactions``.
+
+Split out of ``cat_interactions.py`` to keep the parent below the 1k-line
+monolith threshold. Behaviour preserved bit-for-bit; the parent re-exports
+the public-looking entries so the orchestrator in
+``run_cat_interaction_step`` continues to call them via the same names.
+
+What lives here:
+  - ``_bootstrap_ii_cis`` (per-pair bootstrap CIs on the II statistic)
+  - ``_anti_redundancy_rerank`` (drop pairs whose II is already explained
+    by an already-kept feature)
+  - ``_kfold_stability_filter`` (II stability across K folds)
+  - ``_refine_kway_coordinate_ascent`` (one-pass coordinate refinement
+    of k-way memberships)
+"""
+from __future__ import annotations
+
+import logging
+import math
+
+import numpy as np
+from numba import njit
+
+from .cat_fe_state import CatFEConfig
+from .info_theory import compute_mi_from_classes, merge_vars
+# ``_materialize_pairs`` / ``_select_top_k_pairs`` /
+# ``resolve_min_interaction_information`` live in ``cat_interactions`` itself
+# (via the kway-materialize sibling re-export); imported lazily inside the
+# function bodies that need them so the
+# ``cat_interactions -> _cat_post_refine -> cat_interactions`` import cycle
+# stays broken.
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Bootstrap CIs on II
+#
+# For each top-K survivor, draw ``n_replicates`` subsamples (size ``sample_frac * n``), recompute II per replicate, return (lower, median, upper) CI. Complements
+# permutation tests: perm checks significance vs null; bootstrap checks STABILITY under sample variation.
+# ============================================================================
+
+
+def _bootstrap_ii_cis(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    selected_idx: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    cfg: CatFEConfig,
+    dtype,
+    verbose: int,
+) -> dict:
+    """For each pair in ``selected_idx``, compute bootstrap CI on II. Returns ``{(i, j): (lower, median, upper)}`` per ``cfg.bootstrap_ci_alpha``.
+
+    Cost: ``n_replicates * top_k * O(n)`` -- at n_replicates=20, top_k=32, n=10000 that's ~6.4M merge_vars-equivalents.
+    Heavy; gated by user opt-in (``bootstrap_ci_n_replicates > 0``).
+    """
+    if cfg.bootstrap_ci_n_replicates <= 0 or len(selected_idx) == 0:
+        return {}
+    n_samples = factors_data.shape[0]
+    n_rep = int(cfg.bootstrap_ci_n_replicates)
+    sub_size = max(int(n_samples * cfg.bootstrap_sample_frac), cfg.min_n_samples)
+    alpha = float(cfg.bootstrap_ci_alpha)
+    lower_q = alpha / 2.0
+    upper_q = 1.0 - alpha / 2.0
+
+    if verbose:
+        logger.info(
+            "cat-FE bootstrap CIs: %d replicates x %d survivors "
+            "(subsample size %d)",
+            n_rep, len(selected_idx), sub_size,
+        )
+
+    ci_dict: dict = {}
+    for k in selected_idx:
+        i = int(pairs_a[k])
+        jj = int(pairs_b[k])
+        ii_replicates = np.empty(n_rep, dtype=np.float64)
+        for r in range(n_rep):
+            rng = np.random.default_rng(seed=int(jj) * 65537 + r)
+            idx = rng.choice(n_samples, size=sub_size, replace=True)
+            sub_data = factors_data[idx]
+            sub_cls_y = classes_y[idx]
+            # Recompute marginals + joint MI on the subsample.
+            cls_a_s, fq_a_s, _ = merge_vars(
+                factors_data=sub_data,
+                vars_indices=np.array([i], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_b_s, fq_b_s, _ = merge_vars(
+                factors_data=sub_data,
+                vars_indices=np.array([jj], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_pair_s, fq_pair_s, _ = merge_vars(
+                factors_data=sub_data,
+                vars_indices=np.array([i, jj], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            # Need fq_y on the subsample; rebuild from sub_cls_y
+            sub_nbins_y = int(sub_cls_y.max()) + 1 if sub_cls_y.size else 1
+            sub_fq_y = np.bincount(
+                sub_cls_y.astype(np.int64), minlength=sub_nbins_y,
+            ).astype(np.float64) / max(sub_size, 1)
+            i_a = compute_mi_from_classes(cls_a_s, fq_a_s, sub_cls_y, sub_fq_y, dtype)
+            i_b = compute_mi_from_classes(cls_b_s, fq_b_s, sub_cls_y, sub_fq_y, dtype)
+            i_pair = compute_mi_from_classes(cls_pair_s, fq_pair_s, sub_cls_y, sub_fq_y, dtype)
+            ii_replicates[r] = i_pair - i_a - i_b
+        ci_dict[(i, jj)] = (
+            float(np.quantile(ii_replicates, lower_q)),
+            float(np.median(ii_replicates)),
+            float(np.quantile(ii_replicates, upper_q)),
+        )
+    return ci_dict
+
+
+# ============================================================================
+# Anti-redundancy with selected features
+#
+# Pure-II ranking treats a pair (X1, X2) as relevant if it has high synergy with Y. But MRMR's overall objective is `relevance - β*redundancy`: a pair whose merged
+# column is HIGHLY CORRELATED with an already-selected feature Z adds little new information regardless of its II. We down-weight II by `β * max_z I(merged; Z)`
+# over already-selected Z.
+#
+# Two-stage decoupled design:
+# 1. II floor gates "is this engineered col worth materializing?" (already done by ``_select_top_k_pairs``).
+# 2. mRMR-style score = II - β * mean_z I(merged; Z) re-ranks survivors here. β=0 disables (default), preserving pure II.
+#
+# Cost: per survivor + per selected Z, one merge_vars + one compute_mi_from_classes. At top_k=64 survivors and |Z|=20 selected, that's 1280 merge_vars calls; linear in both.
+# ============================================================================
+
+
+def _anti_redundancy_rerank(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    selected_idx: np.ndarray,
+    ii_arr: np.ndarray,
+    nbins: np.ndarray,
+    selected_so_far: list,    # column indices (in ``data``) of already-selected features
+    classes_y: np.ndarray,    # unused -- the redundancy MI is against Z, not Y
+    cfg: CatFEConfig,
+    dtype,
+    verbose: int,
+) -> tuple:
+    """Re-rank top-K survivors by ``score = II - β * mean_z I(merged; Z)``.
+
+    When ``cfg.anti_redundancy_beta == 0`` or ``selected_so_far`` is empty, this is a no-op. Returns ``(scored_arr, selected_idx_reordered)``.
+    """
+    if cfg.anti_redundancy_beta <= 0 or not selected_so_far or len(selected_idx) == 0:
+        return ii_arr, selected_idx
+
+    beta = float(cfg.anti_redundancy_beta)
+    if verbose:
+        logger.info(
+            "cat-FE: anti-redundancy re-rank with beta=%.3f over %d survivor(s) "
+            "vs %d already-selected feature(s)",
+            beta, len(selected_idx), len(selected_so_far),
+        )
+
+    scored = ii_arr.copy()
+    selected_so_far_arr = np.asarray(selected_so_far, dtype=np.int64)
+    for k in selected_idx:
+        i = int(pairs_a[k])
+        j = int(pairs_b[k])
+        # Materialise the merged class for this pair
+        cls_merged, freqs_merged, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([i, j], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        red_terms = []
+        for z in selected_so_far_arr:
+            cls_z, freqs_z, _ = merge_vars(
+                factors_data=factors_data,
+                vars_indices=np.array([int(z)], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            mi_to_z = compute_mi_from_classes(
+                classes_x=cls_merged, freqs_x=freqs_merged,
+                classes_y=cls_z, freqs_y=freqs_z, dtype=dtype,
+            )
+            red_terms.append(mi_to_z)
+        # mRMR-style: subtract β * mean redundancy (mean over selected Z).
+        # ``mean`` per Peng-Ding-Long 2005; max would also work but mean
+        # is the canonical mRMR formulation.
+        mean_red = sum(red_terms) / len(red_terms)
+        scored[k] = ii_arr[k] - beta * mean_red
+
+    # Re-sort selected_idx by the corrected scores
+    if cfg.select_on == "synergy":
+        order = np.argsort(-scored[selected_idx])
+    elif cfg.select_on == "redundancy":
+        order = np.argsort(scored[selected_idx])
+    else:
+        order = np.argsort(-np.abs(scored[selected_idx]))
+    return scored, selected_idx[order]
+
+
+# ============================================================================
+# K-fold II stability filter
+#
+# A pair with II=0.3 on one fold and II=-0.1 on another is noise, not signal. Split the training data into K folds, recompute II on each fold's slice, and keep only
+# pairs prevalent in >= floor·K folds. Guards against "II was driven by a few outlier rows" failures.
+#
+# Cost: K-1 extra pair searches (each fold uses ~n*(K-1)/K rows). Runs BEFORE the heavy permutation phase so the per-fold II costs don't multiply against npermutations.
+# ============================================================================
+
+
+def _kfold_stability_filter(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    selected_idx: np.ndarray,
+    nbins: np.ndarray,
+    target_indices: np.ndarray,
+    cfg: CatFEConfig,
+    dtype,
+    verbose: int,
+) -> tuple:
+    """For each top-K survivor, recompute II on K disjoint folds; keep pairs whose II clears the floor on >= ``min_fold_prevalence * K`` folds. Returns
+    ``(kept_selected_idx, per_fold_ii_dict)``. No-op (returns inputs unchanged) when ``cfg.n_folds_stability <= 0``.
+
+    Determinism: folds are derived from ``np.arange(n) % K`` -- no shuffling, no RNG. Reproducible across runs.
+    """
+    if cfg.n_folds_stability <= 0 or len(selected_idx) == 0:
+        return selected_idx, {}
+
+    from .cat_interactions import resolve_min_interaction_information  # lazy: import-cycle, see module top
+
+    n_samples = factors_data.shape[0]
+    K = int(cfg.n_folds_stability)
+    floor = resolve_min_interaction_information(cfg, n_samples)
+
+    fold_ids = np.arange(n_samples) % K
+    per_fold_ii: dict = {}
+    kept = []
+
+    if verbose:
+        logger.info("cat-FE: K-fold stability check (K=%d) over %d top-K pair(s)", K, len(selected_idx))
+
+    for k in selected_idx:
+        i = int(pairs_a[k])
+        j = int(pairs_b[k])
+        fold_ii_vals: list = []
+
+        for f in range(K):
+            mask = fold_ids == f
+            n_fold = int(mask.sum())
+            if n_fold < cfg.min_n_samples // 2:
+                # Fold too small to estimate MI reliably; mark as failed.
+                fold_ii_vals.append(float("-inf"))
+                continue
+            slice_data = factors_data[mask]
+            # Re-merge Y on the fold (since classes_y depends on the rows).
+            cls_y_f, fq_y_f, _ = merge_vars(
+                factors_data=slice_data, vars_indices=target_indices,
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_pair_f, fq_pair_f, _ = merge_vars(
+                factors_data=slice_data,
+                vars_indices=np.array([i, j], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_x1_f, fq_x1_f, _ = merge_vars(
+                factors_data=slice_data,
+                vars_indices=np.array([i], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cls_x2_f, fq_x2_f, _ = merge_vars(
+                factors_data=slice_data,
+                vars_indices=np.array([j], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            i_pair = compute_mi_from_classes(
+                classes_x=cls_pair_f, freqs_x=fq_pair_f,
+                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+            )
+            i_x1 = compute_mi_from_classes(
+                classes_x=cls_x1_f, freqs_x=fq_x1_f,
+                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+            )
+            i_x2 = compute_mi_from_classes(
+                classes_x=cls_x2_f, freqs_x=fq_x2_f,
+                classes_y=cls_y_f, freqs_y=fq_y_f, dtype=dtype,
+            )
+            fold_ii_vals.append(i_pair - i_x1 - i_x2)
+
+        per_fold_ii[(i, j)] = fold_ii_vals
+        n_clear = sum(v > floor for v in fold_ii_vals)
+        prevalence = n_clear / K
+        if prevalence >= cfg.min_fold_prevalence:
+            kept.append(k)
+        elif verbose:
+            logger.info(
+                "cat-FE: pair (%d, %d) dropped by K-fold stability "
+                "(%d/%d folds cleared floor, need >= %.2f)",
+                i, j, n_clear, K, cfg.min_fold_prevalence,
+            )
+
+    return np.asarray(kept, dtype=selected_idx.dtype), per_fold_ii
+
+
+# ============================================================================
+# Coordinate-ascent refinement after greedy k-way
+#
+# Greedy k-way picks a triplet (A, B, C). Coordinate-ascent then tries replacing each member with each non-member; if the swap improves joint MI, keep it. Catches cases
+# where the greedy seed missed a better neighbor. Refines local optima, doesn't break global structure.
+# ============================================================================
+
+
+def _refine_kway_coordinate_ascent(
+    factors_data: np.ndarray,
+    kway_results: list,
+    candidate_pool: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    max_combined_nbins: int,
+    n_passes: int,
+    dtype,
+    verbose: int,
+) -> list:
+    """For each k-way result, run ``n_passes`` of coordinate-ascent: try swapping each member with each non-member; keep if joint MI improves. Returns refined kway_results."""
+    if n_passes <= 0 or not kway_results:
+        return kway_results
+    refined = []
+    for orig_tuple, orig_classes, orig_nuniq, orig_mi in kway_results:
+        current = list(orig_tuple)
+        current_mi = orig_mi
+        current_classes = orig_classes
+        current_nuniq = orig_nuniq
+        for _ in range(n_passes):
+            improved = False
+            for pos in range(len(current)):
+                for cand in candidate_pool:
+                    cand_int = int(cand)
+                    if cand_int in current:
+                        continue
+                    new_tuple = current.copy()
+                    new_tuple[pos] = cand_int
+                    new_tuple_sorted = tuple(sorted(new_tuple))
+                    # Card budget check
+                    card = 1
+                    for k in new_tuple_sorted:
+                        card *= int(nbins[k])
+                    if card > max_combined_nbins or card >= 2**31:
+                        continue
+                    new_classes, _, new_nuniq = merge_vars(
+                        factors_data=factors_data,
+                        vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
+                        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+                    )
+                    new_mi = compute_mi_from_classes(
+                        classes_x=new_classes, freqs_x=None,  # unused; merge_vars gives freqs but we lose it here
+                        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+                    ) if False else None
+                    # Recompute MI using fresh freqs
+                    _, new_freqs, _ = merge_vars(
+                        factors_data=factors_data,
+                        vars_indices=np.array(new_tuple_sorted, dtype=np.int64),
+                        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+                    )
+                    new_mi = compute_mi_from_classes(
+                        classes_x=new_classes, freqs_x=new_freqs,
+                        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+                    )
+                    if new_mi > current_mi:
+                        current = list(new_tuple_sorted)
+                        current_mi = new_mi
+                        current_classes = new_classes
+                        current_nuniq = new_nuniq
+                        improved = True
+                        if verbose >= 2:
+                            logger.info(
+                                "cat-FE coord-ascent: %s -> %s (MI %.4f -> %.4f)",
+                                orig_tuple, tuple(current), orig_mi, current_mi,
+                            )
+            if not improved:
+                break
+        refined.append((tuple(sorted(current)), current_classes, current_nuniq, current_mi))
+    return refined
+
+

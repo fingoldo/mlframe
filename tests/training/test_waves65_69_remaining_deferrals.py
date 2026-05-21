@@ -120,7 +120,13 @@ def test_per_cluster_composite_marked_rejected() -> None:
 
 
 def test_cat_interactions_multiclass_docstring_documents_design() -> None:
-    src = _read("feature_selection/filters/cat_interactions.py")
+    # ``_compute_target_encoding`` (and its multi-class design docstring)
+    # was moved to the ``_cat_target_encoding_and_weighted.py`` sibling when
+    # ``cat_interactions.py`` was split below 1k LOC.
+    src = (
+        _read("feature_selection/filters/cat_interactions.py")
+        + _read("feature_selection/filters/_cat_target_encoding_and_weighted.py")
+    )
     # The TODO marker is gone.
     assert "TODO multi-class" not in src
     # Replaced with explicit design rationale.
@@ -188,7 +194,10 @@ def test_no_remaining_open_todo_markers_in_closed_files() -> None:
         # The literal text fragments that EACH closed-out TODO used:
         ("training/core/_phase_recurrent.py", "(currently locked) does not re-run"),
         ("training/composite_discovery.py", "TODO(per-cluster composite, follow-up)"),
-        ("feature_selection/filters/cat_interactions.py", "TODO multi-class"),
+        # ``_compute_target_encoding`` was moved to the sibling when
+        # ``cat_interactions.py`` was split below 1k LOC; check the
+        # sibling where the TODO would actually surface if it crept back.
+        ("feature_selection/filters/_cat_target_encoding_and_weighted.py", "TODO multi-class"),
         ("feature_engineering/timeseries.py", "deferred to a follow-up"),
         ("feature_selection/filters/mrmr.py", "TODO 2026-05-17: handle factors_to_use"),
         ("training/core/_phase_helpers.py", "TODO: surface the per-model strategy list"),

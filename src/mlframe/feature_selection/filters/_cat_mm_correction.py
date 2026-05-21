@@ -1,0 +1,295 @@
+"""Miller-Madow bias-correction for pair-level Interaction Information.
+
+Split out of ``cat_interactions.py`` to keep the parent below the 1k-line
+monolith threshold. Behaviour preserved bit-for-bit; the parent re-exports
+the public-looking entries so the orchestrator in
+``run_cat_interaction_step`` continues to call them via the same names.
+
+What lives here:
+  - ``_entropy_for_mode`` (per-pair entropy with MM toggle)
+  - ``_should_apply_mm_for_pair_analytical`` / ``_should_apply_mm_for_pair``
+    (analytic + heuristic guards that decide when to flip MM on)
+  - ``_compute_pair_ii_mm`` (the MM-corrected pair-II formula)
+  - ``_maybe_rerank_with_mm`` (apply MM correction + re-rank a pair list)
+"""
+from __future__ import annotations
+
+import logging
+import math
+
+import numpy as np
+
+from .cat_fe_state import CatFEConfig
+from .info_theory import entropy, entropy_miller_madow, merge_vars
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Miller-Madow II re-score
+#
+# The Jakulin II expansion involves SIX entropies with mixed signs:
+#
+#   II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
+#                       (last term cancels across pairs since H(Y) is fit-wide)
+#
+# Plug-in entropy is biased downward by ``(k-1)/(2n)`` per entropy term, where k is the number of NON-EMPTY bins. Under the independence null, the SIGNED sum
+# of these biases reduces to ``-(a-1)(b-1)(c-1)/(2n)`` -- i.e. plug-in II is biased UPWARD; Miller-Madow correction pulls it back down.
+#
+# Cost: 5+ ``merge_vars`` calls per pair (X1, X2, X1Y, X2Y, X1X2Y) vs the plug-in path's 1 call. To stay fast on the search loop, we apply MM ONLY to the top-K
+# survivors as a re-rank step. This catches the high-cardinality false positives where bias dominates without paying the cost on every pair.
+#
+# References: Paninski 2003 В§4, Treves & Panzeri 1995, Roulston 1999.
+# ============================================================================
+
+
+def _entropy_for_mode(
+    freqs: np.ndarray, n_samples: int, use_mm: bool, use_kt: bool = False,
+) -> float:
+    """Plug-in / Miller-Madow / Krichevsky-Trofimov entropy.
+
+    KT smoothing adds Dirichlet(0.5) pseudocounts before plug-in entropy; less biased than plug-in for high-cardinality joints and provably asymptotically efficient
+    (Krichevsky & Trofimov 1981).
+    """
+    if use_kt:
+        # Reconstruct counts, add 0.5 to each cell, renormalize, then plug-in entropy. ``freqs`` is normalised so counts = freqs * n.
+        counts = freqs * n_samples + 0.5
+        K = len(counts)
+        total = float(n_samples) + 0.5 * K
+        probs = counts / total
+        return entropy(probs)
+    if use_mm:
+        return entropy_miller_madow(freqs, n_samples)
+    return entropy(freqs)
+
+
+def _should_apply_mm_for_pair_analytical(
+    nbins_a: int, nbins_b: int, n_y_classes: int, n_samples: int,
+) -> bool:
+    """Analytically-derived MM auto-gate.
+
+    Per Paninski 2003, plug-in entropy bias is ``(K-1) / (2n)``. The signed sum across the 6 entropies of the II expansion under the independence null equals
+    ``-(a-1)(b-1)(c-1) / (2n)``. We apply MM when this bias is comparable to typical synergy floors (``-3/sqrt(n)``): activate MM when
+    ``(a-1)(b-1)(c-1)/(2n) >= 3/sqrt(n)``, i.e. ``(a-1)(b-1)(c-1) >= 6 * sqrt(n)``. Replaces the folklore threshold ``(a*b*c)/n > 0.05``.
+    """
+    bias = (nbins_a - 1) * (nbins_b - 1) * (n_y_classes - 1)
+    threshold = 6.0 * math.sqrt(max(n_samples, 1))
+    return bias >= threshold
+
+
+def _compute_pair_ii_mm(
+    factors_data: np.ndarray,
+    idx_a: int,
+    idx_b: int,
+    nbins: np.ndarray,
+    target_indices: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    h_y: float,                  # H(Y), precomputed once at orchestrator level
+    use_mm: bool,
+    dtype,
+) -> float:
+    """Compute Jakulin II for a single pair with optional Miller-Madow correction applied uniformly to all six entropies.
+
+    Returns the II value. Cost: 5 ``merge_vars`` calls (X1, X2, X1+Y, X2+Y, X1+X2+Y) per call -- much heavier than the search-loop's plug-in MI, so callers MUST gate by top-K.
+    """
+    n_samples = factors_data.shape[0]
+
+    # ---- merge X1 alone (gives H(X1)) ----
+    cls_x1, freqs_x1, _ = merge_vars(
+        factors_data=factors_data,
+        vars_indices=np.array([idx_a], dtype=np.int64),
+        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+    )
+    h_x1 = _entropy_for_mode(freqs_x1, n_samples, use_mm)
+
+    # ---- merge X2 alone (gives H(X2)) ----
+    cls_x2, freqs_x2, _ = merge_vars(
+        factors_data=factors_data,
+        vars_indices=np.array([idx_b], dtype=np.int64),
+        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+    )
+    h_x2 = _entropy_for_mode(freqs_x2, n_samples, use_mm)
+
+    # ---- merge X1, X2 (gives H(X1, X2)) ----
+    cls_x1x2, freqs_x1x2, _ = merge_vars(
+        factors_data=factors_data,
+        vars_indices=np.array([idx_a, idx_b], dtype=np.int64),
+        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+    )
+    h_x1x2 = _entropy_for_mode(freqs_x1x2, n_samples, use_mm)
+
+    # ---- merge X1, Y_idx ... (gives H(X1, Y)) ----
+    # Concatenate idx_a with target_indices into a single vars list.
+    vi_x1y = np.concatenate(([idx_a], target_indices)).astype(np.int64)
+    _, freqs_x1y, _ = merge_vars(
+        factors_data=factors_data,
+        vars_indices=vi_x1y,
+        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+    )
+    h_x1y = _entropy_for_mode(freqs_x1y, n_samples, use_mm)
+
+    # ---- merge X2, Y (gives H(X2, Y)) ----
+    vi_x2y = np.concatenate(([idx_b], target_indices)).astype(np.int64)
+    _, freqs_x2y, _ = merge_vars(
+        factors_data=factors_data,
+        vars_indices=vi_x2y,
+        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+    )
+    h_x2y = _entropy_for_mode(freqs_x2y, n_samples, use_mm)
+
+    # ---- merge X1, X2, Y (gives H(X1, X2, Y)) ----
+    vi_x1x2y = np.concatenate(([idx_a, idx_b], target_indices)).astype(np.int64)
+    _, freqs_x1x2y, _ = merge_vars(
+        factors_data=factors_data,
+        vars_indices=vi_x1x2y,
+        var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+    )
+    h_x1x2y = _entropy_for_mode(freqs_x1x2y, n_samples, use_mm)
+
+    # II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
+    return h_x1x2 + h_x1y + h_x2y - h_x1x2y - h_x1 - h_x2 - h_y
+
+
+def _should_apply_mm_for_pair(
+    nbins_a: int, nbins_b: int, n_y_classes: int, n_samples: int,
+    threshold: float = 0.05,
+) -> bool:
+    """Auto-gate MM application: fire when joint cardinality / n > threshold.
+
+    Per Paninski 2003, plug-in entropy bias scales with (k-1)/(2n). When k/n exceeds the threshold the bias is large enough to materially shift II by more than typical
+    synergy floors (-3/sqrt(n)). Below the threshold the bias is in the noise and applying MM only adds compute cost.
+
+    ``threshold=0.05`` is folklore, not derived. User can override via ``cfg.use_miller_madow=True`` to force, or ``False`` to disable.
+    """
+    return (nbins_a * nbins_b * n_y_classes) / max(n_samples, 1) > threshold
+
+
+def _maybe_rerank_with_mm(
+    factors_data: np.ndarray,
+    pairs_a: np.ndarray,
+    pairs_b: np.ndarray,
+    selected_idx: np.ndarray,
+    ii_arr: np.ndarray,
+    nbins: np.ndarray,
+    target_indices: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    cfg: CatFEConfig,
+    dtype,
+    verbose: int,
+) -> tuple:
+    """If MM is enabled (cfg flag True or auto-gate fires for at least one survivor), recompute II for selected pairs with MM correction applied to all six entropies.
+    Returns ``(ii_mm_arr, selected_idx_resorted)``. Hoists constant / per-column entropies (H(Y), H(X_i), H(X_i, Y)) out of the per-pair loop -- cached entropies cut MM
+    cost from 5 merge_vars + 6 entropy per pair down to 2 merge_vars + 2 entropy per pair (joint terms only).
+    """
+    if len(selected_idx) == 0:
+        return ii_arr, selected_idx
+
+    n_samples = factors_data.shape[0]
+    n_y_classes = int(classes_y.max()) + 1 if classes_y.size > 0 else 1
+
+    # Decide per-pair whether to apply MM
+    if cfg.use_miller_madow is False:
+        return ii_arr, selected_idx
+    auto_gate = cfg.use_miller_madow is None
+    if cfg.use_miller_madow is True:
+        per_pair_mm = np.ones(len(selected_idx), dtype=bool)
+    else:
+        # Analytical MM threshold based on Paninski bias formula
+        gate_fn = _should_apply_mm_for_pair_analytical
+        per_pair_mm = np.array([
+            gate_fn(
+                int(nbins[pairs_a[k]]), int(nbins[pairs_b[k]]),
+                n_y_classes, n_samples,
+            )
+            for k in selected_idx
+        ])
+    if auto_gate and not per_pair_mm.any():
+        return ii_arr, selected_idx
+
+    # Compute H(Y) once (constant across pairs but doesn't actually affect ranking since it appears in every II equally; included for correctness).
+    # KT smoothing alternative to MM (set via cfg.use_kt_smoothing).
+    use_kt = bool(getattr(cfg, "use_kt_smoothing", False))
+    h_y_mm = _entropy_for_mode(freqs_y, n_samples, use_mm=True, use_kt=use_kt)
+
+    # Hoist H(X_i) and H(X_i, Y) caches outside the loop. Only the columns touched by surviving pairs need to be computed.
+    touched_cols: set = set()
+    for j, k in enumerate(selected_idx):
+        if per_pair_mm[j]:
+            touched_cols.add(int(pairs_a[k]))
+            touched_cols.add(int(pairs_b[k]))
+
+    h_marginal_cache: dict = {}     # idx -> H(X_idx) with MM
+    h_marginal_y_cache: dict = {}   # idx -> H(X_idx, Y) with MM
+    for col_idx in touched_cols:
+        cls_x, freqs_x, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([col_idx], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        h_marginal_cache[col_idx] = _entropy_for_mode(
+            freqs_x, n_samples, use_mm=True, use_kt=use_kt,
+        )
+        vi_xy = np.concatenate(([col_idx], target_indices)).astype(np.int64)
+        _, freqs_xy, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=vi_xy,
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        h_marginal_y_cache[col_idx] = _entropy_for_mode(
+            freqs_xy, n_samples, use_mm=True, use_kt=use_kt,
+        )
+
+    if verbose:
+        n_corrected = int(per_pair_mm.sum())
+        logger.info(
+            "cat-FE: re-ranking %d/%d top-K pairs with Miller-Madow correction "
+            "(cached %d marginals)",
+            n_corrected, len(selected_idx), len(touched_cols),
+        )
+
+    ii_mm_arr = ii_arr.copy()
+    for j, k in enumerate(selected_idx):
+        if not per_pair_mm[j]:
+            continue
+        idx_a = int(pairs_a[k])
+        idx_b = int(pairs_b[k])
+        # Only joint entropies H(X1,X2) and H(X1,X2,Y) are per-pair.
+        cls_pair, freqs_pair, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=np.array([idx_a, idx_b], dtype=np.int64),
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        h_x1x2 = _entropy_for_mode(freqs_pair, n_samples, use_mm=True, use_kt=use_kt)
+        vi_pair_y = np.concatenate(([idx_a, idx_b], target_indices)).astype(np.int64)
+        _, freqs_pair_y, _ = merge_vars(
+            factors_data=factors_data,
+            vars_indices=vi_pair_y,
+            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+        )
+        h_x1x2y = _entropy_for_mode(freqs_pair_y, n_samples, use_mm=True, use_kt=use_kt)
+        # II = H(X1,X2) + H(X1,Y) + H(X2,Y) - H(X1,X2,Y) - H(X1) - H(X2) - H(Y)
+        ii_mm = (
+            h_x1x2
+            + h_marginal_y_cache[idx_a]
+            + h_marginal_y_cache[idx_b]
+            - h_x1x2y
+            - h_marginal_cache[idx_a]
+            - h_marginal_cache[idx_b]
+            - h_y_mm
+        )
+        ii_mm_arr[k] = ii_mm
+
+    # Re-sort selected_idx by the corrected scores. Same select_on logic
+    # as _select_top_k_pairs -- we just re-rank, not re-filter.
+    if cfg.select_on == "synergy":
+        score = ii_mm_arr[selected_idx]
+    elif cfg.select_on == "redundancy":
+        score = -ii_mm_arr[selected_idx]
+    else:  # absolute
+        score = np.abs(ii_mm_arr[selected_idx])
+    order = np.argsort(-score)
+    return ii_mm_arr, selected_idx[order]
+
+

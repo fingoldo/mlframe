@@ -109,7 +109,9 @@ def test_numerical_top_modes_uses_lexsort() -> None:
 
 
 def test_cat_interactions_topk_uses_lexsort() -> None:
-    src = _read("feature_selection/filters/cat_interactions.py")
+    # ``_select_top_k_pairs`` moved to the ``_cat_kway_materialize.py``
+    # sibling when ``cat_interactions.py`` was split below 1k LOC.
+    src = _read("feature_selection/filters/_cat_kway_materialize.py")
     assert "top_idx = np.lexsort((np.arange(len(masked_score)), -masked_score))" in src
 
 
