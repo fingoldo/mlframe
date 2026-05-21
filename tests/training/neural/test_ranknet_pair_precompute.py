@@ -38,9 +38,11 @@ def test_install_pair_index_cache_builds_per_query_entries():
     ds.install_pair_index_cache(sampler._query_slices)
     assert ds._pair_idx_by_query is not None
     assert len(ds._pair_idx_by_query) == len(sampler._query_slices)
-    # Sanity: a randomly chosen entry's pair tensors should be (n_pairs,) longs
+    # Sanity: a randomly chosen entry's pair tensors should be (n_pairs,) longs.
+    # Key scheme: tuple(int(v) for v in indices) (iter115 swap from
+    # np.asarray.tobytes for ~4.5x faster per-call key build).
     for indices in sampler._query_slices:
-        key = np.asarray(indices, dtype=np.int64).tobytes()
+        key = tuple(int(v) for v in indices)
         i_idx, j_idx = ds._pair_idx_by_query[key]
         if i_idx is None:
             # All-equal relevance -> no informative pair
