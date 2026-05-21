@@ -325,8 +325,9 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert any("activation=gelu" in s for s in out.get("__untranslated__", []))
 
     def test_full_sweep_winner_translates_cleanly(self):
-        """End-to-end: paste the 2026-05-22 sweep winner through the translator
-        and confirm the output is the shape the consumer site assumes."""
+        """End-to-end: paste the 2026-05-22 multi-metric sweep winner through
+        the translator and confirm the output is the shape the consumer site
+        assumes."""
         import torch
         from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
         if not ROBUST_MLP_OVERRIDES_UNDER_DRIFT:
@@ -334,11 +335,12 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
         )
-        # The winner is {alpha=0.1, hidden=(32,16), activation='identity'}.
-        # Expect AdamW weight_decay=0.1, network nlayers=0 (identity collapse),
-        # plus the hidden topology still encoded (the wire-in's deep-merge
-        # consumes network_params).
-        assert out["model_params"]["optimizer_kwargs"]["weight_decay"] == 0.1
+        # The winner is {alpha=1e-4, hidden=(32,16), activation='identity'}
+        # (R^2 / RMSE / MAE all agree on this config under min-max cross-DGP).
+        # Translation: AdamW weight_decay=1e-4, network nlayers=0 (identity
+        # collapse), plus the hidden topology still encoded (the wire-in's
+        # deep-merge consumes network_params).
+        assert out["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
         assert out["network_params"]["nlayers"] == 0
         assert out["network_params"]["first_layer_num_neurons"] == 32
         assert "__untranslated__" not in out

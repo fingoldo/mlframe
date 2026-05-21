@@ -63,37 +63,46 @@ than this many train-std away from the train mean."""
 
 
 ROBUST_MLP_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {
-    "alpha": 0.1,
+    "alpha": 1e-4,
     "hidden_layer_sizes": (32, 16),
     "activation": "identity",
 }
 """HPT overrides applied to MLPConfig for a target whose FI-weighted feature
 drift score exceeds ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD``.
 
-Grounded empirically by TWO 2026-05-22 sweeps:
+Grounded empirically by the 2026-05-22 sweep stack:
 
 A. ``profiling/bench_mlp_robustness_sweep.py`` (1,440 sklearn-MLP trials,
    LINEAR DGP). Baseline sklearn defaults (alpha=1e-4, hidden=(100,),
    activation=relu) suffered mean MLP_excess_harm = 6.455 R^2 at
    drift_z=10 (catastrophic, matches the TVT-2026-05-21 prod-log
-   collapse). The pick scored 0.0006 -- ~10000x reduction with zero
-   no-drift baseline degradation and 0.016 R^2 gap at extreme z=20.
+   collapse). Identity-activation configs reduce harm by ~10000x.
 
-B. ``profiling/bench_mlp_robustness_sweep_nonlinear.py`` (2,880 phase-1 +
-   640 phase-2 trials across 4 DGPs: linear / quadratic_dominant /
-   interaction (x_dom * x_2) / sinusoidal (5*sin(x_dom) + 3*x_dom)).
-   Cross-DGP MIN-MAX leaderboard ranks configs by worst-case mean
-   MLP_excess_harm across all 4 DGPs:
+B. ``profiling/bench_mlp_robustness_sweep_nonlinear.py`` (3,520 trials
+   across 4 DGPs: linear / quadratic_dominant / interaction (x_dom *
+   x_2) / sinusoidal (5*sin(x_dom) + 3*x_dom)). Per-trial metrics: R^2
+   gap, RMSE/y_std gap, MAE/y_std gap (mlframe.metrics.core fast_*
+   variants -- 15-17x faster than sklearn equivalents). Cross-DGP min-
+   max winner under EACH metric:
 
-     rank   config                                              worst    per-DGP
-        1   alpha=0.1 hidden=(32,16) activation=identity        0.0013   lin=0.001 quad=-0.010 inter=0.001 sin=-15.988
-        2   alpha=1e-4 hidden=(32,16) activation=identity       0.0186   lin=0.002 quad=0.019 inter=0.000 sin=-4.036
+     metric                          winner
+     R^2 gap                         alpha=1e-4 hidden=(32,16) identity
+     RMSE/y_std gap                  alpha=1e-4 hidden=(32,16) identity
+     MAE/y_std gap                   alpha=1e-4 hidden=(32,16) identity
 
-   The pick wins min-max: its worst-case mean excess harm is 0.0013 R^2
-   across all 4 DGPs. ReLU-activation configs win individually on
-   nonlinear DGPs (interaction / sinusoidal) but lose catastrophically
-   on linear under drift (6+ R^2 gap), so they fail min-max. Identity
-   is universally safe.
+   All three metrics agree, worst-case 0.0023 in RMSE/y_std / 0.0023 in
+   MAE/y_std / 0.0108 in R^2 (the R^2 worst-case is the quadratic
+   curvature MLP-identity cannot capture; in absolute error terms that's
+   still 0.2% relative). Per-DGP for the winning config:
+       linear  : R^2gap=+0.000  RMSE/y=+0.002  MAE/y=+0.002
+       quadr   : R^2gap=+0.011  RMSE/y=+0.002  MAE/y=+0.002
+       inter   : R^2gap=-0.000  RMSE/y=-0.000  MAE/y=-0.000
+       sinus   : R^2gap=-5.157  RMSE/y=-0.163  MAE/y=-0.163  (MLP beats Ridge)
+
+The alpha=1e-4 (default sklearn weight decay) winning is non-obvious but
+mechanically sound: MLPRegressor has early_stopping=True which already
+regularizes; an additional heavy L2 pushes the linear head off the
+optimal OLS solution and makes the gap WORSE under RMSE/MAE.
 
 Sklearn-shape keys (alpha / hidden_layer_sizes / activation). The
 torch-backed mlframe MLP uses different field names; the consumer at
@@ -104,11 +113,11 @@ Tradeoff (documented, not a bug): on nonlinear targets with strong
 interactions or smooth nonlinearity, applying this override forfeits
 some MLP-ReLU nonlinear-capture capacity that the unconstrained model
 would have had. The min-max framing prefers this because that
-unconstrained capacity comes with worst-case R^2=6+ gap when drift hits
-a linear-shaped target -- a real production incident pattern. The
-override is gated by feature-drift detection (only fires when
-weighted_drift_score >= 3.0), so nonlinear-rich targets without drift
-keep the original config.
+unconstrained capacity comes with worst-case R^2=6+ gap (and 2+ RMSE/
+y_std) when drift hits a linear-shaped target -- a real production
+incident pattern. The override is gated by drift detection (fires only
+when weighted_drift_score >= 3.0), so nonlinear-rich targets WITHOUT
+drift keep the original ReLU config and its nonlinear capacity.
 """
 
 

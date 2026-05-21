@@ -62,7 +62,6 @@ from typing import Any, Callable, Sequence
 import numpy as np
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import Ridge
-from sklearn.metrics import r2_score
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
@@ -70,6 +69,15 @@ _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent
 if str(_REPO / "src") not in sys.path:
     sys.path.insert(0, str(_REPO / "src"))
+
+# mlframe's fast metrics are drop-in for sklearn but 15-17x faster on the
+# 500-row test slice we hit per trial: 3520 trials x 6 metric evals each
+# = 21k calls, where sklearn's per-call constant-factor dominates.
+from mlframe.metrics.core import (
+    fast_mean_absolute_error,
+    fast_r2_score,
+    fast_root_mean_squared_error,
+)
 
 
 N_FEATURES: int = 5
@@ -159,7 +167,10 @@ def _run_one_trial(
     X_test_s = scaler.transform(X_test)
 
     ridge = Ridge(alpha=1.0).fit(X_train_s, y_train)
-    ridge_r2 = float(r2_score(y_test, ridge.predict(X_test_s)))
+    ridge_pred = ridge.predict(X_test_s)
+    ridge_r2 = float(fast_r2_score(y_test, ridge_pred))
+    ridge_rmse = float(fast_root_mean_squared_error(y_test, ridge_pred))
+    ridge_mae = float(fast_mean_absolute_error(y_test, ridge_pred))
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", ConvergenceWarning)
@@ -172,7 +183,11 @@ def _run_one_trial(
             early_stopping=True,
             n_iter_no_change=20,
         ).fit(X_train_s, y_train)
-    mlp_r2 = float(r2_score(y_test, mlp.predict(X_test_s)))
+    mlp_pred = mlp.predict(X_test_s)
+    mlp_r2 = float(fast_r2_score(y_test, mlp_pred))
+    mlp_rmse = float(fast_root_mean_squared_error(y_test, mlp_pred))
+    mlp_mae = float(fast_mean_absolute_error(y_test, mlp_pred))
+    y_test_std = float(np.std(y_test))
 
     return {
         "dgp": dgp_name,
@@ -182,8 +197,21 @@ def _run_one_trial(
         "hidden": str(hidden),
         "activation": activation,
         "ridge_test_r2": ridge_r2,
+        "ridge_test_rmse": ridge_rmse,
+        "ridge_test_mae": ridge_mae,
         "mlp_test_r2": mlp_r2,
-        "mlp_excess_harm": ridge_r2 - mlp_r2,
+        "mlp_test_rmse": mlp_rmse,
+        "mlp_test_mae": mlp_mae,
+        "y_test_std": y_test_std,
+        # excess_harm positive = MLP underperforms Ridge under this metric
+        "mlp_excess_harm": ridge_r2 - mlp_r2,            # R^2 gap (lower=better)
+        "mlp_excess_rmse": mlp_rmse - ridge_rmse,        # RMSE gap (lower=better)
+        "mlp_excess_mae": mlp_mae - ridge_mae,           # MAE gap (lower=better)
+        # Normalised gaps: |MLP_err - Ridge_err| / y_test_std. Lets cross-DGP
+        # comparison be in std-units; absolute RMSE / MAE are scale-dependent
+        # (sinusoidal+drift y_test_std is huge so absolute RMSE numbers are huge).
+        "mlp_excess_rmse_norm": (mlp_rmse - ridge_rmse) / max(y_test_std, 1e-9),
+        "mlp_excess_mae_norm": (mlp_mae - ridge_mae) / max(y_test_std, 1e-9),
     }
 
 
@@ -191,13 +219,25 @@ def _config_key(alpha: float, hidden: tuple[int, ...], activation: str) -> str:
     return f"alpha={alpha:g} hidden={hidden} activation={activation}"
 
 
-def _phase1_per_dgp(dgp_name: str) -> tuple[list[dict], list[tuple[str, float, dict]]]:
+METRICS = ("mlp_excess_harm", "mlp_excess_rmse_norm", "mlp_excess_mae_norm")
+METRIC_LABELS = {
+    "mlp_excess_harm": "R^2 gap (Ridge_R^2 - MLP_R^2)",
+    "mlp_excess_rmse_norm": "RMSE gap / y_std",
+    "mlp_excess_mae_norm": "MAE gap / y_std",
+}
+
+
+def _phase1_per_dgp(
+    dgp_name: str,
+) -> tuple[list[dict], dict[str, list[tuple[str, float, dict]]]]:
+    """Return (raw rows, per-metric leaderboards). The leaderboard dict maps
+    metric_name -> sorted list of (config_key, mean_value, cfg)."""
     rows: list[dict] = []
-    summaries: list[tuple[str, float, dict]] = []
+    by_cfg: dict[tuple, dict] = {}
     t0 = time.perf_counter()
     for i, (alpha, hidden, activation) in enumerate(
             product(ALPHA_GRID, HIDDEN_GRID, ACTIVATION_GRID), start=1):
-        harms = []
+        per_metric: dict[str, list[float]] = {m: [] for m in METRICS}
         for seed in range(PHASE1_N_SEEDS):
             rng = np.random.default_rng(seed * 31 + i + abs(hash(dgp_name)) % 7919)
             row = _run_one_trial(
@@ -207,20 +247,28 @@ def _phase1_per_dgp(dgp_name: str) -> tuple[list[dict], list[tuple[str, float, d
             row["seed"] = seed
             row["phase"] = "1"
             rows.append(row)
-            harms.append(row["mlp_excess_harm"])
-        mean_harm = float(np.mean(harms))
+            for m in METRICS:
+                per_metric[m].append(row[m])
         cfg = {"alpha": alpha, "hidden_layer_sizes": hidden, "activation": activation}
-        summaries.append((_config_key(alpha, hidden, activation), mean_harm, cfg))
+        by_cfg[(alpha, hidden, activation)] = {
+            "cfg": cfg,
+            "key": _config_key(alpha, hidden, activation),
+            "means": {m: float(np.mean(vs)) for m, vs in per_metric.items()},
+        }
     elapsed = time.perf_counter() - t0
     print(f"# Phase 1 [{dgp_name}] done in {elapsed:.1f}s "
           f"({len(ALPHA_GRID) * len(HIDDEN_GRID) * len(ACTIVATION_GRID)} configs x "
           f"{PHASE1_N_SEEDS} seeds = {len(rows)} trials)")
-    summaries.sort(key=lambda s: s[1])
-    return rows, summaries
+    leaderboards: dict[str, list[tuple[str, float, dict]]] = {}
+    for m in METRICS:
+        ranked = [(entry["key"], entry["means"][m], entry["cfg"]) for entry in by_cfg.values()]
+        ranked.sort(key=lambda r: r[1])
+        leaderboards[m] = ranked
+    return rows, leaderboards
 
 
 def _phase2_per_dgp(
-    dgp_name: str, winners: list[tuple[str, float, dict]],
+    dgp_name: str, winners: dict[str, list[tuple[str, float, dict]]],
 ) -> list[dict]:
     baseline_cfg = {
         "alpha": ALPHA_GRID[0], "hidden_layer_sizes": HIDDEN_GRID[0],
@@ -229,8 +277,16 @@ def _phase2_per_dgp(
     baseline_key = _config_key(
         baseline_cfg["alpha"], baseline_cfg["hidden_layer_sizes"], baseline_cfg["activation"],
     )
-    keep = list(winners[:PHASE2_TOP_K])
-    if all(k != baseline_key for k, _h, _c in keep):
+    # Union the top-K from EACH metric's leaderboard so the phase-2 grid
+    # validates whichever metric ends up being the production criterion.
+    seen: set[str] = set()
+    keep: list[tuple[str, float, dict]] = []
+    for metric_board in winners.values():
+        for entry in metric_board[:PHASE2_TOP_K]:
+            if entry[0] not in seen:
+                seen.add(entry[0])
+                keep.append(entry)
+    if baseline_key not in seen:
         keep.append((baseline_key, float("nan"), baseline_cfg))
 
     rows: list[dict] = []
@@ -252,66 +308,77 @@ def _phase2_per_dgp(
     return rows
 
 
-def _print_leaderboard(dgp_name: str, summaries: list[tuple[str, float, dict]], top: int = 10):
-    print()
-    print(f"# Phase 1 leaderboard [{dgp_name}] (lower MLP_excess_harm = better; top {top})")
-    print(f"{'rank':>4} {'config':<55} {'mean_excess_harm':>18}")
-    print("-" * 80)
-    for i, (k, harm, _c) in enumerate(summaries[:top], start=1):
-        print(f"{i:>4} {k:<55} {harm:>18.4f}")
+def _print_leaderboard(
+    dgp_name: str,
+    leaderboards: dict[str, list[tuple[str, float, dict]]],
+    top: int = 8,
+):
+    for m, board in leaderboards.items():
+        print()
+        print(f"# Phase 1 [{dgp_name}] -- ranked by {METRIC_LABELS[m]} (lower = better; top {top})")
+        print(f"{'rank':>4} {'config':<55} {'mean':>14}")
+        print("-" * 80)
+        for i, (k, val, _c) in enumerate(board[:top], start=1):
+            print(f"{i:>4} {k:<55} {val:>14.4f}")
     print()
 
 
 def _print_phase2_grid(dgp_name: str, rows: list[dict]):
-    by_cfg: dict[tuple, dict[tuple, list[float]]] = {}
-    for r in rows:
-        ck = (r["alpha"], r["hidden"], r["activation"])
-        ek = (r["drift_target"], r["drift_z"])
-        by_cfg.setdefault(ck, {}).setdefault(ek, []).append(r["mlp_excess_harm"])
-    print(f"# Phase 2 grid [{dgp_name}] (mean MLP_excess_harm; lower = better)")
     cell_keys = sorted({(r["drift_target"], r["drift_z"]) for r in rows})
-    header = f"{'config':<55} " + " ".join(
-        f"{t[:3]}_z{z:g}".rjust(10) for t, z in cell_keys)
-    print(header)
-    print("-" * len(header))
-    for ck, cells in by_cfg.items():
-        alpha, hidden, activation = ck
-        label = f"alpha={alpha:g} hidden={hidden} activation={activation}"
-        vals = " ".join(
-            f"{np.mean(cells.get(c, [float('nan')])):>10.3f}" for c in cell_keys
-        )
-        print(f"{label:<55} {vals}")
-    print()
+    for metric in METRICS:
+        by_cfg: dict[tuple, dict[tuple, list[float]]] = {}
+        for r in rows:
+            ck = (r["alpha"], r["hidden"], r["activation"])
+            ek = (r["drift_target"], r["drift_z"])
+            by_cfg.setdefault(ck, {}).setdefault(ek, []).append(r[metric])
+        print(f"# Phase 2 grid [{dgp_name}] -- {METRIC_LABELS[metric]} (lower = better)")
+        header = f"{'config':<55} " + " ".join(
+            f"{t[:3]}_z{z:g}".rjust(10) for t, z in cell_keys)
+        print(header)
+        print("-" * len(header))
+        for ck, cells in by_cfg.items():
+            alpha, hidden, activation = ck
+            label = f"alpha={alpha:g} hidden={hidden} activation={activation}"
+            vals = " ".join(
+                f"{np.mean(cells.get(c, [float('nan')])):>10.3f}" for c in cell_keys
+            )
+            print(f"{label:<55} {vals}")
+        print()
 
 
-def _pick_cross_dgp_winner(
-    per_dgp_leaderboards: dict[str, list[tuple[str, float, dict]]],
+def _pick_cross_dgp_winner_for_metric(
+    metric: str,
+    per_dgp_leaderboards: dict[str, dict[str, list[tuple[str, float, dict]]]],
 ) -> tuple[str | None, dict | None]:
-    """Identify the config with the BEST WORST-CASE mean excess harm across
-    all DGPs. A config that wins on linear but loses on interaction is
-    rejected; we want max_dgp(mean_harm) minimised so the override is safe
-    across signal shapes."""
+    """Min-max across DGPs for one metric. A config is kept only if it
+    appears in every DGP's leaderboard; ranked by worst-case (max across
+    DGPs), tiebroken by mean."""
     if not per_dgp_leaderboards:
         return None, None
-    all_keys = set(k for lb in per_dgp_leaderboards.values() for k, _h, _c in lb)
+    boards_for_metric = {
+        dgp: lbs[metric] for dgp, lbs in per_dgp_leaderboards.items() if metric in lbs
+    }
+    if not boards_for_metric:
+        return None, None
+    all_keys = set(k for lb in boards_for_metric.values() for k, _h, _c in lb)
     rows = []
     for key in all_keys:
         per_dgp: dict[str, float] = {}
         cfg = None
-        for dgp_name, lb in per_dgp_leaderboards.items():
+        for dgp_name, lb in boards_for_metric.items():
             for k, h, c in lb:
                 if k == key:
                     per_dgp[dgp_name] = h
                     cfg = c
                     break
-        if len(per_dgp) == len(per_dgp_leaderboards):
+        if len(per_dgp) == len(boards_for_metric):
             worst = max(per_dgp.values())
             mean = float(np.mean(list(per_dgp.values())))
             rows.append((key, worst, mean, per_dgp, cfg))
     rows.sort(key=lambda r: (r[1], r[2]))
 
     print()
-    print("# Cross-DGP min-max leaderboard (top 10 by worst-case mean excess harm)")
+    print(f"# Cross-DGP min-max leaderboard -- {METRIC_LABELS[metric]} (top 10 by worst-case)")
     print(f"{'rank':>4} {'config':<55} {'worst':>10} {'avg':>10} per_dgp")
     print("-" * 100)
     for i, (k, worst, mean, per_dgp, _c) in enumerate(rows[:10], start=1):
@@ -335,19 +402,17 @@ def main():
           f"{PHASE1_N_SEEDS} seeds per cfg")
 
     all_rows: list[dict] = []
-    per_dgp_leaderboards: dict[str, list[tuple[str, float, dict]]] = {}
+    per_dgp_leaderboards: dict[str, dict[str, list[tuple[str, float, dict]]]] = {}
     for dgp_name in DGPs:
-        p1_rows, lb = _phase1_per_dgp(dgp_name)
+        p1_rows, lbs = _phase1_per_dgp(dgp_name)
         all_rows.extend(p1_rows)
-        per_dgp_leaderboards[dgp_name] = lb
-        _print_leaderboard(dgp_name, lb)
+        per_dgp_leaderboards[dgp_name] = lbs
+        _print_leaderboard(dgp_name, lbs)
 
-    for dgp_name, lb in per_dgp_leaderboards.items():
-        p2_rows = _phase2_per_dgp(dgp_name, lb)
+    for dgp_name, lbs in per_dgp_leaderboards.items():
+        p2_rows = _phase2_per_dgp(dgp_name, lbs)
         all_rows.extend(p2_rows)
         _print_phase2_grid(dgp_name, p2_rows)
-
-    best_key, best_cfg = _pick_cross_dgp_winner(per_dgp_leaderboards)
 
     out_dir = _HERE / "_results"
     out_dir.mkdir(exist_ok=True)
@@ -360,12 +425,25 @@ def main():
     print(f"# wrote {out_path}")
     print()
 
-    print("# RECOMMENDED CROSS-DGP MLP override (min-max winner):")
-    if best_cfg:
-        print(f"#   key={best_key}")
-        print(f"#   cfg={best_cfg}")
+    per_metric_winners: dict[str, tuple[str | None, dict | None]] = {}
+    for metric in METRICS:
+        per_metric_winners[metric] = _pick_cross_dgp_winner_for_metric(
+            metric, per_dgp_leaderboards,
+        )
+
+    print("# CROSS-METRIC SUMMARY (cross-DGP min-max winners under each metric)")
+    print(f"{'metric':<28} {'winner':<60}")
+    print("-" * 90)
+    for metric, (k, _c) in per_metric_winners.items():
+        print(f"{METRIC_LABELS[metric]:<28} {k or '(none)':<60}")
+    print()
+
+    keys = {k for k, _c in per_metric_winners.values() if k}
+    if len(keys) == 1:
+        print(f"# AGREEMENT: all 3 metrics agree on winner -> {keys.pop()}")
     else:
-        print("# (no cross-DGP winner identified)")
+        print("# DIVERGENCE: metrics disagree on the winner. Need a metric-of-record")
+        print("# decision before shipping the override.")
     print()
 
 
