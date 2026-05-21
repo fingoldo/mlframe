@@ -203,6 +203,14 @@ def _per_member_mae_std(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
     )
     if use_numba:
         return _per_member_mae_std_njit(arr, median_preds)
+    # bench-attempt-rejected (2026-05-21, c0123 K=3 / N=200k): single-pass
+    # variance via ``E[X^2] - E[X]^2`` (avoids the (K, N) squared-diff
+    # intermediate) saved 15-26 % wall on numpy paths (2-D 7.5 -> 6.4 ms;
+    # 3-D 25.6 -> 20.4 ms) at <= 9e-15 max abs std diff. Rejected to match
+    # the numba branch's explicit "no catastrophic cancellation" guarantee:
+    # ``E[X^2] - E[X]^2`` loses precision when std/mean is tiny (members
+    # nearly identical), and we never want the perf-tier numpy path to
+    # silently shift the gate decision under that regime.
     diffs = np.abs(arr - median_preds)
     if arr.ndim == 2:
         # (K, N): one column, mae/std collapse to a single scalar per member.
