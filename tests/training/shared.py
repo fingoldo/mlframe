@@ -181,6 +181,37 @@ class SimpleFeaturesAndTargetsExtractor:
                 target_by_type.setdefault(
                     TargetTypes.BINARY_CLASSIFICATION, {}
                 )[self.target_column + "_bin"] = _bin_vals
+            elif self.extra_targets == "mixed_reg_bin_2each":
+                # Cartesian product: 2 primary-type targets AND 2 binary
+                # secondary targets. The suite trains all 4 in one
+                # invocation, so BOTH the target_by_type.items() outer
+                # loop AND the targets.items() inner loop iterate twice
+                # each. Stress-tests per-target isolation (no FS / pre-
+                # pipeline cache contamination between targets), ensemble
+                # flavour assembly across heterogeneous types, and the
+                # nested-dict metadata layout. Canonicaliser keeps this
+                # value only when primary == regression.
+                _add_name = self.target_column + "_extra"
+                _bin_name1 = self.target_column + "_bin"
+                _bin_name2 = self.target_column + "_bin2"
+                if target_type == TargetTypes.REGRESSION:
+                    _extra_vals = _rng.standard_normal(_n_rows).astype(np.float32)
+                elif target_type == TargetTypes.BINARY_CLASSIFICATION:
+                    _extra_vals = (_rng.random(_n_rows) > 0.5).astype(np.int8)
+                elif target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
+                    _extra_vals = _rng.integers(0, 3, size=_n_rows).astype(np.int8)
+                else:
+                    _extra_vals = None
+                if _extra_vals is not None:
+                    target_by_type[target_type][_add_name] = _extra_vals
+                # 2 binary targets (each from a fresh RNG draw for
+                # statistical independence).
+                _bin1_vals = (_rng.random(_n_rows) > 0.5).astype(np.int8)
+                _bin2_vals = (_rng.random(_n_rows) > 0.4).astype(np.int8)
+                target_by_type.setdefault(
+                    TargetTypes.BINARY_CLASSIFICATION, {}
+                )[_bin_name1] = _bin1_vals
+                target_by_type[TargetTypes.BINARY_CLASSIFICATION][_bin_name2] = _bin2_vals
 
         # group_ids extraction (Session 7 batch 7): when ``group_field``
         # is set and present in df, return the column as group_ids_raw

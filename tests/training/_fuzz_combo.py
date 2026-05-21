@@ -380,19 +380,32 @@ AXES: dict[str, tuple[Any, ...]] = {
     # this axis exercises both axes simultaneously.
     #
     # Values:
-    #   None              -- legacy single-target behaviour.
-    #   "same_type_2"     -- 2 distinct targets of the SAME primary type
-    #                        (e.g. predict 2 regression targets); exercises
-    #                        targets.items() inner loop.
-    #   "mixed_reg_bin"   -- regression primary + binary classification
-    #                        secondary; exercises target_by_type.items()
-    #                        outer loop with 2 different keys.
+    #   None                  -- legacy single-target behaviour.
+    #   "same_type_2"         -- 2 distinct targets of the SAME primary type
+    #                            (e.g. predict 2 regression targets); exercises
+    #                            targets.items() inner loop.
+    #   "mixed_reg_bin"       -- regression primary + binary classification
+    #                            secondary; exercises target_by_type.items()
+    #                            outer loop with 2 different keys.
+    #   "mixed_reg_bin_2each" -- 2 regression + 2 binary classification
+    #                            simultaneously. Exercises BOTH the outer
+    #                            target_by_type.items() loop (2 keys) AND
+    #                            the inner targets.items() loop (2 names
+    #                            per type), so the cross-product 4 targets
+    #                            are trained in one suite invocation. The
+    #                            hardest combo: stress-tests per-target
+    #                            isolation (no cross-contamination of
+    #                            preprocessing / FS caches between targets),
+    #                            ensemble flavour assembly across heterogeneous
+    #                            target types, and metadata layout for the
+    #                            ``{target_type: {target_name: ...}}`` 2-level dict.
     #
     # Canonicalised to None for ``multilabel_classification`` (already 2-D
     # within one target) and ``learning_to_rank`` (special ranker dispatch
-    # path that doesn't iterate over multiple targets). "mixed_reg_bin"
-    # additionally canonicalises to None when primary != regression.
-    "extra_targets": (None, "same_type_2", "mixed_reg_bin"),
+    # path that doesn't iterate over multiple targets). "mixed_reg_bin" +
+    # "mixed_reg_bin_2each" additionally canonicalise to None when primary
+    # != regression.
+    "extra_targets": (None, "same_type_2", "mixed_reg_bin", "mixed_reg_bin_2each"),
 }
 
 
@@ -916,11 +929,12 @@ class FuzzCombo:
             #  - multilabel / LTR: collapse to None (multilabel is already 2-D
             #    within ONE target; LTR has its own ranker dispatch path that
             #    bypasses the target_by_type loop).
-            #  - "mixed_reg_bin" requires regression primary: collapse to None
-            #    otherwise (the secondary type would conflict with the primary
-            #    target inference logic in the suite).
+            #  - mixed_reg_bin / mixed_reg_bin_2each require regression primary:
+            #    collapse to None otherwise (the secondary type would conflict
+            #    with the primary target inference logic in the suite).
             (None if self.target_type in ("multilabel_classification", "learning_to_rank")
-             else (None if (self.extra_targets == "mixed_reg_bin" and self.target_type != "regression")
+             else (None if (self.extra_targets in ("mixed_reg_bin", "mixed_reg_bin_2each")
+                            and self.target_type != "regression")
                    else self.extra_targets)),
         )
 
