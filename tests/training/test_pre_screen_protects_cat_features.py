@@ -91,10 +91,16 @@ def test_dead_pass_branch_was_fixed_via_source_inspection():
     import pathlib
     # Derive path from installed package; hardcoded D:/ paths break on every other clone.
     import mlframe as _mlframe
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    # After the 2026-05-21 monolith split _train_one_target body lives in
+    # ``_phase_train_one_target_body.py``; the parent re-exports it. Read both
+    # files so the regression guard catches the bug-class regardless of which
+    # module the offending pattern would re-appear in.
     src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_train_one_target.py"
-    ).read_text(encoding="utf-8")
+        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    )
     assert "if ctx.cat_features:\n                pass" not in src, (
         "Pre-screen 'if ctx.cat_features: pass' dead-pass regression. "
         "cat_features must be explicitly added to the protected set."
@@ -114,10 +120,12 @@ def test_text_and_embedding_features_added_to_protected():
     """Text + embedding cols carry semantic meaning the model relies on; protect them too."""
     import pathlib
     import mlframe as _mlframe
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
     src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_train_one_target.py"
-    ).read_text(encoding="utf-8")
+        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    )
     assert "ctx.text_features" in src and "ctx.embedding_features" in src, (
         "Pre-screen must protect text + embedding features alongside cat_features."
     )

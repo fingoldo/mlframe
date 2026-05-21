@@ -15,11 +15,22 @@ def _read(rel: str) -> str:
     """Read a module source file from the mlframe src tree.
 
     Resolves relative to the repo root so tests are robust to where pytest is invoked from.
+
+    Compat shim for the 2026-05-21 monolith split: when the requested module
+    is ``_phase_train_one_target.py``, also append its body sibling so the
+    source-pattern sensors that pre-date the split still match. The
+    fingerprint / weight-loop / etc. code now lives in
+    ``_phase_train_one_target_body.py``; the parent re-exports it.
     """
     here = Path(__file__).resolve()
     # tests/training/test_future_disposition_codeeff_conv.py -> repo root
     repo_root = here.parents[2]
-    return (repo_root / "src" / "mlframe" / rel).read_text(encoding="utf-8")
+    primary = (repo_root / "src" / "mlframe" / rel).read_text(encoding="utf-8")
+    if rel.endswith("training/core/_phase_train_one_target.py"):
+        sibling = repo_root / "src" / "mlframe" / "training" / "core" / "_phase_train_one_target_body.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 # ---------- CODE-P1-4: run_temporal_audit_batch dead df param ----------

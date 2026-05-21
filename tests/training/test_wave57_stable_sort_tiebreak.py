@@ -58,7 +58,25 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    """Read a module source by relative path under src/mlframe.
+
+    Monolith-split compat: when the requested file is one of the parents
+    whose code moved to siblings, append every matching sibling so source-
+    pattern sensors that pre-date the splits still match.
+    """
+    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "training/core/_phase_train_one_target.py":
+        sibling = MLFRAME_ROOT / "training" / "core" / "_phase_train_one_target_body.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif rel == "feature_selection/filters/mrmr.py":
+        # 2026-05-21 split: helpers moved to _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py.
+        _dir = MLFRAME_ROOT / "feature_selection" / "filters"
+        for nm in ("_mrmr_fingerprints.py", "_mrmr_fit_impl.py", "_mrmr_fe_step.py", "_mrmr_validate_transform.py"):
+            sibling = _dir / nm
+            if sibling.exists():
+                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 # ---------------------------------------------------------------------------

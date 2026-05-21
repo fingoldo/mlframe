@@ -41,6 +41,22 @@ import pytest
 # ---- Site #1: pre-screen per-frame apply_drops ------------------------------
 
 
+# 2026-05-21 monolith split: ``_train_one_target`` body lives in
+# ``_phase_train_one_target_body.py``; source-pattern sensors that grep the
+# parent file must also read the body sibling. Resolves the core/ dir from
+# the installed package so it works regardless of where pytest is invoked.
+def _read_phase_train_one_target_combined():
+    import pathlib
+    import mlframe as _mlframe
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    return (
+        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    )
+
+
+
 def test_pre_screen_per_frame_apply_drops_logs_on_failure(caplog):
     """When ``apply_drops`` raises on one frame, the WARN log must fire so
     operators see the schema-drift hazard. Pre-fix this was silently swallowed.
@@ -51,10 +67,7 @@ def test_pre_screen_per_frame_apply_drops_logs_on_failure(caplog):
     """
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_train_one_target.py"
-    ).read_text(encoding="utf-8")
+    src = _read_phase_train_one_target_combined()
     # Pre-fix shape MUST be gone:
     assert "                        try:\n                            setattr(ctx, _frame_attr, apply_drops(_f, _drops))\n                        except Exception:\n                            pass" not in src, (
         "Pre-fix per-frame `except Exception: pass` reappeared; pre-screen "

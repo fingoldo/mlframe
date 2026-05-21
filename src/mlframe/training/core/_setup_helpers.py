@@ -512,8 +512,8 @@ def _build_pre_pipelines(
         # ``instantiate`` so shap / matplotlib / seaborn (~2s cold cost) only load when this branch fires.
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _bs_spec = _get_selector_spec("BorutaShap")
-        # 2026-05-21 iter151 audit finding: BorutaShap's ``classification``
-        # defaults to True, so the inner default model is RandomForestClassifier --
+        # BorutaShap's ``classification`` defaults to True, so the inner
+        # default model is RandomForestClassifier --
         # which raises ValueError("Unknown label type: 'continuous'") inside
         # sklearn.multiclass on regression targets. When the caller hasn't
         # set ``classification`` explicitly in boruta_shap_kwargs AND

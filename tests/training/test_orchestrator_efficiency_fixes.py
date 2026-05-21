@@ -17,7 +17,19 @@ CORE = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "c
 
 
 def _read(name: str) -> str:
-    return (CORE / name).read_text(encoding="utf-8")
+    """Read source by filename under training/core/.
+
+    2026-05-21 monolith split: when the requested file is
+    ``_phase_train_one_target.py`` (which had ``_train_one_target`` carved
+    out into ``_phase_train_one_target_body.py``), concatenate the body
+    sibling so source-pattern sensors still match the relocated code.
+    """
+    primary = (CORE / name).read_text(encoding="utf-8")
+    if name == "_phase_train_one_target.py":
+        sibling = CORE / "_phase_train_one_target_body.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 # Fix 1: dead imports removed from main.py.

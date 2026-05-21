@@ -24,6 +24,11 @@ _CORE_FILES = [
     _CORE_ROOT / "core" / "_phase_helpers.py",
     _CORE_ROOT / "core" / "_phase_recurrent.py",
     _CORE_ROOT / "core" / "_phase_train_one_target.py",
+    # 2026-05-21 monolith split: body carved out from the parent above. The
+    # sensor parametrizes per-file so adding the sibling here is equivalent
+    # to a "read both" repoint with no helper indirection.
+    _CORE_ROOT / "core" / "_phase_train_one_target_body.py",
+    _CORE_ROOT / "core" / "_phase_train_one_target_helpers.py",
     _CORE_ROOT / "core" / "_setup_helpers.py",
     _CORE_ROOT / "core" / "_misc_helpers.py",
     _CORE_ROOT / "phases.py",

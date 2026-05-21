@@ -29,8 +29,35 @@ import mlframe as _mlframe
 _SRC_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
 
 
+# 2026-05-21 monolith split: ``_train_one_target`` body lives in
+# ``_phase_train_one_target_body.py``; source-pattern sensors that grep the
+# parent file must also read the body sibling. Resolves the core/ dir from
+# the installed package so it works regardless of where pytest is invoked.
+def _read_phase_train_one_target_combined():
+    import pathlib
+    import mlframe as _mlframe
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    return (
+        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    )
+
+
+
 def _read(rel: str) -> str:
-    return (_SRC_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file relative to _SRC_ROOT.
+
+    2026-05-21 monolith split compat: when the requested file is
+    ``core/_phase_train_one_target.py``, append the body sibling so
+    source-pattern sensors that pre-date the split still match.
+    """
+    primary = (_SRC_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "core/_phase_train_one_target.py":
+        sibling = _SRC_ROOT / "core" / "_phase_train_one_target_body.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 # ----- contract table -----------------------------------------------------

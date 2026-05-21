@@ -44,6 +44,22 @@ import pytest
 # ---- #1: per-class log_loss --------------------------------------------
 
 
+# 2026-05-21 monolith split: ``_train_one_target`` body lives in
+# ``_phase_train_one_target_body.py``; source-pattern sensors that grep the
+# parent file must also read the body sibling. Resolves the core/ dir from
+# the installed package so it works regardless of where pytest is invoked.
+def _read_phase_train_one_target_combined():
+    import pathlib
+    import mlframe as _mlframe
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    return (
+        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
+        + "\n"
+        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    )
+
+
+
 def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
     """Construct a closure mirroring the multilabel log-loss path with one
     failing class. Pre-fix, the failure was silently dropped and ``np.mean``
@@ -85,12 +101,14 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
     assert float(np.nanmean(losses)) == 2.0
 
     # Source-level guard that the live function uses the post-fix idiom.
+    # The multilabel log-loss helper moved to the ``_dummy_bootstrap.py``
+    # sibling during the dummy_baselines monolith split; the parent + every
+    # sibling is searched so the WARN-log shape sensor stays valid.
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "dummy_baselines.py"
-    ).read_text(encoding="utf-8")
+    _train = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
+    _files = [_train / "dummy_baselines.py", *_train.glob("_dummy_*.py")]
+    src = "\n".join(p.read_text(encoding="utf-8") for p in _files if p.exists())
     assert "multilabel log-loss: %d/%d class component(s) failed" in src, (
         "Wave 16 P1 regression: per-class log_loss WARN log shape gone."
     )
@@ -163,14 +181,19 @@ def test_detect_skip_emits_debug_when_col_raises(caplog):
 
 def test_composite_screening_failed_fold_warns(caplog):
     """Failed CV fold returns NaN AND emits a WARN so operators see the
-    effective fold count is reduced."""
+    effective fold count is reduced. The WARN-emitting block moved from
+    composite_screening.py to the sibling _composite_screening_tiny.py
+    during the screening monolith split; check both locations."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "composite_screening.py"
-    ).read_text(encoding="utf-8")
-    assert "composite_screening: tiny-model CV fold failed" in src, (
+    root = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
+    candidates = [root / "composite_screening.py", root / "_composite_screening_tiny.py"]
+    src_combined = ""
+    for p in candidates:
+        if p.exists():
+            src_combined += p.read_text(encoding="utf-8")
+            src_combined += "\n"
+    assert "composite_screening: tiny-model CV fold failed" in src_combined, (
         "Wave 16 P1 regression: failed CV fold no longer emits a WARN; "
         "Screening RMSE silently biased toward well-behaved folds."
     )
@@ -183,10 +206,7 @@ def test_clone_failure_warns_with_pipeline_type(caplog):
     """sklearn.clone fallback path WARN-logs the pipeline type."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_train_one_target.py"
-    ).read_text(encoding="utf-8")
+    src = _read_phase_train_one_target_combined()
     assert "sklearn.clone failed for base_pipeline" in src
     # Message wraps at `reusing ` / `original reference.` -- match either piece.
     assert "reusing " in src and "original reference" in src
