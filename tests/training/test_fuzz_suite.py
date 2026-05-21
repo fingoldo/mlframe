@@ -890,6 +890,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             baseline_diagnostics_config=__import__(
                 "mlframe.training.configs", fromlist=["BaselineDiagnosticsConfig"]
             ).BaselineDiagnosticsConfig(enabled=combo.baseline_diagnostics_enabled_cfg),
+            # 2026-05-21 -- mini-HPT toggle. When True, the suite runs the
+            # target-distribution analyzer + feature-distribution analyzer
+            # after the split, gap-fill-merges target-side recommendations
+            # into hyperparams_config, and stamps both reports into metadata.
+            # When False both analyzers skip. Default True matches suite
+            # signature; toggling exercises the skip path.
+            enable_target_distribution_analyzer=combo.enable_target_distribution_analyzer_cfg,
             **_configs_for_combo(combo),
         )
         # An empty ``trained`` dict is acceptable ONLY when

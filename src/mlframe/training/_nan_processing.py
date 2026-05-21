@@ -278,9 +278,11 @@ def get_categorical_columns(df: pl.DataFrame | pd.DataFrame, include_string: boo
             ]
     else:
         # Function-local import (see note above) -- breaks strategies↔utils cycle.
-        from .strategies import PANDAS_CATEGORICAL_DTYPES
+        from .strategies import PANDAS_CATEGORICAL_SELECT_DTYPES
         if include_string:
-            return df.select_dtypes(include=list(PANDAS_CATEGORICAL_DTYPES)).columns.tolist()
+            return df.select_dtypes(
+                include=list(PANDAS_CATEGORICAL_SELECT_DTYPES)
+            ).columns.tolist()
         else:
             return df.select_dtypes(include=["category"]).columns.tolist()
 

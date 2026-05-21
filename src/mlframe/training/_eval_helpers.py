@@ -279,12 +279,13 @@ def _filter_categorical_features(fit_params, train_df, val_df=None, test_df=None
 
     cat_columns: set = set()
     if isinstance(train_df, pd.DataFrame):
-        from .strategies import PANDAS_CATEGORICAL_DTYPES
+        from .strategies import PANDAS_CATEGORICAL_SELECT_DTYPES
 
-        _pd_cats = list(PANDAS_CATEGORICAL_DTYPES)
         for split in (train_df, val_df, test_df):
             if isinstance(split, pd.DataFrame):
-                cat_columns.update(split.select_dtypes(_pd_cats).columns)
+                cat_columns.update(
+                    split.select_dtypes(list(PANDAS_CATEGORICAL_SELECT_DTYPES)).columns
+                )
     elif isinstance(train_df, pl.DataFrame):
         from .strategies import get_polars_cat_columns
 

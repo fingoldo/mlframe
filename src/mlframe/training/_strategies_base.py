@@ -46,6 +46,18 @@ PANDAS_CATEGORICAL_DTYPES: FrozenSet[str] = frozenset({
     "category", "object", "string", "string[pyarrow]", "large_string[pyarrow]", "str",
 })
 
+# pandas>=2.3 ``select_dtypes`` rejects the literal ``"str"`` with
+# ``TypeError: numpy string dtypes are not allowed, use 'str' or 'object'
+# instead`` — pandas parses ``"str"`` as a numpy "<U..." dtype, not as the
+# pandas StringDtype(na_value=nan) the comment above refers to. Keep ``"str"``
+# in the membership-check set (``dtype.name`` lookups in pipeline.py work fine
+# with it) but use this filtered tuple for ``select_dtypes(include=...)`` calls
+# in _nan_processing.py / _eval_helpers.py / etc.; the StringDtype is already
+# covered by the ``"string"`` entry on its own.
+PANDAS_CATEGORICAL_SELECT_DTYPES: tuple = tuple(
+    sorted(d for d in PANDAS_CATEGORICAL_DTYPES if d != "str")
+)
+
 
 class ModelPipelineStrategy(ABC):
     """

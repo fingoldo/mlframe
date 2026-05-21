@@ -78,21 +78,20 @@ MODELS: tuple[str, ...] = ("cb", "xgb", "lgb", "hgb", "linear", "mlp")
 
 AXES: dict[str, tuple[Any, ...]] = {
     "input_type": ("pandas", "polars_utf8", "polars_enum", "polars_nullable"),
-    # 2026-04-26 batch 2: n_rows 5000 added so rare_1pct (40 minority rows) and
-    # rare_5pct (250) actually get reliable train/val/test splits per the
-    # _canonical_imbalance threshold. Previously rare_1pct was always
-    # canonicalised down to balanced because no n was large enough.
-    # n_rows tier:
-    #   * 300 — small-batch / "minimum-viable" training corner.
-    #   * 600 — boundary for rare_5pct (frac*0.1*n>=4 ⇒ n>=800 with OD/aging
-    #     trim); below this rare_5pct canonicalises to balanced.
-    #   * 1000 — "medium-large" tier (was 1200 in 2026-04 axis space; reduced
-    #     2026-04-27 for fuzz speed — every combo at this tier is ~17 %
-    #     faster, no semantic coverage lost since rare_5pct still exercises
-    #     at n=1000 per the canonical_imbalance threshold).
-    #   * 5000 — only tier that supports rare_1pct (frac*0.1*n>=4 ⇒ n>=4000);
-    #     keep as-is.
-    "n_rows": (300, 600, 1000, 5000),
+    # 2026-05-21: bumped from (300, 600, 1000, 5000) to (1000, 200_000) so the
+    # large tier matches the /loop iteration target (profile_one_combo.py
+    # --rows 200000) and the size the library is actually deployed against.
+    # Most recent features (FE subsample, mini-HPT, composite-discovery,
+    # mrmr GPU dispatch, kernel_tuning_cache, target-distribution-analyzer)
+    # only branch above ~50k rows; without a 200k tier the fuzz suite never
+    # exercises those code paths.
+    #
+    # 1000 stays as the "small tier" so the n_rows-gated slow models
+    # (recurrent at >600, RFECV at >1200) still get fuzz coverage. Both
+    # canonicalisers (rare_1pct min=4000, rare_5pct min=800) tolerate 1000:
+    # rare_5pct still fuzz-active, rare_1pct canonicalises to balanced
+    # (covered by the 200k tier where rare_1pct fits comfortably).
+    "n_rows": (1000, 200_000),
     # cat_feature_count 15 stresses one-hot blow-up (~15 levels × 15 cols ~=
     # 225 generated features) and exercises the high-card branch of MRMR /
     # encoder. Was 20 in 2026-04 — reduced 2026-04-27 for fuzz speed; the
@@ -349,6 +348,24 @@ AXES: dict[str, tuple[Any, ...]] = {
     "composite_use_stacked_discovery_cfg": (False, True),
     "composite_use_stacked_discovery_residual_cfg": (False, True),
     "composite_skip_wrap_pass_predict_cfg": (True, False),
+    # 2026-05-21 -- mini-HPT analyzer (target + feature side). When True,
+    # ``train_mlframe_models_suite`` runs both analyze_target_distribution
+    # and analyze_feature_distribution after the split; target-side
+    # recommendations gap-fill-merge into hyperparams_config, feature-side
+    # report is stamped into metadata["feature_distribution_report"] for
+    # operator review. False skips both analyzers. Default True matches
+    # the suite signature default; toggling exercises the skip path.
+    "enable_target_distribution_analyzer_cfg": (True, False),
+    # 2026-05-21 -- MRMR FE pair-check subsample knob. When 0, the check
+    # runs on the full frame (legacy + n_rows < FE_DEFAULT_SUBSAMPLE_N
+    # path). When set positive AND below n_rows, the MI sweep runs on a
+    # uniform sample of that size while survivor columns are still rebuilt
+    # at full-n (caller contract). 50_000 forces the subsample path at
+    # n_rows=200_000 so the survivor-rebuild branch + _rebuild_full_survivor_col
+    # are exercised; canonicalised to 0 (no-op) when use_mrmr_fs is False
+    # OR fe_ntop_features_cfg / fe_npermutations_cfg are both 0 (the FE
+    # block doesn't run at all).
+    "fe_check_pairs_subsample_n_cfg": (0, 50_000),
 }
 
 
@@ -486,6 +503,14 @@ class FuzzCombo:
     composite_use_stacked_discovery_cfg: bool = False
     composite_use_stacked_discovery_residual_cfg: bool = False
     composite_skip_wrap_pass_predict_cfg: bool = True
+    # 2026-05-21 -- mini-HPT (target + feature distribution analyzer) toggle.
+    # Default True mirrors the suite signature default; archived
+    # _fuzz_results.jsonl rows that pre-date this axis deserialise as True.
+    enable_target_distribution_analyzer_cfg: bool = True
+    # 2026-05-21 -- MRMR FE pair-check subsample knob. Default 0 (disabled)
+    # mirrors the legacy axis behaviour; archived rows pre-dating this axis
+    # deserialise as 0 (no subsample).
+    fe_check_pairs_subsample_n_cfg: int = 0
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -839,6 +864,23 @@ class FuzzCombo:
                 self.composite_discovery_enabled_cfg
                 and self.target_type == "regression"
             ) else True,
+            # 2026-05-21 -- mini-HPT (target + feature distribution analyzer)
+            # toggle. Axis is meaningful on every target type since both
+            # detectors run unconditionally when enabled.
+            self.enable_target_distribution_analyzer_cfg,
+            # 2026-05-21 -- FE check-pairs subsample knob is meaningful only
+            # when the FE inner pass actually runs. Canonicalise to 0 when
+            # use_mrmr_fs is False OR both FE entry points (npermutations +
+            # ntop_features) are 0 -- the survivor-rebuild branch can't be
+            # exercised in those cases, so dedup-collapsing 50_000 -> 0
+            # avoids spending pairwise budget on identical-behaviour combos.
+            # Subsample also needs n_rows > subsample_n: canon-to-0 at
+            # n_rows=1000 (always <= 50_000 budget), keep at n_rows=200_000.
+            self.fe_check_pairs_subsample_n_cfg if (
+                self.use_mrmr_fs
+                and (self.mrmr_fe_npermutations_cfg > 0 or self.mrmr_fe_ntop_features_cfg > 0)
+                and self.n_rows > self.fe_check_pairs_subsample_n_cfg
+            ) else 0,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -847,8 +889,11 @@ class FuzzCombo:
             return None
         # Recurrent training is the slowest model on the bench (PyTorch
         # Lightning loop). Cap at the small-row tier so a fuzz combo
-        # doesn't push past per-test timeout.
-        if self.n_rows > 600:
+        # doesn't push past per-test timeout. Was n_rows > 600 against
+        # the legacy (300, 600, 1000, 5000) tiers; the 2026-05-21 axis
+        # bump (1000, 200_000) makes 1000 the small tier so recurrent
+        # only fires there (200k would explode timeout).
+        if self.n_rows > 1000:
             return None
         # The recurrent classifier path expects a 1-D label; multilabel
         # (N, K) targets aren't supported by RecurrentTorchModel today.
@@ -885,8 +930,11 @@ class FuzzCombo:
         base = rfe.rsplit("_rfecv", 1)[0]
         if base not in self.models:
             return None
-        # RFECV iterates 10+ refits; cap at the small-row tier.
-        if self.n_rows > 1200:
+        # RFECV iterates 10+ refits; cap at the small-row tier. Was
+        # n_rows > 1200 against legacy tiers; the 2026-05-21 axis bump
+        # (1000, 200_000) makes 1000 the small tier so RFECV only fires
+        # there (200k * 10 refits would dominate the suite wall).
+        if self.n_rows > 1000:
             return None
         # sklearn RFECV.fit (via check_classification_targets) raises
         # "Supported target types are: ('binary', 'multiclass'). Got
@@ -1408,6 +1456,39 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_min_polynom_degree_cfg=axes.get("mrmr_fe_min_polynom_degree_cfg", 3),
         mrmr_fe_max_polynom_degree_cfg=axes.get("mrmr_fe_max_polynom_degree_cfg", 3),
         mrmr_cat_fe_include_numeric_cfg=axes.get("mrmr_cat_fe_include_numeric_cfg", False),
+        # 2026-05-19 -- PreprocessingExtensionsConfig polynomial-auto-tune
+        # axes. Previously declared in AXES + dataclass but not threaded
+        # through _build_combo, so randomised values silently fell back to
+        # dataclass defaults. Wired 2026-05-21.
+        prep_ext_polynomial_max_features_cfg=axes.get(
+            "prep_ext_polynomial_max_features_cfg", 10_000
+        ),
+        prep_ext_polynomial_interaction_only_cfg=axes.get(
+            "prep_ext_polynomial_interaction_only_cfg", True
+        ),
+        prep_ext_memory_safety_max_bytes_cfg=axes.get(
+            "prep_ext_memory_safety_max_bytes_cfg", 500_000_000
+        ),
+        # 2026-05-19 -- composite-discovery stacked-residual axes. Same
+        # un-wired bug as above; defaulting these collapsed every combo to
+        # the False / True dataclass defaults regardless of the axis value.
+        composite_use_stacked_discovery_cfg=axes.get(
+            "composite_use_stacked_discovery_cfg", False
+        ),
+        composite_use_stacked_discovery_residual_cfg=axes.get(
+            "composite_use_stacked_discovery_residual_cfg", False
+        ),
+        composite_skip_wrap_pass_predict_cfg=axes.get(
+            "composite_skip_wrap_pass_predict_cfg", True
+        ),
+        # 2026-05-21 -- mini-HPT (target + feature distribution analyzer)
+        # + MRMR FE pair-check subsample knob.
+        enable_target_distribution_analyzer_cfg=axes.get(
+            "enable_target_distribution_analyzer_cfg", True
+        ),
+        fe_check_pairs_subsample_n_cfg=axes.get(
+            "fe_check_pairs_subsample_n_cfg", 0
+        ),
     )
 
 
@@ -1453,6 +1534,15 @@ def build_mrmr_kwargs_from_flat(
     fe_smart_polynom_optimization_steps: int = 1000,
     fe_min_polynom_degree: int = 3,
     fe_max_polynom_degree: int = 3,
+    # 2026-05-21 -- FE pair-check subsample budget. Threads the new MRMR
+    # __init__ knob added in feat(fe+suite) 5223085 alongside the matching
+    # fe_smart_polynom subsample. 0 = disabled (legacy full-frame path);
+    # >0 AND < len(X) fires the subsample MI sweep with full-n survivor
+    # rebuild. Both subsamples share FE_DEFAULT_SUBSAMPLE_N (200_000)
+    # upstream; fuzz pins a tighter 50_000 budget so the subsample path
+    # also fires at n_rows=200_000.
+    fe_check_pairs_subsample_n: int = 0,
+    fe_smart_polynom_subsample_n: int = 0,
     # Suite-side fuzz-speed pins. Callers can override.
     verbose: int = 0,
     max_runtime_mins: int = 1,
@@ -1494,6 +1584,13 @@ def build_mrmr_kwargs_from_flat(
         "fe_min_polynom_degree": fe_min_polynom_degree,
         "fe_max_polynom_degree": fe_max_polynom_degree,
     }
+    # The MRMR subsample knobs default to FE_DEFAULT_SUBSAMPLE_N upstream; only
+    # override when the fuzz axis sets a non-zero budget so existing combos
+    # don't accidentally flip the path on.
+    if fe_check_pairs_subsample_n > 0:
+        kwargs["fe_check_pairs_subsample_n"] = fe_check_pairs_subsample_n
+    if fe_smart_polynom_subsample_n > 0:
+        kwargs["fe_smart_polynom_subsample_n"] = fe_smart_polynom_subsample_n
     if cat_fe_config is not None:
         kwargs["cat_fe_config"] = cat_fe_config
     return kwargs
@@ -1505,6 +1602,17 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         use_mrmr_fs=combo.use_mrmr_fs,
         cat_fe_enable=combo.mrmr_cat_fe_enable_cfg,
         cat_fe_include_numeric=combo.mrmr_cat_fe_include_numeric_cfg,
+    )
+    # FE subsample only meaningful when an FE entry point actually runs and
+    # n_rows exceeds the budget. Couples the new fe_check_pairs_subsample_n_cfg
+    # axis to both fe_npermutations / fe_ntop_features (any > 0 fires the FE
+    # block) and the smart-polynom subsample (shares the same budget by
+    # FE_DEFAULT_SUBSAMPLE_N upstream).
+    _subsample_active = (
+        combo.use_mrmr_fs
+        and combo.fe_check_pairs_subsample_n_cfg > 0
+        and combo.n_rows > combo.fe_check_pairs_subsample_n_cfg
+        and (combo.mrmr_fe_npermutations_cfg > 0 or combo.mrmr_fe_ntop_features_cfg > 0)
     )
     return build_mrmr_kwargs_from_flat(
         use_mrmr_fs=combo.use_mrmr_fs,
@@ -1519,6 +1627,8 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_smart_polynom_optimization_steps=combo.mrmr_fe_smart_polynom_steps_cfg,
         fe_min_polynom_degree=combo.mrmr_fe_min_polynom_degree_cfg,
         fe_max_polynom_degree=combo.mrmr_fe_max_polynom_degree_cfg,
+        fe_check_pairs_subsample_n=(combo.fe_check_pairs_subsample_n_cfg if _subsample_active else 0),
+        fe_smart_polynom_subsample_n=(combo.fe_check_pairs_subsample_n_cfg if _subsample_active else 0),
     )
 
 

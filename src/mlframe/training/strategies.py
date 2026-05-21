@@ -36,7 +36,10 @@ if TYPE_CHECKING:
 # ``from .strategies import PANDAS_CATEGORICAL_DTYPES`` import sites keep
 # working without duplicating the set (which previously caused a wave-107-
 # related drift when only one copy was updated to include "str").
-from ._strategies_base import PANDAS_CATEGORICAL_DTYPES  # noqa: F401
+from ._strategies_base import (  # noqa: F401
+    PANDAS_CATEGORICAL_DTYPES,
+    PANDAS_CATEGORICAL_SELECT_DTYPES,
+)
 
 def _polars_categorical_dtypes():
     """Lazy import to avoid importing polars at module level."""
