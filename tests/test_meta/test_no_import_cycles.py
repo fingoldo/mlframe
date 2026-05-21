@@ -51,6 +51,12 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # cycle is benign because parent defines _quantile_bin_njit at module
     # start, then re-imports this sibling at its bottom.
     "mlframe.feature_selection.filters._hermite_fe_mi → mlframe.feature_selection.filters.hermite_fe",
+    # composite_transforms monolith split: function-signature default values
+    # in the two sibling modules reference parent-resident constants
+    # (_GROUPED_MIN_GROUP_SIZE, _QUANTILE_RESIDUAL_DEFAULT_*, etc.). Defaults
+    # evaluate at module-load so the imports must be top-level. Cycle resolves
+    # at runtime because parent defines all constants BEFORE importing siblings.
+    "mlframe.training._composite_transforms_linear → mlframe.training._composite_transforms_nonlinear → mlframe.training.composite_transforms",
 }
 
 

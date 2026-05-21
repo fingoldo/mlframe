@@ -1,0 +1,698 @@
+"""Non-linear residual + chain / EWMA / frac-diff / monotonic / quantile
+composite transforms carved out of ``mlframe.training.composite_transforms``.
+
+Bound back into the parent's namespace via re-export at the parent's
+module bottom so historical
+``from mlframe.training.composite_transforms import _monotonic_residual_fit``
+resolves transparently.
+"""
+from __future__ import annotations
+
+import logging
+import math
+import warnings
+from dataclasses import dataclass, field
+from typing import (
+    Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple,
+)
+
+import numpy as np
+
+try:
+    import numba as _numba  # type: ignore
+    _HAS_NUMBA = True
+except Exception:  # pragma: no cover
+    _numba = None  # type: ignore
+    _HAS_NUMBA = False
+
+logger = logging.getLogger("mlframe.training.composite_transforms")
+
+# Parent-resident constants referenced as default-arg values in function
+# signatures below. Function-signature defaults evaluate at module load, so
+# these MUST be top-level (lazy import inside the body wouldn't see them).
+# The parent defines all five BEFORE its bottom-of-module sibling import,
+# so this static cycle resolves at runtime. Whitelisted in
+# tests/test_meta/test_no_import_cycles.py.
+from .composite_transforms import (  # noqa: E402
+    _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
+    _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
+    _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
+    _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N,
+    _MONOTONIC_DEGENERACY_RATIO,
+    _EWMA_RESIDUAL_DEFAULT_K,
+    _FRAC_DIFF_DEFAULT_D,
+    _FRAC_DIFF_DEFAULT_LAGS,
+)
+
+
+# Module-level numba kernels (JIT compile on first call). Pure-Python fallback
+# is the recursion in-line below when numba is not installed.
+if _HAS_NUMBA:
+
+    @_numba.njit(cache=True)
+    def _ewma_kernel(base_f: np.ndarray, alpha: float, anchor: float) -> np.ndarray:
+        n = base_f.size
+        out = np.empty(n, dtype=np.float64)
+        state = anchor
+        for i in range(n):
+            x = base_f[i]
+            if np.isfinite(x):
+                state = (1.0 - alpha) * state + alpha * x
+            out[i] = state
+        return out
+
+    @_numba.njit(cache=True)
+    def _frac_diff_inverse_kernel(
+        t_f: np.ndarray, lags: int, weights: np.ndarray, anchor: float,
+    ) -> np.ndarray:
+        n = t_f.size
+        out = np.empty(n, dtype=np.float64)
+        inv_w0 = 1.0 / weights[0]
+        for i in range(n):
+            lag_sum = 0.0
+            upper = min(i + 1, lags + 1)
+            for k_idx in range(1, upper):
+                lag_sum += weights[k_idx] * out[i - k_idx]
+            for k_idx in range(upper, lags + 1):
+                lag_sum += weights[k_idx] * anchor
+            out[i] = (t_f[i] - lag_sum) * inv_w0
+        return out
+else:
+    _ewma_kernel = None  # type: ignore
+    _frac_diff_inverse_kernel = None  # type: ignore
+
+
+# Soft-cap MAD floor: when MAD(T_train) is below
+# ``_MAD_FLOOR_FRAC * std(y_train)``, we substitute the latter to keep
+# the soft-cap bound numerically meaningful even if the transform
+# produced a degenerate (near-constant) T on train. Without this,
+# logratio's MAD-cap collapses to zero on degenerate train and every
+# prediction inverts to ``base * exp(0) = base`` silently.
+_MAD_FLOOR_FRAC: float = 1e-3
+
+# Multiplier for MAD-soft-cap on T_hat (logratio in particular).
+_MAD_SOFT_CAP_K: float = 10.0
+
+
+
+logger = logging.getLogger("mlframe.training.composite_transforms")
+
+def _james_stein_shrinkage_factor(
+    per_group_alphas: np.ndarray,
+    global_alpha: float,
+    group_sizes: np.ndarray,
+    sigma2_total: float,
+) -> float:
+    """Estimate the James-Stein shrinkage factor toward ``global_alpha``.
+
+    Returns a scalar c ∈ [0, 1]:
+    - c = 0: keep per-group alphas as-is (no shrinkage).
+    - c = 1: collapse all per-group alphas to global_alpha (full shrinkage).
+
+    The classic JS estimator for K group means with known variance σ² is
+
+        c = max(0, 1 - (K - 3) σ² / Σ_g (α_g - global)² )
+
+    We use the variance of residuals as σ² proxy (σ²/n_g per group),
+    weighted by ``group_sizes``. When the per-group spread is large
+    relative to noise, c -> 0 (let the data speak). When noise dominates
+    spread, c -> 1 (shrink heavily).
+
+    A degenerate case (K < 4 groups, or all alphas equal) returns c = 0
+    so the JS correction can't reduce K below the JS-applicability
+    threshold; the per-group estimates pass through unmodified.
+    """
+    k = per_group_alphas.size
+    if k < 4:
+        return 0.0
+    deviations = per_group_alphas - global_alpha
+    sum_sq = float(np.sum(deviations * deviations))
+    if sum_sq <= 0:
+        return 0.0
+    # σ²_per_group ≈ σ²_total / mean(n_g) (residual variance per group).
+    # Use mean per-group variance as the JS noise proxy.
+    mean_per_group_variance = float(sigma2_total / max(np.mean(group_sizes), 1.0))
+    # Classic JS shrinkage factor c in
+    #     α_shrunk = (1-c) α_g + c α_global
+    # c = (K-3) σ² / Σ_g (α_g - α_global)², clamped to [0, 1].
+    # High noise / low spread => c -> 1 (full shrink to global).
+    # Low noise / high spread  => c -> 0 (keep per-group alphas).
+    raw = (k - 3) * mean_per_group_variance / sum_sq
+    return float(max(0.0, min(1.0, raw)))
+def _row_alpha_beta(
+    groups: np.ndarray, params: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Materialise per-row (alpha, beta) from the grouped params dict.
+
+    Vectorised: ``np.unique`` collapses the n-row groups vector to K
+    unique labels, looks them up in the params dict ONCE per unique
+    label, then uses inverse-indexing to broadcast back to n rows.
+    A naive ``for i, g in enumerate(groups)`` is ~30x slower on 200K
+    rows; cProfile measured the loop at 88% of total fit+predict cost
+    pre-optimisation.
+
+    Unseen group labels (present at predict but not at fit) fall back
+    to global alpha/beta -- a safe identity-like inverse.
+    """
+    alpha_global = float(params["alpha_global"])
+    beta_global = float(params["beta_global"])
+    pg_alphas = params["per_group_alphas"]
+    pg_betas = params["per_group_betas"]
+    # K unique labels; inv maps each row to an index into uniq.
+    uniq, inv = np.unique(groups, return_inverse=True)
+    # Build per-unique-label alpha / beta with global as fallback.
+    uniq_alpha = np.array(
+        [pg_alphas.get(str(g), alpha_global) for g in uniq],
+        dtype=np.float64,
+    )
+    uniq_beta = np.array(
+        [pg_betas.get(str(g), beta_global) for g in uniq],
+        dtype=np.float64,
+    )
+    return uniq_alpha[inv], uniq_beta[inv]
+def _quantile_residual_fit(
+    y: np.ndarray, base: np.ndarray,
+    n_bins: int = _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
+    min_bin_n: int = _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
+) -> dict[str, Any]:
+    """Fit per-bucket median(y) + IQR(y) over ``n_bins`` quantile bins of ``base``.
+
+    Returns
+    -------
+    dict with keys:
+    - ``bin_edges``: 1-D ndarray of length ``n_bins+1`` (open at -inf, +inf).
+    - ``bin_medians``: 1-D ndarray of length ``n_bins`` (median(y) per bin; global median for under-populated bins).
+    - ``bin_iqrs``: 1-D ndarray of length ``n_bins`` (IQR(y) per bin; global IQR with floor for under-populated / constant bins).
+    - ``bin_sizes``: list[int] of length ``n_bins`` (train rows per bin).
+    - ``global_median``: float (median of train y, used as fallback).
+    - ``global_iqr``: float (IQR of train y, used as fallback).
+    - ``n_bins``: int (recorded for predict-time validation).
+    """
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports
+    # this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from .composite_transforms import _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N, _QUANTILE_RESIDUAL_DEFAULT_N_BINS
+    n_bins = max(2, int(n_bins))
+    min_bin_n = max(2, int(min_bin_n))
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(y_f) & np.isfinite(base_f)
+    if finite.sum() < n_bins * 2:
+        # Degenerate: fall back to global stats so the inverse is still safe.
+        med = float(np.median(y_f[finite])) if finite.any() else 0.0
+        iqr_v = float(np.subtract(*np.percentile(y_f[finite], [75, 25]))) if finite.sum() >= 4 else 1.0
+        iqr_v = max(iqr_v, 1e-6)
+        return {
+            "bin_edges": np.array([-np.inf, np.inf], dtype=np.float64),
+            "bin_medians": np.array([med], dtype=np.float64),
+            "bin_iqrs": np.array([iqr_v], dtype=np.float64),
+            "bin_sizes": [int(finite.sum())],
+            "global_median": med,
+            "global_iqr": iqr_v,
+            "n_bins": 1,
+        }
+    y_clean = y_f[finite]
+    base_clean = base_f[finite]
+    # Quantile edges on train base. ``np.quantile`` with linspace covers the open-open envelope; we replace the outermost edges with +/-inf so the predict-time digitize never produces an out-of-range bucket.
+    inner_qs = np.linspace(0.0, 1.0, n_bins + 1)
+    edges = np.quantile(base_clean, inner_qs)
+    # Deduplicate edges (when many ties at one quantile, several edges collapse) -- empty bins would otherwise emerge. Tolerate up to n_bins-1 unique edges; clip n_bins accordingly downstream.
+    edges = np.unique(edges)
+    if edges.size < 2:
+        # All base values identical: degenerate single bucket.
+        med = float(np.median(y_clean))
+        iqr_v = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
+        return {
+            "bin_edges": np.array([-np.inf, np.inf], dtype=np.float64),
+            "bin_medians": np.array([med], dtype=np.float64),
+            "bin_iqrs": np.array([iqr_v], dtype=np.float64),
+            "bin_sizes": [int(y_clean.size)],
+            "global_median": med,
+            "global_iqr": iqr_v,
+            "n_bins": 1,
+        }
+    edges[0] = -np.inf
+    edges[-1] = np.inf
+    actual_n_bins = edges.size - 1
+    # Global stats (fallback for under-populated bins).
+    global_median = float(np.median(y_clean))
+    global_iqr = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
+    # Per-bin assignment via np.searchsorted (right-side: edges[i-1] <= x < edges[i]).
+    bin_idx = np.clip(np.searchsorted(edges[1:-1], base_clean, side="right"), 0, actual_n_bins - 1)
+    bin_medians = np.full(actual_n_bins, global_median, dtype=np.float64)
+    bin_iqrs = np.full(actual_n_bins, global_iqr, dtype=np.float64)
+    bin_sizes: list[int] = []
+    for b in range(actual_n_bins):
+        mask = bin_idx == b
+        bin_n = int(mask.sum())
+        bin_sizes.append(bin_n)
+        if bin_n < min_bin_n:
+            # Under-populated: keep global fallback.
+            continue
+        bin_y = y_clean[mask]
+        bin_medians[b] = float(np.median(bin_y))
+        bin_iqr = float(np.subtract(*np.percentile(bin_y, [75, 25])))
+        # Floor IQR against constant-y bins so the inverse stays well-defined; use global IQR as a sensible scale anchor rather than 1e-6.
+        bin_iqrs[b] = bin_iqr if bin_iqr > 1e-6 else global_iqr
+    return {
+        "bin_edges": edges,
+        "bin_medians": bin_medians,
+        "bin_iqrs": bin_iqrs,
+        "bin_sizes": bin_sizes,
+        "global_median": global_median,
+        "global_iqr": global_iqr,
+        "n_bins": int(actual_n_bins),
+    }
+def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Map each row of ``base`` to a bin index in [0, n_bins-1]. Out-of-range values map to the edge bin (no separate OOR bucket), per the contract documented on the transform."""
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    n_bins = edges.size - 1
+    if n_bins <= 1:
+        return np.zeros(base_f.size, dtype=np.intp)
+    # ``edges[1:-1]`` are the INNER cut points; searchsorted returns 0..n_bins.
+    bin_idx = np.searchsorted(edges[1:-1], base_f, side="right")
+    return np.clip(bin_idx, 0, n_bins - 1)
+def _quantile_residual_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    edges = np.asarray(params["bin_edges"], dtype=np.float64)
+    medians = np.asarray(params["bin_medians"], dtype=np.float64)
+    iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
+    bin_idx = _quantile_residual_assign_bins(base, edges)
+    return (np.asarray(y, dtype=np.float64) - medians[bin_idx]) / iqrs[bin_idx]
+def _quantile_residual_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    edges = np.asarray(params["bin_edges"], dtype=np.float64)
+    medians = np.asarray(params["bin_medians"], dtype=np.float64)
+    iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
+    bin_idx = _quantile_residual_assign_bins(base, edges)
+    return np.asarray(t_hat, dtype=np.float64) * iqrs[bin_idx] + medians[bin_idx]
+def _quantile_residual_domain(
+    y: np.ndarray | None, base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+def _monotonic_residual_fit(
+    y: np.ndarray, base: np.ndarray,
+    n_knots: int = _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
+    min_knot_n: int = _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N,
+) -> dict[str, Any]:
+    """Fit a monotone PCHIP spline g(base) via per-quantile-knot medians and orient by the sign of the global Spearman correlation between y and base. Stores the knot x/y arrays + the global y mean as a fallback. Domain at predict time: base values outside [knots_x[0], knots_x[-1]] are clipped to the edge knots (PCHIP extrapolation is not safe -- it can run off to +/- inf rapidly).
+
+    Pack #3 2026-05-18 auto-knot tuning: when ``base`` has few unique
+    values (categorical / discrete), 12 default knots oversmooth -- many
+    knots collapse to identical x positions, leaving < n_eff effective
+    knots and a wobbly spline that often goes degenerate. Auto-cap
+    ``n_knots`` at ``min(12, max(3, n_unique_base // 200))`` so the
+    knot count scales with the base's effective cardinality.
+    """
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports
+    # this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from .composite_transforms import _MONOTONIC_DEGENERACY_RATIO, _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N, _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS
+    base_f_for_unique = np.asarray(base, dtype=np.float64).reshape(-1)
+    _n_unique_base = int(np.unique(base_f_for_unique[np.isfinite(base_f_for_unique)]).size)
+    _auto_knots = max(3, _n_unique_base // 200) if _n_unique_base else n_knots
+    n_knots = min(int(n_knots), _auto_knots)
+    n_knots = max(3, int(n_knots))
+    min_knot_n = max(2, int(min_knot_n))
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(y_f) & np.isfinite(base_f)
+    if finite.sum() < n_knots * 2:
+        y_med = float(np.median(y_f[finite])) if finite.any() else 0.0
+        return {
+            "knots_x": np.array([0.0, 1.0], dtype=np.float64),
+            "knots_y": np.array([y_med, y_med], dtype=np.float64),
+            "y_train_mean": y_med,
+            "monotone_direction": 0,
+            "n_knots_effective": 2,
+        }
+    y_clean = y_f[finite]
+    base_clean = base_f[finite]
+    # Knot x positions on quantile cuts of base (NOT linearly-spaced; uneven base distributions benefit from quantile placement).
+    qs = np.linspace(0.0, 1.0, n_knots)
+    knots_x = np.quantile(base_clean, qs)
+    # Deduplicate ties (many identical base values collapse to fewer knots).
+    knots_x = np.unique(knots_x)
+    if knots_x.size < 3:
+        y_med = float(np.median(y_clean))
+        return {
+            "knots_x": np.array([base_clean.min(), base_clean.max()], dtype=np.float64),
+            "knots_y": np.array([y_med, y_med], dtype=np.float64),
+            "y_train_mean": y_med,
+            "monotone_direction": 0,
+            "n_knots_effective": 2,
+        }
+    # Per-knot y values: median(y) for rows assigned to each knot's quantile slab.
+    n_eff = knots_x.size
+    knots_y = np.empty(n_eff, dtype=np.float64)
+    y_global_med = float(np.median(y_clean))
+    # Slab boundaries: midpoints between adjacent knots (left/right edges extend to +/-inf so every row maps to a slab).
+    slab_edges = np.empty(n_eff + 1, dtype=np.float64)
+    slab_edges[0] = -np.inf
+    slab_edges[-1] = np.inf
+    slab_edges[1:-1] = 0.5 * (knots_x[:-1] + knots_x[1:])
+    slab_idx = np.clip(np.searchsorted(slab_edges[1:-1], base_clean, side="right"), 0, n_eff - 1)
+    for k in range(n_eff):
+        mask = slab_idx == k
+        n_in_slab = int(mask.sum())
+        if n_in_slab < min_knot_n:
+            knots_y[k] = y_global_med
+        else:
+            knots_y[k] = float(np.median(y_clean[mask]))
+    # Orient monotonicity by Spearman correlation between y and base; tie -> increasing (arbitrary but stable).
+    if y_clean.size >= 3 and base_clean.size >= 3:
+        # np.corrcoef on ranks ~ Spearman; avoids scipy dep.
+        from scipy.stats import spearmanr  # lazy import
+        try:
+            rho, _ = spearmanr(base_clean, y_clean)
+            direction = 1 if (rho is None or not np.isfinite(rho) or rho >= 0) else -1
+        except Exception:
+            direction = 1
+    else:
+        direction = 1
+    # Enforce monotonicity by cumulative max / min over knots in the orientation direction. This protects against per-knot median noise creating local non-monotonicities the PCHIP would otherwise honour (PCHIP is monotone PER SEGMENT but only if the knot values are monotone overall).
+    if direction == 1:
+        knots_y = np.maximum.accumulate(knots_y)
+    else:
+        knots_y = np.minimum.accumulate(knots_y)
+    # Degeneracy detection (Pack D 2026-05-18): measure the actual
+    # variance reduction g(base) provides on the TRAIN sample. The
+    # composite T = y - g(base) is useful iff g captures a non-trivial
+    # fraction of y's variance. ``var_explained = 1 - var(T) / var(y)``.
+    # When < ``_MONOTONIC_DEGENERACY_RATIO`` the spline is noise / a
+    # near-constant fit -- downstream models on T produce SAME
+    # predictions as on raw y (production TVT-monres-Y log: CB/XGB/LGB
+    # MAE identical to raw). Surface the degeneracy so discovery can
+    # drop the spec early instead of paying for full training that
+    # produces no win.
+    _y_var = float(np.var(y_clean)) if y_clean.size > 1 else 0.0
+    if _y_var > 0.0:
+        # Reconstruct g(base_clean) via PCHIP and measure var(y - g).
+        # Use the same PCHIP helper the inverse path uses to keep semantics
+        # aligned with the actual transform.
+        _g_train = _monotonic_residual_g(
+            base_clean,
+            {
+                "knots_x": knots_x, "knots_y": knots_y,
+                "y_train_mean": float(np.mean(y_clean)),
+                "monotone_direction": direction,
+            },
+        )
+        _t_train = y_clean - _g_train
+        _var_explained = max(0.0, 1.0 - float(np.var(_t_train)) / _y_var)
+    else:
+        _var_explained = 0.0
+    _is_degenerate = _var_explained < _MONOTONIC_DEGENERACY_RATIO
+    return {
+        "knots_x": knots_x,
+        "knots_y": knots_y,
+        "y_train_mean": float(np.mean(y_clean)),
+        "monotone_direction": direction,
+        "n_knots_effective": int(n_eff),
+        "is_degenerate": _is_degenerate,
+        "var_explained": _var_explained,
+    }
+def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    """Evaluate the monotone PCHIP interpolant at the requested base values. Out-of-range values clip to the edge knot value (NOT extrapolated)."""
+    knots_x = np.asarray(params["knots_x"], dtype=np.float64)
+    knots_y = np.asarray(params["knots_y"], dtype=np.float64)
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    if knots_x.size < 2:
+        return np.full(base_f.shape, float(params.get("y_train_mean", 0.0)), dtype=np.float64)
+    if knots_x.size == 2:
+        # Degenerate: linear interpolation between the two anchor knots; out-of-range clamps to edge value.
+        clipped = np.clip(base_f, knots_x[0], knots_x[-1])
+        slope = (knots_y[-1] - knots_y[0]) / max(knots_x[-1] - knots_x[0], 1e-12)
+        return knots_y[0] + slope * (clipped - knots_x[0])
+    from scipy.interpolate import PchipInterpolator  # lazy
+    interp = PchipInterpolator(knots_x, knots_y, extrapolate=False)
+    # extrapolate=False yields NaN outside [x[0], x[-1]]; fill those with the edge knot values to keep predict-time well-defined.
+    out = interp(base_f)
+    if np.any(~np.isfinite(out)):
+        low_mask = base_f < knots_x[0]
+        high_mask = base_f > knots_x[-1]
+        out[low_mask] = knots_y[0]
+        out[high_mask] = knots_y[-1]
+    return out
+def _monotonic_residual_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    return np.asarray(y, dtype=np.float64) - _monotonic_residual_g(base, params)
+def _monotonic_residual_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    return np.asarray(t_hat, dtype=np.float64) + _monotonic_residual_g(base, params)
+def _monotonic_residual_domain(
+    y: np.ndarray | None, base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+def _ewma_residual_fit(
+    y: np.ndarray, base: np.ndarray, k: int = _EWMA_RESIDUAL_DEFAULT_K,
+) -> dict[str, Any]:
+    """Fit stores only the EWMA half-life span ``k``. The EWMA itself is re-computed at forward / inverse time -- this keeps the fitted params JSON-serialisable and stateless (the alternative of storing the full N-row EWMA trace would bloat metadata and break predict-on-new-data). The first-row anchor is the train-base mean: ``ewma[0] = mean(base_train)``."""
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports
+    # this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from .composite_transforms import _EWMA_RESIDUAL_DEFAULT_K
+    k = max(1, int(k))
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(base_f)
+    anchor = float(np.mean(base_f[finite])) if finite.any() else 0.0
+    return {"k": k, "anchor": anchor}
+def _ewma_compute(base: np.ndarray, k: int, anchor: float) -> np.ndarray:
+    """Exponentially-weighted moving average using ``alpha = 2 / (k + 1)``. Non-finite base values inherit the previous EWMA state (carry-forward), which keeps the recursion well-defined on rows the upstream domain check did not yet flag.
+
+    Numba kernel when available (~300x over pure Python on n=1M); pure-Python fallback otherwise.
+    """
+    base_f = np.ascontiguousarray(np.asarray(base, dtype=np.float64).reshape(-1))
+    alpha = 2.0 / (k + 1)
+    if _HAS_NUMBA:
+        return _ewma_kernel(base_f, alpha, float(anchor))
+    out = np.empty(base_f.size, dtype=np.float64)
+    state = anchor
+    for i in range(base_f.size):
+        x = base_f[i]
+        if np.isfinite(x):
+            state = (1.0 - alpha) * state + alpha * x
+        out[i] = state
+    return out
+def _ewma_residual_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    return np.asarray(y, dtype=np.float64) - _ewma_compute(
+        base, int(params["k"]), float(params["anchor"]),
+    )
+def _ewma_residual_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    return np.asarray(t_hat, dtype=np.float64) + _ewma_compute(
+        base, int(params["k"]), float(params["anchor"]),
+    )
+def _ewma_residual_domain(
+    y: np.ndarray | None, base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
+    """Centred rolling median with truncation at boundaries.
+
+    Vectorised via ``pandas.Series.rolling(k, center=True, min_periods=1).median()`` (~80x over pure
+    Python on n=1M, k=7). Non-finite values are skipped by pandas' rolling-median (matches our
+    pre-vectorisation contract: "if window has any finite value, take median of finite values"). When
+    the window contains only non-finite values pandas returns NaN, which we replace with the row's own
+    value (or 0.0 if that's also non-finite) to match the legacy fallback.
+    """
+    import pandas as pd  # lazy
+    arr_f = np.asarray(arr, dtype=np.float64).reshape(-1)
+    if arr_f.size == 0:
+        return arr_f.copy()
+    k = max(1, int(k))
+    out = pd.Series(arr_f).rolling(window=k, center=True, min_periods=1).median().to_numpy()
+    bad = ~np.isfinite(out)
+    if bad.any():
+        fallback = np.where(np.isfinite(arr_f), arr_f, 0.0)
+        out = np.where(bad, fallback, out)
+    return out
+def _frac_diff_weights(d: float, lags: int) -> np.ndarray:
+    """Truncated weight series for (1 - L)^d expansion."""
+    lags = max(1, int(lags))
+    w = np.empty(lags + 1, dtype=np.float64)
+    w[0] = 1.0
+    for k in range(1, lags + 1):
+        w[k] = -w[k - 1] * (d - k + 1) / k
+    return w
+def _frac_diff_fit(
+    y: np.ndarray, base: np.ndarray,
+    d: float = _FRAC_DIFF_DEFAULT_D, lags: int = _FRAC_DIFF_DEFAULT_LAGS,
+) -> dict[str, Any]:
+    """Store fractional order ``d``, lag truncation ``lags``, and the train-y mean used as a pre-window anchor (rows whose lag history is shorter than ``lags`` need a fallback value for the missing past terms)."""
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports
+    # this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from .composite_transforms import _FRAC_DIFF_DEFAULT_D, _FRAC_DIFF_DEFAULT_LAGS
+    d = float(d)
+    lags = max(1, int(lags))
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    finite = np.isfinite(y_f)
+    anchor = float(np.mean(y_f[finite])) if finite.any() else 0.0
+    return {"d": d, "lags": lags, "anchor": anchor, "weights": _frac_diff_weights(d, lags).tolist()}
+def _frac_diff_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    """T_i = sum_{k=0}^{lags} w_k * y_{i-k}, padding y_{i-k} with the train anchor for k > i.
+
+    Vectorised via ``np.convolve(y_padded, weights, 'valid')`` after left-padding ``y`` with
+    ``lags`` copies of the train anchor (~340x over the nested Python loop on n=1M, lags=30).
+    """
+    lags = int(params["lags"])
+    weights = np.asarray(params["weights"], dtype=np.float64)
+    anchor = float(params["anchor"])
+    y_f = np.asarray(y, dtype=np.float64).reshape(-1)
+    if y_f.size == 0:
+        return y_f.copy()
+    y_padded = np.concatenate([np.full(lags, anchor, dtype=np.float64), y_f])
+    return np.convolve(y_padded, weights, mode="valid")
+def _frac_diff_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction. Past y values are unknown at predict, so we ITERATIVELY reconstruct them: y_0 from T_0 + lag-anchors, y_1 from T_1 + y_0 + lag-anchors, etc.
+
+    Numba kernel when available (~260x over pure Python on n=1M, lags=30); pure-Python fallback otherwise.
+    """
+    lags = int(params["lags"])
+    weights = np.ascontiguousarray(np.asarray(params["weights"], dtype=np.float64))
+    anchor = float(params["anchor"])
+    t_f = np.ascontiguousarray(np.asarray(t_hat, dtype=np.float64).reshape(-1))
+    if _HAS_NUMBA:
+        return _frac_diff_inverse_kernel(t_f, lags, weights, anchor)
+    n = t_f.size
+    out = np.empty(n, dtype=np.float64)
+    inv_w0 = 1.0 / weights[0]
+    for i in range(n):
+        lag_sum = 0.0
+        upper = min(i + 1, lags + 1)
+        for k_idx in range(1, upper):
+            lag_sum += weights[k_idx] * out[i - k_idx]
+        for k_idx in range(upper, lags + 1):
+            lag_sum += weights[k_idx] * anchor
+        out[i] = (t_f[i] - lag_sum) * inv_w0
+    return out
+def _frac_diff_domain(
+    y: np.ndarray | None, base: np.ndarray,
+) -> np.ndarray:
+    """Frac-diff is y-only but the contract accepts a base for signature uniformity. Domain: finite y; finite base (when provided)."""
+    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    base_ok = np.isfinite(base_f)
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+def _make_chain_transform(
+    *, name: str, short_name: str,
+    bivariate_name: str,
+    bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
+    unary_fit, unary_forward, unary_inverse,
+    description: str,
+):
+    """Create a registry Transform for ``chain(bivariate, unary)``.
+
+    The chain inherits ``requires_base=True`` from the bivariate half (it still needs a base column at fit + predict). At fit-time it first fits the bivariate, applies forward to get T1, then fits the unary on T1; the joint params dict stores both. Forward / inverse run in the matching order. Domain check delegates to the bivariate's check since the unary half has no base-dependent constraint at predict.
+    """
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports
+    # this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from .composite_transforms import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_fit_raw, _chain_forward_raw, _chain_inverse_raw
+    unary_tup = (unary_fit, unary_forward, unary_inverse)
+
+    def _fit(y, base):
+        return _chain_fit_raw(
+            y=y, base=base,
+            bivariate_fit=bivariate_fit,
+            bivariate_forward=bivariate_forward,
+            unary=unary_tup,
+        )
+
+    def _forward(y, base, params):
+        return _chain_forward_raw(
+            y=y, base=base, params=params,
+            bivariate_forward=bivariate_forward,
+            unary=unary_tup,
+        )
+
+    def _inverse(t_hat, base, params):
+        return _chain_inverse_raw(
+            t2=t_hat, base=base, params=params,
+            bivariate_inverse=bivariate_inverse,
+            unary=unary_tup,
+        )
+
+    def _domain(y, base):
+        return bivariate_domain(y, base)
+
+    return Transform(
+        name=name,
+        forward=_forward,
+        inverse=_inverse,
+        fit=_fit,
+        domain_check=_domain,
+        description=description,
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    )
+def _make_multi_chain_transform(
+    *, name: str, short_name: str,
+    bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
+    unary_stages: list,
+    description: str,
+):
+    """Pack K multi-stage chain: bivariate + N unary stages.
+
+    ``unary_stages`` is a list of ``(fit, forward, inverse)`` tuples; each runs in order at forward, in reverse at inverse. Used to register e.g. ``chain([linres, cbrt, quantile_normal])`` for very heavy-tail residuals.
+    """
+    # Lazy import of parent-resident helpers: ``.predict`` re-imports
+    # this sibling at its bottom, so a top-level ``from .predict
+    # import ...`` would create a hard cycle the meta-test flags.
+    from .composite_transforms import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_multi_fit_raw, _chain_multi_forward_raw, _chain_multi_inverse_raw
+
+    def _fit(y, base):
+        return _chain_multi_fit_raw(
+            y=y, base=base,
+            bivariate_fit=bivariate_fit,
+            bivariate_forward=bivariate_forward,
+            unary_stages=unary_stages,
+        )
+
+    def _forward(y, base, params):
+        return _chain_multi_forward_raw(
+            y=y, base=base, params=params,
+            bivariate_forward=bivariate_forward,
+            unary_stages=unary_stages,
+        )
+
+    def _inverse(t_hat, base, params):
+        return _chain_multi_inverse_raw(
+            t_final=t_hat, base=base, params=params,
+            bivariate_inverse=bivariate_inverse,
+            unary_stages=unary_stages,
+        )
+
+    def _domain(y, base):
+        return bivariate_domain(y, base)
+
+    return Transform(
+        name=name,
+        forward=_forward,
+        inverse=_inverse,
+        fit=_fit,
+        domain_check=_domain,
+        description=description,
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    )
