@@ -151,9 +151,11 @@ def _read(rel: str) -> str:
 
 
 def test_metrics_calibration_plot_guards_empty_freqs_predicted() -> None:
-    src = _read("metrics/core.py")
+    # ``show_calibration_plot`` was moved to ``_calibration_plot.py`` when
+    # ``metrics/core.py`` was split into siblings.
+    src = _read("metrics/_calibration_plot.py")
     assert "if freqs_predicted.size == 0:" in src, (
-        "metrics/core.py: show_calibration_plot must guard freqs_predicted before np.min/np.max."
+        "metrics/_calibration_plot.py: show_calibration_plot must guard freqs_predicted before np.min/np.max."
     )
 
 

@@ -43,14 +43,22 @@ def _read(rel: str) -> str:
 
 
 def test_numerical_weighted_arithmetic_mean_guards_zero_sum() -> None:
-    src = _read("feature_engineering/numerical.py")
+    """The numba kernels for weighted_arithmetic_mean / quadratic / std moved
+    into the sibling _numerical_numba.py during the 2026-05-21 monolith
+    split (numerical.py re-exports via from ._numerical_numba import ...)."""
+    src = _read("feature_engineering/numerical.py") + "\n" + _read(
+        "feature_engineering/_numerical_numba.py"
+    )
     assert "if sum_weights == 0.0:\n            weighted_arithmetic_mean = np.nan" in src
-    # Two more sites in the same file (quadratic + std) must also have the guard.
+    # Two more sites in the same kernel family (quadratic + std) must also
+    # have the guard.
     assert src.count("if sum_weights == 0.0:") >= 4
 
 
 def test_metrics_fast_r2_guards_zero_wsum() -> None:
-    src = _read("metrics/core.py")
+    # ``fast_r2_score`` was moved to ``_regression_metrics.py`` when
+    # ``metrics/core.py`` was split into siblings.
+    src = _read("metrics/_regression_metrics.py")
     # The fix introduces an explicit `if wsum <= 0.0: ss_tots[j] = 0.0; continue`.
     assert "if wsum <= 0.0:" in src and "ss_tots[j] = 0.0" in src and "continue" in src
 

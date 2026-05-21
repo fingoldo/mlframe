@@ -89,13 +89,17 @@ def test_is_variable_truly_continuous_none_inputs_raises():
 
 
 def test_metrics_fairness_bad_min_pop_cat_thresh_raises():
-    """Source-level check that the metrics/core fairness function raises
-    ValueError for bad min_pop_cat_thresh (rather than asserting)."""
+    """Source-level check that the metrics fairness function raises
+    ValueError for bad min_pop_cat_thresh (rather than asserting).
+
+    ``create_fairness_subgroups`` moved to ``_fairness_metrics.py`` when
+    ``metrics/core.py`` was split into siblings.
+    """
     import pathlib
     import mlframe as _mlframe
     src = (
         pathlib.Path(_mlframe.__file__).resolve().parent
-        / "metrics" / "core.py"
+        / "metrics" / "_fairness_metrics.py"
     ).read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert "assert min_pop_cat_thresh > 0 and min_pop_cat_thresh < 1.0" not in src
@@ -106,12 +110,16 @@ def test_metrics_fairness_bad_min_pop_cat_thresh_raises():
 
 def test_metrics_bins_index_unique_raises_value_error():
     """SILENT-CORRECTNESS bug under -O: duplicate bins.index let
-    bins.loc[arr] return multiple rows. Source-level guard."""
+    bins.loc[arr] return multiple rows. Source-level guard.
+
+    ``create_fairness_subgroups_indices`` moved to ``_fairness_metrics.py``
+    when ``metrics/core.py`` was split into siblings.
+    """
     import pathlib
     import mlframe as _mlframe
     src = (
         pathlib.Path(_mlframe.__file__).resolve().parent
-        / "metrics" / "core.py"
+        / "metrics" / "_fairness_metrics.py"
     ).read_text(encoding="utf-8")
     assert "assert bins.index.is_unique" not in src
     assert "must have a unique index" in src

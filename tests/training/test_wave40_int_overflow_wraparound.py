@@ -166,7 +166,9 @@ def test_mi_int8_cast_has_range_validation() -> None:
 
 
 def test_robustness_bins_uses_range_aware_dtype() -> None:
-    src = _read("metrics/core.py")
+    # ``create_robustness_standard_bins`` was moved to ``_fairness_metrics.py``
+    # when ``metrics/core.py`` was split into siblings.
+    src = _read("metrics/_fairness_metrics.py")
     # The fix introduces a 3-way dispatch on cont_nbins width.
     assert "_bin_dtype = np.int8" in src and "_bin_dtype = np.int16" in src, (
         "create_robustness_standard_bins must dispatch on cont_nbins for narrowest safe dtype."

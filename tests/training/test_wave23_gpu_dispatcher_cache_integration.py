@@ -56,15 +56,17 @@ def _read(rel: str) -> str:
         'cache.lookup(\n            "batch_pair_mi"',
         "batch_pair_mi_cache_key",
     ),
-    # #3: metrics RMSE BLOCK_N cache lookup
+    # #3: metrics RMSE BLOCK_N cache lookup (moved to ``_gpu_metrics.py`` when
+    # ``metrics/core.py`` was split into siblings to drop the monolith below 1k LOC).
     (
-        "metrics/core.py",
+        "metrics/_gpu_metrics.py",
         '_cache.lookup(\n                "rmse_partial_sum"',
         "rmse_block_n",
     ),
-    # #4: gpu.py multi-pair shared-mem device probe
+    # #4: _gpu_pairs.py multi-pair shared-mem device probe (moved out of
+    # gpu.py during the multi-pair-MI split).
     (
-        "feature_selection/filters/gpu.py",
+        "feature_selection/filters/_gpu_pairs.py",
         "get_shared_mem_budget_per_block as _shared_budget",
         "multi_pair_shared_cap",
     ),
@@ -120,7 +122,9 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
     sites = [
         "feature_selection/filters/gpu.py",
         "feature_selection/filters/batch_pair_mi_gpu.py",
-        "metrics/core.py",
+        # ``metrics/core.py`` was split; the RMSE GPU dispatcher lives in
+        # the ``_gpu_metrics`` sibling now.
+        "metrics/_gpu_metrics.py",
         "feature_selection/filters/cat_interactions.py",
         "feature_selection/filters/feature_engineering.py",
         "feature_engineering/transformer/random_features.py",
