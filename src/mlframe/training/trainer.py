@@ -1270,6 +1270,22 @@ def _configure_mlp_params(
         dropout_prob=0.0,
         inputs_dropout_prob=0.0,
         use_batchnorm=False,
+        # Wave 2026-05-21: ``use_layernorm=False`` for the suite default.
+        # ``generate_mlp`` defaults LN_in to True for transformer-style row-
+        # independent batches, but it is WRONG for tabular regression: LN
+        # normalises per-row across features, destroying the inter-row
+        # absolute-scale signal that strong-linear / additive targets rely
+        # on. Observed 2026-05-21 (TVT regression, 4M rows, y near-perfect
+        # auto-regressive in TVT_prev): LN_in + 5-epoch time budget +
+        # group split collapsed MLP to a tight pred cluster (std ~0.17 *
+        # y_std), test R^2 = -4.75 vs Ridge R^2 = 1.00 on identical data.
+        # Synthetic-bench 2026-05-21 confirmed: LN_in off -> test R^2 =
+        # 0.99 (matches Ridge); LN_in on -> 0.95 baseline that under
+        # specific stress patterns collapses entirely. Pre-pipeline
+        # already applies StandardScaler per-feature; further per-row
+        # LayerNorm is double-norm noise. Users who really need LN can
+        # opt in via ``mlp_kwargs["network_params"]["use_layernorm"]=True``.
+        use_layernorm=False,
     )
     if mlp_kwargs:
         mlp_network_params.update(mlp_kwargs.get("network_params", {}))

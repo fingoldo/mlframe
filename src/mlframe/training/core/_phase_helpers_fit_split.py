@@ -8,15 +8,89 @@ existing imports continue to work.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from timeit import default_timer as timer
+from typing import (
+    TYPE_CHECKING, Any, Callable, Dict, List, NamedTuple, Optional,
+    Sequence, Tuple, Union,
+)
 
 import numpy as np
 import pandas as pd
+
+from ..phases import phase
 
 try:
     import polars as pl
 except ImportError:
     pl = None
+
+# 2026-05-21: wave-105 split-out forgot to mirror the parent's imports +
+# NamedTuple defs, so every call into ``_phase_fit_pipeline`` /
+# ``_phase_train_val_test_split`` raised NameError. Mirroring the parent
+# module's imports here so this file is genuinely self-contained.
+if TYPE_CHECKING:
+    from ._training_context import TrainingContext
+
+from ._misc_helpers import (
+    _auto_detect_feature_types, _cfg_get, _df_shape_str, _drop_cols_df,
+    _elapsed_str, _validate_feature_type_exclusivity,
+)
+from ..configs import PreprocessingExtensionsConfig, TargetTypes
+from ..preprocessing import (
+    create_split_dataframes, save_split_artifacts,
+)
+from ..utils import (
+    get_process_rss_mb, log_phase, log_ram_usage, maybe_clean_ram_and_gpu,
+)
+from ..strategies import get_strategy, get_polars_cat_columns
+from ..splitting import make_train_test_split
+from ..pipeline import (
+    apply_preprocessing_extensions, fit_and_transform_pipeline,
+)
+from ._setup_helpers import _compute_fairness_subgroups
+
+
+class TrainValTestSplitResult(NamedTuple):
+    """Return shape for ``_phase_train_val_test_split`` (mirror of the
+    parent module's definition; required here because the split moved
+    the function body but left its consumers in both modules).
+    """
+    train_idx: Any
+    val_idx: Any
+    test_idx: Any
+    train_details: Any
+    val_details: Any
+    test_details: Any
+    train_df: Any
+    val_df: Any
+    test_df: Any
+    fairness_subgroups: Any
+    fairness_features: Any
+    train_sequences: Any
+    val_sequences: Any
+    test_sequences: Any
+    baseline_rss_mb: Any
+
+
+class FitPipelineResult(NamedTuple):
+    """Return shape for ``_phase_fit_pipeline`` (see comment on
+    ``TrainValTestSplitResult``)."""
+    train_df: Any
+    val_df: Any
+    test_df: Any
+    pipeline: Any
+    extensions_pipeline: Any
+    cat_features: Any
+    cat_features_polars: Any
+    was_polars_input: Any
+    all_models_polars_native: Any
+    polars_pipeline_applied: Any
+    train_df_polars_pre: Any
+    val_df_polars_pre: Any
+    test_df_polars_pre: Any
+    pipeline_config: Any
+    preprocessing_extensions: Any
+    train_df_pandas_pre_meta: Any
 
 logger = logging.getLogger(__name__)
 

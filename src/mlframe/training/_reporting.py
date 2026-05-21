@@ -463,6 +463,51 @@ def report_regression_model_perf(
     R2 = fast_r2_score(targets_arr, preds_arr)
     RMSE = fast_root_mean_squared_error(targets_arr, preds_arr)
 
+    # Prediction-collapse sensor (2026-05-21). A regression model that
+    # outputs predictions with std << target std AND simultaneously
+    # produces R^2 < 0 is collapsed -- it's emitting a near-constant
+    # value irrespective of input. Most common cause observed
+    # 2026-05-21 (TVT MLP catastrophe): the MLP defaults LayerNorm-on-
+    # input True for tabular features that the upstream pre-pipeline
+    # has already z-scored. LN_in then double-normalises per-row,
+    # destroying cross-row absolute-scale signal; with a short time
+    # budget + group-aware split + strong auto-regressive target the
+    # MLP collapses to its final-layer bias, predictions cluster in a
+    # tight band, R^2 < 0. Log a HARD WARNING so operators see this
+    # in the run log instead of having to eyeball scatter plots --
+    # the gap between val_RMSE (which looks fine because val rows
+    # came from the same shrunk-band cluster) and test_RMSE (where
+    # the cluster mismatches the broader y range) is otherwise
+    # silent until someone compares numbers.
+    # Skip the sensor on DummyBaseline outputs — they are INTENDED to be
+    # constant (mean / median / per_group_mean dummies) so the
+    # collapse-pattern signature is expected, not a defect.
+    _is_dummy_baseline = "DummyBaseline:" in str(model_name) if model_name else False
+    if not _is_dummy_baseline:
+        try:
+            _pred_std = float(np.std(preds_arr)) if preds_arr.size > 1 else 0.0
+            _y_std = float(np.std(targets_arr)) if targets_arr.size > 1 else 0.0
+            if _y_std > 0 and _pred_std < 0.2 * _y_std and float(R2) < 0:
+                logger.warning(
+                    "[regression-collapse-sensor] %s: predictions appear collapsed -- "
+                    "pred_std=%.3g (%.1f%% of target_std=%.3g), R2=%.3g < 0. "
+                    "Likely cause: undertrained or pathological model emitting a near-"
+                    "constant value. For MLP: try ``mlp_kwargs={'network_params': "
+                    "{'use_layernorm': False}}`` (LN_in is wrong for tabular regression "
+                    "when the upstream pre-pipeline already z-scored features), increase "
+                    "``max_epochs`` past the time budget, or use a simpler model. "
+                    "For tree boosters: check fit_params learning_rate / n_estimators.",
+                    model_name,
+                    _pred_std,
+                    100.0 * _pred_std / max(_y_std, 1e-12),
+                    _y_std,
+                    float(R2),
+                )
+        except Exception as _sensor_err:
+            logger.debug(
+                "regression-collapse-sensor probe failed (non-fatal): %s", _sensor_err,
+            )
+
     current_metrics = dict(
         MAE=MAE,
         MaxError=MaxError,
