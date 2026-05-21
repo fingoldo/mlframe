@@ -24,28 +24,35 @@ import numpy as np
 import polars as pl
 import pytest
 
-# Need the `.pipeline` submodule specifically; some polars_ds installs ship
-# core polars_ds without the Pipeline / Blueprint classes (legacy split builds).
-# Use module-level pytestmark instead of file-level importorskip so pytest can
-# still resolve specific node-IDs (e.g. via `-k` or path::class::method) on
-# envs without the submodule -- file-level importorskip raises a collection
-# error ("found no collectors") in that case.
-try:
-    import polars_ds.pipeline  # noqa: F401
-    _HAS_PDS_PIPELINE = True
-except ImportError:
-    _HAS_PDS_PIPELINE = False
-
-pytestmark = pytest.mark.skipif(
-    not _HAS_PDS_PIPELINE,
-    reason="polars_ds.pipeline submodule unavailable on this install",
-)
-
-
+# Some polars_ds installs ship the core package without the Pipeline /
+# Blueprint submodule (legacy split builds). The previous file-level
+# ``pytest.importorskip("polars_ds.pipeline")`` and the module-level
+# ``pytestmark = skipif(...)`` both broke pytest node-ID resolution
+# ("ERROR: found no collectors for path::class::method") on those envs:
+# pytest refuses to navigate into a class/method whose containing module
+# was skipped at collection time.
+#
+# Robust fix: collection ALWAYS succeeds (no module-level skip). Each
+# test starts with ``_require_pds_pipeline()`` which raises pytest.skip
+# at RUNTIME, AFTER the test has been collected and named. Node-IDs
+# resolve cleanly and the run reports per-test skips instead of
+# collection errors.
 # Module under test — imported lazily so test collection works during the
 # bootstrap phase when imports may not be settled.
 from mlframe.training.configs import PreprocessingBackendConfig
 from mlframe.training.pipeline import create_polarsds_pipeline
+
+
+@pytest.fixture(autouse=True)
+def _require_pds_pipeline():
+    """Autouse skip-gate. Fires AFTER collection, so pytest node-ID lookup
+    (``path::class::method`` invocations) resolves cleanly on envs without
+    ``polars_ds.pipeline`` -- each named test gets skipped individually
+    instead of producing a "found no collectors" collection error."""
+    try:
+        import polars_ds.pipeline  # noqa: F401
+    except ImportError:
+        pytest.skip("polars_ds.pipeline submodule unavailable on this install")
 
 
 # =====================================================================

@@ -34,20 +34,19 @@ import numpy as np
 import polars as pl
 import pytest
 
-# Need the `.pipeline` submodule specifically; some polars_ds installs ship
-# core polars_ds without the Pipeline / Blueprint classes (legacy split builds).
-# Use module-level pytestmark instead of file-level importorskip so pytest can
-# still resolve specific node-IDs on envs without the submodule.
-try:
-    import polars_ds.pipeline  # noqa: F401
-    _HAS_PDS_PIPELINE = True
-except ImportError:
-    _HAS_PDS_PIPELINE = False
-
-pytestmark = pytest.mark.skipif(
-    not _HAS_PDS_PIPELINE,
-    reason="polars_ds.pipeline submodule unavailable on this install",
-)
+# Some polars_ds installs ship the core package without the Pipeline /
+# Blueprint submodule (legacy split builds). Use a runtime autouse skip
+# fixture (NOT module-level pytestmark / importorskip) so pytest can still
+# resolve specific node-IDs on those envs -- module-level skipping kills
+# the "path::class::method" lookup with "found no collectors".
+@pytest.fixture(autouse=True)
+def _require_pds_pipeline():
+    """Autouse skip-gate. Fires AFTER collection, so pytest node-ID lookup
+    resolves cleanly on envs without ``polars_ds.pipeline``."""
+    try:
+        import polars_ds.pipeline  # noqa: F401
+    except ImportError:
+        pytest.skip("polars_ds.pipeline submodule unavailable on this install")
 
 
 def _make_pipeline():
