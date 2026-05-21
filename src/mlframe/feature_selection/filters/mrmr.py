@@ -94,6 +94,7 @@ from .discretization import (
     discretize_array,
 )
 from .feature_engineering import (
+    FE_DEFAULT_SUBSAMPLE_N,
     check_prospective_fe_pairs,
     compute_pairs_mis,
     create_binary_transformations,
@@ -663,7 +664,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         # is lost.
         #
         # Set to ``None`` / 0 / negative to disable (use full data).
-        fe_smart_polynom_subsample_n: int = 200_000,
+        # 2026-05-21: unified with check_prospective_fe_pairs via the shared
+        # FE_DEFAULT_SUBSAMPLE_N constant; both FE entry points now scale their
+        # MI-sweep buffer with the same knob. Re-tune in feature_engineering.py
+        # to land both sites consistently.
+        fe_smart_polynom_subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
+        # 2026-05-21 (CRITICAL #2): subsample rows for check_prospective_fe_pairs's
+        # MI sweep. The hoisted shared scratch buffer scales linearly with n; on
+        # n=4M with the medium preset it lands at ~17.6 GiB and crashes the suite.
+        # Bench (bench_fe_pair_subsample_accuracy.py): jaccard=1.0 vs full-n at
+        # 50k+, 0.88 at 5k. Default 200_000 matches fe_smart_polynom_subsample_n
+        # for cross-block consistency. 0 = use full data (legacy).
+        fe_check_pairs_subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
         # 2026-05-18 audit-fixes flip #3 (``fe_min_polynom_degree`` 3->1):
         # pre-fix the Hermite/Chebyshev optimiser was locked to a minimum
         # cubic basis. Degree-1 (linear product, the XOR / multiplicative
@@ -2241,6 +2253,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     self.quantization_dtype,
                     times_spent,
                     verbose,
+                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                 )
             else:
 
@@ -2293,6 +2306,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                             self.quantization_dtype,
                             times_spent,
                             verbose,
+                            subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                         )
                         for chunk in jobs_list
                     ],

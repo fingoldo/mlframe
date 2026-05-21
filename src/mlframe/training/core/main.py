@@ -118,6 +118,15 @@ def train_mlframe_models_suite(
     composite_target_discovery_config: Optional[Union["CompositeTargetDiscoveryConfig", Dict]] = None,
     feature_handling_config: Optional[Any] = None,
     precomputed: Optional["TrainMlframeSuitePrecomputed"] = None,
+    # 2026-05-21 mini-HPT (target distribution analyzer): inspect the target
+    # distribution after the train/val/test split and recommend hyperparameter
+    # overrides for detected pathologies (heavy-tail, multi-modal, strong-AR,
+    # clustered, skewed, class-imbalance, rare-classes). Default True --
+    # recommendations are gap-fill only (caller-supplied hyperparams win) and
+    # the full report is stamped into metadata["target_distribution_report"]
+    # for downstream observability. Set False to skip the analyzer entirely
+    # (legacy behaviour). See ``_target_distribution_analyzer.py``.
+    enable_target_distribution_analyzer: bool = True,
     verbose: int = 1,
 ) -> Tuple[Dict, Dict]:
     """
@@ -382,6 +391,106 @@ def train_mlframe_models_suite(
         "fairness_features", "train_sequences", "val_sequences", "test_sequences",
         "baseline_rss_mb",
     ), locals())
+
+    # mini-HPT target distribution analyzer (2026-05-21). Inspect the FIRST target
+    # of the most-prevalent type, log any detected pathologies, and merge gap-fill
+    # recommendations into hyperparams_config. The full report is stamped into
+    # metadata for downstream observability regardless of whether anything was merged.
+    if enable_target_distribution_analyzer and target_by_type:
+        try:
+            from .._target_distribution_analyzer import analyze_target_distribution
+            from ..configs import TargetTypes as _TT
+            # Pick a representative target: prefer regression (the TVT-2026-05-21
+            # scenario class), fall back to the first available type. ``target_by_type``
+            # maps TargetTypes -> dict[target_name -> array-like]. Skip empty buckets.
+            _picked_target = None
+            _picked_type_name = None
+            _picked_target_name = None
+            for _tt_key in (_TT.REGRESSION, _TT.BINARY_CLASSIFICATION, _TT.MULTICLASS_CLASSIFICATION):
+                _bag = target_by_type.get(_tt_key)
+                if isinstance(_bag, dict) and _bag:
+                    _picked_target_name, _picked_target = next(iter(_bag.items()))
+                    _picked_type_name = "regression" if _tt_key == _TT.REGRESSION else "classification"
+                    break
+            if _picked_target is None:
+                # Fallback: walk all keys, take the first non-empty target.
+                for _tt_key, _bag in target_by_type.items():
+                    if isinstance(_bag, dict) and _bag:
+                        _picked_target_name, _picked_target = next(iter(_bag.items()))
+                        _picked_type_name = "regression" if str(_tt_key).endswith("REGRESSION") else "classification"
+                        break
+            if _picked_target is not None and train_idx is not None:
+                _y_arr = np.asarray(_picked_target)
+                _y_train = _y_arr[train_idx] if _y_arr.size >= np.max(train_idx) + 1 else _y_arr
+                _g_train = None
+                if group_ids is not None:
+                    _g_arr = np.asarray(group_ids).reshape(-1)
+                    if _g_arr.size >= np.max(train_idx) + 1:
+                        _g_train = _g_arr[train_idx]
+                # has_time_axis: rows are pre-split in the order the caller built
+                # the frame. We can only trust the AR detector when timestamps are
+                # supplied (the suite carries them as ``timestamps`` after _phase_load_and_preprocess).
+                _has_time = timestamps is not None
+                _td_report = analyze_target_distribution(
+                    _y_train,
+                    group_ids=_g_train,
+                    target_type=_picked_type_name,
+                    has_time_axis=_has_time,
+                )
+                if verbose:
+                    logger.info(
+                        "[mini-HPT] target_distribution_analyzer on %s target %r "
+                        "(n=%d, time_axis=%s): pathologies=%s, knob_overrides=%s, diagnostics=%s",
+                        _picked_type_name, _picked_target_name, _td_report.n_samples,
+                        _has_time, _td_report.pathologies or "(none)",
+                        _td_report.knob_overrides or "(none)",
+                        _td_report.diagnostics,
+                    )
+                metadata["target_distribution_report"] = {
+                    "target_type": _td_report.target_type,
+                    "picked_target_name": _picked_target_name,
+                    "n_samples": _td_report.n_samples,
+                    "pathologies": list(_td_report.pathologies),
+                    "knob_overrides": dict(_td_report.knob_overrides),
+                    "diagnostics": dict(_td_report.diagnostics),
+                }
+                # Gap-fill merge into hyperparams_config. The config can be a
+                # pydantic ModelHyperparamsConfig (dump+rebuild) or a dict (merge
+                # in place via the report helper). For the Pydantic path the
+                # merge only touches the per-model kwargs slots referenced by
+                # the recommendations (mlp_kwargs / lgb_kwargs / xgb_kwargs /
+                # cb_kwargs); other fields are left intact.
+                if _td_report.knob_overrides:
+                    if isinstance(hyperparams_config, dict):
+                        hyperparams_config = _td_report.merge_into_config(
+                            hyperparams_config, override_existing=False,
+                        )
+                    elif hyperparams_config is not None:
+                        _hp_dict = hyperparams_config.model_dump() if hasattr(hyperparams_config, "model_dump") else dict(hyperparams_config.__dict__)
+                        _hp_merged = _td_report.merge_into_config(_hp_dict, override_existing=False)
+                        # Reapply by updating per-knob slots only -- avoids
+                        # accidentally clobbering Pydantic-validated nested fields.
+                        for _slot in ("mlp_kwargs", "lgb_kwargs", "xgb_kwargs", "cb_kwargs", "split_config"):
+                            if _slot in _td_report.knob_overrides and hasattr(hyperparams_config, _slot):
+                                try:
+                                    setattr(hyperparams_config, _slot, _hp_merged.get(_slot))
+                                except Exception:
+                                    # Pydantic v2 frozen models reject direct setattr;
+                                    # fall back to model_copy(update={...}).
+                                    try:
+                                        hyperparams_config = hyperparams_config.model_copy(update={_slot: _hp_merged.get(_slot)})
+                                    except Exception:
+                                        pass
+                    # Reflect any mutation back onto ctx so downstream phases see
+                    # the merged config instead of the caller's original.
+                    ctx.hyperparams_config = hyperparams_config
+        except Exception as _td_err:
+            # The analyzer is observational + recommendation-only; any failure
+            # MUST NOT block training. WARN once so the operator can debug.
+            logger.warning(
+                "[mini-HPT] target_distribution_analyzer crashed (%s); proceeding without recommendations.",
+                _td_err, exc_info=False,
+            )
 
     (
         train_df, val_df, test_df,

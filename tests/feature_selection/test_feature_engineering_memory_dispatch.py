@@ -128,6 +128,76 @@ class TestDispatcher:
         assert np.all(np.isfinite(transformed_vals))
 
 
+class TestSubsampleMode:
+    """subsample_n > 0 forces the MI sweep onto a row subset but survivor
+    columns must still be produced at full n (mrmr.py contract)."""
+
+    def _run_with_subsample(self, inputs, *, subsample_n: int):
+        unary = create_unary_transformations(preset="minimal")
+        binary = create_binary_transformations(preset="minimal")
+        times_spent: dict = defaultdict(float)
+        return check_prospective_fe_pairs(
+            prospective_pairs=inputs["prospective_pairs"],
+            X=inputs["df"],
+            unary_transformations=unary,
+            binary_transformations=binary,
+            classes_y=inputs["classes_y"],
+            classes_y_safe=inputs["classes_y_safe"],
+            freqs_y=inputs["freqs_y"],
+            num_fs_steps=0,
+            cols=inputs["cols_names"],
+            original_cols=inputs["original_cols"],
+            fe_max_steps=2,
+            fe_npermutations=1,
+            fe_max_pair_features=4,
+            fe_print_best_mis_only=True,
+            fe_min_nonzero_confidence=0.0,
+            fe_min_engineered_mi_prevalence=0.0,
+            fe_good_to_best_feature_mi_threshold=0.5,
+            fe_max_external_validation_factors=0,
+            numeric_vars_to_consider=[0, 1, 2],
+            quantization_nbins=4,
+            quantization_method="quantile",
+            quantization_dtype=np.int32,
+            times_spent=times_spent,
+            verbose=0,
+            subsample_n=subsample_n,
+        )
+
+    def test_subsample_returns_full_n_survivor_columns(self, synthetic_pair_inputs):
+        """Subsample n=120 of full n=200 -- the transformed_vals returned must still
+        have shape[0]==200 because the caller (mrmr.py) appends to its full-n data
+        array."""
+        full_n = len(synthetic_pair_inputs["df"])
+        assert full_n == 200, "synthetic fixture sanity"
+        # Subsample fraction matters for MI estimation: too small and the noisy
+        # MI estimate fails the engineered_mi_prevalence gate. 120/200 (60%) is
+        # plenty for the synthetic strong-signal fixture.
+        res = self._run_with_subsample(synthetic_pair_inputs, subsample_n=120)
+        assert (0, 1) in res
+        this_pair_features, transformed_vals, _new_cols, _new_nbins, _msgs = res[(0, 1)]
+        assert len(this_pair_features) >= 1, "subsample path produced empty survivor set"
+        assert transformed_vals is not None, "fe_max_steps>1 must materialise transformed_vals"
+        # The critical contract: subsample is for MI sweep ONLY; output rows match FULL X.
+        assert transformed_vals.shape[0] == full_n, (
+            f"subsample mode must return full-n columns; got shape={transformed_vals.shape}"
+        )
+        # And the recompute must produce finite values (NaN -> 0 sanitisation runs).
+        assert np.all(np.isfinite(transformed_vals))
+
+    def test_subsample_disabled_when_n_geq_full_n(self, synthetic_pair_inputs):
+        """subsample_n >= len(X) is a no-op: legacy full-data path runs."""
+        full_n = len(synthetic_pair_inputs["df"])
+        res_sub_full = self._run_with_subsample(synthetic_pair_inputs, subsample_n=full_n + 1)
+        res_no_sub = self._run_with_subsample(synthetic_pair_inputs, subsample_n=0)
+        # Same survivors regardless of the > full_n knob.
+        for key in res_no_sub:
+            assert key in res_sub_full
+            cols_no_sub = sorted(res_no_sub[key][2])
+            cols_sub_full = sorted(res_sub_full[key][2])
+            assert cols_no_sub == cols_sub_full
+
+
 class TestFastVsFallbackEquivalence:
     """Same inputs through both paths -> same survivor set and same column data."""
 

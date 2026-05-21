@@ -59,6 +59,53 @@ _TIMES_SPENT_LOCK = threading.Lock()
 # auto-engages when the shared buffer would OOM.
 _FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
 
+# Shared subsample default across the two FE entry points. ``polynom_pair_fe``
+# already uses 200_000 (validated 2026-05-18: 100k could lose a marginal hermite
+# feature, 200k kept it). The accuracy bench for ``check_prospective_fe_pairs``
+# at this n landed at jaccard=1.0 vs full -- see
+# bench_fe_pair_subsample_accuracy.py. Keep both call sites pinned to ONE knob
+# so a future re-tune lands consistently across the FE block.
+FE_DEFAULT_SUBSAMPLE_N: int = 200_000
+
+
+def _rebuild_full_survivor_col(
+    config: tuple,
+    X_full,
+    original_cols: dict,
+    unary_transformations: dict,
+    binary_transformations: dict,
+) -> np.ndarray:
+    """Rebuild a survivor column at full n from raw X by re-applying its unary + binary transforms.
+
+    Used by every survivor-packing path (fast / fallback / subsample) so a single
+    code path produces the full-n output the caller (mrmr.py) expects regardless
+    of how the MI sweep was scratched. Cost: 2 unary + 1 binary ufunc per
+    survivor; with len(this_pair_features) <= fe_max_pair_features this is
+    bounded to ~K calls per pair, trivial vs the MI sweep work.
+    """
+    transformations_pair, bin_func_name, _i = config
+    (var_a_idx, unary_a_name) = transformations_pair[0]
+    (var_b_idx, unary_b_name) = transformations_pair[1]
+    if isinstance(X_full, pd.DataFrame):
+        vals_a = X_full.iloc[:, original_cols[var_a_idx]].values
+        vals_b = X_full.iloc[:, original_cols[var_b_idx]].values
+    else:
+        vals_a = X_full[:, original_cols[var_a_idx]].to_numpy()
+        vals_b = X_full[:, original_cols[var_b_idx]].to_numpy()
+    # ``poly_*`` unary keys hold hermval coefficient arrays, not callables;
+    # check_prospective_fe_pairs handles them via the same hermval(c=tr_func) path.
+    if "poly_" in unary_a_name:
+        param_a = hermval(vals_a, c=unary_transformations[unary_a_name])
+    else:
+        param_a = unary_transformations[unary_a_name](vals_a)
+    if "poly_" in unary_b_name:
+        param_b = hermval(vals_b, c=unary_transformations[unary_b_name])
+    else:
+        param_b = unary_transformations[unary_b_name](vals_b)
+    col = binary_transformations[bin_func_name](param_a, param_b)
+    np.nan_to_num(col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return col.astype(np.float32, copy=False)
+
 
 def _estimate_fe_shared_buffer_bytes(n_rows: int, max_n_combs: int, n_binary: int) -> int:
     """Bytes the hoisted shared buffer would consume at full precision."""
@@ -138,11 +185,63 @@ def check_prospective_fe_pairs(
     quantization_dtype,
     times_spent,
     verbose,
+    # CRITICAL #2 follow-up (2026-05-21): subsample rows for the MI sweep so the
+    # transformed_vars + shared_buffer allocations scale with subsample_n rather
+    # than the (possibly multi-million-row) full X. Survivor columns are still
+    # produced at full n via _rebuild_full_survivor_col so the caller contract
+    # is preserved. Default 200_000 matches polynom_pair_fe's existing knob
+    # (FE_DEFAULT_SUBSAMPLE_N); the standalone accuracy bench in
+    # bench_fe_pair_subsample_accuracy.py shows jaccard=1.0 vs full at n_eff
+    # >= 50k on synthetic 3-pair-competition data. 0 = use full data (legacy).
+    subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
+    subsample_seed: int = 42,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
 
     res = {}
+
+    # SUBSAMPLE-SETUP: when caller asks for subsample_n > 0 AND len(X) exceeds it,
+    # build subsampled views of X / classes_y / classes_y_safe / freqs_y. The MI
+    # sweep operates on these views; survivor packing always rebuilds at full n.
+    # When subsample_n is 0 / negative / >= len(X) the legacy full-data path runs
+    # unchanged (everything below uses ``X`` / ``classes_y`` / ... directly).
+    _X_full = X
+    _full_n_rows = len(_X_full)
+    _use_subsample = isinstance(subsample_n, int) and 0 < subsample_n < _full_n_rows
+    if _use_subsample:
+        _rng_sub = np.random.default_rng(int(subsample_seed))
+        _sample_idx = np.sort(_rng_sub.choice(_full_n_rows, size=int(subsample_n), replace=False))
+        if isinstance(_X_full, pd.DataFrame):
+            X = _X_full.iloc[_sample_idx].reset_index(drop=True)
+        else:
+            # Polars path -- row indexing returns a fresh frame; preserves zero-copy where possible.
+            X = _X_full[_sample_idx]
+        # Realign per-row target encodings; recompute freqs from the subsampled
+        # class labels so MI estimates use the actual subsample distribution
+        # rather than the full-n freq table (which would bias the MI estimator
+        # toward classes that shrank under the random subset).
+        _cy = np.asarray(classes_y)
+        _cy_safe = np.asarray(classes_y_safe)
+        classes_y = _cy[_sample_idx]
+        classes_y_safe = _cy_safe[_sample_idx]
+        # Recompute freqs from subsampled class labels. merge_vars returns
+        # freqs_y as a FLOAT proportions array (sum=1.0), not raw counts; the
+        # subsample needs the same shape. bincount gives counts -> divide by
+        # total to get proportions matching the caller's expectation.
+        if classes_y.size > 0 and classes_y.dtype.kind in ("i", "u"):
+            _counts = np.bincount(classes_y.astype(np.int64))
+            _total = _counts.sum()
+            if _total > 0:
+                freqs_y = (_counts.astype(np.float64) / float(_total))
+        # else: leave the caller-supplied freqs_y; mi_direct handles its own
+        # validation and would crash anyway on a non-integer class table.
+        if verbose:
+            logger.info(
+                "check_prospective_fe_pairs: subsample_n=%d active (full_n=%d, %.1f%% sample); "
+                "MI sweep runs on the subsample, survivor columns rebuilt at full n.",
+                int(subsample_n), _full_n_rows, 100.0 * subsample_n / _full_n_rows,
+            )
 
     # Exact preallocation. ``n_pairs * n_unary * 2`` over-counts because (var, tr_name) keys are de-duplicated in ``vars_transformations``; the unique-key set is the
     # true upper bound.
@@ -524,7 +623,10 @@ def check_prospective_fe_pairs(
                 # Pack each (config, j) into a compact column index
                 # ``idx = 0..len(this_pair_features)-1`` instead.
                 if fe_max_steps > 1:
-                    transformed_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=quantization_dtype)
+                    # Survivor buffer is sized to the FULL X regardless of subsample mode --
+                    # mrmr.py at the consumer side allocates a full-n ``data`` append, so
+                    # caller contract requires ``transformed_vals.shape[0] == len(_X_full)``.
+                    transformed_vals = np.empty(shape=(_full_n_rows, len(this_pair_features)), dtype=quantization_dtype)
                 new_nbins = []
                 new_cols = []
 
@@ -533,11 +635,24 @@ def check_prospective_fe_pairs(
                     transformations_pair, bin_func_name, i = config
 
                     if fe_max_steps > 1:
-                        if final_transformed_vals is not None:
+                        if _use_subsample:
+                            # SUBSAMPLE path: rebuild from raw _X_full so the survivor column
+                            # carries the FULL n rows the caller expects (mrmr.py appends it
+                            # back to its full-n ``data`` array). The MI sweep used a 200k
+                            # subset; the survivor IDENTITIES are correct (bench shows
+                            # jaccard=1.0 vs full-n at n_eff>=50k), so we just need to
+                            # rematerialise the values at full resolution.
+                            transformed_vals[:, idx] = _rebuild_full_survivor_col(
+                                config, _X_full, original_cols,
+                                unary_transformations, binary_transformations,
+                            )
+                        elif final_transformed_vals is not None:
                             transformed_vals[:, idx] = final_transformed_vals[:, i]
                         else:
-                            # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
-                            # (a_key, b_key, bin_func_name) metadata (same as validation phase above).
+                            # CRITICAL #2 recompute-fallback (no subsample, tight RAM): rebuild
+                            # the survivor column from its (a_key, b_key, bin_func_name)
+                            # metadata via the cached unary table. transformed_vars is at
+                            # full n in this path so the column lands at full n directly.
                             _a_key, _b_key, _bin_name = _config_by_i[i]
                             _pa = transformed_vars[:, vars_transformations[_a_key]]
                             _pb = transformed_vars[:, vars_transformations[_b_key]]
