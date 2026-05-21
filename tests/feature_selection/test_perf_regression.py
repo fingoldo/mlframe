@@ -252,10 +252,17 @@ def test_perf_mi_direct_gpu_at_n100k():
     t_gpu = time.perf_counter() - t0
 
     speedup = t_cpu / max(t_gpu, 1e-6)
-    # 1.5x floor — measured real-world at n=100k typically 3-10x. If we ever regress under 1.5x, the GPU path
-    # has lost a major optimisation (kernel decompile, host-device sync regression, etc.).
-    assert speedup >= 1.5, (
-        f"GPU mi_direct must be >=1.5x faster than CPU at n=100k; "
+    # Floor lowered from 1.5x to 1.05x in iter126 (2026-05-21). The CPU
+    # mi_direct sequential path swapped its @njit np.random.shuffle (3.7 ms /
+    # call at n=200k) for an inline LCG Fisher-Yates (~0.6 ms / call -- 6x
+    # faster), so the GPU's relative advantage at n=100k dropped from ~3-10x
+    # to ~1.2-1.4x and varies with prior-test warmup pressure on the shared
+    # process (observed 1.21x in the full feature_selection sweep, 1.41x
+    # isolated). The 1.05x floor still catches a real GPU regression (GPU
+    # running SLOWER than CPU, kernel decompile, host-device sync explosion)
+    # without false-firing on the post-iter126 CPU baseline.
+    assert speedup >= 1.05, (
+        f"GPU mi_direct must be >=1.05x faster than CPU at n=100k; "
         f"got {speedup:.2f}x ({t_cpu*1000:.1f}ms CPU vs {t_gpu*1000:.1f}ms GPU)"
     )
 

@@ -218,6 +218,15 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         shuffle_arr(_test)
     except Exception:
         pass
+    # Prewarm ``shuffle_arr_lcg`` -- inline-LCG Fisher-Yates added in iter126;
+    # mi_direct's seq path now uses this instead of shuffle_arr for the 6x
+    # speedup. Still prewarm the legacy shuffle_arr for any external caller.
+    try:
+        from .permutation import shuffle_arr_lcg
+        _test_lcg = classes_y.copy()
+        shuffle_arr_lcg(_test_lcg, np.uint64(42))
+    except Exception:
+        pass
 
     # Discretisation kernels. Cover the dominant production dtype combos: int8 (default + cat-FE path) and int16 (categorize_dataset default for the screening
     # path on regression combos). Each dtype is a SEPARATE numba compilation (~9s of cold JIT compile). Explicitly pass ``min_values=None, max_values=None`` to

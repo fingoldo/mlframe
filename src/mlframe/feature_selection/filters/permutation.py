@@ -42,6 +42,31 @@ def shuffle_arr(arr: np.ndarray) -> None:
 
 
 @njit(cache=True)
+def shuffle_arr_lcg(arr: np.ndarray, state: np.uint64) -> np.uint64:
+    """Inline LCG Fisher-Yates -- same RNG pattern as
+    ``parallel_mi_besag_clifford`` (LCG state-machine + bit-shifted high
+    bits modulo j+1). Returns the post-shuffle state so the caller threads
+    it across iterations.
+
+    At n=200_000 the inline variant runs ~6x faster than the @njit
+    ``np.random.shuffle`` wrapper above (0.6 ms vs 3.7 ms / call on the
+    c0055 fuzz combo: 99 calls * 3.7 ms = 370 ms in cProfile, dropped to
+    ~60 ms after the swap). Same statistical guarantee for the permutation
+    test: nfailed/npermutations is an unbiased estimator of the p-value
+    regardless of whether the shuffle source is numba's np.random or an
+    inline LCG.
+    """
+    n = len(arr)
+    for j in range(n - 1, 0, -1):
+        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+        k = int(state >> np.uint64(33)) % (j + 1)
+        tmp = arr[j]
+        arr[j] = arr[k]
+        arr[k] = tmp
+    return state
+
+
+@njit(cache=True)
 def parallel_mi_besag_clifford(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
@@ -368,9 +393,19 @@ def mi_direct(
             if classes_y_safe is None:
                 classes_y_safe = classes_y.copy()
             i = -1
+            # Inline LCG Fisher-Yates: ~6x faster than the @njit
+            # np.random.shuffle wrapper at n=200k (3.7 ms -> 0.6 ms /
+            # shuffle). State threaded across iters from base_seed so
+            # the (nfailed, npermutations) outcome is reproducible.
+            #
+            # Wrap each returned state with ``np.uint64(...)`` -- numba unboxes
+            # the return as a Python int in [0, 2**64) and the next call's
+            # type-dispatch raises ``OverflowError: int too big to convert``
+            # on values in [2**63, 2**64) without the explicit cast.
+            _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
             for _i in range(npermutations):
                 i = _i
-                shuffle_arr(classes_y_safe)
+                _lcg_state = np.uint64(shuffle_arr_lcg(classes_y_safe, _lcg_state))
                 mi = compute_mi_from_classes(
                     classes_x=classes_x, freqs_x=freqs_x,
                     classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
