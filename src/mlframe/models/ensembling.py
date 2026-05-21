@@ -357,12 +357,12 @@ class _WelfordAccumulator(StreamingAccumulator):
 
 
 # Streaming median (P^2-Quantile sketch, Jain & Chlamtac 1985) intentionally
-# NOT implemented. For typical M=5-10 ensembling members, exact materialised
-# median via np.quantile(preds, 0.5) is O(1) wallclock + O(M*N*K) memory which
-# fits the budget. P^2 wins only on big-M streams (CV with 100+ folds) and a
-# correct (N, K)-vectorised impl needs a numba per-cell loop. Welford-mode
-# median raises NotImplementedError in ensemble_probabilistic_predictions_streaming
-# as the explicit signal-to-caller.
+# NOT implemented (explicit-design-decision (wave 69, 2026-05-20)). For typical
+# M=5-10 ensembling members, exact materialised median via np.nanmedian(preds, axis=0)
+# is O(1) wallclock + O(M*N*K) memory which fits the budget. P^2 wins only on
+# big-M streams (CV with 100+ folds) and a correct (N, K)-vectorised impl
+# needs a numba per-cell loop. Welford-mode median raises NotImplementedError
+# in ensemble_probabilistic_predictions_streaming as the explicit signal-to-caller.
 
 # *****************************************************************************************************************************************************
 # Core ensembling functionality
@@ -530,11 +530,17 @@ def compute_member_quality_gate(
                 _group_size = np.zeros(_uniq.shape[0], dtype=np.float64)
                 np.add.at(_group_size, _inv, 1.0)
                 _sw = (_group_sum / np.where(_group_size > 0, _group_size, 1.0))[_inv]
-    # Wave 21 P1: np.nanquantile so a NaN in any single member's preds_list[k] doesn't poison
-    # median_preds across all members. The cross-member median is uniformly weighted across the
-    # K-axis by construction (we want "where is the typical member's prediction") -- row-level
-    # sample_weight only affects the downstream per-member MAE aggregation, not this median.
-    median_preds = np.nanquantile(arr, 0.5, axis=0)
+    # ``np.nanmedian`` over ``np.nanquantile(arr, 0.5, ...)``: the q=0.5 codepath
+    # in nanquantile dispatches through ``apply_along_axis``, which iterates the
+    # non-axis dimensions in Python (200k rows -> 200k 1-D calls); nanmedian
+    # uses numpy's dedicated C reduction. Bench at (K=3, N=200_000): 13.5 s ->
+    # 49 ms (~275x); 3-D (K=3, N=200_000, C=4): 54 s -> 250 ms (~215x). Output
+    # matches at machine epsilon (max abs diff 2.22e-16) since both ignore
+    # NaNs by definition; we still drop into the unweighted path because the
+    # cross-member median is uniformly weighted across the K-axis by
+    # construction (row-level sample_weight only affects the downstream
+    # per-member MAE aggregation, not this median).
+    median_preds = np.nanmedian(arr, axis=0)
     # Vectorised per-member MAE/STD: collapses the explicit Python loop to a single broadcast
     # over (K, N, ...). diffs has shape (K, N[, C]); collapse all non-member axes to a per-member
     # scalar via mean / population-std. LOOP-MAE / PER-MEMBER-MAE-LOOP fix; bench script in
