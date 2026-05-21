@@ -77,6 +77,29 @@ class TestMiniHPTSuiteWiring:
             "Mini-HPT log line leaked when flag was False."
         )
 
+    def test_feature_distribution_report_also_stamps_into_metadata(self, tmp_path):
+        """The feature-side analyzer runs alongside the target-side one when the flag is on.
+        Build a frame with deliberate feature pathologies and assert they're surfaced."""
+        rng = np.random.default_rng(7)
+        n = 2000
+        X = rng.normal(0, 1, (n, 6)).astype(np.float64)
+        # f1 = NaN-heavy (60%), f2 = leaks target
+        nan_idx = rng.choice(n, size=int(n * 0.6), replace=False)
+        X[nan_idx, 1] = np.nan
+        y = X[:, 3].astype(np.float32)
+        X[:, 2] = y + 0.001 * rng.normal(0, 1, n)
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(6)])
+        df["target"] = y
+
+        _models, meta = _run_suite(df, tmp=tmp_path, enable_analyzer=True, verbose=0)
+        fdr = meta.get("feature_distribution_report")
+        assert fdr is not None, "Feature-distribution report missing from metadata"
+        assert "nan_heavy_features" in " ".join(fdr["pathologies"]), fdr["pathologies"]
+        assert "suspected_target_leakage" in " ".join(fdr["pathologies"]), fdr["pathologies"]
+        # f1 should be in drop_candidates (NaN-heavy). f2 should be in leakage_candidates.
+        assert "f1" in fdr["drop_candidates"]
+        assert "f2" in fdr["leakage_candidates"]
+
     def test_recommendation_merges_into_dict_hyperparams_config(self, tmp_path):
         """Heavy-tail target -> analyzer recommends lgb_kwargs.objective='huber'.
         With dict-form hyperparams that doesn't pre-set objective, the gap-fill

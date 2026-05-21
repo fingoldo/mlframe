@@ -484,6 +484,52 @@ def train_mlframe_models_suite(
                     # Reflect any mutation back onto ctx so downstream phases see
                     # the merged config instead of the caller's original.
                     ctx.hyperparams_config = hyperparams_config
+
+                # FEATURE-SIDE analyzer (mini-HPT v2). The target-side detector recommends model
+                # objectives / layernorm flags / class weights; the feature-side detector surfaces
+                # low-variance / NaN-heavy / high-cardinality / redundant / suspected-leakage
+                # features. Both reports are stamped into metadata so operators see the full
+                # diagnostic table on every default run.
+                try:
+                    from .._target_distribution_analyzer import analyze_feature_distribution
+                    # Use train_df_polars_pre / train_df / whatever is available at this point;
+                    # _phase_train_val_test_split has already returned train_df at this scope.
+                    if train_df is not None:
+                        _fd_report = analyze_feature_distribution(
+                            train_df,
+                            y=_y_train if "_y_train" in dir() else None,
+                            target_type=_picked_type_name,
+                        )
+                        if verbose:
+                            logger.info(
+                                "[mini-HPT] feature_distribution_analyzer (n_samples=%d, n_features=%d): "
+                                "pathologies=%s, drop_candidates=%s, leakage_candidates=%s",
+                                _fd_report.n_samples, _fd_report.n_features,
+                                _fd_report.pathologies or "(none)",
+                                _fd_report.drop_candidates or "(none)",
+                                _fd_report.leakage_candidates or "(none)",
+                            )
+                        metadata["feature_distribution_report"] = {
+                            "n_samples": _fd_report.n_samples,
+                            "n_features": _fd_report.n_features,
+                            "pathologies": list(_fd_report.pathologies),
+                            "drop_candidates": list(_fd_report.drop_candidates),
+                            "leakage_candidates": list(_fd_report.leakage_candidates),
+                            "feature_warnings": dict(_fd_report.feature_warnings),
+                            "diagnostics": dict(_fd_report.diagnostics),
+                            "knob_overrides": dict(_fd_report.knob_overrides),
+                        }
+                        # Feature-side recommendations are observational by design (the choices
+                        # of whether to drop / re-encode features are operator decisions). We
+                        # surface knob_overrides via metadata for downstream tooling to consume
+                        # but do NOT auto-merge into hyperparams_config -- dropping the wrong
+                        # column or switching an encoder mid-suite is a higher-cost mistake
+                        # than silently keeping a redundant pair around.
+                except Exception as _fd_err:
+                    logger.warning(
+                        "[mini-HPT] feature_distribution_analyzer crashed (%s); proceeding without feature warnings.",
+                        _fd_err, exc_info=False,
+                    )
         except Exception as _td_err:
             # The analyzer is observational + recommendation-only; any failure
             # MUST NOT block training. WARN once so the operator can debug.

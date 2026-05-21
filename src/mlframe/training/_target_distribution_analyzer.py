@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,17 @@ _NEAR_CONSTANT_REL_STD: float = 1e-3
 _CLASS_IMBALANCE_MAX_MIN_RATIO: float = 10.0
 _RARE_CLASS_MIN_N: int = 100
 _NEAR_SINGLETON_MAX_FRACTION: float = 0.99
+
+# Feature-side detector thresholds (used by analyze_feature_distribution).
+_LOW_VAR_REL_STD: float = 1e-3       # std / (|mean|+eps) below this -> near-constant
+_LOW_VAR_NUNIQUE: int = 2             # binary features with imbalance flagged separately
+_REDUNDANT_CORR_THRESHOLD: float = 0.95   # |Pearson| above this -> redundant pair
+_HIGH_CARDINALITY_MAX: int = 100      # categorical features above this -> recommend encoder
+_NAN_FRACTION_THRESHOLD: float = 0.5  # 50%+ NaN rate -> structural issue, not random missingness
+_LEAKAGE_CORR_THRESHOLD: float = 0.99 # feature-target |corr| above this -> suspected leakage
+# Computing the full correlation matrix is O(n_features^2). Cap to keep the analyzer
+# fast on wide frames; redundant-pair detection is a heuristic, not a guarantee.
+_REDUNDANCY_MAX_NUMERIC_FEATURES: int = 500
 
 
 @dataclass
@@ -447,4 +459,265 @@ def analyze_target_distribution(
         target_type=ttype, n_samples=n,
         pathologies=pathologies, knob_overrides=knob_overrides,
         diagnostics=diagnostics,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Feature-side detectors (mini-HPT v2, 2026-05-21).
+#
+# Inspect the FEATURE matrix for pathologies that distort downstream training:
+#
+# - Near-constant features (std/|mean| < 1e-3): contribute no information; the
+#   pre-pipeline ``VarianceThreshold`` already drops these IF the operator
+#   enabled it, but most callers don't. Flag the feature name so the operator
+#   either drops it or sets preprocessing_config.drop_near_constant=True.
+#
+# - Redundant feature pairs (|Pearson| > 0.95): kept together they
+#   over-weight the underlying signal AND inflate the linear-model condition
+#   number. Pair-flag for operator review; auto-drop is risky (which member
+#   to keep depends on downstream FE / target).
+#
+# - High-cardinality categorical features (n_unique > 100): one-hot blows up
+#   the feature space; recommend target / hashing encoders.
+#
+# - NaN-heavy features (fraction > 50%): random missingness or structural?
+#   At >=50% the imputer is dominating the column; the operator should pick a
+#   strategy explicitly rather than rely on the default.
+#
+# - Suspected target leakage (|Pearson(x, y)| > 0.99 for regression OR
+#   per-class AUC > 0.99 for classification): a feature should NOT predict
+#   the target almost perfectly unless it's the target itself or a leaked
+#   sibling. Mark + WARN; do NOT auto-drop because legitimate features can
+#   land here on tiny datasets.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FeatureDistributionReport:
+    """Report from :func:`analyze_feature_distribution`."""
+
+    n_samples: int
+    n_features: int
+    pathologies: list[str] = field(default_factory=list)
+    # Per-feature warning detail: ``{feature_name: [pathology_strings]}``.
+    feature_warnings: dict[str, list[str]] = field(default_factory=dict)
+    # Suggested drop candidates (near-constant / NaN-heavy / one side of a
+    # redundant pair). Operator should review before applying.
+    drop_candidates: list[str] = field(default_factory=list)
+    # Suspected target-leakage feature names (not auto-actioned).
+    leakage_candidates: list[str] = field(default_factory=list)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    knob_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+def _pairwise_redundant_features(
+    X_numeric: np.ndarray,
+    feature_names: list[str],
+    threshold: float = _REDUNDANT_CORR_THRESHOLD,
+) -> list[tuple[str, str, float]]:
+    """Return list of (feature_a, feature_b, |corr|) for pairs above the threshold.
+
+    Uses np.corrcoef on the FULL matrix (O(n_features^2) memory). The caller
+    is responsible for capping feature count via _REDUNDANCY_MAX_NUMERIC_FEATURES.
+    """
+    if X_numeric.shape[1] < 2:
+        return []
+    # corrcoef along rows -> transpose so each row is a feature.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        C = np.corrcoef(X_numeric, rowvar=False)
+    pairs: list[tuple[str, str, float]] = []
+    n_feats = X_numeric.shape[1]
+    for i in range(n_feats):
+        for j in range(i + 1, n_feats):
+            corr = float(C[i, j])
+            if not math.isfinite(corr):
+                continue
+            if abs(corr) >= threshold:
+                pairs.append((feature_names[i], feature_names[j], abs(corr)))
+    pairs.sort(key=lambda t: -t[2])
+    return pairs
+
+
+def _normalise_X(
+    X,
+    feature_names: Optional[list[str]] = None,
+) -> tuple[pd.DataFrame, list[str], list[str]]:
+    """Return (df, numeric_cols, categorical_cols).
+
+    Numpy input gets generic ``f0...fN`` names; pandas keeps its columns.
+    Categorical detection: object / category / pandas string dtype goes to
+    ``categorical_cols``; numeric int/float/bool goes to ``numeric_cols``.
+    """
+    if isinstance(X, pd.DataFrame):
+        df = X
+    else:
+        arr = np.asarray(X)
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, 1)
+        if feature_names is None:
+            feature_names = [f"f{i}" for i in range(arr.shape[1])]
+        df = pd.DataFrame(arr, columns=feature_names)
+    numeric_cols: list[str] = []
+    categorical_cols: list[str] = []
+    for c in df.columns:
+        s = df[c]
+        # pandas <2 has ``object`` for strings; >=2 has ArrowExtension or StringDtype.
+        # Treat anything non-numeric as categorical for analysis purposes.
+        if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
+            numeric_cols.append(str(c))
+        elif pd.api.types.is_bool_dtype(s):
+            # Bools coalesce into numeric for std-based checks (cast to int8).
+            numeric_cols.append(str(c))
+        else:
+            categorical_cols.append(str(c))
+    return df, numeric_cols, categorical_cols
+
+
+def analyze_feature_distribution(
+    X,
+    y: Optional[np.ndarray] = None,
+    *,
+    feature_names: Optional[list[str]] = None,
+    target_type: Literal["regression", "classification", "auto"] = "auto",
+    low_variance_rel_std: float = _LOW_VAR_REL_STD,
+    redundant_corr_threshold: float = _REDUNDANT_CORR_THRESHOLD,
+    high_cardinality_max: int = _HIGH_CARDINALITY_MAX,
+    nan_fraction_threshold: float = _NAN_FRACTION_THRESHOLD,
+    leakage_corr_threshold: float = _LEAKAGE_CORR_THRESHOLD,
+    redundancy_max_numeric_features: int = _REDUNDANCY_MAX_NUMERIC_FEATURES,
+) -> FeatureDistributionReport:
+    """Inspect the FEATURE matrix and (optionally) target; surface pathologies.
+
+    Each detector is documented in the module docstring. The function never
+    mutates X / y. Recommendations are observational; the suite caller decides
+    whether to action them.
+    """
+    df, numeric_cols, categorical_cols = _normalise_X(X, feature_names=feature_names)
+    n_samples = int(df.shape[0])
+    n_features = int(df.shape[1])
+    diagnostics: dict[str, Any] = {
+        "n_samples": n_samples, "n_features": n_features,
+        "n_numeric": len(numeric_cols), "n_categorical": len(categorical_cols),
+    }
+    pathologies: list[str] = []
+    feature_warnings: dict[str, list[str]] = {}
+    drop_candidates: list[str] = []
+    leakage_candidates: list[str] = []
+    knob_overrides: dict[str, dict[str, Any]] = {}
+
+    if n_samples < 30:
+        # Too small for any reliable detection; return early.
+        return FeatureDistributionReport(
+            n_samples=n_samples, n_features=n_features,
+            pathologies=["insufficient_samples_n<30"],
+            diagnostics=diagnostics,
+        )
+
+    def _add_warning(col: str, msg: str) -> None:
+        feature_warnings.setdefault(col, []).append(msg)
+
+    # --- numeric: low-variance + nan fraction ---
+    low_var_features: list[str] = []
+    nan_heavy_features: list[str] = []
+    for c in numeric_cols:
+        col = df[c].to_numpy()
+        col_f = np.asarray(col, dtype=np.float64)
+        nan_mask = ~np.isfinite(col_f)
+        nan_frac = float(nan_mask.mean()) if col_f.size > 0 else 0.0
+        if nan_frac >= nan_fraction_threshold:
+            nan_heavy_features.append(c)
+            _add_warning(c, f"nan_fraction={nan_frac:.2f} >= {nan_fraction_threshold}")
+            drop_candidates.append(c)
+            continue  # Skip further stats on a NaN-dominated feature.
+        finite = col_f[~nan_mask]
+        if finite.size < 2:
+            _add_warning(c, "insufficient_finite_values")
+            drop_candidates.append(c)
+            continue
+        mu = float(np.mean(finite))
+        sd = float(np.std(finite))
+        rel = abs(sd) / (abs(mu) + 1e-9) if abs(mu) > 1e-9 else (sd if sd > 0 else 0.0)
+        if sd <= 0.0 or rel < low_variance_rel_std:
+            low_var_features.append(c)
+            _add_warning(c, f"low_variance(rel_std={rel:.2e})")
+            drop_candidates.append(c)
+    if low_var_features:
+        pathologies.append(f"low_variance_features(n={len(low_var_features)})")
+        diagnostics["low_variance_features"] = list(low_var_features)
+    if nan_heavy_features:
+        pathologies.append(f"nan_heavy_features(n={len(nan_heavy_features)})")
+        diagnostics["nan_heavy_features"] = list(nan_heavy_features)
+        # Recommend explicit NaN strategy at the preprocessing layer.
+        knob_overrides.setdefault("preprocessing_config", {})["review_nan_strategy"] = True
+
+    # --- categorical: high cardinality ---
+    high_card_features: list[str] = []
+    for c in categorical_cols:
+        n_unique = int(df[c].nunique(dropna=False))
+        if n_unique > high_cardinality_max:
+            high_card_features.append(c)
+            _add_warning(c, f"high_cardinality(n_unique={n_unique} > {high_cardinality_max})")
+    if high_card_features:
+        pathologies.append(f"high_cardinality_categorical(n={len(high_card_features)})")
+        diagnostics["high_cardinality_features"] = list(high_card_features)
+        # Recommend a target / hashing encoder over one-hot (preprocessing layer hint).
+        knob_overrides.setdefault("preprocessing_config", {})["prefer_high_cardinality_encoder"] = True
+
+    # --- redundant pairs (numeric only; skip the dropped low-var/nan-heavy set) ---
+    candidate_numeric = [c for c in numeric_cols if c not in low_var_features and c not in nan_heavy_features]
+    if len(candidate_numeric) > redundancy_max_numeric_features:
+        diagnostics["redundancy_skipped"] = (
+            f"n_numeric={len(candidate_numeric)} > cap={redundancy_max_numeric_features}; "
+            "pairwise correlation O(n^2) would be too costly. Lower the threshold via "
+            "redundancy_max_numeric_features or pre-filter."
+        )
+    elif len(candidate_numeric) >= 2:
+        # Fill NaNs with column means for the corrcoef pass so a sparse NaN row
+        # doesn't poison every correlation in its row/column. We're not
+        # imputing the data downstream, just computing redundancy.
+        sub = df[candidate_numeric].to_numpy(dtype=np.float64, na_value=np.nan)
+        col_means = np.nanmean(sub, axis=0)
+        # Vectorised mean fill -- np.take_along_axis would be overkill here.
+        for j in range(sub.shape[1]):
+            mask = ~np.isfinite(sub[:, j])
+            if mask.any():
+                sub[mask, j] = col_means[j] if math.isfinite(col_means[j]) else 0.0
+        pairs = _pairwise_redundant_features(sub, candidate_numeric, threshold=redundant_corr_threshold)
+        if pairs:
+            pathologies.append(f"redundant_feature_pairs(n={len(pairs)})")
+            diagnostics["redundant_feature_pairs"] = [
+                {"a": a, "b": b, "corr": c} for a, b, c in pairs[:50]  # cap log to top 50
+            ]
+            for a, b, c in pairs:
+                _add_warning(a, f"redundant_with({b}, corr={c:.3f})")
+                _add_warning(b, f"redundant_with({a}, corr={c:.3f})")
+
+    # --- target leakage (only if y supplied) ---
+    if y is not None and len(candidate_numeric) > 0:
+        y_arr = np.asarray(y).reshape(-1)
+        if y_arr.size == n_samples and y_arr.dtype.kind in ("f", "i", "u", "b"):
+            for c in candidate_numeric:
+                col = df[c].to_numpy(dtype=np.float64)
+                mask = np.isfinite(col) & np.isfinite(y_arr.astype(np.float64, copy=False))
+                if mask.sum() < 30:
+                    continue
+                sa, sb = float(np.std(col[mask])), float(np.std(y_arr[mask]))
+                if sa <= 0.0 or sb <= 0.0:
+                    continue
+                corr = float(np.corrcoef(col[mask], y_arr[mask].astype(np.float64))[0, 1])
+                if math.isfinite(corr) and abs(corr) >= leakage_corr_threshold:
+                    leakage_candidates.append(c)
+                    _add_warning(c, f"suspected_target_leakage(corr_with_y={corr:.4f})")
+        if leakage_candidates:
+            pathologies.append(f"suspected_target_leakage(n={len(leakage_candidates)})")
+            diagnostics["leakage_candidates"] = list(leakage_candidates)
+
+    return FeatureDistributionReport(
+        n_samples=n_samples, n_features=n_features,
+        pathologies=pathologies,
+        feature_warnings=feature_warnings,
+        drop_candidates=drop_candidates,
+        leakage_candidates=leakage_candidates,
+        diagnostics=diagnostics,
+        knob_overrides=knob_overrides,
     )
