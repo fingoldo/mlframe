@@ -406,6 +406,83 @@ AXES: dict[str, tuple[Any, ...]] = {
     # "mixed_reg_bin_2each" additionally canonicalise to None when primary
     # != regression.
     "extra_targets": (None, "same_type_2", "mixed_reg_bin", "mixed_reg_bin_2each"),
+    # =====================================================================
+    # 2026-05-21 iter151 -- P0/P1/P2 audit fill-in.
+    # Each axis below was identified by the explore-agent audit of the
+    # train_mlframe_models_suite signature as either (a) a suite kwarg
+    # never passed by the fuzz runner, (b) a config field with documented
+    # behavioural effect and zero pre-iter151 fuzz coverage, or (c) a
+    # tuning knob whose non-default branch was never exercised.
+    # =====================================================================
+    # P0-1: quantile_regression_config. Pre-iter151 the entire quantile
+    # regression dispatch path (CB MultiQuantile / XGB quantileerror /
+    # LGB wrapper / HGB wrapper / Linear QuantileRegressor) was unfuzzed.
+    # When True AND target_type=regression, the runner builds a
+    # QuantileRegressionConfig(alphas=(0.1, 0.5, 0.9)) and passes it via
+    # the ``quantile_regression_config`` kwarg. Canonicalised to False
+    # for non-regression primaries (quantile dispatch is regression-only).
+    "enable_quantile_regression_cfg": (False, True),
+    # P0-2: linear_model_config. Pre-iter151 every linear model used
+    # defaults. Two axes pin the most impactful knobs:
+    #   - linear_alpha_cfg controls regularisation strength
+    #     (1.0 default vs 0.01 very-light vs 100.0 heavy).
+    #   - linear_solver_cfg controls logistic-regression solver path
+    #     (lbfgs default / liblinear / saga).
+    # Canonicalised to defaults when "linear" not in combo.models.
+    "linear_alpha_cfg": (1.0, 0.01, 100.0),
+    "linear_solver_cfg": ("lbfgs", "liblinear", "saga"),
+    # P0-3: feature_handling_config. Pre-iter151 the polars-native FHC
+    # fastpath was entirely unfuzzed (the legacy
+    # split_config/pipeline_config/preprocessing_config path always
+    # picked instead). When True the runner builds a default
+    # FeatureHandlingConfig() and passes via ``feature_handling_config``.
+    "enable_feature_handling_config_cfg": (False, True),
+    # P0-4: precomputed. TrainMlframeSuitePrecomputed bundle was never
+    # injected -- only the inline-compute path had coverage. When True
+    # the runner builds a bundle via precompute_all() and passes via
+    # ``precomputed``. Exercises the cache-reuse path in the suite.
+    "enable_precomputed_cfg": (False, True),
+    # P1-5: TrainingSplitConfig.test_sequential_fraction. None (default,
+    # uniform-random test) or 0.5 (50% of test rows pulled from the
+    # tail of the time axis). Untested pre-iter151.
+    "test_sequential_fraction_cfg": (None, 0.5),
+    # P1-6: TrainingSplitConfig.calib_size. None (no post-hoc
+    # calibration set) or 0.05 (5% calib carve-out). The
+    # calibration-reserve handoff path in the trainer was unfuzzed.
+    "calib_size_cfg": (None, 0.05),
+    # P1-7: FeatureSelectionConfig.use_boruta_shap. False (default,
+    # no SHAP-driven FS) or True. Boruta-SHAP path (tree feature
+    # importance + shadow features) had zero fuzz coverage.
+    "use_boruta_shap_cfg": (False, True),
+    # P1-8: FeatureSelectionConfig.use_sample_weights_in_fs. Weight-
+    # aware FS (MRMR / RFECV fit with sample_weight). When True AND
+    # weight_schemas includes non-uniform, FS refits per weight and the
+    # cache invalidation logic kicks in. Untested pre-iter151.
+    "use_sample_weights_in_fs_cfg": (False, True),
+    # P1-9: PreprocessingBackendConfig.fallback_to_sklearn. True
+    # (default) enables polars-ds -> sklearn fallback bridge when a
+    # requested op is missing. False disables (forces error). Polars-ds
+    # fallback path never exercised pre-iter151.
+    "fallback_to_sklearn_cfg": (True, False),
+    # P1-10a/b: TrainingBehaviorConfig device-selection toggles. CPU is
+    # hardcoded in fuzz hyperparams; the per-model GPU/CPU dispatch
+    # branches in compute_*_general_classif_params went unfuzzed.
+    "prefer_gpu_configs_cfg": (True, False),
+    "prefer_cpu_for_lightgbm_cfg": (True, False),
+    # P2-16: FeatureSelectionConfig.mrmr_identity_cache_scope. "ctx"
+    # (default, per-context cache) or "process" (process-level cache,
+    # exercises inter-suite cache pollution / dedup / invalidation).
+    "mrmr_identity_cache_scope_cfg": ("ctx", "process"),
+    # P2-17: FeatureSelectionConfig.skip_identity_equivalent_pre_pipelines.
+    # True (default, dedup-skip identity pipelines) or False (force
+    # re-train for ensemble diversity).
+    "skip_identity_equivalent_pre_pipelines_cfg": (True, False),
+    # P2-18a: rfecv_leakage_corr_threshold. 0.95 default, 0.80
+    # exercises the aggressive per-fit leakage filter.
+    "rfecv_leakage_corr_threshold_cfg": (0.95, 0.80),
+    # P2-18b: rfecv_mbh_adaptive_threshold. 30 default (CB surrogate
+    # crossover), 100 forces ExtraTreesRegressor surrogate longer.
+    "rfecv_mbh_adaptive_threshold_cfg": (30, 100),
 }
 
 
@@ -555,6 +632,25 @@ class FuzzCombo:
     # docstring for value semantics. Default None preserves legacy single-
     # target fuzz behaviour for combos archived before this axis landed.
     extra_targets: "str | None" = None
+    # 2026-05-21 iter151 -- P0/P1/P2 audit fill-in. All fields default
+    # to the pre-iter151 implicit values so combos archived before this
+    # batch deserialise without behaviour change.
+    enable_quantile_regression_cfg: bool = False
+    linear_alpha_cfg: float = 1.0
+    linear_solver_cfg: str = "lbfgs"
+    enable_feature_handling_config_cfg: bool = False
+    enable_precomputed_cfg: bool = False
+    test_sequential_fraction_cfg: "float | None" = None
+    calib_size_cfg: "float | None" = None
+    use_boruta_shap_cfg: bool = False
+    use_sample_weights_in_fs_cfg: bool = False
+    fallback_to_sklearn_cfg: bool = True
+    prefer_gpu_configs_cfg: bool = True
+    prefer_cpu_for_lightgbm_cfg: bool = True
+    mrmr_identity_cache_scope_cfg: str = "ctx"
+    skip_identity_equivalent_pre_pipelines_cfg: bool = True
+    rfecv_leakage_corr_threshold_cfg: float = 0.95
+    rfecv_mbh_adaptive_threshold_cfg: int = 30
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -936,6 +1032,54 @@ class FuzzCombo:
              else (None if (self.extra_targets in ("mixed_reg_bin", "mixed_reg_bin_2each")
                             and self.target_type != "regression")
                    else self.extra_targets)),
+            # 2026-05-21 iter151 -- P0/P1/P2 canons. Each axis collapses to
+            # its dataclass default when the feature it gates is inactive,
+            # so semantically-no-op combos dedup down to one representative.
+            # P0-1: quantile only meaningful on regression primary.
+            (self.enable_quantile_regression_cfg if self.target_type == "regression" else False),
+            # P0-2: linear axes only meaningful when "linear" in models.
+            (self.linear_alpha_cfg if "linear" in self.models else 1.0),
+            (self.linear_solver_cfg if "linear" in self.models else "lbfgs"),
+            # P0-3 / P0-4: enable flags carry through; FHC/precomputed have
+            # no preconditions on other combo axes so no further canon.
+            self.enable_feature_handling_config_cfg,
+            self.enable_precomputed_cfg,
+            # P1-5: test_sequential_fraction is a time-axis split; only
+            # meaningful when with_datetime_col is True (otherwise the
+            # splitter has no time signal to sort by).
+            (self.test_sequential_fraction_cfg if self.with_datetime_col else None),
+            # P1-6: calib_size always meaningful; passthrough.
+            self.calib_size_cfg,
+            # P1-7: use_boruta_shap independent.
+            self.use_boruta_shap_cfg,
+            # P1-8: use_sample_weights_in_fs only meaningful when any FS is
+            # enabled (MRMR / RFECV / Boruta) AND weights schema includes
+            # something non-uniform (otherwise FS receives all-1s weights
+            # and the branch is a no-op).
+            (self.use_sample_weights_in_fs_cfg if (
+                (self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                 or self.use_boruta_shap_cfg)
+                and any(s != "uniform" for s in self.weight_schemas)
+            ) else False),
+            # P1-9: fallback_to_sklearn only meaningful when polars-ds
+            # preferred (prefer_polarsds=True). Otherwise the path is dead.
+            (self.fallback_to_sklearn_cfg if self.prefer_polarsds else True),
+            # P1-10a/b: device toggles always meaningful; passthrough.
+            self.prefer_gpu_configs_cfg,
+            self.prefer_cpu_for_lightgbm_cfg,
+            # P2-16: mrmr_identity_cache_scope only meaningful when MRMR
+            # is enabled.
+            (self.mrmr_identity_cache_scope_cfg if self.use_mrmr_fs else "ctx"),
+            # P2-17: skip_identity dedup-skip only meaningful when any FS
+            # is active AND there's an ensembling path that could benefit
+            # from non-deduped pipelines.
+            (self.skip_identity_equivalent_pre_pipelines_cfg if (
+                self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                or self.use_boruta_shap_cfg
+            ) else True),
+            # P2-18a/b: RFECV thresholds only meaningful when RFECV is on.
+            (self.rfecv_leakage_corr_threshold_cfg if self.rfecv_estimator_cfg is not None else 0.95),
+            (self.rfecv_mbh_adaptive_threshold_cfg if self.rfecv_estimator_cfg is not None else 30),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -1546,6 +1690,25 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ),
         # 2026-05-21 iter150 -- multi-target / multi-target-type axis.
         extra_targets=axes.get("extra_targets", None),
+        # 2026-05-21 iter151 -- P0/P1/P2 audit fill-in.
+        enable_quantile_regression_cfg=axes.get("enable_quantile_regression_cfg", False),
+        linear_alpha_cfg=axes.get("linear_alpha_cfg", 1.0),
+        linear_solver_cfg=axes.get("linear_solver_cfg", "lbfgs"),
+        enable_feature_handling_config_cfg=axes.get("enable_feature_handling_config_cfg", False),
+        enable_precomputed_cfg=axes.get("enable_precomputed_cfg", False),
+        test_sequential_fraction_cfg=axes.get("test_sequential_fraction_cfg", None),
+        calib_size_cfg=axes.get("calib_size_cfg", None),
+        use_boruta_shap_cfg=axes.get("use_boruta_shap_cfg", False),
+        use_sample_weights_in_fs_cfg=axes.get("use_sample_weights_in_fs_cfg", False),
+        fallback_to_sklearn_cfg=axes.get("fallback_to_sklearn_cfg", True),
+        prefer_gpu_configs_cfg=axes.get("prefer_gpu_configs_cfg", True),
+        prefer_cpu_for_lightgbm_cfg=axes.get("prefer_cpu_for_lightgbm_cfg", True),
+        mrmr_identity_cache_scope_cfg=axes.get("mrmr_identity_cache_scope_cfg", "ctx"),
+        skip_identity_equivalent_pre_pipelines_cfg=axes.get(
+            "skip_identity_equivalent_pre_pipelines_cfg", True
+        ),
+        rfecv_leakage_corr_threshold_cfg=axes.get("rfecv_leakage_corr_threshold_cfg", 0.95),
+        rfecv_mbh_adaptive_threshold_cfg=axes.get("rfecv_mbh_adaptive_threshold_cfg", 30),
     )
 
 

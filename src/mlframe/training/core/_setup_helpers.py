@@ -430,6 +430,7 @@ def _build_pre_pipelines(
     boruta_shap_kwargs: dict[str, Any] | None = None,
     use_sample_weights_in_fs: bool = False,
     mrmr_identity_cache: dict | None = None,
+    target_type: Any = None,
 ) -> tuple[list[Any], list[str]]:
     """Build lists of pre-pipelines and their names for feature selection.
 
@@ -511,7 +512,21 @@ def _build_pre_pipelines(
         # ``instantiate`` so shap / matplotlib / seaborn (~2s cold cost) only load when this branch fires.
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _bs_spec = _get_selector_spec("BorutaShap")
-        _bs = _bs_spec.instantiate(**(boruta_shap_kwargs or {}))
+        # 2026-05-21 iter151 audit finding: BorutaShap's ``classification``
+        # defaults to True, so the inner default model is RandomForestClassifier --
+        # which raises ValueError("Unknown label type: 'continuous'") inside
+        # sklearn.multiclass on regression targets. When the caller hasn't
+        # set ``classification`` explicitly in boruta_shap_kwargs AND
+        # target_type is known, derive it from target_type so the inner
+        # RandomForestRegressor is picked on regression targets.
+        _bs_kwargs = dict(boruta_shap_kwargs or {})
+        if "classification" not in _bs_kwargs and target_type is not None:
+            _tt_str = str(target_type).lower()
+            # TargetTypes enum stringifies to e.g. "targettypes.regression"; substring match handles
+            # both the enum and a plain string variant.
+            _is_regression = "regression" in _tt_str
+            _bs_kwargs["classification"] = not _is_regression
+        _bs = _bs_spec.instantiate(**_bs_kwargs)
         setattr(_bs, "_mlframe_selector_kind_", "BorutaShap")
         pre_pipelines.append(_bs)
         pre_pipeline_names.append("BorutaShap ")

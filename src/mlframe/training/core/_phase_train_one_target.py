@@ -1439,6 +1439,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 if getattr(feature_selection_config, "mrmr_identity_cache_scope", "ctx") == "ctx"
                 else None
             ),
+            # 2026-05-21 iter151 -- thread target_type so BorutaShap can
+            # auto-derive ``classification=False`` for regression targets
+            # (otherwise the default RandomForestClassifier crashes on
+            # continuous y inside sklearn.multiclass).
+            target_type=target_type,
         )
     else:
         # No mlframe_models means the downstream pre_pipeline loop must be a no-op; bind empty sequences

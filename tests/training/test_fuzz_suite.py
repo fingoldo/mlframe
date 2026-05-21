@@ -184,6 +184,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # 2026-05-11 Wave 21: residual-audit footer toggle (regression only;
         # canonicalised to True for non-regression combos so dedup collapses).
         "report_residual_audit": combo.report_residual_audit_cfg,
+        # 2026-05-21 iter151 P1-10: device-selection toggles. CPU-only
+        # was hardcoded pre-iter151; per-model GPU/CPU dispatch branches
+        # in compute_*_general_classif_params went unfuzzed.
+        "prefer_gpu_configs": combo.prefer_gpu_configs_cfg,
+        "prefer_cpu_for_lightgbm": combo.prefer_cpu_for_lightgbm_cfg,
     }
     if fairness_features:
         behavior_kwargs["fairness_features"] = fairness_features
@@ -215,6 +220,17 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         and combo.with_datetime_col
     ):
         _aging_eff = None
+    # 2026-05-21 iter151 P1-5/P1-6: test_sequential_fraction + calib_size
+    # canon. test_sequential_fraction needs with_datetime_col (no time
+    # signal otherwise); calib_size + test_size + val_size must sum < 1.0
+    # (split_config validator enforces).
+    _tsf_eff = combo.test_sequential_fraction_cfg if combo.with_datetime_col else None
+    _calib_eff = combo.calib_size_cfg
+    if _calib_eff is not None:
+        # Defensive: keep calib + test + val_default(0.1) <= 0.9 so the
+        # split_config validator doesn't reject the combo.
+        if (combo.test_size_cfg + 0.1 + _calib_eff) >= 1.0:
+            _calib_eff = None
     split_config = TrainingSplitConfig(
         test_size=combo.test_size_cfg,
         val_placement=combo.val_placement_cfg,
@@ -228,6 +244,10 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # splitter derives groups from the datetime); canonicalised away
         # for other combos.
         use_groups=combo.use_groups_cfg,
+        # 2026-05-21 iter151 P1-5: time-axis-tail test placement.
+        test_sequential_fraction=_tsf_eff,
+        # 2026-05-21 iter151 P1-6: post-hoc calibration split.
+        calib_size=_calib_eff,
     )
     # PreprocessingConfig is built by ``_preprocessing_for_combo`` and
     # passed explicitly at the suite call site (it owns the fix_inf_eff /
@@ -242,6 +262,10 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             categorical_encoding=combo.categorical_encoding_cfg,
             skip_categorical_encoding=combo.skip_categorical_encoding_cfg,
             imputer_strategy=combo.imputer_strategy_cfg,
+            # 2026-05-21 iter151 P1-9: polars-ds -> sklearn fallback bridge.
+            # Only meaningful when prefer_polarsds=True (otherwise the
+            # bridge path is unreachable).
+            fallback_to_sklearn=combo.fallback_to_sklearn_cfg,
         ),
         "split_config": split_config,
         "feature_types_config": FeatureTypesConfig(
@@ -820,6 +844,48 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             ensemble_method=combo.ranking_ensemble_method,
         )
 
+    # 2026-05-21 iter151 -- P0 suite-level kwargs (built once per combo
+    # and forwarded into _suite_kwargs below). Each is None when the
+    # respective axis is disabled, so the production default behaviour
+    # is preserved.
+    # P0-1 quantile_regression_config: only on regression primaries.
+    _quantile_cfg = None
+    if combo.enable_quantile_regression_cfg and combo.target_type == "regression" and not _is_ltr:
+        from mlframe.training.configs import QuantileRegressionConfig
+        _quantile_cfg = QuantileRegressionConfig(
+            alphas=(0.1, 0.5, 0.9),
+            crossing_fix="sort",
+            point_estimate_alpha=0.5,
+            coverage_pairs=((0.1, 0.9),),
+        )
+    # P0-2 linear_model_config: only meaningful when "linear" in models.
+    _linear_cfg = None
+    if "linear" in combo.models:
+        from mlframe.training.configs import LinearModelConfig
+        _linear_cfg = LinearModelConfig(
+            alpha=combo.linear_alpha_cfg,
+            solver=combo.linear_solver_cfg,
+        )
+    # P0-3 feature_handling_config: default-instantiate when enabled.
+    _fhc = None
+    if combo.enable_feature_handling_config_cfg:
+        try:
+            from mlframe.training.feature_handling.config import FeatureHandlingConfig
+            _fhc = FeatureHandlingConfig()
+        except Exception:
+            _fhc = None  # FHC import has heavy optional deps; tolerate failure
+    # P0-4 precomputed: build the trainset_features_stats bundle. The
+    # other slots (dummy_baselines, composite_target_specs) raise
+    # NotImplementedError if requested -- precompute_all only fills the
+    # stats slot, which is what we want.
+    _precomputed = None
+    if combo.enable_precomputed_cfg:
+        try:
+            from mlframe.training.helpers import precompute_all
+            _precomputed = precompute_all(df_input if not isinstance(df_input, str) else df, target_by_type=None)
+        except Exception:
+            _precomputed = None  # tolerate parquet-path / FTE-shape edge cases
+
     t0 = time.perf_counter()
     outcome = "pass"
     err_class = None
@@ -838,6 +904,15 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 update={"assume_comparable_scales": combo.ltr_assume_comparable_scales_cfg}
             )
             _suite_kwargs["ranking_config"] = _ltr_ranking_config
+        # 2026-05-21 iter151 P0 suite-level kwargs.
+        if _quantile_cfg is not None:
+            _suite_kwargs["quantile_regression_config"] = _quantile_cfg
+        if _linear_cfg is not None:
+            _suite_kwargs["linear_model_config"] = _linear_cfg
+        if _fhc is not None:
+            _suite_kwargs["feature_handling_config"] = _fhc
+        if _precomputed is not None:
+            _suite_kwargs["precomputed"] = _precomputed
         trained, _meta = train_mlframe_models_suite(
             **_suite_kwargs,
             hyperparams_config=_config_for_models(
@@ -869,6 +944,22 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     else None
                 ),
                 custom_pre_pipelines=custom_pre or {},
+                # 2026-05-21 iter151 P1-7/P1-8/P2-16/P2-17/P2-18a/P2-18b:
+                # FS-related fill-ins from the audit. Each canonicalised in
+                # FuzzCombo.canonical_key when the gating axis is off.
+                use_boruta_shap=combo.use_boruta_shap_cfg,
+                # 2026-05-21 iter151: BorutaShap fuzz-speed knobs.
+                # Default n_trials=150 + SHAP per trial is too slow for the
+                # fuzz timeout budget. n_trials=10 still exercises every
+                # code path (shadow build + SHAP explain + tail test) at
+                # ~15x lower wall.
+                boruta_shap_kwargs=({"n_trials": 10, "verbose": False}
+                                   if combo.use_boruta_shap_cfg else None),
+                use_sample_weights_in_fs=combo.use_sample_weights_in_fs_cfg,
+                mrmr_identity_cache_scope=combo.mrmr_identity_cache_scope_cfg,
+                skip_identity_equivalent_pre_pipelines=combo.skip_identity_equivalent_pre_pipelines_cfg,
+                rfecv_leakage_corr_threshold=combo.rfecv_leakage_corr_threshold_cfg,
+                rfecv_mbh_adaptive_threshold=combo.rfecv_mbh_adaptive_threshold_cfg,
             ),
             # save_charts=False / show_perf_chart=False / show_fi=False:
             # the fuzz suite runs ~150 combos × ~5 charts per combo. Each
