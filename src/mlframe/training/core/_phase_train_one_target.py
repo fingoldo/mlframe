@@ -213,6 +213,12 @@ _ENSEMBLE_RANK_METRIC_CANDIDATES = (
     ("oof", "rmse", "lower"),
     ("val", "integral_error", "lower"),
     ("val", "rmse", "lower"),
+    # Test-split fallback when oof and val are both absent (e.g. inner-CV
+    # disabled in unit tests). Wave-8 contract: choose the flavour that
+    # scored best on the held-out test split rather than defaulting to the
+    # first-emitted flavour.
+    ("test", "integral_error", "lower"),
+    ("test", "rmse", "lower"),
 )
 
 
@@ -1293,6 +1299,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             current_val_target=current_val_target,
             current_test_target=current_test_target,
             filtered_train_df=filtered_train_df,
+            filtered_val_df=_fhc_val_df if "_fhc_val_df" in dir() else None,
+            filtered_test_df=_fhc_test_df if "_fhc_test_df" in dir() else None,
             baseline_diagnostics_config=baseline_diagnostics_config,
             cat_features=cat_features,
             metadata=metadata,

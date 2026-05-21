@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from ..baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
 from ..drift_report import compute_label_distribution_drift, format_drift_report
+from ..feature_drift_report import compute_feature_distribution_drift
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,8 @@ def run_per_target_diagnostics(
     current_val_target,
     current_test_target,
     filtered_train_df,
+    filtered_val_df=None,
+    filtered_test_df=None,
     baseline_diagnostics_config,
     cat_features: list[str] | None,
     metadata: dict,
@@ -35,6 +38,26 @@ def run_per_target_diagnostics(
     logger.info(format_drift_report(_drift_report, target_name=cur_target_name))
     metadata.setdefault("label_distribution_drift", {}) \
         .setdefault(str(target_type), {})[cur_target_name] = _drift_report
+
+    # 2026-05-22: feature-side drift sensor. Complements the label-drift report
+    # above by catching the FEATURE shift that broke the TVT-2026-05-21 MLP
+    # path (Ridge tolerates 14-sigma TVT_prev drift fine; MLP collapses).
+    # WARN-only; the protective layer is K=2 catastrophic-dropout downstream.
+    if filtered_val_df is not None or filtered_test_df is not None:
+        try:
+            _fd_report = compute_feature_distribution_drift(
+                train_df=filtered_train_df,
+                val_df=filtered_val_df,
+                test_df=filtered_test_df,
+            )
+            metadata.setdefault("feature_distribution_drift", {}) \
+                .setdefault(str(target_type), {})[cur_target_name] = _fd_report
+        except Exception as _fd_err:
+            logger.warning(
+                "feature_distribution_drift failed for target='%s' (%s); training "
+                "continues without the feature-drift sensor.",
+                cur_target_name, _fd_err,
+            )
 
     # Stored on metadata so composite-target discovery can gate on composite_recommendation.
     try:
