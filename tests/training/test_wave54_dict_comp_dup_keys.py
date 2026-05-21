@@ -60,9 +60,14 @@ def test_boruta_shap_rejects_dup_columns() -> None:
 
 
 def test_phase_helpers_rejects_dup_columns_in_train_df() -> None:
-    src = _read("training/core/_phase_helpers.py")
-    # The fix adds an explicit dupe-column raise before building the dtype dict.
-    assert "deduplicate before fit() to keep schema-hash honest" in src
+    """The dupe-column check moved into the sibling _phase_helpers_fit_split.py
+    during the 2026-05-21 monolith split, then further into
+    _phase_helpers_fit_pipeline.py during the 2026-05-22 split. Read all three."""
+    src_parent = _read("training/core/_phase_helpers.py")
+    src_sibling_a = _read("training/core/_phase_helpers_fit_split.py")
+    src_sibling_b = _read("training/core/_phase_helpers_fit_pipeline.py")
+    needle = "deduplicate before fit() to keep schema-hash honest"
+    assert needle in src_parent or needle in src_sibling_a or needle in src_sibling_b
 
 
 def test_misc_helpers_rejects_dup_columns_in_predict_df() -> None:

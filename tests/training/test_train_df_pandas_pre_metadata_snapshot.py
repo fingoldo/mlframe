@@ -107,9 +107,12 @@ def test_metadata_dict_snapshot_construction_in_phase_helpers():
     # files under mlframe.training.core. The dict-literal landed in
     # _phase_helpers_fit_split.py. Search both so the test survives the
     # refactor.
+    # 2026-05-22 split: _phase_helpers_fit_split itself was split again into
+    # _phase_helpers_fit_pipeline.py. Walk all three so the test survives.
     candidate_modules = [
         "mlframe.training.core._phase_helpers",
         "mlframe.training.core._phase_helpers_fit_split",
+        "mlframe.training.core._phase_helpers_fit_pipeline",
     ]
 
     found_meta_assign = False

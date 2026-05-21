@@ -57,6 +57,11 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # evaluate at module-load so the imports must be top-level. Cycle resolves
     # at runtime because parent defines all constants BEFORE importing siblings.
     "mlframe.training._composite_transforms_linear → mlframe.training._composite_transforms_nonlinear → mlframe.training.composite_transforms",
+    # _phase_helpers_fit_split monolith split: the body sibling
+    # _phase_helpers_fit_pipeline references the parent's FitPipelineResult
+    # NamedTuple at top-level. Resolves at runtime because parent defines
+    # FitPipelineResult before importing the sibling at its bottom.
+    "mlframe.training.core._phase_helpers_fit_pipeline → mlframe.training.core._phase_helpers_fit_split",
 }
 
 

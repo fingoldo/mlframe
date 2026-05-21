@@ -23,6 +23,11 @@ class _Sentinel(Exception):
 
 def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypatch):
     from mlframe.training.core import main as main_mod
+    # 2026-05-22 split: ``train_mlframe_models_suite`` body lives in
+    # ``_main_train_suite.py``; the live call to ``_phase_fit_pipeline`` /
+    # ``_phase_pandas_conversion_and_cat_prep`` resolves from THAT
+    # module's globals. Patch both namespaces.
+    from mlframe.training.core import _main_train_suite as _suite_mod
 
     captured: dict = {}
 
@@ -48,8 +53,11 @@ def test_polars_pipeline_applied_received_value_from_phase_fit_pipeline(monkeypa
         captured["all_kwargs"] = set(kwargs.keys())
         raise _Sentinel()
 
-    monkeypatch.setattr(main_mod, "_phase_fit_pipeline", fake_fit_pipeline)
-    monkeypatch.setattr(main_mod, "_phase_pandas_conversion_and_cat_prep", fake_pandas_conv)
+    for _mod in (main_mod, _suite_mod):
+        if hasattr(_mod, "_phase_fit_pipeline"):
+            monkeypatch.setattr(_mod, "_phase_fit_pipeline", fake_fit_pipeline)
+        if hasattr(_mod, "_phase_pandas_conversion_and_cat_prep"):
+            monkeypatch.setattr(_mod, "_phase_pandas_conversion_and_cat_prep", fake_pandas_conv)
 
     # Minimal valid dataset + extractor: just enough to reach the cat-prep call.
     import numpy as np
