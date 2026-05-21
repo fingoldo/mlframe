@@ -303,6 +303,21 @@ def _tiny_cv_rmse_raw_y(
             fold_results = [_one_fold(tr, va) for tr, va in splits]
     else:
         fold_results = [_one_fold(tr, va) for tr, va in splits]
+    # E1.2 (2026-05-22): emit a single WARN when ANY fold returned NaN. The
+    # outer ``except Exception`` in ``_one_fold`` swallows every failure into a
+    # NaN result, and downstream ``np.nanmean`` silently shifts the screening
+    # RMSE toward the surviving folds. Without this WARN the operator never
+    # sees that effective fold count dropped (the TVT-2026-05-21 prod log had
+    # 4 silent NaN-folds before P0 #1 fixed the lazy-import race).
+    _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
+    if _nan_fold_count > 0:
+        logger.warning(
+            "_tiny_cv_rmse_raw_y: %d/%d folds returned NaN (silent failures). "
+            "Screening RMSE will use nanmean over the remaining %d fold(s); "
+            "effective fold count is reduced. Inspect the per-fold WARN logs "
+            "above for the underlying exception.",
+            _nan_fold_count, len(fold_results), len(fold_results) - _nan_fold_count,
+        )
     fold_rmses = [r for r, _ in fold_results if math.isfinite(r)]
     if not fold_rmses:
         if return_per_bin:
@@ -664,6 +679,15 @@ def _tiny_cv_rmse_y_scale(
                 # Final mean cannot reach <= threshold; abort remaining folds.
                 break
 
+    # E1.2 (2026-05-22): NaN-fold aggregate WARN (twin of the y-scale branch).
+    _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
+    if _nan_fold_count > 0:
+        logger.warning(
+            "_tiny_cv_rmse_transformed_y: %d/%d folds returned NaN (silent failures). "
+            "Screening RMSE will use nanmean over the remaining %d fold(s); "
+            "effective fold count is reduced.",
+            _nan_fold_count, len(fold_results), len(fold_results) - _nan_fold_count,
+        )
     fold_rmses = [r for r, _ in fold_results if math.isfinite(r)]
     if not fold_rmses:
         if return_per_bin:

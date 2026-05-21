@@ -31,6 +31,81 @@ def test_module_level_clip_bounds_import():
     assert mod._y_train_clip_bounds is canonical
 
 
+def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
+    """E1.2 (2026-05-22): when ANY fold returns NaN the aggregate-level WARN
+    fires so the operator sees the effective fold count dropped. Without
+    this, the outer ``except Exception`` swallows per-fold failures into NaN,
+    nanmean silently averages over survivors, and a 4-of-5-folds-NaN run
+    looks like a 1-fold result with no signal at all in the logs (the
+    TVT-2026-05-21 prod symptom before P0 #1 fixed the lazy-import race)."""
+    import logging
+    import math
+
+    import numpy as np
+
+    from mlframe.training._composite_screening_tiny import _tiny_cv_rmse_raw_y
+
+    # Build a working scenario then monkey-patch the underlying fold computation
+    # to NaN out the first 3 folds. Easier: pass tiny n + an unstable family that
+    # forces folds to fail. Simpler still: directly inject NaN via the model
+    # builder returning a broken model.
+    #
+    # Actually the cleanest path: call _tiny_cv_rmse_y_scale with cv_folds=5 on
+    # data where the underlying fit raises on most folds (e.g. degenerate target
+    # of all-zeros except 1 row -- LightGBM rejects single-class regression).
+    # If that doesn't reliably reproduce, we patch _build_tiny_model directly.
+    from mlframe.training import _composite_screening_tiny as mod
+
+    real_build = mod._build_tiny_model
+    fail_count = {"n": 0}
+
+    def _fail_first_3(*args, **kwargs):
+        if fail_count["n"] < 3:
+            fail_count["n"] += 1
+
+            class _Broken:
+                def fit(self, X, y):
+                    raise RuntimeError("simulated fold failure for E1.2 test")
+
+                def predict(self, X):
+                    return np.zeros(len(X))
+
+                def set_params(self, **k):
+                    return self
+
+            return _Broken()
+        return real_build(*args, **kwargs)
+
+    rng = np.random.default_rng(0)
+    n = 500
+    x = rng.standard_normal((n, 3))
+    y = rng.standard_normal(n)
+
+    monkey_attr = "_build_tiny_model"
+    setattr(mod, monkey_attr, _fail_first_3)
+    try:
+        with caplog.at_level(logging.WARNING, logger="mlframe.training._composite_screening_tiny"):
+            _result = _tiny_cv_rmse_raw_y(
+                y_train=y, x_train_matrix=x,
+                cv_folds=5,
+                family="lgb",
+                n_estimators=5,
+                num_leaves=4,
+                learning_rate=0.1,
+                random_state=42,
+                deterministic=True,
+                time_aware=False,
+                n_jobs=1,
+            )
+        msgs = " | ".join(rec.getMessage() for rec in caplog.records)
+        assert "folds returned NaN" in msgs, (
+            "E1.2 aggregate NaN-fold WARN missing on a run with 3-of-5 failed folds. "
+            f"Got msgs: {msgs[:400]}"
+        )
+    finally:
+        setattr(mod, monkey_attr, real_build)
+
+
 def test_concurrent_import_does_not_raise():
     """8 threads forcing re-import simultaneously should never raise NameError /
     ImportError. With the lazy form, this used to race ~15% of the time on a
