@@ -878,6 +878,21 @@ Two rules.
 
 **How to apply:** before writing a comment, ask "would a reader who has never seen this PR / issue care about this line a year from now?" If no, delete. Anything about a specific fix, ticket, or refactor wave goes in the commit message or PR description, not the source. If a TODO is genuinely needed, write `# TODO: <what>` with no date and no audit ID; the issue tracker handles that.
 
+## Monolith split: AST-audit sibling for unresolved names BEFORE commit (CRITICAL)
+
+When splitting a >1k-line file by moving a function / class body into a new sibling module, Python compiles the moved code fine even if its body references names that live in the original parent module -- name lookup is lazy (resolves at call time, not at module load). So a sibling that's missing `from .parent import _helper` looks healthy at import time and only blows up at the FIRST runtime call, often via a downstream broad `except` that swallows the `NameError` into a recurring WARN ("name '_helper' is not defined; fold reported as NaN" -- the spam pattern that surfaced after waves 92-107).
+
+**Required gate before committing any sibling-file split:**
+
+1. Run an AST scope analyser over each new sibling. For every `ast.Name` with `ctx=Load`, check whether the name is bound at the sibling's module scope OR is a builtin OR is a function-local. Anything else is a candidate runtime NameError. The walker MUST chain enclosing function scopes correctly (closure refs are not bugs) and respect deferred annotations (`from __future__ import annotations` makes annotation-only refs strings).
+2. For each candidate, grep the parent module for the symbol's home. Add an explicit `from .parent import <name>` at the sibling's module top (or a lazy `from .parent import <name>` inside the function body when the parent is a heavy / cycle-prone dep).
+3. Smoke-import every affected sibling AND `hasattr(sibling, '<name>')` on every added symbol after the fix. A clean module import is NOT proof the runtime references resolve.
+4. The sensor for each split MUST exercise at least one code path that calls into the moved body, not just `import` the symbol -- import-only sensors pass even when the body has unresolved refs.
+
+`grep` alone is not enough: it misses indirect refs through aliases (`from X import foo as _foo; ... _foo(...)`) and overflags closure variables. Use the AST walker.
+
+This rule is enforced retroactively too: any time a WARN of the form "name 'X' is not defined" appears in mlframe logs, treat it as a P0 sibling-split regression and audit every other sibling for the same class of bug.
+
 ## NEVER use destructive git to inspect baseline (CRITICAL)
 
 The user runs **parallel agent sessions** on this repo and frequent in-flight processes (pytest, dev servers, build agents) that read the working tree. Destructive git commands - even with intent to undo - clobber concurrent work.
