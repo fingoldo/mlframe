@@ -516,32 +516,32 @@ def train_mlframe_ranker_suite(
             _vocabs: dict[str, dict] = {}
             _skip_cols: set[str] = set()
             for _c in _to_encode:
-                _vals = set()
+                _vals: set = set()
                 _abort = False
                 for _split in _splits_for_vocab:
                     if _c in _split.columns:
-                        for _v in _split[_c].dropna().tolist():
-                            try:
-                                _vals.add(_v)
-                            except TypeError:
-                                # Unhashable cell (e.g. embedding column that
-                                # is dtype==object but holds numpy arrays /
-                                # lists); leave the column untouched - LGB
-                                # will surface its own error if this is
-                                # really a cat_feature mis-labelled as such.
-                                _abort = True
-                                break
-                        if _abort:
+                        try:
+                            # set.update on a C-level list comprehension is ~1.45x
+                            # faster than a Python ``for _v in ...: _vals.add(_v)``
+                            # loop at 200k rows x 15 cat cols (bench
+                            # ``profiling/bench_ranker_suite_vocab_build.py``,
+                            # 720ms -> 490ms). Unhashable cells (numpy arrays /
+                            # lists inside an object column mis-labelled as
+                            # cat_feature) still raise TypeError, which we catch
+                            # the same way as the prior per-cell try.
+                            _vals.update(_split[_c].dropna().tolist())
+                        except TypeError:
+                            _abort = True
                             break
                 if _abort:
                     _skip_cols.add(_c)
                     continue
                 # Stable code assignment via sorted string repr -- avoids
-                # run-to-run drift on dict-ordering of insertion sets.
+                # run-to-run drift on dict-ordering of insertion sets. ``key=str``
+                # (not the equivalent ``lambda x: str(x)``) sidesteps the per-call
+                # Python-frame overhead.
                 _vocabs[_c] = {
-                    v: i for i, v in enumerate(
-                        sorted(_vals, key=lambda x: str(x))
-                    )
+                    v: i for i, v in enumerate(sorted(_vals, key=str))
                 }
             # Per-col ``_split_local[_c] = ...`` triggers BlockManager rebuilds
             # for each column. Build a {col: new_series} dict in one pass, then
