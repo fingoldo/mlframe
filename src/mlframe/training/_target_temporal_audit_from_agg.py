@@ -14,6 +14,22 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Wave 106c (2026-05-21): the dataclasses + label helper live in the parent
+# module; the change-point detectors live in the wave-106 sibling. Both
+# parents/siblings finish their top-level loading BEFORE this module is
+# pulled in via the parent's bottom-of-file re-export, so the partial-load
+# imports below resolve cleanly. Single source of truth.
+from .target_temporal_audit import (  # noqa: E402
+    TemporalAuditResult,
+    TimeBin,
+    _format_bin_label,
+)
+from ._target_temporal_changepoint import (  # noqa: E402
+    find_change_points_pelt,
+    find_change_points_zscore,
+    _segments_from_change_points,
+)
+
 
 def _audit_from_agg(
     *,

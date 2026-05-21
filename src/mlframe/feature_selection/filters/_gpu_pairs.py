@@ -179,7 +179,7 @@ def mi_direct_gpu_batched_pairs(
 
     # SINGLE kernel launch processes all pairs via 3D grid (rows along X, pairs along Y); per-pair launch overhead amortised to zero.
     if use_shared_multi_pair:
-        compute_joint_hist_multi_pair_shared_cuda(
+        _gpu_module.compute_joint_hist_multi_pair_shared_cuda(
             (grid_x, n_pairs),
             (block_size,),
             (

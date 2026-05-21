@@ -18,7 +18,8 @@ import pandas as pd
 # _ADDITIVE_TRANSFORMS is defined inside the function body itself, not at
 # module scope of any sibling -- the static analyzer flagged it as a missing
 # reference but Python resolves it from function-local scope.
-from ..composite import CompositeTargetEstimator
+from ..composite import CompositeTargetEstimator, get_transform
+from .._format import format_metric as _fmt, strip_shim_suffix as _strip
 
 logger = logging.getLogger(__name__)
 

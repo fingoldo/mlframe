@@ -80,6 +80,7 @@ from .target_temporal_audit import (  # noqa: E402
     DEFAULT_PELT_MODEL,
     DEFAULT_PELT_MIN_SEGMENT_SIZE,
     Granularity,
+    _import_ruptures,
 )
 
 

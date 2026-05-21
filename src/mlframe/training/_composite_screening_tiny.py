@@ -570,6 +570,10 @@ def _tiny_cv_rmse_y_scale(
             # so screening RMSE matches deployed RMSE (otherwise
             # heavy-tail transforms like logratio look better in
             # screening than they actually deliver).
+            # Lazy import: wave 98 moved this body out of composite_screening
+            # but kept the wrapper-aware clip helper in composite_estimator
+            # (deep dep tree). Lazy-import here so module-load stays light.
+            from .composite_estimator import _y_train_clip_bounds
             y_clip_low, y_clip_high = _y_train_clip_bounds(
                 y_clean[train_fold]
             )

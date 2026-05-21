@@ -19,7 +19,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin
+from collections import deque
+from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.exceptions import NotFittedError
 
 try:
     import polars as pl
@@ -38,12 +40,14 @@ from .composite_estimator import (
     _extract_groups,
     _extract_base_matrix,
     _is_polars_df,
+    _to_1d_numpy,
 )
-# Wave 102 split missed re-importing get_transform alongside the parent helpers above; the
-# fitted-from-spec / fit / predict / predict_invert paths all call it through the registry, so
-# leaving it unimported turned every CompositeTargetEstimator instantiation into a NameError at
-# the very first call site (line 221 below). 2026-05-21 fix.
-from .composite_transforms import get_transform
+# Wave 102 split missed re-importing get_transform + DomainViolationError
+# alongside the parent helpers above; the fitted-from-spec / fit / predict /
+# predict_invert paths all use them, so leaving them unimported turned every
+# CompositeTargetEstimator instantiation into a NameError at the very first
+# call site. 2026-05-21 fix.
+from .composite_transforms import get_transform, DomainViolationError
 
 logger = logging.getLogger(__name__)
 
