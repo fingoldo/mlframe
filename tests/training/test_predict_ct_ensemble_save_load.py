@@ -21,7 +21,7 @@ import pytest
 # the inner ``stream_writer`` context-manager closed the underlying file -- raises ``ValueError: flush of closed
 # file`` on the local Windows zstandard build. This bypass writes the file directly (no atomic rename, no extra
 # fsync) which is acceptable in a test context. The underlying io.py is in the LOCKED scope of the directive.
-def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0):
+def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, durable=False):
     import dill
     import zstandard as zstd
     try:

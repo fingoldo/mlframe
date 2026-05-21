@@ -325,7 +325,11 @@ def test_fix6_predict_guards_dtype_preserved():
         captured["X"] = X
         return np.zeros(len(X))
 
-    out = _apply_nan_guard(_DummyModel(), pdf, _predict_fn, n_rows=64)
+    # 2026-05-21: this is a dtype-preservation smoke check, NOT a leakage-guard
+    # check. Pass fit_at_predict=True to opt into the legacy fit-on-current-frame
+    # behaviour the test was originally written against; the audit 2026-05-17 C10
+    # contract (refuse-by-default) is exercised by separate dedicated tests.
+    out = _apply_nan_guard(_DummyModel(), pdf, _predict_fn, n_rows=64, fit_at_predict=True)
     assert out.shape == (64,)
     # After the guard imputed + standardised, the rewrapped frame must remain
     # a pandas DataFrame with float dtypes.
@@ -411,14 +415,20 @@ def test_fix8_per_group_predict_converts_once_per_frame():
     """The polars->pandas bridge must be invoked exactly once per
     (train_X, val_X, test_X) -- not once per cat column inspected inside the
     group-key builder.
+
+    2026-05-21: when ALL three frames are pl.DataFrame, _per_group_predict
+    dispatches to the polars-native fastpath and SKIPS the bridge entirely
+    (zero calls). To exercise the bridge contract this test guards, we feed
+    objects that expose ``.to_pandas`` but are NOT pl.DataFrame -- so the
+    pandas branch runs and the bridge is called per frame.
     """
     from mlframe.training import _dummy_baseline_compute as dbc
 
     n = 200
     rng = np.random.default_rng(0)
-    df_train = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)})
-    df_val = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)})
-    df_test = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)})
+    df_train = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)}).to_pandas()
+    df_val = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)}).to_pandas()
+    df_test = pl.DataFrame({"cat": rng.integers(0, 5, size=n), "x": rng.normal(size=n)}).to_pandas()
     train_y = rng.normal(size=n)
 
     called = {"n": 0}

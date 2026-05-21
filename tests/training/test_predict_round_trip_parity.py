@@ -32,7 +32,7 @@ from mlframe.training.configs import (
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
-def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0):
+def _save_threads_zero(model, file, zstd_kwargs=None, verbose=0, lean=False, durable=False):
     """Single-threaded zstd write that bypasses the ``flush of closed file`` Windows quirk in atomic_write_bytes."""
     import dill
     import zstandard as zstd

@@ -30,14 +30,21 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 
 
-class _SelectFirstNCols:
+class _SelectFirstNCols(BaseEstimator, TransformerMixin):
     """Stand-in for a fitted MRMR/RFECV selector: at transform-time it
     drops every column except a fixed numeric set, mimicking how a
-    fitted selector silently drops text/embedding cols at predict."""
+    fitted selector silently drops text/embedding cols at predict.
+
+    2026-05-21: inherits from BaseEstimator + TransformerMixin so
+    sklearn 1.6+ resolves ``__sklearn_tags__`` via the MRO (the
+    pre-fix bare-class version raised AttributeError at Pipeline
+    construction).
+    """
 
     def __init__(self, kept_cols):
         self.kept_cols = list(kept_cols)

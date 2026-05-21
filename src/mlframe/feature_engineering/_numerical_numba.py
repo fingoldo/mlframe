@@ -20,6 +20,19 @@ __all__ = [
 # Module-level numba kwargs (kept in sync with parent numerical.py:83).
 NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
 
+# Module-level constants needed by the moved numba kernels. numba can't see
+# closure variables -- these MUST be defined at the sibling's module scope.
+# Kept in sync with parent numerical.py:125, 128, 129, 122.
+LARGE_CONST = 1e3
+GEOMEAN_OVERFLOW_HI: float = 1e100
+GEOMEAN_OVERFLOW_LO: float = 1e-100
+# The `distributions` tuple is sourced from scipy.stats at the parent's top;
+# we lazy-import it here to avoid a top-level scipy.stats touch.
+def _get_distributions():
+    from scipy import stats
+    return (stats.levy_l,)
+distributions = _get_distributions()
+
 import logging
 import warnings
 from contextlib import contextmanager
