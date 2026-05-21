@@ -1192,6 +1192,15 @@ def _bulk_shuffle_and_compute_three_mis(
     pair up front; those are a clean parallel target. Phase 2 stays sequential
     because UCB1 needs each result to pick the next allocation.
 
+    bench-attempt-rejected (2026-05-21, c0109 / iter135): folding the joint
+    accumulation INTO the Fisher-Yates loop (position i becomes final after
+    the swap at iter i) saves one full N-pass over local[] but runs
+    18-31% SLOWER at n>=200k. Cause: the larger per-iteration working set
+    (6 arrays touched per iter vs streaming patterns of the 2-pass form)
+    blows L1; cache misses dominate the saved pass. Numerically bit-identical
+    (max abs diff == 0). Bench:
+    profiling/bench_bulk_shuffle_three_mis_fused.py.
+
     LCG sequence (state * 6364136223846793005 + 1442695040888963407, take top
     bits via >> 33) matches the one used in ``parallel_mi_besag_clifford`` so
     permutations are statistically equivalent to numpy's default rng for the
