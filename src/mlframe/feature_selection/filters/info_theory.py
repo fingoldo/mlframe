@@ -39,6 +39,13 @@ def merge_vars(
 
     ``factors_data`` is laid out as ``(n_samples, n_features)`` (sklearn convention). Empty bins are pruned and the class indices renumbered so the returned
     ``final_classes`` is dense (no skipped integers).
+
+    bench-attempt-rejected (2026-05-21, c0148 / iter136): 1-var
+    fast-path replacing the per-row loop with np.bincount + cast runs
+    15-20% SLOWER at n=50k..1M -- numba already compiles the manual
+    loop into tight machine code; the bincount path pays an int64->
+    dtype cast plus an extra .copy() for the no-prune branch. Bench:
+    profiling/bench_merge_vars_1var_fastpath.py.
     """
     if final_classes is None:
         final_classes = np.zeros(len(factors_data), dtype=dtype)
