@@ -19,6 +19,7 @@ from timeit import default_timer as timer
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+import pandas as pd
 import polars as pl
 
 from mlframe.config import CATBOOST_MODEL_TYPES
@@ -356,6 +357,34 @@ def _predict_with_fallback(
         _pl_DataFrame,
     )
 
+    # ── 0. CB cat-feature NaN sentinel-fill at predict time ──────────
+    # CatBoost.predict() rejects category-dtype columns containing NaN
+    # cells with "Invalid type for cat_feature ... NaN: cat_features must
+    # be integer or string". The OOV-null mode of the joint train+val
+    # categorical alignment leaves val/test rows with values not in the
+    # joint union as NaN; without this guard predict crashes the moment a
+    # held-out row carries an unseen cat value. Mirror the training-time
+    # ``__MISSING__`` fill the suite uses at fit time.
+    if _model_type in CATBOOST_MODEL_TYPES and isinstance(X, pd.DataFrame):
+        try:
+            _feat_names_list = list(getattr(model, "feature_names_", []) or [])
+            _cat_idx_list = list(getattr(model, "_get_cat_feature_indices", lambda: [])() or [])
+            _cat_names = [_feat_names_list[i] for i in _cat_idx_list if 0 <= i < len(_feat_names_list)]
+            _cat_in_df = [c for c in _cat_names if c in X.columns]
+            if _cat_in_df:
+                _has_any_nan_in_cat = any(X[c].isna().any() for c in _cat_in_df)
+                if _has_any_nan_in_cat:
+                    X = X.copy() if not getattr(X, "_mlframe_filled", False) else X
+                    for _c in _cat_in_df:
+                        if X[_c].isna().any():
+                            _orig = X[_c]
+                            X[_c] = _orig.astype("string").fillna("__MISSING__")
+                            if isinstance(_orig.dtype, pd.CategoricalDtype):
+                                X[_c] = X[_c].astype("category")
+                    X._mlframe_filled = True
+        except Exception:
+            pass
+
     # ── 1. LGBM Polars → pandas auto-convert ──────────────────────────
     X = _ensure_lgbm_gets_pandas(model, X, method)
 
@@ -560,246 +589,6 @@ def _cb_reuse_capable() -> bool:
     return callable(getattr(_Pool, "set_label", None)) and callable(getattr(_Pool, "set_weight", None))
 
 
-def _maybe_get_or_build_cb_pool(
-    model_type_name: str,
-    model: Any,
-    train_df: Any,
-    train_target: Any,
-    fit_params: dict[str, Any],
-) -> Any | None:
-    """Return a cached/freshly-built ``catboost.Pool`` when the CB reuse
-    fast-path applies; return None otherwise (caller falls back to
-    ``model.fit(train_df, y, **fit_params)``).
-
-    Fast-path activation requires ALL of:
-      * ``model_type_name in CATBOOST_MODEL_TYPES``
-      * installed CatBoost has Pool.set_label/set_weight
-      * train_df is a recognised input type (polars/pandas/numpy)
-
-    Cache-hit: swap label + weight in place, return the cached Pool.
-    Cache-miss: build a new Pool, store, return it.
-    """
-    if model_type_name not in CATBOOST_MODEL_TYPES:
-        return None
-
-    # Empty-target guard: if the caller passed a 0-length train_target
-    # (e.g. RFECV inner CV fold collapsed after MRMR dropped all rows of
-    # one class on rare-imbalance combos -- fuzz c0079), skip the
-    # Pool-reuse fast-path and let CB raise a clearer error from the
-    # sklearn wrapper. Using the cached Pool would silently set an empty
-    # label and CB then crashes deep in ``_check_label_empty`` with no
-    # context about which combo / fold triggered it.
-    try:
-        if train_target is not None and hasattr(train_target, "__len__") and len(train_target) == 0:
-            logger.warning("[cb-pool-reuse] empty train_target -- skipping Pool reuse " "(would set zero-length label); deferring to sklearn fallback.")
-            return None
-    except Exception:
-        pass
-
-    # Filter cat/text/embedding features to only those actually present
-    # in train_df. Motivation: MRMR and similar selectors can drop columns
-    # AFTER fit_params was built, leaving stale feature lists that CB's
-    # Pool rejects with ``ValueError: 'feat' is not in list`` from the
-    # sklearn-wrapper's ``_get_cat_feature_indices`` (observed 2026-04-21
-    # on ``test_mrmr_with_text_column`` / ``_embedding_column``). Applied
-    # to CB only -- XGB/LGB have their own handling for missing cols.
-    try:
-        _df_cols = set(train_df.columns) if hasattr(train_df, "columns") else None
-    except Exception:
-        _df_cols = None
-
-    def _filter_to_df(feats):
-        raw = fit_params.get(feats) or []
-        if _df_cols is None:
-            return tuple(sorted(raw))
-        return tuple(sorted(c for c in raw if c in _df_cols))
-
-    cat_features = _filter_to_df("cat_features")
-    text_features = _filter_to_df("text_features")
-    embedding_features = _filter_to_df("embedding_features")
-    # Update fit_params in place so the fallback sklearn path (when reuse
-    # is disabled or Pool construction fails) also sees the filtered
-    # lists. Callers may rely on the same fit_params dict downstream; we
-    # only narrow, never widen.
-    if _df_cols is not None:
-        if "cat_features" in fit_params and fit_params["cat_features"]:
-            fit_params["cat_features"] = list(cat_features)
-        if "text_features" in fit_params and fit_params["text_features"]:
-            fit_params["text_features"] = list(text_features)
-        if "embedding_features" in fit_params and fit_params["embedding_features"]:
-            fit_params["embedding_features"] = list(embedding_features)
-
-    if not _cb_reuse_capable():
-        return None
-    try:
-        from catboost import Pool as _Pool
-    except ImportError:
-        return None
-
-    sample_weight = fit_params.get("sample_weight")
-
-    # Cache key: id(df) alone is unsafe because Python reuses ids after
-    # GC. Two tests in the same process that each build a fresh frame
-    # may land on the same ``id(train_df)`` value -- hitting a cache entry
-    # built for a DIFFERENT frame with DIFFERENT cat_features/columns.
-    # Include a content signature (columns tuple) so collisions with
-    # distinct data produce a miss instead of a corrupted reuse.
-    try:
-        _cols = tuple(train_df.columns) if hasattr(train_df, "columns") else None
-    except Exception:
-        _cols = None
-    try:
-        _shape = getattr(train_df, "shape", None)
-        _shape_sig = (int(_shape[0]), int(_shape[1])) if _shape and len(_shape) >= 2 else None
-    except Exception:
-        _shape_sig = None
-    key = (id(train_df), _cols, _shape_sig, cat_features, text_features, embedding_features)
-
-    # Verify train_target length matches train_df row count BEFORE the
-    # Pool-reuse fast-path. RFECV's inner CV folds occasionally hand us
-    # train_target / train_df pairs whose lengths disagree (subset of
-    # rows but full target, or vice versa); the Pool then ends up with a
-    # stale label and CB.fit raises "Labels variable is empty" deep in
-    # C++ Pool init (fuzz c0079). Skip Pool reuse on mismatch and let
-    # the sklearn fallback path build a fresh Pool with the current
-    # (data, label) pair.
-    _df_rows = train_df.shape[0] if hasattr(train_df, "shape") else None
-    _tg_len = len(train_target) if train_target is not None and hasattr(train_target, "__len__") else None
-    if _df_rows is not None and _tg_len is not None and _df_rows != _tg_len:
-        # Hard contract violation -- raised 2026-04-28 (batch 4, was
-        # logger.error+fallback). X/y length mismatch reaching this
-        # point means an upstream slicing bug (fuzz c0079-style: RFECV
-        # inner CV producing inconsistent train_target / train_df
-        # lengths). Fall back to sklearn would just delay the same
-        # error with less context; raise here gives a stack trace
-        # rooted in mlframe's flow, not deep in CB's C++ ``Labels
-        # variable is empty`` (which is misleading -- it's about
-        # length, not emptiness).
-        raise RuntimeError(
-            f"[cb-pool-reuse] train_df rows ({_df_rows}) != "
-            f"train_target len ({_tg_len}). This is a hard contract "
-            f"violation; investigate upstream slicing (RFECV inner CV / "
-            f"OD filter / aging trim) that produced the mismatch."
-        )
-
-    cached = _CB_POOL_CACHE.get(key)
-    if cached is not None:
-        # Installed CatBoost 1.2.10 rejects ``Pool.set_label`` on a
-        # classification Pool (target type ``Integer``) -- the C++
-        # ``SetNumericTarget`` path only accepts numeric / unset targets.
-        # That means we can only reuse across WEIGHT swaps, not label
-        # swaps, for classification pools. Strategy: skip ``set_label``
-        # unless the caller actually supplied a different target (by id
-        # against the last target we stored). Always mutate weight --
-        # ``set_weight`` has no target-type restriction.
-        last_target_id = getattr(cached, "_mlframe_last_target_id", None)
-        try:
-            if last_target_id is None or id(train_target) != last_target_id:
-                # Label swap. Cast to float32 -- the Pool was built with a
-                # float32 label (see build path below), and CB's C++
-                # ``SetNumericTarget`` rejects anything but Float/None. If
-                # rejection happens anyway, fall through to rebuild.
-                try:
-                    _label_for_swap = np.asarray(train_target)
-                    if _label_for_swap.dtype != np.float32:
-                        _label_for_swap = _label_for_swap.astype(np.float32)
-                except Exception:
-                    _label_for_swap = train_target
-                cached.set_label(_label_for_swap)
-                cached._mlframe_last_target_id = id(train_target)
-            if sample_weight is not None:
-                cached.set_weight(sample_weight)
-            # Post-swap verification: confirm the cached Pool's label is
-            # non-empty (set_label can silently set a 0-length array if
-            # _label_for_swap was empty after some upstream filter, then
-            # CB.fit raises "Labels variable is empty" deep in _check_-
-            # label_empty with no diagnostics, fuzz c0079). Evict and
-            # rebuild on miss.
-            try:
-                _post_label = cached.get_label()
-                if _post_label is not None and hasattr(_post_label, "__len__") and len(_post_label) == 0:
-                    logger.info("[cb-pool-reuse] cached Pool ended up with empty label after swap " "-- evicting and rebuilding.")
-                    _CB_POOL_CACHE.pop(key, None)
-                    raise RuntimeError("empty cached label after set_label")
-            except Exception as _verify_exc:
-                if "empty cached label" in str(_verify_exc):
-                    raise
-                # get_label() not exposed on this CB build; trust set_label.
-                pass
-            logger.info(
-                "[cb-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) " "swapped weight%s without rebuild",
-                key[0],
-                len(cat_features),
-                len(text_features),
-                len(embedding_features),
-                " + label" if last_target_id != id(train_target) else "",
-            )
-            return cached
-        except Exception as exc:
-            # Drop the stale entry and fall through to rebuild. Typical
-            # trigger: classification Pool + set_label on Integer target
-            # raises "SetNumericTarget requires numeric or unset target
-            # type". Rebuild is safe.
-            logger.info(
-                "[cb-pool-reuse] swap path not usable (%s: %s); rebuilding Pool.",
-                type(exc).__name__,
-                str(exc).splitlines()[0][:120],
-            )
-            _CB_POOL_CACHE.pop(key, None)
-
-    # Simple FIFO eviction -- unlikely to hit during normal runs (<= N
-    # models x N tiers entries), but keeps the cache from growing
-    # unboundedly across long-running sessions.
-    while len(_CB_POOL_CACHE) >= _CB_POOL_CACHE_MAX_ENTRIES:
-        _CB_POOL_CACHE.pop(next(iter(_CB_POOL_CACHE)))
-
-    # Cast label to float32 at build time. CatBoost stores the label's
-    # raw type on the Pool (Integer vs Float) and later ``Pool.set_label``
-    # validates ``ERawTargetType == Float or None`` inside C++
-    # ``SetNumericTarget`` -- if we built with Integer labels, subsequent
-    # label swaps across classification targets would raise
-    # ``SetNumericTarget requires numeric or unset target type, got
-    # Integer``. Building with float32 pins the Pool's target type to
-    # Float upfront; the user's upstream PR's classification tests all
-    # pre-cast to float32 for exactly this reason. get_label() still
-    # round-trips integer dtype via the Python-level ``target_type``
-    # shadow on the Pool.
-    try:
-        _label_for_pool = _coerce_label_for_cb_pool(train_target)
-    except Exception:
-        _label_for_pool = train_target
-
-    try:
-        pool = _Pool(
-            data=train_df,
-            label=_label_for_pool,
-            weight=sample_weight,
-            cat_features=list(cat_features) or None,
-            text_features=list(text_features) or None,
-            embedding_features=list(embedding_features) or None,
-        )
-    except Exception as exc:
-        # If Pool rejects the input (e.g. unsupported dtype combo),
-        # fall back to the sklearn-wrapper path by returning None. The
-        # operator sees the build-logger line above; we don't cache a
-        # failed attempt.
-        logger.warning(f"[cb-pool-reuse] Pool construction failed ({type(exc).__name__}: {exc}); " f"falling back to rebuild-every-fit sklearn path.")
-        return None
-
-    pool._mlframe_last_target_id = id(train_target)
-    # Cache feature lists on the Pool so callers (notably the dynamic CB
-    # ``text_processing`` injection in ``_train_model_with_fallback``)
-    # can introspect them without round-tripping through fit_params,
-    # which the Pool-reuse path strips before fit.
-    pool._mlframe_text_features = list(text_features)
-    pool._mlframe_cat_features = list(cat_features)
-    pool._mlframe_embedding_features = list(embedding_features)
-    _CB_POOL_CACHE[key] = pool
-    logger.info(
-        "[cb-pool-reuse] miss; stored fresh Pool (cache size=%d)",
-        len(_CB_POOL_CACHE),
-    )
-    return pool
 
 
 def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
@@ -949,3 +738,9 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             fit_params["eval_set"] = rewritten
 
 
+# ----------------------------------------------------------------------
+# Sibling-module re-export. The 289-LOC ``_maybe_get_or_build_cb_pool``
+# body lives in ``_cb_pool_build.py`` so this file stays below the
+# 1k-LOC monolith threshold.
+# ----------------------------------------------------------------------
+from ._cb_pool_build import _maybe_get_or_build_cb_pool  # noqa: E402,F401

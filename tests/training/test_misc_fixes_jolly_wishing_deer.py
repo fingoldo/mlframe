@@ -269,28 +269,19 @@ def test_fix6_use_text_features_false_suppresses_auto_promotion():
     assert drop_off == ["highcard"]  # Fix 6 correction: caller must drop this.
 
 
-def test_fix6_use_text_features_false_honors_explicit_list():
-    """2026-04-21 refined semantics: ``use_text_features=False`` gates
-    AUTO-promotion only. User-supplied explicit ``text_features`` list
-    is honored regardless — if the user passed it, they intend those
-    columns routed as text_features. This keeps the direct-API behaviour
-    consistent with tests that expect explicit opt-in to work end-to-end
-    (e.g. ``test_non_catboost_drops_text_columns`` sets explicit
-    ``text_features`` and expects downstream tier-build to drop them)."""
-    from mlframe.training.core import _auto_detect_feature_types
+def test_fix6_use_text_features_false_with_explicit_list_rejected_at_config_time():
+    """The 2026-04-21 semantics that let an explicit ``text_features`` list
+    override ``use_text_features=False`` were subsequently identified as a
+    bug-hiding combination: an operator composing presets (e.g. tfidf_only
+    -> text_features=[...] then lite_mode flipping use_text_features=False)
+    silently lost their text columns to the cat path. The post-2026-05-20
+    validator now rejects this combination at config-construction time so
+    the operator is forced to make the intent explicit."""
     from mlframe.training.configs import FeatureTypesConfig
+    from pydantic import ValidationError
 
-    df = pl.DataFrame({"x": ["a", "b"]})
-    t_off, _, drop_off = _auto_detect_feature_types(
-        df,
-        FeatureTypesConfig(use_text_features=False, text_features=["x"]),
-        cat_features=[],
-        verbose=False,
-    )
-    assert t_off == ["x"]
-    # Explicit user-listed columns are skipped via ``user_assigned`` —
-    # they're NOT in the auto-detected drop list even when the flag is off.
-    assert drop_off == []
+    with pytest.raises(ValidationError, match="text_features.*supplied but use_text_features=False"):
+        FeatureTypesConfig(use_text_features=False, text_features=["x"])
 
 
 def test_fix6_use_text_features_false_end_to_end_xgb_does_not_see_highcard(tmp_path):
@@ -526,7 +517,11 @@ def test_fix9_build_logging_fires_on_dmatrix(caplog):
     """Every xgb.DMatrix construction must emit one INFO ``[dataset-build]``
     log line with shape + duration + callsite."""
     import logging
-    from mlframe.training import trainer  # noqa: F401 — installs patches
+    from mlframe.training import trainer  # noqa: F401
+    # Lazy-applied patches: invoke explicitly (see comment on
+    # test_fix9_build_logging_fires_on_pool).
+    from mlframe.training._model_factories import apply_third_party_patches_once
+    apply_third_party_patches_once()
     pytest.importorskip("xgboost")
     import xgboost as xgb
 
@@ -544,7 +539,13 @@ def test_fix9_build_logging_fires_on_pool(caplog):
     """Every catboost.Pool construction must emit one INFO
     ``[dataset-build]`` log line."""
     import logging
-    from mlframe.training import trainer  # noqa: F401 — installs patches
+    from mlframe.training import trainer  # noqa: F401
+    # The third-party-patches are now applied lazily (deferred from
+    # module-import to suite-entry / factory call). Invoke explicitly so
+    # the test exercises the post-patch path regardless of whether the
+    # suite has been entered in this process.
+    from mlframe.training._model_factories import apply_third_party_patches_once
+    apply_third_party_patches_once()
     pytest.importorskip("catboost")
     from catboost import Pool
 
@@ -561,7 +562,9 @@ def test_fix9_build_logging_fires_on_lgb_dataset(caplog):
     """Every lightgbm.Dataset construction must emit one INFO
     ``[dataset-build]`` log line."""
     import logging
-    from mlframe.training import trainer  # noqa: F401 — installs patches
+    from mlframe.training import trainer  # noqa: F401
+    from mlframe.training._model_factories import apply_third_party_patches_once
+    apply_third_party_patches_once()
     pytest.importorskip("lightgbm")
     import lightgbm as lgb
 
