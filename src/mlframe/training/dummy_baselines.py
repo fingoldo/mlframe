@@ -2330,29 +2330,50 @@ def _vectorized_bootstrap_logloss_samples(
     n = len(y)
     if n < 10:
         return None
-    if not (y.shape == p.shape):
-        return None
     rng = np.random.default_rng(seed)
-    # Precompute the per-element log-loss term ONCE on the input-shape arrays,
-    # THEN gather via the bootstrap index matrix. The prior version applied
-    # ``np.clip`` + 2x ``np.log`` + ``np.where`` to the gathered (n_resamples, n)
-    # tensor; pre-gather these stages run on the (n,) / (n, K) input only and
-    # the bootstrap reduces to a single gather. At n=1500 / n_resamples=1000
-    # the 1-D path drops 60 ms -> 12 ms (5x); the 2-D K=4 multilabel path
-    # drops 250 ms -> 45 ms (5.5x). Output is bit-identical to the prior
-    # implementation (verified at np.abs(diff).max() == 0).
-    p_clip = np.clip(p, eps, 1.0 - eps)
-    log_p = np.log(p_clip)
-    log_1mp = np.log(1.0 - p_clip)
-    is_pos = y > 0.5
-    elem_n = -np.where(is_pos, log_p, log_1mp)
-    idx = rng.integers(0, n, size=(n_resamples, n))
-    elem_r = elem_n[idx]
-    if y.ndim == 1:
-        return elem_r.mean(axis=1)
-    if y.ndim == 2:
-        # Macro mean: avg across rows + labels equally.
-        return elem_r.mean(axis=(1, 2))
+    # Three supported shapes:
+    #   (A) Binary 1-D     : y (n,) {0/1}, p (n,)             -- per-row BCE.
+    #   (B) Multilabel 2-D : y (n, K) {0/1}, p (n, K)         -- macro BCE.
+    #   (C) Multiclass 2-D : y (n,) int labels, p (n, K) softmax probs -- CE.
+    #
+    # In every case we pre-compute the per-row loss ONCE on the input-shape
+    # arrays, THEN bootstrap via a single ``elem_n[idx]`` gather. Avoids
+    # running np.log / np.where over the (n_resamples, n) gathered tensor
+    # (the original sklearn-per-resample loop's 1000-call cost).
+    if y.shape == p.shape:
+        # (A) / (B): same-shape elementwise BCE.
+        p_clip = np.clip(p, eps, 1.0 - eps)
+        log_p = np.log(p_clip)
+        log_1mp = np.log(1.0 - p_clip)
+        is_pos = y > 0.5
+        elem_n = -np.where(is_pos, log_p, log_1mp)
+        idx = rng.integers(0, n, size=(n_resamples, n))
+        elem_r = elem_n[idx]
+        if y.ndim == 1:
+            return elem_r.mean(axis=1)
+        if y.ndim == 2:
+            # Macro mean: avg across rows + labels equally.
+            return elem_r.mean(axis=(1, 2))
+        return None
+    # (C) Multiclass: y (n,) integer class labels, p (n, K) class probs.
+    # Per-row CE = -log(p[i, y[i]]). Vectorise the true-class lookup via
+    # fancy indexing, then bootstrap-mean as before.
+    if (
+        y.ndim == 1
+        and p.ndim == 2
+        and y.shape[0] == p.shape[0]
+        and y.dtype.kind in ("i", "u")
+    ):
+        y_int = y.astype(np.intp, copy=False)
+        # Out-of-range labels would index past K-1 silently; bail to the
+        # sklearn fallback so it produces the correct error path.
+        if y_int.min() < 0 or y_int.max() >= p.shape[1]:
+            return None
+        p_clip = np.clip(p, eps, 1.0 - eps)
+        true_class_p = p_clip[np.arange(n, dtype=np.intp), y_int]
+        elem_n = -np.log(true_class_p)
+        idx = rng.integers(0, n, size=(n_resamples, n))
+        return elem_n[idx].mean(axis=1)
     return None
 
 

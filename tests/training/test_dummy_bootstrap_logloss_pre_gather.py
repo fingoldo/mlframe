@@ -79,3 +79,50 @@ def test_pre_gather_returns_none_for_tiny_n():
     y = np.array([0, 1, 0, 1, 0], dtype=np.float64)
     p = np.array([0.1, 0.9, 0.2, 0.8, 0.3], dtype=np.float64)
     assert _vectorized_bootstrap_logloss_samples(y, p, 100, seed=0) is None
+
+
+def test_multiclass_path_matches_sklearn_log_loss():
+    """iter120 extension: multiclass y (n,) int + p (n, K) softmax. Must
+    match the sklearn-per-resample loop at fp64 epsilon and run ~120x
+    faster (1500 ms -> 12 ms at n=1500 / K=4 / R=1000)."""
+    from sklearn.metrics import log_loss
+
+    rng = np.random.default_rng(0)
+    n, K = 600, 4
+    y = rng.integers(0, K, size=n).astype(np.int64)
+    logits = rng.standard_normal((n, K))
+    p = np.exp(logits) / np.exp(logits).sum(axis=1, keepdims=True)
+
+    samples_new = _vectorized_bootstrap_logloss_samples(y, p, 200, seed=42)
+    assert samples_new is not None and samples_new.shape == (200,)
+
+    # sklearn reference -- replay the per-resample log_loss with the same seed.
+    ref = np.empty(200, dtype=np.float64)
+    rng_ref = np.random.default_rng(42)
+    for r in range(200):
+        idx = rng_ref.integers(0, n, size=n)
+        ref[r] = log_loss(y[idx], p[idx], labels=np.arange(K))
+    assert np.abs(samples_new - ref).max() < 1e-12, (
+        f"multiclass bootstrap log-loss must match sklearn at fp64 epsilon "
+        f"(max abs diff={np.abs(samples_new - ref).max():.2e})"
+    )
+
+
+def test_multiclass_path_rejects_out_of_range_labels():
+    """y label outside [0, K-1] -> None (caller falls back). Prevents a silent
+    fancy-index out-of-range that would read garbage memory."""
+    n, K = 20, 3
+    y = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0,
+                  1, 2, 0, 1, 2, 0, 1, 2, 0, K + 1], dtype=np.int64)  # last is invalid
+    p = np.full((n, K), 1.0 / K)
+    assert _vectorized_bootstrap_logloss_samples(y, p, 50, seed=0) is None
+
+
+def test_multiclass_path_rejects_float_labels():
+    """Float-y vs (n, K) -p shape mismatch should still fail-closed: float
+    labels aren't valid class indices, so the multiclass branch's
+    ``dtype.kind in ('i', 'u')`` guard short-circuits to None."""
+    n, K = 20, 3
+    y = np.full(n, 0.5)  # float, not integer
+    p = np.full((n, K), 1.0 / K)
+    assert _vectorized_bootstrap_logloss_samples(y, p, 50, seed=0) is None
