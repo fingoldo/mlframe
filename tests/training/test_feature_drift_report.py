@@ -47,19 +47,82 @@ class TestFeatureDriftSensor:
         assert rep["n_numeric_features"] == 2
         assert rep["drift_candidates"] == []
 
-    def test_strong_drift_flagged_and_logged(self, caplog):
+    def test_moderate_drift_logged_info_not_warn(self, caplog):
+        """8-sigma drift -- moderate by absolute scale, NOT escalated to WARN
+        because (a) drift does NOT prove harm and (b) per-model FS may drop
+        the feature. INFO is the right level."""
         train, val, test = _make_frames(drift_z=8.0)
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.INFO):
             rep = compute_feature_distribution_drift(train, val, test)
         cands = rep["drift_candidates"]
-        # f_shift must be in the candidates; f_stable must not.
         names = [c for c, _z in cands]
         assert "f_shift" in names
         assert "f_stable" not in names
-        # WARN log line surfaces with the top-drifter list.
+        # The log line surfaces at INFO level with the top-drifter list.
+        info_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        assert any("[feature-distribution-drift]" in m for m in info_msgs), (
+            f"INFO log missing on moderate drift; got info_msgs={info_msgs}"
+        )
+        # And NO WARN should fire at this magnitude without FI weighting.
+        warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert not any("[feature-distribution-drift]" in m for m in warn_msgs), (
+            f"WARN level fired on moderate drift without FI weighting; "
+            f"design says only escalate at >=10x sigma OR weighted>=1.0. warn_msgs={warn_msgs}"
+        )
+
+    def test_extreme_drift_escalates_to_warn(self, caplog):
+        """>= 10x threshold (so >= 30 sigma at default) escalates to WARN."""
+        train, val, test = _make_frames(drift_z=35.0)
+        with caplog.at_level(logging.WARNING):
+            rep = compute_feature_distribution_drift(train, val, test)
+        assert any(c == "f_shift" for c, _z in rep["drift_candidates"])
         msgs = " | ".join(rec.getMessage() for rec in caplog.records)
         assert "[feature-distribution-drift]" in msgs
-        assert "f_shift" in msgs
+
+    def test_fi_weighted_aggregate_grounds_harm_signal(self, caplog):
+        """Per-feature z-score alone isn't a grounded harm signal -- a 5-sigma
+        drift on an irrelevant feature is harmless. With FI weighting we get
+        an aggregate that DOES correlate with model harm: high z * high FI
+        = the important feature is drifting.
+
+        Scenario: only ONE feature drifts strongly (8 sigma), and we tell the
+        sensor that feature has FI=1.0 (dominant). The weighted score should
+        be near the feature's z, escalating to WARN."""
+        train, val, test = _make_frames(drift_z=8.0)
+        with caplog.at_level(logging.WARNING):
+            rep = compute_feature_distribution_drift(
+                train, val, test,
+                feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+            )
+        ws = rep["weighted_drift_score"]
+        assert ws is not None and ws > 5.0, (
+            f"FI-weighted aggregate should be ~ z of the drifting dominant feature; got {ws}"
+        )
+        # And WARN fires because weighted_drift_score >= 1.0.
+        msgs = " | ".join(rec.getMessage() for rec in caplog.records)
+        assert "[feature-distribution-drift]" in msgs
+        assert "weighted_drift=" in msgs
+
+    def test_fi_weighted_aggregate_NOT_alarmed_when_drift_on_unimportant_feature(self, caplog):
+        """Inverse scenario: f_shift drifts 8 sigma but its FI is 0; f_stable
+        has FI=1 but no drift. Weighted score should be ~0 -- the system is
+        safe even though one feature's z is high."""
+        train, val, test = _make_frames(drift_z=8.0)
+        with caplog.at_level(logging.WARNING):
+            rep = compute_feature_distribution_drift(
+                train, val, test,
+                feature_importance={"f_shift": 0.0, "f_stable": 1.0},
+            )
+        ws = rep["weighted_drift_score"]
+        assert ws is not None and ws < 0.5, (
+            f"With drift on FI=0 feature, weighted score should stay low; got {ws}"
+        )
+        # No WARN should fire -- the harm signal is grounded and doesn't escalate.
+        warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert not any("[feature-distribution-drift]" in m for m in warn_msgs), (
+            f"WARN should NOT fire when the drift is on an unimportant feature. "
+            f"warn_msgs={warn_msgs}"
+        )
 
     def test_threshold_respected(self):
         train, val, test = _make_frames(drift_z=2.5)
