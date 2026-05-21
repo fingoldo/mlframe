@@ -30,8 +30,11 @@ if TYPE_CHECKING:
 # Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals.
 # Import these instead of hardcoding type lists.
 
+# 2026-05-21: include "str" so the categorical detector also matches the
+# pandas-3.0 / `future.infer_string=True` "str" dtype that auto-converts
+# object-of-strings during pd.DataFrame construction.
 PANDAS_CATEGORICAL_DTYPES: FrozenSet[str] = frozenset({
-    "category", "object", "string", "string[pyarrow]", "large_string[pyarrow]",
+    "category", "object", "string", "string[pyarrow]", "large_string[pyarrow]", "str",
 })
 
 def _polars_categorical_dtypes():

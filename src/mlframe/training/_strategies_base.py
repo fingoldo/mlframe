@@ -35,8 +35,15 @@ if TYPE_CHECKING:
 # Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals.
 # Import these instead of hardcoding type lists.
 
+# 2026-05-21: include "str" so the categorical detector also matches the
+# pandas-3.0 / `future.infer_string=True` "str" dtype that auto-converts
+# object-of-strings during pd.DataFrame construction. Without this entry,
+# tests/training/test_fit_pipeline_*_skip.py and test_ranker_object_cat_*
+# failed on envs where the future flag is enabled: cat_low column landed
+# as ``<StringDtype(na_value=nan)>`` (dtype.name == "str"), the set lookup
+# missed it, and downstream LGB / cat encoders saw raw strings.
 PANDAS_CATEGORICAL_DTYPES: FrozenSet[str] = frozenset({
-    "category", "object", "string", "string[pyarrow]", "large_string[pyarrow]",
+    "category", "object", "string", "string[pyarrow]", "large_string[pyarrow]", "str",
 })
 
 

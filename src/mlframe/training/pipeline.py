@@ -1625,7 +1625,8 @@ def fit_and_transform_pipeline(
 
         def _looks_text(_series):
             dtype_name = _series.dtype.name
-            if dtype_name not in ("object", "string", "string[pyarrow]", "large_string[pyarrow]"):
+            # 2026-05-21: include "str" for pandas-3.0 future.infer_string dtype.
+            if dtype_name not in ("object", "string", "string[pyarrow]", "large_string[pyarrow]", "str"):
                 return False
             n_rows = len(_series)
             if n_rows == 0:
