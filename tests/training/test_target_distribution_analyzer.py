@@ -133,14 +133,41 @@ class TestRegressionAnalyzer:
         np_overrides = rep.knob_overrides.get("mlp_kwargs", {}).get("network_params", {})
         assert np_overrides.get("use_layernorm") is False
 
-    def test_strong_AR_skipped_when_time_axis_false(self):
-        rng = np.random.default_rng(103)
+    def test_strong_AR_per_group_when_time_axis_false_but_groups_supplied(self):
+        """Per-group AR (2026-05-21 fix #5): TVT-like data where rows are ordered
+        WITHIN each group but not across groups. Global lag-1 autocorr looks low
+        because group boundaries inject discontinuities; per-group autocorr
+        averaged by size catches the true AR signal. Suite caller passes
+        ``has_time_axis=False`` (no timestamps) but ``group_ids`` is non-None."""
+        rng = np.random.default_rng(700)
+        n_groups, rpg = 100, 100
+        group_ids = np.repeat(np.arange(n_groups), rpg)
+        y = np.zeros(n_groups * rpg, dtype=np.float64)
+        for w in range(n_groups):
+            base = rng.uniform(5000, 12000)
+            for i in range(rpg):
+                idx = w * rpg + i
+                if i == 0:
+                    y[idx] = base
+                else:
+                    y[idx] = 0.92 * y[idx - 1] + 0.08 * base + rng.normal(0, 50)
+        rep = analyze_target_distribution(y, group_ids=group_ids, has_time_axis=False)
+        assert any("strong_AR" in p and "per_group" in p for p in rep.pathologies), rep.pathologies
+        # Per-group AR triggers the SAME layernorm recommendation as the global path -- TVT-2026-05-21 root-cause fix.
+        np_overrides = rep.knob_overrides.get("mlp_kwargs", {}).get("network_params", {})
+        assert np_overrides.get("use_layernorm") is False
+        # And the per-group diagnostic is stamped (operator can see the source).
+        assert "lag1_autocorr_per_group" in rep.diagnostics
+
+    def test_strong_AR_skipped_when_time_axis_false_AND_no_groups(self):
+        """With NEITHER timestamps NOR group_ids supplied, the AR detector has
+        no honest signal to compute -- must skip entirely (no false positive)."""
+        rng = np.random.default_rng(701)
         n = 4000
         ar = np.zeros(n, dtype=np.float64)
         for i in range(1, n):
             ar[i] = 0.9 * ar[i - 1] + rng.standard_normal() * 0.5
-        rep = analyze_target_distribution(ar, has_time_axis=False)
-        # AR detector should not fire when caller says rows aren't ordered.
+        rep = analyze_target_distribution(ar, has_time_axis=False)  # NO group_ids
         assert not any("strong_AR" in p for p in rep.pathologies), rep.pathologies
 
     def test_multi_modal_flag(self):

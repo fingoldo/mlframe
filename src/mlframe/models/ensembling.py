@@ -10,6 +10,7 @@ from __future__ import annotations
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -1766,6 +1767,17 @@ def score_ensemble(
     # honest near-median members alone. Setting to <=0 disables the coarse fallback entirely.
     coarse_gate_max_mae_relative: float = 5.0,
     coarse_gate_max_std_relative: float = 5.0,
+    # K2-CATASTROPHIC-DROPOUT: when K == 2, the peer-median gate is symmetric
+    # (both members are equidistant from (a+b)/2 by construction), so the
+    # legacy K=2 branch returned kept-all unconditionally. TVT-2026-05-21 had
+    # Ridge MAE=7.89 alongside MLP MAE=11442 (ratio = 1450x); the ensemble
+    # arithm-mean was MAE=5720 -- half-broken. When true target is available
+    # for the gate-source split, this NEW gate compares per-member MAE-to-target
+    # directly and drops the obvious catastrophic outlier (ratio >= threshold).
+    # Conservative default 20.0 -- only catches disasters, not normal variance
+    # between honest models (Ridge vs LightGBM typically differ by <2x MAE).
+    # Set <= 1.0 to disable.
+    k2_catastrophic_mae_ratio: float = 20.0,
     # VOTENRANK: build a votenrank.Leaderboard over the resulting per-flavour metrics and stamp it
     # in the returned dict under ``_leaderboard``. Defaults True for classification; regression-only
     # flavours skip rank-based methods automatically.
@@ -2007,6 +2019,89 @@ def score_ensemble(
             _ensemble_member_tags.append(_strip_shim(type(_model_obj).__name__))
         # F2 fix (2026-05-11): short-tag ALWAYS derived from the underlying CLASS, not from ``model_name`` which carries augmentations like ``"TVT MTTR=11497.66"`` that would defeat the startswith() prefix checks (``startswith("CatBoost")`` etc.).
         _ensemble_short_tags.append(_short_tag(_model_obj))
+
+    # K2-CATASTROPHIC-DROPOUT (2026-05-21): when K == 2, the legacy peer-median gate
+    # is symmetric (both members equidistant from (a+b)/2). When TARGET is available
+    # for the gate-source split, this branch compares per-member MAE-to-target
+    # directly and drops the obvious catastrophic outlier (e.g. Ridge MAE=7.89 vs
+    # MLP MAE=11442 on the TVT-2026-05-21 run -- ratio 1450x, well above the 20x
+    # default threshold). Without this branch the EnsARITHM blend on the same split
+    # was MAE=5720 (half-broken).
+    if (
+        _gate_preds_for_check is not None
+        and len(_gate_preds_for_check) == 2
+        and k2_catastrophic_mae_ratio > 1.0
+    ):
+        # Match the gate source to its target array. ``oof_*`` aligns with train rows;
+        # ``val/test/train`` (and their *-coarse variants) align with the matching
+        # target_arr that score_ensemble already produced above.
+        _gate_target_arr = None
+        if _gate_source_split in ("test", "test-coarse"):
+            _gate_target_arr = test_target_arr
+        elif _gate_source_split in ("val", "val-coarse"):
+            _gate_target_arr = val_target_arr
+        elif _gate_source_split in ("train", "train-coarse"):
+            _gate_target_arr = train_target_arr
+        elif _gate_source_split == "oof":
+            _gate_target_arr = train_target_arr
+        if isinstance(_gate_target_arr, np.ndarray) and _gate_target_arr.size > 0:
+            try:
+                _t = _gate_target_arr.reshape(-1).astype(np.float64)
+                _p0 = np.asarray(_gate_preds_for_check[0]).reshape(-1).astype(np.float64)
+                _p1 = np.asarray(_gate_preds_for_check[1]).reshape(-1).astype(np.float64)
+                if _p0.shape == _t.shape and _p1.shape == _t.shape:
+                    # Use nanmean so a NaN-poisoned member doesn't make the gate skip.
+                    _mae_a = float(np.nanmean(np.abs(_p0 - _t)))
+                    _mae_b = float(np.nanmean(np.abs(_p1 - _t)))
+                    _worse = max(_mae_a, _mae_b)
+                    _better = min(_mae_a, _mae_b)
+                    if _better > 0.0 and math.isfinite(_worse / _better) and _worse / _better >= float(k2_catastrophic_mae_ratio):
+                        _worse_idx = 0 if _mae_a > _mae_b else 1
+                        _kept_idx = [1 - _worse_idx]
+                        # Capture the dropped tag BEFORE the slicing below overwrites the tag list.
+                        _dropped_tag = _ensemble_member_tags[_worse_idx]
+                        _kept_tag = _ensemble_member_tags[1 - _worse_idx]
+                        if verbose:
+                            logger.warning(
+                                "[ensemble] K=2 catastrophic-dropout (split=%s): dropping %s (MAE=%.4f), keeping %s (MAE=%.4f); ratio=%.1fx >= %.1fx threshold.",
+                                _gate_source_split,
+                                _dropped_tag, _worse,
+                                _kept_tag, _better,
+                                _worse / _better, float(k2_catastrophic_mae_ratio),
+                            )
+                        level_models_and_predictions = [level_models_and_predictions[1 - _worse_idx]]
+                        _ensemble_member_tags = [_kept_tag]
+                        _ensemble_short_tags = [_ensemble_short_tags[1 - _worse_idx]]
+                        # Refresh ensemble_name to reflect the surviving single member.
+                        try:
+                            import re as _re_mod2
+                            _kept_tags = _ensemble_short_tags
+                            _re_label = "[" + "+".join(_kept_tags) + "]"
+                            if _re_mod2.search(r"\[[^\]]+\]", ensemble_name):
+                                _label_value = _re_label
+                                ensemble_name = _re_mod2.sub(
+                                    r"\[[^\]]+\]",
+                                    lambda _m, _v=_label_value: _v,
+                                    ensemble_name, count=1,
+                                )
+                            else:
+                                ensemble_name = f"{_re_label} {ensemble_name}".rstrip() if ensemble_name else _re_label
+                        except Exception:
+                            pass
+                        # Drop into single-member short-circuit: with K=1 surviving,
+                        # there's no ensemble to score. Return the sentinel-only dict
+                        # exactly as the upstream "single_member" branch (line ~1785)
+                        # does. Operators see "_reason: k2_catastrophic_dropout" in
+                        # the result and can choose to keep just the surviving member.
+                        res["_reason"] = "k2_catastrophic_dropout"
+                        res["_n_members"] = 1
+                        res["_dropped_member"] = _dropped_tag
+                        res["_kept_member"] = _kept_tag
+                        res["_k2_mae_ratio"] = _worse / _better
+                        return res
+            except Exception as _k2_err:
+                if verbose:
+                    logger.warning("[ensemble] K=2 catastrophic-dropout check raised %s; proceeding without drop.", _k2_err)
 
     if _gate_preds_for_check is not None and len(_gate_preds_for_check) > 2:
         _kept_idx, _excluded, _gate_stats = compute_member_quality_gate(

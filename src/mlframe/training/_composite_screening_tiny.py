@@ -28,6 +28,17 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+# Hoisted from a lazy import inside ``_one_fold`` (wave 98 split-out). The lazy form raced
+# under joblib threading + n_jobs > 1: two folds simultaneously executing
+# ``from .composite_estimator import _y_train_clip_bounds`` could see a partially-loaded
+# composite_estimator module on Python's import dance, leaving the local name unbound for
+# the second thread. Symptom in production log (TVT 2026-05-21): 4x
+# ``composite_screening: tiny-model CV fold failed (name '_y_train_clip_bounds' is not defined)``
+# warnings -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
+# it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module
+# level (line 34) so there is no circular-dep concern.
+from .composite_estimator import _y_train_clip_bounds
+
 logger = logging.getLogger(__name__)
 
 
@@ -570,10 +581,8 @@ def _tiny_cv_rmse_y_scale(
             # so screening RMSE matches deployed RMSE (otherwise
             # heavy-tail transforms like logratio look better in
             # screening than they actually deliver).
-            # Lazy import: wave 98 moved this body out of composite_screening
-            # but kept the wrapper-aware clip helper in composite_estimator
-            # (deep dep tree). Lazy-import here so module-load stays light.
-            from .composite_estimator import _y_train_clip_bounds
+            # _y_train_clip_bounds is imported at module level above
+            # (race-safe across joblib threading folds).
             y_clip_low, y_clip_high = _y_train_clip_bounds(
                 y_clean[train_fold]
             )

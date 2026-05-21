@@ -106,6 +106,58 @@ class _FakeEstimator:
         )
 
 
+def test_lean_save_strips_large_per_split_arrays_under_threshold():
+    """2026-05-21 P0 #2: TVT prod log MLP dump = 135.8 MB on 4M-row training.
+    Root cause: ``train_eval.py:895`` called save_mlframe_model WITHOUT
+    ``lean=True``, so train_preds + train_target + trainset_features_stats
+    (large per-row arrays at full-train cardinality) landed in the dump.
+
+    Verifies the lean strip drops the documented field set so the saved file
+    fits under the 50 MB sensor threshold on a 4M-row scenario."""
+    n_train = 4_000_000
+    rng = np.random.default_rng(42)
+    # Synthesise the exact attribute layout trainer._train_and_evaluate_helper returns
+    # (SimpleNamespace with the lean-stripped fields).
+    model_entry = SimpleNamespace(
+        model=SimpleNamespace(some_small_state=np.zeros(100, dtype=np.float32)),
+        test_preds=rng.standard_normal(500_000).astype(np.float32),
+        test_probs=None,
+        test_target=rng.standard_normal(500_000).astype(np.float32),
+        val_preds=rng.standard_normal(450_000).astype(np.float32),
+        val_probs=None,
+        val_target=rng.standard_normal(450_000).astype(np.float32),
+        train_preds=rng.standard_normal(n_train).astype(np.float32),  # ~16 MB
+        train_probs=None,
+        train_target=rng.standard_normal(n_train).astype(np.float32),  # ~16 MB
+        oof_preds=None, oof_probs=None,
+        metrics={"test": {"R2": 0.95}, "val": {"R2": 0.94}, "train": {"R2": 0.97}},
+        columns=["f0", "f1", "f2"],
+        pre_pipeline=None,
+        train_od_idx=None, val_od_idx=None,
+        trainset_features_stats={f"f{i}": {"mean": 0.0, "std": 1.0} for i in range(50)},
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tf:
+        fpath = tf.name
+    try:
+        ok = save_mlframe_model(model_entry, fpath, verbose=0, lean=True)
+        assert ok is True
+        size_mb = os.path.getsize(fpath) / (1024 * 1024)
+        # With train/val/test preds + targets + features_stats stripped, only the
+        # tiny model + metrics + columns remain -- well under 1 MB on this synthetic.
+        assert size_mb < 1.0, (
+            f"lean save did not strip the per-split arrays as expected; got {size_mb:.1f} MB. "
+            f"Check that _LEAN_STRIP_FIELDS covers train_preds / train_target / trainset_features_stats."
+        )
+        # Sanity: in-memory entry STILL has the stripped fields (lean operates on a shallow copy).
+        assert model_entry.train_preds is not None
+        assert model_entry.train_target is not None
+        assert model_entry.trainset_features_stats is not None
+    finally:
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+
 def test_lightning_bloat_strip_shrinks_dump_and_restores_payload():
     """The bloat strip nullifies ``_trainer`` + ``prediction_datamodule`` during pickle, restoring
     them on the in-memory payload afterward. Dump must be tiny (<5 MB) despite the in-memory

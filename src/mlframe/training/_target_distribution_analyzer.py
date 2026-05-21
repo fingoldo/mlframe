@@ -172,6 +172,44 @@ def _lag1_autocorr(y: np.ndarray) -> float:
     return float(np.corrcoef(a, b)[0, 1])
 
 
+def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size: int = 4) -> float:
+    """Per-group lag-1 autocorr averaged across groups (sample-weighted by group size).
+
+    For data where rows have a natural sequence WITHIN each group but not across
+    groups (the classic wellbore-MD / per-customer-time-series / per-subject-EEG
+    layout), naive ``_lag1_autocorr`` measures cross-group transitions as if they
+    were temporal -- spurious low/zero AR. Instead, compute lag-1 autocorr for
+    every group independently and aggregate by weighting each group's correlation
+    by its row count.
+
+    Groups smaller than ``min_group_size`` rows are skipped. Returns NaN when no
+    qualifying groups remain.
+    """
+    if y.size != group_ids.size or y.size < min_group_size:
+        return float("nan")
+    # Sort by group then by original row order (so within-group sequence stays).
+    # We assume the caller's frame is already ordered the way training will see it
+    # -- which for wellbore data means MD-sorted within each well_id. So we just
+    # walk unique groups and slice in place; no re-sort needed.
+    weighted_sum = 0.0
+    weight_sum = 0.0
+    uniq = np.unique(group_ids)
+    for g in uniq:
+        mask = group_ids == g
+        n_g = int(mask.sum())
+        if n_g < min_group_size:
+            continue
+        yg = y[mask]
+        ar_g = _lag1_autocorr(yg)
+        if not math.isfinite(ar_g):
+            continue
+        weighted_sum += ar_g * n_g
+        weight_sum += n_g
+    if weight_sum <= 0:
+        return float("nan")
+    return weighted_sum / weight_sum
+
+
 _MULTI_MODAL_VALLEY_DEPTH_RATIO: float = 0.7  # antimode must drop to <= 0.7 * min(peak)
 
 
@@ -385,18 +423,40 @@ def analyze_target_distribution(
                 f"multi_modal_target(peaks={n_peaks}, max_sep={max_sep:.2f} stds)"
             )
 
-        # Strong AR (only meaningful when row order encodes time)
+        # Strong AR. Global lag-1 autocorr is meaningful when row order encodes
+        # time across the whole dataset. For group-ordered data (rows ordered
+        # within each group but not across groups -- wellbore MD / per-customer
+        # time series / per-subject EEG), a per-group autocorr aggregated by
+        # group size is the right metric: global lag-1 looks low because the
+        # group boundaries inject discontinuities, but within each group there
+        # IS a strong AR signal. The TVT-2026-05-21 prod log had MD-sorted
+        # rows within 771 wells; global lag-1 wasn't measured (the suite
+        # didn't pass timestamps so has_time_axis=False), and the MLP
+        # use_layernorm recommendation never fired. The per-group branch below
+        # gives the analyzer access to that signal even when the suite caller
+        # can't supply explicit timestamps.
+        ar = float("nan")
+        ar_source = None
         if has_time_axis:
             ar = _lag1_autocorr(y_for_stats)
+            ar_source = "global"
             diagnostics["lag1_autocorr"] = ar
-            if abs(ar) > _STRONG_AR_PEARSON_LAG1:
-                pathologies.append(f"strong_AR_target(lag1_corr={ar:.3f})")
-                # TVT-2026-05-21 root cause: MLP with per-row layernorm collapses
-                # under strong AR because the layer destroys inter-row absolute-
-                # scale signal that AR depends on. Force layernorm OFF.
-                knob_overrides.setdefault("mlp_kwargs", {})
-                mlp_np = knob_overrides["mlp_kwargs"].setdefault("network_params", {})
-                mlp_np["use_layernorm"] = False
+        elif group_ids is not None:
+            gids_arr = np.asarray(group_ids).reshape(-1)
+            if gids_arr.size == y.size:
+                # Apply the same finite-mask filter as y_for_stats.
+                _gids_finite = gids_arr[finite] if finite.size == y.size else gids_arr
+                ar = _lag1_autocorr_grouped(y_for_stats, _gids_finite)
+                ar_source = "per_group"
+                diagnostics["lag1_autocorr_per_group"] = ar
+        if math.isfinite(ar) and abs(ar) > _STRONG_AR_PEARSON_LAG1:
+            pathologies.append(f"strong_AR_target(lag1_corr={ar:.3f}, source={ar_source})")
+            # TVT-2026-05-21 root cause: MLP with per-row layernorm collapses
+            # under strong AR because the layer destroys inter-row absolute-
+            # scale signal that AR depends on. Force layernorm OFF.
+            knob_overrides.setdefault("mlp_kwargs", {})
+            mlp_np = knob_overrides["mlp_kwargs"].setdefault("network_params", {})
+            mlp_np["use_layernorm"] = False
 
         # Clustered target (within-group << between-group variance)
         if group_ids is not None:
@@ -545,18 +605,32 @@ def _normalise_X(
     """Return (df, numeric_cols, categorical_cols).
 
     Numpy input gets generic ``f0...fN`` names; pandas keeps its columns.
+    Polars input is zero-copy-converted to pandas via ``.to_pandas()`` so
+    column dtypes (Float32 / Int64 / Boolean / String) are preserved -- a
+    naive ``np.asarray(polars_df)`` collapses everything to object dtype
+    and downstream ``is_numeric_dtype`` checks misclassify every column as
+    categorical. TVT 2026-05-21 reproduction: the suite called the analyzer
+    after _phase_train_val_test_split but BEFORE _phase_fit_pipeline (train_df
+    still polars), and the analyzer logged
+    ``high_cardinality_categorical(n=25)`` for 25 Float32 numeric features.
     Categorical detection: object / category / pandas string dtype goes to
     ``categorical_cols``; numeric int/float/bool goes to ``numeric_cols``.
     """
     if isinstance(X, pd.DataFrame):
         df = X
     else:
-        arr = np.asarray(X)
-        if arr.ndim == 1:
-            arr = arr.reshape(-1, 1)
-        if feature_names is None:
-            feature_names = [f"f{i}" for i in range(arr.shape[1])]
-        df = pd.DataFrame(arr, columns=feature_names)
+        # Polars DataFrame -> pandas (zero-copy when possible). Detect via duck-typing
+        # (hasattr to_pandas) so we don't have a hard polars import dependency.
+        _to_pandas = getattr(X, "to_pandas", None)
+        if callable(_to_pandas) and type(X).__module__.startswith("polars"):
+            df = _to_pandas()
+        else:
+            arr = np.asarray(X)
+            if arr.ndim == 1:
+                arr = arr.reshape(-1, 1)
+            if feature_names is None:
+                feature_names = [f"f{i}" for i in range(arr.shape[1])]
+            df = pd.DataFrame(arr, columns=feature_names)
     numeric_cols: list[str] = []
     categorical_cols: list[str] = []
     for c in df.columns:

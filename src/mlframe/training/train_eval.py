@@ -892,7 +892,17 @@ def process_model(
         if verbose:
             logger.info(f"Finished training, took {(end-start)/60:.1f} min. RAM usage {get_own_memory_usage():.1f}GBs...")
         if fpath:
-            save_mlframe_model(model, fpath)
+            # 2026-05-21: lean=True. The train-time save here is the inference-ready
+            # bundle the harness / serving stack reads back; train_preds + train_target
+            # (4M float32 each = ~32 MB on prod TVT regression) + trainset_features_stats
+            # ballooned MLP dumps to 135 MB on the 2026-05-21 TVT run. The sibling
+            # save at _phase_finalize.py:122 already used lean=True; this one missed it.
+            # In-memory ``model`` is unchanged (lean affects the on-disk copy only), so
+            # downstream in-process predict / metric computation continues to read the
+            # original preds. Operators who need the forensic snapshot can re-save with
+            # lean=False explicitly (rare; the metrics dict on the model object already
+            # carries every train/val/test scalar score).
+            save_mlframe_model(model, fpath, lean=True)
 
     # Optimize model for in-memory storage (after saving to disk to preserve full data in files)
     if optimize_storage:

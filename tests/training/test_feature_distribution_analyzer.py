@@ -35,6 +35,25 @@ class TestCleanFeatures:
         assert rep.pathologies == [], f"clean iid flagged: {rep.pathologies}"
         assert rep.drop_candidates == []
 
+    def test_polars_dataframe_numerics_not_misclassified(self):
+        """2026-05-21 P0 #3: TVT prod log flagged 25 Float32 numeric columns as
+        ``high_cardinality_categorical(n=25)`` because the analyzer fell through
+        the numpy-conversion path for polars input (object dtype after
+        np.asarray). Fix: detect polars via duck-typing and call to_pandas()."""
+        pl = pytest.importorskip("polars")
+        rng = np.random.default_rng(99)
+        n = 1000
+        data = {f"f{i}": pl.Series(rng.normal(0, 1, n).astype(np.float32), dtype=pl.Float32) for i in range(25)}
+        data["well_id"] = pl.Series([f"w{i % 100}" for i in range(n)], dtype=pl.Utf8)
+        df = pl.DataFrame(data)
+        rep = analyze_feature_distribution(df)
+        # 25 Float32 numerics + 1 String categorical; high-card detector should NOT
+        # flag the numerics, only the well_id column (100 unique values, below the 100 default
+        # threshold so even well_id stays clean here).
+        assert rep.diagnostics["n_numeric"] == 25, rep.diagnostics
+        assert rep.diagnostics["n_categorical"] == 1, rep.diagnostics
+        assert not any("high_cardinality_categorical(n=25" in p for p in rep.pathologies), rep.pathologies
+
     def test_insufficient_samples_short_circuits(self):
         rng = np.random.default_rng(1)
         X = rng.standard_normal((20, 5))

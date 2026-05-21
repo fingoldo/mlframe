@@ -343,6 +343,84 @@ def test_gate_skipped_when_require_oof_for_gate_and_coarse_disabled(caplog):
     )
 
 
+def test_k2_catastrophic_dropout_drops_obvious_outlier_member(caplog):
+    """K2-CATASTROPHIC-DROPOUT regression (TVT-2026-05-21): with K=2 the legacy
+    peer-median gate was symmetric (kept both unconditionally). Now when target is
+    available for the gate-source split AND one member's MAE-to-target is >>
+    the other's, the broken member is dropped and a sentinel result returns."""
+
+    def _make(val_preds):
+        return SimpleNamespace(
+            val_preds=val_preds.astype(np.float64),
+            test_preds=val_preds.astype(np.float64),
+            train_preds=val_preds.astype(np.float64),
+            val_probs=None, test_probs=None, train_probs=None,
+            oof_preds=None, oof_probs=None,
+            model=MagicMock(), model_name="m",
+        )
+
+    rng = np.random.default_rng(0)
+    n = 500
+    y_true = rng.standard_normal(n)
+    good = _make(y_true + 0.1 * rng.standard_normal(n))   # MAE ~ 0.08
+    bad = _make(-5.0 * y_true)                            # MAE ~ 5.0; ratio ~ 60x
+    members = [good, bad]
+    good.model_name = "good_ridge"
+    bad.model_name = "broken_mlp"
+    target = pd.Series(y_true)
+
+    with caplog.at_level(logging.WARNING):
+        res = score_ensemble(
+            members, ensemble_name="[good+bad]",
+            target=target, val_target=target, test_target=target,
+            ensembling_methods=["arithm"],
+            require_oof_for_gate=True,
+            build_votenrank_leaderboard=False,
+            uncertainty_quantile=0.0,
+            verbose=True,
+        )
+    assert res.get("_reason") == "k2_catastrophic_dropout", res
+    assert res.get("_dropped_member") == "broken_mlp", res
+    assert res.get("_kept_member") == "good_ridge", res
+    assert res.get("_k2_mae_ratio", 0) > 20.0
+    assert any("K=2 catastrophic-dropout" in rec.message for rec in caplog.records)
+
+
+def test_k2_catastrophic_dropout_skipped_when_no_target_available(caplog):
+    """When the gate split has no matching target_arr supplied (caller passed
+    target= but val_target=None and the gate fell to val-coarse), the K=2
+    branch can't make an honest decision and must NOT drop -- proceeds with
+    full K=2 ensemble (legacy behaviour)."""
+
+    def _make(val_preds):
+        return SimpleNamespace(
+            val_preds=val_preds.astype(np.float64),
+            test_preds=val_preds.astype(np.float64),
+            train_preds=val_preds.astype(np.float64),
+            val_probs=None, test_probs=None, train_probs=None,
+            oof_preds=None, oof_probs=None,
+            model=MagicMock(), model_name="m",
+        )
+    rng = np.random.default_rng(1)
+    n = 500
+    y = rng.standard_normal(n)
+    a = _make(y + 0.1 * rng.standard_normal(n))
+    b = _make(-5.0 * y)
+    target = pd.Series(y)
+    # NOTE: val_target / test_target / train_target NOT supplied.
+    res = score_ensemble(
+        [a, b], ensemble_name="[a+b]", target=target,
+        ensembling_methods=["arithm"],
+        require_oof_for_gate=True,
+        build_votenrank_leaderboard=False,
+        uncertainty_quantile=0.0,
+        verbose=False,
+    )
+    # Without target_arr for the gate split, the K=2 branch falls through and the
+    # standard ensemble runs over both members -- no sentinel dropout result.
+    assert res.get("_reason") != "k2_catastrophic_dropout", res
+
+
 def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     """COARSE-GATE-FALLBACK regression: TVT-2026-05-21 prod log had an MLP with R^2=-4.75 sitting
     in the ensemble alongside 3 R^2~0.99 members because no member stamped OOF and the fine gate
