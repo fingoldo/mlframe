@@ -29,14 +29,22 @@ def test_combine_probs_quantile_post_aggregation_sorts_crossings():
 
 
 def test_combine_probs_no_quantile_alphas_skips_crossing_fix():
-    """When quantile_alphas is None the function returns the raw ensemble (back-compat)."""
+    """When quantile_alphas is None the function returns the raw ensemble (back-compat).
+
+    Member values are kept in [0, 1] so the classification-mode probability
+    clip (``ensure_prob_limits=True`` when quantile_alphas is None) doesn't
+    collapse them all to 1.0 -- the prior test used values >1 that landed
+    in the clip floor and made the "not sorted" assertion impossible to
+    satisfy.
+    """
     from mlframe.training.core.predict import _combine_probs
 
-    member_a = np.array([[1.0, 5.0, 4.0]])
-    member_b = np.array([[2.0, 6.0, 5.0]])
+    member_a = np.array([[0.1, 0.5, 0.4]])
+    member_b = np.array([[0.2, 0.6, 0.5]])
     out_no_alpha = _combine_probs([member_a, member_b], "mean", quantile_alphas=None)
     out_no_alpha_arr = np.asarray(out_no_alpha)
-    # Should be exact mean -- raw, NOT sorted.
+    # Should be exact mean -- raw, NOT sorted. Mean is [0.15, 0.55, 0.45],
+    # so [0, 2]=0.45 < [0, 1]=0.55 confirms the crossing is preserved.
     assert out_no_alpha_arr[0, 2] < out_no_alpha_arr[0, 1], (
         "without quantile_alphas the output should NOT be sorted; "
         f"got {out_no_alpha_arr[0]}"
