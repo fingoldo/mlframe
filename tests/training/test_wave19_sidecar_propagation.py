@@ -33,10 +33,20 @@ import pytest
 
 
 def _read_src(rel_path: str) -> str:
+    """Read a source file under src/mlframe.
+
+    2026-05-22 monolith split compat: when ``training/ranker_suite.py``
+    is requested, append the relocated sibling so source-pattern sensors
+    still match.
+    """
     import mlframe as _mlframe
-    return (
-        pathlib.Path(_mlframe.__file__).resolve().parent / rel_path
-    ).read_text(encoding="utf-8")
+    _pkg = pathlib.Path(_mlframe.__file__).resolve().parent
+    primary = (_pkg / rel_path).read_text(encoding="utf-8")
+    if rel_path == "training/ranker_suite.py":
+        sibling = _pkg / "training" / "_ranker_suite_train.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 def test_ranker_suite_per_flavor_dump_writes_sidecar():

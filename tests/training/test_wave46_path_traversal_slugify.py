@@ -37,7 +37,18 @@ MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file under src/mlframe.
+
+    2026-05-22 monolith split compat: when ``training/ranker_suite.py``
+    is requested, also append ``_ranker_suite_train.py`` so source-pattern
+    sensors for the relocated artefact-naming code still match.
+    """
+    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "training/ranker_suite.py":
+        sibling = MLFRAME_ROOT / "training" / "_ranker_suite_train.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 # ---------------------------------------------------------------------------
