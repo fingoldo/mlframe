@@ -99,25 +99,31 @@ def test_core_main_applies_patches_at_suite_entry(monkeypatch) -> None:
     raise on invalid df is fine, the patches must have been called by then).
     """
     import mlframe.training.core.main as _main_mod
+    # 2026-05-22 split: ``train_mlframe_models_suite`` body lives in
+    # ``_main_train_suite.py``; the live call sites resolve the prelude
+    # helpers from THAT module's globals. Patch both namespaces so the
+    # monkeypatch flows through regardless of which one the body uses.
+    from mlframe.training.core import _main_train_suite as _suite_mod
 
     call_order: list[str] = []
-    if hasattr(_main_mod, "apply_loky_cpu_count_override"):
-        orig_loky = _main_mod.apply_loky_cpu_count_override
+    for _mod in (_main_mod, _suite_mod):
+        if hasattr(_mod, "apply_loky_cpu_count_override"):
+            orig_loky = _mod.apply_loky_cpu_count_override
 
-        def _loky(*a, **kw):
-            call_order.append("loky")
-            return orig_loky(*a, **kw)
+            def _loky(*a, _orig=orig_loky, **kw):
+                call_order.append("loky")
+                return _orig(*a, **kw)
 
-        monkeypatch.setattr(_main_mod, "apply_loky_cpu_count_override", _loky)
+            monkeypatch.setattr(_mod, "apply_loky_cpu_count_override", _loky)
 
-    if hasattr(_main_mod, "apply_third_party_patches_once"):
-        orig_patch = _main_mod.apply_third_party_patches_once
+        if hasattr(_mod, "apply_third_party_patches_once"):
+            orig_patch = _mod.apply_third_party_patches_once
 
-        def _patch(*a, **kw):
-            call_order.append("patches")
-            return orig_patch(*a, **kw)
+            def _patch(*a, _orig=orig_patch, **kw):
+                call_order.append("patches")
+                return _orig(*a, **kw)
 
-        monkeypatch.setattr(_main_mod, "apply_third_party_patches_once", _patch)
+            monkeypatch.setattr(_mod, "apply_third_party_patches_once", _patch)
 
     # Trip the entry-bouncer: pass a non-pandas/polars/str df so the suite
     # raises immediately after the prelude (which is what we are testing).

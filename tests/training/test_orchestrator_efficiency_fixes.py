@@ -19,14 +19,18 @@ CORE = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "c
 def _read(name: str) -> str:
     """Read source by filename under training/core/.
 
-    2026-05-21 monolith split: when the requested file is
-    ``_phase_train_one_target.py`` (which had ``_train_one_target`` carved
-    out into ``_phase_train_one_target_body.py``), concatenate the body
-    sibling so source-pattern sensors still match the relocated code.
+    Monolith-split compat: when the requested file is a parent that had
+    its body carved out (2026-05-21 ``_train_one_target``,
+    2026-05-22 ``train_mlframe_models_suite``), concatenate the sibling
+    so source-pattern sensors still match the relocated code.
     """
     primary = (CORE / name).read_text(encoding="utf-8")
     if name == "_phase_train_one_target.py":
         sibling = CORE / "_phase_train_one_target_body.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif name == "main.py":
+        sibling = CORE / "_main_train_suite.py"
         if sibling.exists():
             primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     return primary

@@ -30,6 +30,13 @@ def _read(rel: str) -> str:
         sibling = repo_root / "src" / "mlframe" / "training" / "core" / "_phase_train_one_target_body.py"
         if sibling.exists():
             primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif rel.endswith("training/core/main.py"):
+        # 2026-05-22 split: ``train_mlframe_models_suite`` body moved to
+        # ``_main_train_suite.py``; append so the source-pattern sensors
+        # for the relocated kwargs / call-site code still match.
+        sibling = repo_root / "src" / "mlframe" / "training" / "core" / "_main_train_suite.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     return primary
 
 

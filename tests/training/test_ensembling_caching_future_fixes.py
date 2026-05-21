@@ -204,17 +204,26 @@ class TestENS_P2_5_CachedPerBin:
         # caching dict pattern (verified by grep). We don't run discovery
         # in unit tests; integration covered by existing test_composite_
         # discovery* test files.
+        # 2026-05-21 split: composite_discovery moved code to sibling files.
+        # Walk parent + every sibling so the per_bin sensor still matches.
+        import pathlib
         import mlframe.training.composite_discovery as cd
+        _dir = pathlib.Path(cd.__file__).resolve().parent
         src = open(cd.__file__, encoding="utf-8").read()
+        for sibling in _dir.glob("_composite_discovery*.py"):
+            src += "\n" + sibling.read_text(encoding="utf-8")
         assert "_per_bin_first_pass" in src, (
             "ENS-P2-5: the per-bin caching dict was removed/renamed; "
             "second pass will re-run the K-fold LGBM fits."
         )
-        # The reuse branch must precede the recompute branch.
-        assert (
-            src.index("cached_pb = _per_bin_first_pass.get")
-            < src.index("if isinstance(result, tuple):\n                    _, per_bin = result")
-        )
+        # The reuse branch must precede the recompute branch. Use a
+        # whitespace-tolerant regex because the 2026-05-21 composite_discovery
+        # monolith split changed the line indentation (top-level vs nested).
+        import re as _re
+        reuse_pos = src.index("cached_pb = _per_bin_first_pass.get")
+        m = _re.search(r"if isinstance\(result, tuple\):\s+_, per_bin = result", src)
+        assert m is not None, "recompute branch shape missing"
+        assert reuse_pos < m.start()
 
 
 # ---------------------------------------------------------------------------
@@ -386,8 +395,15 @@ class TestENS_Low_6_PoolArraysHoist:
     pool signature combination, not once per spec."""
 
     def test_pool_cache_keyed_correctly(self) -> None:
+        # 2026-05-21 split: composite_discovery body moved to siblings
+        # (_composite_discovery_fit.py etc.); read parent + every matching
+        # sibling so the source-pattern sensor still matches.
+        import pathlib
         import mlframe.training.composite_discovery as cd
+        _dir = pathlib.Path(cd.__file__).resolve().parent
         src = open(cd.__file__, encoding="utf-8").read()
+        for sibling in _dir.glob("_composite_discovery*.py"):
+            src += "\n" + sibling.read_text(encoding="utf-8")
         # Verify the cache dict exists with the expected (base, pool_sig)
         # tuple key.
         assert "_pool_arrays_cache: dict[tuple[str, frozenset]" in src
@@ -511,8 +527,16 @@ class TestCACHE_P1_7_SizeSafetyFactor:
 
 class TestCACHE_P2_1_OrderingNote:
     def test_ordering_comment_present(self) -> None:
+        # 2026-05-22 split: train_mlframe_models_suite body moved to
+        # ``_main_train_suite.py``; the ordering comment migrated with it.
+        # Read both files so the docstring/comment sensor still matches.
+        import pathlib
         import mlframe.training.core.main as m
+        _dir = pathlib.Path(m.__file__).resolve().parent
         src = open(m.__file__, encoding="utf-8").read()
+        sibling = _dir / "_main_train_suite.py"
+        if sibling.exists():
+            src += "\n" + sibling.read_text(encoding="utf-8")
         assert "MUST run BEFORE _phase_pandas_conversion_and_cat_prep" in src
 
 
