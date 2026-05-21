@@ -2020,6 +2020,76 @@ def score_ensemble(
         # F2 fix (2026-05-11): short-tag ALWAYS derived from the underlying CLASS, not from ``model_name`` which carries augmentations like ``"TVT MTTR=11497.66"`` that would defeat the startswith() prefix checks (``startswith("CatBoost")`` etc.).
         _ensemble_short_tags.append(_short_tag(_model_obj))
 
+    # E4.1 (2026-05-21): K>2 absolute target-MAE catastrophic check. The legacy
+    # peer-median gate at line 2106 below uses median MAE across members for K>2
+    # but the median IS THE GROUP being judged -- if 2 of 4 members are catastrophic
+    # the median MAE is HALF-catastrophic and the relative threshold (2.5x median)
+    # may still let the disasters through. This block runs FIRST when target is
+    # available for the gate-source split: any member whose MAE-to-target exceeds
+    # the catastrophic ratio relative to the BEST member is removed before the
+    # peer-median gate sees it. Conservative default (same 20x as K=2) -- only
+    # catches absolute disasters, not honest variance.
+    if (
+        _gate_preds_for_check is not None
+        and len(_gate_preds_for_check) > 2
+        and k2_catastrophic_mae_ratio > 1.0
+    ):
+        _gate_target_arr_kn = None
+        if _gate_source_split in ("test", "test-coarse"):
+            _gate_target_arr_kn = test_target_arr
+        elif _gate_source_split in ("val", "val-coarse"):
+            _gate_target_arr_kn = val_target_arr
+        elif _gate_source_split in ("train", "train-coarse"):
+            _gate_target_arr_kn = train_target_arr
+        elif _gate_source_split == "oof":
+            _gate_target_arr_kn = train_target_arr
+        if isinstance(_gate_target_arr_kn, np.ndarray) and _gate_target_arr_kn.size > 0:
+            try:
+                _t_kn = _gate_target_arr_kn.reshape(-1).astype(np.float64)
+                _maes = []
+                for _p in _gate_preds_for_check:
+                    _p_arr = np.asarray(_p).reshape(-1).astype(np.float64)
+                    if _p_arr.shape == _t_kn.shape:
+                        _maes.append(float(np.nanmean(np.abs(_p_arr - _t_kn))))
+                    else:
+                        _maes.append(float("nan"))
+                _maes_arr = np.asarray(_maes)
+                _best_mae = float(np.nanmin(_maes_arr))
+                if _best_mae > 0.0 and math.isfinite(_best_mae):
+                    _ratios = _maes_arr / _best_mae
+                    _drop_mask = (_ratios >= float(k2_catastrophic_mae_ratio)) | ~np.isfinite(_maes_arr)
+                    _kept_idx_kn = [i for i in range(len(_gate_preds_for_check)) if not _drop_mask[i]]
+                    _excl_kn = [(i, f"target_mae={_maes[i]:.4f} vs best={_best_mae:.4f} ratio={_ratios[i]:.1f}x") for i in range(len(_gate_preds_for_check)) if _drop_mask[i]]
+                    if len(_kept_idx_kn) >= 1 and len(_excl_kn) >= 1:
+                        if verbose:
+                            _drop_tags = [_ensemble_member_tags[i] for i, _ in _excl_kn]
+                            _kept_tags_log = [_ensemble_member_tags[i] for i in _kept_idx_kn]
+                            logger.warning(
+                                "[ensemble] K>2 absolute-MAE catastrophic-drop (split=%s): dropping %s; keeping %s (ratio threshold=%.1fx, best MAE=%.4f).",
+                                _gate_source_split, _drop_tags, _kept_tags_log,
+                                float(k2_catastrophic_mae_ratio), _best_mae,
+                            )
+                        # Slice members + tags down to the survivor set; peer-median gate below
+                        # then runs on the cleaner pool.
+                        level_models_and_predictions = [level_models_and_predictions[i] for i in _kept_idx_kn]
+                        _gate_preds_for_check = [_gate_preds_for_check[i] for i in _kept_idx_kn]
+                        _ensemble_member_tags = [_ensemble_member_tags[i] for i in _kept_idx_kn]
+                        _ensemble_short_tags = [_ensemble_short_tags[i] for i in _kept_idx_kn]
+                        # Stamp diagnostic into the result dict so finalize / metadata reflect the
+                        # pre-median-gate purge. Key uses ``_`` prefix per the sentinel-key contract
+                        # (P0 #4 follow-up: callers filter ``_``-prefixed keys when building the
+                        # per-target model list).
+                        res["_kn_catastrophic_dropped"] = {
+                            "split": _gate_source_split,
+                            "dropped_idx": [i for i, _ in _excl_kn],
+                            "best_mae": _best_mae,
+                            "ratio_threshold": float(k2_catastrophic_mae_ratio),
+                            "per_member_target_mae": _maes,
+                        }
+            except Exception as _kn_err:
+                if verbose:
+                    logger.warning("[ensemble] K>2 catastrophic-drop check raised %s; proceeding without drop.", _kn_err)
+
     # K2-CATASTROPHIC-DROPOUT (2026-05-21): when K == 2, the legacy peer-median gate
     # is symmetric (both members equidistant from (a+b)/2). When TARGET is available
     # for the gate-source split, this branch compares per-member MAE-to-target

@@ -163,13 +163,38 @@ def _lag1_autocorr(y: np.ndarray) -> float:
     the caller knows the rows have a natural sequence. The suite caller
     skips this detector when ``has_time_axis=False``.
     """
-    if y.size < 4:
+    return _lag_autocorr(y, lag=1)
+
+
+def _lag_autocorr(y: np.ndarray, lag: int = 1) -> float:
+    """Pearson autocorrelation at the given lag (lag-1 by default)."""
+    if y.size < (lag + 3) or lag < 1:
         return 0.0
-    a, b = y[:-1], y[1:]
+    a, b = y[:-lag], y[lag:]
     sa, sb = float(np.std(a)), float(np.std(b))
     if sa <= 0.0 or sb <= 0.0:
         return 0.0
     return float(np.corrcoef(a, b)[0, 1])
+
+
+def _max_abs_lag_autocorr(y: np.ndarray, lags: tuple[int, ...] = (1, 2, 3, 5)) -> tuple[float, int]:
+    """Return (max |autocorr|, lag-at-max) across the supplied lags.
+
+    E5.1 (2026-05-21): single-lag detection misses long-memory series whose
+    lag-1 cancels to a near-zero value (e.g. heavily smoothed targets, AR(2)
+    with negative phi_1, seasonal patterns at lag 5/7/12). Aggregating
+    across lags 1/2/3/5 catches the same class of distribution-shape
+    pathologies the lag-1 detector was designed for, while keeping the
+    statistical cost minimal (4 corrcoef calls on a 1-D array).
+    """
+    best_corr = 0.0
+    best_lag = 0
+    for lag in lags:
+        corr = _lag_autocorr(y, lag=lag)
+        if math.isfinite(corr) and abs(corr) > abs(best_corr):
+            best_corr = corr
+            best_lag = int(lag)
+    return best_corr, best_lag
 
 
 def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size: int = 4) -> float:
@@ -438,9 +463,14 @@ def analyze_target_distribution(
         ar = float("nan")
         ar_source = None
         if has_time_axis:
-            ar = _lag1_autocorr(y_for_stats)
-            ar_source = "global"
-            diagnostics["lag1_autocorr"] = ar
+            # E5.1: scan lags 1/2/3/5 and take the strongest |autocorr|. Long-memory
+            # series can hit lag-2/3 strongly with weak lag-1 -- both shapes feed
+            # the same MLP-LayerNorm collapse mode the AR detector exists to flag.
+            ar, ar_lag = _max_abs_lag_autocorr(y_for_stats)
+            ar_source = f"global_lag{ar_lag}" if ar_lag else "global"
+            diagnostics["lag1_autocorr"] = _lag_autocorr(y_for_stats, lag=1)
+            diagnostics["max_abs_autocorr"] = float(ar)
+            diagnostics["max_abs_autocorr_lag"] = int(ar_lag) if ar_lag else 0
         elif group_ids is not None:
             gids_arr = np.asarray(group_ids).reshape(-1)
             if gids_arr.size == y.size:
@@ -471,6 +501,13 @@ def analyze_target_distribution(
                     # Recommend group-aware splitting; the suite already supports this via
                     # ``group_column`` in the split config, so we just surface the hint.
                     knob_overrides.setdefault("split_config", {})["prefer_group_aware"] = True
+                    # E5.2 (2026-05-21): clustered targets share the SAME MLP-LayerNorm collapse mode
+                    # as strong-AR (per-row LayerNorm destroys the between-row absolute-scale signal
+                    # that the group label encodes). The strong-AR detector above already turns
+                    # LayerNorm off when has_time_axis is True OR per-group AR fires; this branch
+                    # closes the third path (group-clustered target where AR is weak but the
+                    # absolute group level dominates -- e.g. wellbore TVT, customer LTV by tenure).
+                    knob_overrides.setdefault("mlp_kwargs", {}).setdefault("network_params", {})["use_layernorm"] = False
 
     else:  # classification
         if n < 30:

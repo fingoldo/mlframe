@@ -118,7 +118,7 @@ def train_mlframe_models_suite(
     composite_target_discovery_config: Optional[Union["CompositeTargetDiscoveryConfig", Dict]] = None,
     feature_handling_config: Optional[Any] = None,
     precomputed: Optional["TrainMlframeSuitePrecomputed"] = None,
-    # 2026-05-21 mini-HPT (target distribution analyzer): inspect the target
+    # mini-HPT (target distribution analyzer): inspect the target
     # distribution after the train/val/test split and recommend hyperparameter
     # overrides for detected pathologies (heavy-tail, multi-modal, strong-AR,
     # clustered, skewed, class-imbalance, rare-classes). Default True --
@@ -429,8 +429,33 @@ def train_mlframe_models_suite(
                         _g_train = _g_arr[train_idx]
                 # has_time_axis: rows are pre-split in the order the caller built
                 # the frame. We can only trust the AR detector when timestamps are
-                # supplied (the suite carries them as ``timestamps`` after _phase_load_and_preprocess).
+                # supplied (the suite carries them as ``timestamps`` after
+                # _phase_load_and_preprocess). E5.3 (2026-05-21): also AUTO-DETECT
+                # common time-axis column names when the caller didn't explicitly
+                # pass timestamps. Wellbore data uses MD/depth as the sequence axis;
+                # log / event data uses timestamp/date/time. Without auto-detection
+                # the AR detector skips entirely on such data unless the caller
+                # remembers to set timestamps_column -- which the TVT-2026-05-21
+                # prod log demonstrates is easy to forget (the per-group AR
+                # fallback now catches it via group_ids, but auto-detected
+                # has_time_axis fires the GLOBAL detector first and provides
+                # additional diagnostics).
+                _TIME_AXIS_HINT_NAMES = ("timestamp", "date", "time", "datetime", "md", "depth")
                 _has_time = timestamps is not None
+                if not _has_time and train_df is not None:
+                    try:
+                        _cols_lower = {str(c).lower() for c in getattr(train_df, "columns", [])}
+                        if _cols_lower & set(_TIME_AXIS_HINT_NAMES):
+                            _has_time = True
+                            if verbose:
+                                _hit = sorted(_cols_lower & set(_TIME_AXIS_HINT_NAMES))
+                                logger.info(
+                                    "[mini-HPT] auto-detected time-axis column(s) %s; "
+                                    "AR detector will run on global lag-1.",
+                                    _hit,
+                                )
+                    except Exception:
+                        pass
                 _td_report = analyze_target_distribution(
                     _y_train,
                     group_ids=_g_train,

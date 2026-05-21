@@ -106,6 +106,94 @@ class _FakeEstimator:
         )
 
 
+def test_save_size_sensor_auto_lean_retry_shrinks_oversized_dump(caplog):
+    """E2.1 (2026-05-21): when a non-lean save exceeds the 50 MB sensor threshold
+    AND the payload is a SimpleNamespace (lean is a no-op otherwise), the save
+    auto-retries with ``lean=True`` and overwrites the file. Caller's payload
+    is untouched (lean operates on a shallow copy)."""
+    # Use 10M rows of random per-split arrays so the non-lean dump exceeds the 50 MB
+    # sensor threshold after zstd-level-4 compression on random float32 data (~1:1).
+    n_train = 10_000_000
+    rng = np.random.default_rng(42)
+    model_entry = SimpleNamespace(
+        model=SimpleNamespace(some_small_state=np.zeros(100, dtype=np.float32)),
+        test_preds=rng.standard_normal(1_000_000).astype(np.float32),
+        test_probs=None,
+        test_target=rng.standard_normal(1_000_000).astype(np.float32),
+        val_preds=rng.standard_normal(1_000_000).astype(np.float32),
+        val_probs=None,
+        val_target=rng.standard_normal(1_000_000).astype(np.float32),
+        train_preds=rng.standard_normal(n_train).astype(np.float32),  # ~40 MB
+        train_probs=None,
+        train_target=rng.standard_normal(n_train).astype(np.float32),  # ~40 MB
+        oof_preds=rng.standard_normal(n_train).astype(np.float32),    # ~40 MB
+        oof_probs=None,
+        metrics={"test": {"R2": 0.95}},
+        columns=["f0", "f1", "f2"],
+        pre_pipeline=None,
+        train_od_idx=None, val_od_idx=None,
+        trainset_features_stats={f"f{i}": {"mean": 0.0, "std": 1.0} for i in range(50)},
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tf:
+        fpath = tf.name
+    try:
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
+            # Call WITHOUT lean=True; size-sensor should fire and auto-retry with lean.
+            ok = save_mlframe_model(model_entry, fpath, verbose=1)
+        assert ok is True
+        size_mb_after = os.path.getsize(fpath) / (1024 * 1024)
+        # Post auto-retry: lean strip removes preds/target/oof/stats; dump should be < 5 MB.
+        assert size_mb_after < 5.0, (
+            f"E2.1 auto_lean_retry failed: final dump is {size_mb_after:.1f} MB; "
+            f"expected the auto-retry with lean=True to strip the per-split arrays."
+        )
+        msgs = [r.getMessage() for r in caplog.records]
+        assert any("auto-retrying with lean=True" in m for m in msgs), (
+            f"E2.1: expected the auto-retry log line; got: {msgs}"
+        )
+        # Caller's in-memory payload must STILL have all fields (lean operates on a copy).
+        assert model_entry.train_preds is not None
+        assert model_entry.oof_preds is not None
+    finally:
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+
+def test_save_size_sensor_no_auto_lean_when_disabled(caplog):
+    """E2.1 (negative): when auto_lean_retry=False, the sensor fires and warns
+    but does NOT overwrite the file with a lean variant."""
+    # Larger payload so the sensor actually fires (>50 MB).
+    n_train = 10_000_000
+    rng = np.random.default_rng(42)
+    model_entry = SimpleNamespace(
+        model=SimpleNamespace(),
+        train_preds=rng.standard_normal(n_train).astype(np.float32),
+        train_target=rng.standard_normal(n_train).astype(np.float32),
+        metrics={}, columns=[], pre_pipeline=None,
+        test_preds=None, test_probs=None, test_target=None,
+        val_preds=None, val_probs=None, val_target=None,
+        train_probs=None,
+        oof_preds=None, oof_probs=None,
+        train_od_idx=None, val_od_idx=None,
+        trainset_features_stats=None,
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tf:
+        fpath = tf.name
+    try:
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
+            ok = save_mlframe_model(model_entry, fpath, verbose=1, auto_lean_retry=False)
+        assert ok is True
+        msgs = [r.getMessage() for r in caplog.records]
+        # Sensor WARN fires; auto-retry WARN does NOT.
+        assert any("[save-size-sensor]" in m for m in msgs)
+        assert not any("auto-retrying with lean=True" in m for m in msgs)
+    finally:
+        if os.path.exists(fpath):
+            os.remove(fpath)
+
+
 def test_lean_strip_covers_oof_preds_and_probs():
     """P0 #2 follow-up: ``oof_preds`` / ``oof_probs`` are large per-row arrays
     stamped on the model SimpleNamespace at trainer.py:955 when

@@ -390,6 +390,7 @@ def save_mlframe_model(
     verbose: int = 1,
     lean: bool = False,
     durable: bool = False,
+    auto_lean_retry: bool = True,
 ) -> bool:
     """
     Save an mlframe model to a compressed file.
@@ -611,6 +612,34 @@ def save_mlframe_model(
                 "purpose pass ``lean=False`` and ignore this warning.",
                 file, size_mb, _SIZE_SUSPICIOUS_MB,
             )
+            # E2.1 (2026-05-21): auto-retry with lean=True when the sensor fires on a
+            # non-lean save. The default lean=False preserves forensic round-trip
+            # parity but lets large per-split arrays leak (~16-32 MB each on 4M
+            # rows). When auto_lean_retry=True (default) AND the payload is a
+            # SimpleNamespace (lean is a no-op otherwise) AND lean wasn't already on,
+            # rewrite the dump in lean form. Caller can disable per-call to keep the
+            # original behaviour (e.g. forensic snapshot intentionally kept fat).
+            if (
+                auto_lean_retry
+                and not lean
+                and isinstance(model, SimpleNamespace)
+            ):
+                if verbose > 0:
+                    logger.warning(
+                        "[save-size-sensor] %s: auto-retrying with lean=True to "
+                        "strip per-split + OOF + trainset_features_stats fields. "
+                        "Pass ``auto_lean_retry=False`` if you need the full bundle.",
+                        file,
+                    )
+                # Note: we call ourselves recursively; auto_lean_retry=False guards
+                # against an infinite loop (the lean save can't trip the sensor again
+                # under a strip set that's correctly maintained).
+                return save_mlframe_model(
+                    model, file,
+                    zstd_kwargs=zstd_kwargs, verbose=verbose,
+                    lean=True, durable=durable,
+                    auto_lean_retry=False,
+                )
         return True
     except Exception:
         # Wave 41 (2026-05-20): caller sees only a False return; without the traceback,

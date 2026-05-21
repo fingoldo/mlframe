@@ -100,6 +100,42 @@ class TestMiniHPTSuiteWiring:
         assert "f1" in fdr["drop_candidates"]
         assert "f2" in fdr["leakage_candidates"]
 
+    def test_auto_time_column_detection_enables_AR_detector(self, tmp_path, caplog):
+        """E5.3 (2026-05-21): when caller didn't pass timestamps but the frame
+        carries a recognised time-axis column (MD/depth/timestamp/date/time),
+        the suite auto-sets has_time_axis=True so the AR detector runs on
+        global lag-1. The MD-sorted wellbore-shape scenario from the TVT-2026-
+        05-21 incident now triggers strong_AR_target detection + the
+        use_layernorm=False recommendation without operator intervention."""
+        rng = np.random.default_rng(11)
+        n = 5000
+        md = np.arange(n, dtype=np.float32) * 0.5
+        # AR(1) target sorted by MD (the wellbore depth axis).
+        y = np.zeros(n, dtype=np.float64)
+        for i in range(1, n):
+            y[i] = 0.92 * y[i - 1] + rng.standard_normal() * 0.5
+        df = pd.DataFrame({
+            "MD": md,
+            "f0": rng.standard_normal(n).astype(np.float32),
+            "f1": rng.standard_normal(n).astype(np.float32),
+            "f2": rng.standard_normal(n).astype(np.float32),
+            "target": y.astype(np.float32),
+        })
+        with caplog.at_level(logging.INFO, logger="mlframe.training.core.main"):
+            _models, meta = _run_suite(df, tmp=tmp_path, enable_analyzer=True, verbose=1)
+        rep = meta.get("target_distribution_report")
+        assert rep is not None
+        # AR detector ran; global lag1 stamped (the multi-lag E5.1 diagnostic should appear too).
+        diag = rep["diagnostics"]
+        assert "lag1_autocorr" in diag or "max_abs_autocorr" in diag, (
+            f"AR detector did not run; diagnostics={diag}"
+        )
+        # And the log line confirms the auto-detection fired on the MD column.
+        msgs = " | ".join(r.getMessage() for r in caplog.records)
+        assert "auto-detected time-axis column" in msgs, (
+            "Auto-time-column detection log line missing -- the suite did not flip has_time_axis=True."
+        )
+
     def test_recommendation_merges_into_dict_hyperparams_config(self, tmp_path):
         """Heavy-tail target -> analyzer recommends lgb_kwargs.objective='huber'.
         With dict-form hyperparams that doesn't pre-set objective, the gap-fill

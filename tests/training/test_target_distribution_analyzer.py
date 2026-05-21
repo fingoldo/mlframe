@@ -14,6 +14,7 @@ from mlframe.training._target_distribution_analyzer import (
     _detect_multi_modal,
     _excess_kurtosis,
     _lag1_autocorr,
+    _max_abs_lag_autocorr,
     _skewness,
     _within_between_group_variance_ratio,
     analyze_target_distribution,
@@ -52,6 +53,27 @@ class TestHelperDetectors:
         rng = np.random.default_rng(4)
         y = rng.standard_normal(10_000)
         assert abs(_lag1_autocorr(y)) < 0.05
+
+    def test_max_abs_lag_autocorr_catches_lag2_dominant_signal(self):
+        """E5.1: AR(2) seasonal-shaped series with phi_1=0, phi_2=0.9 has weak
+        lag-1 (~0) but strong lag-2 (~0.9). _max_abs_lag_autocorr must pick
+        the lag-2 dominance instead of returning the near-zero lag-1."""
+        rng = np.random.default_rng(50)
+        n = 8000
+        # Stationary AR(2): y[t] = 0.9*y[t-2] + noise. Roots of z^2 - 0.9 = 0
+        # have |z|=0.949 < 1 (stationary). rho(1)=0, rho(2)=0.9.
+        y = np.zeros(n, dtype=np.float64)
+        for i in range(2, n):
+            y[i] = 0.9 * y[i-2] + rng.standard_normal() * 0.5
+        ar, lag = _max_abs_lag_autocorr(y)
+        assert abs(ar) > 0.5, f"expected strong autocorr at lag-2, got {ar} at lag {lag}"
+        assert lag == 2, f"expected lag-2 to dominate, got lag={lag}"
+
+    def test_max_abs_lag_autocorr_iid_near_zero(self):
+        rng = np.random.default_rng(51)
+        y = rng.standard_normal(4000)
+        ar, _lag = _max_abs_lag_autocorr(y)
+        assert abs(ar) < 0.1, f"iid noise should give max-lag autocorr near 0, got {ar}"
 
     def test_lag1_autocorr_strong_AR_high(self):
         rng = np.random.default_rng(5)
@@ -204,6 +226,12 @@ class TestRegressionAnalyzer:
         rep = analyze_target_distribution(y, group_ids=groups, has_time_axis=False)
         assert any("clustered_target" in p for p in rep.pathologies), rep.pathologies
         assert rep.knob_overrides.get("split_config", {}).get("prefer_group_aware") is True
+        # E5.2: clustered targets also recommend use_layernorm=False (per-row LayerNorm
+        # destroys the between-row absolute-scale signal that the group label encodes).
+        np_overrides = rep.knob_overrides.get("mlp_kwargs", {}).get("network_params", {})
+        assert np_overrides.get("use_layernorm") is False, (
+            f"E5.2: clustered target must also disable MLP LayerNorm; got {np_overrides}"
+        )
 
     def test_clustered_target_skipped_without_group_ids(self):
         rng = np.random.default_rng(107)

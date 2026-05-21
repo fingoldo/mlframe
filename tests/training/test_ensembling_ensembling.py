@@ -464,6 +464,63 @@ def test_k2_catastrophic_dropout_skipped_when_no_target_available(caplog):
     assert res.get("_reason") != "k2_catastrophic_dropout", res
 
 
+def test_kn_catastrophic_target_mae_drops_obvious_outlier_when_k_above_2(caplog):
+    """E4.1 (2026-05-21): K>2 absolute target-MAE catastrophic check. The legacy
+    peer-median gate uses median MAE across members; if 2/4 members are
+    catastrophic the median IS half-catastrophic and the relative threshold may
+    let them through. This branch runs FIRST and removes any member whose
+    target-MAE exceeds k2_catastrophic_mae_ratio relative to the BEST member,
+    before the peer-median gate sees it. Sentinel ``_kn_catastrophic_dropped``
+    appears in the result for downstream metadata."""
+
+    def _make(val_preds):
+        return SimpleNamespace(
+            val_preds=val_preds.astype(np.float64),
+            test_preds=val_preds.astype(np.float64),
+            train_preds=val_preds.astype(np.float64),
+            val_probs=None, test_probs=None, train_probs=None,
+            oof_preds=None, oof_probs=None,
+            model=MagicMock(), model_name="m",
+        )
+
+    rng = np.random.default_rng(0)
+    n = 500
+    y_true = rng.standard_normal(n)
+    # 3 good members + 1 catastrophic
+    members = [_make(y_true + 0.1 * rng.standard_normal(n)) for _ in range(3)]
+    members.append(_make(-5.0 * y_true))  # catastrophic
+    members[0].model_name = "good_0"
+    members[1].model_name = "good_1"
+    members[2].model_name = "good_2"
+    members[3].model_name = "broken"
+    target = pd.Series(y_true)
+
+    with caplog.at_level(logging.WARNING):
+        res = score_ensemble(
+            members, ensemble_name="[good_0+good_1+good_2+broken]",
+            target=target, val_target=target, test_target=target,
+            ensembling_methods=["arithm"],
+            require_oof_for_gate=True,
+            build_votenrank_leaderboard=False,
+            uncertainty_quantile=0.0,
+            verbose=True,
+        )
+    assert any("K>2 absolute-MAE catastrophic-drop" in rec.message for rec in caplog.records), (
+        "Expected E4.1 K>2 catastrophic-drop WARN; got: "
+        + " | ".join(rec.message for rec in caplog.records)
+    )
+    drop_info = res.get("_kn_catastrophic_dropped")
+    assert drop_info is not None, "_kn_catastrophic_dropped sentinel missing"
+    assert 3 in drop_info["dropped_idx"], (
+        f"Expected the broken member at idx 3 to be dropped; got dropped_idx={drop_info['dropped_idx']}"
+    )
+    # Sentinel key prefix contract: must start with ``_`` (caller filters those out).
+    assert "_kn_catastrophic_dropped" in res
+    for k in [k for k in res.keys() if not k.startswith("_")]:
+        # The actual ensembling-methods results should still be in the dict (we only dropped 1/4).
+        pass  # the gate purges members but the ensemble still runs on the 3 survivors
+
+
 def test_coarse_gate_drops_catastrophic_outlier_member(caplog):
     """COARSE-GATE-FALLBACK regression: TVT-2026-05-21 prod log had an MLP with R^2=-4.75 sitting
     in the ensemble alongside 3 R^2~0.99 members because no member stamped OOF and the fine gate
