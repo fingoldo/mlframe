@@ -272,19 +272,30 @@ def compute_mi_from_classes(
     freqs_y: np.ndarray,
     dtype=np.int32,
 ) -> float:
-    """Mutual information from two pre-computed class arrays + their marginals. Used by the permutation loop where ``classes_y`` is shuffled in place and we don't want to re-bin from scratch each time."""
-    joint_counts = np.zeros((len(freqs_x), len(freqs_y)), dtype=dtype)
-    for i, j in zip(classes_x, classes_y):
-        joint_counts[i, j] += 1
-    joint_freqs = joint_counts / len(classes_x)
+    """Mutual information from two pre-computed class arrays + their marginals. Used by the permutation loop where ``classes_y`` is shuffled in place and we don't want to re-bin from scratch each time.
+
+    Indexed range-loop over zip-iter: ~25% faster at n=50k..1M (numba's
+    zip pair unboxing adds per-iteration overhead vs the indexed form).
+    On-the-fly freq computation via inv_n also avoids the (K_x, K_y)
+    float64 joint_freqs intermediate allocation. Bench:
+    profiling/bench_compute_mi_from_classes_no_zip.py.
+    """
+    n = len(classes_x)
+    K_x = len(freqs_x)
+    K_y = len(freqs_y)
+    joint_counts = np.zeros((K_x, K_y), dtype=dtype)
+    for k in range(n):
+        joint_counts[classes_x[k], classes_y[k]] += 1
+    inv_n = 1.0 / n
 
     total = 0.0
-    for i in range(len(freqs_x)):
+    for i in range(K_x):
         prob_x = freqs_x[i]
-        for j in range(len(freqs_y)):
-            jf = joint_freqs[i, j]
-            if jf:
+        for j in range(K_y):
+            jc = joint_counts[i, j]
+            if jc != 0:
                 prob_y = freqs_y[j]
+                jf = jc * inv_n
                 total += jf * math.log(jf / (prob_x * prob_y))
     return total
 
