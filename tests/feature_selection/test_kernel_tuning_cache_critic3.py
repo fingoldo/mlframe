@@ -158,6 +158,14 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
     from pyutilz.system.kernel_tuning_cache import hw_fingerprint
     hw_fingerprint.cache_clear()
+    # The mlframe-side singleton in ``_kernel_tuning._CACHE_SINGLETON`` is
+    # built lazily from the env var seen at the time of FIRST call. Earlier
+    # tests in the same session may have built it under a different
+    # PYUTILZ_KERNEL_CACHE_DIR, leaving stale paths so this test's tmp_path
+    # never receives the persisted JSON. Reset the singleton so the next
+    # ``_shared_cache()`` call picks up THIS test's env var.
+    from mlframe.feature_selection.filters._kernel_tuning import _reset_for_tests
+    _reset_for_tests()
 
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import auto_tune as at
 
