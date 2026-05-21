@@ -70,30 +70,45 @@ ROBUST_MLP_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {
 """HPT overrides applied to MLPConfig for a target whose FI-weighted feature
 drift score exceeds ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD``.
 
-Grounded empirically by the 2026-05-22 sweep
-``profiling/bench_mlp_robustness_sweep.py`` (1,440 sklearn-MLP trials).
+Grounded empirically by TWO 2026-05-22 sweeps:
 
-Phase 1: full Cartesian sweep at drift_z=10 on the dominant feature
-(48 configs x 20 seeds). Baseline sklearn defaults (alpha=1e-4,
-hidden=(100,), activation=relu) suffered mean MLP_excess_harm = 6.455 R^2
-(catastrophic, matches the TVT-2026-05-21 prod-log collapse). The
-pick scored 0.0006 -- ~10000x reduction.
+A. ``profiling/bench_mlp_robustness_sweep.py`` (1,440 sklearn-MLP trials,
+   LINEAR DGP). Baseline sklearn defaults (alpha=1e-4, hidden=(100,),
+   activation=relu) suffered mean MLP_excess_harm = 6.455 R^2 at
+   drift_z=10 (catastrophic, matches the TVT-2026-05-21 prod-log
+   collapse). The pick scored 0.0006 -- ~10000x reduction with zero
+   no-drift baseline degradation and 0.016 R^2 gap at extreme z=20.
 
-Phase 2: cross-validation across drift_z in {0, 2, 10, 20} x both
-drift_target modes (dominant + noise) x 10 seeds. The pick degraded
-the no-drift baseline by 0.000 R^2 (literally zero) while sustaining
-0.016 R^2 gap at the extreme drift_z=20 (vs baseline's 32.106).
+B. ``profiling/bench_mlp_robustness_sweep_nonlinear.py`` (2,880 phase-1 +
+   640 phase-2 trials across 4 DGPs: linear / quadratic_dominant /
+   interaction (x_dom * x_2) / sinusoidal (5*sin(x_dom) + 3*x_dom)).
+   Cross-DGP MIN-MAX leaderboard ranks configs by worst-case mean
+   MLP_excess_harm across all 4 DGPs:
+
+     rank   config                                              worst    per-DGP
+        1   alpha=0.1 hidden=(32,16) activation=identity        0.0013   lin=0.001 quad=-0.010 inter=0.001 sin=-15.988
+        2   alpha=1e-4 hidden=(32,16) activation=identity       0.0186   lin=0.002 quad=0.019 inter=0.000 sin=-4.036
+
+   The pick wins min-max: its worst-case mean excess harm is 0.0013 R^2
+   across all 4 DGPs. ReLU-activation configs win individually on
+   nonlinear DGPs (interaction / sinusoidal) but lose catastrophically
+   on linear under drift (6+ R^2 gap), so they fail min-max. Identity
+   is universally safe.
 
 Sklearn-shape keys (alpha / hidden_layer_sizes / activation). The
 torch-backed mlframe MLP uses different field names; the consumer at
 the wire-in site translates via
 ``translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs``.
 
-Scope note: the sweep used a LINEAR DGP (y = alphas . x + noise), so the
-identity activation winner reflects the "additive-linear with strong
-dominant feature" regime that the prod-log incident matched. Targets
-with strong nonlinear structure may benefit from a different override --
-a follow-up nonlinear-DGP sweep can refine the recommendation.
+Tradeoff (documented, not a bug): on nonlinear targets with strong
+interactions or smooth nonlinearity, applying this override forfeits
+some MLP-ReLU nonlinear-capture capacity that the unconstrained model
+would have had. The min-max framing prefers this because that
+unconstrained capacity comes with worst-case R^2=6+ gap when drift hits
+a linear-shaped target -- a real production incident pattern. The
+override is gated by feature-drift detection (only fires when
+weighted_drift_score >= 3.0), so nonlinear-rich targets without drift
+keep the original config.
 """
 
 
