@@ -370,35 +370,29 @@ class TestFeatureImportanceConfigStaleClassCoercion:
         -- which is poison for any subsequent test in this class that
         compares identities. The ``try/finally`` restores via a second
         reload so siblings see consistent state regardless of order."""
-        import importlib
-        import mlframe.training.configs as cfgmod
-
-        # Snapshot the originals BEFORE any reload — siblings reference these.
-        original_FI = cfgmod.FeatureImportanceConfig
-        original_RC = cfgmod.ReportingConfig
-
-        try:
-            old_FI_class = cfgmod.FeatureImportanceConfig
-            old_inst = old_FI_class()
-
-            # Force a reload to materialize a SECOND class with the same name.
-            importlib.reload(cfgmod)
-            new_FI_class = cfgmod.FeatureImportanceConfig
-            new_ReportingConfig = cfgmod.ReportingConfig
-
-            # Sanity: identities really did diverge.
-            assert old_FI_class is not new_FI_class
-
-            # The whole point: feeding the OLD instance into the NEW
-            # ReportingConfig used to fail with `model_type` ValidationError.
-            rc = new_ReportingConfig(feature_importance_config=old_inst)
-            assert type(rc.feature_importance_config).__name__ == "FeatureImportanceConfig"
-        finally:
-            # Restore the originals into the module so neighbour tests
-            # in the suite see the same class identities they imported
-            # at module-load time. Re-binding the attributes on the
-            # already-imported module object is enough — no second
-            # importlib.reload, which would just create a third pair of
-            # classes and potentially diverge again.
-            cfgmod.FeatureImportanceConfig = original_FI
-            cfgmod.ReportingConfig = original_RC
+        # Direct simulation of the autoreload / multi-checkout scenario:
+        # construct a SECOND class with the same name as ``FeatureImportanceConfig``
+        # but a distinct identity, and feed an instance of it into the
+        # production ``ReportingConfig``. The validator must accept this via
+        # the ``model_dump`` round-trip rather than failing with
+        # ``ValidationError(model_type)``.
+        # An earlier version of this test used ``importlib.reload`` to force
+        # the divergence; reload pollutes other tests in this module because
+        # the rebuilt pydantic schemas hold references to the new class, and
+        # restoring the original symbols on the module doesn't undo that.
+        from pydantic import BaseModel as _BM
+        # Mirror enough of the real FeatureImportanceConfig surface that
+        # model_dump round-trips through ReportingConfig's validator cleanly.
+        # The validator round-trips via ``model_dump()`` then re-instantiates
+        # the canonical class, so only the field names need to overlap.
+        StaleFI = type(
+            "FeatureImportanceConfig",
+            (_BM,),
+            {"model_config": {"extra": "allow"}, "__annotations__": {}},
+        )
+        stale_inst = StaleFI()
+        # Sanity: same name but distinct class identity.
+        assert StaleFI is not FeatureImportanceConfig
+        assert StaleFI.__name__ == FeatureImportanceConfig.__name__
+        rc = ReportingConfig(feature_importance_config=stale_inst)
+        assert type(rc.feature_importance_config) is FeatureImportanceConfig

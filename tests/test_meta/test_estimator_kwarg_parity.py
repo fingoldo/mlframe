@@ -69,7 +69,16 @@ def _flavor_kwargs_fields() -> list[tuple[type[BaseModel], str]]:
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):
             continue
-        if obj.__module__ != configs_module.__name__:
+        if obj.__module__ not in {
+            configs_module.__name__,
+            f"{configs_module.__package__}._preprocessing_configs",
+            f"{configs_module.__package__}._model_configs",
+            f"{configs_module.__package__}._training_runtime_configs",
+            f"{configs_module.__package__}._composite_target_discovery_config",
+            f"{configs_module.__package__}._reporting_configs",
+            f"{configs_module.__package__}._configs_base",
+            f"{configs_module.__package__}._feature_selection_config",
+        }:
             continue
         for field_name in obj.model_fields:
             if _FLAVOR_KWARGS_RE.match(field_name):

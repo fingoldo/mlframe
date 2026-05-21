@@ -88,7 +88,16 @@ def _all_config_classes() -> list[type[BaseModel]]:
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if obj is BaseModel:
             continue
-        if obj.__module__ != configs_module.__name__:
+        if obj.__module__ not in {
+            configs_module.__name__,
+            f"{configs_module.__package__}._preprocessing_configs",
+            f"{configs_module.__package__}._model_configs",
+            f"{configs_module.__package__}._training_runtime_configs",
+            f"{configs_module.__package__}._composite_target_discovery_config",
+            f"{configs_module.__package__}._reporting_configs",
+            f"{configs_module.__package__}._configs_base",
+            f"{configs_module.__package__}._feature_selection_config",
+        }:
             continue
         if not issubclass(obj, BaseModel):
             continue

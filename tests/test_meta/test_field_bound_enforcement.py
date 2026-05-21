@@ -34,11 +34,28 @@ _SUPPORTED_NUMERIC = {"gt", "ge", "lt", "le"}
 
 
 def _config_classes() -> list[type[BaseModel]]:
+    # ``configs.py`` was split into sibling modules
+    # (``_preprocessing_configs``, ``_model_configs``,
+    # ``_training_runtime_configs``, ``_composite_target_discovery_config``,
+    # ``_reporting_configs``); each config class lives in its sibling and is
+    # re-exported from ``mlframe.training.configs``. The field-bound contract
+    # applies to the full re-exported surface, so accept classes whose
+    # ``__module__`` is either ``configs`` itself or any of those siblings.
+    _accepted_modules = {
+        configs_module.__name__,
+        f"{configs_module.__package__}._preprocessing_configs",
+        f"{configs_module.__package__}._model_configs",
+        f"{configs_module.__package__}._training_runtime_configs",
+        f"{configs_module.__package__}._composite_target_discovery_config",
+        f"{configs_module.__package__}._reporting_configs",
+            f"{configs_module.__package__}._configs_base",
+            f"{configs_module.__package__}._feature_selection_config",
+    }
     out = []
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):
             continue
-        if obj.__module__ != configs_module.__name__:
+        if obj.__module__ not in _accepted_modules:
             continue
         out.append(obj)
     return out

@@ -73,10 +73,27 @@ def _enumerable_values(annotation) -> list:
 def _enum_literal_fields() -> list[tuple[type[BaseModel], str, list]]:
     """Every Literal/Enum-typed field across every config class."""
     out: list[tuple[type[BaseModel], str, list]] = []
+    # ``configs.py`` was split into sibling modules (``_preprocessing_configs``,
+    # ``_model_configs``, ``_training_runtime_configs``,
+    # ``_composite_target_discovery_config``, ``_reporting_configs``); each
+    # config class lives in its sibling and is re-exported from
+    # ``mlframe.training.configs``. The exhaustiveness contract applies to the
+    # full re-exported surface, so accept classes whose ``__module__`` is
+    # either ``configs`` itself or any of those siblings.
+    _accepted_modules = {
+        configs_module.__name__,
+        f"{configs_module.__package__}._preprocessing_configs",
+        f"{configs_module.__package__}._model_configs",
+        f"{configs_module.__package__}._training_runtime_configs",
+        f"{configs_module.__package__}._composite_target_discovery_config",
+        f"{configs_module.__package__}._reporting_configs",
+            f"{configs_module.__package__}._configs_base",
+            f"{configs_module.__package__}._feature_selection_config",
+    }
     for _, obj in inspect.getmembers(configs_module, inspect.isclass):
         if not (issubclass(obj, BaseModel) and obj is not BaseModel):
             continue
-        if obj.__module__ != configs_module.__name__:
+        if obj.__module__ not in _accepted_modules:
             continue
         for field_name, info in obj.model_fields.items():
             values = _enumerable_values(info.annotation)
