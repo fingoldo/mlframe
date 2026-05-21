@@ -130,7 +130,13 @@ class TargetDistributionReport:
 
 
 def _excess_kurtosis(y: np.ndarray) -> float:
-    """Biased (Pearson) excess kurtosis; gaussian baseline = 0."""
+    """Biased (Pearson) excess kurtosis; gaussian baseline = 0.
+
+    z**4 via chained multiplication (z2 = z*z; z2*z2) avoids np.power's
+    general-purpose dispatch (~3x faster at n=50k..5M; bench:
+    profiling/bench_target_moments_no_power.py). Same antipattern fix
+    as iter129 for regression_residual_audit.
+    """
     n = y.size
     if n < 4:
         return 0.0
@@ -139,11 +145,17 @@ def _excess_kurtosis(y: np.ndarray) -> float:
     if sigma <= 0.0 or not math.isfinite(sigma):
         return 0.0
     z = (y - mu) / sigma
-    return float(np.mean(z ** 4)) - 3.0
+    z2 = z * z
+    return float(np.mean(z2 * z2)) - 3.0
 
 
 def _skewness(y: np.ndarray) -> float:
-    """Biased moment-based skewness."""
+    """Biased moment-based skewness.
+
+    z**3 via chained multiplication (z*z*z) avoids np.power's
+    general-purpose dispatch (~2.5-3.6x faster at n=50k..5M; bench:
+    profiling/bench_target_moments_no_power.py).
+    """
     n = y.size
     if n < 3:
         return 0.0
@@ -152,7 +164,7 @@ def _skewness(y: np.ndarray) -> float:
     if sigma <= 0.0 or not math.isfinite(sigma):
         return 0.0
     z = (y - mu) / sigma
-    return float(np.mean(z ** 3))
+    return float(np.mean(z * z * z))
 
 
 def _lag1_autocorr(y: np.ndarray) -> float:
