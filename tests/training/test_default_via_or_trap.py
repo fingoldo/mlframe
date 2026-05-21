@@ -47,17 +47,22 @@ def _read(rel: str) -> str:
 
 def test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch():
     """``tiny_rerank_n_jobs=0`` (auto-pick) MUST reach the ``if cfg == 0:``
-    branch in composite_discovery.py. Pre-fix ``int(... or 1)`` collapsed it.
+    branch. Pre-fix ``int(... or 1)`` collapsed it.
+
+    ``_tiny_model_rerank`` was moved to the
+    ``_composite_discovery_tiny_rerank.py`` sibling when
+    ``composite_discovery.py`` was split below 1k LOC.
     """
-    src = _read("training/composite_discovery.py")
+    src = _read("training/_composite_discovery_tiny_rerank.py")
     assert "int(getattr(self.config, \"tiny_rerank_n_jobs\", 1) or 1)" not in src, (
         "Pre-fix `or 1` pattern reappeared: tiny_rerank_n_jobs=0 sentinel is "
         "silently rewritten to 1 BEFORE the `if cfg == 0:` auto-pick branch "
         "runs (wave 14 regression). Use `int(1 if raw is None else raw)`."
     )
     assert "_rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)" in src, (
-        "Post-fix idiom missing in composite_discovery.py. Expected explicit "
-        "None-check so `tiny_rerank_n_jobs=0` reaches the auto-pick branch."
+        "Post-fix idiom missing in _composite_discovery_tiny_rerank.py. "
+        "Expected explicit None-check so `tiny_rerank_n_jobs=0` reaches the "
+        "auto-pick branch."
     )
 
 

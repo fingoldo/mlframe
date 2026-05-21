@@ -1,0 +1,694 @@
+"""Tiny-model rerank phase for ``CompositeTargetDiscovery``.
+
+Split out of ``composite_discovery.py`` to keep the parent below the 1k-line
+monolith threshold. ``_tiny_model_rerank`` is bound back onto the
+``CompositeTargetDiscovery`` class at the parent's module top, so call sites
+that invoke ``self._tiny_model_rerank(...)`` continue to work unchanged.
+"""
+from __future__ import annotations
+
+import logging
+import math
+import re
+from typing import Any, Optional, Sequence
+
+import numpy as np
+
+from .composite_spec import CompositeSpec
+from .composite_ensemble import _is_monotone_nondecreasing
+from .composite_screening import (
+    _extract_column_array,
+    _sample_indices,
+    _tiny_cv_rmse_raw_y,
+    _tiny_cv_rmse_raw_y_multiseed,
+    _tiny_cv_rmse_y_scale,
+    _tiny_cv_rmse_y_scale_multiseed,
+)
+from .composite_transforms import get_transform
+
+logger = logging.getLogger(__name__)
+
+
+def _tiny_model_rerank(
+    self,
+    kept_specs: list[CompositeSpec],
+    df: Any,
+    target_col: str,
+    usable_features: Sequence[str],
+    train_idx: np.ndarray,
+    y_full: np.ndarray,
+) -> list[CompositeSpec]:
+    """Phase B: re-rank MI-survivors by CV-RMSE on y-scale.
+
+    For each surviving spec:
+    1. Build the feature matrix (X-without-base) on a screening
+       sample of train rows.
+    2. Compute CV-RMSE per family in
+       ``self.config.tiny_screening_families``.
+    3. Aggregate per-spec score by ``tiny_consensus``:
+       - "union": min CV-RMSE across families (best-case).
+       - "borda": Borda-count rank aggregation.
+    4. Re-sort, take top-``top_m_after_tiny``.
+    """
+    sample_n = min(self.config.tiny_model_sample_n, train_idx.size)
+    # Phase B benefits from stratified sampling on heavy-tail y
+    # for the same reason Phase A does -- tiny-model CV-RMSE on a
+    # tail-empty sample mis-ranks transforms that only matter in
+    # the tail.
+    y_train_for_strat = y_full[train_idx]
+    sample_idx = _sample_indices(
+        train_idx.size, sample_n, self.config.random_state,
+        strategy=getattr(self.config, "mi_sample_strategy", "random"),
+        y=y_train_for_strat,
+        n_strata=getattr(self.config, "mi_n_strata", 10),
+    )
+    train_idx_screen = train_idx[sample_idx]
+    y_screen = y_full[train_idx_screen]
+
+    if self.config.tiny_screening_models == "single_lgbm":
+        families = ["lightgbm"]
+    else:  # per_family
+        families = [f for f in self.config.tiny_screening_families]
+        if not families:
+            families = ["lightgbm"]
+
+    # ENS-P2-5: hoist per-bin-enabled check above the first pass so we
+    # request per-bin RMSE during the SAME multiseed sweep that produces
+    # the global scores. The legacy second pass refit every fold to get
+    # per-bin breakdowns; with this change the K-fold LGBM fit count is
+    # halved when the regime-aware gate is on.
+    per_bin_n_bins_pre = int(getattr(self.config, "per_bin_n_bins", 0) or 0)
+    per_bin_enabled_pre = (
+        per_bin_n_bins_pre > 0
+        and getattr(self.config, "require_beats_raw_baseline", True)
+    )
+
+    # Per-spec CV-RMSE per family. When K specs share a base
+    # (the typical case: auto-base picks one TVT_prev-style
+    # dominant feature, all K transforms operate on it), the
+    # per-base ``x_remaining`` matrix and ``base_screen`` array
+    # are recomputable from the same inputs. Cache them by base
+    # to avoid K redundant builds (each ~50 ndarray copies on a
+    # 200K-row sample).
+    per_family_scores: dict[str, list[float]] = {f: [] for f in families}
+    # ENS-P2-5: parallel buffer for per-bin RMSE captured during the
+    # first pass. Keyed by spec.name -> per-bin ndarray. Only populated
+    # when ``per_bin_enabled_pre`` is True.
+    _per_bin_first_pass: dict[str, np.ndarray] = {}
+    _per_base_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+
+    # Pre-build per-base cache serially (one entry per unique
+    # base_column). Doing this before the parallel rerank avoids a
+    # lazy-init serialization point inside the threaded loop and
+    # ensures the read-only cache is fully populated by the time
+    # workers run.
+    for spec in kept_specs:
+        if spec.base_column in _per_base_cache:
+            continue
+        base_screen = (
+            _extract_column_array(df, spec.base_column)[train_idx_screen]
+        )
+        x_remaining = [
+            c for c in usable_features if c != spec.base_column
+        ]
+        x_matrix = self._build_feature_matrix(
+            df, x_remaining, train_idx_screen,
+        )
+        _per_base_cache[spec.base_column] = (base_screen, x_matrix)
+
+    n_seed_repeats = max(1, int(getattr(
+        self.config, "tiny_model_n_seed_repeats", 1,
+    )))
+    use_wilcoxon = bool(getattr(
+        self.config, "use_wilcoxon_gate", False,
+    ))
+
+    def _rerank_one_spec(spec: CompositeSpec):
+        """Per-spec worker for the rerank loop.
+
+        Returns a tuple ``(spec.name, family_rmses, per_seed_by_family,
+        per_bin_first_or_none)`` so the parallel reduce can rebuild
+        ``per_family_scores`` / ``_wilcoxon_per_seed_composite`` /
+        ``_per_bin_first_pass`` in spec order on the main thread.
+        """
+        base_screen_local, x_matrix_local = _per_base_cache[spec.base_column]
+        transform = get_transform(spec.transform_name)
+        # Auto-detect monotone base (lag features, timestamps) and switch
+        # this spec's tiny-CV to TimeSeriesSplit. Random K-fold on a lag
+        # base leaks future->past, over-rating ``linres-TVT_prev``-style
+        # specs.
+        base_t_aware = bool(_is_monotone_nondecreasing(base_screen_local))
+        fam_rmses: dict[str, float] = {}
+        per_seed_by_family: dict[str, np.ndarray] = {}
+        per_bin_first_local: Optional[np.ndarray] = None
+        for family in families:
+            # ENS-P2-5: capture per-bin alongside RMSE in the SAME pass
+            # for the first family only (per-bin breakdown only checks
+            # families[0] in the legacy second pass).
+            is_first_family = (family == families[0])
+            want_per_bin = bool(per_bin_enabled_pre and is_first_family)
+            if use_wilcoxon:
+                result = _tiny_cv_rmse_y_scale_multiseed(
+                    y_train=y_screen,
+                    base_train=base_screen_local,
+                    transform=transform,
+                    fitted_params=spec.fitted_params,
+                    x_train_matrix=x_matrix_local,
+                    family=family,
+                    n_estimators=self.config.tiny_model_n_estimators,
+                    num_leaves=self.config.tiny_model_num_leaves,
+                    learning_rate=self.config.tiny_model_learning_rate,
+                    cv_folds=self.config.tiny_model_cv_folds,
+                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
+                    n_seed_repeats=n_seed_repeats,
+                    base_random_state=self.config.random_state,
+                    return_per_seed=True,
+                    return_per_bin=want_per_bin,
+                    n_bins=per_bin_n_bins_pre or 5,
+                    time_aware=base_t_aware,
+                )
+                if want_per_bin:
+                    rmse, per_bin_first, per_seed = (
+                        result[0], result[1], result[-1],
+                    )
+                    per_bin_first_local = per_bin_first
+                else:
+                    rmse, per_seed = result[0], result[-1]
+                per_seed_by_family[family] = per_seed
+            else:
+                result = _tiny_cv_rmse_y_scale_multiseed(
+                    y_train=y_screen,
+                    base_train=base_screen_local,
+                    transform=transform,
+                    fitted_params=spec.fitted_params,
+                    x_train_matrix=x_matrix_local,
+                    family=family,
+                    n_estimators=self.config.tiny_model_n_estimators,
+                    num_leaves=self.config.tiny_model_num_leaves,
+                    learning_rate=self.config.tiny_model_learning_rate,
+                    cv_folds=self.config.tiny_model_cv_folds,
+                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
+                    n_seed_repeats=n_seed_repeats,
+                    base_random_state=self.config.random_state,
+                    return_per_bin=want_per_bin,
+                    n_bins=per_bin_n_bins_pre or 5,
+                    time_aware=base_t_aware,
+                )
+                if want_per_bin and isinstance(result, tuple):
+                    rmse, per_bin_first = result[0], result[1]
+                    per_bin_first_local = per_bin_first
+                else:
+                    rmse = result
+            fam_rmses[family] = rmse
+        return spec.name, fam_rmses, per_seed_by_family, per_bin_first_local
+
+    # ``tiny_rerank_n_jobs=0`` is the documented sentinel for "auto-pick"
+    # (the branch right below this assignment). The previous ``or 1`` form
+    # collapsed 0->1 BEFORE the sentinel check ran, making the auto-pick
+    # branch unreachable. ``None`` (Pydantic-default-unset) still folds to
+    # 1 (the historical default).
+    _rerank_raw = getattr(self.config, "tiny_rerank_n_jobs", 1)
+    _rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)
+    if _rerank_n_jobs_cfg == 0:
+        # Auto: cap at len(kept_specs) and at cpu_count to avoid
+        # oversubscription when tiny_model_n_jobs > 1 internally.
+        try:
+            import os as _os
+            _cpu = _os.cpu_count() or 1
+        except Exception:
+            _cpu = 1
+        _rerank_n_jobs = max(1, min(len(kept_specs), _cpu))
+    else:
+        _rerank_n_jobs = max(1, _rerank_n_jobs_cfg)
+    if _rerank_n_jobs > 1 and len(kept_specs) > 1:
+        from joblib import Parallel as _Parallel, delayed as _delayed
+        _rerank_results = _Parallel(
+            n_jobs=_rerank_n_jobs, backend="threading", prefer="threads",
+        )(_delayed(_rerank_one_spec)(s) for s in kept_specs)
+    else:
+        _rerank_results = [_rerank_one_spec(s) for s in kept_specs]
+
+    # Serial reduce — preserve spec order for per_family_scores
+    # (joblib.Parallel preserves input order).
+    self._wilcoxon_per_seed_composite = getattr(
+        self, "_wilcoxon_per_seed_composite", {},
+    )
+    for _spec_name, _fam_rmses, _per_seed_by_family, _per_bin_first in _rerank_results:
+        for family in families:
+            per_family_scores[family].append(_fam_rmses.get(family, float("nan")))
+        if _per_bin_first is not None:
+            _per_bin_first_pass[_spec_name] = _per_bin_first
+        for family, _per_seed in _per_seed_by_family.items():
+            self._wilcoxon_per_seed_composite[(_spec_name, family)] = _per_seed
+
+    # Aggregate -> single score per spec.
+    consensus = self.config.tiny_consensus
+    agg_scores: list[float] = []
+    for i, _spec in enumerate(kept_specs):
+        family_rmses = [per_family_scores[f][i] for f in families]
+        finite = [r for r in family_rmses if math.isfinite(r)]
+        if not finite:
+            agg_scores.append(float("inf"))
+            continue
+        if consensus == "union":
+            # Best (lowest) family RMSE. "Union" = "kept if any
+            # family ranks it well".
+            agg_scores.append(min(finite))
+        elif consensus == "borda":
+            # Borda needs ranks per family.
+            # Build rank tables per family, sum ranks per spec
+            # below at the after-loop step. For simplicity use
+            # mean RMSE here as a Borda proxy on a per-spec
+            # basis -- for a 2-3 family setup the Borda result
+            # collapses to mean rank, equivalent to mean RMSE.
+            agg_scores.append(float(np.mean(finite)))
+        else:
+            agg_scores.append(min(finite))
+
+    # Persist tiny CV-RMSE keyed by spec name -- callers read it
+    # via :attr:`CompositeTargetDiscovery.tiny_rerank_scores_`.
+    # CompositeSpec is frozen; we keep the per-spec scoring on the
+    # discovery instance instead of mutating the spec.
+    self._tiny_rerank_scores: dict[str, float] = {
+        kept_specs[i].name: float(agg_scores[i])
+        for i in range(len(kept_specs))
+    }
+
+    # R10b improvement #1: regime-aware gate. In addition to the
+    # global mean RMSE, compute per-quintile-of-base RMSE for each
+    # spec AND for the raw-y baseline (binned by the SAME variable
+    # for apples-to-apples). A spec is rejected if it loses to
+    # raw on any quintile by more than ``per_bin_tolerance`` --
+    # catches "two-regime" failures where logratio is correct on
+    # multiplicative rows but actively wrong on additive rows.
+    per_bin_n_bins = int(getattr(self.config, "per_bin_n_bins", 0) or 0)
+    per_bin_tol = float(getattr(
+        self.config, "raw_baseline_per_bin_tolerance", 1.10,
+    ))
+    per_bin_enabled = (
+        per_bin_n_bins > 0
+        and getattr(self.config, "require_beats_raw_baseline", True)
+    )
+    # Per-spec per-bin RMSE: spec_name -> ndarray(n_bins,)
+    spec_per_bin_rmse: dict[str, np.ndarray] = {}
+    if per_bin_enabled:
+        # ENS-P2-5: REUSE the per-bin breakdown captured during the
+        # first-pass multiseed sweep instead of re-running the K-fold
+        # LGBM fits. Falls back to a recompute only if first-pass
+        # was disabled (e.g. when ``per_bin_n_bins`` was changed
+        # mid-run) or a spec is missing from the cache (NaN result).
+        for _i, spec in enumerate(kept_specs):
+            cached_pb = _per_bin_first_pass.get(spec.name)
+            if cached_pb is not None:
+                spec_per_bin_rmse[spec.name] = cached_pb
+                continue
+            cached = _per_base_cache.get(spec.base_column)
+            if cached is None:
+                continue
+            base_screen, x_remaining_matrix = cached
+            transform = get_transform(spec.transform_name)
+            family = families[0]
+            result = _tiny_cv_rmse_y_scale(
+                y_train=y_screen, base_train=base_screen,
+                transform=transform, fitted_params=spec.fitted_params,
+                x_train_matrix=x_remaining_matrix,
+                family=family,
+                n_estimators=self.config.tiny_model_n_estimators,
+                num_leaves=self.config.tiny_model_num_leaves,
+                learning_rate=self.config.tiny_model_learning_rate,
+                cv_folds=self.config.tiny_model_cv_folds,
+                random_state=self.config.random_state,
+                n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                deterministic=getattr(
+                    self.config, "deterministic_screening_models", False,
+                ),
+                return_per_bin=True, n_bins=per_bin_n_bins,
+            )
+            if isinstance(result, tuple):
+                _, per_bin = result
+                spec_per_bin_rmse[spec.name] = per_bin
+
+    # Raw-y baseline gate. Train a tiny model directly on raw y
+    # using the SAME folds / sample / family as the composite
+    # rerank above, so the comparison is apples-to-apples. Reject
+    # any composite whose tiny RMSE >= raw_baseline * tolerance.
+    # Configured via ``require_beats_raw_baseline`` /
+    # ``raw_baseline_tolerance``.
+    raw_rmse_per_family: dict[str, float] = {}
+    raw_per_bin_per_base: dict[str, np.ndarray] = {}
+    raw_baseline: float = float("nan")
+    gate_rejected_names: list[tuple[str, float, float]] = []
+    per_bin_rejected_names: list[tuple[str, str, float, float]] = []
+    if getattr(self.config, "require_beats_raw_baseline", True):
+        # Build a feature matrix using ALL usable_features on the
+        # screening sample (raw-y training has no special "base"
+        # to drop, so include everything).
+        x_full = self._build_feature_matrix(
+            df, list(usable_features), train_idx_screen,
+        )
+        n_seed_repeats_raw = max(1, int(getattr(
+            self.config, "tiny_model_n_seed_repeats", 1,
+        )))
+        use_wilcoxon = bool(getattr(
+            self.config, "use_wilcoxon_gate", False,
+        ))
+        # Time-aware raw-y baseline: switch to TimeSeriesSplit folds
+        # iff any spec's base is monotone-non-decreasing. Keeps
+        # raw-vs-composite tiny-CVs apples-to-apples when a lag base
+        # already forced time-aware folds on the composite side.
+        _any_base_monotone = any(
+            _is_monotone_nondecreasing(
+                _per_base_cache.get(spec.base_column, (None, None))[0]
+            )
+            for spec in kept_specs
+            if _per_base_cache.get(spec.base_column, (None, None))[0] is not None
+        )
+        raw_per_seed_per_family: dict[str, np.ndarray] = {}
+        for family in families:
+            if use_wilcoxon:
+                res = _tiny_cv_rmse_raw_y_multiseed(
+                    y_train=y_screen,
+                    x_train_matrix=x_full,
+                    family=family,
+                    n_estimators=self.config.tiny_model_n_estimators,
+                    num_leaves=self.config.tiny_model_num_leaves,
+                    learning_rate=self.config.tiny_model_learning_rate,
+                    cv_folds=self.config.tiny_model_cv_folds,
+                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
+                    n_seed_repeats=n_seed_repeats_raw,
+                    base_random_state=self.config.random_state,
+                    return_per_seed=True,
+                    time_aware=_any_base_monotone,
+                )
+                raw_rmse_per_family[family] = res[0]
+                raw_per_seed_per_family[family] = res[-1]
+            else:
+                raw_rmse_per_family[family] = _tiny_cv_rmse_raw_y_multiseed(
+                    y_train=y_screen,
+                    x_train_matrix=x_full,
+                    family=family,
+                    n_estimators=self.config.tiny_model_n_estimators,
+                    num_leaves=self.config.tiny_model_num_leaves,
+                    learning_rate=self.config.tiny_model_learning_rate,
+                    cv_folds=self.config.tiny_model_cv_folds,
+                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
+                    n_seed_repeats=n_seed_repeats_raw,
+                    base_random_state=self.config.random_state,
+                    time_aware=_any_base_monotone,
+                )
+        # Per-base raw-y per-bin breakdown for the regime gate.
+        # Cached by base column so multiple specs sharing a base
+        # compute baselines once.
+        if per_bin_enabled:
+            for spec in kept_specs:
+                if spec.base_column in raw_per_bin_per_base:
+                    continue
+                cached = _per_base_cache.get(spec.base_column)
+                if cached is None:
+                    continue
+                base_screen, _ = cached
+                family = families[0]
+                raw_result = _tiny_cv_rmse_raw_y(
+                    y_train=y_screen,
+                    x_train_matrix=x_full,
+                    family=family,
+                    n_estimators=self.config.tiny_model_n_estimators,
+                    num_leaves=self.config.tiny_model_num_leaves,
+                    learning_rate=self.config.tiny_model_learning_rate,
+                    cv_folds=self.config.tiny_model_cv_folds,
+                    random_state=self.config.random_state,
+                    n_jobs=getattr(self.config, "tiny_model_n_jobs", 1),
+                    deterministic=getattr(
+                        self.config, "deterministic_screening_models", False,
+                    ),
+                    return_per_bin=True, n_bins=per_bin_n_bins,
+                    bin_var=base_screen,
+                )
+                if isinstance(raw_result, tuple):
+                    _, raw_per_bin = raw_result
+                    raw_per_bin_per_base[spec.base_column] = raw_per_bin
+        finite_raw = [r for r in raw_rmse_per_family.values()
+                      if math.isfinite(r)]
+        if finite_raw:
+            # Apples-to-apples with consensus aggregation above.
+            if consensus == "union":
+                raw_baseline = min(finite_raw)
+            else:
+                raw_baseline = float(np.mean(finite_raw))
+        tol = float(getattr(self.config, "raw_baseline_tolerance", 1.02))
+        threshold = (raw_baseline * tol
+                     if math.isfinite(raw_baseline) else float("inf"))
+        # Pack #10 2026-05-18: skip the composite-target block when
+        # raw is already SO close to perfect that composite has no
+        # headroom. Compute raw_baseline / dummy_std as a proxy for
+        # "fraction of dummy's variance the raw model could not
+        # explain". If that fraction is below the configured ratio,
+        # short-circuit to "no kept specs" -- this avoids 5+ min per
+        # spec of full per-target training that would produce
+        # composite metrics indistinguishable from raw.
+        _raw_skip_ratio = float(getattr(
+            self.config, "composite_skip_when_raw_dominates_ratio", 0.0,
+        ))
+        # 2026-05-21: complementary skip via BaselineDiagnostics
+        # ablation delta%. When the top hint feature's drop balloons
+        # ablation RMSE by more than the configured fraction, the raw
+        # model is essentially auto-regressive on that one feature --
+        # composite discovery in this regime is wasted compute (production
+        # TVT log: top_ablation_delta%=3209% on TVT_prev meant the raw
+        # model literally IS ``y ~ TVT_prev``; 15.6 min of discovery
+        # produced 1 spec that scored identically to raw).
+        _ablation_skip_pct = float(getattr(
+            self.config, "composite_skip_when_ablation_delta_pct", 0.0,
+        ))
+        _hint_strengths_pct = getattr(self, "_hint_strengths_pct", None)
+        _max_ablation_pct = (
+            float(max(_hint_strengths_pct))
+            if (_hint_strengths_pct is not None
+                and len(_hint_strengths_pct) > 0
+                and all(math.isfinite(_x) for _x in _hint_strengths_pct))
+            else float("nan")
+        )
+        if _raw_skip_ratio > 0.0 and math.isfinite(raw_baseline):
+            _y_std = float(np.std(y_screen)) if y_screen.size > 1 else 0.0
+            if _y_std > 0:
+                _ratio = raw_baseline / _y_std
+                # Skip if EITHER the raw-dominance ratio OR the BD
+                # ablation delta% signal trips. They're complementary:
+                # ratio catches "raw R^2 already > threshold" globally,
+                # ablation catches "one single feature explains nearly
+                # everything" even when the raw ridge couldn't fully
+                # capture it.
+                _ablation_trips = (
+                    _ablation_skip_pct > 0.0
+                    and math.isfinite(_max_ablation_pct)
+                    and _max_ablation_pct >= _ablation_skip_pct
+                    and _ratio < (_raw_skip_ratio * 3.0)  # safety: R^2 must already be > 0.99
+                )
+                if _ratio < _raw_skip_ratio or _ablation_trips:
+                    _reason = (
+                        f"ratio={_ratio:.4f} < {_raw_skip_ratio:.4f}"
+                        if _ratio < _raw_skip_ratio
+                        else (
+                            f"BD ablation delta%={_max_ablation_pct:.1f} "
+                            f">= {_ablation_skip_pct:.1f} (raw R^2 already "
+                            f">0.99: ratio={_ratio:.4f})"
+                        )
+                    )
+                    logger.info(
+                        "[CompositeTargetDiscovery] target='%s' raw model "
+                        "already dominates: raw_baseline=%.4f, y_std=%.4f, "
+                        "%s. Composite block skipped.",
+                        getattr(self, "_target_col", "?"),
+                        raw_baseline, _y_std, _reason,
+                    )
+                    # FIX 2026-05-18 (pytest caught): pre-fix code referenced two non-
+                    # available names: ``candidates`` (lives in fit, not _tiny_model_rerank)
+                    # and ``tiny_rerank_scores_`` (read-only property; underlying attr is
+                    # ``_tiny_rerank_scores``). Returning an empty kept-spec list signals
+                    # to the caller that the composite block is skipped; fit's existing
+                    # empty-handling path (line ~878) still populates ``self.report_``
+                    # from the screening-phase ``candidates`` so per-(base, transform)
+                    # rejection diagnostics ARE preserved. The original buggy code
+                    # attempted to add rerank-level entries to ``report_`` which were
+                    # never accessible from this scope anyway -- no diagnostic loss.
+                    self._tiny_rerank_scores = {}
+                    return []
+        self._raw_y_baseline_rmse = (
+            float(raw_baseline) if math.isfinite(raw_baseline)
+            else float("nan")
+        )
+        if math.isfinite(raw_baseline):
+            survivors = []
+            gate_alpha = float(getattr(
+                self.config, "gate_alpha", 0.05,
+            ))
+            wilcoxon_rejected: list[tuple[str, float]] = []
+            for i, spec in enumerate(kept_specs):
+                score = agg_scores[i]
+                if math.isfinite(score) and score >= threshold:
+                    gate_rejected_names.append(
+                        (spec.name, score, threshold)
+                    )
+                    continue
+                # R10b stat #4: paired Wilcoxon signed-rank test
+                # on per-seed RMSE diffs (composite - raw). Reject
+                # spec unless the median diff is significantly
+                # negative at level gate_alpha.
+                if (use_wilcoxon
+                        and hasattr(self, "_wilcoxon_per_seed_composite")):
+                    family = families[0]
+                    comp_per_seed = self._wilcoxon_per_seed_composite.get(
+                        (spec.name, family)
+                    )
+                    raw_per_seed = raw_per_seed_per_family.get(family)
+                    if (comp_per_seed is not None
+                            and raw_per_seed is not None
+                            and len(comp_per_seed) == len(raw_per_seed)
+                            and len(comp_per_seed) >= 3):
+                        try:
+                            from scipy.stats import wilcoxon
+                            diff = comp_per_seed - raw_per_seed
+                            # One-sided: composite better (less RMSE)
+                            # so we want diff < 0; alternative='less'.
+                            stat_res = wilcoxon(
+                                diff, alternative="less",
+                                zero_method="wilcox",
+                            )
+                            p_value = float(stat_res.pvalue)
+                            if p_value > gate_alpha:
+                                wilcoxon_rejected.append(
+                                    (spec.name, p_value)
+                                )
+                                continue
+                        except (ImportError, ValueError) as _wx_err:
+                            # Scipy missing or all-zero diffs ->
+                            # fall through to the threshold-only
+                            # gate (no Wilcoxon rejection).
+                            logger.debug(
+                                "[CompositeTargetDiscovery] "
+                                "Wilcoxon gate skipped for spec=%s: %s",
+                                spec.name, _wx_err,
+                            )
+                # R10b improvement #1: per-bin gate. Composite
+                # passes the global mean test; now check that
+                # per-bin RMSE doesn't blow out vs the raw-y
+                # per-bin baseline on any quintile of base.
+                if (per_bin_enabled
+                        and spec.name in spec_per_bin_rmse
+                        and spec.base_column in raw_per_bin_per_base):
+                    spec_pb = spec_per_bin_rmse[spec.name]
+                    raw_pb = raw_per_bin_per_base[spec.base_column]
+                    # Element-wise compare, ignoring NaN bins.
+                    worst_ratio = 0.0
+                    worst_bin_idx = -1
+                    for b in range(len(spec_pb)):
+                        if (math.isfinite(spec_pb[b])
+                                and math.isfinite(raw_pb[b])
+                                and raw_pb[b] > 0):
+                            ratio = spec_pb[b] / raw_pb[b]
+                            if ratio > worst_ratio:
+                                worst_ratio = ratio
+                                worst_bin_idx = b
+                    if worst_ratio >= per_bin_tol:
+                        per_bin_rejected_names.append((
+                            spec.name,
+                            f"bin_{worst_bin_idx}",
+                            float(worst_ratio),
+                            float(per_bin_tol),
+                        ))
+                        continue
+                survivors.append((i, spec, score))
+            if not survivors:
+                logger.warning(
+                    "[CompositeTargetDiscovery] raw-y baseline gate "
+                    "rejected ALL %d composite candidate(s) "
+                    "(raw_baseline=%.4f, tolerance=%.2f). Examples: %s. "
+                    "Falling back to raw target only -- discovery "
+                    "yields no specs.",
+                    len(gate_rejected_names),
+                    raw_baseline, tol,
+                    ", ".join(
+                        f"{n}=RMSE{r:.4f}>{t:.4f}"
+                        for n, r, t in gate_rejected_names[:3]
+                    ),
+                )
+                return []
+            if gate_rejected_names:
+                logger.info(
+                    "[CompositeTargetDiscovery] raw-y baseline gate "
+                    "rejected %d/%d composite(s) (raw_baseline=%.4f, "
+                    "tolerance=%.2f): %s",
+                    len(gate_rejected_names), len(kept_specs),
+                    raw_baseline, tol,
+                    ", ".join(
+                        f"{n}(RMSE={r:.4f}>{t:.4f})"
+                        for n, r, t in gate_rejected_names
+                    ),
+                )
+            if per_bin_rejected_names:
+                logger.info(
+                    "[CompositeTargetDiscovery] regime-aware per-bin "
+                    "gate rejected %d composite(s) (passed global "
+                    "mean but blew out on a base quintile, "
+                    "tolerance=%.2f): %s",
+                    len(per_bin_rejected_names), per_bin_tol,
+                    ", ".join(
+                        f"{n}@{b}(ratio={r:.2f}>{t:.2f})"
+                        for n, b, r, t in per_bin_rejected_names[:5]
+                    ),
+                )
+            if wilcoxon_rejected:
+                logger.info(
+                    "[CompositeTargetDiscovery] Wilcoxon gate "
+                    "rejected %d composite(s) (paired one-sided test "
+                    "on per-seed RMSE diffs vs raw, alpha=%.3f): %s",
+                    len(wilcoxon_rejected), gate_alpha,
+                    ", ".join(
+                        f"{n}(p={p:.3f})"
+                        for n, p in wilcoxon_rejected[:5]
+                    ),
+                )
+            # Replace kept_specs/agg_scores with survivors only.
+            kept_specs = [s for _, s, _ in survivors]
+            agg_scores = [sc for _, _, sc in survivors]
+
+    # Sort by aggregated score (ascending: lowest RMSE wins).
+    # Wave 57 (2026-05-20): stable sort + spec-name tiebreak so tied RMSE
+    # (common on small synthetic / regression tests) doesn't make top-M
+    # pick depend on dict iteration order.
+    _names = [getattr(s, "name", str(i)) for i, s in enumerate(kept_specs)]
+    order = np.lexsort((_names, agg_scores))
+    reranked = [kept_specs[i] for i in order]
+    # Trim to top-M.
+    top_m = max(1, self.config.top_m_after_tiny)
+    reranked = reranked[:top_m]
+    # Logging: show the rerank effect. The "top-%d" label reflects the ACTUAL length of the survivor set (which may be smaller than ``top_m`` after the raw-y baseline gate / Wilcoxon filter), not the configured target.
+    original_top = [s.name for s in kept_specs[: top_m]]
+    new_top = [s.name for s in reranked]
+    if original_top != new_top:
+        logger.info(
+            "[CompositeTargetDiscovery] tiny-model rerank changed top-%d "
+            "(configured top_m=%d). Before (by mi_gain): %s. "
+            "After (by CV-RMSE on y-scale): %s.",
+            len(new_top), top_m, original_top, new_top,
+        )
+    else:
+        logger.info(
+            "[CompositeTargetDiscovery] tiny-model rerank kept %d spec(s) "
+            "(configured top_m=%d): %s.",
+            len(new_top), top_m, new_top,
+        )
+    return reranked
+

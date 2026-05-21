@@ -141,12 +141,16 @@ def test_composite_ensemble_trim_uses_lexsort() -> None:
 
 
 def test_composite_discovery_aggregated_score_uses_lexsort() -> None:
-    src = _read("training/composite_discovery.py")
+    # ``_tiny_model_rerank`` moved to the ``_composite_discovery_tiny_rerank.py``
+    # sibling when ``composite_discovery.py`` was split below 1k LOC.
+    src = _read("training/_composite_discovery_tiny_rerank.py")
     assert "order = np.lexsort((_names, agg_scores))" in src
 
 
 def test_composite_discovery_mi_gain_uses_secondary_name() -> None:
-    src = _read("training/composite_discovery.py")
+    # ``fit`` (where the mi_gain top-K sort lives) moved to
+    # ``_composite_discovery_fit.py``.
+    src = _read("training/_composite_discovery_fit.py")
     assert "key=lambda s: (-s.mi_gain, getattr(s, \"name\", \"\"))" in src
 
 
