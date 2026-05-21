@@ -2719,6 +2719,12 @@ def _batch_per_class_ice_kernel(
     Bit-exact equivalent of looping ``fast_ice_only`` per class
     (verified against the legacy form in
     ``bench_compute_multiclass_error.py``).
+
+    bench-attempt-rejected (2026-05-21, c0146 / iter133): fusing the
+    Brier + min/max passes (3 N-passes -> 2) saved only 1.04x at
+    N=1M/K=3, 1.01-1.02x smaller. Argsort + AUC walk dominates the
+    kernel; pre-argsort pass fusion is below the measurable speedup
+    floor. Bench: profiling/bench_batch_ice_kernel_pass_fusion.py.
     """
     N = y_true_NK.shape[0]
     K = y_true_NK.shape[1]
@@ -4114,23 +4120,27 @@ def _fast_log_loss_binary_seq(y_true: np.ndarray, y_pred: np.ndarray, eps: float
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_log_loss_binary_par(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-15) -> float:
     """Parallel binary log loss. ~4.8× faster than seq at N=10M.
-    Auto-selected by ``fast_log_loss_binary`` above N=100k."""
+    Auto-selected by ``fast_log_loss_binary`` above N=100k.
+
+    Single-pass: out-of-range detection + clip + log + sum-reduce all
+    fold into one ``prange`` walk over y_pred. Bad rows skip the loss
+    accumulation; a non-zero ``bad`` counter post-walk yields ``np.nan``.
+    Previously two separate ``prange`` walks (bounds scan, then loss
+    scan); the fused form trims one full N-read (~6-9% kernel speedup at
+    N=1M-5M; bench: profiling/bench_fast_log_loss_binary_fused.py).
+    """
     n = len(y_true)
     if n == 0:
         return 0.0
 
-    # Out-of-range probability check via parallel sum-reduction (numba auto-detects ``+=``).
     bad = 0
-    for i in numba.prange(n):
-        if y_pred[i] < 0.0 or y_pred[i] > 1.0:
-            bad += 1
-    if bad > 0:
-        return np.nan
-
     loss_sum = 0.0
     n_pos = 0
     for i in numba.prange(n):
         p = y_pred[i]
+        if p < 0.0 or p > 1.0:
+            bad += 1
+            continue
         if p < eps:
             p = eps
         elif p > 1 - eps:
@@ -4141,6 +4151,8 @@ def _fast_log_loss_binary_par(y_true: np.ndarray, y_pred: np.ndarray, eps: float
         else:
             loss_sum -= np.log(1 - p)
 
+    if bad > 0:
+        return np.nan
     # Need at least one of each class.
     if n_pos == 0 or n_pos == n:
         return np.nan
