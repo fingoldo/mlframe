@@ -72,11 +72,22 @@ ENSURE_ARROW_DF_SUPPORT: bool = True
 
 
 def smart_log(x: np.ndarray) -> np.ndarray:
-    """Numerically-safe ``log(x)``: additively shifts non-positive inputs. Preserves input dtype (a prior cast to float32 silently demoted float64)."""
+    """Numerically-safe ``log(x)``: additively shifts non-positive inputs. Preserves input dtype (a prior cast to float32 silently demoted float64).
+
+    When ``x_min == x_max == 0`` (a column of pure zeros emerging from
+    Optuna's coefficient sweep at very small parameter magnitudes), the
+    additive shift becomes ``1e-5`` exactly, ``log(1e-5)`` is finite, no
+    warnings. But when ``x`` contains both zeros and very small positive
+    floats, ``x + (1e-5 - x_min)`` can underflow to zero in float32 and
+    trigger ``divide by zero encountered in log``. The downstream
+    consumer ``nan_to_num`` already sanitises the column; suppress the
+    bare-numpy warning emit here so the stderr stream stays clean for
+    real problems."""
     x_min = np.nanmin(x)
-    if x_min > 0:
-        return np.log(x)
-    return np.log(x + (1e-5 - x_min))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        if x_min > 0:
+            return np.log(x)
+        return np.log(x + (1e-5 - x_min))
 
 
 def njit_functions_dict(

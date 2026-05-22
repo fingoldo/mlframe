@@ -290,13 +290,20 @@ def check_prospective_fe_pairs(
                                         _cp_fn = getattr(cp, tr_name, None)
                                         if _cp_fn is not None:
                                             d_vals = cp.asarray(vals)
-                                            d_res = _cp_fn(d_vals)
+                                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                                d_res = _cp_fn(d_vals)
                                             transformed_vars[:, i] = cp.asnumpy(d_res)
                                             _gpu_used = True
                                 except Exception:
                                     _gpu_used = False  # fall through to CPU
                             if not _gpu_used:
-                                transformed_vars[:, i] = tr_func(vals)
+                                # Suppress unary-transform NaN/inf RuntimeWarnings
+                                # (eg ``overflow in exp``, ``divide by zero in
+                                # log``). The downstream nan_to_num + MI-gate
+                                # already filter pathological rows; the bare
+                                # numpy emit only spams stderr.
+                                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                    transformed_vars[:, i] = tr_func(vals)
                     except Exception as e:
                         # ``np.isnan`` / ``np.isinf`` / ``np.nanmin`` only work on float dtypes. When ``vals`` is object/string (e.g. a polars Utf8 cat column not encoded
                         # before reaching FE), calling them inside the error-log formatter itself raises -- masking the real transformation error and aborting MRMR
@@ -355,17 +362,28 @@ def check_prospective_fe_pairs(
 
                 start = timer()
                 try:
-                    # with np.errstate(invalid='ignore'):
-                    if final_transformed_vals is not None:
-                        final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                        _col_view = final_transformed_vals[:, i]
-                    else:
-                        # Recompute fallback: write into the shared 1D scratch.
-                        # bin_func returns a fresh ndarray; copy into the scratch
-                        # so downstream nan_to_num + discretize see contiguous
-                        # data. Avoids accumulating one alloc per inner iter.
-                        _col_buf_1d[:] = bin_func(param_a, param_b)
-                        _col_view = _col_buf_1d
+                    # 2026-05-22: ``bin_func`` produces NaN/+-inf on extreme
+                    # Optuna-picked params (overflow in mul/exp, divide by
+                    # zero in log). Filtered downstream by ``np.nan_to_num``
+                    # + MI-score gating, but the bare numpy call would have
+                    # raised ``RuntimeWarning`` for every offending row and
+                    # spammed stderr with ``invalid value encountered in
+                    # multiply`` / ``overflow encountered in multiply``.
+                    # Suppress at the call site -- the diagnostic value of
+                    # these warnings is zero (they fire on virtually every
+                    # restart) and the apply-phase output is already
+                    # sanitised by the nan_to_num below.
+                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                        if final_transformed_vals is not None:
+                            final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                            _col_view = final_transformed_vals[:, i]
+                        else:
+                            # Recompute fallback: write into the shared 1D scratch.
+                            # bin_func returns a fresh ndarray; copy into the scratch
+                            # so downstream nan_to_num + discretize see contiguous
+                            # data. Avoids accumulating one alloc per inner iter.
+                            _col_buf_1d[:] = bin_func(param_a, param_b)
+                            _col_view = _col_buf_1d
                 except Exception:
                     logger.error(f"Error when performing {bin_func}")
                 else:

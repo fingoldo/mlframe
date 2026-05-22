@@ -111,7 +111,7 @@ def run_polynom_pair_fe(
     _polynom_n_jobs = int(n_jobs) if n_jobs and n_jobs > 0 else 1
     logger.info(
         "Polynomial-pair FE starting: %d pair(s) x %d Optuna restart(s) x "
-        "%d trial(s) per restart, n_jobs=%d backend=threading.",
+        "%d trial(s) per restart, n_jobs=%d backend=loky.",
         _n_pairs_to_eval, fe_smart_polynom_iters,
         fe_smart_polynom_optimization_steps, _polynom_n_jobs,
     )
@@ -195,18 +195,28 @@ def run_polynom_pair_fe(
         return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
 
     _poly_t0 = time.perf_counter()
-    # 2026-05-18 threshold: at n=1M, 15 pairs, joblib threading overhead
-    # exceeded the per-pair work (11s parallel vs 5.75s serial). The
-    # joblib worker spin-up + queue + GIL contention on small workloads
-    # is a real cost. ``_PARALLEL_PAIR_THRESHOLD=16`` is a measure-first
-    # heuristic - on the n=1M bench 15 pairs went serial faster, but at
-    # 50+ pairs (typical 10-feature problem) parallel wins.
+    # 2026-05-18 threshold: at n=1M, 15 pairs, joblib worker spin-up
+    # exceeded the per-pair work (11s parallel vs 5.75s serial). At 50+
+    # pairs (typical 10-feature problem) parallel wins.
+    #
+    # 2026-05-22 backend FIX: prior ``backend="threading"`` left only one
+    # CPU core busy in prod because the per-pair work spends most time
+    # inside Optuna's TPE/RandomSampler decision loop -- pure-Python,
+    # holds GIL. 16 threading workers serialised behind the GIL gave
+    # the user-visible "16 workers but only 1 core busy" pathology
+    # (231s wall-clock for 54 pairs that should have been ~15s).
+    # Switched to ``backend="loky"`` (process pool): the per-pair work
+    # carries its own NumPy arrays through pickle but the Optuna loop
+    # then runs truly in parallel. Threading is still hard-coded for
+    # the tail-loop where per-pair work is dominated by NumPy/Numba
+    # (those release the GIL); the polynom-FE inner search is the
+    # opposite regime.
     _PARALLEL_PAIR_THRESHOLD = 16
     if (_polynom_n_jobs > 1
             and _n_pairs_to_eval >= _PARALLEL_PAIR_THRESHOLD):
         _poly_pair_results = Parallel(
-            n_jobs=_polynom_n_jobs, backend="threading",
-            prefer="threads", verbose=10 if verbose else 0,
+            n_jobs=_polynom_n_jobs, backend="loky",
+            verbose=10 if verbose else 0,
         )(delayed(_eval_one_pair)(rv) for rv in _pair_keys)
     else:
         if _polynom_n_jobs > 1 and verbose:
