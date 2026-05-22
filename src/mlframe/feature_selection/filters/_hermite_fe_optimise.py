@@ -159,6 +159,379 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
             best_idx = k
     return best_score, best_raw, best_idx
 
+def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables,
+                           bf_names, y, y_njit, mi_estimator, plugin_n_bins,
+                           n_neighbors, discrete_target, l2_penalty,
+                           direction_only=False, eval_func_b=None,
+                           B_a=None, B_b=None):
+    """Batched eval over ``P`` coefficient candidates simultaneously.
+
+    Args:
+      coefs_a: ndarray (P, ca_size) -- candidate coefficients for the a-side.
+      coefs_b: ndarray (P, cb_size) -- candidate coefficients for the b-side.
+      All other kwargs match ``_eval_coef_pair``.
+
+    Returns:
+      (best_scores, best_raws, best_idxs) each ndarray (P,) -- per-candidate
+      best regularised score, raw MI, and bf index.
+
+    The single-call version dispatches one MI batch call across ALL
+    (candidate, bf) column combinations: typical (P=20, K_bf=5) gives a
+    100-column batch instead of 20 separate 5-column batches. The plugin
+    MI kernel is already numba-batched over columns via prange, so this
+    feeds 100 columns into ONE prange loop -- saturates cores fully and
+    removes 19 of the 20 Python-side GIL acquire/release cycles between
+    successive MI calls. Combined with the per-candidate Python loop for
+    polyeval (cheap numba calls), this is the bulk of the speedup vs
+    Optuna's per-trial sequential evaluation.
+    """
+    from .hermite_fe import _l2_normalize_pair, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+
+    P = int(coefs_a.shape[0])
+    # Direction-only normalisation per candidate. Loop because
+    # _l2_normalize_pair operates on a single pair; cheap.
+    if direction_only:
+        coefs_a = coefs_a.copy()
+        coefs_b = coefs_b.copy()
+        for p in range(P):
+            ca_n, cb_n = _l2_normalize_pair(coefs_a[p], coefs_b[p], target_norm=1.0)
+            coefs_a[p] = ca_n
+            coefs_b[p] = cb_n
+
+    # Phase 1: compute h_a / h_b per candidate (one numba call each;
+    # Python loop). Skip candidates that produce non-finite h_a/h_b --
+    # they get -inf score downstream.
+    n_rows = z_a.shape[0]
+    h_a_arr = np.empty((P, n_rows), dtype=np.float64)
+    h_b_arr = np.empty((P, n_rows), dtype=np.float64)
+    cand_valid = np.zeros(P, dtype=bool)
+    for p in range(P):
+        ca = coefs_a[p]
+        cb = coefs_b[p]
+        if B_a is not None and B_b is not None:
+            _Ba_slice = np.ascontiguousarray(B_a[:, :ca.shape[0]])
+            _Bb_slice = np.ascontiguousarray(B_b[:, :cb.shape[0]])
+            _ca = np.ascontiguousarray(ca, dtype=np.float64)
+            _cb = np.ascontiguousarray(cb, dtype=np.float64)
+            h_a = _Ba_slice @ _ca
+            h_b = _Bb_slice @ _cb
+        else:
+            h_a = eval_func(z_a, ca)
+            h_b = (eval_func_b if eval_func_b is not None else eval_func)(z_b, cb)
+        if np.all(np.isfinite(h_a)) and np.all(np.isfinite(h_b)):
+            h_a_arr[p] = h_a
+            h_b_arr[p] = h_b
+            cand_valid[p] = True
+
+    # Phase 2: accumulate (candidate, bf) columns into one stacked
+    # X_batch. Track (cand_idx, bf_idx) per column for the per-candidate
+    # argmax later.
+    all_cols: list = []
+    col_meta: list = []  # tuples (p, k)
+    for p in range(P):
+        if not cand_valid[p]:
+            continue
+        h_a = h_a_arr[p]
+        h_b = h_b_arr[p]
+        for k, bf in enumerate(bf_callables):
+            try:
+                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                    combined = bf(h_a, h_b)
+            except Exception:
+                continue
+            if np.all(np.isfinite(combined)):
+                all_cols.append(np.ascontiguousarray(combined, dtype=np.float64))
+                col_meta.append((p, k))
+
+    best_scores = np.full(P, -np.inf, dtype=np.float64)
+    best_raws = np.zeros(P, dtype=np.float64)
+    best_idxs = np.full(P, -1, dtype=np.int64)
+    if not all_cols:
+        return best_scores, best_raws, best_idxs
+
+    # Phase 3: ONE batched MI call across all (P * K_bf_valid) columns.
+    # _plugin_mi_classif_batch_njit kernel pranges over columns -- with
+    # P=20 candidates and ~5 bf_callables we feed 100 columns into one
+    # call, saturating all cores in a single numba launch.
+    X_batch = np.ascontiguousarray(np.column_stack(all_cols), dtype=np.float64)
+    if mi_estimator == "plugin":
+        if discrete_target:
+            mi_arr = _plugin_mi_classif_batch_njit(X_batch, y_njit, plugin_n_bins)
+        else:
+            mi_arr = _plugin_mi_regression_batch_njit(X_batch, y_njit, plugin_n_bins)
+    else:  # ksg
+        if discrete_target:
+            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors,
+                                          random_state=42, discrete_features=False)
+        else:
+            mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors,
+                                              random_state=42, discrete_features=False)
+
+    # Phase 4: per-candidate l2 penalty + best-bf selection
+    penalties = np.zeros(P, dtype=np.float64)
+    if not direction_only and l2_penalty > 0:
+        for p in range(P):
+            penalties[p] = l2_penalty * (
+                float(np.sum(coefs_a[p] ** 2)) + float(np.sum(coefs_b[p] ** 2))
+            )
+    for j, (p, k) in enumerate(col_meta):
+        raw = float(mi_arr[j])
+        s = raw - penalties[p]
+        if s > best_scores[p]:
+            best_scores[p] = s
+            best_raws[p] = raw
+            best_idxs[p] = k
+    return best_scores, best_raws, best_idxs
+
+
+def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,
+                           direction_only, warm_start_seeds, eval_kwargs,
+                           popsize=None, track_history=False,
+                           early_stop_no_improve_gens: int | None = None):
+    """CMA-ES with batch evaluation: collect all popsize candidates per
+    generation, evaluate them in ONE call to ``_eval_coef_pair_batch``,
+    feed scores back to ``es.tell``. Removes the per-solution Python
+    GIL dance that ``_run_cma_search`` paid.
+
+    Same signature + return contract as ``_run_cma_search`` for drop-in
+    replacement via ``optimizer="cma_batch"``."""
+    from .hermite_fe import _l2_normalize_pair
+    import cma
+    dim = ca_size + cb_size
+    if popsize is None:
+        popsize = max(8, min(20, n_trials // 8))
+    sigma0 = (coef_range[1] - coef_range[0]) / 4.0
+
+    best_score = -np.inf
+    best_raw = 0.0
+    best_idx = -1
+    best_coefs = None
+    n_evals = 0
+    history = [] if track_history else None
+
+    # Warm-start batch: evaluate canonical seeds in one batch call.
+    if warm_start_seeds:
+        seeds_arr = np.stack([
+            np.asarray(s, dtype=np.float64) for s in warm_start_seeds
+        ])
+        ws_a = seeds_arr[:, :ca_size]
+        ws_b = seeds_arr[:, ca_size:]
+        ws_scores, ws_raws, ws_idxs = _eval_coef_pair_batch(
+            ws_a, ws_b, direction_only=direction_only, **eval_kwargs,
+        )
+        n_evals += len(ws_scores)
+        for j, sc in enumerate(ws_scores):
+            if not np.isfinite(sc):
+                continue
+            if track_history and ws_idxs[j] >= 0:
+                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]),
+                                ws_a[j].copy(), ws_b[j].copy()))
+            if sc > best_score:
+                best_score = sc
+                best_raw = ws_raws[j]
+                best_idx = ws_idxs[j]
+                if direction_only:
+                    nc_a, nc_b = _l2_normalize_pair(ws_a[j], ws_b[j])
+                    best_coefs = (nc_a.copy(), nc_b.copy())
+                else:
+                    best_coefs = (ws_a[j].copy(), ws_b[j].copy())
+        x0 = (np.concatenate([best_coefs[0], best_coefs[1]])
+              if best_coefs is not None else np.zeros(dim, dtype=np.float64))
+        sigma0 = sigma0 * 0.5
+    else:
+        x0 = np.zeros(dim, dtype=np.float64)
+
+    es = cma.CMAEvolutionStrategy(
+        x0, sigma0,
+        {
+            "popsize": popsize,
+            "bounds": [[coef_range[0]] * dim, [coef_range[1]] * dim],
+            "verbose": -9, "verb_disp": 0, "verb_log": 0,
+            "seed": seed if seed > 0 else 1,
+            "tolfun": 1e-6, "tolx": 1e-6,
+        },
+    )
+
+    _plateau_gens = 0
+    _last_gen_best_score = best_score
+    while not es.stop() and n_evals < n_trials:
+        try:
+            solutions = es.ask()
+        except Exception:
+            break
+        solutions_arr = np.asarray(solutions, dtype=np.float64)
+        # Truncate batch if we'd exceed the budget mid-generation.
+        _avail = n_trials - n_evals
+        if _avail < len(solutions):
+            sol_batch = solutions_arr[:_avail]
+        else:
+            sol_batch = solutions_arr
+        ca_batch = sol_batch[:, :ca_size]
+        cb_batch = sol_batch[:, ca_size:]
+        scores_batch, raws_batch, idxs_batch = _eval_coef_pair_batch(
+            ca_batch, cb_batch, direction_only=direction_only, **eval_kwargs,
+        )
+        n_evals += len(sol_batch)
+        # Update best + history
+        for j in range(len(sol_batch)):
+            sc = scores_batch[j]
+            if not np.isfinite(sc):
+                continue
+            if track_history and idxs_batch[j] >= 0:
+                history.append((float(sc), float(raws_batch[j]), int(idxs_batch[j]),
+                                  ca_batch[j].copy(), cb_batch[j].copy()))
+            if sc > best_score:
+                best_score = sc
+                best_raw = raws_batch[j]
+                best_idx = idxs_batch[j]
+                if direction_only:
+                    nc_a, nc_b = _l2_normalize_pair(ca_batch[j], cb_batch[j])
+                    best_coefs = (nc_a.copy(), nc_b.copy())
+                else:
+                    best_coefs = (ca_batch[j].copy(), cb_batch[j].copy())
+        # Pad scores for any truncated solutions so es.tell still gets
+        # popsize entries; truncated tail gets a large penalty so CMA
+        # doesn't drift toward them.
+        cma_scores = []
+        for j in range(len(solutions)):
+            if j < len(sol_batch):
+                sc = scores_batch[j]
+                cma_scores.append(-sc if np.isfinite(sc) else 1e6)
+            else:
+                cma_scores.append(1e6)
+        try:
+            es.tell(solutions, cma_scores)
+        except Exception:
+            break
+        if early_stop_no_improve_gens and early_stop_no_improve_gens > 0:
+            if best_score > _last_gen_best_score:
+                _plateau_gens = 0
+                _last_gen_best_score = best_score
+            else:
+                _plateau_gens += 1
+                if _plateau_gens >= early_stop_no_improve_gens:
+                    break
+
+    if best_coefs is None:
+        return None
+    if track_history:
+        return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals, history)
+    return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals)
+
+
+def _run_random_batch_search(*, ca_size, cb_size, coef_range, n_trials, seed,
+                               direction_only, warm_start_seeds, eval_kwargs,
+                               batch_size: int = 20,
+                               elitism_k: int = 4,
+                               perturb_sigma_frac: float = 0.1,
+                               track_history=False):
+    """Custom batch random search + elitism + perturbation. No Optuna,
+    no CMA dependency.
+
+    Each iteration: sample ``batch_size`` candidates uniformly within
+    ``coef_range``. After iter 0, replace the first ``elitism_k`` slots
+    with Gaussian perturbations of the current best (sigma =
+    ``perturb_sigma_frac`` * coef_range_width). All candidates evaluated
+    in ONE ``_eval_coef_pair_batch`` call -- pure Python decision
+    overhead per iter is ~5 lines, no GIL-locked sampler loop.
+
+    Same return contract as ``_run_cma_search`` so the dispatcher can
+    drop it in via ``optimizer="random_batch"``.
+    """
+    from .hermite_fe import _l2_normalize_pair
+    rng = np.random.default_rng(seed if seed > 0 else 1)
+    best_score = -np.inf
+    best_raw = 0.0
+    best_idx = -1
+    best_coefs = None
+    n_evals = 0
+    history = [] if track_history else None
+    sigma = perturb_sigma_frac * (coef_range[1] - coef_range[0])
+    n_iters = max(1, int(np.ceil(n_trials / max(1, batch_size))))
+
+    # Warm-start: evaluate canonical seeds in one batch first.
+    if warm_start_seeds:
+        seeds_arr = np.stack([
+            np.asarray(s, dtype=np.float64) for s in warm_start_seeds
+        ])
+        ws_a = seeds_arr[:, :ca_size]
+        ws_b = seeds_arr[:, ca_size:]
+        ws_scores, ws_raws, ws_idxs = _eval_coef_pair_batch(
+            ws_a, ws_b, direction_only=direction_only, **eval_kwargs,
+        )
+        n_evals += len(ws_scores)
+        for j, sc in enumerate(ws_scores):
+            if not np.isfinite(sc):
+                continue
+            if track_history and ws_idxs[j] >= 0:
+                history.append((float(sc), float(ws_raws[j]), int(ws_idxs[j]),
+                                ws_a[j].copy(), ws_b[j].copy()))
+            if sc > best_score:
+                best_score = sc
+                best_raw = ws_raws[j]
+                best_idx = ws_idxs[j]
+                if direction_only:
+                    nc_a, nc_b = _l2_normalize_pair(ws_a[j], ws_b[j])
+                    best_coefs = (nc_a.copy(), nc_b.copy())
+                else:
+                    best_coefs = (ws_a[j].copy(), ws_b[j].copy())
+
+    for it in range(n_iters):
+        if n_evals >= n_trials:
+            break
+        eff_batch = min(batch_size, n_trials - n_evals)
+        coefs_a_batch = rng.uniform(coef_range[0], coef_range[1],
+                                     size=(eff_batch, ca_size))
+        coefs_b_batch = rng.uniform(coef_range[0], coef_range[1],
+                                     size=(eff_batch, cb_size))
+        # Elitism: replace first K slots with perturbed best.
+        if best_coefs is not None:
+            k = min(elitism_k, eff_batch)
+            coefs_a_batch[:k] = best_coefs[0] + rng.normal(
+                0.0, sigma, (k, ca_size)
+            )
+            coefs_b_batch[:k] = best_coefs[1] + rng.normal(
+                0.0, sigma, (k, cb_size)
+            )
+            # Clip to bounds.
+            np.clip(coefs_a_batch[:k], coef_range[0], coef_range[1],
+                     out=coefs_a_batch[:k])
+            np.clip(coefs_b_batch[:k], coef_range[0], coef_range[1],
+                     out=coefs_b_batch[:k])
+        scores_batch, raws_batch, idxs_batch = _eval_coef_pair_batch(
+            coefs_a_batch, coefs_b_batch,
+            direction_only=direction_only, **eval_kwargs,
+        )
+        n_evals += eff_batch
+        # Update best + history.
+        best_p = int(np.argmax(scores_batch))
+        if np.isfinite(scores_batch[best_p]) and scores_batch[best_p] > best_score:
+            best_score = float(scores_batch[best_p])
+            best_raw = float(raws_batch[best_p])
+            best_idx = int(idxs_batch[best_p])
+            if direction_only:
+                nc_a, nc_b = _l2_normalize_pair(
+                    coefs_a_batch[best_p], coefs_b_batch[best_p]
+                )
+                best_coefs = (nc_a.copy(), nc_b.copy())
+            else:
+                best_coefs = (coefs_a_batch[best_p].copy(),
+                              coefs_b_batch[best_p].copy())
+        if track_history:
+            for j in range(eff_batch):
+                if np.isfinite(scores_batch[j]) and idxs_batch[j] >= 0:
+                    history.append((float(scores_batch[j]), float(raws_batch[j]),
+                                      int(idxs_batch[j]),
+                                      coefs_a_batch[j].copy(),
+                                      coefs_b_batch[j].copy()))
+
+    if best_coefs is None:
+        return None
+    if track_history:
+        return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals, history)
+    return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals)
+
+
 def _select_diverse_topm(history: list, top_m: int,
                             min_l2_distance: float = 0.3) -> list:
     """Greedy diverse-top-M selection from (score, raw_mi, bf_idx, coef_a, coef_b) tuples; keeps entries whose joint (L2-normalized) coef vector is >= min_l2_distance from prior kept.
