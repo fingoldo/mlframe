@@ -1,5 +1,81 @@
 # Changelog
 
+## 2026-05-22 — Feature-drift auto-action: per-target MLP HPT override
+
+Adds an empirically-grounded, drift-triggered MLP HPT override to the
+per-target training loop. Designed against the TVT-2026-05-21 incident
+where MLP collapsed at test R^2 = -314 while Ridge held at +1.00 on the
+same data; the root cause was MLP extrapolation under feature
+distribution shift.
+
+### Signal: FI-weighted feature drift predicts MLP harm
+``compute_feature_distribution_drift`` was already computing per-feature
+z-scores between train and val/test. The new ``weighted_drift_score``
+field aggregates ``sum(|z_i| * |fi_i|) / sum(|fi_i|)`` so a 5-sigma
+drift on an irrelevant feature scores low while a 2-sigma drift on the
+dominant feature scores high. ``baseline_diagnostics`` ablation deltas
+feed FI when available.
+
+Grounding: ``profiling/bench_drift_fi_vs_model_harm.py`` (570 trials,
+9 drift_z levels x 3 drift_target modes x 30 seeds).
+``Pearson(weighted_drift_score, MLP_excess_harm) = +0.834`` overall;
+precision = 1.000, recall = 0.883, zero false positives at threshold
+= 3.0 against ``MLP_excess_harm > 0.1``.
+
+### Action: HPT override (not skip)
+The first iteration recommended skipping MLP for high-drift targets,
+which is too blunt -- ensemble stacking loses a diversity arm. The
+shipped action is a per-target HPT override that pushes MLP toward
+linear behaviour under drift:
+
+- ``profiling/bench_mlp_robustness_sweep.py``: linear DGP, 1440 trials,
+  full Cartesian over {alpha, hidden_layer_sizes, activation}.
+- ``profiling/bench_mlp_robustness_sweep_nonlinear.py``: 4 DGPs
+  (linear / quadratic_dominant / interaction / sinusoidal), 3520 trials,
+  per-trial R^2 + RMSE/y_std + MAE/y_std (mlframe.metrics.core fast_*).
+
+All three metrics (R^2, RMSE/y_std, MAE/y_std) agree on the same
+cross-DGP min-max winner: ``alpha=1e-4, hidden_layer_sizes=(32, 16),
+activation='identity'``. Worst-case mean across all DGPs:
+- R^2 gap: 0.0108 (quadratic curvature MLP-identity cannot capture)
+- RMSE/y_std: 0.0023 (linear DGP)
+- MAE/y_std: 0.0023 (linear DGP)
+
+Baseline sklearn defaults (alpha=1e-4, hidden=(100,), activation=relu)
+suffered mean MLP_excess_harm = 6.455 R^2 at drift_z=10 on the linear
+DGP -- a ~10000x reduction.
+
+### Wire-in
+``_phase_train_one_target_body`` reads
+``metadata["feature_distribution_drift"][target_type][cur_target_name]
+.get("recommend_neural_overrides")`` after diagnostics. When non-None
+and the target is regression (the bench was 100% regression DGPs;
+classification skips the override), the sklearn-shape dict is
+translated to mlframe's nested ``mlp_kwargs`` shape via
+``translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs`` and deep-
+merged into a per-target ``hyperparams_config.model_copy(update=...)``.
+Other targets in the same suite keep the original mlp_kwargs.
+``metadata["feature_drift_auto_action"]`` stamps the override for
+post-mortem observability.
+
+### Files
+- ``src/mlframe/training/feature_drift_report.py``: ``ROBUST_MLP_OVERRIDES_UNDER_DRIFT``
+  constant, ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD = 3.0``,
+  ``translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs`` translator,
+  ``recommend_neural_overrides`` field in the report dict.
+- ``src/mlframe/training/core/_phase_train_one_target_body.py``: the
+  per-target wire-in with regression-only gate.
+- ``profiling/bench_drift_fi_vs_model_harm.py``: empirical paired
+  experiment grounding the harm signal.
+- ``profiling/bench_mlp_robustness_sweep.py``: linear-DGP HPT sweep
+  (superseded by the multi-DGP / multi-metric variant; kept for
+  reproducibility of the original grounding).
+- ``profiling/bench_mlp_robustness_sweep_nonlinear.py``: multi-DGP
+  multi-metric cross-DGP min-max sweep.
+- ``tests/training/test_feature_drift_report.py``: translator coverage,
+  recommend-field gating, wire-in metadata-merge smoke.
+
+
 ## 2026-05-20 — Composite-discovery + polynom-FE parallel/GPU expansion
 
 Cumulative wave landing four perf improvements on top of the 2026-05-19

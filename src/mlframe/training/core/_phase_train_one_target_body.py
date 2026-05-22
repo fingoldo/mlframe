@@ -384,9 +384,16 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         # override into the nested mlframe ``mlp_kwargs`` shape and apply
         # it as a PER-TARGET override to ``hyperparams_config.mlp_kwargs``.
         # Other targets in the same suite keep the original mlp_kwargs.
-        # Grounded by ``profiling/bench_mlp_robustness_sweep.py``: the
-        # pick reduced mean MLP_excess_harm from 6.455 R^2 (baseline) to
-        # 0.0006 at drift_z=10 with zero degradation in the no-drift cell.
+        # Grounded by ``profiling/bench_mlp_robustness_sweep_nonlinear.py``:
+        # multi-metric (R^2 / RMSE / MAE) cross-DGP min-max winner is
+        # alpha=1e-4 hidden=(32,16) activation=identity.
+        #
+        # Regression-only gate: every DGP in both sweeps was a regression
+        # target. Applying ``activation=identity`` to a classification MLP
+        # would force a linear head emitting raw logits without the
+        # nonlinearity probability outputs need -- entirely unvalidated
+        # territory. Until a classification-DGP sweep lands, the override
+        # is restricted to regression targets only.
         _target_hyperparams_config = hyperparams_config
         try:
             _fd_for_target = (
@@ -398,6 +405,17 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 _fd_for_target.get("recommend_neural_overrides")
                 if isinstance(_fd_for_target, dict) else None
             )
+            _is_regression = _is_regression_target_type(target_type)
+            if _sklearn_override and "mlp" in mlframe_models and not _is_regression:
+                logger.info(
+                    "[feature-drift-auto-action] target='%s' (%s) has a "
+                    "recommend_neural_overrides=%s payload but the override "
+                    "is regression-only (the 2026-05-22 sweep covered no "
+                    "classification DGPs). Skipping the per-target MLP "
+                    "override; default MLP config retained.",
+                    cur_target_name, target_type, _sklearn_override,
+                )
+                _sklearn_override = None
             if _sklearn_override and "mlp" in mlframe_models:
                 from ..feature_drift_report import (
                     translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,

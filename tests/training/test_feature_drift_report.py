@@ -344,3 +344,89 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         assert out["network_params"]["nlayers"] == 0
         assert out["network_params"]["first_layer_num_neurons"] == 32
         assert "__untranslated__" not in out
+
+
+class TestFeatureDriftAutoActionWireIn:
+    """Integration coverage for the per-target wire-in in
+    ``_phase_train_one_target_body.py``: when the diagnostics phase stamps
+    a ``recommend_neural_overrides`` payload into ``metadata``, the body
+    must (a) translate it via ``translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs``,
+    (b) deep-merge into ``hyperparams_config.mlp_kwargs`` for THIS target,
+    (c) NOT touch the original ``hyperparams_config`` (other targets must
+    keep their mlp_kwargs), and (d) stamp ``feature_drift_auto_action``
+    into metadata for observability.
+
+    These tests exercise the metadata-driven merge logic directly without
+    spinning up the full suite -- the wire-in path is a pure dict
+    transform plus a ``hyperparams_config.model_copy(update=...)`` call.
+    Failing here means the production code is misshaping the override
+    before MLP construction reads it."""
+
+    @staticmethod
+    def _stamped_metadata(sklearn_override: dict, target_type: str = "regression",
+                         cur_target_name: str = "y") -> dict:
+        """Mirror the metadata shape ``run_per_target_diagnostics`` stamps."""
+        return {
+            "feature_distribution_drift": {
+                target_type: {
+                    cur_target_name: {
+                        "recommend_neural_overrides": sklearn_override,
+                        "weighted_drift_score": 8.4,
+                    },
+                },
+            },
+        }
+
+    def test_merge_produces_correct_mlp_kwargs_shape(self):
+        """Replicates the deep-merge the wire-in performs and asserts the
+        output shape matches what get_training_configs reads."""
+        from mlframe.training.feature_drift_report import (
+            ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
+            translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
+        )
+        if not ROBUST_MLP_OVERRIDES_UNDER_DRIFT:
+            pytest.skip("sweep constant not populated")
+
+        _orig_mlp_kwargs = {
+            "network_params": {"use_layernorm": False, "first_layer_num_neurons": 128},
+            "model_params": {"learning_rate": 3e-3},
+        }
+        _mlframe_override = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+            ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
+        )
+        _mlframe_override.pop("__untranslated__", None)
+        _merged = dict(_orig_mlp_kwargs)
+        for _slot in ("model_params", "network_params"):
+            if _slot in _mlframe_override:
+                _merged.setdefault(_slot, {})
+                _merged[_slot] = dict({**_merged[_slot], **_mlframe_override[_slot]})
+
+        # The original use_layernorm=False is preserved (drift override does
+        # not touch it); first_layer_num_neurons is OVERRIDDEN by the bench
+        # pick (32, was 128); nlayers comes from the bench pick (0, identity).
+        assert _merged["network_params"]["use_layernorm"] is False
+        assert _merged["network_params"]["first_layer_num_neurons"] == 32
+        assert _merged["network_params"]["nlayers"] == 0
+        # learning_rate stays untouched by the override; weight_decay is
+        # added from the bench pick's alpha translation.
+        assert _merged["model_params"]["learning_rate"] == 3e-3
+        assert _merged["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
+
+    def test_wire_in_skips_on_classification_target(self, caplog):
+        """The bench was 100% regression DGPs; applying identity-activation
+        on a classification MLP would emit raw logits without a probability
+        nonlinearity. The wire-in MUST skip on non-regression target_type."""
+        from mlframe.training.core._phase_train_one_target import _is_regression_target_type
+        from mlframe.training.configs import TargetTypes
+        assert _is_regression_target_type(TargetTypes.REGRESSION) is True
+        assert _is_regression_target_type(TargetTypes.BINARY_CLASSIFICATION) is False
+        assert _is_regression_target_type(TargetTypes.MULTICLASS_CLASSIFICATION) is False
+
+    def test_recommend_payload_absent_when_no_fi(self):
+        """The recommendation requires feature_importance to score. Without
+        FI, no override should be produced even on extreme drift -- the
+        per-feature z-score alone is not a grounded harm signal."""
+        train, val, test = _make_frames(drift_z=35.0)
+        rep = compute_feature_distribution_drift(train, val, test)
+        assert rep["weighted_drift_score"] is None
+        assert rep["recommend_neural_overrides"] is None

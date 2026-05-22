@@ -1,10 +1,18 @@
 """Empirical search for MLP HPT overrides that close the Ridge-vs-MLP gap under feature drift.
 
+**SUPERSEDED by** ``bench_mlp_robustness_sweep_nonlinear.py`` (the multi-
+DGP / multi-metric variant). This script only sweeps a LINEAR DGP and
+only ranks by R^2; the production override in
+``ROBUST_MLP_OVERRIDES_UNDER_DRIFT`` is now drawn from the nonlinear
+variant, which agrees across R^2 + RMSE/y_std + MAE/y_std on a
+different alpha (1e-4 vs this script's 0.1). This file is kept for
+historical reproducibility of the original grounding and as the
+fastest way to re-bench the linear-DGP behaviour in isolation.
+
 Companion to ``bench_drift_fi_vs_model_harm.py``. That study showed
 ``weighted_drift_score`` predicts MLP catastrophic harm (Pearson r=+0.834,
-zero false positives at threshold=3.0). The user's 2026-05-22 redirect:
-"recommend_skip_neural is too blunt -- find HPT changes that improve the
-neural model on degenerate data instead."
+zero false positives at threshold=3.0). The 2026-05-22 redirect from
+"skip neural" to "fix neural HPT":
 
 So instead of dropping MLP, we search the HPT space for overrides that
 narrow ``MLP_excess_harm = Ridge_R^2_test - MLP_R^2_test`` on the same
