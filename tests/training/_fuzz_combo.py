@@ -531,6 +531,93 @@ AXES: dict[str, tuple[Any, ...]] = {
     # --- RecurrentConfig nested (canon collapsed when recurrent_model=None)
     "recurrent_precision_cfg": ("32-true", "16-mixed"),
     "recurrent_sequence_preprocessing_cfg": ("none", "per_sequence_zscore"),
+    # =====================================================================
+    # 2026-05-22 iter170 -- 4-agent wave3 depth-3+ audit. ~60 fields
+    # buried in per-backend hyperparam dicts + FHC sub-configs +
+    # RFECV/MRMR/CatFE/Composite/Reporting/BaselineDiag deep fields.
+    # =====================================================================
+    # --- Per-backend hyperparam inner knobs (only on relevant model)
+    "lgb_feature_fraction_cfg": (1.0, 0.7),
+    "lgb_num_leaves_cfg": (31, 63),
+    "xgb_max_depth_cfg": (6, 4),
+    "xgb_colsample_bynode_cfg": (1.0, 0.7),
+    "cb_border_count_cfg": (254, 64),
+    "hgb_max_leaf_nodes_cfg": (31, 15),
+    "rfecv_cv_n_splits_cfg": (2, 3),
+    # --- PreprocessingBackendConfig + PreprocessingExtensionsConfig
+    "robust_q_low_cfg": (0.01, 0.05),
+    "robust_q_high_cfg": (0.99, 0.95),
+    "tfidf_max_features_cfg": (5000, 1000),
+    "kbins_encode_cfg": ("ordinal", "onehot"),
+    "nonlinear_n_components_cfg": (100, 50),
+    "pysr_operator_preset_cfg": ("standard", "minimal", "physics"),
+    # --- TrainingBehaviorConfig + FeatureTypesConfig deep
+    "confidence_ensemble_quantile_cfg": (0.1, 0.2),
+    "cat_text_card_threshold_pct_cfg": (0.001, 0.01),
+    # --- RFECV deep knobs
+    "rfecv_n_features_selection_rule_cfg": ("auto", "argmax", "one_se_max"),
+    "rfecv_stability_selection_cfg": (False, True),
+    "rfecv_leakage_action_cfg": ("warn", "exclude"),
+    # --- MRMR deep
+    "mrmr_fe_adaptive_threshold_relax_cfg": (True, False),
+    "mrmr_use_simple_mode_cfg": (False, True),
+    "mrmr_identity_cache_include_y_cfg": (True, False),
+    # --- CatFE deep (only when use_mrmr_fs + cat_fe_enable)
+    "catfe_fwer_correction_cfg": ("none", "bh_fdr", "bonferroni"),
+    "catfe_perm_budget_strategy_cfg": ("bandit_ucb1", "fixed"),
+    "catfe_permutation_null_cfg": ("joint_independence", "conditional"),
+    "catfe_bootstrap_ci_n_replicates_cfg": (0, 50),
+    "catfe_use_miller_madow_cfg": (None, True, False),
+    "catfe_refine_passes_cfg": (0, 1),
+    "catfe_enable_streaming_cache_cfg": (False, True),
+    "catfe_unknown_strategy_cfg": ("clip", "sentinel", "raise"),
+    # --- Composite discovery deep
+    "composite_screening_cfg": ("hybrid", "mi", "tiny_model"),
+    "composite_tiny_model_num_leaves_cfg": (15, 31),
+    "composite_tiny_model_learning_rate_cfg": (0.1, 0.05),
+    "composite_raw_baseline_tolerance_cfg": (1.02, 1.10),
+    "composite_use_wilcoxon_gate_cfg": (False, True),
+    "composite_detect_alpha_drift_cfg": (True, False),
+    "composite_reject_on_alpha_drift_cfg": (False, True),
+    # --- Reporting deep
+    "reporting_figsize_cfg": ("default", "small"),
+    "reporting_plot_dpi_cfg": (None, 80),
+    "reporting_quantile_panels_cfg": ("default", "minimal"),
+    "reporting_ltr_panels_cfg": ("default", "minimal"),
+    "reporting_plotly_template_cfg": (None, "ggplot2"),
+    "reporting_matplotlib_style_cfg": (None, "ggplot"),
+    # --- BaselineDiagnostics deep
+    "baseline_quick_model_n_estimators_cfg": (200, 50),
+    "baseline_quick_model_num_leaves_cfg": (31, 15),
+    "baseline_quick_model_learning_rate_cfg": (0.05, 0.1),
+    "baseline_sample_n_cfg": (50_000, 10_000),
+    "baseline_high_potential_min_dominance_pct_cfg": (5.0, 10.0),
+    "baseline_best_model_min_lift_cfg": (1.5, 2.0),
+    # --- DummyBaselines deep
+    "dummy_stratified_n_repeats_cfg": (20, 5),
+    "dummy_paired_bootstrap_n_resamples_cfg": (1000, 200),
+    # --- LTR deep
+    "ltr_mlp_loss_fn_cfg": ("ranknet", "listnet"),
+    "ltr_eval_at_cfg": ("default", "extended"),
+    # --- Multilabel deep
+    "multilabel_force_native_xgb_cfg": (False, True),
+    # --- FHC pricing / logging / repro / cache deep (only when enable_fhc)
+    "fhc_pricing_cap_usd_cfg": (None, 1.0),
+    "fhc_pricing_warn_above_usd_cfg": (1.0, 0.5),
+    "fhc_logging_verbose_cfg": (False, True),
+    "fhc_repro_langdetect_seed_cfg": (0, 42),
+    "fhc_repro_pinned_svd_solver_params_cfg": (True, False),
+    "fhc_repro_forbid_nonatomic_fs_cfg": (False, True),
+    "fhc_repro_deterministic_eviction_cfg": (False, True),
+    "fhc_cache_prefetch_enabled_cfg": (True, False),
+    "fhc_cache_prefetch_vram_safety_factor_cfg": (2.0, 1.5),
+    "fhc_memory_pressure_watermark_pct_cfg": (85, 75),
+    "fhc_text_min_mean_tokens_cfg": (4.0, 2.0),
+    "fhc_text_min_unique_ratio_cfg": (0.95, 0.85),
+    "fhc_text_respect_explicit_cat_dtype_cfg": (True, False),
+    # --- RecurrentConfig deep (only when recurrent_model)
+    "recurrent_input_mode_cfg": ("hybrid", "sequence_only", "tabular_only"),
+    "recurrent_num_workers_cfg": (0, 2),
 }
 
 
@@ -729,6 +816,76 @@ class FuzzCombo:
     ltr_rrf_k_cfg: int = 60
     recurrent_precision_cfg: str = "32-true"
     recurrent_sequence_preprocessing_cfg: str = "none"
+    # 2026-05-22 iter170 -- wave-3 depth-3+ audit. All default to the
+    # library default so combos archived pre-iter170 deserialise unchanged.
+    lgb_feature_fraction_cfg: float = 1.0
+    lgb_num_leaves_cfg: int = 31
+    xgb_max_depth_cfg: int = 6
+    xgb_colsample_bynode_cfg: float = 1.0
+    cb_border_count_cfg: int = 254
+    hgb_max_leaf_nodes_cfg: int = 31
+    rfecv_cv_n_splits_cfg: int = 2
+    robust_q_low_cfg: float = 0.01
+    robust_q_high_cfg: float = 0.99
+    tfidf_max_features_cfg: int = 5000
+    kbins_encode_cfg: str = "ordinal"
+    nonlinear_n_components_cfg: int = 100
+    pysr_operator_preset_cfg: str = "standard"
+    confidence_ensemble_quantile_cfg: float = 0.1
+    cat_text_card_threshold_pct_cfg: float = 0.001
+    rfecv_n_features_selection_rule_cfg: str = "auto"
+    rfecv_stability_selection_cfg: bool = False
+    rfecv_leakage_action_cfg: str = "warn"
+    mrmr_fe_adaptive_threshold_relax_cfg: bool = True
+    mrmr_use_simple_mode_cfg: bool = False
+    mrmr_identity_cache_include_y_cfg: bool = True
+    catfe_fwer_correction_cfg: str = "none"
+    catfe_perm_budget_strategy_cfg: str = "bandit_ucb1"
+    catfe_permutation_null_cfg: str = "joint_independence"
+    catfe_bootstrap_ci_n_replicates_cfg: int = 0
+    catfe_use_miller_madow_cfg: "bool | None" = None
+    catfe_refine_passes_cfg: int = 0
+    catfe_enable_streaming_cache_cfg: bool = False
+    catfe_unknown_strategy_cfg: str = "clip"
+    composite_screening_cfg: str = "hybrid"
+    composite_tiny_model_num_leaves_cfg: int = 15
+    composite_tiny_model_learning_rate_cfg: float = 0.1
+    composite_raw_baseline_tolerance_cfg: float = 1.02
+    composite_use_wilcoxon_gate_cfg: bool = False
+    composite_detect_alpha_drift_cfg: bool = True
+    composite_reject_on_alpha_drift_cfg: bool = False
+    reporting_figsize_cfg: str = "default"
+    reporting_plot_dpi_cfg: "int | None" = None
+    reporting_quantile_panels_cfg: str = "default"
+    reporting_ltr_panels_cfg: str = "default"
+    reporting_plotly_template_cfg: "str | None" = None
+    reporting_matplotlib_style_cfg: "str | None" = None
+    baseline_quick_model_n_estimators_cfg: int = 200
+    baseline_quick_model_num_leaves_cfg: int = 31
+    baseline_quick_model_learning_rate_cfg: float = 0.05
+    baseline_sample_n_cfg: int = 50_000
+    baseline_high_potential_min_dominance_pct_cfg: float = 5.0
+    baseline_best_model_min_lift_cfg: float = 1.5
+    dummy_stratified_n_repeats_cfg: int = 20
+    dummy_paired_bootstrap_n_resamples_cfg: int = 1000
+    ltr_mlp_loss_fn_cfg: str = "ranknet"
+    ltr_eval_at_cfg: str = "default"
+    multilabel_force_native_xgb_cfg: bool = False
+    fhc_pricing_cap_usd_cfg: "float | None" = None
+    fhc_pricing_warn_above_usd_cfg: float = 1.0
+    fhc_logging_verbose_cfg: bool = False
+    fhc_repro_langdetect_seed_cfg: int = 0
+    fhc_repro_pinned_svd_solver_params_cfg: bool = True
+    fhc_repro_forbid_nonatomic_fs_cfg: bool = False
+    fhc_repro_deterministic_eviction_cfg: bool = False
+    fhc_cache_prefetch_enabled_cfg: bool = True
+    fhc_cache_prefetch_vram_safety_factor_cfg: float = 2.0
+    fhc_memory_pressure_watermark_pct_cfg: int = 85
+    fhc_text_min_mean_tokens_cfg: float = 4.0
+    fhc_text_min_unique_ratio_cfg: float = 0.95
+    fhc_text_respect_explicit_cat_dtype_cfg: bool = True
+    recurrent_input_mode_cfg: str = "hybrid"
+    recurrent_num_workers_cfg: int = 0
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -1865,6 +2022,75 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ltr_rrf_k_cfg=axes.get("ltr_rrf_k_cfg", 60),
         recurrent_precision_cfg=axes.get("recurrent_precision_cfg", "32-true"),
         recurrent_sequence_preprocessing_cfg=axes.get("recurrent_sequence_preprocessing_cfg", "none"),
+        # 2026-05-22 iter170 -- wave-3 depth-3+ audit.
+        lgb_feature_fraction_cfg=axes.get("lgb_feature_fraction_cfg", 1.0),
+        lgb_num_leaves_cfg=axes.get("lgb_num_leaves_cfg", 31),
+        xgb_max_depth_cfg=axes.get("xgb_max_depth_cfg", 6),
+        xgb_colsample_bynode_cfg=axes.get("xgb_colsample_bynode_cfg", 1.0),
+        cb_border_count_cfg=axes.get("cb_border_count_cfg", 254),
+        hgb_max_leaf_nodes_cfg=axes.get("hgb_max_leaf_nodes_cfg", 31),
+        rfecv_cv_n_splits_cfg=axes.get("rfecv_cv_n_splits_cfg", 2),
+        robust_q_low_cfg=axes.get("robust_q_low_cfg", 0.01),
+        robust_q_high_cfg=axes.get("robust_q_high_cfg", 0.99),
+        tfidf_max_features_cfg=axes.get("tfidf_max_features_cfg", 5000),
+        kbins_encode_cfg=axes.get("kbins_encode_cfg", "ordinal"),
+        nonlinear_n_components_cfg=axes.get("nonlinear_n_components_cfg", 100),
+        pysr_operator_preset_cfg=axes.get("pysr_operator_preset_cfg", "standard"),
+        confidence_ensemble_quantile_cfg=axes.get("confidence_ensemble_quantile_cfg", 0.1),
+        cat_text_card_threshold_pct_cfg=axes.get("cat_text_card_threshold_pct_cfg", 0.001),
+        rfecv_n_features_selection_rule_cfg=axes.get("rfecv_n_features_selection_rule_cfg", "auto"),
+        rfecv_stability_selection_cfg=axes.get("rfecv_stability_selection_cfg", False),
+        rfecv_leakage_action_cfg=axes.get("rfecv_leakage_action_cfg", "warn"),
+        mrmr_fe_adaptive_threshold_relax_cfg=axes.get("mrmr_fe_adaptive_threshold_relax_cfg", True),
+        mrmr_use_simple_mode_cfg=axes.get("mrmr_use_simple_mode_cfg", False),
+        mrmr_identity_cache_include_y_cfg=axes.get("mrmr_identity_cache_include_y_cfg", True),
+        catfe_fwer_correction_cfg=axes.get("catfe_fwer_correction_cfg", "none"),
+        catfe_perm_budget_strategy_cfg=axes.get("catfe_perm_budget_strategy_cfg", "bandit_ucb1"),
+        catfe_permutation_null_cfg=axes.get("catfe_permutation_null_cfg", "joint_independence"),
+        catfe_bootstrap_ci_n_replicates_cfg=axes.get("catfe_bootstrap_ci_n_replicates_cfg", 0),
+        catfe_use_miller_madow_cfg=axes.get("catfe_use_miller_madow_cfg", None),
+        catfe_refine_passes_cfg=axes.get("catfe_refine_passes_cfg", 0),
+        catfe_enable_streaming_cache_cfg=axes.get("catfe_enable_streaming_cache_cfg", False),
+        catfe_unknown_strategy_cfg=axes.get("catfe_unknown_strategy_cfg", "clip"),
+        composite_screening_cfg=axes.get("composite_screening_cfg", "hybrid"),
+        composite_tiny_model_num_leaves_cfg=axes.get("composite_tiny_model_num_leaves_cfg", 15),
+        composite_tiny_model_learning_rate_cfg=axes.get("composite_tiny_model_learning_rate_cfg", 0.1),
+        composite_raw_baseline_tolerance_cfg=axes.get("composite_raw_baseline_tolerance_cfg", 1.02),
+        composite_use_wilcoxon_gate_cfg=axes.get("composite_use_wilcoxon_gate_cfg", False),
+        composite_detect_alpha_drift_cfg=axes.get("composite_detect_alpha_drift_cfg", True),
+        composite_reject_on_alpha_drift_cfg=axes.get("composite_reject_on_alpha_drift_cfg", False),
+        reporting_figsize_cfg=axes.get("reporting_figsize_cfg", "default"),
+        reporting_plot_dpi_cfg=axes.get("reporting_plot_dpi_cfg", None),
+        reporting_quantile_panels_cfg=axes.get("reporting_quantile_panels_cfg", "default"),
+        reporting_ltr_panels_cfg=axes.get("reporting_ltr_panels_cfg", "default"),
+        reporting_plotly_template_cfg=axes.get("reporting_plotly_template_cfg", None),
+        reporting_matplotlib_style_cfg=axes.get("reporting_matplotlib_style_cfg", None),
+        baseline_quick_model_n_estimators_cfg=axes.get("baseline_quick_model_n_estimators_cfg", 200),
+        baseline_quick_model_num_leaves_cfg=axes.get("baseline_quick_model_num_leaves_cfg", 31),
+        baseline_quick_model_learning_rate_cfg=axes.get("baseline_quick_model_learning_rate_cfg", 0.05),
+        baseline_sample_n_cfg=axes.get("baseline_sample_n_cfg", 50_000),
+        baseline_high_potential_min_dominance_pct_cfg=axes.get("baseline_high_potential_min_dominance_pct_cfg", 5.0),
+        baseline_best_model_min_lift_cfg=axes.get("baseline_best_model_min_lift_cfg", 1.5),
+        dummy_stratified_n_repeats_cfg=axes.get("dummy_stratified_n_repeats_cfg", 20),
+        dummy_paired_bootstrap_n_resamples_cfg=axes.get("dummy_paired_bootstrap_n_resamples_cfg", 1000),
+        ltr_mlp_loss_fn_cfg=axes.get("ltr_mlp_loss_fn_cfg", "ranknet"),
+        ltr_eval_at_cfg=axes.get("ltr_eval_at_cfg", "default"),
+        multilabel_force_native_xgb_cfg=axes.get("multilabel_force_native_xgb_cfg", False),
+        fhc_pricing_cap_usd_cfg=axes.get("fhc_pricing_cap_usd_cfg", None),
+        fhc_pricing_warn_above_usd_cfg=axes.get("fhc_pricing_warn_above_usd_cfg", 1.0),
+        fhc_logging_verbose_cfg=axes.get("fhc_logging_verbose_cfg", False),
+        fhc_repro_langdetect_seed_cfg=axes.get("fhc_repro_langdetect_seed_cfg", 0),
+        fhc_repro_pinned_svd_solver_params_cfg=axes.get("fhc_repro_pinned_svd_solver_params_cfg", True),
+        fhc_repro_forbid_nonatomic_fs_cfg=axes.get("fhc_repro_forbid_nonatomic_fs_cfg", False),
+        fhc_repro_deterministic_eviction_cfg=axes.get("fhc_repro_deterministic_eviction_cfg", False),
+        fhc_cache_prefetch_enabled_cfg=axes.get("fhc_cache_prefetch_enabled_cfg", True),
+        fhc_cache_prefetch_vram_safety_factor_cfg=axes.get("fhc_cache_prefetch_vram_safety_factor_cfg", 2.0),
+        fhc_memory_pressure_watermark_pct_cfg=axes.get("fhc_memory_pressure_watermark_pct_cfg", 85),
+        fhc_text_min_mean_tokens_cfg=axes.get("fhc_text_min_mean_tokens_cfg", 4.0),
+        fhc_text_min_unique_ratio_cfg=axes.get("fhc_text_min_unique_ratio_cfg", 0.95),
+        fhc_text_respect_explicit_cat_dtype_cfg=axes.get("fhc_text_respect_explicit_cat_dtype_cfg", True),
+        recurrent_input_mode_cfg=axes.get("recurrent_input_mode_cfg", "hybrid"),
+        recurrent_num_workers_cfg=axes.get("recurrent_num_workers_cfg", 0),
     )
 
 

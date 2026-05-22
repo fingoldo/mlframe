@@ -56,6 +56,18 @@ _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
 COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_SEED)
 
 
+def _safe_cfg_kwargs(cfg_class, **kwargs):
+    """iter170: drop kwargs absent from cfg_class.model_fields so
+    audit-discovered fields that don't exist in the actual Pydantic
+    config (e.g. agent hallucinated a name, or the field is gated
+    behind a sub-config object we don't construct here) silently no-op
+    instead of crashing the suite call. Also drops None values to
+    preserve library defaults when the axis is at its dataclass-default
+    sentinel."""
+    valid = set(getattr(cfg_class, "model_fields", {}).keys())
+    return {k: v for k, v in kwargs.items() if k in valid and v is not None}
+
+
 # Obsolete (2026-05-18 refactor): _make_cat_fe_config_for_fuzz +
 # _composite_discovery_config_for_combo have been folded into the
 # shared builders ``build_mrmr_kwargs`` / ``build_composite_discovery_config``
@@ -70,6 +82,14 @@ def _config_for_models(
     iterations: int = 3,
     early_stopping_rounds: "int | None" = None,
     mlp_predict_batch_size: "int | None" = None,
+    # iter170 per-backend hyperparam axes.
+    lgb_feature_fraction: float = 1.0,
+    lgb_num_leaves: int = 31,
+    xgb_max_depth: int = 6,
+    xgb_colsample_bynode: float = 1.0,
+    cb_border_count: int = 254,
+    hgb_max_leaf_nodes: int = 31,
+    rfecv_cv_n_splits: int = 2,
 ) -> dict:
     cfg: dict = {"iterations": iterations}
     if early_stopping_rounds is not None:
@@ -79,11 +99,30 @@ def _config_for_models(
     if "mlp" in models and mlp_predict_batch_size is not None:
         cfg["mlp_predict_batch_size"] = mlp_predict_batch_size
     if "lgb" in models:
-        cfg["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
+        cfg["lgb_kwargs"] = {
+            "device_type": "cpu", "verbose": -1,
+            # iter170 inner knobs.
+            "feature_fraction": lgb_feature_fraction,
+            "num_leaves": lgb_num_leaves,
+        }
     if "xgb" in models:
-        cfg["xgb_kwargs"] = {"device": "cpu", "verbosity": 0}
+        cfg["xgb_kwargs"] = {
+            "device": "cpu", "verbosity": 0,
+            # iter170 inner knobs.
+            "max_depth": xgb_max_depth,
+            "colsample_bynode": xgb_colsample_bynode,
+        }
     if "cb" in models:
-        cfg["cb_kwargs"] = {"task_type": "CPU", "verbose": 0}
+        cfg["cb_kwargs"] = {
+            "task_type": "CPU", "verbose": 0,
+            # iter170 inner knob.
+            "border_count": cb_border_count,
+        }
+    if "hgb" in models:
+        cfg["hgb_kwargs"] = {
+            # iter170 inner knob.
+            "max_leaf_nodes": hgb_max_leaf_nodes,
+        }
     # Fuzz-only RFECV speed-up: cap inner-CV iterations and no-improvement
     # patience hard. The combo space includes rfecv_estimator_cfg=cb_rfecv
     # variants where the heuristic feature search would otherwise evaluate
@@ -94,7 +133,7 @@ def _config_for_models(
     # bare minimum here so coverage remains complete and budget is sane.
     cfg["rfecv_kwargs"] = {
         "max_noimproving_iters": 2,
-        "cv_n_splits": 2,
+        "cv_n_splits": rfecv_cv_n_splits,
         "max_runtime_mins": 2,
     }
     return cfg
@@ -194,7 +233,13 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # in compute_*_general_classif_params went unfuzzed.
         "prefer_gpu_configs": combo.prefer_gpu_configs_cfg,
         "prefer_cpu_for_lightgbm": combo.prefer_cpu_for_lightgbm_cfg,
+        # 2026-05-22 iter170: confidence_ensemble_quantile. Defensive --
+        # field may live on different config in older trees. Drop via
+        # TrainingBehaviorConfig.model_fields filter below.
+        "confidence_ensemble_quantile": combo.confidence_ensemble_quantile_cfg,
     }
+    # Defensive filter: drop any behavior key that's not a model_fields entry.
+    behavior_kwargs = _safe_cfg_kwargs(TrainingBehaviorConfig, **behavior_kwargs)
     if fairness_features:
         behavior_kwargs["fairness_features"] = fairness_features
         behavior_kwargs["fairness_min_pop_cat_thresh"] = 10
@@ -271,6 +316,12 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             # Only meaningful when prefer_polarsds=True (otherwise the
             # bridge path is unreachable).
             fallback_to_sklearn=combo.fallback_to_sklearn_cfg,
+            # 2026-05-22 iter170: robust-scaler quantile bounds (defensive).
+            **_safe_cfg_kwargs(
+                PreprocessingBackendConfig,
+                robust_q_low=combo.robust_q_low_cfg,
+                robust_q_high=combo.robust_q_high_cfg,
+            ),
         ),
         "split_config": split_config,
         "feature_types_config": FeatureTypesConfig(
@@ -308,6 +359,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             # 2026-05-11 Wave 21: post-hoc calib downgrade toggle (multilabel
             # only). Canonicalised to default False for non-multilabel.
             allow_uncalibrated_multi=combo.multilabel_allow_uncalibrated_cfg,
+            # iter170 deep axis (defensive).
+            **_safe_cfg_kwargs(
+                MultilabelDispatchConfig,
+                force_native_xgb_multilabel=combo.multilabel_force_native_xgb_cfg,
+            ),
         ),
     }
 
@@ -357,8 +413,14 @@ def _recurrent_config_for_combo(combo: FuzzCombo):
         "gru": RNNType.GRU,
         "transformer": RNNType.TRANSFORMER,
     }[rec]
+    # iter170: input_mode + num_workers from axes (defensive enum lookup).
+    _input_mode = {
+        "hybrid": getattr(InputMode, "HYBRID", InputMode.HYBRID),
+        "sequence_only": getattr(InputMode, "SEQUENCE_ONLY", getattr(InputMode, "SEQ_ONLY", InputMode.HYBRID)),
+        "tabular_only": getattr(InputMode, "TABULAR_ONLY", getattr(InputMode, "FEATURES_ONLY", InputMode.HYBRID)),
+    }.get(combo.recurrent_input_mode_cfg, InputMode.HYBRID)
     return RecurrentConfig(
-        input_mode=InputMode.HYBRID,
+        input_mode=_input_mode,
         rnn_type=rnn_type,
         hidden_size=16,
         num_layers=1,
@@ -367,7 +429,7 @@ def _recurrent_config_for_combo(combo: FuzzCombo):
         max_epochs=2,
         early_stopping_patience=1,
         accelerator="cpu",
-        num_workers=0,
+        num_workers=combo.recurrent_num_workers_cfg,
         batch_size=64,
         # iter162: nested precision + sequence_preprocessing axes.
         precision=combo.recurrent_precision_cfg,
@@ -849,12 +911,18 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         _ltr_models = _filtered
         from mlframe.training.configs import LearningToRankConfig
         # iter162: nested LTR knobs -- cb_loss_fn, lgb_objective, rrf_k.
-        # ranking_ensemble_method already on axis; rrf_k only meaningful when method="rrf".
+        # iter170: mlp_loss_fn + eval_at (defensive).
+        _ltr_eval_at = (1, 5, 10) if combo.ltr_eval_at_cfg == "default" else (1, 3, 5, 10, 20)
         _ltr_ranking_config = LearningToRankConfig(
             ensemble_method=combo.ranking_ensemble_method,
             cb_loss_fn=combo.ltr_cb_loss_fn_cfg,
             lgb_objective=combo.ltr_lgb_objective_cfg,
             rrf_k=combo.ltr_rrf_k_cfg,
+            **_safe_cfg_kwargs(
+                LearningToRankConfig,
+                mlp_loss_fn=combo.ltr_mlp_loss_fn_cfg,
+                eval_at=_ltr_eval_at,
+            ),
         )
 
     # 2026-05-21 iter151 -- P0 suite-level kwargs (built once per combo
@@ -897,29 +965,70 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 TextDetectionConfig,
                 ReproConfig,
             )
-            _cache = CacheConfig(
+            _cache = CacheConfig(**_safe_cfg_kwargs(
+                CacheConfig,
                 eviction_strategy=combo.fhc_cache_eviction_strategy_cfg,
                 allow_pickle=combo.fhc_cache_allow_pickle_cfg,
-            )
-            _memory = MemoryConfig(
-                auto_derive=AutoDeriveConfig(
-                    cache_ram_fraction=combo.fhc_cache_ram_fraction_cfg,
-                ),
-            )
-            _textdet = TextDetectionConfig(
+                # iter170 deep cache axes (defensive).
+                prefetch_enabled=combo.fhc_cache_prefetch_enabled_cfg,
+                prefetch_vram_safety_factor=combo.fhc_cache_prefetch_vram_safety_factor_cfg,
+            ))
+            _memory = MemoryConfig(**_safe_cfg_kwargs(
+                MemoryConfig,
+                auto_derive=AutoDeriveConfig(cache_ram_fraction=combo.fhc_cache_ram_fraction_cfg),
+                # iter170 memory axis (defensive).
+                pressure_watermark_pct=combo.fhc_memory_pressure_watermark_pct_cfg,
+            ))
+            _textdet = TextDetectionConfig(**_safe_cfg_kwargs(
+                TextDetectionConfig,
                 definite_text_mean_chars=combo.fhc_text_definite_text_mean_chars_cfg,
                 min_alphabet_entropy=combo.fhc_text_min_alphabet_entropy_cfg,
-            )
-            _repro = ReproConfig(
+                # iter170 text-detection axes (defensive).
+                text_min_mean_tokens=combo.fhc_text_min_mean_tokens_cfg,
+                text_min_unique_ratio=combo.fhc_text_min_unique_ratio_cfg,
+                respect_explicit_categorical_dtype=combo.fhc_text_respect_explicit_cat_dtype_cfg,
+            ))
+            _repro = ReproConfig(**_safe_cfg_kwargs(
+                ReproConfig,
                 deterministic_torch=combo.fhc_repro_deterministic_torch_cfg,
-            )
-            _fhc = FeatureHandlingConfig(
+                # iter170 repro axes (defensive).
+                langdetect_seed=combo.fhc_repro_langdetect_seed_cfg,
+                pinned_svd_solver_params=combo.fhc_repro_pinned_svd_solver_params_cfg,
+                forbid_nonatomic_fs=combo.fhc_repro_forbid_nonatomic_fs_cfg,
+                deterministic_eviction=combo.fhc_repro_deterministic_eviction_cfg,
+            ))
+            # iter170: PricingConfig + LoggingConfig (defensive -- may not exist).
+            _pricing = None
+            _logging = None
+            try:
+                from mlframe.training.feature_handling.config import PricingConfig
+                _pricing = PricingConfig(**_safe_cfg_kwargs(
+                    PricingConfig,
+                    cap_usd=combo.fhc_pricing_cap_usd_cfg,
+                    warn_above_usd=combo.fhc_pricing_warn_above_usd_cfg,
+                ))
+            except (ImportError, AttributeError):
+                pass
+            try:
+                from mlframe.training.feature_handling.config import LoggingConfig
+                _logging = LoggingConfig(**_safe_cfg_kwargs(
+                    LoggingConfig,
+                    verbose=combo.fhc_logging_verbose_cfg,
+                ))
+            except (ImportError, AttributeError):
+                pass
+            _fhc_kw = dict(
                 cache=_cache,
                 memory=_memory,
                 text_detection=_textdet,
                 repro=_repro,
                 auto_locale_detection=combo.fhc_auto_locale_detection_cfg,
             )
+            if _pricing is not None:
+                _fhc_kw["pricing"] = _pricing
+            if _logging is not None:
+                _fhc_kw["logging"] = _logging
+            _fhc = FeatureHandlingConfig(**_safe_cfg_kwargs(FeatureHandlingConfig, **_fhc_kw))
         except Exception:
             _fhc = None  # tolerate import / construction failure
     # P0-4 precomputed: build the trainset_features_stats bundle. The
@@ -968,6 +1077,14 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 iterations=combo.iterations,
                 early_stopping_rounds=combo.early_stopping_rounds_cfg,
                 mlp_predict_batch_size=combo.mlp_predict_batch_size_cfg,
+                # iter170 per-backend hyperparams.
+                lgb_feature_fraction=combo.lgb_feature_fraction_cfg,
+                lgb_num_leaves=combo.lgb_num_leaves_cfg,
+                xgb_max_depth=combo.xgb_max_depth_cfg,
+                xgb_colsample_bynode=combo.xgb_colsample_bynode_cfg,
+                cb_border_count=combo.cb_border_count_cfg,
+                hgb_max_leaf_nodes=combo.hgb_max_leaf_nodes_cfg,
+                rfecv_cv_n_splits=combo.rfecv_cv_n_splits_cfg,
             ),
             preprocessing_config=_preprocessing_for_combo(combo),
             verbose=0,
@@ -1009,6 +1126,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 skip_identity_equivalent_pre_pipelines=combo.skip_identity_equivalent_pre_pipelines_cfg,
                 rfecv_leakage_corr_threshold=combo.rfecv_leakage_corr_threshold_cfg,
                 rfecv_mbh_adaptive_threshold=combo.rfecv_mbh_adaptive_threshold_cfg,
+                # 2026-05-22 iter170 deep FS knobs (defensive).
+                **_safe_cfg_kwargs(
+                    FeatureSelectionConfig,
+                    rfecv_n_features_selection_rule=combo.rfecv_n_features_selection_rule_cfg,
+                    rfecv_stability_selection=combo.rfecv_stability_selection_cfg,
+                    rfecv_leakage_action=combo.rfecv_leakage_action_cfg,
+                ),
             ),
             # save_charts=False / show_perf_chart=False / show_fi=False:
             # the fuzz suite runs ~150 combos × ~5 charts per combo. Each
@@ -1030,6 +1154,19 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     else __import__("json").loads(combo.reporting_matplotlib_rcparams_cfg)
                 ),
                 multiclass_panels=combo.reporting_multiclass_panels_cfg,
+                # iter170 deep reporting axes -- defensive _safe_cfg_kwargs
+                # absorbs fields that don't exist post-refactor.
+                **_safe_cfg_kwargs(
+                    ReportingConfig,
+                    figsize=((15, 5) if combo.reporting_figsize_cfg == "default" else (10, 4)),
+                    plot_dpi=combo.reporting_plot_dpi_cfg,
+                    quantile_panels=(None if combo.reporting_quantile_panels_cfg == "default"
+                                     else "RELIABILITY PINBALL_BY_ALPHA"),
+                    ltr_panels=(None if combo.reporting_ltr_panels_cfg == "default"
+                                else "NDCG_K LIFT"),
+                    plotly_template=combo.reporting_plotly_template_cfg,
+                    matplotlib_style=combo.reporting_matplotlib_style_cfg,
+                ),
             ),
             # recurrent_models + sequences: synthetic per-row sequences
             # (T=8, F=2) emitted only on canonical-recurrent combos so
@@ -1060,10 +1197,30 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             # Wave 21: dummy-baselines + baseline-diagnostics enabled toggles.
             dummy_baselines_config=__import__(
                 "mlframe.training.configs", fromlist=["DummyBaselinesConfig"]
-            ).DummyBaselinesConfig(enabled=combo.dummy_baselines_enabled_cfg),
+            ).DummyBaselinesConfig(
+                enabled=combo.dummy_baselines_enabled_cfg,
+                # iter170 deep dummy-baseline axes (defensive).
+                **_safe_cfg_kwargs(
+                    __import__("mlframe.training.configs", fromlist=["DummyBaselinesConfig"]).DummyBaselinesConfig,
+                    stratified_n_repeats=combo.dummy_stratified_n_repeats_cfg,
+                    paired_bootstrap_n_resamples=combo.dummy_paired_bootstrap_n_resamples_cfg,
+                ),
+            ),
             baseline_diagnostics_config=__import__(
                 "mlframe.training.configs", fromlist=["BaselineDiagnosticsConfig"]
-            ).BaselineDiagnosticsConfig(enabled=combo.baseline_diagnostics_enabled_cfg),
+            ).BaselineDiagnosticsConfig(
+                enabled=combo.baseline_diagnostics_enabled_cfg,
+                # iter170 deep baseline-diagnostic axes (defensive).
+                **_safe_cfg_kwargs(
+                    __import__("mlframe.training.configs", fromlist=["BaselineDiagnosticsConfig"]).BaselineDiagnosticsConfig,
+                    quick_model_n_estimators=combo.baseline_quick_model_n_estimators_cfg,
+                    quick_model_num_leaves=combo.baseline_quick_model_num_leaves_cfg,
+                    quick_model_learning_rate=combo.baseline_quick_model_learning_rate_cfg,
+                    sample_n=combo.baseline_sample_n_cfg,
+                    high_potential_min_dominance_pct=combo.baseline_high_potential_min_dominance_pct_cfg,
+                    best_model_min_lift=combo.baseline_best_model_min_lift_cfg,
+                ),
+            ),
             # 2026-05-21 -- mini-HPT toggle. When True, the suite runs the
             # target-distribution analyzer + feature-distribution analyzer
             # after the split, gap-fill-merges target-side recommendations
