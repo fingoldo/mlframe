@@ -110,6 +110,18 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
     "feature_selection/filters/screen.py::ScreenState",
     "feature_selection/filters/supervised_binning.py::apply_bin_edges",
     "training/dummy_baselines.py::plot_best_dummy_baseline_overlay",
+    # 2026-05-21 — surfaced after the recent refactors split helpers
+    # into new sibling modules. Pending owner decision (delete vs.
+    # public-API re-export).
+    "feature_selection/filters/hermite_fe.py::plugin_mi_classif_batch_dispatch",
+    "training/extractors.py::FeaturesAndTargetsExtractorProtocol",
+    "training/metrics_registry.py::get_metric_direction",
+    "training/neural/base.py::suppress_lightning_workers_warning",
+    # Placeholder translator paired with the populated sklearn-MLP one;
+    # stays inert until ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT is filled
+    # in (requires a sequence-DGP sweep that the MLP sweep does not
+    # transfer to). Documented in its own docstring.
+    "training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",
 }
 
 

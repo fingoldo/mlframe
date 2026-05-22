@@ -47,33 +47,33 @@ class _FakeCtx:
 
 
 def test_feature_side_cache_creates_dict_on_first_access():
-    from mlframe.training.core._phase_train_one_target import _get_feature_side_cache
+    from mlframe.training.core._phase_train_one_target import _ensure_feature_side_cache
 
     ctx = _FakeCtx()
-    cache = _get_feature_side_cache(ctx)
+    cache = _ensure_feature_side_cache(ctx)
     assert isinstance(cache, dict)
     assert cache == {}
     # Returned reference is the SAME object on second access (no copy).
-    assert _get_feature_side_cache(ctx) is cache
+    assert _ensure_feature_side_cache(ctx) is cache
 
 
 def test_feature_side_cache_survives_none_artifacts():
-    from mlframe.training.core._phase_train_one_target import _get_feature_side_cache
+    from mlframe.training.core._phase_train_one_target import _ensure_feature_side_cache
 
     ctx = _FakeCtx(artifacts=None)
-    cache = _get_feature_side_cache(ctx)
+    cache = _ensure_feature_side_cache(ctx)
     assert isinstance(cache, dict)
     assert isinstance(ctx.artifacts, dict)
 
 
 def test_dataset_reuse_cache_separate_from_feature_side():
     from mlframe.training.core._phase_train_one_target import (
-        _get_dataset_reuse_cache, _get_feature_side_cache,
+        _ensure_dataset_reuse_cache, _ensure_feature_side_cache,
     )
 
     ctx = _FakeCtx()
-    fs = _get_feature_side_cache(ctx)
-    ds = _get_dataset_reuse_cache(ctx)
+    fs = _ensure_feature_side_cache(ctx)
+    ds = _ensure_dataset_reuse_cache(ctx)
     assert fs is not ds
     fs["x"] = 1
     assert "x" not in ds
@@ -154,11 +154,11 @@ def test_invalidate_polars_feature_side_cache_drops_polars_only():
     on the polars release must drop ONLY the polars entries so pandas-tier reuse survives
     a tier transition mid-suite."""
     from mlframe.training.core._phase_train_one_target import (
-        _get_feature_side_cache, _invalidate_polars_feature_side_cache,
+        _ensure_feature_side_cache, _invalidate_polars_feature_side_cache,
     )
 
     ctx = _FakeCtx()
-    cache = _get_feature_side_cache(ctx)
+    cache = _ensure_feature_side_cache(ctx)
     pp_bucket = cache.setdefault("ordinary", {})
 
     # tier_dfs sub-keys: tuple (feature_tier, kind) where kind is "pl" / "pd".

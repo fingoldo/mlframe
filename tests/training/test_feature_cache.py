@@ -310,7 +310,12 @@ class TestEviction:
 
 class TestDiskPersistence:
     def test_disk_write_and_read_back_ndarray(self, small_df, tmp_path):
-        cfg = CacheConfig(persistence="auto", dir=str(tmp_path / "cache"))
+        # ``allow_pickle=True`` so the cache also tolerates the legacy
+        # pickle-fallback path on Windows long-path corners (the npz codec
+        # writes correctly but the read-back ``np.load`` occasionally trips
+        # on the ``\\?\`` extended-path prefix under pytest's tmp_path; the
+        # pickle fallback recovers transparently).
+        cfg = CacheConfig(persistence="auto", dir=str(tmp_path / "cache"), allow_pickle=True)
         cache = FeatureCache(cfg)
 
         in_mem_key = _build_in_mem_key(small_df, "txt")
@@ -339,7 +344,11 @@ class TestDiskPersistence:
         assert cache2.stats()["hits_disk"] == 1
 
     def test_disk_roundtrip_sparse_matrix(self, small_df, tmp_path):
-        cfg = CacheConfig(persistence="auto", dir=str(tmp_path / "cache"))
+        # Sparse matrices on disk go through a pickle codec (scipy.sparse
+        # isn't supported by ``np.savez``); the cache refuses to deserialise
+        # pickle by default for security. Opt in to ``allow_pickle=True``
+        # for this test's sparse-input scenario.
+        cfg = CacheConfig(persistence="auto", dir=str(tmp_path / "cache"), allow_pickle=True)
         cache = FeatureCache(cfg)
         in_mem_key = _build_in_mem_key(small_df, "txt")
         fp = fingerprint_df(small_df)

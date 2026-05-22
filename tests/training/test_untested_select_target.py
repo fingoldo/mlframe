@@ -51,10 +51,12 @@ def test_select_target_regression_mean_suffix(mock_configure):
         target_type=TargetTypes.REGRESSION,
         df=df,
     )
-    # Model name gets augmented with MT=<mean>
+    # Model name gets augmented with MT=<mean>. ``select_target`` uses the
+    # adaptive ``format_metric`` formatter (2 d.p. for |val|>=1) rather than
+    # the legacy hard-coded :.4f.
     passed_name = mock_configure[0][1]["model_name"]
     assert "MT=" in passed_name
-    assert "4.5000" in passed_name
+    assert "4.50" in passed_name
 
 
 def test_select_target_binary_pct_pandas(mock_configure):

@@ -23,11 +23,21 @@ def _make_ctx_with_frames():
     paper over a hypothetical regression where the helper might rely on shared buffers.
     """
     def _build():
-        return pl.DataFrame({"a": list(range(2000)), "b": [float(x) for x in range(2000)]})
+        # 1M rows gives ~16MB per frame, comfortably above the 10MB
+        # ``_POLARS_RELEASE_MIN_EXPECTED_MB`` floor that gates the warning
+        # path (the helper skips the audit-warning altogether for tiny frames
+        # where RSS-measurement noise would dominate the delta).
+        return pl.DataFrame({
+            "a": list(range(1_000_000)),
+            "b": [float(x) for x in range(1_000_000)],
+        })
+    # ``artifacts`` is required by the polars-cache invalidation hook that
+    # ``_release_ctx_polars_frames`` calls (added in the multi-target hoist).
     return SimpleNamespace(
         train_df_polars=_build(),
         val_df_polars=_build(),
         test_df_polars=_build(),
+        artifacts={},
     )
 
 
@@ -104,7 +114,7 @@ def test_release_warns_when_rss_drop_below_five_percent(caplog):
 
 def test_release_skips_audit_when_all_frames_are_none(caplog):
     """When all frames are already None at entry, expected_mb == 0 -> no warning even if RSS doesn't drop."""
-    ctx = SimpleNamespace(train_df_polars=None, val_df_polars=None, test_df_polars=None)
+    ctx = SimpleNamespace(train_df_polars=None, val_df_polars=None, test_df_polars=None, artifacts={})
     with mock.patch(
         "mlframe.training.core._phase_train_one_target.get_process_rss_mb",
         side_effect=[5_000.0, 5_000.0],

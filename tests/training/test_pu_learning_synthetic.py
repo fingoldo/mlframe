@@ -463,8 +463,11 @@ def test_estimate_c_methods():
 
 
 def test_unfitted_raises():
+    from sklearn.exceptions import NotFittedError
     pu = PULearningWrapper(base_estimator=LogisticRegression())
-    with pytest.raises(RuntimeError, match="not fitted"):
+    # NotFittedError is the canonical sklearn signal; RuntimeError is the
+    # legacy shape kept for narrative compatibility.
+    with pytest.raises((NotFittedError, RuntimeError), match="not fitted"):
         pu.predict_proba(np.zeros((5, 4)))
 
 

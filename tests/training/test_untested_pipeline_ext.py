@@ -45,8 +45,9 @@ def test_extensions_scaler_applies_sklearn():
     assert isinstance(out_tr, pd.DataFrame)
     # StandardScaler -> train mean ~ 0
     assert abs(out_tr.mean().mean()) < 1e-6
-    # Columns renamed to ext_i
-    assert all(c.startswith("ext_") for c in out_tr.columns)
+    # Output preserves original column names (legacy renaming to ``ext_*`` was
+    # dropped; downstream consumers rely on stable column identifiers).
+    assert list(out_tr.columns) == list(tr.columns)
     # val/test shapes preserved
     assert out_va.shape[0] == 10
     assert out_te.shape[0] == 10

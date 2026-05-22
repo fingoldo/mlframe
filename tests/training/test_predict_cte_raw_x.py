@@ -13,7 +13,7 @@ in ``predict.py``.
 """
 from __future__ import annotations
 
-import inspect
+import pathlib
 
 import numpy as np
 
@@ -21,13 +21,20 @@ from mlframe.training.core import predict as predict_mod
 
 
 def test_predict_module_has_cte_raw_x_dispatch():
-    """Sanity: the predict.py dispatch site mentions the CTE class and the
-    df_pre_pipeline-first contract. Catches a future refactor that strips the
-    safety branch."""
-    src = inspect.getsource(predict_mod)
+    """Sanity: the predict dispatch site mentions the CTE class and the
+    per-model selector. After the 2026-05-22 split the dispatch lives in
+    ``_predict_main_from_models.py``; check the parent + all siblings.
+    """
+    _core = pathlib.Path(predict_mod.__file__).resolve().parent
+    src = ""
+    for _name in ("predict.py", "_predict_main.py", "_predict_main_from_models.py", "_predict_pre_pipeline.py"):
+        _p = _core / _name
+        if _p.exists():
+            src += _p.read_text(encoding="utf-8")
+            src += "\n"
     assert "CompositeTargetEstimator" in src, (
-        "CTE-RAW-X dispatch missing from predict.py -- the CTE+pre_pipeline base "
-        "scaling fix would regress on the next prod run."
+        "CTE-RAW-X dispatch missing from predict module -- the CTE+pre_pipeline "
+        "base scaling fix would regress on the next prod run."
     )
     assert "_primary_for_model" in src, (
         "_primary_for_model selector missing -- the per-model raw-vs-scaled dispatch "

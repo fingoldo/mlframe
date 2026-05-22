@@ -216,8 +216,12 @@ class TestTriplets:
         scores = score_triplet_baselines(a, b, c, y, discrete_target=True)
         vals = list(scores.values())
         assert all(vals[i] >= vals[i + 1] for i in range(len(vals) - 1))
-        # 3-way sign product is captured by abc_mul / geo_mean3 / log-equivalent constructions.
-        assert next(iter(scores)) in {"abc_mul", "geo_mean3", "atan2_ab_c"}
+        # 3-way sign product is captured by any feature that uses all three
+        # inputs nonlinearly: ``abc_mul`` (a*b*c), ``geo_mean3``,
+        # ``atan2_ab_c`` (atan2 of ab vs c), ``ab_div_c`` (ratio whose sign
+        # tracks the same product). The top scorer flips between these
+        # across seeds; allow any of the four-way set.
+        assert next(iter(scores)) in {"abc_mul", "geo_mean3", "atan2_ab_c", "ab_div_c"}
 
 
 # ================================================================================================

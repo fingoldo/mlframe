@@ -181,7 +181,17 @@ def test_phase_helpers_strategy_list_documented() -> None:
 
 
 def test_hermite_fe_separate_eval_documented_as_implemented() -> None:
-    src = _read("feature_selection/filters/hermite_fe.py")
+    # The closure marker moved out of ``hermite_fe.py`` into the sibling
+    # ``_hermite_fe_optimise_pair.py`` during the hermite-fe monolith split.
+    import pathlib
+    import mlframe as _mlframe
+    _root = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
+    src = ""
+    for nm in ("hermite_fe.py", "_hermite_fe_optimise_pair.py"):
+        p = _root / nm
+        if p.exists():
+            src += p.read_text(encoding="utf-8")
+            src += "\n"
     # TODO marker is gone.
     assert "TODO: separate eval for x_a and x_b" not in src
     assert "Wave 69 (2026-05-20): separate eval for x_a and x_b already implemented" in src

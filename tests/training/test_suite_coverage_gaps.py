@@ -2172,6 +2172,7 @@ def test_mrmr_and_rfecv_stack_runs(tmp_path):
         use_mlframe_ensembles=False,
         feature_selection_config=FeatureSelectionConfig(
             rfecv_models=["cb_rfecv"],
+            use_mrmr_fs=True,
             mrmr_kwargs={
                 "verbose": 0,
                 "max_runtime_mins": 1,

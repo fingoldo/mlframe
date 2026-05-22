@@ -92,11 +92,15 @@ class TestAdaptiveCleanRam:
         def _fake_clean(verbose=False):
             fired["n"] += 1
 
-        import mlframe.training.utils as u
+        # ``maybe_clean_ram_and_gpu`` calls ``should_clean_ram`` /
+        # ``clean_ram_and_gpu`` / ``get_process_rss_mb`` from its own module
+        # scope (``mlframe.training._ram_helpers``); patching the
+        # ``training.utils`` re-export is invisible to it.
+        import mlframe.training._ram_helpers as rh
 
-        monkeypatch.setattr(u, "clean_ram_and_gpu", _fake_clean)
-        monkeypatch.setattr(u, "should_clean_ram", lambda *a, **kw: True)
-        monkeypatch.setattr(u, "get_process_rss_mb", lambda: 1234.5)
+        monkeypatch.setattr(rh, "clean_ram_and_gpu", _fake_clean)
+        monkeypatch.setattr(rh, "should_clean_ram", lambda *a, **kw: True)
+        monkeypatch.setattr(rh, "get_process_rss_mb", lambda: 1234.5)
 
         new_base = maybe_clean_ram_and_gpu(baseline_rss_mb=500.0, df_size_mb=100.0)
         assert fired["n"] == 1
@@ -104,10 +108,10 @@ class TestAdaptiveCleanRam:
 
     def test_maybe_clean_ram_skip_preserves_baseline(self, monkeypatch):
         fired = {"n": 0}
-        import mlframe.training.utils as u
+        import mlframe.training._ram_helpers as rh
 
-        monkeypatch.setattr(u, "clean_ram_and_gpu", lambda verbose=False: fired.update(n=fired["n"] + 1))
-        monkeypatch.setattr(u, "should_clean_ram", lambda *a, **kw: False)
+        monkeypatch.setattr(rh, "clean_ram_and_gpu", lambda verbose=False: fired.update(n=fired["n"] + 1))
+        monkeypatch.setattr(rh, "should_clean_ram", lambda *a, **kw: False)
         base = maybe_clean_ram_and_gpu(baseline_rss_mb=500.0, df_size_mb=100.0)
         assert fired["n"] == 0
         assert base == 500.0
@@ -180,9 +184,14 @@ class TestSkipPandasConversion:
         from .shared import SimpleFeaturesAndTargetsExtractor
         from mlframe.training.core import train_mlframe_models_suite
         import mlframe.training.core as core_mod
+        import mlframe.training.utils as utils_mod
 
         counter = {"lazy": 0, "upfront": 0}
-        orig_lazy = core_mod.get_pandas_view_of_polars_df
+        # ``get_pandas_view_of_polars_df`` lives in ``training.utils`` and is
+        # lazy-imported inside ``_phase_helpers_fit_split``; patch the source
+        # module so the lazy-import bind sees the spy. ``_convert_dfs_to_pandas``
+        # is re-exported on ``training.core`` and remains patched there.
+        orig_lazy = utils_mod.get_pandas_view_of_polars_df
         orig_upfront = core_mod._convert_dfs_to_pandas
 
         def _lazy_spy(*a, **kw):
@@ -193,7 +202,7 @@ class TestSkipPandasConversion:
             counter["upfront"] += 1
             return orig_upfront(*a, **kw)
 
-        monkeypatch.setattr(core_mod, "get_pandas_view_of_polars_df", _lazy_spy)
+        monkeypatch.setattr(utils_mod, "get_pandas_view_of_polars_df", _lazy_spy)
         monkeypatch.setattr(core_mod, "_convert_dfs_to_pandas", _upfront_spy)
 
         df = _make_simple_polars_df()

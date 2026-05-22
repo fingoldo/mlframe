@@ -43,8 +43,18 @@ def _read(rel: str) -> str:
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 
+def _read_phase_helpers_combined() -> str:
+    """Read the union of _phase_helpers.py + _phase_helpers_fit_split.py.
+    The enum-cast block moved into the sibling during the 2026-05-21
+    monolith split (re-exported via the bottom-of-file import at
+    _phase_helpers.py:714). Both locations are valid for the wave-72 sensor."""
+    return _read("training/core/_phase_helpers.py") + "\n" + _read(
+        "training/core/_phase_helpers_fit_split.py"
+    )
+
+
 def test_phase_helpers_enum_cast_uses_train_plus_val_domain() -> None:
-    src = _read("training/core/_phase_helpers.py")
+    src = _read_phase_helpers_combined()
     # Domain is now train+val union (sorted by str).
     assert "sorted(set(_u_train) | set(_u_val), key=str)" in src
     # val cast strict=True now (domain includes val so no silent OOV).
@@ -54,7 +64,7 @@ def test_phase_helpers_enum_cast_uses_train_plus_val_domain() -> None:
 
 
 def test_phase_helpers_enum_cast_logs_oov_delta_on_test() -> None:
-    src = _read("training/core/_phase_helpers.py")
+    src = _read_phase_helpers_combined()
     # The _enum_cast helper now computes null_pre/null_post deltas.
     assert "_null_pre = {c: int(df[c].null_count()) for c in _affected_cols}" in src
     assert "[enum-cast] %s split: %d col(s) had OOV nulls cast-failed" in src
@@ -67,8 +77,13 @@ def test_phase_polars_fixes_test_cast_logs_oov_delta() -> None:
 
 
 def test_strategies_xgb_cat_cast_logs_oov_delta() -> None:
-    src = _read("training/strategies.py")
-    assert "[xgb cat-cast] %d col(s) had OOV nulls cast-failed" in src
+    """The xgb cat-cast logging moved into the sibling
+    _strategies_xgboost.py during the strategies monolith split; check
+    both locations."""
+    facade = _read("training/strategies.py")
+    sibling = _read("training/_strategies_xgboost.py")
+    needle = "[xgb cat-cast] %d col(s) had OOV nulls cast-failed"
+    assert needle in facade or needle in sibling
 
 
 def test_strategies_hgb_cat_cast_logs_oov_delta() -> None:

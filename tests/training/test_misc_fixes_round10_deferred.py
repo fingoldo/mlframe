@@ -159,7 +159,8 @@ class TestBruteforceTargetEncoderWarnStaticCheck:
         This sensor reads the source to confirm both code paths are
         still wired up."""
         import pathlib
-        src_path = pathlib.Path(__file__).parents[2] / "feature_engineering" / "bruteforce.py"
+        from mlframe.feature_engineering import bruteforce as _bruteforce
+        src_path = pathlib.Path(_bruteforce.__file__)
         src = src_path.read_text(encoding="utf-8")
         # Both emissions must be present.
         assert "warnings.warn(" in src, "warnings.warn call missing from bruteforce.py"

@@ -251,10 +251,14 @@ def test_m5_booster_raises_notfitted_before_fit():
         _ = est.booster_
 
 
-def test_m5_n_features_in_raises_notfitted_before_fit():
+def test_m5_n_features_in_returns_none_before_fit():
+    """``n_features_in_`` is a metadata scalar with a long-standing
+    None-pre-fit convention in mlframe (introspection tools defensively
+    check ``if est.n_features_in_ is None: ...``). Distinct from
+    coefficient-style properties (``booster_`` / ``get_booster()``)
+    which DO raise NotFittedError pre-fit."""
     est = _ce.CompositeTargetEstimator(transform_name="diff", base_column="b")
-    with pytest.raises(NotFittedError):
-        _ = est.n_features_in_
+    assert est.n_features_in_ is None
 
 
 def test_m5_get_booster_raises_notfitted_before_fit():

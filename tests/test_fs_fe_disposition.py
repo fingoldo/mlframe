@@ -87,6 +87,7 @@ def test_fs3_feature_selection_config_accepts_valid_kwargs():
     cfg = FeatureSelectionConfig(
         use_mrmr_fs=True,
         mrmr_kwargs={"fe_max_steps": 1, "verbose": 0},
+        rfecv_models=["cb"],
         rfecv_kwargs={"max_runtime_mins": 5.0, "cv_n_splits": 3},
     )
     assert cfg.mrmr_kwargs["fe_max_steps"] == 1
@@ -273,5 +274,5 @@ def test_fe4_cb_ordinal_cat_features_warns(caplog):
         pass
 
     msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    matched = [m for m in msgs if "CatBoost is in mlframe_models" in m and "ordinal" in m]
+    matched = [m for m in msgs if "CatBoost" in m and "mlframe_models" in m and "ordinal" in m]
     assert matched, f"expected CB+ordinal+cat_features WARN, got: {msgs}"

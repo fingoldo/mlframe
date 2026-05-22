@@ -123,8 +123,9 @@ class TestHashingHappyPath:
     def test_hashing_no_fit_required_semantics(self, small_text_polars):
         """Hashing is stateless, but our wrapper still enforces fit
         for API consistency."""
+        from sklearn.exceptions import NotFittedError
         enc = TextColumnEncoder(column="txt", params=HashingParams(n_features=64))
-        with pytest.raises(RuntimeError, match="not fitted"):
+        with pytest.raises((NotFittedError, RuntimeError), match="not fitted"):
             enc.transform(small_text_polars)
         enc.fit(small_text_polars)
         out = enc.transform(small_text_polars)

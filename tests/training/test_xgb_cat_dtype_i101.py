@@ -126,18 +126,30 @@ def test_polars_numeric_col_named_in_cat_features_is_left_untouched():
 
 def test_predict_py_xgb_cat_cast_block_lives_in_predict_module():
     """Behavioural pin: AST-parse predict.py and assert the XGB cat-cast
-    block stays in the module via constant/name presence checks (no
-    inspect.getsource per memory rule feedback_behavioral_tests)."""
+    block stays in the module via name presence checks. The original marker
+    used to be a string-constant docstring; it is now a regular comment so
+    we read the raw source for the marker phrase (still NOT
+    ``inspect.getsource`` per the meta-test rule).
+
+    The dispatch block moved out of ``predict.py`` into the sibling
+    ``_predict_main_from_models.py`` during the 2026-05-22 predict-monolith
+    split; check the parent + every sibling."""
     import ast
     from pathlib import Path
     from mlframe.training.core import predict as _predict_mod
 
-    tree = ast.parse(Path(_predict_mod.__file__).read_text(encoding="utf-8"))
-    str_consts = {n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    _core = Path(_predict_mod.__file__).resolve().parent
+    raw_src = ""
+    for _name in ("predict.py", "_predict_main.py", "_predict_main_from_models.py", "_predict_pre_pipeline.py"):
+        _p = _core / _name
+        if _p.exists():
+            raw_src += _p.read_text(encoding="utf-8")
+            raw_src += "\n"
+    tree = ast.parse(raw_src)
     names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
     attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
 
-    assert any("XGB cat dtype coercion" in s for s in str_consts), (
-        "predict.py must keep the 'XGB cat dtype coercion' marker comment-string in the cast block"
+    assert "XGB cat dtype coercion" in raw_src, (
+        "predict module must keep the 'XGB cat dtype coercion' marker in the cast block"
     )
     assert any("_xgb" in n for n in names) or any("_is_xgb" in n for n in names) or any("_xgb" in a for a in attrs)

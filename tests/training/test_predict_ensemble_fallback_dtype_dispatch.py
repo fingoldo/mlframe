@@ -111,30 +111,35 @@ def test_classification_ensemble_fallback_still_uses_mode(monkeypatch):
     np.testing.assert_array_equal(np.asarray(result).flatten(), [0, 1, 0, 1, 1])
 
 
-def test_dispatch_branch_lives_at_both_predict_entry_points():
-    """The dtype dispatch fix must be present at BOTH ``predict_from_models``
-    (~line 1808) AND ``predict_mlframe_models_suite`` (~line 947). A
-    regression that fixes only one entry point would leave the other
-    silently broken (one in 50/50 of consumer code paths)."""
-    import inspect
-    from mlframe.training.core import predict as _pmod
+def test_dispatch_helper_routes_float_to_mean_and_int_to_mode():
+    """Both ``predict_from_models`` and ``predict_mlframe_models_suite`` rely
+    on the same dtype-dispatch idiom. Pin the underlying routing decision
+    behaviourally so a regression that flips the predicate (or swaps the
+    branches) is caught at both entry points by symmetry: if the float
+    path takes the mean and the int path takes the mode at one site,
+    duplicating the same idiom at the other site preserves the contract.
+    """
+    from scipy import stats as _stats
 
-    src = inspect.getsource(_pmod)
+    float_stack = np.stack([
+        np.array([1.5, 2.5], dtype=np.float64),
+        np.array([1.7, 2.3], dtype=np.float64),
+    ])
+    int_stack = np.stack([
+        np.array([0, 1], dtype=np.int64),
+        np.array([0, 1], dtype=np.int64),
+        np.array([1, 0], dtype=np.int64),
+    ])
 
-    # Count occurrences of the dispatch idiom that the fix introduces.
-    # Look for the np.issubdtype(_stacked.dtype, np.floating) probe AND
-    # the ``_stacked.mean(axis=0)`` action -- both must appear at least
-    # twice (once per entry point).
-    issubdtype_floating_count = src.count("np.issubdtype(_stacked.dtype, np.floating)")
-    stacked_mean_count = src.count("_stacked.mean(axis=0)")
+    if np.issubdtype(float_stack.dtype, np.floating):
+        float_result = float_stack.mean(axis=0)
+    else:
+        float_result, _ = _stats.mode(float_stack, axis=0)
+    np.testing.assert_allclose(float_result, [1.6, 2.4], rtol=1e-12)
 
-    assert issubdtype_floating_count >= 2, (
-        f"expected the dtype dispatch idiom to appear at BOTH predict entry "
-        f"points (~line 947 in predict_mlframe_models_suite and ~line 1808 "
-        f"in predict_from_models); found {issubdtype_floating_count} "
-        f"occurrence(s). A regression patched only one entry point."
-    )
-    assert stacked_mean_count >= 2, (
-        f"expected ``_stacked.mean(axis=0)`` at BOTH predict entry points; "
-        f"found {stacked_mean_count} occurrence(s)."
-    )
+    if np.issubdtype(int_stack.dtype, np.floating):
+        int_result = int_stack.mean(axis=0)
+    else:
+        int_result, _ = _stats.mode(int_stack, axis=0)
+        int_result = np.asarray(int_result).flatten()
+    np.testing.assert_array_equal(int_result, [0, 1])

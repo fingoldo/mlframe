@@ -2527,6 +2527,9 @@ class TestPolarsNativeFastpath:
         # Capture the DataFrame type that reaches model.fit()
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
 
         original_train = trainer_mod._train_model_with_fallback
 
@@ -2542,7 +2545,23 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper was lifted into its own module (_training_loop) and re-
+        # imported into trainer / _trainer_configure / _trainer_train_and_evaluate
+        # at the 2026-05-22 split. Patch every binding so the spy intercepts
+        # whichever the suite reaches.
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -2585,6 +2604,9 @@ class TestPolarsNativeFastpath:
 
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
 
         original_train = trainer_mod._train_model_with_fallback
 
@@ -2600,7 +2622,23 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper was lifted into its own module (_training_loop) and re-
+        # imported into trainer / _trainer_configure / _trainer_train_and_evaluate
+        # at the 2026-05-22 split. Patch every binding so the spy intercepts
+        # whichever the suite reaches.
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -2660,7 +2698,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         train_mlframe_models_suite(
             df=pl_df,
@@ -2721,6 +2768,9 @@ class TestPolarsNativeFastpath:
 
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
 
         original_train = trainer_mod._train_model_with_fallback
 
@@ -2736,7 +2786,23 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper was lifted into its own module (_training_loop) and re-
+        # imported into trainer / _trainer_configure / _trainer_train_and_evaluate
+        # at the 2026-05-22 split. Patch every binding so the spy intercepts
+        # whichever the suite reaches.
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -2798,7 +2864,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -2852,7 +2927,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -2930,7 +3014,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -2944,6 +3037,15 @@ class TestPolarsNativeFastpath:
             use_mlframe_ensembles=False,
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
+            # Caller cast the columns to ``pl.Categorical`` explicitly; the
+            # ``honor_user_dtype=True`` knob propagates that intent to the
+            # auto-detect pass so a high-cardinality ``pl.Categorical`` (e.g.
+            # ``cat_high`` with 100 uniques over 200 rows) is NOT auto-
+            # promoted to ``text_features`` (where CB's TF-IDF estimator
+            # would trip "Dictionary size is 0").
+            feature_types_config=__import__(
+                "mlframe.training.configs", fromlist=["FeatureTypesConfig"],
+            ).FeatureTypesConfig(honor_user_dtype=True),
         )
 
         assert TargetTypes.BINARY_CLASSIFICATION in models
@@ -2981,6 +3083,9 @@ class TestPolarsNativeFastpath:
 
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
 
         original_train = trainer_mod._train_model_with_fallback
 
@@ -2996,7 +3101,23 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper was lifted into its own module (_training_loop) and re-
+        # imported into trainer / _trainer_configure / _trainer_train_and_evaluate
+        # at the 2026-05-22 split. Patch every binding so the spy intercepts
+        # whichever the suite reaches.
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3059,7 +3180,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3114,7 +3244,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3173,15 +3312,24 @@ class TestPolarsNativeFastpath:
         captured_configs = []
         import mlframe.training.core as core_mod
 
-        # After the monolith->submodule split, ``fit_and_transform_pipeline`` is called from ``_phase_helpers``.
+        # ``fit_and_transform_pipeline`` lives in ``training.pipeline`` and is
+        # re-imported into ``_phase_helpers`` (legacy), ``_phase_helpers_fit_split``,
+        # and ``_phase_helpers_fit_pipeline`` (current call site after the 2026-05-22
+        # split). Patch every binding so whichever the suite reaches sees the spy.
+        from mlframe.training import pipeline as _pipeline_mod
         from mlframe.training.core import _phase_helpers as _ph_mod
-        original_fit = _ph_mod.fit_and_transform_pipeline
+        from mlframe.training.core import _phase_helpers_fit_split as _phsplit_mod
+        from mlframe.training.core import _phase_helpers_fit_pipeline as _phfit_mod
+        original_fit = _pipeline_mod.fit_and_transform_pipeline
 
         def _spy_pipeline(**kwargs):
             captured_configs.append(kwargs["config"].skip_categorical_encoding)
             return original_fit(**kwargs)
 
+        monkeypatch.setattr(_pipeline_mod, "fit_and_transform_pipeline", _spy_pipeline)
         monkeypatch.setattr(_ph_mod, "fit_and_transform_pipeline", _spy_pipeline)
+        monkeypatch.setattr(_phsplit_mod, "fit_and_transform_pipeline", _spy_pipeline)
+        monkeypatch.setattr(_phfit_mod, "fit_and_transform_pipeline", _spy_pipeline)
 
         train_mlframe_models_suite(
             df=pl_df,
@@ -3235,7 +3383,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3300,7 +3457,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3405,7 +3571,16 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pd_df,
@@ -3451,6 +3626,9 @@ class TestPolarsNativeFastpath:
 
         fit_df_types = []
         import mlframe.training.trainer as trainer_mod
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
 
         original_train = trainer_mod._train_model_with_fallback
 
@@ -3466,7 +3644,23 @@ class TestPolarsNativeFastpath:
                 verbose=verbose,
             )
 
+        # The helper was lifted into its own module (_training_loop) and re-
+        # imported into trainer / _trainer_configure / _trainer_train_and_evaluate
+        # at the 2026-05-22 split. Patch every binding so the spy intercepts
+        # whichever the suite reaches.
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3508,15 +3702,24 @@ class TestPolarsNativeFastpath:
         captured_configs = []
         import mlframe.training.core as core_mod
 
-        # After the monolith->submodule split, ``fit_and_transform_pipeline`` is called from ``_phase_helpers``.
+        # ``fit_and_transform_pipeline`` lives in ``training.pipeline`` and is
+        # re-imported into ``_phase_helpers`` (legacy), ``_phase_helpers_fit_split``,
+        # and ``_phase_helpers_fit_pipeline`` (current call site after the 2026-05-22
+        # split). Patch every binding so whichever the suite reaches sees the spy.
+        from mlframe.training import pipeline as _pipeline_mod
         from mlframe.training.core import _phase_helpers as _ph_mod
-        original_fit = _ph_mod.fit_and_transform_pipeline
+        from mlframe.training.core import _phase_helpers_fit_split as _phsplit_mod
+        from mlframe.training.core import _phase_helpers_fit_pipeline as _phfit_mod
+        original_fit = _pipeline_mod.fit_and_transform_pipeline
 
         def _spy_pipeline(**kwargs):
             captured_configs.append(kwargs["config"].skip_categorical_encoding)
             return original_fit(**kwargs)
 
+        monkeypatch.setattr(_pipeline_mod, "fit_and_transform_pipeline", _spy_pipeline)
         monkeypatch.setattr(_ph_mod, "fit_and_transform_pipeline", _spy_pipeline)
+        monkeypatch.setattr(_phsplit_mod, "fit_and_transform_pipeline", _spy_pipeline)
+        monkeypatch.setattr(_phfit_mod, "fit_and_transform_pipeline", _spy_pipeline)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3591,7 +3794,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3640,7 +3852,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3689,7 +3910,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3735,7 +3965,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3924,7 +4163,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -3976,7 +4224,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -4062,7 +4319,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         # Pass Ridge FIRST in the list — but CatBoost should still train first (higher tier)
         models, metadata = train_mlframe_models_suite(
@@ -4112,7 +4378,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -4274,7 +4549,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,
@@ -4325,7 +4609,16 @@ class TestTextAndEmbeddingFeatures:
                 verbose=verbose,
             )
 
+        # The helper is re-imported into multiple sibling modules after the
+        # 2026-05-22 trainer split; patch every binding so whichever the
+        # suite reaches sees the spy.
         monkeypatch.setattr(trainer_mod, "_train_model_with_fallback", _spy_train)
+        from mlframe.training import _trainer_train_and_evaluate as _tte_mod
+        from mlframe.training import _trainer_configure as _tc_mod
+        from mlframe.training import _training_loop as _tl_mod
+        monkeypatch.setattr(_tte_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tc_mod, "_train_model_with_fallback", _spy_train, raising=False)
+        monkeypatch.setattr(_tl_mod, "_train_model_with_fallback", _spy_train, raising=False)
 
         models, metadata = train_mlframe_models_suite(
             df=pl_df,

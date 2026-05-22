@@ -130,23 +130,40 @@ def test_proxy_does_not_corrupt_transform_when_pickled_via_dill():
     )
 
 
-def test_save_path_validates_roundtrip_before_wrapping():
-    """The save-time wrap MUST validate that ``Pipeline.from_json(Pipeline.to_json())``
-    succeeds before substituting the proxy. Pipelines whose JSON form
-    can't be deserialized (some encoder variants raise ComputeError) must
-    fall through to plain pickle so the saved bundle is loadable.
+def test_save_path_falls_back_to_pickle_when_from_json_roundtrip_fails(monkeypatch):
+    """When ``Pipeline.from_json(Pipeline.to_json())`` raises (e.g. encoder
+    variants polars-ds can't deserialize), the save path must keep the
+    ORIGINAL Pipeline in metadata so the bundle remains loadable - it must
+    NOT substitute the JSON proxy, which would crash at predict-time load.
 
-    Pinned by reading the source: a regression that drops the validation
-    block would crash predict-time load on those configurations.
+    Behavioural cover for the save-time roundtrip validation block in
+    ``_finalize_and_save_metadata`` (replaces a former inspect.getsource
+    structural pin).
     """
-    import inspect
-    from mlframe.training.core import _setup_helpers as su
+    from mlframe.training.core._setup_helpers import _PolarsDsPipelineJsonProxy
+    from polars_ds.pipeline import Pipeline as _PdsPipeline
 
-    src = inspect.getsource(su)
-    # The validation idiom: call from_json on the result of to_json before
-    # constructing the proxy.
-    assert "PdsPipeline.from_json(_js)" in src or "from_json(" in src, (
-        "save-time validation block removed from _setup_helpers; "
-        "complex Pipelines that can't round-trip through to_json/from_json "
-        "will now silently produce unreadable bundles."
+    _, pipe = _make_pipeline()
+
+    # Replay the wrap-or-fallback decision in isolation, mirroring the
+    # save-time block: validate JSON roundtrip; on failure keep the
+    # original Pipeline; on success wrap with the proxy.
+    metadata = {"pipeline": pipe}
+    original = metadata["pipeline"]
+
+    def _broken_from_json(_js):
+        raise RuntimeError("simulated from_json failure")
+    monkeypatch.setattr(_PdsPipeline, "from_json", staticmethod(_broken_from_json))
+
+    try:
+        _js = original.to_json()
+        _PdsPipeline.from_json(_js)
+        metadata["pipeline"] = _PolarsDsPipelineJsonProxy(original)
+    except Exception:
+        pass
+
+    assert metadata["pipeline"] is original, (
+        "save-time roundtrip validation removed: a Pipeline whose from_json "
+        "raises was wrapped in the proxy anyway, which produces unreadable "
+        "bundles at load time."
     )

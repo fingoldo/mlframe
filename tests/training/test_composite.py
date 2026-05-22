@@ -82,16 +82,21 @@ def _positive_data(n: int = 200, seed: int = 0):
 
 class TestRegistry:
     def test_list_transforms_default_alphabetical(self) -> None:
-        # R10c (2026-05-11): registry expanded with ``linear_residual_multi``;
-        # additional brainstorm transforms will land in subsequent commits.
-        assert list_transforms() == sorted([
+        """Result is alphabetically sorted and covers the well-known core
+        transforms. The registry is open and grows as new brainstorm transforms
+        land - pin the sort invariant and a core subset, not the exact list."""
+        names = list_transforms()
+        assert names == sorted(names), "list_transforms() must return alphabetical order"
+        core = {
             "diff", "ratio", "logratio",
             "linear_residual", "linear_residual_multi",
             "linear_residual_grouped",
             "quantile_residual",
             "monotonic_residual",
             "ewma_residual", "rolling_quantile_ratio", "frac_diff",
-        ])
+        }
+        missing = core - set(names)
+        assert not missing, f"core transforms missing from list_transforms(): {missing}"
 
     def test_list_transforms_filters_by_tag(self) -> None:
         core = list_transforms(tags=frozenset({"core"}))

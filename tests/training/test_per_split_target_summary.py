@@ -94,7 +94,10 @@ def test_regression_val_appends_MTV():
     out = _append_split_rate_suffix(
         "cb_run MTTR=1.5000", split_name="val", target=val_target,
     )
-    assert out == "cb_run MTTR/MTV=1.5000/2.0000"
+    # The split-suffix uses the adaptive ``format_metric`` (default 2 d.p.)
+    # rather than the legacy hard-coded ``:.4f``. For |val|>=1 this collapses
+    # to 2 decimals; tiny magnitudes get widened automatically.
+    assert out == "cb_run MTTR/MTV=1.5000/2.00"
 
 
 def test_regression_test_appends_MTTS():
@@ -102,7 +105,7 @@ def test_regression_test_appends_MTTS():
     out = _append_split_rate_suffix(
         "cb_run MTTR=12.5000", split_name="test", target=test_target,
     )
-    assert out == "cb_run MTTR/MTTS=12.5000/15.0000"
+    assert out == "cb_run MTTR/MTTS=12.5000/15.00"
 
 
 # -----------------------------------------------------------------------------

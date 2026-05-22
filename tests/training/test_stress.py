@@ -567,9 +567,17 @@ class TestFileIOStress:
             result = save_mlframe_model(data, file_path, verbose=0)
             assert result is True
 
-        # Verify all files exist
+        # Verify all files exist. Each save now also writes a sidecar
+        # ``.zst.meta.json`` (sha256 + metadata for verify-on-load), so each
+        # logical model is two files on disk.
         files = os.listdir(tmpdir)
-        assert len(files) == 10
+        zst_files = [f for f in files if f.endswith(".zst")]
+        meta_files = [f for f in files if f.endswith(".zst.meta.json")]
+        assert len(zst_files) == 10
+        # Sidecar count tolerated as 0 (legacy) or 10 (post-wave-48).
+        assert len(meta_files) in (0, 10), (
+            f"unexpected sidecar count: {len(meta_files)} (expected 0 or 10)"
+        )
 
     def test_save_load_different_compressions(self, tmp_path):
         """Test save/load with different compression levels."""

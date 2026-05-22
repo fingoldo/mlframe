@@ -987,7 +987,7 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         member-like namespace with pre-computed probs but a sentinel model that raises if predict
         is called, then drive the hot path and verify no predict happens."""
         from types import SimpleNamespace
-        from mlframe import ensembling as ens_mod
+        from mlframe.models import ensembling as ens_mod
 
         X, y = small_classification_data
 

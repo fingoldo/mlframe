@@ -433,6 +433,7 @@ class TestFeatureSelectionIntegration:
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=True,
                 mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "quantization_nbins": 5}
             ),
         )
@@ -518,6 +519,7 @@ class TestCombinedPipelines:
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=True,
                 mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}
             ),
         )
@@ -565,6 +567,7 @@ class TestCombinedPipelines:
             output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
             verbose=0,
             feature_selection_config=FeatureSelectionConfig(
+                use_mrmr_fs=True,
                 mrmr_kwargs={"verbose": 0, "max_runtime_mins": 1, "n_workers": 1}
             ),
         )

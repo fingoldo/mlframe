@@ -646,6 +646,7 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
         verbose=0,
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         feature_selection_config=FeatureSelectionConfig(
+            use_mrmr_fs=True,
             mrmr_kwargs={
                 "verbose": 0,
                 "max_runtime_mins": 1,
@@ -708,6 +709,7 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
         verbose=0,
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
         feature_selection_config=FeatureSelectionConfig(
+            use_mrmr_fs=True,
             mrmr_kwargs={
                 "verbose": 0,
                 "max_runtime_mins": 1,

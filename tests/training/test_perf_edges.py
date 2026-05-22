@@ -26,7 +26,19 @@ from PIL import Image
 from mlframe.metrics.core import show_calibration_plot
 
 
-PYEXE = r"D:/ProgramData/anaconda3/python.exe"
+PYEXE = sys.executable
+
+
+def _subprocess_env_with_pythonpath() -> dict:
+    """Inject the mlframe ``src/`` directory into PYTHONPATH so a fresh
+    subprocess can import the project when it is not installed system-wide
+    (the dev layout)."""
+    import mlframe as _mf
+    src_root = str(Path(_mf.__file__).resolve().parent.parent)
+    env = {**os.environ}
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = src_root + (os.pathsep + existing if existing else "")
+    return env
 
 
 # ---------- fixtures ----------
@@ -136,7 +148,7 @@ def test_numba_cache_hit_across_subprocess(tmp_path):
     script = tmp_path / "nb.py"
     script.write_text(_NUMBA_SCRIPT)
     cache_dir = tmp_path / "nbcache"
-    env = {**os.environ, "NUMBA_CACHE_DIR": str(cache_dir)}
+    env = {**_subprocess_env_with_pythonpath(), "NUMBA_CACHE_DIR": str(cache_dir)}
 
     r1 = subprocess.run([PYEXE, str(script)], capture_output=True, text=True, env=env, timeout=120)
     assert r1.returncode == 0, r1.stderr
@@ -216,6 +228,7 @@ def test_torch_not_imported_on_module_import():
          "print('torch' in sys.modules, 'torch.nn' in sys.modules, "
          "'mlframe.lightninglib' in sys.modules)"],
         capture_output=True, text=True, timeout=60,
+        env=_subprocess_env_with_pythonpath(),
     )
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "False False False", r.stdout
@@ -237,6 +250,7 @@ def test_torch_stays_out_for_catboost_only_path():
             print('torch' in sys.modules)
         """)],
         capture_output=True, text=True, timeout=60,
+        env=_subprocess_env_with_pythonpath(),
     )
     assert r.returncode == 0, r.stderr
     # CatBoost-only path should keep torch out; if assertion fires, a top-level import leaked back in.

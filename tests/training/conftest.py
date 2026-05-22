@@ -338,9 +338,11 @@ def trained_suite_regression(sample_regression_data, common_init_params, fast_it
     extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
     suite = train_mlframe_models_suite(
         df=df,
+        target_name="test_target",
+        model_name="trained_suite_regression",
         features_and_targets_extractor=extractor,
         reporting_config=common_init_params,
-        config_override={
+        hyperparams_config={
             "iterations": fast_iterations,
             "cb_kwargs": {"task_type": "CPU"},
             "xgb_kwargs": {"device": "cpu"},
@@ -366,9 +368,11 @@ def trained_suite_binary(sample_classification_data, common_init_params, fast_it
     extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
     suite = train_mlframe_models_suite(
         df=df,
+        target_name="test_target",
+        model_name="trained_suite_binary",
         features_and_targets_extractor=extractor,
         reporting_config=common_init_params,
-        config_override={
+        hyperparams_config={
             "iterations": fast_iterations,
             "cb_kwargs": {"task_type": "CPU"},
             "xgb_kwargs": {"device": "cpu"},

@@ -61,7 +61,19 @@ def test_io_save_uses_logger_exception() -> None:
 
 
 def test_predict_per_model_loop_uses_exc_info() -> None:
-    src = _read("training/core/predict.py")
+    # The per-model predict loop moved out of ``predict.py`` into the
+    # sibling ``_predict_main_from_models.py`` during the 2026-05-22
+    # predict-monolith split. Read both modules so the structural pin
+    # tolerates either location.
+    import pathlib
+    import mlframe as _mlframe
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    src = ""
+    for nm in ("predict.py", "_predict_main_from_models.py", "_predict_main.py", "_predict_pre_pipeline.py"):
+        p = _core / nm
+        if p.exists():
+            src += p.read_text(encoding="utf-8")
+            src += "\n"
     assert 'logger.error(f"Error predicting with model {model_name}: {e}")' not in src
     assert 'logger.error("Error predicting with model %s", model_name, exc_info=True)' in src
 
@@ -77,7 +89,18 @@ def test_inference_predict_uses_raise_from() -> None:
 
 
 def test_trainer_cache_load_preserves_traceback() -> None:
-    src = _read("training/trainer.py")
+    # The cache-load helper moved out of ``trainer.py`` into the sibling
+    # ``_trainer_train_and_evaluate.py`` during the 2026-05-22 trainer split.
+    # Read both so the structural pin tolerates either location.
+    import pathlib
+    import mlframe as _mlframe
+    _root = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
+    src = ""
+    for nm in ("trainer.py", "_trainer_train_and_evaluate.py", "_trainer_configure.py"):
+        p = _root / nm
+        if p.exists():
+            src += p.read_text(encoding="utf-8")
+            src += "\n"
     assert 'logger.warning(f"Failed to load cached model from {model_file_name}: {e}. Will retrain instead.")' not in src
     assert 'logger.warning("Failed to load cached model from %s; will retrain instead.", model_file_name, exc_info=True)' in src
 
@@ -121,7 +144,11 @@ def test_evaluation_plot_fi_uses_exc_info() -> None:
 
 
 def test_reporting_predict_proba_fallback_uses_exc_info() -> None:
-    src = _read("training/_reporting.py")
+    """The predict_proba fallback log moved from training/_reporting.py to the
+    sibling training/_reporting_probabilistic.py during the monolith split."""
+    src_parent = _read("training/_reporting.py")
+    src_sibling = _read("training/_reporting_probabilistic.py")
+    src = src_parent + "\n" + src_sibling
     assert 'logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")' not in src
     assert 'logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)' in src
 

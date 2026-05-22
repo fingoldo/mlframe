@@ -457,7 +457,7 @@
   },
   "configure_training_params": {
     "kind": "callable",
-    "module": "mlframe.training.trainer",
+    "module": "mlframe.training._trainer_configure",
     "signature": "(df:any:1, train_df:any:1, test_df:any:1, val_df:any:1, target:any:1, target_label_encoder:any:1, train_target:any:1, test_target:any:1, val_target:any:1, train_idx:any:1, val_idx:any:1, test_idx:any:1, cat_features:any:1, text_features:any:1, embedding_features:any:1, fairness_features:any:1, cont_nbins:any:1, fairness_min_pop_cat_thresh:any:1, use_robust_eval_metric:any:1, sample_weight:any:1, prefer_gpu_configs:any:1, nbins:any:1, use_regression:any:1, verbose:any:1, rfecv_model_verbose:any:1, prefer_cpu_for_lightgbm:any:1, prefer_cpu_for_xgboost:any:1, xgboost_verbose:any:1, cb_fit_params:any:1, prefer_calibrated_classifiers:any:1, default_regression_scoring:any:1, default_classification_scoring:any:1, train_details:any:1, val_details:any:1, test_details:any:1, group_ids:any:1, model_name:any:1, common_params:any:1, config_params:any:1, metamodel_func:any:1, use_flaml_zeroshot:any:1, _precomputed_fairness_subgroups:any:1, mlframe_models:any:1, linear_model_config:any:1, callback_params:any:1, train_df_size_bytes:any:1, val_df_size_bytes:any:1, target_type:any:1, n_classes:any:1, multilabel_dispatch_config:any:1, pre_pipeline_cache_max:any:1)"
   },
   "core": {
@@ -550,7 +550,7 @@
   },
   "fit_and_transform_pipeline": {
     "kind": "callable",
-    "module": "mlframe.training.pipeline",
+    "module": "mlframe.training._pipeline_fit_transform",
     "signature": "(train_df:any:0, val_df:any:0, test_df:any:0, config:any:0, ensure_float32:any:1, verbose:any:1, text_features:any:1, embedding_features:any:1)"
   },
   "fit_ranker": {
@@ -790,7 +790,7 @@
   },
   "train_and_evaluate_model": {
     "kind": "callable",
-    "module": "mlframe.training.trainer",
+    "module": "mlframe.training._trainer_train_and_evaluate",
     "signature": "(model:any:0, data:any:0, control:any:0, metrics:any:0, reporting:any:0, naming:any:0, output:any:1, confidence:any:1, predictions:any:1, train_od_idx:any:1, val_od_idx:any:1, trainset_features_stats:any:1, trusted_root:any:1, oof_n_splits:any:1)"
   },
   "train_automl_models_suite": {
@@ -804,12 +804,12 @@
   },
   "train_mlframe_models_suite": {
     "kind": "callable",
-    "module": "mlframe.training.core.main",
+    "module": "mlframe.training.core._main_train_suite",
     "signature": "(df:any:0, target_name:any:0, model_name:any:0, features_and_targets_extractor:any:0, mlframe_models:any:1, recurrent_models:any:1, recurrent_config:any:1, sequences:any:1, use_ordinary_models:any:1, use_mlframe_ensembles:any:1, target_type:any:1, ranking_config:any:1, preprocessing_config:any:1, split_config:any:1, pipeline_config:any:1, preprocessing_extensions:any:1, feature_types_config:any:1, linear_model_config:any:1, hyperparams_config:any:1, behavior_config:any:1, multilabel_dispatch_config:any:1, reporting_config:any:1, output_config:any:1, outlier_detection_config:any:1, feature_selection_config:any:1, confidence_analysis_config:any:1, baseline_diagnostics_config:any:1, dummy_baselines_config:any:1, quantile_regression_config:any:1, composite_target_discovery_config:any:1, feature_handling_config:any:1, precomputed:any:1, enable_target_distribution_analyzer:any:1, verbose:any:1)"
   },
   "train_mlframe_ranker_suite": {
     "kind": "callable",
-    "module": "mlframe.training.ranker_suite",
+    "module": "mlframe.training._ranker_suite_train",
     "signature": "(df:any:0, target_name:any:0, model_name:any:0, features_and_targets_extractor:any:0, mlframe_models:kw:1, use_mlframe_ensembles:kw:1, ranking_config:kw:1, test_size:kw:1, val_size:kw:1, iterations:kw:1, learning_rate:kw:1, early_stopping_rounds:kw:1, eval_at:kw:1, ensemble_method:kw:1, save_dir:kw:1, random_seed:kw:1, verbose:kw:1, plot_file:kw:1, plot_outputs:kw:1, ltr_panels:kw:1, mlp_kwargs:kw:1, dummy_baselines_config:kw:1)"
   },
   "trainer": {

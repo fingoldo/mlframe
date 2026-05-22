@@ -49,7 +49,13 @@ def test_init_defaults_preserves_user_values():
     p, r, m = _initialize_training_defaults(user_p, user_r, user_m)
     assert p is user_p
     assert r is user_r
-    assert m is user_m
+    # ``mrmr_kwargs`` is shallow-merged with the function's defaults
+    # (``fe_max_steps`` / ``verbose`` / ``max_runtime_mins`` / ``n_workers``)
+    # so the user value takes priority but the other defaults fill in. The
+    # returned dict carries the user's value plus the gap-filled defaults.
+    assert m["n_workers"] == 99
+    assert "fe_max_steps" in m
+    assert "max_runtime_mins" in m
 
 
 # ----- _build_common_params_for_target -----
@@ -136,15 +142,21 @@ def test_build_pre_pipelines_ordinary_only():
 
 
 def test_build_pre_pipelines_rfecv_merge():
+    # The suite-level overrides apply ``leakage_corr_threshold`` /
+    # ``mbh_adaptive_threshold`` to the RFECV instance via setattr; we need a
+    # real attribute-settable stand-in rather than a bare string.
+    class _FakeRFECV:
+        pass
+    fake = _FakeRFECV()
     pipes, names = _build_pre_pipelines(
         use_ordinary_models=True,
         rfecv_models=["cb_rfecv"],
-        rfecv_models_params={"cb_rfecv": "FAKE_PIPELINE"},
+        rfecv_models_params={"cb_rfecv": fake},
         use_mrmr_fs=False,
         mrmr_kwargs={},
     )
     assert None in pipes
-    assert "FAKE_PIPELINE" in pipes
+    assert fake in pipes
     assert "cb_rfecv " in names
 
 
@@ -184,7 +196,10 @@ def test_build_pre_pipelines_custom():
         mrmr_kwargs={},
         custom_pre_pipelines={"my_pca": dummy},
     )
-    assert dummy in pipes
+    # Custom pre-pipelines are cloned before insertion (see test_fs5_*
+    # contract); the inserted instance is a clone, not the original. Verify
+    # the right shape lands in the output rather than object identity.
+    assert any(isinstance(p, DummyTrans) for p in pipes)
     assert "my_pca " in names
 
 

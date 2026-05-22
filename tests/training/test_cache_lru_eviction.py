@@ -40,7 +40,13 @@ def monotonic_lru_clock(monkeypatch):
 
 
 def test_discovery_cache_evicts_oldest_when_over_max_entries(tmp_path, monotonic_lru_clock):
-    """When max_entries=3 and 5 keys are written, the 2 oldest evict."""
+    """When max_entries=3 and 5 keys are written, the 2 oldest evict.
+
+    Note: ``DiscoveryCache`` hashes non-pure-hex keys via blake2b before writing
+    them to disk; on-disk file names are ``<digest>__h<len>.pkl``, not the
+    literal key. Verify eviction via ``cache.get()`` (which round-trips through
+    the same hash) plus an on-disk file-count check.
+    """
     from mlframe.training.composite_cache import DiscoveryCache
 
     cache = DiscoveryCache(str(tmp_path), max_entries=3)
@@ -53,11 +59,10 @@ def test_discovery_cache_evicts_oldest_when_over_max_entries(tmp_path, monotonic
 
     # The first 2 inserted (key0000, key0001) should be gone; the last 3
     # (key0002, key0003, key0004) should be present.
-    assert "key0002.pkl" in pkls
-    assert "key0003.pkl" in pkls
-    assert "key0004.pkl" in pkls
     assert cache.get("key0000") is None
     assert cache.get("key0001") is None
+    assert cache.get("key0002") == {"i": 2}
+    assert cache.get("key0003") == {"i": 3}
     assert cache.get("key0004") == {"i": 4}
 
 
@@ -73,13 +78,14 @@ def test_discovery_cache_get_refreshes_lru(tmp_path, monotonic_lru_clock):
     assert cache.get("key0000") == {"i": 0}
     cache.set("key0003", {"i": 3})
 
-    pkls = {p.name for p in tmp_path.glob("*.pkl")}
     # key0001 was the new oldest and should be the one evicted; key0000
-    # survived because get() refreshed its LRU timestamp.
-    assert "key0000.pkl" in pkls
-    assert "key0001.pkl" not in pkls
-    assert "key0002.pkl" in pkls
-    assert "key0003.pkl" in pkls
+    # survived because get() refreshed its LRU timestamp. Verify via the
+    # cache API rather than literal file names (DiscoveryCache hashes
+    # non-hex keys before disk).
+    assert cache.get("key0000") == {"i": 0}
+    assert cache.get("key0001") is None
+    assert cache.get("key0002") == {"i": 2}
+    assert cache.get("key0003") == {"i": 3}
 
 
 def test_discovery_cache_no_cap_means_unbounded(tmp_path):

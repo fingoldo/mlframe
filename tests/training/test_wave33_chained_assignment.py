@@ -40,9 +40,12 @@ def test_cleaning_is_view_heuristic_removed():
         "inverts and the refresh silently skips."
     )
     assert "if not is_view:\n            sub_df[col] = df.loc" not in src
-    # Post-fix marker:
-    assert "Wave 33 P1 fix" in src
-    assert "the gate INVERTS" in src
+    # Post-fix marker: the unconditional refresh path lives in
+    # ``_update_sub_df_col`` and uses ``sub_df = sub_df.copy()``. We assert the
+    # copy pattern itself, not a wave-attribution comment (banned by
+    # CLAUDE.md no-audit/phase-in-comments).
+    assert "sub_df = sub_df.copy()" in src
+    assert "df.loc[analyse_mask, col]" in src
 
 
 def test_cleaning_unconditional_copy_pattern():

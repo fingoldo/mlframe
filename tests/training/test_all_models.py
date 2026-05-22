@@ -236,6 +236,16 @@ class TestCategoricalFeatures:
         pipeline_config = PreprocessingBackendConfig(
             categorical_encoding=encoding,
         )
+        # Default ``cat_text_cardinality_threshold_pct=0.001`` on 500 rows
+        # gives effective text-promotion threshold of 50 - cat_1 (100 unique
+        # codes) would be routed to text_features and CB's TF-IDF estimator
+        # fails on per-token frequencies. Disable the size-aware floor so the
+        # absolute 300-uniq cap applies (legacy behaviour) and all three
+        # ``cat_*`` columns stay in cat_features.
+        from mlframe.training.configs import FeatureTypesConfig
+        feature_types_config = FeatureTypesConfig(
+            cat_text_cardinality_threshold_pct=0.0,
+        )
 
         # Force CPU for GPU-capable models (GPU tests are separate)
         config_override = {"iterations": fast_iterations}
@@ -256,6 +266,7 @@ class TestCategoricalFeatures:
             features_and_targets_extractor=fte,
             mlframe_models=[model_name],
             pipeline_config=pipeline_config,
+            feature_types_config=feature_types_config,
             hyperparams_config=config_override,
             reporting_config=common_init_params,
             use_ordinary_models=True,

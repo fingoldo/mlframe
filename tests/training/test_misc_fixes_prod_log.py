@@ -1243,9 +1243,10 @@ class TestEnsembleAdaptiveMedianFilter:
             f"relative thresholds; got:\n{captured.out}"
         )
 
-    def test_relative_filter_catches_real_outlier(self, capsys):
+    def test_relative_filter_catches_real_outlier(self, caplog):
         """Six clustered members + one 10× outlier → only the outlier
         excluded; remaining 6 used."""
+        import logging
         from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         rng = np.random.default_rng(0)
@@ -1253,13 +1254,14 @@ class TestEnsembleAdaptiveMedianFilter:
         # Add an outlier 10× off the median jitter scale.
         preds.append(np.clip(median + rng.normal(0, 0.5, (100, 1)), 0, 1))
 
+        caplog.set_level(logging.INFO, logger="mlframe.models.ensembling")
         ensemble_probabilistic_predictions(
             *preds,
             ensemble_method="arithm",
             verbose=True,
         )
-        captured = capsys.readouterr()
-        excluded_lines = [ln for ln in captured.out.splitlines() if "ens member" in ln and "excluded" in ln]
+        log_lines = [r.getMessage() for r in caplog.records]
+        excluded_lines = [ln for ln in log_lines if "ens member" in ln and "excluded" in ln]
         assert len(excluded_lines) == 1, (
             f"exactly one outlier should be excluded; got {len(excluded_lines)}:\n"
             + "\n".join(excluded_lines)
@@ -1267,16 +1269,18 @@ class TestEnsembleAdaptiveMedianFilter:
         # The excluded one is the last (index 6 — the outlier we added).
         assert "ens member 6 excluded" in excluded_lines[0]
         # Surviving 6 → "Using 6 members of ensemble" line.
-        assert "Using 6 members of ensemble" in captured.out
+        assert any("Using 6 members of ensemble" in ln for ln in log_lines)
 
-    def test_legacy_absolute_thresholds_still_supported(self, capsys):
+    def test_legacy_absolute_thresholds_still_supported(self, caplog):
         """Caller can opt back into the old absolute-threshold semantics
         by passing ``max_mae``/``max_std`` non-zero (and disabling
         relative). Ensures we didn't break the public API."""
+        import logging
         from mlframe.models.ensembling import ensemble_probabilistic_predictions
 
         _, preds = self._make_clustered_preds(jitter_scale=0.05)  # ~0.04-0.05 MAE
         # Relative off, absolute strict.
+        caplog.set_level(logging.INFO, logger="mlframe.models.ensembling")
         ensemble_probabilistic_predictions(
             *preds,
             ensemble_method="arithm",
@@ -1286,10 +1290,12 @@ class TestEnsembleAdaptiveMedianFilter:
             max_std_relative=0,
             verbose=True,
         )
-        captured = capsys.readouterr()
+        log_lines = [r.getMessage() for r in caplog.records]
         # With strict 0.01 absolute, all clustered ~0.04 members get
         # excluded → triggers the "filters too restrictive" fallback.
-        assert "filters too restrictive" in captured.out or "ens member" in captured.out
+        assert any("filters too restrictive" in ln or "ens member" in ln for ln in log_lines), (
+            f"expected restrictive-filter log; got: {log_lines}"
+        )
 
     def test_disabled_filter_no_op(self, capsys):
         """Both threshold styles set to 0 ⇒ no filtering, no log noise."""

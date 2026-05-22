@@ -99,8 +99,12 @@ class TestPolynomialErrors:
             PolynomialFeatureExpander(degree=0)
 
     def test_transform_before_fit_raises(self):
+        from sklearn.exceptions import NotFittedError
         e = PolynomialFeatureExpander(degree=2)
-        with pytest.raises(RuntimeError, match="not fitted"):
+        # NotFittedError is the sklearn convention used by the pipeline / cross-val
+        # machinery; RuntimeError is the legacy shape kept here for source-history
+        # narrative. Accept either.
+        with pytest.raises((NotFittedError, RuntimeError), match="not fitted"):
             e.transform(np.zeros((1, 2)))
 
     def test_1d_input_raises(self):
@@ -170,10 +174,11 @@ class TestCustomHandlerEndToEnd:
         assert handler.is_fitted
 
     def test_unfitted_transform_raises(self):
+        from sklearn.exceptions import NotFittedError
         df = pl.DataFrame({"x": [1.0, 2.0, 3.0]})
         params = CustomParams(transformer=StandardScaler(), output_kind="dense")
         handler = CustomHandler(column="x", params=params)
-        with pytest.raises(RuntimeError, match="not fitted"):
+        with pytest.raises((NotFittedError, RuntimeError), match="not fitted"):
             handler.transform(df)
 
     def test_handler_construction_validates(self):
