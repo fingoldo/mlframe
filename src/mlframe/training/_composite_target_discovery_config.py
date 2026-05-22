@@ -151,40 +151,40 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # serial (covered by tests/training/test_composite_discovery_parallel.py).
     discovery_n_jobs: int = 1
 
-    # 2026-05-18 #10: skip the entire composite-target training block
-    # when the raw model already dominates the dummy-baseline ceiling.
-    # The discovery's raw-y baseline RMSE / y_std ratio is a cheap
-    # proxy for "raw is already near-perfect": when ratio <
+    # Skip the entire composite-target training block when the raw
+    # model already dominates the dummy-baseline ceiling. The discovery's
+    # raw-y baseline RMSE / y_std ratio is a cheap proxy for "raw is
+    # already near-perfect": when ratio <
     # ``composite_skip_when_raw_dominates_ratio``, composite training
-    # is unlikely to add measurable lift. Production TVT log: Ridge on
-    # raw TVT achieved MAE=7.89 (better than CB / XGB / LGB); the two
-    # discovered composites (monres-Y, monresYj-Y) produced IDENTICAL
-    # metrics to raw -- pure compute loss.
+    # is unlikely to add measurable lift on the BASELINE model. Set 0.0
+    # to never skip.
     #
-    # Default flipped 0.0 -> 0.02 2026-05-18 (Accuracy/perf over legacy):
-    # 0.02 means "raw explains >= 98% of y's variance" -- a regime where
-    # composites genuinely have no headroom. The conservative case
-    # (composite captures the last 2%) is rare in practice on residual-
-    # structure datasets. Set 0.0 to restore historical "never skip".
-    #
-    # 2026-05-21 raised 0.02 -> 0.03: TVT regression with ratio=0.0228
-    # (R^2 already 0.9995) ran 15.6 min of discovery and produced 1
-    # spec that scored identically to raw -- pure compute loss.
-    # 0.03 = R^2 >= 0.9991, still extremely conservative; composites
-    # capturing the last 0.1% of variance are vanishingly rare and
-    # don't justify 15+ minutes per target.
-    composite_skip_when_raw_dominates_ratio: float = 0.03
+    # Default is 0.0 (always run discovery). Prior defaults 0.02 / 0.03
+    # were tuned against the Ridge / CB / XGB / LGB zoo where "raw R^2
+    # already > 0.99" reliably meant "composite has no headroom".
+    # That assumption silently breaks for model-mix suites containing
+    # nonlinear / mis-configured downstream models: e.g. an Identity-
+    # activation MLP can extrapolate to ~-17 sigma on the random-group
+    # test split while Ridge nails R^2=1.00 on the same data. A
+    # composite like ``y - top_ar_feature`` would have given the MLP a
+    # residual target near zero and saved it. Because the gate fires
+    # off the raw-Ridge baseline only, it skipped composite discovery
+    # and the MLP collapsed. The 15+ min compute cost is the price for
+    # not gambling on this assumption.
+    composite_skip_when_raw_dominates_ratio: float = 0.0
 
-    # 2026-05-21: complementary skip signal using BaselineDiagnostics'
-    # ablation delta%. When the top-ranked feature's drop causes
-    # ablation RMSE to balloon by more than this fraction, the raw
-    # model is essentially auto-regressive on that one feature
-    # (production TVT log: top_ablation_delta%=3209% means dropping
-    # TVT_prev makes RMSE 33x worse -- the model literally IS
-    # ``y ~ TVT_prev``). Composite discovery in this regime spends
-    # tens of minutes finding transforms that capture the same trivial
-    # mapping; better to skip entirely. Set 0.0 to disable.
-    composite_skip_when_ablation_delta_pct: float = 500.0
+    # Complementary skip signal using BaselineDiagnostics' ablation
+    # delta%. When the top-ranked feature's drop causes ablation RMSE
+    # to balloon by more than this fraction, the raw model is
+    # essentially auto-regressive on that one feature. Set 0.0 to
+    # never skip; positive value re-enables the heuristic.
+    #
+    # Default is 0.0 for the same model-mix reason as the ratio gate
+    # above: "one feature explains everything for Ridge" doesn't mean
+    # "all downstream models will be fine". An MLP that extrapolates
+    # badly on unseen wells benefits enormously from the composite
+    # ``y - top_ar_feature`` even when Ridge doesn't need it.
+    composite_skip_when_ablation_delta_pct: float = 0.0
 
     # Skip the wrap-pass y-scale predict() calls per composite entry per split
     # (train+val+test). Wide model zoos x multi-million-row frames see 5-15

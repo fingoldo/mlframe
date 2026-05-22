@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-05-22 — Composite-discovery skip gates default to off
+
+``CompositeTargetDiscoveryConfig.composite_skip_when_raw_dominates_ratio``
+and ``composite_skip_when_ablation_delta_pct`` defaults flipped from
+``0.03`` / ``500.0`` to ``0.0`` (both disabled). Setting either > 0
+re-enables the prior short-circuit.
+
+The previous defaults short-circuited composite discovery when the
+baseline Ridge already explained >99% of variance OR when one feature
+(typically a lag-1 of the target) ballooned ablation RMSE 5x+. That
+heuristic was correct for the Ridge / CB / XGB / LGB zoo but silently
+breaks for model-mix suites that include nonlinear / mis-configured
+downstream models. Production TVT run, group-aware split, 25 features:
+Ridge nailed R²=1.00 (ratio=0.0227, ablation delta%=501) → gates
+skipped composite discovery → MLP with ``activation_function=Identity``
+extrapolated to ~-17σ on the unseen-wells test split and collapsed
+(R²=-329). A ``y - top_ar_feature`` composite would have shifted the
+MLP's target to a near-zero residual and saved it.
+
+The 15+ min compute cost per target is the price for not gambling on
+"raw dominates → all downstream models will be fine". Users who want
+the prior fast-skip behaviour back can set the two flags explicitly.
+
 ## 2026-05-22 — Feature-drift auto-apply: default-OFF flag + classification shape gate
 
 After the per-target threshold table landed earlier in the day, two

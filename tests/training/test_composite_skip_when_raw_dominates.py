@@ -1,8 +1,15 @@
-"""#10 biz_val: skip composite training when raw model already dominates.
+"""Composite-discovery skip gates: config wiring smoke + default assertions.
 
-Production TVT log: Ridge on raw TVT achieved MAE=7.89 (better than CB / XGB / LGB); the two discovered composites (monres-Y, monresYj-Y) produced IDENTICAL metrics to raw -- pure compute loss.
+Two skip gates short-circuit ``CompositeTargetDiscovery.fit`` to "no kept
+specs" when the raw model already dominates:
+  - ``composite_skip_when_raw_dominates_ratio``: raw_baseline / y_std
+  - ``composite_skip_when_ablation_delta_pct``: BD ablation delta% of top hint
 
-Pack #10 adds ``composite_skip_when_raw_dominates_ratio`` to ``CompositeTargetDiscoveryConfig``. Default 0.0 (off, back-compat). When > 0, discovery measures ``raw_baseline / y_std`` -- the fraction of y's variance the raw model could not explain -- and short-circuits to "no kept specs" if the fraction is below the threshold.
+Both default to 0.0 (always run discovery). Setting them >0 re-enables
+the heuristic that an Identity-MLP or other mis-configured downstream
+model wouldn't benefit from a residual composite -- an assumption that
+holds for the Ridge/CB/XGB/LGB baseline but breaks for model-mix
+suites that include neural / pathological configs.
 """
 from __future__ import annotations
 
@@ -14,16 +21,21 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 
 class TestComposiSkipConfig:
-    def test_config_flag_default(self) -> None:
-        """``composite_skip_when_raw_dominates_ratio`` default 0.0 -> 0.02 (2026-05-18) -> 0.03 (2026-05-21)
-        after TVT log showed raw=14.69, R^2=0.9994 missed the 0.02 trip (ratio=0.0245); raised to 0.03 to
-        catch that regime. Explicit 0.0 restores historical "never skip"."""
+    def test_raw_dominates_ratio_default_is_off(self) -> None:
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.composite_skip_when_raw_dominates_ratio == 0.03
+        assert cfg.composite_skip_when_raw_dominates_ratio == 0.0
+
+    def test_ablation_delta_pct_default_is_off(self) -> None:
+        cfg = CompositeTargetDiscoveryConfig()
+        assert cfg.composite_skip_when_ablation_delta_pct == 0.0
 
     def test_config_flag_accepts_positive_ratio(self) -> None:
         cfg = CompositeTargetDiscoveryConfig(composite_skip_when_raw_dominates_ratio=0.05)
         assert cfg.composite_skip_when_raw_dominates_ratio == 0.05
+
+    def test_config_flag_accepts_positive_ablation_pct(self) -> None:
+        cfg = CompositeTargetDiscoveryConfig(composite_skip_when_ablation_delta_pct=500.0)
+        assert cfg.composite_skip_when_ablation_delta_pct == 500.0
 
 
 class TestDiscoveryHonoursSkipFlag:
