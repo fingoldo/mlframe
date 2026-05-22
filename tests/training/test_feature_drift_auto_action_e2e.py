@@ -167,3 +167,91 @@ def test_feature_drift_auto_action_e2e_regression():
     assert abs(test_z) > 3.0, (
         f"expected |test_z| > 3.0 for f0 after 8-sigma injected drift; got test_z={test_z}"
     )
+
+
+@pytest.mark.slow
+def test_feature_drift_auto_action_e2e_with_mlp_in_model_set():
+    """Second e2e variant that includes MLP in the model set so the
+    PER-TARGET wire-in actually fires (the linear-only variant tests the
+    sensor side; this one tests the merge-into-hyperparams_config side).
+
+    Pays the ~14s pytorch lightning import cost so this test is heavier
+    than the linear-only variant -- still ``slow`` marked. The assertion
+    is on metadata["feature_drift_auto_action"][regression][drift_e2e]
+    existing with the expected sklearn + mlframe shapes; we don't assert
+    on MLP test R^2 because the MLP fit happens AFTER the wire-in and is
+    its own complex flow (covered by the bench-stack, not this test)."""
+    from mlframe.training import train_mlframe_models_suite
+    from mlframe.training.configs import (
+        BaselineDiagnosticsConfig,
+        ModelHyperparamsConfig,
+        TrainingBehaviorConfig,
+        TrainingSplitConfig,
+    )
+
+    import mlframe.training.core._phase_train_one_target as pt
+
+    df = _make_drifted_regression_df(n=600, seed=0)
+    fte = _DriftingFeaturesAndTargetsExtractor("y")
+
+    captured_ctx_holder: dict = {}
+    _orig_train_one = pt._train_one_target
+
+    def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        captured_ctx_holder["ctx"] = ctx
+        return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
+
+    pt._train_one_target = _stash_ctx
+    import mlframe.training.core.main as _main
+    pt_alias = _main.pr
+    _orig_pt_alias = pt_alias._train_one_target
+    pt_alias._train_one_target = _stash_ctx
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            train_mlframe_models_suite(
+                df=df, target_name="drift_e2e_mlp", model_name="mt",
+                features_and_targets_extractor=fte,
+                mlframe_models=["mlp"],  # the actual wire-in target
+                use_mlframe_ensembles=False,
+                verbose=0,
+                split_config=TrainingSplitConfig(test_size=0.15, val_size=0.15),
+                hyperparams_config=ModelHyperparamsConfig(),
+                behavior_config=TrainingBehaviorConfig(),
+                baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=True),
+            )
+    finally:
+        pt._train_one_target = _orig_train_one
+        pt_alias._train_one_target = _orig_pt_alias
+
+    ctx = captured_ctx_holder.get("ctx")
+    assert ctx is not None, "ctx not captured"
+    metadata = ctx.metadata or {}
+
+    # Sensor side: drift stamped.
+    assert metadata.get("feature_distribution_drift"), (
+        "feature_distribution_drift missing from metadata"
+    )
+
+    # Wire-in side: feature_drift_auto_action stamped because (a) the 8-sigma
+    # drift produces weighted_score >> 3.0, (b) baseline_diagnostics is
+    # enabled in this config and produces FI, (c) "mlp" is in mlframe_models,
+    # (d) target_type is regression. With all four conditions met the
+    # auto-action MUST stamp; an empty dict means the wire-in regressed.
+    auto_action = metadata.get("feature_drift_auto_action", {})
+    assert auto_action, (
+        f"feature_drift_auto_action missing despite drifted regression "
+        f"target + mlp in model set + baseline_diagnostics enabled. "
+        f"metadata keys: {list(metadata.keys())}"
+    )
+    by_type = next(iter(auto_action.values()))
+    by_target = next(iter(by_type.values()))
+    assert "sklearn_override" in by_target
+    assert "mlframe_mlp_kwargs_override" in by_target
+    assert by_target["sklearn_override"].get("activation") == "identity"
+    # The translation must include the linear-collapse network_params.
+    mlframe_override = by_target["mlframe_mlp_kwargs_override"]
+    assert "network_params" in mlframe_override
+    import torch
+    assert mlframe_override["network_params"]["activation_function"] is torch.nn.Identity
