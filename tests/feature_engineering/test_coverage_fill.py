@@ -1735,9 +1735,9 @@ class TestBruteforceFinalGaps:
             run_pysr_feature_engineering(df=df, target_col="not_in_df", sample_size=20, verbose=0)
 
     def test_run_pysr_invalid_input_type_raises(self):
-        """Non-pandas, non-polars input -> ValueError."""
+        """Non-pandas, non-polars input -> TypeError (Pythonic for a type mismatch)."""
         from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
-        with pytest.raises(ValueError, match="pandas or polars"):
+        with pytest.raises(TypeError, match="pandas or polars"):
             run_pysr_feature_engineering(df={"not": "a frame"}, target_col="y", sample_size=10)
 
     def test_run_pysr_reserved_name_renamed(self):

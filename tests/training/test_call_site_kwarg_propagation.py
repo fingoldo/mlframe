@@ -60,6 +60,7 @@ def _read(rel: str) -> str:
             "_phase_train_one_target_ensembling.py",
             "_phase_train_one_target_polars_fastpath.py",
             "_phase_train_one_target_pre_screen.py",
+            "_phase_train_one_target_model_setup.py",
         ):
             _sib_path = _SRC_ROOT / "core" / sib
             if _sib_path.exists():

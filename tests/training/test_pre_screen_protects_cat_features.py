@@ -103,6 +103,7 @@ def test_dead_pass_branch_was_fixed_via_source_inspection():
             "_phase_train_one_target.py",
             "_phase_train_one_target_body.py",
             "_phase_train_one_target_pre_screen.py",
+            "_phase_train_one_target_model_setup.py",
         )
         if (_core / nm).exists()
     )
@@ -141,6 +142,7 @@ def test_text_and_embedding_features_added_to_protected():
             "_phase_train_one_target.py",
             "_phase_train_one_target_body.py",
             "_phase_train_one_target_pre_screen.py",
+            "_phase_train_one_target_model_setup.py",
         )
         if (_core / nm).exists()
     )

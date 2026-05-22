@@ -60,6 +60,7 @@ def _read_phase_train_one_target_combined():
             "_phase_train_one_target_ensembling.py",
             "_phase_train_one_target_polars_fastpath.py",
             "_phase_train_one_target_pre_screen.py",
+            "_phase_train_one_target_model_setup.py",
         )
         if (_core / nm).exists()
     )

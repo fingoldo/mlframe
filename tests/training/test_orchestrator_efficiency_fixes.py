@@ -31,6 +31,7 @@ def _read(name: str) -> str:
             "_phase_train_one_target_ensembling.py",
             "_phase_train_one_target_polars_fastpath.py",
             "_phase_train_one_target_pre_screen.py",
+            "_phase_train_one_target_model_setup.py",
         ):
             _sib_path = CORE / _sib_name
             if _sib_path.exists():

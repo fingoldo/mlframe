@@ -33,6 +33,7 @@ _CORE_FILES = [
     _CORE_ROOT / "core" / "_phase_train_one_target_ensembling.py",
     _CORE_ROOT / "core" / "_phase_train_one_target_polars_fastpath.py",
     _CORE_ROOT / "core" / "_phase_train_one_target_pre_screen.py",
+    _CORE_ROOT / "core" / "_phase_train_one_target_model_setup.py",
     _CORE_ROOT / "core" / "_setup_helpers.py",
     _CORE_ROOT / "core" / "_misc_helpers.py",
     _CORE_ROOT / "phases.py",
