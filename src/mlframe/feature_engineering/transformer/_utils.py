@@ -51,7 +51,7 @@ def is_gpu_available() -> bool:
         _ = cp.asarray([1.0], dtype=cp.float32).sum().item()
         _GPU_AVAILABLE = True
         logger.info("GPU (cupy) detected and usable.")
-    except BaseException as exc:  # pragma: no cover - environment-dependent
+    except Exception as exc:  # pragma: no cover - environment-dependent
         # Broad catch: ImportError, CUDARuntimeError, RecursionError from
         # broken nvrtc DLL retry loop, any driver/runtime mismatch.
         _GPU_AVAILABLE = False

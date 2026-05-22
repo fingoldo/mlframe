@@ -41,7 +41,7 @@ def _disable_broken_cupy() -> None:
     try:
         _ = _cp.asarray([1.0], dtype=_cp.float32).sum().item()
         # Probe succeeded: cupy is usable. Leave sys.modules alone.
-    except BaseException as exc:
+    except Exception as exc:
         import logging
         logging.getLogger(__name__).warning(
             "mlframe: cupy is installed but unusable (NVRTC probe failed: "
