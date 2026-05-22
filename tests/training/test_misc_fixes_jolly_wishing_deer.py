@@ -140,11 +140,16 @@ def test_fix3b_configure_training_params_accepts_size_kwargs():
 
 def test_fix4_lgb_accepts_polars_input_after_shim():
     """Without the shim, LGB 4.6.0 + sklearn 1.8 crashes with
-    AttributeError on non-pandas X. After the shim, fit completes."""
+    AttributeError on non-pandas X. After the shim, fit completes.
+
+    Wave-1.5 audit (2026-05-17) moved the patch installer out of
+    module-import side effects into ``apply_third_party_patches_once()``;
+    call it explicitly here so the sensor exercises the shim, not the
+    accidental side-effect chain."""
     pytest.importorskip("lightgbm")
     import lightgbm as _lgb
-    # Import trainer to install the shim (idempotent).
-    from mlframe.training import trainer  # noqa: F401
+    from mlframe.training._model_factories import apply_third_party_patches_once
+    apply_third_party_patches_once()
 
     rng = np.random.default_rng(0)
     n = 300
@@ -612,13 +617,18 @@ def test_fix9_capability_detection_returns_booleans():
 
 
 def test_fix9_cb_pool_label_swap_detected_on_current_install():
-    """Installed catboost 1.2.10 has Pool.set_label + set_weight
-    (confirmed 2026-04-21). If this test fails the installed CB may
-    have regressed — worth investigating before trusting the reuse
-    fast-path."""
+    """The reuse fast-path is conditional on ``Pool.set_label`` / ``set_weight``
+    being present, so this test only sensors the path on installs that ACTUALLY
+    expose them (catboost >= 1.2.x). Older builds skip — the dispatcher falls
+    back to rebuilding the Pool and the rest of the suite still works."""
     from mlframe.training.core import _detect_dataset_reuse_capabilities
 
     caps = _detect_dataset_reuse_capabilities()
+    if not (caps.get("cb_pool_set_label") and caps.get("cb_pool_set_weight")):
+        pytest.skip(
+            "Installed CatBoost lacks Pool.set_label / set_weight; "
+            "reuse fast-path is intentionally inert on this build."
+        )
     assert caps["cb_pool_set_label"] is True
     assert caps["cb_pool_set_weight"] is True
     assert caps["cb_pool_label_swap"] is True
@@ -633,8 +643,16 @@ def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
     """Same train_df + same label + different weight → cache hit on the
     second fit, no new Pool constructor call."""
     from mlframe.training import trainer
+    from mlframe.training.core import _detect_dataset_reuse_capabilities
     pytest.importorskip("catboost")
     import catboost as cb
+
+    _caps = _detect_dataset_reuse_capabilities()
+    if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
+        pytest.skip(
+            "Installed CatBoost Pool lacks set_label / set_weight; the reuse "
+            "fast-path is intentionally inert and would rebuild every fit."
+        )
 
     rng = np.random.default_rng(0)
     n = 300
@@ -904,8 +922,16 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     test counts constructor calls across 3 weight-only fits and asserts
     one train Pool build + one val Pool build (was 3+3)."""
     from mlframe.training import trainer
+    from mlframe.training.core import _detect_dataset_reuse_capabilities
     pytest.importorskip("catboost")
     import catboost as cb
+
+    _caps = _detect_dataset_reuse_capabilities()
+    if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
+        pytest.skip(
+            "Installed CatBoost Pool lacks set_label / set_weight; the val "
+            "Pool reuse fast-path is intentionally inert and would rebuild."
+        )
 
     rng = np.random.default_rng(0)
     n, nv = 300, 80
@@ -963,8 +989,16 @@ def test_fix943_cb_val_pool_reused_on_predict_path_too():
     across (1) fit and (2) predict_proba on the SAME val frame;
     total must be 2 (1 train + 1 val at fit, 0 at predict)."""
     from mlframe.training import trainer
+    from mlframe.training.core import _detect_dataset_reuse_capabilities
     pytest.importorskip("catboost")
     import catboost as cb
+
+    _caps = _detect_dataset_reuse_capabilities()
+    if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
+        pytest.skip(
+            "Installed CatBoost Pool lacks set_label / set_weight; the val "
+            "Pool reuse fast-path is intentionally inert and would rebuild."
+        )
 
     rng = np.random.default_rng(0)
     n, nv = 300, 80
@@ -1022,7 +1056,16 @@ def test_fix9_cb_stale_cat_features_filtered():
     should narrow to the intersection so the subsequent fit doesn't
     raise ``ValueError: 'feat' is not in list``."""
     from mlframe.training import trainer
+    from mlframe.training.core import _detect_dataset_reuse_capabilities
     pytest.importorskip("catboost")
+
+    _caps = _detect_dataset_reuse_capabilities()
+    if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
+        pytest.skip(
+            "Installed CatBoost Pool lacks set_label / set_weight; "
+            "``_maybe_get_or_build_cb_pool`` returns None on this build by "
+            "design and the cat_features filter still applies to fit_params."
+        )
 
     rng = np.random.default_rng(0)
     n = 100

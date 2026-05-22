@@ -36,8 +36,8 @@ def test_low_s3_generate_mlp_rejects_bad_args_with_valueerror() -> None:
     # nlayers must be a positive int
     with pytest.raises(ValueError, match="nlayers"):
         generate_mlp(num_features=4, num_classes=2, nlayers=0)
-    # Non-int nlayers
-    with pytest.raises(ValueError, match="nlayers"):
+    # Non-int nlayers -> TypeError (Pythonic for a type mismatch).
+    with pytest.raises(TypeError, match="nlayers"):
         generate_mlp(num_features=4, num_classes=2, nlayers=1.5)  # type: ignore[arg-type]
     # dropout_prob must be >= 0
     with pytest.raises(ValueError, match="dropout_prob"):
@@ -68,7 +68,8 @@ def test_low_s3_periodic_lr_finder_rejects_bad_period() -> None:
         PeriodicLearningRateFinder(period=0)
     with pytest.raises(ValueError, match="period"):
         PeriodicLearningRateFinder(period=-3)
-    with pytest.raises(ValueError, match="period"):
+    # Non-int period -> TypeError (Pythonic for a type mismatch).
+    with pytest.raises(TypeError, match="period"):
         PeriodicLearningRateFinder(period=2.5)  # type: ignore[arg-type]
 
 

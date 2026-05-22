@@ -314,8 +314,11 @@ class TestCatBoostFastpathStickyFlag:
         )
         out = _predict_with_fallback(fake, pl_df, method="predict_proba")
         assert out.shape == (3, 2)
-        # Short-circuit converted to pandas before calling fn
-        assert calls == ["pandas.core.frame.DataFrame"], (
+        # Short-circuit converted to pandas before calling fn. ``type.__module__``
+        # on pandas.DataFrame varies across pandas versions (older: full
+        # ``pandas.core.frame``; newer: re-exported as top-level ``pandas``).
+        # Accept either spelling so the sticky-flag sensor stays version-portable.
+        assert calls == ["pandas.core.frame.DataFrame"] or calls == ["pandas.DataFrame"], (
             f"sticky shortcut must pass pandas to fn; saw: {calls}"
         )
 

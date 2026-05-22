@@ -169,7 +169,18 @@ def test_wave21_production_site_migrated(rel, must_contain):
     the post-fix idiom (the helper call or the nan-aware variant)."""
     import pathlib
     import mlframe as _mlframe
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / rel).read_text(encoding="utf-8")
+    _root = pathlib.Path(_mlframe.__file__).resolve().parent
+    src = (_root / rel).read_text(encoding="utf-8")
+    # The 2026-05-22 ``predict.py`` monolith split moved the per-model dispatch
+    # body (including the ``argmax_classes_safe`` migration) into sibling
+    # ``_predict_main*.py`` files. Search the parent + every sibling.
+    if rel == "training/core/predict.py":
+        _dir = _root / "training" / "core"
+        for _nm in ("_predict_main.py", "_predict_main_from_models.py",
+                    "_predict_main_suite.py", "_predict_pre_pipeline.py"):
+            _p = _dir / _nm
+            if _p.exists():
+                src += "\n" + _p.read_text(encoding="utf-8")
     assert must_contain in src, (
         f"Wave 21 P1/P2 regression: {rel} no longer contains {must_contain!r}. "
         f"Pre-fix raw np.argmax/np.quantile/np.median over potentially-NaN "

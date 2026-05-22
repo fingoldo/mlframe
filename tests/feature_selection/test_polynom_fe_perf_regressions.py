@@ -131,11 +131,14 @@ class TestNewBBasisMatrixGate:
         # After the hermite_fe monolith split, _eval_coef_pair lives in the
         # _hermite_fe_optimise sibling; the parent re-exports it but the actual
         # call site inside optimise_hermite_pair resolves to the sibling's own
-        # globals. Patch there so the spy sees the live calls.
+        # globals. The default ``cma_batch`` optimiser (since 2026-05-22) calls
+        # ``_eval_coef_pair_batch`` instead of ``_eval_coef_pair`` for the
+        # inner CMA loop, so the gate sensor must intercept BOTH.
         from mlframe.feature_selection.filters import _hermite_fe_optimise as _opt_mod
 
         captured = {"saw_non_none_B": False, "calls": 0}
         original_eval = _opt_mod._eval_coef_pair
+        original_eval_batch = _opt_mod._eval_coef_pair_batch
 
         def _spy_eval(*args, **kwargs):
             captured["calls"] += 1
@@ -144,7 +147,15 @@ class TestNewBBasisMatrixGate:
                 captured["saw_non_none_B"] = True
             return original_eval(*args, **kwargs)
 
-        with patch.object(_opt_mod, "_eval_coef_pair", _spy_eval):
+        def _spy_eval_batch(*args, **kwargs):
+            captured["calls"] += 1
+            if (kwargs.get("B_a") is not None
+                    and kwargs.get("B_b") is not None):
+                captured["saw_non_none_B"] = True
+            return original_eval_batch(*args, **kwargs)
+
+        with patch.object(_opt_mod, "_eval_coef_pair", _spy_eval), \
+             patch.object(_opt_mod, "_eval_coef_pair_batch", _spy_eval_batch):
             hermite_fe.optimise_hermite_pair(
                 x_a=x_a, x_b=x_b, y=y,
                 n_trials=20, max_degree=3,
@@ -152,9 +163,9 @@ class TestNewBBasisMatrixGate:
                 seed=42, basis=basis, warm_start=False,
             )
 
-        assert captured["calls"] > 0, "spy did not capture any _eval_coef_pair calls"
+        assert captured["calls"] > 0, "spy did not capture any _eval_coef_pair* calls"
         assert captured["saw_non_none_B"], (
-            f"basis={basis}: _eval_coef_pair received None for B_a/B_b under "
+            f"basis={basis}: _eval_coef_pair* received None for B_a/B_b under "
             f"multi_fidelity=True. NEW-B gate flip regressed -- production "
             f"is paying the 1.13-1.19x Horner cost again."
         )
