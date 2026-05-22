@@ -391,7 +391,16 @@ def cb_logits_to_probs_binary(logits: np.ndarray) -> np.ndarray:
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _cb_logits_to_probs_multiclass_seq(logits_list: np.ndarray) -> np.ndarray:
-    """Sequential variant. Public wrapper auto-dispatches at N>=100k."""
+    """Sequential variant. Public wrapper auto-dispatches at N>=100k.
+
+    bench-attempt-rejected (2026-05-22, c0108 / iter165): transposing
+    the (K, N) input to (N, K) first to make inner-loop reads
+    contiguous is 11-21% SLOWER at every size (K=3, 8; N=50k..1M).
+    Modern CPU prefetchers handle the stride-N reads well for small K;
+    the upfront 24-100 MB transpose memcpy never earns itself back.
+    Bit-equivalent output. Bench:
+    profiling/bench_cb_logits_softmax_layout.py.
+    """
     n_classes, n_samples = logits_list.shape
     probs = np.empty((n_samples, n_classes), dtype=np.float64)
     for i in range(n_samples):
