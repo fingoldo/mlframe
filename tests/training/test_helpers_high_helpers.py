@@ -161,27 +161,39 @@ def test_hhus07_subset_dataframe_validates_bool_mask_length():
 def test_hhus08_gpu_probe_imports_without_numba(monkeypatch):
     """Simulate a missing numba.cuda by stubbing the import; the module must
     still import and degrade to ``CUDA_IS_AVAILABLE=False``.
+
+    Probe in a SUBPROCESS so the ``sys.modules`` stubbing doesn't leak
+    a stale ``_gpu_probe`` module (with ``CUDA_IS_AVAILABLE=False``) into
+    later in-suite consumers (``helpers.py`` / ``_eval_helpers.py`` /
+    ``residual_stratified_distance.py``) that may lazy-import it. Per the
+    test-pollution rule in CLAUDE.md.
     """
-    import importlib
+    import os
+    import subprocess
     import sys
+    import textwrap
 
-    # Force fresh import with a broken numba.cuda.
-    sys.modules.pop("mlframe.training._gpu_probe", None)
-
-    real_numba_cuda = sys.modules.get("numba.cuda")
-    sys.modules["numba.cuda"] = None  # type: ignore[assignment]
-    try:
+    import mlframe as _mlframe_pkg
+    _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
+    _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    _probe = textwrap.dedent("""
+        import sys
+        sys.modules["numba.cuda"] = None
+        import importlib
         mod = importlib.import_module("mlframe.training._gpu_probe")
-        # Even with numba.cuda broken, the module must define the flag.
-        assert hasattr(mod, "CUDA_IS_AVAILABLE")
-        # On a broken-numba environment, CUDA_IS_AVAILABLE must be False.
-        assert mod.CUDA_IS_AVAILABLE is False
-    finally:
-        if real_numba_cuda is not None:
-            sys.modules["numba.cuda"] = real_numba_cuda
-        else:
-            sys.modules.pop("numba.cuda", None)
-        sys.modules.pop("mlframe.training._gpu_probe", None)
+        sys.stdout.write("HAS_FLAG=" + str(hasattr(mod, "CUDA_IS_AVAILABLE")) + "\\n")
+        sys.stdout.write("CUDA=" + repr(getattr(mod, "CUDA_IS_AVAILABLE", "MISSING")))
+    """)
+    _res = subprocess.run(
+        [sys.executable, "-c", _probe],
+        capture_output=True, text=True, timeout=180, env=_env,
+    )
+    assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
+    assert "HAS_FLAG=True" in _res.stdout, f"_gpu_probe lacks CUDA_IS_AVAILABLE flag: {_res.stdout!r}"
+    assert "CUDA=False" in _res.stdout, (
+        f"with numba.cuda stubbed to None the probe must report "
+        f"CUDA_IS_AVAILABLE=False; probe printed {_res.stdout!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

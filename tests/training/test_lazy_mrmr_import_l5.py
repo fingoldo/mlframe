@@ -43,6 +43,34 @@ def _force_clean_mrmr_modules():
             del sys.modules[name]
 
 
+@pytest.fixture(autouse=True)
+def _restore_filters_sysmodules_snapshot():
+    """Snapshot ``sys.modules`` entries for the filters subgraph and restore
+    them at teardown so a fresh import inside a test doesn't rebind the
+    ``MRMR`` class object globally. Pre-fix this leaked across tests: any
+    later cache-dependent test imported MRMR at module load (OLD class), but
+    the lazy ``from .mrmr import MRMR`` inside ``_mrmr_fit_impl.py`` resolved
+    to the rebound NEW class — cache writes landed on NEW, asserts on OLD.
+    2026-05-22 trace identified this as the canonical pollution pattern.
+    """
+    snapshot = {
+        name: mod for name, mod in sys.modules.items()
+        if name == _FILTERS_MODULE or name.startswith(_FILTERS_MODULE + ".")
+        or name == "mlframe.training.core._setup_helpers"
+    }
+    yield
+    # Restore originals so module-level ``from ... import MRMR`` references
+    # in other test files (and the lazy import inside _mrmr_fit_impl.py)
+    # keep pointing at the same MRMR class instance after this test ends.
+    for name in list(sys.modules):
+        if (name == _FILTERS_MODULE or name.startswith(_FILTERS_MODULE + ".")
+                or name == "mlframe.training.core._setup_helpers"):
+            if name in snapshot:
+                sys.modules[name] = snapshot[name]
+            else:
+                del sys.modules[name]
+
+
 def test_setup_helpers_module_has_no_top_level_mrmr_attribute():
     """Top-level ``MRMR`` re-export was the cheapest forensics for the eager
     import. Confirm it is gone (TYPE_CHECKING-guarded references are invisible

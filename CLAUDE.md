@@ -909,3 +909,46 @@ The user runs **parallel agent sessions** on this repo and frequent in-flight pr
 **And: don't bother inspecting "pre-existing vs introduced" at all.** It does not matter who originally wrote the bad code. If a linter / type checker / test surfaces an issue, the question is "do we fix this", not "did we introduce this". Just fix what is there.
 
 Sibling rule for processes: never kill processes without explicit user authorisation (the user has separately reinforced that one).
+
+## Test pollution: never rebind module objects without snapshot/restore (CRITICAL)
+
+`del sys.modules['mlframe.X']` + re-import, or `importlib.reload(mlframe.X)`, replaces the module object that `sys.modules['mlframe.X']` points at. Every other test file that did `from mlframe.X import Y` at file-load time keeps a reference to the OLD `Y`; every lazy `from .X import Y` inside a function body (used in `_mrmr_fit_impl.py`, `_predict_main.py`, etc.) resolves to the NEW `Y` on the next call. The two ends of the codebase now disagree on what `Y` is.
+
+The damage:
+- Class-attribute caches (`MRMR._FIT_CACHE`, registries, locks, monkey-patched setters) duplicate: writes land on NEW, asserts read OLD, and `len(...)` looks empty even though the fit clearly populated something.
+- `isinstance(obj, Y)` returns `False` when `obj` was constructed via OLD and the check uses NEW (or vice versa).
+- Idempotent install markers (`_mlframe_feature_names_setter_installed`) silently re-apply, double-wrapping the LGBM `feature_names_in_` shim.
+
+The 2026-05-22 trace identified this as the canonical cross-test pollution pattern. `test_biz_val_filters_mrmr.py::test_biz_val_mrmr_fe_max_polynom_*` did `del sys.modules['mlframe.feature_selection.filters.mrmr']` + `importlib.reload` to dodge a long-gone stale-`.pyc` race, and every later cache-dependent test (`TestMRMRFitCache::*`, `test_mrmr_fit_cache_shared_across_instances`, `test_fit_cache_clear_resets_state`, `test_mrmr_cache_does_not_collide_on_distinct_targets_with_shared_samples`) saw empty caches as a result.
+
+**Rules for tests:**
+
+1. **Do not call `del sys.modules[...]`, `sys.modules.pop(...)`, or `importlib.reload(...)` on an mlframe module unless you genuinely need it.** Most cases that reach for these are doing it to "force a fresh import", which is a smell — the test should use `monkeypatch` for env vars / attributes, or pass parameters directly.
+
+2. **If you absolutely must mutate `sys.modules`, snapshot and restore.** Use an autouse fixture scoped to the single test class / file:
+
+   ```python
+   @pytest.fixture(autouse=True)
+   def _restore_mlframe_sysmodules(request):
+       """Snapshot every mlframe.* entry that this test mutates; restore at
+       teardown so module-level imports in other test files keep pointing
+       at the same class objects."""
+       prefixes = ("mlframe.feature_selection.filters", "mlframe.training.core._setup_helpers")
+       snapshot = {n: m for n, m in sys.modules.items() if any(n == p or n.startswith(p + ".") for p in prefixes)}
+       yield
+       for n in list(sys.modules):
+           if any(n == p or n.startswith(p + ".") for p in prefixes):
+               if n in snapshot:
+                   sys.modules[n] = snapshot[n]
+               else:
+                   del sys.modules[n]
+   ```
+
+3. **`importlib.reload(mod)` is less destructive than `del + re-import`** (the module object stays the same, only its top-level symbols get rebound), but it still resets module-level singletons (caches, registries, locks). If those singletons matter cross-test, use the snapshot+restore pattern too — or snapshot the relevant attribute and reassign it after reload.
+
+4. **For true isolation, use a subprocess.** `subprocess.run([sys.executable, "-c", "..."])` is heavy (~1-3s startup) but it is the only way to guarantee no cross-test state leaks.
+
+5. **Class identity assertions are a tripwire.** If you have a test that does `isinstance(x, SomeClass)` and it intermittently fails, suspect a reload polluter upstream. The class identity check is the cheapest detector.
+
+This rule is enforced retroactively: any test added or modified that touches `sys.modules` or `importlib.reload` without a restore mechanism is a regression. CI / review should reject it.
+

@@ -358,13 +358,14 @@ def test_c7_predict_uses_prediction_datamodule_when_set() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_c8_zero_weight_sum_warns_not_silent(caplog) -> None:
+def test_c8_zero_weight_sum_returns_zero_loss_without_sync(caplog) -> None:
     """When ``sample_weight.sum() == 0``, the per-sample weighted-loss
-    path produces zero gradient: pre-fix it returned ``0.0`` silently,
-    masking the upstream bug (the caller almost certainly didn't mean
-    to zero every weight). Post-fix the same return value is preserved
-    (loss must stay differentiable) but a WARN-level log is emitted so
-    the operator sees the problem.
+    path produces zero gradient. The post-2026-05-22 contract returns
+    the safe-divide ``raw / clamp(weight_sum, min=1e-12)`` = 0.0 without
+    issuing a per-batch WARN -- the previous WARN forced a GPU->CPU sync
+    every batch for negligible operator value (the zero-gradient signal
+    surfaces downstream as flat val loss). Sensor: loss is the expected
+    zero scalar AND no WARN is emitted.
     """
     pytest.importorskip("torch")
     pytest.importorskip("lightning")
@@ -377,7 +378,6 @@ def test_c8_zero_weight_sum_warns_not_silent(caplog) -> None:
     # __init__ chain; populate just what _compute_weighted_loss reads.
     mod = MLPTorchModel.__new__(MLPTorchModel)
     mod.loss_fn = lambda p, y: torch.nn.functional.mse_loss(p, y)
-    mod._zero_weight_warned = False
 
     preds = torch.tensor([[2.0], [3.0], [4.0]])
     labels = torch.tensor([1.0, 2.0, 3.0])
@@ -390,9 +390,14 @@ def test_c8_zero_weight_sum_warns_not_silent(caplog) -> None:
     assert out.shape == torch.Size([])
     assert float(out) == 0.0
 
-    # The operator MUST see a warning -- silent zero gradient is the bug.
+    # The 2026-05-22 contract DROPPED the per-batch WARN (GPU->CPU sync
+    # cost was the dominant overhead). No WARN should fire on the
+    # all-zero-weight path; the operator notices via flat val loss.
     warn_lines = [r for r in caplog.records if "sample_weight.sum()=0" in r.getMessage()]
-    assert warn_lines, "C8: WARN about zero weight sum was not emitted"
+    assert not warn_lines, (
+        f"C8: per-batch zero-weight WARN was re-introduced; that re-adds "
+        f"a forced GPU->CPU sync per batch. Got: {[r.getMessage() for r in warn_lines]}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -508,26 +513,35 @@ def test_wave15_third_party_patches_not_applied_at_bare_import() -> None:
     Patches are applied lazily by the suite entrypoint
     (``train_mlframe_models_suite``) and by the public factory
     functions ``make_pool`` / ``make_dmatrix`` / ``make_lgb_dataset``.
+
+    Probes the import-time contract in a SUBPROCESS so the rebinding
+    that ``importlib.reload`` would otherwise cause doesn't pollute the
+    rest of the suite (per the test-pollution rule in CLAUDE.md). The
+    subprocess does one bare ``import`` and prints the flag; any True
+    value means a caller re-added an import-time apply call.
     """
-    import importlib
+    import os
+    import subprocess
     import sys
+    import textwrap
 
-    # Clean slate: force re-import to exercise the import-time path
-    # (no-op if mlframe.training already imported elsewhere in the
-    # session, but at least documents the contract).
-    if "mlframe.training._model_factories" in sys.modules:
-        # Reload to verify the import-time path didn't apply patches.
-        importlib.reload(sys.modules["mlframe.training._model_factories"])
-    else:
-        import mlframe.training._model_factories  # noqa: F401
-
-    from mlframe.training._model_factories import _THIRD_PARTY_PATCHES_APPLIED
-
-    # The flag must start False. The suite entrypoint flips it on first
-    # invocation; factories also flip it on first call.
-    assert _THIRD_PARTY_PATCHES_APPLIED is False, (
-        "Wave 1.5: third-party patches were applied at import time -- "
-        "should be lazy. Did someone re-add the import-time call?"
+    import mlframe as _mlframe_pkg
+    _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
+    _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    _probe = textwrap.dedent("""
+        import sys
+        import mlframe.training._model_factories as mf
+        sys.stdout.write(repr(getattr(mf, "_THIRD_PARTY_PATCHES_APPLIED", "MISSING")))
+    """)
+    _res = subprocess.run(
+        [sys.executable, "-c", _probe],
+        capture_output=True, text=True, timeout=180, env=_env,
+    )
+    assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
+    assert _res.stdout.strip() == "False", (
+        f"Wave 1.5: third-party patches were applied at import time "
+        f"(probe printed {_res.stdout!r}). Did someone re-add the "
+        f"import-time call?"
     )
 
 

@@ -150,16 +150,32 @@ def test_pick_granularity_minmax_zero_span_returns_month():
 
 
 def test_run_temporal_audit_batch_pandas_fallback_when_polars_missing(
-    _audit_call_recorder, monkeypatch
+    _audit_call_recorder, monkeypatch, request
 ):
     """If polars is unavailable (or import fails), the wrapper must
-    fall through to a pandas DataFrame rather than raising."""
-    # Force the `import polars as _pl` line to fail.
+    fall through to a pandas DataFrame rather than raising.
+
+    Snapshot the ``_phase_temporal_audit`` module's ``__dict__`` BEFORE
+    the reload (which mutates the module in place and would otherwise
+    rebind every callable for the rest of the suite). A finalizer
+    restores the dict at teardown so other tests' module-level
+    ``from ._phase_temporal_audit import ...`` references continue to
+    resolve to the same objects. Per the test-pollution rule in CLAUDE.md.
+    """
     import sys
     monkeypatch.setitem(sys.modules, "polars", None)
 
     from mlframe.training.core._phase_temporal_audit import run_temporal_audit_batch
-    importlib.reload(sys.modules["mlframe.training.core._phase_temporal_audit"])  # ensure clean import path
+    _key = "mlframe.training.core._phase_temporal_audit"
+    _mod_ref = sys.modules[_key]
+    _saved_dict = dict(_mod_ref.__dict__)
+
+    def _restore_module_dict():
+        _mod_ref.__dict__.clear()
+        _mod_ref.__dict__.update(_saved_dict)
+
+    request.addfinalizer(_restore_module_dict)
+    importlib.reload(_mod_ref)
 
     behavior_config, fte = _make_minimal_behavior_and_fte()
     n = 100

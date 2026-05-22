@@ -20,6 +20,31 @@ from mlframe.training.automl import (
 from mlframe.training.configs import AutoMLConfig
 
 
+@pytest.fixture
+def _automl_module_snapshot(request):
+    """Snapshot+restore ``mlframe.training.automl.__dict__`` for tests that
+    ``importlib.reload`` it under a stubbed-autogluon ``sys.modules`` patch.
+
+    The reload mutates the module IN PLACE so every other test holding a
+    file-level ``from mlframe.training.automl import ...`` reference keeps
+    pointing at the SAME module object, but its function/class attributes
+    get rebound. The snapshot+restore returns the module to its original
+    bindings at teardown so cross-test pollution is contained. Per the
+    test-pollution rule in CLAUDE.md.
+    """
+    import sys
+    _key = "mlframe.training.automl"
+    if _key in sys.modules:
+        _mod_ref = sys.modules[_key]
+        _saved_dict = dict(_mod_ref.__dict__)
+
+        def _restore_module_dict():
+            _mod_ref.__dict__.clear()
+            _mod_ref.__dict__.update(_saved_dict)
+
+        request.addfinalizer(_restore_module_dict)
+
+
 # ================================================================================================
 # Fixtures
 # ================================================================================================
@@ -63,7 +88,7 @@ def sample_polars_df(sample_train_df):
 class TestTrainAutogluonModel:
     """Tests for train_autogluon_model function."""
 
-    def test_returns_none_when_autogluon_not_available(self, sample_train_df):
+    def test_returns_none_when_autogluon_not_available(self, sample_train_df, _automl_module_snapshot):
         """Test that function returns None when AutoGluon is not installed."""
         with patch.dict('sys.modules', {'autogluon': None, 'autogluon.tabular': None}):
             # Need to reimport to trigger the ImportError
@@ -119,7 +144,7 @@ class TestTrainAutogluonModel:
 class TestTrainAutogluonModelMocked:
     """Tests for train_autogluon_model with mocked AutoGluon."""
 
-    def test_default_params_used(self, sample_train_df):
+    def test_default_params_used(self, sample_train_df, _automl_module_snapshot):
         """Test that default parameters are used when not provided."""
         mock_predictor = MagicMock()
         mock_predictor.fit.return_value = None
@@ -143,7 +168,7 @@ class TestTrainAutogluonModelMocked:
             mock_tabular.TabularPredictor.assert_called_once()
             mock_predictor.fit.assert_called_once()
 
-    def test_custom_target_name(self, sample_train_df):
+    def test_custom_target_name(self, sample_train_df, _automl_module_snapshot):
         """Test training with custom target column name."""
         df = sample_train_df.rename(columns={"target": "custom_target"})
 
@@ -178,7 +203,7 @@ class TestTrainAutogluonModelMocked:
 class TestTrainLamaModel:
     """Tests for train_lama_model function."""
 
-    def test_returns_none_when_lama_not_available(self, sample_train_df):
+    def test_returns_none_when_lama_not_available(self, sample_train_df, _automl_module_snapshot):
         """Test that function returns None when LAMA is not installed."""
         with patch.dict('sys.modules', {'lightautoml': None}):
             import importlib
@@ -227,7 +252,7 @@ class TestTrainLamaModel:
 class TestTrainLamaModelMocked:
     """Tests for train_lama_model with mocked LAMA."""
 
-    def test_default_task_is_binary(self, sample_train_df):
+    def test_default_task_is_binary(self, sample_train_df, _automl_module_snapshot):
         """Test that default task is binary classification."""
         mock_automl = MagicMock()
         mock_automl.fit_predict.return_value = MagicMock()

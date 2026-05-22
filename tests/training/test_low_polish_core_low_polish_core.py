@@ -81,18 +81,33 @@ def test_phases_apply_third_party_patches_lazy_only() -> None:
     `mlframe.training.__init__` must NOT import _model_factories at
     module load (which would re-introduce the import-time patch side
     effect). The factories module is loaded only on first suite call
-    or on first ``make_pool`` / ``make_dmatrix`` / ``make_lgb_dataset``."""
-    import importlib
-    import sys
+    or on first ``make_pool`` / ``make_dmatrix`` / ``make_lgb_dataset``.
 
-    # Force-reload the package; the factories module must NOT appear in
-    # sys.modules after a bare import of mlframe.training.
-    for mod_name in list(sys.modules):
-        if mod_name == "mlframe.training._model_factories":
-            sys.modules.pop(mod_name, None)
-    importlib.import_module("mlframe.training")
-    assert "mlframe.training._model_factories" not in sys.modules, (
-        "factories module imported eagerly -- Wave 1.5 lazy-init invariant broken"
+    Probe in a SUBPROCESS so the ``sys.modules.pop`` we'd otherwise need
+    doesn't rebind ``_model_factories`` mid-suite and split class identity
+    for later tests (per the test-pollution rule in CLAUDE.md).
+    """
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    import mlframe as _mlframe_pkg
+    _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
+    _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    _probe = textwrap.dedent("""
+        import sys
+        import mlframe.training  # noqa: F401
+        sys.stdout.write("FACTORIES_IN_SYSMODULES=" + str("mlframe.training._model_factories" in sys.modules))
+    """)
+    _res = subprocess.run(
+        [sys.executable, "-c", _probe],
+        capture_output=True, text=True, timeout=180, env=_env,
+    )
+    assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
+    assert "FACTORIES_IN_SYSMODULES=False" in _res.stdout, (
+        f"factories module imported eagerly -- Wave 1.5 lazy-init invariant "
+        f"broken (probe printed {_res.stdout!r})"
     )
 
 
@@ -155,20 +170,37 @@ def test_pipeline_does_not_mutate_env_at_import() -> None:
     """Wave 4+5 sweep verified that ``pipeline.py`` no longer mutates
     ``os.environ`` at module-import time (the Julia thread vars were
     moved into ``_apply_pysr_fe``). Importing ``pipeline`` must not
-    touch ``PYTHON_JULIACALL_THREADS`` or ``JULIA_NUM_THREADS``."""
-    import importlib
+    touch ``PYTHON_JULIACALL_THREADS`` or ``JULIA_NUM_THREADS``.
+
+    Probe in a SUBPROCESS so the ``sys.modules.pop`` we'd otherwise need
+    doesn't rebind ``pipeline`` mid-suite and split class identity for
+    later tests (per the test-pollution rule in CLAUDE.md).
+    """
     import os
+    import subprocess
     import sys
+    import textwrap
 
-    sentinel_keys = ("PYTHON_JULIACALL_THREADS", "JULIA_NUM_THREADS")
-    pre = {k: os.environ.get(k) for k in sentinel_keys}
-
-    sys.modules.pop("mlframe.training.pipeline", None)
-    importlib.import_module("mlframe.training.pipeline")
-
-    post = {k: os.environ.get(k) for k in sentinel_keys}
-    assert pre == post, (
-        f"pipeline.py mutated env at import: {pre} -> {post}"
+    import mlframe as _mlframe_pkg
+    _src_root = os.path.dirname(os.path.dirname(_mlframe_pkg.__file__))
+    _env = {**os.environ, "PYTHONPATH": _src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    _probe = textwrap.dedent("""
+        import os
+        sentinel_keys = ("PYTHON_JULIACALL_THREADS", "JULIA_NUM_THREADS")
+        pre = {k: os.environ.get(k) for k in sentinel_keys}
+        import mlframe.training.pipeline  # noqa: F401
+        post = {k: os.environ.get(k) for k in sentinel_keys}
+        import sys as _s
+        _s.stdout.write("PRE=" + repr(pre) + "\\n" + "POST=" + repr(post))
+    """)
+    _res = subprocess.run(
+        [sys.executable, "-c", _probe],
+        capture_output=True, text=True, timeout=180, env=_env,
+    )
+    assert _res.returncode == 0, f"probe subprocess failed: {_res.stderr}"
+    _lines = {ln.split("=", 1)[0]: ln.split("=", 1)[1] for ln in _res.stdout.strip().splitlines() if "=" in ln}
+    assert _lines.get("PRE") == _lines.get("POST"), (
+        f"pipeline.py mutated env at import: {_lines.get('PRE')} -> {_lines.get('POST')}"
     )
 
 

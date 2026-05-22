@@ -28,12 +28,25 @@ import pytest
 def test_numerical_module_imports_even_when_astropy_broken() -> None:
     """Module-level import must not raise. This is the iter-55 regression
     sensor — fails if a future change makes the astropy import
-    unconditional again."""
+    unconditional again.
+
+    The reload rebinds module-level symbols; snapshot+restore the entry so
+    other tests that imported ``cont_entropy`` / ``histogram`` at module
+    load time still see the same callables. Without the restore this test
+    polluted every later consumer of ``mlframe.feature_engineering.numerical``.
+    """
     import importlib
-    import mlframe.feature_engineering.numerical as mod
-    importlib.reload(mod)
-    assert hasattr(mod, "cont_entropy")
-    assert hasattr(mod, "histogram")
+    import sys
+    _key = "mlframe.feature_engineering.numerical"
+    _saved = sys.modules.get(_key)
+    try:
+        import mlframe.feature_engineering.numerical as mod
+        importlib.reload(mod)
+        assert hasattr(mod, "cont_entropy")
+        assert hasattr(mod, "histogram")
+    finally:
+        if _saved is not None:
+            sys.modules[_key] = _saved
 
 
 def test_histogram_shim_matches_np_histogram_signature() -> None:
