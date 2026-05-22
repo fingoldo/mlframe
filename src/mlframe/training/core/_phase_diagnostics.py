@@ -107,6 +107,7 @@ def run_per_target_diagnostics(
                 val_df=filtered_val_df,
                 test_df=filtered_test_df,
                 feature_importance=_fi,
+                target_type=str(target_type),
             )
             metadata.setdefault("feature_distribution_drift", {}) \
                 .setdefault(str(target_type), {})[cur_target_name] = _fd_report

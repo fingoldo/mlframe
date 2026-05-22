@@ -77,6 +77,36 @@ in ``_phase_recurrent`` does not auto-apply any recurrent override.
 """
 
 
+ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION: Dict[str, Any] = {
+    "alpha": 1.0,
+    "hidden_layer_sizes": (32, 16),
+    "activation": "identity",
+}
+"""Classification counterpart to ``ROBUST_MLP_OVERRIDES_UNDER_DRIFT``.
+
+Grounded by ``profiling/bench_mlp_robustness_sweep_classification.py``:
+4 DGPs (linear_binary / interaction_binary / sinusoidal_binary /
+linear_multiclass_3) x 48 configs x 15 seeds = 2880 trials phase-1
++ 1344 trials phase-2 = 4224 trials. Per-metric cross-DGP min-max:
+  log_loss  : alpha=1.0  hidden=(32,16) identity   (worst-case 0.0191)
+  accuracy  : alpha=10   hidden=(16,)   identity   (worst-case 0.0000)
+  ROC-AUC   : alpha=1e-4 hidden=(16,)  identity    (worst-case 0.0013)
+
+All three winners use ``activation=identity`` -- same mechanism as
+regression (collapse to a linear head). The alpha differs (regression
+prefers 1e-4 because the underlying score IS linear; classification
+prefers higher L2 because the sigmoid + softmax compresses small
+weight differences into similar probabilities). We pick the log_loss
+winner because log_loss is the primary classification metric (the only
+one of the three that the suite optimizes for via early-stopping in
+calibrated classifiers).
+
+The classification grounding regime used drift_z=5 (sigmoid still in
+transition) instead of regression's drift_z=10 (which would saturate
+the sigmoid and degenerate one class).
+"""
+
+
 ROBUST_MLP_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {
     "alpha": 1e-4,
     "hidden_layer_sizes": (32, 16),
@@ -343,6 +373,7 @@ def compute_feature_distribution_drift(
     feature_names: Optional[List[str]] = None,
     feature_importance: Optional[Dict[str, float]] = None,
     max_features_in_log: int = 10,
+    target_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Compute per-feature mean drift across train / val / test.
 
@@ -454,13 +485,30 @@ def compute_feature_distribution_drift(
         if _den > 0:
             weighted_score = float(_num / _den)
 
+    # Pick the target-type-appropriate override family. Regression uses
+    # ROBUST_MLP_OVERRIDES_UNDER_DRIFT (alpha=1e-4, the score-is-linear
+    # winner). Classification uses ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION
+    # (alpha=1.0, the log-loss winner -- sigmoid + softmax compress small
+    # weight differences so more L2 regularization is empirically better).
+    # When target_type is not supplied (legacy callers) fall back to the
+    # regression family for back-compat.
+    _is_classification = (
+        target_type is not None
+        and str(target_type).lower() != "regression"
+        and "ranking" not in str(target_type).lower()
+    )
+    _override_family = (
+        ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION
+        if _is_classification
+        else ROBUST_MLP_OVERRIDES_UNDER_DRIFT
+    )
     recommend_neural_overrides: Optional[Dict[str, Any]] = None
     if (
         weighted_score is not None
         and weighted_score >= WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD
-        and ROBUST_MLP_OVERRIDES_UNDER_DRIFT
+        and _override_family
     ):
-        recommend_neural_overrides = dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT)
+        recommend_neural_overrides = dict(_override_family)
 
     if candidates:
         _shown = candidates[:max_features_in_log]

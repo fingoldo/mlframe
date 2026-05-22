@@ -425,15 +425,33 @@ class TestFeatureDriftAutoActionWireIn:
         assert _merged["model_params"]["learning_rate"] == 3e-3
         assert _merged["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
 
-    def test_wire_in_skips_on_classification_target(self, caplog):
-        """The bench was 100% regression DGPs; applying identity-activation
-        on a classification MLP would emit raw logits without a probability
-        nonlinearity. The wire-in MUST skip on non-regression target_type."""
-        from mlframe.training.core._phase_train_one_target import _is_regression_target_type
-        from mlframe.training.configs import TargetTypes
-        assert _is_regression_target_type(TargetTypes.REGRESSION) is True
-        assert _is_regression_target_type(TargetTypes.BINARY_CLASSIFICATION) is False
-        assert _is_regression_target_type(TargetTypes.MULTICLASS_CLASSIFICATION) is False
+    def test_target_type_picks_classification_override_family(self):
+        """compute_feature_distribution_drift selects the classification
+        override family (alpha=1.0) when target_type is non-regression and
+        the regression family (alpha=1e-4) otherwise. Grounded by separate
+        sweeps -- bench_mlp_robustness_sweep_nonlinear.py for regression,
+        bench_mlp_robustness_sweep_classification.py for classification."""
+        from mlframe.training.feature_drift_report import (
+            ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
+            ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION,
+        )
+        train, val, test = _make_frames(drift_z=8.0)
+        rep_reg = compute_feature_distribution_drift(
+            train, val, test,
+            feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+            target_type="regression",
+        )
+        rep_clf = compute_feature_distribution_drift(
+            train, val, test,
+            feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+            target_type="binary_classification",
+        )
+        assert rep_reg["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT)
+        assert rep_clf["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION)
+        # Both should share the activation/hidden topology but disagree on alpha.
+        assert rep_reg["recommend_neural_overrides"]["activation"] == "identity"
+        assert rep_clf["recommend_neural_overrides"]["activation"] == "identity"
+        assert rep_reg["recommend_neural_overrides"]["alpha"] != rep_clf["recommend_neural_overrides"]["alpha"]
 
     def test_recommend_payload_absent_when_no_fi(self):
         """The recommendation requires feature_importance to score. Without
