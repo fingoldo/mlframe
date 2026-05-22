@@ -50,10 +50,16 @@ def _read(rel: str) -> str:
     primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
     if rel == "training/core/predict.py":
         _core = MLFRAME_ROOT / "training" / "core"
-        for nm in ("_predict_main.py", "_predict_pre_pipeline.py"):
-            sibling = _core / nm
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+        # Concat every ``_predict*.py`` sibling so the source-grep sensor
+        # picks up the relocated raise sites regardless of which sibling
+        # owns them after the predict monolith-split waves.
+        for _sib_path in sorted(_core.glob("_predict*.py")):
+            primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
+    elif rel == "feature_selection/wrappers/_rfecv.py":
+        _wraps = MLFRAME_ROOT / "feature_selection" / "wrappers"
+        for _sib_path in sorted(_wraps.glob("_rfecv*.py")):
+            if _sib_path.name != "_rfecv.py":
+                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     return primary
 
 

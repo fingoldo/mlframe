@@ -119,19 +119,20 @@ def test_get_binning_edges_njit_nan_filter():
 
 
 def test_rfecv_winner_picker_skips_nan_candidates():
-    """Source-level guard: both argmax sites in _rfecv.py mask out NaN
-    candidates before picking the winner."""
+    """Source-level guard: both argmax sites in the RFECV wrappers package
+    mask out NaN candidates before picking the winner."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_selection" / "wrappers" / "_rfecv.py"
-    ).read_text(encoding="utf-8")
+    # Fit body + sibling helpers all live under wrappers/; concat every
+    # ``_rfecv*.py`` so the sensor catches the pattern regardless of which
+    # sibling owns it after the monolith-split waves.
+    _wrappers = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "wrappers"
+    src = "\n".join(p.read_text(encoding="utf-8") for p in _wrappers.glob("_rfecv*.py"))
     # Post-fix: both sites use a finite-mask filter before argmax.
     occurrences = src.count("_finite_mask = np.isfinite(")
     assert occurrences >= 2, (
         f"Wave 21 P0 regression: expected >= 2 _finite_mask filters in "
-        f"_rfecv.py (one per winner-picker site); got {occurrences}."
+        f"the rfecv sibling source; got {occurrences}."
     )
     # Pre-fix raw shape MUST be gone:
     assert "best_mean_idx = nz_idx[np.argmax(mean_arr[nz_idx])]" not in src, (

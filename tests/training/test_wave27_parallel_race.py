@@ -50,10 +50,11 @@ def _read(rel: str) -> str:
     primary = (_ROOT / rel).read_text(encoding="utf-8")
     if rel == "feature_selection/wrappers/_rfecv.py":
         _dir = _ROOT / "feature_selection" / "wrappers"
-        for nm in ("_rfecv_fit.py", "_rfecv_stability_select.py"):
-            sibling = _dir / nm
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+        # Concat every ``_rfecv*.py`` sibling so the source-grep sensor matches
+        # the relocated code regardless of which sibling owns it now.
+        for _sib_path in sorted(_dir.glob("_rfecv*.py")):
+            if _sib_path.name != "_rfecv.py":
+                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     elif rel == "feature_selection/filters/feature_engineering.py":
         # 2026-05-22 split: check_prospective_fe_pairs moved to
         # _feature_engineering_pairs.py.

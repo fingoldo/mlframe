@@ -140,10 +140,12 @@ def test_rfecv_random_state_none_uses_hashlib_not_builtin_hash():
     support_' guarantee across worker spawns."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_selection" / "wrappers" / "_rfecv.py"
-    ).read_text(encoding="utf-8")
+    # The fit body and its sibling helpers all live under wrappers/; concat
+    # every file in the package so the source-grep sensor catches the
+    # pattern regardless of which sibling owns the relocated code after
+    # the monolith-split waves.
+    _wrappers = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "wrappers"
+    src = "\n".join(p.read_text(encoding="utf-8") for p in _wrappers.glob("_rfecv*.py"))
     # Pre-fix shape must be gone:
     assert "_seed = abs(hash(signature)) % (2 ** 32)" not in src, (
         "Wave 18 P1 regression: RFECV _seed derivation re-introduced "
