@@ -1,0 +1,22 @@
+# warmup (JIT compile)...
+
+# bench_polynom_optimizers_multipair
+#   N_ROWS=4000, N_FEATURES=12, N_TRIALS=200, degrees=3-6, restarts=3
+#   basis=hermite, bf_names=('mul', 'add', 'sub', 'div')
+
+#   n_pairs=66 (C(12, 2))
+
+  cma_batch + joblib(n_jobs=16):  143.33s  mi_mean=-inf  mi_max=0.5800
+  numba_kernel multi-pair (one prange call/deg-combo): 202.40s  mi_mean=0.0739  mi_max=0.5461
+
+#   speedup numba_kernel vs cma_batch+joblib: 0.71x
+
+# per-pair MI delta (numba_kernel - cma_batch):
+   mean = +inf  (positive = numba_kernel better)
+   max  = +inf
+   min  = -0.0339
+D:\Upd\Programming\PythonCodeRepository\mlframe\profiling\bench_polynom_optimizers_multipair.py:190: RuntimeWarning:
+
+invalid value encountered in scalar divide
+
+   |max| / mi_mean = nan%
