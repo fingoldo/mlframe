@@ -873,7 +873,11 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
             self.best_epoch = trainer.current_epoch
             # Also set on pl_module for DDP synchronization
             pl_module.best_epoch = self.best_epoch
-            logger.info("New best model at epoch %s with %s=%.4f", self.best_epoch, self.monitor, self.best_score)
+            # DEBUG (was INFO): per-epoch best-model bump produces O(epochs) log
+            # spam (~20-40 lines per MLP fit) without surfacing any actionable
+            # signal -- the final best_epoch lands in the model and the
+            # "Loaded weights from epoch N" line at end-of-fit reports it.
+            logger.debug("New best model at epoch %s with %s=%.4f", self.best_epoch, self.monitor, self.best_score)
 
 
 class PeriodicLearningRateFinder(LearningRateFinder):

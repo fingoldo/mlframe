@@ -83,10 +83,10 @@ def build_regression_panel_spec(
     het_marker = ""
     spearman_line = ""
     if audit is not None:
-        het_marker = "(!) heteroscedastic" if audit.hetero_significant else "homoscedastic"
+        het_marker = "(!) het" if audit.hetero_significant else "hom"
         if math.isfinite(audit.hetero_spearman):
             spearman_line = (
-                f"spearman(|resid|, y_hat) = {audit.hetero_spearman:+.3f} ({het_marker})"
+                f"Spearman(resid,preds) = {audit.hetero_spearman:+.3f} ({het_marker})"
             )
     scatter_title = metrics_str
     if spearman_line:
