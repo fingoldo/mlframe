@@ -538,6 +538,10 @@ def select_target(
         # Suite-level reporting knobs consumed directly by ``train_mlframe_models_suite`` (residual-audit thread-local override and the score_ensemble ``uncertainty_quantile`` arg) - never passed down to ``configure_training_params``.
         "report_residual_audit",
         "confidence_ensemble_quantile",
+        # Feature-drift auto-apply gate is read by the per-target wire-in
+        # (``_phase_train_one_target_model_setup``); configure_training_params
+        # has no use for it.
+        "feature_drift_auto_apply_neural_overrides",
     }
     effective_behavior_params = {
         k: v for k, v in behavior_config.model_dump(exclude_none=True).items()

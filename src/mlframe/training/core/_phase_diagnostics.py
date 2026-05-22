@@ -102,12 +102,30 @@ def run_per_target_diagnostics(
                         _fi[str(_ab["feature"])] = float(abs(_ab.get("delta_pct", 0.0)))
                 if not _fi:
                     _fi = None
+            # Shape-detector signal for the classification override gate.
+            # ``init_score_baseline.delta_vs_raw_pct`` measures how well the
+            # linear baseline (LogReg on top-FI features) captures the
+            # LightGBM raw metric. When |delta| is small the target is
+            # linear-shape and the classification override is safe to
+            # auto-apply. Available only when baseline_diagnostics computed
+            # an init_score_baseline; for regression this signal is
+            # unused (regression auto-apply doesn't need it).
+            _linear_shape_delta: float | None = None
+            if _bd_report_dict and isinstance(_bd_report_dict.get("init_score_baseline"), dict):
+                _isb = _bd_report_dict["init_score_baseline"]
+                _delta = _isb.get("delta_vs_raw_pct")
+                if _delta is not None:
+                    try:
+                        _linear_shape_delta = float(_delta)
+                    except (ValueError, TypeError):
+                        _linear_shape_delta = None
             _fd_report = compute_feature_distribution_drift(
                 train_df=filtered_train_df,
                 val_df=filtered_val_df,
                 test_df=filtered_test_df,
                 feature_importance=_fi,
                 target_type=str(target_type),
+                linear_shape_delta_vs_raw_pct=_linear_shape_delta,
             )
             metadata.setdefault("feature_distribution_drift", {}) \
                 .setdefault(str(target_type), {})[cur_target_name] = _fd_report

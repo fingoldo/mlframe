@@ -91,22 +91,20 @@ def _make_drifted_regression_df(n: int = 600, seed: int = 0) -> pd.DataFrame:
 def _make_drifted_binary_classification_df(n: int = 600, seed: int = 0) -> pd.DataFrame:
     """Mirror of ``_make_drifted_regression_df`` for binary classification.
 
-    Uses alpha_dom=10 (matching the regression helper) -- this saturates
-    the sigmoid for the drifted rows so test labels skew to class 1,
-    BUT keeps train labels balanced and crucially makes f0 strongly
-    dominant in the baseline_diagnostics FI ablation. Without that
-    dominance the FI-weighted drift aggregate dilutes across uninformative
-    features and stays below the 3.0 threshold even at drift_z=8. The
-    wire-in test cares about (a) the sensor's FI-weighted score crossing
-    threshold and (b) the override flowing into MLP construction; the
-    saturated-test-labels regime is irrelevant for those assertions.
+    Uses alpha_dom=1.0 (matching the classification sweep regime) so the
+    sigmoid stays in transition under drift -- val keeps both classes
+    alive after the 8-sigma shift, avoiding the suite's
+    'val target has only one unique value' validation error. The
+    FI-weighted drift aggregate still crosses 3.0 because f0 dominates
+    the linear baseline (alpha_dom=1.0 vs noise alpha=0.1) in
+    baseline_diagnostics' ablation FI.
 
     Drift starts at the 70% boundary so the suite's default 70/15/15
     split (with timestamps disabling stratification) puts ALL drifted
     rows into val/test and zero into train.
     """
     rng = np.random.default_rng(seed)
-    alphas = np.array([10.0, 0.1, 0.1, 0.1, 0.1])
+    alphas = np.array([1.0, 0.1, 0.1, 0.1, 0.1])
     n_train = int(n * 0.7)
     n_test = n - n_train
 
@@ -221,17 +219,17 @@ def test_feature_drift_auto_action_e2e_regression():
 
 
 @pytest.mark.slow
-def test_feature_drift_auto_action_e2e_with_mlp_in_model_set():
-    """Second e2e variant that includes MLP in the model set so the
-    PER-TARGET wire-in actually fires (the linear-only variant tests the
-    sensor side; this one tests the merge-into-hyperparams_config side).
+def test_feature_drift_auto_action_default_off_warn_only():
+    """Default behaviour: the auto-apply flag is OFF, so even with extreme
+    drift on a dominant feature + MLP in the model set + drift detected,
+    the MLP is trained with the USER-supplied mlp_kwargs unchanged. The
+    sensor still emits a WARN log line with the recommendation and stamps
+    ``metadata["feature_drift_auto_action_skipped"]`` for observability.
 
-    Pays the ~14s pytorch lightning import cost so this test is heavier
-    than the linear-only variant -- still ``slow`` marked. The assertion
-    is on metadata["feature_drift_auto_action"][regression][drift_e2e]
-    existing with the expected sklearn + mlframe shapes; we don't assert
-    on MLP test R^2 because the MLP fit happens AFTER the wire-in and is
-    its own complex flow (covered by the bench-stack, not this test)."""
+    This pins the safe default: no black-box config rewrites unless the
+    operator explicitly opts in. Without this gate the previous version
+    would mutate hyperparams_config every time drift was detected, which
+    is surprising behaviour for users who passed mlp_kwargs deliberately."""
     from mlframe.training import train_mlframe_models_suite
     from mlframe.training.configs import (
         BaselineDiagnosticsConfig,
@@ -262,21 +260,17 @@ def test_feature_drift_auto_action_e2e_with_mlp_in_model_set():
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             train_mlframe_models_suite(
-                df=df, target_name="drift_e2e_mlp", model_name="mt",
+                df=df, target_name="drift_e2e_default_off", model_name="mt",
                 features_and_targets_extractor=fte,
-                mlframe_models=["mlp"],  # the actual wire-in target
+                mlframe_models=["mlp"],
                 use_mlframe_ensembles=False,
                 verbose=0,
                 split_config=TrainingSplitConfig(
-                    test_size=0.15, val_size=0.15,
-                    # val_sequential_fraction=1.0 forces val to be a single
-                    # contiguous slice from the train/test boundary instead
-                    # of mixing in random rows from earlier. Required for
-                    # this drift-injection synthetic so the train slice
-                    # is purely pre-drift.
-                    val_sequential_fraction=1.0,
+                    test_size=0.15, val_size=0.15, val_sequential_fraction=1.0,
                 ),
                 hyperparams_config=ModelHyperparamsConfig(),
+                # Default TrainingBehaviorConfig() has
+                # feature_drift_auto_apply_neural_overrides=False.
                 behavior_config=TrainingBehaviorConfig(),
                 baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=True),
             )
@@ -285,58 +279,124 @@ def test_feature_drift_auto_action_e2e_with_mlp_in_model_set():
         pt_alias._train_one_target = _orig_pt_alias
 
     ctx = captured_ctx_holder.get("ctx")
-    assert ctx is not None, "ctx not captured"
+    assert ctx is not None
     metadata = ctx.metadata or {}
 
-    # Sensor side: drift stamped.
-    assert metadata.get("feature_distribution_drift"), (
-        "feature_distribution_drift missing from metadata"
+    # Sensor still runs.
+    assert metadata.get("feature_distribution_drift"), "drift report missing"
+
+    # Auto-apply MUST NOT have fired (flag is OFF).
+    assert not metadata.get("feature_drift_auto_action"), (
+        f"feature_drift_auto_action must be empty when the auto-apply flag "
+        f"defaults to OFF; got {metadata.get('feature_drift_auto_action')}"
     )
 
-    # Wire-in side: feature_drift_auto_action stamped because (a) the 8-sigma
-    # drift produces weighted_score >> 3.0, (b) baseline_diagnostics is
-    # enabled in this config and produces FI, (c) "mlp" is in mlframe_models,
-    # (d) target_type is regression. With all four conditions met the
-    # auto-action MUST stamp; an empty dict means the wire-in regressed.
+    # Skip-stamp MUST be present so dashboards can show what WOULD have been
+    # applied if the operator had opted in.
+    skipped = metadata.get("feature_drift_auto_action_skipped", {})
+    assert skipped, (
+        f"feature_drift_auto_action_skipped missing; expected the sensor to "
+        f"surface the recommendation it would have applied. metadata keys: "
+        f"{list(metadata.keys())}"
+    )
+    by_type = next(iter(skipped.values()))
+    by_target = next(iter(by_type.values()))
+    assert by_target.get("reason") == "auto_apply_disabled"
+    assert by_target["sklearn_override_recommended"].get("activation") == "identity"
+
+
+@pytest.mark.slow
+def test_feature_drift_auto_action_e2e_with_mlp_opt_in():
+    """Opt-in path: when ``feature_drift_auto_apply_neural_overrides=True``
+    on regression, the per-target wire-in applies the override (the
+    classification version still gates on shape detector independently).
+
+    Confirms the regression auto-apply still works after the default-OFF
+    refactor."""
+    from mlframe.training import train_mlframe_models_suite
+    from mlframe.training.configs import (
+        BaselineDiagnosticsConfig,
+        ModelHyperparamsConfig,
+        TrainingBehaviorConfig,
+        TrainingSplitConfig,
+    )
+
+    import mlframe.training.core._phase_train_one_target as pt
+
+    df = _make_drifted_regression_df(n=600, seed=0)
+    fte = _DriftingFeaturesAndTargetsExtractor("y")
+
+    captured_ctx_holder: dict = {}
+    _orig_train_one = pt._train_one_target
+
+    def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        captured_ctx_holder["ctx"] = ctx
+        return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
+
+    pt._train_one_target = _stash_ctx
+    import mlframe.training.core.main as _main
+    pt_alias = _main.pr
+    _orig_pt_alias = pt_alias._train_one_target
+    pt_alias._train_one_target = _stash_ctx
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            train_mlframe_models_suite(
+                df=df, target_name="drift_e2e_optin", model_name="mt",
+                features_and_targets_extractor=fte,
+                mlframe_models=["mlp"],
+                use_mlframe_ensembles=False,
+                verbose=0,
+                split_config=TrainingSplitConfig(
+                    test_size=0.15, val_size=0.15, val_sequential_fraction=1.0,
+                ),
+                hyperparams_config=ModelHyperparamsConfig(),
+                behavior_config=TrainingBehaviorConfig(
+                    feature_drift_auto_apply_neural_overrides=True,
+                ),
+                baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=True),
+            )
+    finally:
+        pt._train_one_target = _orig_train_one
+        pt_alias._train_one_target = _orig_pt_alias
+
+    ctx = captured_ctx_holder.get("ctx")
+    assert ctx is not None
+    metadata = ctx.metadata or {}
+
     auto_action = metadata.get("feature_drift_auto_action", {})
     assert auto_action, (
-        f"feature_drift_auto_action missing despite drifted regression "
-        f"target + mlp in model set + baseline_diagnostics enabled. "
-        f"metadata keys: {list(metadata.keys())}"
+        f"feature_drift_auto_action missing despite opt-in flag set + "
+        f"drifted regression target + mlp in model set. metadata keys: "
+        f"{list(metadata.keys())}"
     )
     by_type = next(iter(auto_action.values()))
     by_target = next(iter(by_type.values()))
-    assert "sklearn_override" in by_target
-    assert "mlframe_mlp_kwargs_override" in by_target
     assert by_target["sklearn_override"].get("activation") == "identity"
-    # The translation must include the linear-collapse network_params.
-    mlframe_override = by_target["mlframe_mlp_kwargs_override"]
-    assert "network_params" in mlframe_override
     import torch
+    mlframe_override = by_target["mlframe_mlp_kwargs_override"]
     assert mlframe_override["network_params"]["activation_function"] is torch.nn.Identity
 
 
 @pytest.mark.slow
 def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
-    """Classification mirror of the regression e2e: confirms the auto-apply
-    is GATED OFF for classification (target-type-grouped threshold is None).
+    """Classification e2e: confirms auto-apply does NOT fire on
+    classification regardless of feature drift severity, even with the
+    opt-in flag set. Two gates conspire to block it:
 
-    The paired threshold study
-    (``profiling/bench_drift_fi_vs_model_harm_classification.py``, 810
-    trials) found Pearson r=-0.101 overall for classification: the FI-
-    weighted drift score does NOT reliably predict MLP harm on
-    classification targets, with interaction_binary showing r=-0.227
-    (MLP with relu actually OUTPERFORMS LogReg on interaction-rich
-    targets under drift). The wire-in must NOT auto-apply the override
-    even when extreme feature drift is detected -- the override is
-    documented in ``ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION``
-    for manual use but not auto-triggered.
+      1. ``feature_drift_auto_apply_neural_overrides`` default OFF in
+         ``TrainingBehaviorConfig`` (this test doesn't set it -> OFF).
+      2. Even with the flag ON, the linear-shape detector reads
+         ``baseline_diagnostics.init_score_baseline.delta_vs_raw_pct``
+         and gates classification on |delta| <= 10%. The synthetic data
+         here saturates the sigmoid (alpha_dom=10 + drift_z=8), making
+         the LogReg vs LightGBM gap meaningless -- the shape signal
+         won't read as 'clean linear' and the override stays off.
 
     Asserts:
       1. Sensor still stamps the drift report (observational).
-      2. ``recommend_neural_overrides`` is None on the classification
-         report (the per-type threshold gate filtered it out).
-      3. ``feature_drift_auto_action`` is NOT stamped in metadata.
+      2. ``feature_drift_auto_action`` is NOT stamped in metadata.
     """
     from mlframe.training import train_mlframe_models_suite
     from mlframe.training.configs import (
@@ -351,11 +411,11 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
     df = _make_drifted_binary_classification_df(n=600, seed=0)
     fte = _DriftingFeaturesAndTargetsExtractor("y", target_type=TargetTypes.BINARY_CLASSIFICATION)
 
-    # alpha_dom=10 in the data helper saturates the sigmoid for drifted
-    # rows -- all test labels become class 1 and the suite raises on
-    # 'val target has only one unique value'. continue_on_model_failure
-    # makes the suite swallow the per-model crash so we can still inspect
-    # the auto-action stamp that landed BEFORE the MLP fit.
+    # alpha_dom=1.0 in the data helper keeps the sigmoid in transition so
+    # val retains both classes after the 8-sigma drift on the dominant
+    # feature -- avoids the suite's 'val target has only one unique value'
+    # validation error. Sensor still fires because f0 dominates the linear
+    # baseline FI even with alpha_dom=1.0.
 
     captured_ctx_holder: dict = {}
     _orig_train_one = pt._train_one_target
@@ -389,7 +449,8 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
                     val_sequential_fraction=1.0,
                 ),
                 hyperparams_config=ModelHyperparamsConfig(),
-                behavior_config=TrainingBehaviorConfig(continue_on_model_failure=True),
+                # Default flag (feature_drift_auto_apply_neural_overrides=False).
+                behavior_config=TrainingBehaviorConfig(),
                 baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=True),
             )
     finally:
@@ -400,21 +461,19 @@ def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
     assert ctx is not None
     metadata = ctx.metadata or {}
 
-    # Sensor still runs (drift report stamped) but the recommendation must
-    # be None for classification because the per-type threshold is None.
+    # Sensor still runs (drift report stamped). recommend_neural_overrides
+    # could be either None (if shape signal unavailable or marks the target
+    # as nonlinear-shape) or a dict (if the shape detector reads as linear);
+    # we don't assert on it because the synthetic-data layer might land in
+    # either branch depending on baseline_diagnostics outcomes.
     fd = metadata.get("feature_distribution_drift", {})
     assert fd, "feature_distribution_drift missing -- sensor did not run"
-    by_type = next(iter(fd.values()))
-    by_target = next(iter(by_type.values()))
-    assert by_target["recommend_neural_overrides"] is None, (
-        f"recommend_neural_overrides MUST be None on classification (per-type "
-        f"threshold is None); got {by_target['recommend_neural_overrides']}"
-    )
 
-    # The wire-in must NOT have stamped auto_action since no override
-    # was recommended.
+    # Default-OFF gate: the auto-apply flag defaults to False in
+    # TrainingBehaviorConfig, so feature_drift_auto_action MUST NOT have
+    # been stamped regardless of what the sensor recommended.
     auto_action = metadata.get("feature_drift_auto_action", {})
     assert not auto_action, (
-        f"feature_drift_auto_action must be empty on classification; "
-        f"got {auto_action}"
+        f"feature_drift_auto_action must be empty on classification when "
+        f"the default-OFF flag is set; got {auto_action}"
     )

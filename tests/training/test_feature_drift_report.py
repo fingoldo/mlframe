@@ -425,41 +425,80 @@ class TestFeatureDriftAutoActionWireIn:
         assert _merged["model_params"]["learning_rate"] == 3e-3
         assert _merged["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
 
-    def test_per_target_type_threshold_gates_classification_off(self):
+    def test_per_target_type_threshold_table(self):
         """Per-type threshold table:
-          regression -> 3.0 (grounded by paired study, precision=1.000)
-          classification -> None (DISABLED; classification paired study
-            found Pearson r=-0.101 and 0.091 precision at thr=3.0).
-
-        Even with extreme drift on a dominant feature, classification
-        target_type must NOT produce a recommendation -- the override
-        family is documented but the trigger is gated off."""
+          regression -> 3.0 (grounded universally by paired study, precision=1.000)
+          classification -> 3.0 + linear-shape gate (interaction-rich
+            classification targets show negative correlation; gate enforces
+            the override only fires when init_score_baseline.delta_vs_raw_pct
+            says the target is linear-shape).
+        """
         from mlframe.training.feature_drift_report import (
-            ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
             WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS,
+            CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT,
         )
-        # Sanity-check the per-type table itself.
         assert WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["regression"] == 3.0
-        assert WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["classification"] is None
+        assert WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["classification"] == 3.0
+        assert CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT == 10.0
 
+    def test_regression_fires_without_shape_signal(self):
+        """Regression doesn't need the shape gate -- Ridge wins universally
+        on drifted regression DGPs per the empirical study, so the sensor
+        recommends the override on any regression target with drift >= 3.0
+        regardless of linear_shape_delta_vs_raw_pct."""
+        from mlframe.training.feature_drift_report import ROBUST_MLP_OVERRIDES_UNDER_DRIFT
         train, val, test = _make_frames(drift_z=8.0)
-        rep_reg = compute_feature_distribution_drift(
+        rep = compute_feature_distribution_drift(
             train, val, test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
             target_type="regression",
+            # Shape signal absent / arbitrary -- regression ignores it.
+            linear_shape_delta_vs_raw_pct=None,
         )
-        rep_clf = compute_feature_distribution_drift(
+        assert rep["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT)
+
+    def test_classification_fires_on_linear_shape(self):
+        """Classification override applies when the shape signal says linear
+        (|delta_vs_raw_pct| <= CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT,
+        meaning LogReg captures essentially what LightGBM does)."""
+        from mlframe.training.feature_drift_report import (
+            ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION,
+        )
+        train, val, test = _make_frames(drift_z=8.0)
+        rep = compute_feature_distribution_drift(
             train, val, test,
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
             target_type="binary_classification",
+            linear_shape_delta_vs_raw_pct=5.0,  # linear within 10% of LGBM
         )
-        # Regression fires -- threshold 3.0 grounded.
-        assert rep_reg["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT)
-        # Classification does NOT fire -- threshold None disables auto-apply.
-        assert rep_clf["recommend_neural_overrides"] is None
-        # Both should still report the weighted_drift_score for observability.
-        assert rep_reg["weighted_drift_score"] is not None
-        assert rep_clf["weighted_drift_score"] is not None
+        assert rep["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION)
+
+    def test_classification_skips_on_nonlinear_shape(self):
+        """Interaction / sinusoidal-rich classification targets show
+        delta_vs_raw_pct > 10% -- nonlinear-shape. The override would HURT
+        these targets (paired study r=-0.227 on interaction_binary) so the
+        recommendation must be None."""
+        train, val, test = _make_frames(drift_z=8.0)
+        rep = compute_feature_distribution_drift(
+            train, val, test,
+            feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+            target_type="binary_classification",
+            linear_shape_delta_vs_raw_pct=45.0,  # LogReg far worse than LGBM
+        )
+        assert rep["recommend_neural_overrides"] is None
+
+    def test_classification_skips_when_shape_signal_missing(self):
+        """Conservative default: without the shape signal from
+        baseline_diagnostics, classification stays gated off. This covers
+        suites that didn't enable baseline_diagnostics."""
+        train, val, test = _make_frames(drift_z=8.0)
+        rep = compute_feature_distribution_drift(
+            train, val, test,
+            feature_importance={"f_shift": 1.0, "f_stable": 0.0},
+            target_type="binary_classification",
+            linear_shape_delta_vs_raw_pct=None,
+        )
+        assert rep["recommend_neural_overrides"] is None
 
     def test_recommend_payload_absent_when_no_fi(self):
         """The recommendation requires feature_importance to score. Without

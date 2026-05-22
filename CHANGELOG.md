@@ -1,5 +1,69 @@
 # Changelog
 
+## 2026-05-22 — Feature-drift auto-apply: default-OFF flag + classification shape gate
+
+After the per-target threshold table landed earlier in the day, two
+remaining concerns drove this commit:
+
+1. Auto-apply is a black-box rewrite of the user's MLP config. Default-
+   ON behaviour is surprising for operators who passed ``mlp_kwargs``
+   deliberately and expect the MLP they configured.
+
+2. Classification was left with threshold=None ("auto-apply disabled
+   forever") because the paired study found weak/heterogeneous
+   correlation -- but the empirical breakdown showed the heterogeneity
+   was driven by interaction-rich DGPs (r=-0.227 on interaction_binary)
+   while linear-shape DGPs had positive correlation (r=+0.233). A
+   target-shape detector can recover the linear-shape case.
+
+### Default-OFF flag
+``TrainingBehaviorConfig.feature_drift_auto_apply_neural_overrides:
+bool = False`` (default OFF). Behaviour when False:
+- Sensor still runs, drift report stamped, recommendation computed.
+- Wire-in emits a loud ``WARN`` with the recommended sklearn-shape
+  override so the operator can copy-paste into their config.
+- ``hyperparams_config.mlp_kwargs`` is NOT mutated. MLP trains with
+  the user-supplied config unchanged.
+- ``metadata["feature_drift_auto_action_skipped"]`` records the
+  recommendation + reason="auto_apply_disabled" for dashboards.
+
+Behaviour when True: existing per-target auto-apply path runs subject
+to the per-type threshold + shape gate below.
+
+### Classification linear-shape gate
+``CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT = 10.0``. Reads
+``baseline_diagnostics.init_score_baseline.delta_vs_raw_pct`` -- the
+relative gap between LogReg-on-top-FI-features (the linear baseline)
+and the LightGBM raw metric. When |delta| <= 10% the classification
+target is LINEAR-SHAPE (LogReg captures essentially what LightGBM
+does) and the identity-collapse override is empirically safe to apply.
+Outside that band the target is interaction-rich and the override
+would HURT, so the recommendation stays None.
+
+``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["classification"]`` is
+restored to 3.0 (was None); the shape gate is the additional safety
+net that prevents the interaction-binary failure mode the paired study
+surfaced.
+
+### Sensor API
+``compute_feature_distribution_drift`` gains
+``linear_shape_delta_vs_raw_pct: Optional[float] = None``. Regression
+ignores it (Ridge wins universally on drifted regression DGPs).
+Classification requires it: when None (e.g. baseline_diagnostics
+disabled), the sensor conservatively returns
+``recommend_neural_overrides=None``. ``_phase_diagnostics`` reads
+``init_score_baseline.delta_vs_raw_pct`` from the stamped
+baseline_diagnostics dict and threads it through.
+
+### Tests
+- 30 unit tests cover the new flag + shape gate logic across regression
+  / classification / no-shape-signal / extreme-drift combinations.
+- 3 e2e tests cover (a) default-OFF surfaces WARN + skipped-stamp but
+  doesn't touch mlp_kwargs, (b) regression opt-in path stamps
+  auto_action with the identity-collapse network, (c) classification
+  default-OFF blocks auto_action regardless of drift severity.
+
+
 ## 2026-05-22 — Feature-drift auto-action: classification + torch validation + e2e
 
 Follow-up landing four hardening threads on top of the regression-only

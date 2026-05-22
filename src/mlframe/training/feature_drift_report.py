@@ -168,14 +168,16 @@ drift keep the original ReLU config and its nonlinear capacity.
 
 WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS: Dict[str, Optional[float]] = {
     "regression": 3.0,
-    "classification": None,
+    "classification": 3.0,
 }
 """Per-target-type FI-weighted drift score threshold above which the
 sensor recommends applying robustness overrides to neural-model HPT.
 
 Threshold = None means the trigger is DISABLED for that target-type
-family (no auto-apply); the override family is still documented in the
-relevant ``ROBUST_MLP_OVERRIDES_UNDER_DRIFT*`` constant for manual use.
+family (no auto-apply ever); the override family is still documented in
+the relevant ``ROBUST_MLP_OVERRIDES_UNDER_DRIFT*`` constant for manual
+use. Threshold = float means "fire above this value, subject to extra
+gates (e.g. linear-shape detector for classification)".
 
 Per-type empirical grounding (2026-05-22):
 
@@ -184,23 +186,44 @@ Per-type empirical grounding (2026-05-22):
     (570 trials, 9 drift_z levels x 3 drift_target modes x 30 seeds).
     Pearson(weighted_drift_score, MLP_excess_R^2_harm) = +0.834 overall.
     At threshold=3.0: precision=1.000, recall=0.883, zero false
-    positives. Trigger is well-grounded.
+    positives. Trigger is well-grounded; no shape gate needed because
+    Ridge wins universally on drifted linear / quadratic / interaction /
+    sinusoidal regression DGPs.
 
-  classification -> None  (auto-apply DISABLED)
+  classification -> 3.0 + linear-shape gate (see
+    ``CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT``)
     Paired study ``profiling/bench_drift_fi_vs_model_harm_classification.py``
     (810 trials, 3 binary DGPs x 9 drift_z x 30 seeds).
     Pearson(weighted_drift_score, MLP_excess_logloss) overall: r=-0.101
        per-DGP: linear=+0.233  interaction=-0.227  sinusoidal=-0.041
-    Threshold table (MLP_excess_logloss > 0.1 = 'meaningful harm'):
-      thr=3.0: precision=0.091, recall=0.695
-      thr=5.0: precision=0.103, recall=0.559
-    Negative per-DGP correlation on interaction_binary is the
+    The negative per-DGP correlation on interaction_binary is the
     diagnostic: when the underlying signal is genuinely nonlinear
-    (e.g. x_dom * x_2), MLP-with-relu OUTPERFORMS LogReg under drift --
-    exactly the situation where the identity-collapse override would
-    HURT. No threshold reaches reasonable precision; until a target-
-    shape detector gates the override, classification auto-apply
-    stays off.
+    (x_dom * x_2), MLP-with-relu OUTPERFORMS LogReg under drift -- the
+    identity-collapse override would HURT. So we gate classification on
+    ``init_score_baseline.delta_vs_raw_pct`` from baseline_diagnostics:
+    linear captures within 10% of LightGBM -> linear-shape -> apply.
+    Outside that band -> nonlinear-shape -> WARN only.
+"""
+
+
+CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT: float = 10.0
+"""Threshold on ``abs(init_score_baseline.delta_vs_raw_pct)`` (from
+baseline_diagnostics) below which a classification target is treated
+as 'linear-shape' for the purposes of auto-applying the MLP HPT
+override under drift.
+
+``delta_vs_raw_pct`` measures the relative gap between the linear
+baseline (LogisticRegression on top-FI features) and the LightGBM raw
+metric (AUC for binary). |delta| <= 10% means LogReg captures
+essentially what LightGBM does -- i.e. the target IS linear in feature
+space. Per the per-DGP correlation breakdown in
+``bench_drift_fi_vs_model_harm_classification.py``, on linear-shape
+binary classification the drift-vs-harm correlation is r=+0.233
+(weak but positive) -- safe direction. Interaction-rich targets show
+delta_vs_raw_pct of 30-50%+ and r=-0.227, where the override hurts.
+
+10% is conservative: linear AUC within 0.9*LGBM_AUC is a tight bound.
+Adjust if production data calibrates differently.
 """
 
 
@@ -398,6 +421,7 @@ def compute_feature_distribution_drift(
     feature_importance: Optional[Dict[str, float]] = None,
     max_features_in_log: int = 10,
     target_type: Optional[str] = None,
+    linear_shape_delta_vs_raw_pct: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Compute per-feature mean drift across train / val / test.
 
@@ -526,18 +550,37 @@ def compute_feature_distribution_drift(
         if _is_classification
         else ROBUST_MLP_OVERRIDES_UNDER_DRIFT
     )
-    # Pick the target-type-grouped threshold. Regression: 3.0 (well-grounded).
-    # Classification: None (auto-apply disabled because the paired threshold
-    # study found weak/heterogeneous correlation across DGPs).
+    # Pick the target-type-grouped threshold. Regression: 3.0 (universally
+    # grounded). Classification: 3.0 BUT additionally gated by the linear-
+    # shape detector below -- interaction-rich classification targets show
+    # NEGATIVE drift/harm correlation (MLP-with-relu beats LogReg under
+    # drift) so the identity-collapse override would actively hurt.
     _per_type_threshold = WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS.get(
         "classification" if _is_classification else "regression",
     )
+    # Shape gate: applies to classification only. ``linear_shape_delta_vs_raw_pct``
+    # comes from ``baseline_diagnostics.init_score_baseline.delta_vs_raw_pct``:
+    # the relative gap between the linear baseline (LogisticRegression on
+    # top-FI features) and the LightGBM raw metric. When abs(delta) <=
+    # CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT the target is
+    # linear-shape and the override is empirically safe. Outside that
+    # band (or when the signal is unavailable) the override stays off.
+    _shape_gate_passes = True
+    if _is_classification:
+        if linear_shape_delta_vs_raw_pct is None:
+            _shape_gate_passes = False  # no signal -> conservatively skip
+        else:
+            _shape_gate_passes = (
+                abs(float(linear_shape_delta_vs_raw_pct))
+                <= CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT
+            )
     recommend_neural_overrides: Optional[Dict[str, Any]] = None
     if (
         weighted_score is not None
         and _per_type_threshold is not None
         and weighted_score >= _per_type_threshold
         and _override_family
+        and _shape_gate_passes
     ):
         recommend_neural_overrides = dict(_override_family)
 

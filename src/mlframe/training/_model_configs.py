@@ -478,6 +478,22 @@ class TrainingBehaviorConfig(BaseConfig):
     # Default False: silently skipping a failed model is a semantic
     # shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
+    # Default False: feature-drift-driven per-target MLP HPT override
+    # is OFF by default. The drift sensor still runs and stamps the
+    # recommendation into metadata + emits a WARN log line so the
+    # operator sees the recommendation, but the MLP config the user
+    # passed is NOT mutated. Set True to enable auto-apply (regression
+    # only by default; classification requires the shape-detector gate
+    # below to also be satisfied).
+    #
+    # Rationale: the override is a black-box config rewrite and the
+    # paired study showed classification doesn't have a clean trigger
+    # (Pearson r=-0.101 overall; interaction-rich classification
+    # targets are actively hurt by the override). Operators who want
+    # the override can opt in after reading the docs; everyone else
+    # gets the MLP they configured.
+    feature_drift_auto_apply_neural_overrides: bool = False
+
     # Default True: align Polars Categorical dicts across
     # train/val/test via shared pl.Enum(union_of_categories) before
     # model training. Mechanism not fully understood but empirically

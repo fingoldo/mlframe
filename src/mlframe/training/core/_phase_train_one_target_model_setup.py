@@ -295,25 +295,29 @@ def _setup_per_target_mlframe_models(
         fairness_subgroups=fairness_subgroups,
     )
 
-    # Feature-drift auto-action: when the per-target
-    # ``feature_distribution_drift`` report carries a
-    # ``recommend_neural_overrides`` dict (FI-weighted score crossed
-    # the target-type-grouped threshold in
-    # ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS``), translate the
-    # sklearn-shape override into the nested mlframe ``mlp_kwargs``
-    # shape and apply it as a PER-TARGET override to
-    # ``hyperparams_config.mlp_kwargs``. Other targets in the same
-    # suite keep the original mlp_kwargs.
+    # Feature-drift auto-action layer.
     #
-    # Per-target-type gating happens INSIDE ``compute_feature_distribution_drift``:
-    #   regression  -> threshold=3.0 (precision=1.000 / recall=0.883 vs MLP_excess_R^2_harm>0.1)
-    #   classification -> threshold=None (DISABLED -- the paired study
-    #     found overall Pearson r=-0.101 with interaction_binary r=-0.227,
-    #     i.e. MLP with relu OUTPERFORMS LogReg on interaction-rich
-    #     classification under drift; no threshold gives reasonable
-    #     precision).
-    # The wire-in itself is target-type-agnostic; it just consumes the
-    # ``recommend_neural_overrides`` payload the sensor produced.
+    # Behaviour gates from outermost to innermost:
+    #   1. ``behavior_config.feature_drift_auto_apply_neural_overrides``
+    #      (default False). When OFF, we still surface a WARN line with
+    #      the empirically-grounded recommendation but DO NOT mutate the
+    #      user's MLP config. Operators opt in explicitly after reading
+    #      the docs; everyone else gets the MLP they configured.
+    #
+    #   2. ``recommend_neural_overrides`` payload on the per-target drift
+    #      report. The sensor's per-target-type threshold table gates
+    #      this: regression threshold=3.0 (grounded), classification
+    #      threshold=None (paired study showed weak / heterogeneous
+    #      correlation across DGPs).
+    #
+    #   3. ``"mlp" in mlframe_models``. If the model set doesn't include
+    #      MLP there's nothing to override.
+    #
+    # When all three are satisfied: translate the sklearn-shape override
+    # into the nested ``mlp_kwargs`` shape, deep-merge into a per-target
+    # ``hyperparams_config.model_copy`` (other targets in the same suite
+    # keep their original mlp_kwargs), and stamp
+    # ``metadata["feature_drift_auto_action"]`` for observability.
     _target_hyperparams_config = hyperparams_config
     try:
         _fd_for_target = (
@@ -325,7 +329,37 @@ def _setup_per_target_mlframe_models(
             _fd_for_target.get("recommend_neural_overrides")
             if isinstance(_fd_for_target, dict) else None
         )
-        if _sklearn_override and "mlp" in mlframe_models:
+        _auto_apply_enabled = bool(getattr(
+            behavior_config, "feature_drift_auto_apply_neural_overrides", False,
+        ))
+        if _sklearn_override and "mlp" in mlframe_models and not _auto_apply_enabled:
+            # WARN-only path. Surface the recommendation loudly so the
+            # operator can copy-paste into their config if desired, but
+            # the MLP keeps the user-configured topology.
+            logger.warning(
+                "[feature-drift-auto-action] target='%s' weighted_drift=%.2f "
+                "above empirical threshold -- recommended MLP HPT override "
+                "(sklearn-shape) = %s. AUTO-APPLY IS OFF "
+                "(behavior_config.feature_drift_auto_apply_neural_overrides "
+                "= False). MLP will train with the user-supplied "
+                "mlp_kwargs unchanged. To enable per-target auto-apply, "
+                "set feature_drift_auto_apply_neural_overrides=True. "
+                "Grounded by profiling/bench_mlp_robustness_sweep_nonlinear.py "
+                "(regression, 3520 trials).",
+                cur_target_name,
+                float(_fd_for_target.get("weighted_drift_score") or 0.0),
+                _sklearn_override,
+            )
+            # Stamp the recommendation in metadata for downstream tooling
+            # (post-mortem / dashboards) so the same payload that would
+            # have been applied is still visible.
+            metadata.setdefault("feature_drift_auto_action_skipped", {}) \
+                .setdefault(str(target_type), {})[cur_target_name] = {
+                    "reason": "auto_apply_disabled",
+                    "sklearn_override_recommended": dict(_sklearn_override),
+                    "weighted_drift_score": _fd_for_target.get("weighted_drift_score"),
+                }
+        elif _sklearn_override and "mlp" in mlframe_models and _auto_apply_enabled:
             from ..feature_drift_report import (
                 translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
             )
@@ -358,11 +392,10 @@ def _setup_per_target_mlframe_models(
                 }
             logger.warning(
                 "[feature-drift-auto-action] target='%s' weighted_drift=%.2f "
-                ">= 3.0 -- applying empirically-grounded MLP HPT override "
-                "(sklearn-shape: %s; mlframe-mlp_kwargs deep-merge: %s%s). "
-                "Grounded by profiling/bench_mlp_robustness_sweep.py "
-                "(2026-05-22 sweep, 1440 trials, baseline harm=6.455 -> "
-                "pick harm=0.0006 at drift_z=10).",
+                ">= per-type threshold -- applying empirically-grounded MLP "
+                "HPT override (sklearn-shape: %s; mlframe-mlp_kwargs "
+                "deep-merge: %s%s). Grounded by "
+                "profiling/bench_mlp_robustness_sweep_nonlinear.py.",
                 cur_target_name,
                 float(_fd_for_target.get("weighted_drift_score") or 0.0),
                 _sklearn_override, _mlframe_override,
