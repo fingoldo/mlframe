@@ -41,7 +41,26 @@ _ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
 
 
 def _read(rel: str) -> str:
-    return (_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file under src/mlframe.
+
+    2026-05-21 rfecv monolith split: RFECV.fit body moved to
+    ``_rfecv_fit.py``; concat so source-grep sensors for the relocated
+    Parallel-call pattern still match.
+    """
+    primary = (_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "feature_selection/wrappers/_rfecv.py":
+        _dir = _ROOT / "feature_selection" / "wrappers"
+        for nm in ("_rfecv_fit.py", "_rfecv_stability_select.py"):
+            sibling = _dir / nm
+            if sibling.exists():
+                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif rel == "feature_selection/filters/feature_engineering.py":
+        # 2026-05-22 split: check_prospective_fe_pairs moved to
+        # _feature_engineering_pairs.py.
+        sibling = _ROOT / "feature_selection" / "filters" / "_feature_engineering_pairs.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    return primary
 
 
 # ---- #1 times_spent lock ------------------------------------------------

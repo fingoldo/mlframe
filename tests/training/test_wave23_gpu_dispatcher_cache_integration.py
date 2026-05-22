@@ -79,8 +79,12 @@ def _read(rel: str) -> str:
         "cat_fe_perm_kernel",
     ),
     # #6: feature_engineering.py unary cache lookup
+    # 2026-05-22: ``check_prospective_fe_pairs`` (which contains the
+    # unary-elementwise dispatch + cache lookup) moved to
+    # ``_feature_engineering_pairs.py`` during the feature_engineering
+    # monolith split. The marker now lives in the sibling.
     (
-        "feature_selection/filters/feature_engineering.py",
+        "feature_selection/filters/_feature_engineering_pairs.py",
         '_cache.lookup(\n                                    "unary_elementwise"',
         "unary_elementwise",
     ),
@@ -130,7 +134,10 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
         # ``cat_interactions.py`` was split; the perm-kernel cache lookup
         # lives in the ``_cat_confirm_permutation`` sibling now.
         "feature_selection/filters/_cat_confirm_permutation.py",
-        "feature_selection/filters/feature_engineering.py",
+        # 2026-05-22: ``feature_engineering.py`` was split; the GPU
+        # dispatch + cache lookup body moved into
+        # ``_feature_engineering_pairs.py``.
+        "feature_selection/filters/_feature_engineering_pairs.py",
         "feature_engineering/transformer/random_features.py",
     ]
     for rel in sites:
