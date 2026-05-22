@@ -483,6 +483,54 @@ AXES: dict[str, tuple[Any, ...]] = {
     # P2-18b: rfecv_mbh_adaptive_threshold. 30 default (CB surrogate
     # crossover), 100 forces ExtraTreesRegressor surrogate longer.
     "rfecv_mbh_adaptive_threshold_cfg": (30, 100),
+    # =====================================================================
+    # 2026-05-22 iter162 -- nested-config / depth-2 audit fill-in. 28 fields
+    # surfaced by the second-pass explore agent; each is a config FIELD
+    # (not a top-level kwarg) buried inside *_config object with material
+    # behavioural effect and zero pre-iter162 fuzz coverage.
+    # =====================================================================
+    # --- FeatureHandlingConfig sub-configs (only meaningful when
+    # enable_feature_handling_config_cfg=True; canon collapses otherwise)
+    "fhc_cache_eviction_strategy_cfg": ("size_weighted", "lru", "lfu"),
+    "fhc_cache_allow_pickle_cfg": (False, True),
+    "fhc_cache_ram_fraction_cfg": (0.3, 0.5),
+    "fhc_text_definite_text_mean_chars_cfg": (100, 50),
+    "fhc_text_min_alphabet_entropy_cfg": (4.5, 3.0),
+    "fhc_repro_deterministic_torch_cfg": (False, True),
+    "fhc_auto_locale_detection_cfg": ("fallback_only", "off", "always"),
+    # --- ReportingConfig nested DSL / matplotlib
+    "reporting_prob_histogram_yscale_cfg": ("auto", "log", "linear"),
+    "reporting_title_metrics_template_cfg": (
+        "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC",
+        "ICE ECE LL ROC_AUC",
+    ),
+    "reporting_matplotlib_rcparams_cfg": (None, '{"font.size":10}'),
+    "reporting_multiclass_panels_cfg": (
+        "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC",
+        "CONFUSION ROC",
+    ),
+    # --- ConfidenceAnalysisConfig model_kwargs dict
+    "confidence_model_kwargs_cfg": ("default", "small_trees"),
+    # --- CompositeTargetDiscoveryConfig nested
+    "composite_mi_estimator_cfg": ("bin", "knn"),
+    "composite_mi_nbins_cfg": (16, 8),
+    "composite_mi_aggregation_cfg": ("mean", "sum"),
+    "composite_mi_sample_strategy_cfg": ("random", "stratified_quantile"),
+    "composite_stacked_residual_aggregation_cfg": ("mean", "first"),
+    "composite_discovery_n_jobs_cfg": (1, 2),
+    # --- QuantileRegressionConfig nested (only when enable_quantile=True)
+    "quantile_crossing_fix_cfg": ("sort", "isotonic", "none"),
+    "quantile_coverage_pairs_cfg": ("default", "wide"),
+    "quantile_wrapper_n_jobs_cfg": ("auto", 1),
+    # --- ModelHyperparamsConfig MLP predict batch size
+    "mlp_predict_batch_size_cfg": (None, 512, 8192),
+    # --- LearningToRankConfig nested (canon collapsed for non-LTR)
+    "ltr_cb_loss_fn_cfg": ("YetiRankPairwise", "YetiRank", "QuerySoftMax"),
+    "ltr_lgb_objective_cfg": ("lambdarank", "rank_xendcg"),
+    "ltr_rrf_k_cfg": (60, 30),
+    # --- RecurrentConfig nested (canon collapsed when recurrent_model=None)
+    "recurrent_precision_cfg": ("32-true", "16-mixed"),
+    "recurrent_sequence_preprocessing_cfg": ("none", "per_sequence_zscore"),
 }
 
 
@@ -651,6 +699,36 @@ class FuzzCombo:
     skip_identity_equivalent_pre_pipelines_cfg: bool = True
     rfecv_leakage_corr_threshold_cfg: float = 0.95
     rfecv_mbh_adaptive_threshold_cfg: int = 30
+    # 2026-05-22 iter162 -- nested-config / depth-2 audit fill-in.
+    # All default to the field's library default so combos archived
+    # pre-iter162 deserialise without behaviour change.
+    fhc_cache_eviction_strategy_cfg: str = "size_weighted"
+    fhc_cache_allow_pickle_cfg: bool = False
+    fhc_cache_ram_fraction_cfg: float = 0.3
+    fhc_text_definite_text_mean_chars_cfg: int = 100
+    fhc_text_min_alphabet_entropy_cfg: float = 4.5
+    fhc_repro_deterministic_torch_cfg: bool = False
+    fhc_auto_locale_detection_cfg: str = "fallback_only"
+    reporting_prob_histogram_yscale_cfg: str = "auto"
+    reporting_title_metrics_template_cfg: str = "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC"
+    reporting_matplotlib_rcparams_cfg: "str | None" = None
+    reporting_multiclass_panels_cfg: str = "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
+    confidence_model_kwargs_cfg: str = "default"
+    composite_mi_estimator_cfg: str = "bin"
+    composite_mi_nbins_cfg: int = 16
+    composite_mi_aggregation_cfg: str = "mean"
+    composite_mi_sample_strategy_cfg: str = "random"
+    composite_stacked_residual_aggregation_cfg: str = "mean"
+    composite_discovery_n_jobs_cfg: int = 1
+    quantile_crossing_fix_cfg: str = "sort"
+    quantile_coverage_pairs_cfg: str = "default"
+    quantile_wrapper_n_jobs_cfg: Any = "auto"
+    mlp_predict_batch_size_cfg: "int | None" = None
+    ltr_cb_loss_fn_cfg: str = "YetiRankPairwise"
+    ltr_lgb_objective_cfg: str = "lambdarank"
+    ltr_rrf_k_cfg: int = 60
+    recurrent_precision_cfg: str = "32-true"
+    recurrent_sequence_preprocessing_cfg: str = "none"
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -1080,6 +1158,48 @@ class FuzzCombo:
             # P2-18a/b: RFECV thresholds only meaningful when RFECV is on.
             (self.rfecv_leakage_corr_threshold_cfg if self.rfecv_estimator_cfg is not None else 0.95),
             (self.rfecv_mbh_adaptive_threshold_cfg if self.rfecv_estimator_cfg is not None else 30),
+            # 2026-05-22 iter162 nested-config canons.
+            # FHC sub-configs only meaningful when enable_feature_handling_config_cfg=True.
+            (self.fhc_cache_eviction_strategy_cfg if self.enable_feature_handling_config_cfg else "size_weighted"),
+            (self.fhc_cache_allow_pickle_cfg if self.enable_feature_handling_config_cfg else False),
+            (self.fhc_cache_ram_fraction_cfg if self.enable_feature_handling_config_cfg else 0.3),
+            (self.fhc_text_definite_text_mean_chars_cfg if self.enable_feature_handling_config_cfg else 100),
+            (self.fhc_text_min_alphabet_entropy_cfg if self.enable_feature_handling_config_cfg else 4.5),
+            (self.fhc_repro_deterministic_torch_cfg if self.enable_feature_handling_config_cfg else False),
+            (self.fhc_auto_locale_detection_cfg if self.enable_feature_handling_config_cfg else "fallback_only"),
+            # ReportingConfig nested -- always meaningful (suite always reports).
+            self.reporting_prob_histogram_yscale_cfg,
+            self.reporting_title_metrics_template_cfg,
+            self.reporting_matplotlib_rcparams_cfg,
+            # multiclass_panels only meaningful for multiclass / multilabel.
+            (self.reporting_multiclass_panels_cfg if self.target_type in ("multiclass_classification", "multilabel_classification") else "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"),
+            # ConfidenceAnalysisConfig.model_kwargs only when confidence_analysis enabled.
+            (self.confidence_model_kwargs_cfg if self.include_confidence_analysis_cfg else "default"),
+            # CompositeTargetDiscoveryConfig nested only when composite enabled (regression only).
+            (self.composite_mi_estimator_cfg if self.composite_discovery_enabled_cfg and self.target_type == "regression" else "bin"),
+            (self.composite_mi_nbins_cfg if self.composite_discovery_enabled_cfg and self.target_type == "regression" else 16),
+            (self.composite_mi_aggregation_cfg if self.composite_discovery_enabled_cfg and self.target_type == "regression" else "mean"),
+            (self.composite_mi_sample_strategy_cfg if self.composite_discovery_enabled_cfg and self.target_type == "regression" else "random"),
+            # stacked_residual_aggregation only when composite_use_stacked_discovery_residual=True.
+            (self.composite_stacked_residual_aggregation_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+                and self.composite_use_stacked_discovery_residual_cfg
+            ) else "mean"),
+            (self.composite_discovery_n_jobs_cfg if self.composite_discovery_enabled_cfg and self.target_type == "regression" else 1),
+            # QuantileRegressionConfig nested only when enable_quantile and regression primary.
+            (self.quantile_crossing_fix_cfg if self.enable_quantile_regression_cfg and self.target_type == "regression" else "sort"),
+            (self.quantile_coverage_pairs_cfg if self.enable_quantile_regression_cfg and self.target_type == "regression" else "default"),
+            (self.quantile_wrapper_n_jobs_cfg if self.enable_quantile_regression_cfg and self.target_type == "regression" else "auto"),
+            # MLP predict batch size only when "mlp" in models.
+            (self.mlp_predict_batch_size_cfg if "mlp" in self.models else None),
+            # LearningToRankConfig nested only for LTR.
+            (self.ltr_cb_loss_fn_cfg if self.target_type == "learning_to_rank" else "YetiRankPairwise"),
+            (self.ltr_lgb_objective_cfg if self.target_type == "learning_to_rank" else "lambdarank"),
+            (self.ltr_rrf_k_cfg if self.target_type == "learning_to_rank" and self.ranking_ensemble_method == "rrf" else 60),
+            # RecurrentConfig nested only when a recurrent model is requested.
+            (self.recurrent_precision_cfg if self._canonical_recurrent_model() is not None else "32-true"),
+            (self.recurrent_sequence_preprocessing_cfg if self._canonical_recurrent_model() is not None else "none"),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -1709,6 +1829,42 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ),
         rfecv_leakage_corr_threshold_cfg=axes.get("rfecv_leakage_corr_threshold_cfg", 0.95),
         rfecv_mbh_adaptive_threshold_cfg=axes.get("rfecv_mbh_adaptive_threshold_cfg", 30),
+        # 2026-05-22 iter162 -- nested-config / depth-2 audit fill-in.
+        fhc_cache_eviction_strategy_cfg=axes.get("fhc_cache_eviction_strategy_cfg", "size_weighted"),
+        fhc_cache_allow_pickle_cfg=axes.get("fhc_cache_allow_pickle_cfg", False),
+        fhc_cache_ram_fraction_cfg=axes.get("fhc_cache_ram_fraction_cfg", 0.3),
+        fhc_text_definite_text_mean_chars_cfg=axes.get("fhc_text_definite_text_mean_chars_cfg", 100),
+        fhc_text_min_alphabet_entropy_cfg=axes.get("fhc_text_min_alphabet_entropy_cfg", 4.5),
+        fhc_repro_deterministic_torch_cfg=axes.get("fhc_repro_deterministic_torch_cfg", False),
+        fhc_auto_locale_detection_cfg=axes.get("fhc_auto_locale_detection_cfg", "fallback_only"),
+        reporting_prob_histogram_yscale_cfg=axes.get("reporting_prob_histogram_yscale_cfg", "auto"),
+        reporting_title_metrics_template_cfg=axes.get(
+            "reporting_title_metrics_template_cfg",
+            "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC",
+        ),
+        reporting_matplotlib_rcparams_cfg=axes.get("reporting_matplotlib_rcparams_cfg", None),
+        reporting_multiclass_panels_cfg=axes.get(
+            "reporting_multiclass_panels_cfg",
+            "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC",
+        ),
+        confidence_model_kwargs_cfg=axes.get("confidence_model_kwargs_cfg", "default"),
+        composite_mi_estimator_cfg=axes.get("composite_mi_estimator_cfg", "bin"),
+        composite_mi_nbins_cfg=axes.get("composite_mi_nbins_cfg", 16),
+        composite_mi_aggregation_cfg=axes.get("composite_mi_aggregation_cfg", "mean"),
+        composite_mi_sample_strategy_cfg=axes.get("composite_mi_sample_strategy_cfg", "random"),
+        composite_stacked_residual_aggregation_cfg=axes.get(
+            "composite_stacked_residual_aggregation_cfg", "mean"
+        ),
+        composite_discovery_n_jobs_cfg=axes.get("composite_discovery_n_jobs_cfg", 1),
+        quantile_crossing_fix_cfg=axes.get("quantile_crossing_fix_cfg", "sort"),
+        quantile_coverage_pairs_cfg=axes.get("quantile_coverage_pairs_cfg", "default"),
+        quantile_wrapper_n_jobs_cfg=axes.get("quantile_wrapper_n_jobs_cfg", "auto"),
+        mlp_predict_batch_size_cfg=axes.get("mlp_predict_batch_size_cfg", None),
+        ltr_cb_loss_fn_cfg=axes.get("ltr_cb_loss_fn_cfg", "YetiRankPairwise"),
+        ltr_lgb_objective_cfg=axes.get("ltr_lgb_objective_cfg", "lambdarank"),
+        ltr_rrf_k_cfg=axes.get("ltr_rrf_k_cfg", 60),
+        recurrent_precision_cfg=axes.get("recurrent_precision_cfg", "32-true"),
+        recurrent_sequence_preprocessing_cfg=axes.get("recurrent_sequence_preprocessing_cfg", "none"),
     )
 
 
@@ -1854,11 +2010,14 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
 
 def build_composite_discovery_config_from_flat(
     *, enabled: bool, transforms_mode: Optional[str] = None,
+    mi_estimator: str = "bin", mi_nbins: int = 16, mi_aggregation: str = "mean",
+    mi_sample_strategy: str = "random",
+    stacked_residual_aggregation: str = "mean",
+    discovery_n_jobs: int = 1,
 ):
     """Build a CompositeTargetDiscoveryConfig honoring the discovery
-    enable + transforms_mode axes. transforms_mode in
-    {None, "all", "unary_only", "chain_only", "legacy"}: None and "all"
-    keep the library-default 14-transform palette; the others narrow."""
+    enable + transforms_mode axes + (iter162) nested MI / stacked /
+    parallelism knobs."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
     if not enabled:
         return CompositeTargetDiscoveryConfig(enabled=False)
@@ -1882,6 +2041,13 @@ def build_composite_discovery_config_from_flat(
         "auto_base_top_k": 3,
         "multi_base_enabled": True,
         "multi_base_max_k": 2,
+        # iter162 nested knobs.
+        "mi_estimator": mi_estimator,
+        "mi_nbins": mi_nbins,
+        "mi_aggregation": mi_aggregation,
+        "mi_sample_strategy": mi_sample_strategy,
+        "stacked_residual_aggregation": stacked_residual_aggregation,
+        "discovery_n_jobs": discovery_n_jobs,
     }
     if transforms is not None:
         kw["transforms"] = transforms
@@ -1897,6 +2063,12 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
     return build_composite_discovery_config_from_flat(
         enabled=enabled,
         transforms_mode=combo.composite_transforms_mode_cfg if enabled else None,
+        mi_estimator=combo.composite_mi_estimator_cfg,
+        mi_nbins=combo.composite_mi_nbins_cfg,
+        mi_aggregation=combo.composite_mi_aggregation_cfg,
+        mi_sample_strategy=combo.composite_mi_sample_strategy_cfg,
+        stacked_residual_aggregation=combo.composite_stacked_residual_aggregation_cfg,
+        discovery_n_jobs=combo.composite_discovery_n_jobs_cfg,
     )
 
 

@@ -69,10 +69,15 @@ def _config_for_models(
     n_rows: int,
     iterations: int = 3,
     early_stopping_rounds: "int | None" = None,
+    mlp_predict_batch_size: "int | None" = None,
 ) -> dict:
     cfg: dict = {"iterations": iterations}
     if early_stopping_rounds is not None:
         cfg["early_stopping_rounds"] = early_stopping_rounds
+    # iter162: P0 axis -- MLP predict-time batch override. None = auto-adapt
+    # (default path); int = hard-lock (memory-safety branch on wide frames).
+    if "mlp" in models and mlp_predict_batch_size is not None:
+        cfg["mlp_predict_batch_size"] = mlp_predict_batch_size
     if "lgb" in models:
         cfg["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
     if "xgb" in models:
@@ -364,6 +369,9 @@ def _recurrent_config_for_combo(combo: FuzzCombo):
         accelerator="cpu",
         num_workers=0,
         batch_size=64,
+        # iter162: nested precision + sequence_preprocessing axes.
+        precision=combo.recurrent_precision_cfg,
+        sequence_preprocessing=combo.recurrent_sequence_preprocessing_cfg,
     )
 
 
@@ -840,8 +848,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             )
         _ltr_models = _filtered
         from mlframe.training.configs import LearningToRankConfig
+        # iter162: nested LTR knobs -- cb_loss_fn, lgb_objective, rrf_k.
+        # ranking_ensemble_method already on axis; rrf_k only meaningful when method="rrf".
         _ltr_ranking_config = LearningToRankConfig(
             ensemble_method=combo.ranking_ensemble_method,
+            cb_loss_fn=combo.ltr_cb_loss_fn_cfg,
+            lgb_objective=combo.ltr_lgb_objective_cfg,
+            rrf_k=combo.ltr_rrf_k_cfg,
         )
 
     # 2026-05-21 iter151 -- P0 suite-level kwargs (built once per combo
@@ -849,14 +862,17 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     # respective axis is disabled, so the production default behaviour
     # is preserved.
     # P0-1 quantile_regression_config: only on regression primaries.
+    # iter162 extends with nested crossing_fix / coverage_pairs / wrapper_n_jobs axes.
     _quantile_cfg = None
     if combo.enable_quantile_regression_cfg and combo.target_type == "regression" and not _is_ltr:
         from mlframe.training.configs import QuantileRegressionConfig
+        _coverage_pairs = ((0.1, 0.9),) if combo.quantile_coverage_pairs_cfg == "default" else ((0.05, 0.95),)
         _quantile_cfg = QuantileRegressionConfig(
-            alphas=(0.1, 0.5, 0.9),
-            crossing_fix="sort",
+            alphas=(0.1, 0.5, 0.9) if combo.quantile_coverage_pairs_cfg == "default" else (0.05, 0.5, 0.95),
+            crossing_fix=combo.quantile_crossing_fix_cfg,
             point_estimate_alpha=0.5,
-            coverage_pairs=((0.1, 0.9),),
+            coverage_pairs=_coverage_pairs,
+            wrapper_n_jobs=combo.quantile_wrapper_n_jobs_cfg,
         )
     # P0-2 linear_model_config: only meaningful when "linear" in models.
     _linear_cfg = None
@@ -866,14 +882,46 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             alpha=combo.linear_alpha_cfg,
             solver=combo.linear_solver_cfg,
         )
-    # P0-3 feature_handling_config: default-instantiate when enabled.
+    # P0-3 feature_handling_config: instantiate with nested sub-config
+    # overrides per the iter162 deep-kwargs audit. Each sub-config field
+    # falls back to library defaults when not on the axis OR when import
+    # of the relevant sub-config class fails (FHC has heavy optional deps).
     _fhc = None
     if combo.enable_feature_handling_config_cfg:
         try:
-            from mlframe.training.feature_handling.config import FeatureHandlingConfig
-            _fhc = FeatureHandlingConfig()
+            from mlframe.training.feature_handling.config import (
+                FeatureHandlingConfig,
+                CacheConfig,
+                MemoryConfig,
+                AutoDeriveConfig,
+                TextDetectionConfig,
+                ReproConfig,
+            )
+            _cache = CacheConfig(
+                eviction_strategy=combo.fhc_cache_eviction_strategy_cfg,
+                allow_pickle=combo.fhc_cache_allow_pickle_cfg,
+            )
+            _memory = MemoryConfig(
+                auto_derive=AutoDeriveConfig(
+                    cache_ram_fraction=combo.fhc_cache_ram_fraction_cfg,
+                ),
+            )
+            _textdet = TextDetectionConfig(
+                definite_text_mean_chars=combo.fhc_text_definite_text_mean_chars_cfg,
+                min_alphabet_entropy=combo.fhc_text_min_alphabet_entropy_cfg,
+            )
+            _repro = ReproConfig(
+                deterministic_torch=combo.fhc_repro_deterministic_torch_cfg,
+            )
+            _fhc = FeatureHandlingConfig(
+                cache=_cache,
+                memory=_memory,
+                text_detection=_textdet,
+                repro=_repro,
+                auto_locale_detection=combo.fhc_auto_locale_detection_cfg,
+            )
         except Exception:
-            _fhc = None  # FHC import has heavy optional deps; tolerate failure
+            _fhc = None  # tolerate import / construction failure
     # P0-4 precomputed: build the trainset_features_stats bundle. The
     # other slots (dummy_baselines, composite_target_specs) raise
     # NotImplementedError if requested -- precompute_all only fills the
@@ -919,6 +967,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 combo.models, combo.n_rows,
                 iterations=combo.iterations,
                 early_stopping_rounds=combo.early_stopping_rounds_cfg,
+                mlp_predict_batch_size=combo.mlp_predict_batch_size_cfg,
             ),
             preprocessing_config=_preprocessing_for_combo(combo),
             verbose=0,
@@ -969,7 +1018,19 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             # allocation`` / pytest INTERNALERROR observed 2026-04-27).
             # We never look at the artefacts in fuzz; turn them off.
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False),
-            reporting_config=ReportingConfig(show_perf_chart=False, show_fi=False),
+            reporting_config=ReportingConfig(
+                show_perf_chart=False, show_fi=False,
+                # iter162: nested ReportingConfig fields. matplotlib_rcparams
+                # parsed from JSON-string axis value (so the axis dict stays
+                # hashable for canonical_key).
+                prob_histogram_yscale=combo.reporting_prob_histogram_yscale_cfg,
+                title_metrics_template=combo.reporting_title_metrics_template_cfg,
+                matplotlib_rcparams=(
+                    None if combo.reporting_matplotlib_rcparams_cfg is None
+                    else __import__("json").loads(combo.reporting_matplotlib_rcparams_cfg)
+                ),
+                multiclass_panels=combo.reporting_multiclass_panels_cfg,
+            ),
             # recurrent_models + sequences: synthetic per-row sequences
             # (T=8, F=2) emitted only on canonical-recurrent combos so
             # the suite exercises the sequence-pipeline. Hyperparams
@@ -986,7 +1047,16 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             # path with its own metrics/report side-effects). ``use_cache``
             # is per-model not suite-level, so it stays out of the fuzz
             # axis space.
-            confidence_analysis_config=ConfidenceAnalysisConfig(include=combo.include_confidence_analysis_cfg),
+            confidence_analysis_config=ConfidenceAnalysisConfig(
+                include=combo.include_confidence_analysis_cfg,
+                # iter162: nested model_kwargs (n_estimators / max_depth).
+                # "default" = empty dict (library defaults); "small_trees" pins
+                # tiny trees so the conf-analysis branch runs faster in fuzz.
+                model_kwargs=(
+                    {} if combo.confidence_model_kwargs_cfg == "default"
+                    else {"n_estimators": 20, "max_depth": 4}
+                ),
+            ),
             # Wave 21: dummy-baselines + baseline-diagnostics enabled toggles.
             dummy_baselines_config=__import__(
                 "mlframe.training.configs", fromlist=["DummyBaselinesConfig"]
