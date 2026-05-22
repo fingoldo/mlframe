@@ -116,13 +116,23 @@ def run_polynom_pair_fe(
         fe_smart_polynom_optimization_steps, _polynom_n_jobs,
     )
 
-    def _eval_one_pair(raw_vars_pair):
-        if is_polars_input:
-            vals_a_full = X[:, raw_vars_pair[0]].to_numpy()
-            vals_b_full = X[:, raw_vars_pair[1]].to_numpy()
-        else:
-            vals_a_full = X.iloc[:, raw_vars_pair[0]].values
-            vals_b_full = X.iloc[:, raw_vars_pair[1]].values
+    # 2026-05-22 loky-memmap fix: convert X to a single contiguous ndarray
+    # ONCE so joblib can memmap it across loky workers. The previous
+    # closure-captured X path would have cloudpickled the full 4M-row
+    # frame INTO each worker (16 workers x ~432MB = ~7GB IPC traffic on
+    # startup); passing X_ndarr as an explicit ``delayed()`` arg lets
+    # joblib auto-detect it as a large ndarray, dump-to-temp ONCE, and
+    # share via OS page cache (Windows: file-backed mmap; Linux: shm).
+    # Per-pair tasks then index into the shared X_ndarr by column number
+    # without pulling a fresh copy.
+    if is_polars_input:
+        X_ndarr = X.to_numpy()  # polars -> (N, F) contiguous ndarray
+    else:
+        X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
+
+    def _eval_one_pair(raw_vars_pair, X_arr, y_arr):
+        vals_a_full = X_arr[:, raw_vars_pair[0]]
+        vals_b_full = X_arr[:, raw_vars_pair[1]]
         if np.std(vals_a_full) < 1e-12 or np.std(vals_b_full) < 1e-12:
             return None
         # 2026-05-18 subsample for CMA-ES inner search. Final transform on
@@ -133,11 +143,11 @@ def run_polynom_pair_fe(
             _ss_idx = _ss_rng.choice(len(vals_a_full), size=subsample_n, replace=False)
             vals_a_sub = vals_a_full[_ss_idx]
             vals_b_sub = vals_b_full[_ss_idx]
-            classes_y_sub = classes_y[_ss_idx] if hasattr(classes_y, "__getitem__") else classes_y
+            classes_y_sub = y_arr[_ss_idx] if hasattr(y_arr, "__getitem__") else y_arr
         else:
             vals_a_sub = vals_a_full
             vals_b_sub = vals_b_full
-            classes_y_sub = classes_y
+            classes_y_sub = y_arr
         # 2026-05-20 NEW-A: compute trivial baseline ONCE per pair (was
         # silently re-computed once per ``fe_smart_polynom_iters`` restart
         # inside ``optimise_hermite_pair``). On the n=200k production
@@ -226,7 +236,7 @@ def run_polynom_pair_fe(
             n_jobs=_polynom_n_jobs, backend="loky",
             inner_max_num_threads=1,
             verbose=10 if verbose else 0,
-        )(delayed(_eval_one_pair)(rv) for rv in _pair_keys)
+        )(delayed(_eval_one_pair)(rv, X_ndarr, classes_y) for rv in _pair_keys)
     else:
         if _polynom_n_jobs > 1 and verbose:
             logger.info(
@@ -234,7 +244,7 @@ def run_polynom_pair_fe(
                 "running serial to avoid joblib overhead.",
                 _n_pairs_to_eval, _PARALLEL_PAIR_THRESHOLD,
             )
-        _poly_pair_results = [_eval_one_pair(rv) for rv in _pair_keys]
+        _poly_pair_results = [_eval_one_pair(rv, X_ndarr, classes_y) for rv in _pair_keys]
     _eval_elapsed = time.perf_counter() - _poly_t0
     logger.info(
         "Polynomial-pair FE eval phase done in %.1fs (%d pairs, "
