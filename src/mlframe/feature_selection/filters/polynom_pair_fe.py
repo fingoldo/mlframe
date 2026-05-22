@@ -214,8 +214,17 @@ def run_polynom_pair_fe(
     _PARALLEL_PAIR_THRESHOLD = 16
     if (_polynom_n_jobs > 1
             and _n_pairs_to_eval >= _PARALLEL_PAIR_THRESHOLD):
+        # ``inner_max_num_threads=1`` caps the per-loky-worker BLAS / OpenMP /
+        # Numba thread pool so 16 worker processes don't each spawn N numba
+        # threads and oversubscribe the CPU. The inner polyeval_dispatch
+        # kernel (njit_par at n >= 50_000) was sized to saturate cores via
+        # ONE worker -- here we explicitly trade kernel-side parallelism for
+        # sampler-side parallelism because Optuna's TPE/Random sampler
+        # between trials is the actual bottleneck (~50% of per-trial time
+        # in prod, holds GIL, can only be split across processes).
         _poly_pair_results = Parallel(
             n_jobs=_polynom_n_jobs, backend="loky",
+            inner_max_num_threads=1,
             verbose=10 if verbose else 0,
         )(delayed(_eval_one_pair)(rv) for rv in _pair_keys)
     else:
