@@ -48,15 +48,22 @@ def _read_phase_train_one_target_combined():
 def _read(rel: str) -> str:
     """Read a source file relative to _SRC_ROOT.
 
-    2026-05-21 monolith split compat: when the requested file is
-    ``core/_phase_train_one_target.py``, append the body sibling so
-    source-pattern sensors that pre-date the split still match.
+    Monolith-split compat: when the requested file is
+    ``core/_phase_train_one_target.py``, append every sibling that the
+    body file delegates to (ensembling tail, polars fastpath, pre-screen
+    gate) so source-pattern sensors that pre-date the splits still match.
     """
     primary = (_SRC_ROOT / rel).read_text(encoding="utf-8")
     if rel == "core/_phase_train_one_target.py":
-        sibling = _SRC_ROOT / "core" / "_phase_train_one_target_body.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+        for sib in (
+            "_phase_train_one_target_body.py",
+            "_phase_train_one_target_ensembling.py",
+            "_phase_train_one_target_polars_fastpath.py",
+            "_phase_train_one_target_pre_screen.py",
+        ):
+            _sib_path = _SRC_ROOT / "core" / sib
+            if _sib_path.exists():
+                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     return primary
 
 

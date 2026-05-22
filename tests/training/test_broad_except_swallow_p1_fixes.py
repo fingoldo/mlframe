@@ -44,18 +44,24 @@ import pytest
 # ---- #1: per-class log_loss --------------------------------------------
 
 
-# 2026-05-21 monolith split: ``_train_one_target`` body lives in
-# ``_phase_train_one_target_body.py``; source-pattern sensors that grep the
-# parent file must also read the body sibling. Resolves the core/ dir from
-# the installed package so it works regardless of where pytest is invoked.
+# Monolith-split compat: ``_train_one_target`` body delegates to multiple
+# siblings (body + ensembling tail + polars fastpath + pre-screen gate).
+# Source-pattern sensors that grep the parent file must also read every
+# sibling so they still match relocated code.
 def _read_phase_train_one_target_combined():
     import pathlib
     import mlframe as _mlframe
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    return (
-        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
-        + "\n"
-        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    return "\n".join(
+        (_core / nm).read_text(encoding="utf-8")
+        for nm in (
+            "_phase_train_one_target.py",
+            "_phase_train_one_target_body.py",
+            "_phase_train_one_target_ensembling.py",
+            "_phase_train_one_target_polars_fastpath.py",
+            "_phase_train_one_target_pre_screen.py",
+        )
+        if (_core / nm).exists()
     )
 
 

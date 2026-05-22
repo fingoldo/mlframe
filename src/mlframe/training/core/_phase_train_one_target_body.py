@@ -32,7 +32,6 @@ from sklearn.base import clone
 
 from pyutilz.system import tqdmu_lazy_start
 
-from mlframe.models.ensembling import score_ensemble
 from ..configs import TargetTypes as _TargetTypes
 from .._ram_helpers import estimate_df_size_mb, get_process_rss_mb, maybe_clean_ram_and_gpu
 from ..phases import phase
@@ -53,6 +52,9 @@ from ._setup_helpers import (
     _build_process_model_kwargs, _setup_model_directories,
     _should_skip_catboost_metamodel,
 )
+from ._phase_train_one_target_ensembling import _finalize_per_target_ensembling
+from ._phase_train_one_target_polars_fastpath import _prepare_strategy_inputs
+from ._phase_train_one_target_pre_screen import _maybe_run_unsupervised_pre_screen
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
@@ -68,7 +70,6 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         _build_feature_selection_report,
         _cached_init_params,
         _capture_dataset_reuse_cache,
-        _choose_ensemble_flavour,
         _compute_pipeline_cache_key,
         _ensure_feature_side_cache,
         _forward_dataset_reuse_cache,
@@ -81,92 +82,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         _unwrap_selector,
     )
     from ._phase_train_one_target import slugify
-    # Suite-once unsupervised pre-screen (A-Arch-001): drop variance==0 and nulls>99% columns from the
-    # TRAIN split ONLY, then reapply to val / test. Conservative defaults; train-only fit by contract so
-    # no held-out distribution leaks into the drop decision. Latched on ctx so multi-target suites pay
-    # the cost once. Opt out via FeatureSelectionConfig.pre_screen_unsupervised=False.
-    _fs_cfg = ctx.feature_selection_config
-    if _fs_cfg is not None and getattr(_fs_cfg, "pre_screen_unsupervised", False) and not ctx._pre_screen_done:
-        try:
-            # Canonical home is ``mlframe.feature_selection.pre_screen`` (not under ``.filters``).
-            # The shorter path avoids triggering ``filters/__init__.py``'s ``from ._legacy import *``,
-            # which cascades into ``_numba_utils`` and pays ~0.8s of @njit decorator init on
-            # cold-start (measured 2026-05-20). Saves that wall on every suite call that doesn't
-            # also use MRMR (which is the majority of fuzz iters / non-FS production combos).
-            from mlframe.feature_selection.pre_screen import compute_unsupervised_drops, apply_drops
-            _protected: set[str] = set()
-            # Pre-screen runs ONCE per suite (gated by ctx._pre_screen_done). The protected set
-            # must therefore cover EVERY target across EVERY (target_type, target_name) pair in
-            # the suite, not just the first target's siblings. Pre-fix used the local ``targets``
-            # arg which is target_type-scoped, so a multi-target-type suite (regression + binary)
-            # would protect only the type that won the iteration order and drop its sibling's
-            # target column if it satisfied the variance/null thresholds. Same hazard for
-            # group/timestamp columns referenced via ctx.
-            for _tt_targets in (ctx.target_by_type or {}).values():
-                if isinstance(_tt_targets, dict):
-                    _protected.update(str(k) for k in _tt_targets.keys())
-            if isinstance(targets, dict):
-                _protected.update(str(k) for k in targets.keys())
-            # Cat features were meant to be added here but the original code had
-            # ``if ctx.cat_features: pass`` -- a dead no-op that silently dropped categorical
-            # columns from the suite if they happened to be near-constant or near-all-null.
-            # Same for text / embedding features and group / timestamp columns: those carry
-            # semantic meaning the model relies on, so they must never be pre-screened out.
-            if ctx.cat_features:
-                _protected.update(str(c) for c in ctx.cat_features)
-            if getattr(ctx, "text_features", None):
-                _protected.update(str(c) for c in ctx.text_features)
-            if getattr(ctx, "embedding_features", None):
-                _protected.update(str(c) for c in ctx.embedding_features)
-            for _attr in ("group_id_col", "ts_field"):
-                _val = getattr(ctx, _attr, None)
-                if isinstance(_val, str) and _val:
-                    _protected.add(_val)
-            _train_for_screen = ctx.filtered_train_df if ctx.filtered_train_df is not None else (ctx.train_df_polars or ctx.train_df_pd)
-            _drops = compute_unsupervised_drops(
-                _train_for_screen,
-                variance_threshold=getattr(_fs_cfg, "pre_screen_variance_threshold", 0.0),
-                null_fraction_threshold=getattr(_fs_cfg, "pre_screen_null_fraction_threshold", 0.99),
-                protected_columns=_protected,
-            )
-            ctx._pre_screen_dropped_cols = list(_drops)
-            ctx._pre_screen_done = True
-            if _drops:
-                for _frame_attr in (
-                    "filtered_train_df", "filtered_val_df",
-                    "train_df_pd", "val_df_pd", "test_df_pd",
-                    "train_df_polars", "val_df_polars", "test_df_polars",
-                ):
-                    _f = getattr(ctx, _frame_attr, None)
-                    if _f is not None:
-                        try:
-                            setattr(ctx, _frame_attr, apply_drops(_f, _drops))
-                        except Exception as _drop_e:
-                            # Per-frame failure is best-effort but MUST be loud:
-                            # if one mirror keeps the pre-screen-dropped cols while
-                            # siblings have them removed, downstream training hits
-                            # opaque "feature missing" errors. The outer except at
-                            # the end of this block only catches whole-pre-screen
-                            # failure, not per-frame.
-                            logger.warning(
-                                "[pre-screen] apply_drops failed for ctx.%s: %s; "
-                                "this frame keeps the dropped columns while other "
-                                "frames have them removed - schema drift hazard.",
-                                _frame_attr, _drop_e,
-                            )
-                if ctx.verbose:
-                    logger.info(
-                        "[pre-screen] dropped %d column(s) suite-wide (variance=%s, null_fraction>%s): %s",
-                        len(_drops),
-                        getattr(_fs_cfg, "pre_screen_variance_threshold", 0.0),
-                        getattr(_fs_cfg, "pre_screen_null_fraction_threshold", 0.99),
-                        _drops[:20] + (["..."] if len(_drops) > 20 else []),
-                    )
-        except Exception as _e:
-            # Pre-screen is a perf optimization; never block training on its failure.
-            ctx._pre_screen_done = True
-            ctx._pre_screen_dropped_cols = []
-            logger.warning("[pre-screen] skipped due to error: %s", _e)
+    _maybe_run_unsupervised_pre_screen(ctx, targets)
     model_name = ctx.model_name
     target_name = ctx.target_name
     split_config = ctx.split_config
@@ -803,195 +719,30 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # because prepare_polars_dataframe() allocates via .with_columns().
             polars_fastpath_active = train_df_polars is not None and strategy.supports_polars
 
-            if polars_fastpath_active:
-                if verbose:
-                    logger.info("  Polars fastpath active for %s (strategy=%s)", mlframe_model_name, type(strategy).__name__)
-                # MUST use the post-promotion `cat_features` (post-auto-detect reassignment), NOT the stale
-                # `cat_features_polars` snapshot from before auto-detect ran - the latter would still list
-                # text-promoted columns and trip CB's polars-categorical fastpath on String dtypes.
-                _cat_features = list(cat_features or [])
-
-                # Cross-target reuse: cache key is (feature_tier, supports_polars=True, strategy_class,
-                # cb_text_pass) where cb_text_pass tracks whether the CB-only Categorical->String text-
-                # column cast must be applied (CB requires it; other CB-tier polars-native models don't).
-                # All target-independent so the prepared frames carry from target 1 to target N.
-                _prep_key = (
-                    strategy.feature_tier(),
-                    True,
-                    type(strategy).__name__,
-                    bool(text_features and mlframe_model_name == "cb"),
-                )
-                _cached_prep = prepared_frames_cache.get(_prep_key)
-                if _cached_prep is not None:
-                    prepared_train = _cached_prep["prepared_train"]
-                    prepared_val = _cached_prep["prepared_val"]
-                    prepared_test = _cached_prep["prepared_test"]
-                    _xgb_category_map = _cached_prep["xgb_category_map"]
-                    if verbose:
-                        logger.info(
-                            "  feature-side cache hit for %s (strategy=%s, pp=%s): reusing prepared polars frames across targets",
-                            mlframe_model_name, type(strategy).__name__, pre_pipeline_name or "<ordinary>",
-                        )
-                else:
-                    tier_base = {
-                        "train_df": train_df_polars,
-                        "val_df": val_df_polars,
-                        "test_df": test_df_polars,
-                    }
-                    tier_polars = _build_tier_dfs(
-                        tier_base, strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
-                    )
-
-                    # Enum map: leak-free, train+val union only; cached by (tier, strategy class).
-                    _enum_cache_key = (strategy.feature_tier(), type(strategy).__name__)
-                    if _enum_cache_key in tier_enum_map_cache:
-                        _xgb_category_map = tier_enum_map_cache[_enum_cache_key]
-                    elif hasattr(strategy, "build_polars_enum_map"):
-                        try:
-                            _xgb_category_map = strategy.build_polars_enum_map(
-                                tier_polars["train_df"],
-                                tier_polars.get("val_df"),
-                                _cat_features,
-                            )
-                        except Exception as _emb_exc:
-                            logger.warning(
-                                "build_polars_enum_map failed for %s; "
-                                "falling back to per-DF Enum cast: %s",
-                                type(strategy).__name__, _emb_exc,
-                            )
-                            _xgb_category_map = None
-                        tier_enum_map_cache[_enum_cache_key] = _xgb_category_map
-                    else:
-                        _xgb_category_map = None
-                        tier_enum_map_cache[_enum_cache_key] = None
-
-                    prepared_train = _prep_polars_df(tier_polars["train_df"], strategy, _cat_features, _xgb_category_map)
-                    prepared_val = _prep_polars_df(tier_polars.get("val_df"), strategy, _cat_features, _xgb_category_map)
-                    prepared_test = _prep_polars_df(tier_polars.get("test_df"), strategy, _cat_features, _xgb_category_map)
-
-                    # CatBoost's polars text-features path requires plain String with no nulls; cast Categorical/Enum
-                    # text columns and fill_null. The dtype mismatch happens whenever auto-detect promotes a
-                    # column from cat_features to text_features without changing its backing dtype.
-                    if text_features and mlframe_model_name == "cb":
-                        text_cols_present = filter_existing(prepared_train, text_features)
-                        if text_cols_present:
-                            # Determine which of the text columns need a dtype cast.
-                            needs_cast = [
-                                c for c in text_cols_present
-                                if prepared_train.schema[c] == pl.Categorical
-                                or isinstance(prepared_train.schema[c], pl.Enum)
-                            ]
-                            prep_exprs = []
-                            for c in text_cols_present:
-                                expr = pl.col(c)
-                                if c in needs_cast:
-                                    expr = expr.cast(pl.String)
-                                prep_exprs.append(expr.fill_null(""))
-                            prepared_train = prepared_train.with_columns(prep_exprs)
-                            if prepared_val is not None:
-                                prepared_val = prepared_val.with_columns(prep_exprs)
-                            if prepared_test is not None:
-                                prepared_test = prepared_test.with_columns(prep_exprs)
-                            if needs_cast and verbose:
-                                logger.info(
-                                    "  Cast %d text feature(s) from Polars Categorical to String "
-                                    "for CatBoost: %s",
-                                    len(needs_cast), needs_cast,
-                                )
-
-                    # Null-in-Categorical fill is applied upstream once on train_df_polars/val/test (search:
-                    # `_polars_fill_null_in_categorical`, marker "__MISSING__"); no per-model fill needed.
-
-                    # Store REFERENCES only (no clones / no copies): a 100GB train_df_polars is shared
-                    # with ctx.train_df_polars; the prepared variant is a polars LazyFrame-evaluation
-                    # result that's already eager but immutable in our path. Carrying across targets
-                    # costs ~one pointer per slot - never duplicates feature data.
-                    prepared_frames_cache[_prep_key] = {
-                        "prepared_train": prepared_train,
-                        "prepared_val": prepared_val,
-                        "prepared_test": prepared_test,
-                        "xgb_category_map": _xgb_category_map,
-                    }
-
-            else:
-
-                # Lazy pandas conversion for non-Polars-native strategies. The upfront _convert_dfs_to_pandas
-                # is skipped when all blockers are non-native; per-strategy conversion happens here, which
-                # preserves RAM when CB/XGB can run natively on polars. Two trigger cases get distinct log
-                # messages: (a) strategy genuinely non-Polars-native; (b) strategy IS native but polars
-                # originals were released earlier in the run.
-                # CONV-MED-5: cache the polars->pandas view by id() of the source frame on ctx so two
-                # non-Polars-native strategies sharing the same source polars frame pay one conversion
-                # total, not one per strategy.
-                _logged_lazy_conv = False
-                _view_cache = ctx._pandas_view_cache
-                for df_key in ("train_df", "val_df", "test_df"):
-                    df_ = common_params.get(df_key)
-                    if isinstance(df_, pl.DataFrame):
-                        if not _logged_lazy_conv and verbose:
-                            if strategy.supports_polars:
-                                _reason = (
-                                    "Polars originals released "
-                                    "(common_params still carries "
-                                    "polars frames; converting to "
-                                    "pandas for inner predict path)"
-                                )
-                            else:
-                                _reason = (
-                                    f"non-Polars-native strategy "
-                                    f"{type(strategy).__name__}"
-                                )
-                            logger.info(
-                                "  Lazy pandas conversion for %s -- %s",
-                                mlframe_model_name, _reason,
-                            )
-                            _logged_lazy_conv = True
-                        _src_id = id(df_)
-                        _pd_view = _view_cache.get(_src_id)
-                        # Pandas-view cache stats: count one HIT per reuse (id() match) and one MISS
-                        # per fresh conversion. Stamped on ctx so finalize_suite can read without
-                        # touching the cache backend (a plain dict on ctx that exposes no counters).
-                        _cs_pv = ctx._cache_stats.setdefault("pandas_view_cache", {"hits": 0, "misses": 0})
-                        if _pd_view is None:
-                            _cs_pv["misses"] += 1
-                            _pd_view = get_pandas_view_of_polars_df(df_)
-                            _view_cache[_src_id] = _pd_view
-                            # VIEW-CACHE-NO-EVICT: bound to 4 entries (the suite has at most 3 frames
-                            # active -- train/val/test -- plus one slack for in-flight tier swaps).
-                            # Without this the cache grows monotonically across targets and pins
-                            # pandas blockmgrs that the upstream polars frames thought they freed.
-                            # OrderedDict not used: ctx slot is plain dict for back-compat, so a
-                            # popitem() FIFO is good enough at this small bound.
-                            while len(_view_cache) > 4:
-                                _evict_k = next(iter(_view_cache))
-                                _view_cache.pop(_evict_k, None)
-                        else:
-                            _cs_pv["hits"] += 1
-                        common_params[df_key] = _pd_view
-
-                # Defense-in-depth: after lazy conversion, every common_params DF must be non-polars.
-                # Surfacing here (rather than at trainer.fit time) makes the cross-iteration leakage cause
-                # visible with full strategy/common_params context.
-                for df_key in ("train_df", "val_df", "test_df"):
-                    df_ = common_params.get(df_key)
-                    if isinstance(df_, pl.DataFrame):
-                        raise RuntimeError(
-                            f"Lazy pandas conversion produced incomplete "
-                            f"state for non-Polars-native strategy "
-                            f"{type(strategy).__name__} ({mlframe_model_name}): "
-                            f"common_params[{df_key!r}] is still pl.DataFrame "
-                            f"(shape={df_.shape}, id={id(df_)}). The lazy-"
-                            f"conversion hook iterated over train/val/test but "
-                            f"this key escaped. Likely cause: a ``common_params`` "
-                            f"override between lazy-conversion and here, or "
-                            f"pipeline_cache cross-stream leakage (see core.py "
-                            f"kind-suffix in cache_key)."
-                        )
-
-                tier_pandas = _build_tier_dfs(
-                    {"train_df": common_params.get("train_df"), "val_df": common_params.get("val_df"), "test_df": common_params.get("test_df")},
-                    strategy, text_features, embedding_features, tier_dfs_cache, verbose=verbose,
-                )
+            _prep_out = _prepare_strategy_inputs(
+                polars_fastpath_active=polars_fastpath_active,
+                mlframe_model_name=mlframe_model_name,
+                strategy=strategy,
+                cat_features=cat_features,
+                text_features=text_features,
+                embedding_features=embedding_features,
+                train_df_polars=train_df_polars,
+                val_df_polars=val_df_polars,
+                test_df_polars=test_df_polars,
+                prepared_frames_cache=prepared_frames_cache,
+                tier_dfs_cache=tier_dfs_cache,
+                tier_enum_map_cache=tier_enum_map_cache,
+                common_params=common_params,
+                pre_pipeline_name=pre_pipeline_name,
+                ctx=ctx,
+                verbose=verbose,
+            )
+            prepared_train = _prep_out["prepared_train"]
+            prepared_val = _prep_out["prepared_val"]
+            prepared_test = _prep_out["prepared_test"]
+            _xgb_category_map = _prep_out["xgb_category_map"]
+            _cat_features = _prep_out["cat_features"]
+            tier_pandas = _prep_out["tier_pandas"]
 
             # CODE-P1-10: compute input-schema fingerprint ONCE per (model, pre_pipeline) outside the
             # weight loop. The fingerprinted train_df is the same across all weight schemas (only
@@ -1391,106 +1142,20 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         logger.info("  Released pre-pipeline Polars originals (tier transition)")
             prev_tier = cur_tier
 
-        if ens_models and len(ens_models) > 1:
-            if verbose:
-                logger.info(f"evaluating simple ensembles...")
-            ens_n_features = train_df_transformed.shape[1] if train_df_transformed is not None else None
-            # Name the ensemble by its members so log grep shows which models actually participated;
-            # cap to 4 to keep headers readable. short_model_tag strips internal shim suffixes
-            # (WithDMatrixReuse / WithDatasetReuse) so the tag is the bare family name.
-            from .._format import short_model_tag as _short_tag_fn
-            _member_tags = [_short_tag_fn(getattr(m, "model", m)) for m in ens_models]
-            if len(_member_tags) <= 4:
-                _members_label = "[" + "+".join(_member_tags) + "]"
-            else:
-                _members_label = f"[N={len(_member_tags)}]"
-            # confidence_ensemble_quantile=0.0 disables the Conf Ensemble output entirely.
-            _conf_q = float(getattr(behavior_config, "confidence_ensemble_quantile", 0.1))
-            # Thread ctx.group_ids + per-target sample_weight into score_ensemble so the
-            # gate / NNLS / RRF stages compute weighted + group-aware. Pre-fix these were
-            # both silently absent here -- score_ensemble's docstring at models/ensembling.py
-            # says "ctx auto-passes when available" but the suite never auto-passed; LTR /
-            # weighted suites got member selection + RRF blend computed on i.i.d. rows.
-            # Pull per-target sample_weight from ctx.sample_weights (dict keyed by target);
-            # falls back to current_common_params (per-iter local that survives Python loop
-            # scope as the last iter's value) or None when no weighting was configured.
-            _ctx_sw_dict = getattr(ctx, "sample_weights", None) or {}
-            _ens_sample_weight = (
-                _ctx_sw_dict.get(cur_target_name)
-                if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict
-                else (
-                    current_common_params.get("sample_weight")
-                    if isinstance(locals().get("current_common_params"), dict)
-                    else None
-                )
-            )
-            # Spread common_params first, then explicitly set group_ids/sample_weight.
-            # If common_params happened to already carry either key (unlikely on the
-            # current build but defensive against future schema drift), the explicit
-            # set wins. Avoid TypeError "multiple values for kw" by removing first.
-            _ens_kwargs = dict(common_params or {})
-            _ens_kwargs.pop("group_ids", None)
-            _ens_kwargs.pop("sample_weight", None)
-            _ensembles = score_ensemble(
-                models_and_predictions=ens_models,
-                ensemble_name=f"{pre_pipeline_name}{_members_label} ",
-                n_features=ens_n_features,
-                uncertainty_quantile=_conf_q,
-                group_ids=getattr(ctx, "group_ids", None),
-                sample_weight=_ens_sample_weight,
-                **_ens_kwargs,
-            )
-            # Persist the ensemble outputs so finalize_suite can serialise them and downstream
-            # consumers (predict, reporting) see them. Pre-fix this return value was bound to a
-            # local that nothing read, silently discarding every ensemble model the suite built.
-            if _ensembles:
-                ctx.ensembles.setdefault(target_type, {})[cur_target_name] = _ensembles
-                # Mirror into the per-target model list (same slot the per-family training loop
-                # uses) so any code iterating ``models[target_type][target_name]`` picks the
-                # ensembles up without needing a separate dispatch.
-                _target_models = models.setdefault(target_type, {}).setdefault(cur_target_name, [])
-                for _ens_method, _ens_result in _ensembles.items():
-                    # K2-CATASTROPHIC-DROPOUT sentinel filter (2026-05-21 P0 #4 follow-up):
-                    # ``score_ensemble`` short-circuits with sentinel-only result entries
-                    # (``_reason``, ``_n_members``, ``_dropped_member``, ``_kept_member``,
-                    # ``_k2_mae_ratio``) when the K=2 catastrophic-dropout fires (or any
-                    # other early-exit branch returns a leading-underscore key). Those are
-                    # METADATA, not model entries; appending them into the per-target
-                    # model list pollutes downstream predict / metric / ensemble code
-                    # with strings / ints / floats where it expects model objects.
-                    # Skip any key starting with ``_`` to leave the model list clean.
-                    if isinstance(_ens_method, str) and _ens_method.startswith("_"):
-                        continue
-                    _target_models.append(_ens_result)
-                # Stamp the winning ensemble flavour so the predict path picks the same flavour the
-                # training selection rule would have picked. Predict reads ``ensembles_chosen``
-                # (see core/predict.py::_resolve_chosen_flavour) which expects the nested layout
-                # ``{target_type: {target_name: flavour}}``. A None winner (no candidate exposed a
-                # ranking metric) is intentionally NOT stamped so the predict-side fallback fires.
-                try:
-                    _chosen = _choose_ensemble_flavour(_ensembles)
-                    if _chosen is not None:
-                        # Sub-key per ensemble family: simple per-target ensembles live under
-                        # ``ensembles_chosen["simple"]``; cross-target ensembles are stamped by
-                        # _phase_composite_post under ``ensembles_chosen["cross_target"]``.
-                        metadata.setdefault("ensembles_chosen", {}) \
-                            .setdefault("simple", {}) \
-                            .setdefault(target_type, {})[cur_target_name] = _chosen
-                except Exception as _choose_err:
-                    logger.warning("ensembles_chosen stamp failed for %s/%s: %s", target_type, cur_target_name, _choose_err)
-                # C-P1-11: persist rrf_k (and a couple of other replay-critical params) into metadata
-                # so predict-side ``_combine_probs`` replays the exact same blend a non-default-k
-                # train was scored with. Pre-fix predict hard-coded k=60 -- a user setting rrf_k=10
-                # at train time silently got k=60 at predict time. The default 60 mirrors
-                # ``score_ensemble``'s default; common_params may override.
-                try:
-                    _rrf_k_used = int(common_params.get("rrf_k", 60))
-                except (TypeError, ValueError):
-                    _rrf_k_used = 60
-                metadata.setdefault("ensembles_chosen_params", {}) \
-                    .setdefault(str(target_type), {})[str(cur_target_name)] = {
-                        "rrf_k": _rrf_k_used,
-                    }
+        _finalize_per_target_ensembling(
+            ens_models=ens_models,
+            train_df_transformed=train_df_transformed,
+            behavior_config=behavior_config,
+            ctx=ctx,
+            cur_target_name=cur_target_name,
+            current_common_params=locals().get("current_common_params"),
+            common_params=common_params,
+            pre_pipeline_name=pre_pipeline_name,
+            models=models,
+            target_type=target_type,
+            metadata=metadata,
+            verbose=verbose,
+        )
 
     ctx.models = models
     ctx.metadata = metadata

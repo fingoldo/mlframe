@@ -27,9 +27,16 @@ def _read(rel: str) -> str:
     repo_root = here.parents[2]
     primary = (repo_root / "src" / "mlframe" / rel).read_text(encoding="utf-8")
     if rel.endswith("training/core/_phase_train_one_target.py"):
-        sibling = repo_root / "src" / "mlframe" / "training" / "core" / "_phase_train_one_target_body.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+        _core_dir = repo_root / "src" / "mlframe" / "training" / "core"
+        for _sib_name in (
+            "_phase_train_one_target_body.py",
+            "_phase_train_one_target_ensembling.py",
+            "_phase_train_one_target_polars_fastpath.py",
+            "_phase_train_one_target_pre_screen.py",
+        ):
+            _sib_path = _core_dir / _sib_name
+            if _sib_path.exists():
+                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     elif rel.endswith("training/core/main.py"):
         # 2026-05-22 split: ``train_mlframe_models_suite`` body moved to
         # ``_main_train_suite.py``; append so the source-pattern sensors

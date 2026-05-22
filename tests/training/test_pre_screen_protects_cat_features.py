@@ -92,16 +92,30 @@ def test_dead_pass_branch_was_fixed_via_source_inspection():
     # Derive path from installed package; hardcoded D:/ paths break on every other clone.
     import mlframe as _mlframe
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    # After the 2026-05-21 monolith split _train_one_target body lives in
-    # ``_phase_train_one_target_body.py``; the parent re-exports it. Read both
-    # files so the regression guard catches the bug-class regardless of which
-    # module the offending pattern would re-appear in.
-    src = (
-        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
-        + "\n"
-        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    # After the monolith splits, the pre-screen block lives in its own
+    # ``_phase_train_one_target_pre_screen.py`` sibling; the parent + body
+    # files re-export the helper. Concat all three so the regression guard
+    # catches the bug-class regardless of which module the offending pattern
+    # would re-appear in.
+    src = "\n".join(
+        (_core / nm).read_text(encoding="utf-8")
+        for nm in (
+            "_phase_train_one_target.py",
+            "_phase_train_one_target_body.py",
+            "_phase_train_one_target_pre_screen.py",
+        )
+        if (_core / nm).exists()
     )
-    assert "if ctx.cat_features:\n                pass" not in src, (
+    # The dead-pass shape was a ``pass`` statement on its own line as the
+    # only body of an ``if ctx.cat_features:`` block. Match exactly that:
+    # the ``if`` line, optional trailing whitespace, newline, leading
+    # indent, ``pass`` on its own line. Inline-comment references that
+    # spell the buggy pattern in prose (e.g. inside docstrings or PEP
+    # 257 quotes) don't have the actual newline-then-indent-pass shape.
+    import re as _re
+    assert not _re.search(
+        r"if ctx\.cat_features:[ \t]*\n[ \t]+pass[ \t]*\n", src
+    ), (
         "Pre-screen 'if ctx.cat_features: pass' dead-pass regression. "
         "cat_features must be explicitly added to the protected set."
     )
@@ -121,10 +135,14 @@ def test_text_and_embedding_features_added_to_protected():
     import pathlib
     import mlframe as _mlframe
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    src = (
-        (_core / "_phase_train_one_target.py").read_text(encoding="utf-8")
-        + "\n"
-        + (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    src = "\n".join(
+        (_core / nm).read_text(encoding="utf-8")
+        for nm in (
+            "_phase_train_one_target.py",
+            "_phase_train_one_target_body.py",
+            "_phase_train_one_target_pre_screen.py",
+        )
+        if (_core / nm).exists()
     )
     assert "ctx.text_features" in src and "ctx.embedding_features" in src, (
         "Pre-screen must protect text + embedding features alongside cat_features."

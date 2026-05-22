@@ -66,9 +66,16 @@ def _read(rel: str) -> str:
     """
     primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
     if rel == "training/core/_phase_train_one_target.py":
-        sibling = MLFRAME_ROOT / "training" / "core" / "_phase_train_one_target_body.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+        _core = MLFRAME_ROOT / "training" / "core"
+        for _sib_name in (
+            "_phase_train_one_target_body.py",
+            "_phase_train_one_target_ensembling.py",
+            "_phase_train_one_target_polars_fastpath.py",
+            "_phase_train_one_target_pre_screen.py",
+        ):
+            _sib_path = _core / _sib_name
+            if _sib_path.exists():
+                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     elif rel == "feature_selection/filters/mrmr.py":
         # 2026-05-21 split: helpers moved to _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py.
         _dir = MLFRAME_ROOT / "feature_selection" / "filters"
