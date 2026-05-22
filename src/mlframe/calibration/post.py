@@ -316,7 +316,12 @@ def compare_postcalibrators(
     if skip_patterns is None:
         skip_patterns = [r"netcal\.BetaCalibrationDependent", r"netcal\.ENIR", r"netcal\.NearIsotonicRegression"]
 
-    logger.info(f"Calib set size={len(calib_target):_}, oos set size={len(oos_target) if oos_target is not None else 0:_}, num_bins={num_bins}.")
+    logger.info(
+        "Calib set size=%d, oos set size=%d, num_bins=%s.",
+        len(calib_target),
+        len(oos_target) if oos_target is not None else 0,
+        num_bins,
+    )
 
     if report_params is None:
         report_params = {"report_ndigits": 4, "calib_report_ndigits": 4, "print_report": False}

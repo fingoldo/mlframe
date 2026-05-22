@@ -183,7 +183,7 @@ def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
 # numeric-only and tfidf runs land on identical AUROC across every seed
 # in [42, 7, 99] -> delta = 0.0000 and the +0.05 lift assertion fails.
 # Skip entire test; the TF-IDF wiring contract is pinned structurally by
-# tests/training/test_predict_extensions_pipeline_replay.py and unit-level
+# tests/inference/test_predict_extensions_pipeline_replay.py and unit-level
 # by tests/training/test_preprocessing_extensions.py.
 @pytest.mark.skip(reason="TF-IDF lift assertion is flaky pre-refactor on master; pinned structurally elsewhere")
 @pytest.mark.parametrize("seed", [42, 7, 99])

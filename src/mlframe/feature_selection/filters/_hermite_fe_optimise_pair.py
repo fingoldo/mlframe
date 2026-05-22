@@ -147,7 +147,7 @@ def optimise_hermite_pair(
                                   n_neighbors=n_neighbors,
                                   mi_estimator=mi_estimator,
                                   plugin_n_bins=plugin_n_bins)
-    logger.debug(f"baseline MI(pair, y) = {baseline:.4f}")
+    logger.debug("baseline MI(pair, y) = %.4f", baseline)
 
     # Stronger gate than the identity max(MI(x_a, y), MI(x_b, y)): try trivial pair-feature transforms
     # (mul, ratio, sum_sq, atan2, ...) and use BEST trivial MI as baseline. Often a simple mul(x_a, x_b)
@@ -175,19 +175,18 @@ def optimise_hermite_pair(
                 trivial_baseline_name, _, trivial_mi = trivial
                 if trivial_mi > baseline:
                     logger.debug(
-                        f"trivial baseline {trivial_baseline_name!r} "
-                        f"raises baseline from {baseline:.4f} to {trivial_mi:.4f}"
+                        "trivial baseline %r raises baseline from %.4f to %.4f",
+                        trivial_baseline_name, baseline, trivial_mi,
                     )
                     baseline = trivial_mi
         except Exception as e:
-            logger.debug(f"trivial baseline check failed: {e}")
+            logger.debug("trivial baseline check failed: %s", e)
     elif precomputed_trivial_baseline is not None:
         # Caller supplied the precomputed value -- use it directly.
         if precomputed_trivial_baseline > baseline:
             logger.debug(
-                f"trivial baseline {precomputed_trivial_name!r} "
-                f"raises baseline from {baseline:.4f} to "
-                f"{precomputed_trivial_baseline:.4f} (precomputed)"
+                "trivial baseline %r raises baseline from %.4f to %.4f (precomputed)",
+                precomputed_trivial_name, baseline, precomputed_trivial_baseline,
             )
             baseline = float(precomputed_trivial_baseline)
 
@@ -256,7 +255,7 @@ def optimise_hermite_pair(
             B_a_search = build_basis_matrix(basis, z_a_search, max_degree)
             B_b_search = build_basis_matrix(basis, z_b_search, max_degree)
         except Exception as _bm_err:
-            logger.debug(f"build_basis_matrix failed for {basis!r}: {_bm_err}")
+            logger.debug("build_basis_matrix failed for %r: %s", basis, _bm_err)
             B_a_search = None
             B_b_search = None
 
@@ -527,8 +526,8 @@ def optimise_hermite_pair(
         if best is None or cand.mi > best.mi:
             best = cand
         logger.debug(
-            f"degree={degree}: best MI={raw_mi_best:.4f} (baseline {baseline:.4f}, "
-            f"uplift {cand.uplift:.2f}x), bf={bf_name}"
+            "degree=%s: best MI=%.4f (baseline %.4f, uplift %.2fx), bf=%s",
+            degree, raw_mi_best, baseline, cand.uplift, bf_name,
         )
 
     if best is None or best.mi <= baseline * baseline_uplift_threshold:

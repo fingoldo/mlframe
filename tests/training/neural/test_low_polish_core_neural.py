@@ -172,12 +172,14 @@ def test_low_s1_no_dated_audit_tags_in_neural_scope() -> None:
     in git/PR text, not source. Post-fix the strings are gone from the
     in-scope modules."""
     import pathlib
+    import mlframe as _mlframe
 
+    # Resolve from the installed mlframe package so the test is robust
+    # to its own location in the tests/ tree.
+    _mlframe_root = pathlib.Path(_mlframe.__file__).resolve().parent
     targets = [
-        pathlib.Path(__file__).resolve().parents[2]
-        / "src" / "mlframe" / "training" / "ranker_suite.py",
-        pathlib.Path(__file__).resolve().parents[2]
-        / "src" / "mlframe" / "training" / "neural" / "_recurrent_config.py",
+        _mlframe_root / "training" / "ranker_suite.py",
+        _mlframe_root / "training" / "neural" / "_recurrent_config.py",
     ]
     for p in targets:
         text = p.read_text(encoding="utf-8")

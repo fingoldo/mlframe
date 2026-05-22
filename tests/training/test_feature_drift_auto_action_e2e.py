@@ -1,6 +1,6 @@
 """End-to-end coverage of the feature-drift auto-action layer.
 
-Unit tests live in ``test_feature_drift_report.py`` (translator, recommend
+Unit tests live in ``tests/reporting/test_feature_drift_report.py`` (translator, recommend
 field, merge logic). This file boots an actual multi-target
 ``train_mlframe_models_suite`` call, injects a deliberate feature shift
 between train and val/test, and asserts that:
@@ -15,7 +15,7 @@ between train and val/test, and asserts that:
 
 The test is marked ``slow`` because it builds the suite (~30-60s) and
 loads pytorch lightning to run mlp; CI shards that exclude ``slow`` skip
-it. The lighter ``test_feature_drift_report.py`` unit tests run on every
+it. The lighter ``tests/reporting/test_feature_drift_report.py`` unit tests run on every
 PR push.
 """
 from __future__ import annotations
@@ -172,7 +172,7 @@ def test_feature_drift_auto_action_e2e_regression():
                 # If "mlp" not in mlframe_models, the wire-in early-exits
                 # without stamping feature_drift_auto_action -- so we test
                 # the SENSOR side here and rely on the unit tests in
-                # test_feature_drift_report.py for the merge logic.
+                # tests/reporting/test_feature_drift_report.py for the merge logic.
                 mlframe_models=["linear"],
                 use_mlframe_ensembles=False,
                 verbose=0,

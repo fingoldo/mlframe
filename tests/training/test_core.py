@@ -4107,7 +4107,7 @@ class TestTextAndEmbeddingFeatures:
         ``FeatureTypesConfig(honor_user_dtype=True)``. Default behaviour
         (honor_user_dtype=False) still promotes by cardinality; see
         ``test_auto_detect_polars_categorical_promoted_by_cardinality``
-        in ``test_untested_core_helpers.py``.
+        in ``test_core_helper_functions.py``.
         """
         from mlframe.training.configs import FeatureTypesConfig
 

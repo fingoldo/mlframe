@@ -540,10 +540,10 @@ def _bf_names_to_ids(bf_names: Sequence[str]) -> np.ndarray:
     return out
 
 
-def run_numba_kernel_search(*, ca_size, cb_size, coef_range, n_trials, seed,
-                              direction_only, warm_start_seeds, eval_kwargs,
+def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_trials: int, seed: int,
+                              direction_only: bool, warm_start_seeds: Optional[Sequence[np.ndarray]], eval_kwargs: dict,
                               batch_size: int = 20, elitism_k: int = 4,
-                              perturb_sigma_frac: float = 0.1):
+                              perturb_sigma_frac: float = 0.1) -> dict:
     """Single-pair entry point matching the ``_run_cma_search`` /
     ``_run_random_batch_search`` return contract so the dispatcher can
     swap it in via ``optimizer="numba_kernel"``.
@@ -671,7 +671,7 @@ def optimize_all_pairs_numba_kernel(
     direction_only: bool = False, discrete_target: bool = True,
     seed: int = 0,
     warm_start_seeds: Optional[Sequence[np.ndarray]] = None,
-):
+) -> dict:
     """Multi-pair entry point: process ALL feature pairs in one kernel
     call via prange parallelism. Returns ``dict`` per pair so the
     caller can match against ``raw_vars_pair`` keys.

@@ -126,7 +126,7 @@ class TestRegressionSpec:
         )
         title = spec.panels[0][0].title
         assert "MAE=0.1 RMSE=0.15" in title
-        assert "spearman(|resid|, y_hat)" in title
+        assert "Spearman(resid,preds)" in title
 
     def test_scatter_title_metrics_only_when_audit_missing(self):
         """When the caller passes ``audit=None`` the scatter title is

@@ -25,7 +25,7 @@ from mlframe.training.configs import (
     OutputConfig, ReportingConfig, TargetTypes,
 )
 from mlframe.training.core import train_mlframe_models_suite
-from .shared import SimpleFeaturesAndTargetsExtractor
+from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
 pytestmark = pytest.mark.slow

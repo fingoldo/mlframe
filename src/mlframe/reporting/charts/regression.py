@@ -2,9 +2,9 @@
 
 Layout (single row, 2 columns):
 - left: ScatterPanelSpec (predictions vs true values, with perfect-fit
-  diagonal). Title carries MAE/RMSE/MaxError/R2 plus the Spearman(|resid|,
-  y_hat) heteroscedasticity diagnostic moved here from the dropped 3rd
-  panel.
+  diagonal). Title carries MAE/RMSE/MaxError/R2 plus the
+  Spearman(resid, preds) heteroscedasticity diagnostic moved here from
+  the dropped 3rd panel.
 - right: HistogramPanelSpec (residuals + fitted Normal overlay; carries
   the noise-distribution hypothesis + suggested loss in its title)
 
@@ -48,7 +48,7 @@ def build_regression_panel_spec(
     ``audit`` is a duck-typed ResidualAudit; we read ``mean``, ``std``,
     ``skew``, ``excess_kurt``, ``hypothesis``, ``suggested_loss``,
     ``hetero_significant``, ``hetero_spearman``. The
-    Spearman(|resid|, y_hat) heteroscedasticity coefficient is folded
+    Spearman(resid, preds) heteroscedasticity coefficient is folded
     into the scatter (left) panel's title instead of carrying its own
     chart -- the 3rd panel was redundant with the audit text block.
     """

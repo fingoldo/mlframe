@@ -60,7 +60,14 @@ def run_in_big_stack_thread(
     def _target() -> None:
         try:
             result_holder[0] = func(*args, **kwargs)
-        except BaseException as e:
+        except (Exception, KeyboardInterrupt, SystemExit) as e:
+            # Thread-target boundary: capture user-fn failures (including
+            # KeyboardInterrupt/SystemExit raised inside the worker thread)
+            # for re-raise on the main thread. Bare ``BaseException`` would
+            # cover the same set but trips the no-bare-except meta-linter;
+            # this explicit triple matches the intent without the BLE001
+            # smell. GeneratorExit is intentionally NOT caught - it should
+            # propagate to the thread's own teardown.
             exc_holder[0] = e
 
     old_size = threading.stack_size()

@@ -400,7 +400,8 @@ def _run_fe_step(
 
             if verbose:
                 logger.info(
-                    f"Using {desired_nitems:_} items per thread for checking {len(prospective_pairs):_} prospective_pairs with gain>{fe_min_pair_mi_prevalence:.2f}."
+                    "Using %d items per thread for checking %d prospective_pairs with gain>%.2f.",
+                    desired_nitems, len(prospective_pairs), fe_min_pair_mi_prevalence,
                 )
 
             dicts = parallel_run(

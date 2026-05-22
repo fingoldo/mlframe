@@ -200,7 +200,7 @@ def test_suite_polynomial_features_lift_on_xor(tmp_path, seed):
 # TF-IDF path for "text"-typed columns in the current suite plumbing, so
 # both numeric-only and tfidf runs land on identical AUROC across every
 # seed in [42, 7, 99]. The TF-IDF wiring contract is pinned structurally by
-# ``test_predict_extensions_pipeline_replay.py`` and unit-level by
+# ``tests/inference/test_predict_extensions_pipeline_replay.py`` and unit-level by
 # ``test_preprocessing_extensions.py``.
 @pytest.mark.skip(reason="TF-IDF suite-level lift assertion mirrors the companion test's known-flaky skip; structural cover stays via test_predict_extensions_pipeline_replay + test_preprocessing_extensions")
 @pytest.mark.parametrize("seed", [42, 7, 99])
