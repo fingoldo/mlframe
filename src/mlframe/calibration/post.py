@@ -235,19 +235,23 @@ def get_postcalibrators(calib_target, num_bins: int) -> list:
         named_calibrator(CalibratedClassifierCV(method="sigmoid", ensemble=False), name="CalibratedClassifierCV", param_str="method=sigmoid", lib="sklearn"),
         named_calibrator(CalibratedClassifierCV(method="isotonic", ensemble=False), name="CalibratedClassifierCV", param_str="method=isotonic", lib="sklearn"),
         named_calibrator(mli.SplineCalib(), lib="mli"),
+        # ``verified_calibration`` upstream renamed / restructured public symbols
+        # across releases (``HistogramCalibrator`` / ``PlattBinnerCalibrator`` /
+        # ``PlattCalibrator`` are not all guaranteed to be present). Skip the
+        # absent ones quietly so the rest of the calibrator zoo still loads.
         *[
             named_calibrator(
-                cls(len(calib_target), num_bins=num_bins),
+                _cls(len(calib_target), num_bins=num_bins),
                 param_str=f"bins={num_bins}",
                 lib="verified_calibration",
                 fit_method_name="train_calibration",
                 transform_method_name="calibrate",
             )
-            for cls in [
-                verified_calibration.HistogramCalibrator,
-                verified_calibration.PlattBinnerCalibrator,
-                verified_calibration.PlattCalibrator,
-            ]
+            for _cls in (
+                getattr(verified_calibration, _name, None)
+                for _name in ("HistogramCalibrator", "PlattBinnerCalibrator", "PlattCalibrator")
+            )
+            if _cls is not None
         ],
         *[named_calibrator(BetaCalibration(variant), lib="betacal", param_str=f"variant={variant}") for variant in ["abm", "ab", "am"]],
         named_calibrator(VennAbersCalibrator(), lib="vaa"),

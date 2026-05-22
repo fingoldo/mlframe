@@ -542,6 +542,19 @@ def get_pandas_view_of_polars_df(
         if pa.types.is_boolean(col.type)
     ]
 
+    # Capture which Arrow columns are date32/date64/timestamp BEFORE to_pandas().
+    # On newer pyarrow + pandas combos (verified empirically with pandas 2.x + a
+    # str-mapping default), ``to_pandas()`` may materialize ``pa.date32()`` as
+    # pandas ``str`` (``StringDtype(na_value=nan)``) instead of ``datetime64[ns]``.
+    # Downstream consumers (the dummy-baselines temporal monotonicity helper,
+    # ``compute_ml_perf_by_time``) silently take the string path and either
+    # raise or fall through with no temporal structure. Coerce back to
+    # ``datetime64[ns]`` after the bridge so the documented contract holds.
+    _arrow_temporal_cols = [
+        name for name, col in zip(tbl_fixed.column_names, tbl_fixed.columns)
+        if (pa.types.is_date(col.type) or pa.types.is_timestamp(col.type))
+    ]
+
     # Use numpy-backed pandas (types_mapper=None) for broad model compatibility.
     # LightGBM (and some other sklearn-family models) reject pandas columns with
     # ArrowDtype (e.g. 'float[pyarrow]').
@@ -583,6 +596,21 @@ def get_pandas_view_of_polars_df(
         if pandas_df[name].dtype == object:
             pandas_df[name] = pandas_df[name].astype("boolean").astype("Int8")
             _coerced_bool_cols.append(name)
+
+    # Restore datetime64[ns] for any Arrow date / timestamp column the pandas
+    # bridge demoted to string / object on this pyarrow version. ``errors="coerce"``
+    # keeps malformed cells as NaT rather than blowing the bridge.
+    _coerced_temporal_cols = []
+    for name in _arrow_temporal_cols:
+        if not pd.api.types.is_datetime64_any_dtype(pandas_df[name]):
+            pandas_df[name] = pd.to_datetime(pandas_df[name], errors="coerce")
+            _coerced_temporal_cols.append(name)
+    if _coerced_temporal_cols and logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "get_pandas_view_of_polars_df: restored %d Arrow date/timestamp "
+            "column(s) to datetime64[ns] after pandas bridge demoted them: %s",
+            len(_coerced_temporal_cols), _coerced_temporal_cols,
+        )
     if _coerced_bool_cols and logger.isEnabledFor(logging.DEBUG):
         logger.debug(
             "get_pandas_view_of_polars_df: coerced %d nullable-bool object "

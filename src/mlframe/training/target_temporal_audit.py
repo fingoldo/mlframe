@@ -133,10 +133,19 @@ def coerce_timestamps_for_audit(
                 "contract. If your data are not UTC-anchored, localise "
                 "BEFORE calling this helper."
             )
-        return _coerced.to_numpy()
+        return _coerced.to_numpy().astype("datetime64[ns]")
+
+    # pandas 2.0+ ``DatetimeIndex.to_numpy()`` can return ``datetime64[s]`` /
+    # ``[ms]`` / ``[us]`` (preserved resolution) instead of always ``[ns]``.
+    # Downstream ``.view("int64")`` callers (``_normalize_timestamps``) then
+    # read the raw integer in the original unit, not nanoseconds, and
+    # epoch-second values collapse to 1970. Force ``datetime64[ns]`` so the
+    # documented contract holds across pandas versions.
+    def _to_ns(_dti):
+        return _dti.to_numpy().astype("datetime64[ns]")
 
     if arr.size == 0:
-        return pd.to_datetime(arr, unit=explicit_unit or "ns").to_numpy()
+        return _to_ns(pd.to_datetime(arr, unit=explicit_unit or "ns"))
 
     if explicit_unit is not None:
         if explicit_unit not in _AUDIT_UNIT_NS_FACTOR:
@@ -144,7 +153,7 @@ def coerce_timestamps_for_audit(
                 f"audit timestamp unit={explicit_unit!r} not in "
                 f"{sorted(_AUDIT_UNIT_NS_FACTOR)!r}"
             )
-        return pd.to_datetime(arr, unit=explicit_unit).to_numpy()
+        return _to_ns(pd.to_datetime(arr, unit=explicit_unit))
 
     # Auto-detect: coarsest-first so degenerate ns-as-seconds reads pick "s" not "ns".
     _vmin_f = float(np.nanmin(arr))
@@ -154,7 +163,7 @@ def coerce_timestamps_for_audit(
         _lo_ns = _vmin_f * _ns_factor
         _hi_ns = _vmax_f * _ns_factor
         if _AUDIT_DATETIME_LOW_NS <= _lo_ns and _hi_ns <= _AUDIT_DATETIME_HIGH_NS:
-            return pd.to_datetime(arr, unit=_unit).to_numpy()
+            return _to_ns(pd.to_datetime(arr, unit=_unit))
 
     logger.warning(
         "audit timestamp values (min=%g, max=%g) fall outside [1970-01-01, 2200-01-01] "
@@ -162,7 +171,7 @@ def coerce_timestamps_for_audit(
         "audit may degenerate to a single bin. Set explicit unit to override.",
         _vmin_f, _vmax_f,
     )
-    return pd.to_datetime(arr, unit="ns").to_numpy()
+    return _to_ns(pd.to_datetime(arr, unit="ns"))
 
 
 DEFAULT_MIN_BIN_FRACTION_FOR_FILTER: float = 0.5
