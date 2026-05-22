@@ -425,16 +425,23 @@ class TestFeatureDriftAutoActionWireIn:
         assert _merged["model_params"]["learning_rate"] == 3e-3
         assert _merged["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
 
-    def test_target_type_picks_classification_override_family(self):
-        """compute_feature_distribution_drift selects the classification
-        override family (alpha=1.0) when target_type is non-regression and
-        the regression family (alpha=1e-4) otherwise. Grounded by separate
-        sweeps -- bench_mlp_robustness_sweep_nonlinear.py for regression,
-        bench_mlp_robustness_sweep_classification.py for classification."""
+    def test_per_target_type_threshold_gates_classification_off(self):
+        """Per-type threshold table:
+          regression -> 3.0 (grounded by paired study, precision=1.000)
+          classification -> None (DISABLED; classification paired study
+            found Pearson r=-0.101 and 0.091 precision at thr=3.0).
+
+        Even with extreme drift on a dominant feature, classification
+        target_type must NOT produce a recommendation -- the override
+        family is documented but the trigger is gated off."""
         from mlframe.training.feature_drift_report import (
             ROBUST_MLP_OVERRIDES_UNDER_DRIFT,
-            ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION,
+            WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS,
         )
+        # Sanity-check the per-type table itself.
+        assert WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["regression"] == 3.0
+        assert WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["classification"] is None
+
         train, val, test = _make_frames(drift_z=8.0)
         rep_reg = compute_feature_distribution_drift(
             train, val, test,
@@ -446,12 +453,13 @@ class TestFeatureDriftAutoActionWireIn:
             feature_importance={"f_shift": 1.0, "f_stable": 0.0},
             target_type="binary_classification",
         )
+        # Regression fires -- threshold 3.0 grounded.
         assert rep_reg["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT)
-        assert rep_clf["recommend_neural_overrides"] == dict(ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION)
-        # Both should share the activation/hidden topology but disagree on alpha.
-        assert rep_reg["recommend_neural_overrides"]["activation"] == "identity"
-        assert rep_clf["recommend_neural_overrides"]["activation"] == "identity"
-        assert rep_reg["recommend_neural_overrides"]["alpha"] != rep_clf["recommend_neural_overrides"]["alpha"]
+        # Classification does NOT fire -- threshold None disables auto-apply.
+        assert rep_clf["recommend_neural_overrides"] is None
+        # Both should still report the weighted_drift_score for observability.
+        assert rep_reg["weighted_drift_score"] is not None
+        assert rep_clf["weighted_drift_score"] is not None
 
     def test_recommend_payload_absent_when_no_fi(self):
         """The recommendation requires feature_importance to score. Without

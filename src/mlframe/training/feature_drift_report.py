@@ -166,25 +166,49 @@ drift keep the original ReLU config and its nonlinear capacity.
 """
 
 
-WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD: float = 3.0
-"""FI-weighted drift score threshold above which the sensor recommends
-applying robustness overrides to neural-model HPT (NOT skipping them).
+WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS: Dict[str, Optional[float]] = {
+    "regression": 3.0,
+    "classification": None,
+}
+"""Per-target-type FI-weighted drift score threshold above which the
+sensor recommends applying robustness overrides to neural-model HPT.
 
-Grounded empirically by the 2026-05-22 paired experiment in
-``profiling/bench_drift_fi_vs_model_harm.py``:
+Threshold = None means the trigger is DISABLED for that target-type
+family (no auto-apply); the override family is still documented in the
+relevant ``ROBUST_MLP_OVERRIDES_UNDER_DRIFT*`` constant for manual use.
 
-  N=570 trials across 9 drift_z levels x 3 drift_target modes x 30 seeds.
-  Pearson(weighted_drift_score, MLP_excess_harm) = +0.834 overall.
-  At threshold = 3.0: precision=1.000, recall=0.883
-    (vs MLP_excess_harm > 0.1 i.e. MLP_test_R^2 lags Ridge_test_R^2 by > 0.1).
+Per-type empirical grounding (2026-05-22):
 
-Zero false positives in 570 trials -- the drift signal IS grounded, but
-the actionable response is to make the neural model robust, not to
-drop it (drop = lose stacking diversity). The companion sweep
-``profiling/bench_mlp_robustness_sweep.py`` finds the HPT overrides
-that close the Ridge-vs-MLP gap on drifted data; those overrides are
-surfaced via ``recommend_neural_overrides`` in the report dict.
+  regression -> 3.0
+    Paired study ``profiling/bench_drift_fi_vs_model_harm.py``
+    (570 trials, 9 drift_z levels x 3 drift_target modes x 30 seeds).
+    Pearson(weighted_drift_score, MLP_excess_R^2_harm) = +0.834 overall.
+    At threshold=3.0: precision=1.000, recall=0.883, zero false
+    positives. Trigger is well-grounded.
+
+  classification -> None  (auto-apply DISABLED)
+    Paired study ``profiling/bench_drift_fi_vs_model_harm_classification.py``
+    (810 trials, 3 binary DGPs x 9 drift_z x 30 seeds).
+    Pearson(weighted_drift_score, MLP_excess_logloss) overall: r=-0.101
+       per-DGP: linear=+0.233  interaction=-0.227  sinusoidal=-0.041
+    Threshold table (MLP_excess_logloss > 0.1 = 'meaningful harm'):
+      thr=3.0: precision=0.091, recall=0.695
+      thr=5.0: precision=0.103, recall=0.559
+    Negative per-DGP correlation on interaction_binary is the
+    diagnostic: when the underlying signal is genuinely nonlinear
+    (e.g. x_dom * x_2), MLP-with-relu OUTPERFORMS LogReg under drift --
+    exactly the situation where the identity-collapse override would
+    HURT. No threshold reaches reasonable precision; until a target-
+    shape detector gates the override, classification auto-apply
+    stays off.
 """
+
+
+# Back-compat alias for callers that consumed the pre-2026-05-22 flat constant.
+WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD: float = WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["regression"]
+"""Deprecated -- use ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS[target_type_group]``
+which is per-target-type. Kept for back-compat with callers that
+imported the flat constant before per-type thresholds landed."""
 
 
 def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
@@ -502,10 +526,17 @@ def compute_feature_distribution_drift(
         if _is_classification
         else ROBUST_MLP_OVERRIDES_UNDER_DRIFT
     )
+    # Pick the target-type-grouped threshold. Regression: 3.0 (well-grounded).
+    # Classification: None (auto-apply disabled because the paired threshold
+    # study found weak/heterogeneous correlation across DGPs).
+    _per_type_threshold = WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS.get(
+        "classification" if _is_classification else "regression",
+    )
     recommend_neural_overrides: Optional[Dict[str, Any]] = None
     if (
         weighted_score is not None
-        and weighted_score >= WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD
+        and _per_type_threshold is not None
+        and weighted_score >= _per_type_threshold
         and _override_family
     ):
         recommend_neural_overrides = dict(_override_family)

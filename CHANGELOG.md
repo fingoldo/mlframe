@@ -69,6 +69,59 @@ injected between train and val/test slices:
 Tests: 30 (28 unit + 2 e2e regression) + 1 (classification e2e) = 31 pass.
 
 
+## 2026-05-22 — Feature-drift threshold paired-study: classification trigger gated off
+
+Follow-up classification paired study
+``profiling/bench_drift_fi_vs_model_harm_classification.py`` (810 trials
+across 3 binary DGPs, mirror of the regression paired study) revealed
+the regression-grounded threshold does NOT transfer to classification:
+
+  Pearson(weighted_drift_score, MLP_excess_logloss) overall: r = -0.101
+    per-DGP: linear=+0.233  interaction=-0.227  sinusoidal=-0.041
+  Threshold table (MLP_excess_logloss > 0.1 = 'meaningful harm'):
+    thr=3.0: precision=0.091  recall=0.695
+    thr=5.0: precision=0.103  recall=0.559
+
+Compare regression: r=+0.834 overall, precision=1.000 / recall=0.883
+at thr=3.0. The negative per-DGP correlation on interaction_binary is
+the diagnostic: when the underlying signal is genuinely nonlinear
+(x_dom * x_2), MLP-with-relu OUTPERFORMS LogReg under drift -- exactly
+where the identity-collapse override would HURT. No classification
+threshold reaches reasonable precision; the heterogeneity across DGPs
+means a single scalar gate can't separate "drift helps" from "drift
+hurts" cases.
+
+Action: replace the flat ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD =
+3.0`` with a per-target-type table:
+  ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS = {
+      "regression": 3.0,
+      "classification": None,
+  }``
+``None`` means auto-apply is DISABLED for that target-type family;
+the override family stays documented in
+``ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION`` for manual use but
+``compute_feature_distribution_drift`` returns
+``recommend_neural_overrides=None`` for classification regardless of
+the drift score. The wire-in in ``_phase_train_one_target_body`` is
+now target-type-agnostic: it just consumes whatever the sensor
+recommended.
+
+The 2026-05-22 classification e2e test
+(``test_feature_drift_auto_action_e2e_binary_classification``) was
+rewritten to assert the OPPOSITE behaviour: the sensor still runs
+(observational drift stamp) but the wire-in must NOT auto-apply on
+classification. The previous test that asserted the override fires
+described a regression in the design; the threshold table makes it
+behaviour-correct.
+
+29 tests pass.
+
+Future work: a target-shape detector (linear vs interaction-rich)
+could gate classification override application -- the threshold itself
+isn't unsafe on linear-shape classification (per-DGP r=+0.233), only
+when interactions dominate.
+
+
 ## 2026-05-22 — Feature-drift auto-action: per-target MLP HPT override
 
 Adds an empirically-grounded, drift-triggered MLP HPT override to the

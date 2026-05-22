@@ -380,17 +380,22 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         # Feature-drift auto-action: when the per-target
         # ``feature_distribution_drift`` report carries a
         # ``recommend_neural_overrides`` dict (FI-weighted score crossed
-        # the empirical 3.0 threshold), translate the sklearn-shape
-        # override into the nested mlframe ``mlp_kwargs`` shape and apply
-        # it as a PER-TARGET override to ``hyperparams_config.mlp_kwargs``.
-        # Other targets in the same suite keep the original mlp_kwargs.
-        # Grounded by ``profiling/bench_mlp_robustness_sweep_nonlinear.py``
-        # (regression, alpha=1e-4) and
-        # ``profiling/bench_mlp_robustness_sweep_classification.py``
-        # (classification, alpha=1.0). Both end up with
-        # ``activation=identity`` and ``hidden_layer_sizes=(32, 16)``;
-        # ``compute_feature_distribution_drift`` picks the correct
-        # alpha family based on the target_type it received.
+        # the target-type-grouped threshold in
+        # ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS``), translate the
+        # sklearn-shape override into the nested mlframe ``mlp_kwargs``
+        # shape and apply it as a PER-TARGET override to
+        # ``hyperparams_config.mlp_kwargs``. Other targets in the same
+        # suite keep the original mlp_kwargs.
+        #
+        # Per-target-type gating happens INSIDE ``compute_feature_distribution_drift``:
+        #   regression  -> threshold=3.0 (precision=1.000 / recall=0.883 vs MLP_excess_R^2_harm>0.1)
+        #   classification -> threshold=None (DISABLED -- the paired study
+        #     found overall Pearson r=-0.101 with interaction_binary r=-0.227,
+        #     i.e. MLP with relu OUTPERFORMS LogReg on interaction-rich
+        #     classification under drift; no threshold gives reasonable
+        #     precision).
+        # The wire-in itself is target-type-agnostic; it just consumes the
+        # ``recommend_neural_overrides`` payload the sensor produced.
         _target_hyperparams_config = hyperparams_config
         try:
             _fd_for_target = (

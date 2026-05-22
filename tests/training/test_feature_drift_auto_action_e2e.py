@@ -317,17 +317,26 @@ def test_feature_drift_auto_action_e2e_with_mlp_in_model_set():
 
 
 @pytest.mark.slow
-def test_feature_drift_auto_action_e2e_binary_classification():
-    """Classification mirror of the regression e2e: after lifting the
-    regression-only gate (2026-05-22 classification sweep grounded the
-    classification override family with alpha=1.0), the same auto-action
-    path must fire on binary-classification targets too. Confirms:
+def test_feature_drift_auto_action_e2e_binary_classification_no_auto_apply():
+    """Classification mirror of the regression e2e: confirms the auto-apply
+    is GATED OFF for classification (target-type-grouped threshold is None).
 
-    1. Sensor stamps the drift report with target_type='binary_classification'
-       and recommend_neural_overrides points at the CLASSIFICATION family
-       (alpha=1.0) not regression (alpha=1e-4).
-    2. Wire-in deep-merges the translated override into hyperparams_config
-       per-target and the MLP fit runs to completion.
+    The paired threshold study
+    (``profiling/bench_drift_fi_vs_model_harm_classification.py``, 810
+    trials) found Pearson r=-0.101 overall for classification: the FI-
+    weighted drift score does NOT reliably predict MLP harm on
+    classification targets, with interaction_binary showing r=-0.227
+    (MLP with relu actually OUTPERFORMS LogReg on interaction-rich
+    targets under drift). The wire-in must NOT auto-apply the override
+    even when extreme feature drift is detected -- the override is
+    documented in ``ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION``
+    for manual use but not auto-triggered.
+
+    Asserts:
+      1. Sensor still stamps the drift report (observational).
+      2. ``recommend_neural_overrides`` is None on the classification
+         report (the per-type threshold gate filtered it out).
+      3. ``feature_drift_auto_action`` is NOT stamped in metadata.
     """
     from mlframe.training import train_mlframe_models_suite
     from mlframe.training.configs import (
@@ -337,10 +346,6 @@ def test_feature_drift_auto_action_e2e_binary_classification():
         TrainingBehaviorConfig,
         TrainingSplitConfig,
     )
-    from mlframe.training.feature_drift_report import (
-        ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION,
-    )
-
     import mlframe.training.core._phase_train_one_target as pt
 
     df = _make_drifted_binary_classification_df(n=600, seed=0)
@@ -395,18 +400,21 @@ def test_feature_drift_auto_action_e2e_binary_classification():
     assert ctx is not None
     metadata = ctx.metadata or {}
 
-    auto_action = metadata.get("feature_drift_auto_action", {})
-    assert auto_action, (
-        f"feature_drift_auto_action missing on classification target. "
-        f"metadata keys: {list(metadata.keys())}"
-    )
-    by_type = next(iter(auto_action.values()))
+    # Sensor still runs (drift report stamped) but the recommendation must
+    # be None for classification because the per-type threshold is None.
+    fd = metadata.get("feature_distribution_drift", {})
+    assert fd, "feature_distribution_drift missing -- sensor did not run"
+    by_type = next(iter(fd.values()))
     by_target = next(iter(by_type.values()))
-    sklearn_override = by_target["sklearn_override"]
-    # The classification family must be selected, NOT the regression one.
-    assert sklearn_override["alpha"] == ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION["alpha"], (
-        f"expected classification alpha={ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION['alpha']}, "
-        f"got alpha={sklearn_override['alpha']}. The compute_feature_distribution_drift "
-        f"target_type routing is broken."
+    assert by_target["recommend_neural_overrides"] is None, (
+        f"recommend_neural_overrides MUST be None on classification (per-type "
+        f"threshold is None); got {by_target['recommend_neural_overrides']}"
     )
-    assert sklearn_override["activation"] == "identity"
+
+    # The wire-in must NOT have stamped auto_action since no override
+    # was recommended.
+    auto_action = metadata.get("feature_drift_auto_action", {})
+    assert not auto_action, (
+        f"feature_drift_auto_action must be empty on classification; "
+        f"got {auto_action}"
+    )
