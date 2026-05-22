@@ -234,13 +234,15 @@ def run_pysr_feature_engineering(
             # The legacy path fits CatBoostEncoder on the full sample with the target visible -
             # classic supervised-encoding leak. Surface as a warning so the operator can switch
             # to leakage_free=True (slower, but holdout-honest).
-            warnings.warn(
-                "run_pysr_feature_engineering: CatBoostEncoder.fit_transform on the full sample "
-                "leaks the target into the categorical encoding; downstream holdout metrics will "
+            _leak_msg = (
+                "run_pysr_feature_engineering: TARGET-ENCODING LEAK detected - "
+                "CatBoostEncoder.fit_transform on the full sample leaks the target "
+                "into the categorical encoding; downstream holdout metrics will "
                 f"be optimistically biased. Columns: {cat_cols}. Pass leakage_free=True for an "
-                "OOF-encoded path.",
-                stacklevel=2,
+                "OOF-encoded path."
             )
+            warnings.warn(_leak_msg, stacklevel=2)
+            logger.warning(_leak_msg)
             from category_encoders import CatBoostEncoder
 
             encoder = CatBoostEncoder(cols=cat_cols, return_df=True)

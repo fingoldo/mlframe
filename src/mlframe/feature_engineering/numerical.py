@@ -80,7 +80,13 @@ def _suppress_numeric_warnings():
 # Inits
 # ----------------------------------------------------------------------------------------------------------------------------
 
-NUMBA_NJIT_PARAMS = dict(fastmath=False, cache=True, nogil=True)
+from ._numerical_constants import (
+    NUMBA_NJIT_PARAMS,
+    LARGE_CONST,
+    GEOMEAN_OVERFLOW_HI,
+    GEOMEAN_OVERFLOW_LO,
+    distributions,
+)
 
 
 def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
@@ -119,14 +125,7 @@ def cont_entropy(arr: np.ndarray, bins: str = "scott") -> float:
 entropy_funcs = (cont_entropy, svd_entropy, sample_entropy, petrosian_fd, perm_entropy, katz_fd, detrended_fluctuation)  # continuous.get_h, app_entropy
 entropy_funcs_names = [f.__name__ for f in entropy_funcs]
 
-distributions = (stats.levy_l,)  # stats.logistic, stats.pareto
 default_dist_responses = dict(levy_l=(np.nan, np.nan), logistic=(np.nan, np.nan), pareto=(np.nan, np.nan, np.nan))
-
-LARGE_CONST = 1e3
-# Geometric-mean overflow / underflow thresholds. When the running product crosses either, the
-# kernel switches to log-mode accumulation to avoid float64 over/underflow.
-GEOMEAN_OVERFLOW_HI: float = 1e100
-GEOMEAN_OVERFLOW_LO: float = 1e-100
 
 
 def get_distributions_features_names() -> list:
@@ -453,6 +452,8 @@ def compute_nunique_mode_quantiles_numba(arr: np.ndarray, q: Sequence[float] = d
 from ._numerical_numba import (  # noqa: F401, E402
     _make_compute_moments_slope_mi,
     compute_moments_slope_mi,
+    _compute_moments_slope_mi_compensated,
+    _compute_moments_slope_mi_fast,
     _EMPTY_FLOAT32,
 )
 
