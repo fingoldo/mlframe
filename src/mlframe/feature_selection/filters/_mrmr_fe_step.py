@@ -326,7 +326,10 @@ def _run_fe_step(
             fe_hermite_l2_penalty=getattr(self, "fe_hermite_l2_penalty", 0.05),
             fe_polynomial_basis=getattr(self, "fe_polynomial_basis", "chebyshev"),
             fe_mi_estimator=getattr(self, "fe_mi_estimator", "plugin"),
-            fe_optimizer=getattr(self, "fe_optimizer", "cma"),
+            # 2026-05-22: cma_batch is the new default (20.58x faster than
+            # optuna, 1.09x faster than per-solution cma, within_1%=1.00
+            # on a 12-pair benchmark). See profiling/bench_polynom_optimizers.py.
+            fe_optimizer=getattr(self, "fe_optimizer", "cma_batch"),
             fe_warm_start=getattr(self, "fe_warm_start", True),
             fe_multi_fidelity=getattr(self, "fe_multi_fidelity", True),
             quantization_nbins=self.quantization_nbins,

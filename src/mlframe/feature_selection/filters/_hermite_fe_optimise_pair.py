@@ -40,7 +40,7 @@ def optimise_hermite_pair(
     basis: str = "chebyshev",
     mi_estimator: str = "plugin",
     plugin_n_bins: int = 20,
-    optimizer: str = "cma",
+    optimizer: str = "cma_batch",
     warm_start: bool = True,
     direction_only: bool = False,
     multi_fidelity: bool = True,
