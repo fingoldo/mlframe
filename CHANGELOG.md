@@ -1,5 +1,74 @@
 # Changelog
 
+## 2026-05-22 — Feature-drift auto-action: classification + torch validation + e2e
+
+Follow-up landing four hardening threads on top of the regression-only
+override committed earlier the same day:
+
+### Classification override family
+``ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION = {alpha: 1.0,
+hidden_layer_sizes: (32, 16), activation: 'identity'}`` grounded by
+``profiling/bench_mlp_robustness_sweep_classification.py`` (4224 trials
+across 4 DGPs: linear_binary / interaction_binary / sinusoidal_binary
+/ linear_multiclass_3). All three metrics (log_loss / accuracy /
+ROC-AUC) agree that ``activation=identity`` wins under drift -- same
+mechanism as regression. The classification pick uses higher L2
+(alpha=1.0 vs regression's 1e-4) because sigmoid + softmax compress
+small weight differences. ``compute_feature_distribution_drift`` now
+takes ``target_type`` and routes to the right family.
+
+### Regression-only gate lifted
+The wire-in in ``_phase_train_one_target_body`` no longer skips on
+non-regression target types. The override now fires on regression /
+binary / multiclass with the appropriate family selected upstream.
+
+### Sklearn vs torch translation validation
+``profiling/bench_torch_mlp_translation_validation.py`` (10 seeds)
+builds a torch MLP via ``generate_mlp`` with the translated override
+and trains it on the same linear-drift DGP the sklearn sweep used:
+``sklearn_RMSE mean = 1.2195``, ``torch_RMSE mean = 1.0133`` -- torch
+better than sklearn on 10/10 seeds, never worse. The empirical sklearn
+grounding transfers to the production torch backend.
+
+### Critical translation bug fix
+Prior translator mapped sklearn ``activation='identity'`` to ``nlayers=0``,
+but mlframe's ``generate_mlp`` rejects ``nlayers < 1`` with ValueError.
+The wire-in would have CRASHED at MLP construction on every drift-
+flagged target. Fixed: maps identity to ``activation_function=torch.nn.Identity``
+plus zeroing both ``dropout_prob`` and ``inputs_dropout_prob`` so the
+composed network is Linear -> Identity -> Linear -> Identity ...,
+mathematically equivalent to sklearn's identity activation.
+
+### Recurrent placeholder
+``ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT = {}`` + companion translator
+``translate_sklearn_mlp_overrides_to_recurrent_config_kwargs``. The
+MLP sweep does NOT transfer to recurrent: the failure mode under drift
+(hidden-state extrapolation) is mechanically different, and there is
+no recurrent equivalent of ``activation=identity``. Plumbing is in
+place so a future recurrent-sequence-DGP sweep can populate the
+constant; until then the override is a no-op for recurrent models.
+
+### End-to-end coverage
+``tests/training/test_feature_drift_auto_action_e2e.py``: three slow-
+marked tests booting ``train_mlframe_models_suite`` with 8-sigma drift
+injected between train and val/test slices:
+  1. regression / linear-only -- sensor stamps the drift report,
+     |test_z| > 3.0 on the dominant feature.
+  2. regression / mlp -- wire-in deep-merges the regression family
+     override (alpha=1e-4) into hyperparams_config; MLP trains to
+     convergence (val_MSE ~0.088) without the prior nlayers=0 crash.
+  3. binary classification / mlp -- wire-in deep-merges the
+     classification family override (alpha=1.0); routing verified to
+     pick the classification dict not regression. Uses synthetic
+     timestamps in the FTE to disable auto-stratification (which would
+     otherwise mix drifted and undrifted rows across train/val/test
+     for class-balance preservation) and ``continue_on_model_failure=True``
+     so MLP-on-saturated-labels failure doesn't mask the wire-in
+     assertion.
+
+Tests: 30 (28 unit + 2 e2e regression) + 1 (classification e2e) = 31 pass.
+
+
 ## 2026-05-22 — Feature-drift auto-action: per-target MLP HPT override
 
 Adds an empirically-grounded, drift-triggered MLP HPT override to the

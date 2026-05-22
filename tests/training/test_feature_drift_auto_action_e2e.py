@@ -28,8 +28,8 @@ import pytest
 
 
 class _DriftingFeaturesAndTargetsExtractor:
-    """FTE that returns a regression target and a precomputed split column
-    so the suite's chronological split lands drift between train and test.
+    """FTE that returns a regression or binary-classification target so the
+    suite's chronological tail split lands drift between train and test.
 
     The first 80% of rows are 'train slice' with feature_0 ~ N(0, 1); the
     last 20% are 'test slice' with feature_0 ~ N(8, 1) -- an 8-sigma shift
@@ -37,10 +37,10 @@ class _DriftingFeaturesAndTargetsExtractor:
     weight 10 in the regression target; the rest have weight 0.1.
     """
 
-    def __init__(self, target_column: str = "y"):
+    def __init__(self, target_column: str = "y", target_type=None):
         from mlframe.training.configs import TargetTypes
         self.target_column = target_column
-        self.target_type = TargetTypes.REGRESSION
+        self.target_type = target_type if target_type is not None else TargetTypes.REGRESSION
         self.ts_field = None
         self.group_field = None
         self.weight_schemas = None
@@ -51,7 +51,14 @@ class _DriftingFeaturesAndTargetsExtractor:
         y = df[self.target_column].values if isinstance(df, pd.DataFrame) else df[self.target_column].to_numpy()
         target_by_type[self.target_type][self.target_column] = y
         cols_to_drop = [self.target_column]
-        return (df, target_by_type, None, None, None, None, cols_to_drop, {})
+        # Synthetic timestamps = row index. This disables auto-stratification
+        # in the splitter (``_phase_helpers_fit_split.py:140``: stratify only
+        # fires when timestamps is None) so classification targets get a
+        # chronological tail split instead of class-balanced stratified
+        # sampling -- required for the drift-injection synthetic to land
+        # drifted rows in val/test instead of mixing them back into train.
+        timestamps = np.arange(len(df))
+        return (df, target_by_type, None, None, timestamps, None, cols_to_drop, {})
 
 
 def _make_drifted_regression_df(n: int = 600, seed: int = 0) -> pd.DataFrame:
@@ -78,6 +85,42 @@ def _make_drifted_regression_df(n: int = 600, seed: int = 0) -> pd.DataFrame:
 
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
     df["y"] = y.astype(np.float32)
+    return df
+
+
+def _make_drifted_binary_classification_df(n: int = 600, seed: int = 0) -> pd.DataFrame:
+    """Mirror of ``_make_drifted_regression_df`` for binary classification.
+
+    Uses alpha_dom=10 (matching the regression helper) -- this saturates
+    the sigmoid for the drifted rows so test labels skew to class 1,
+    BUT keeps train labels balanced and crucially makes f0 strongly
+    dominant in the baseline_diagnostics FI ablation. Without that
+    dominance the FI-weighted drift aggregate dilutes across uninformative
+    features and stays below the 3.0 threshold even at drift_z=8. The
+    wire-in test cares about (a) the sensor's FI-weighted score crossing
+    threshold and (b) the override flowing into MLP construction; the
+    saturated-test-labels regime is irrelevant for those assertions.
+
+    Drift starts at the 70% boundary so the suite's default 70/15/15
+    split (with timestamps disabling stratification) puts ALL drifted
+    rows into val/test and zero into train.
+    """
+    rng = np.random.default_rng(seed)
+    alphas = np.array([10.0, 0.1, 0.1, 0.1, 0.1])
+    n_train = int(n * 0.7)
+    n_test = n - n_train
+
+    X_train = rng.normal(0.0, 1.0, (n_train, 5))
+    X_test = rng.normal(0.0, 1.0, (n_test, 5))
+    X_test[:, 0] += 8.0
+
+    X = np.vstack([X_train, X_test])
+    score = X @ alphas + rng.normal(0.0, 1.0, n)
+    p = 1.0 / (1.0 + np.exp(-score / 3.0))
+    y = (rng.random(n) < p).astype(np.int64)
+
+    df = pd.DataFrame(X.astype(np.float32), columns=[f"f{i}" for i in range(5)])
+    df["y"] = y
     return df
 
 
@@ -138,7 +181,15 @@ def test_feature_drift_auto_action_e2e_regression():
                 # Defaults shuffle_val=False / shuffle_test=False give a
                 # chronological tail split; rows stay in input order so
                 # the injected drift (last 20% of rows) lands in val/test.
-                split_config=TrainingSplitConfig(test_size=0.15, val_size=0.15),
+                split_config=TrainingSplitConfig(
+                    test_size=0.15, val_size=0.15,
+                    # val_sequential_fraction=1.0 forces val to be a single
+                    # contiguous slice from the train/test boundary instead
+                    # of mixing in random rows from earlier. Required for
+                    # this drift-injection synthetic so the train slice
+                    # is purely pre-drift.
+                    val_sequential_fraction=1.0,
+                ),
                 hyperparams_config=ModelHyperparamsConfig(),
                 behavior_config=TrainingBehaviorConfig(),
                 baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=True),
@@ -216,7 +267,15 @@ def test_feature_drift_auto_action_e2e_with_mlp_in_model_set():
                 mlframe_models=["mlp"],  # the actual wire-in target
                 use_mlframe_ensembles=False,
                 verbose=0,
-                split_config=TrainingSplitConfig(test_size=0.15, val_size=0.15),
+                split_config=TrainingSplitConfig(
+                    test_size=0.15, val_size=0.15,
+                    # val_sequential_fraction=1.0 forces val to be a single
+                    # contiguous slice from the train/test boundary instead
+                    # of mixing in random rows from earlier. Required for
+                    # this drift-injection synthetic so the train slice
+                    # is purely pre-drift.
+                    val_sequential_fraction=1.0,
+                ),
                 hyperparams_config=ModelHyperparamsConfig(),
                 behavior_config=TrainingBehaviorConfig(),
                 baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=True),
@@ -255,3 +314,99 @@ def test_feature_drift_auto_action_e2e_with_mlp_in_model_set():
     assert "network_params" in mlframe_override
     import torch
     assert mlframe_override["network_params"]["activation_function"] is torch.nn.Identity
+
+
+@pytest.mark.slow
+def test_feature_drift_auto_action_e2e_binary_classification():
+    """Classification mirror of the regression e2e: after lifting the
+    regression-only gate (2026-05-22 classification sweep grounded the
+    classification override family with alpha=1.0), the same auto-action
+    path must fire on binary-classification targets too. Confirms:
+
+    1. Sensor stamps the drift report with target_type='binary_classification'
+       and recommend_neural_overrides points at the CLASSIFICATION family
+       (alpha=1.0) not regression (alpha=1e-4).
+    2. Wire-in deep-merges the translated override into hyperparams_config
+       per-target and the MLP fit runs to completion.
+    """
+    from mlframe.training import train_mlframe_models_suite
+    from mlframe.training.configs import (
+        BaselineDiagnosticsConfig,
+        ModelHyperparamsConfig,
+        TargetTypes,
+        TrainingBehaviorConfig,
+        TrainingSplitConfig,
+    )
+    from mlframe.training.feature_drift_report import (
+        ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION,
+    )
+
+    import mlframe.training.core._phase_train_one_target as pt
+
+    df = _make_drifted_binary_classification_df(n=600, seed=0)
+    fte = _DriftingFeaturesAndTargetsExtractor("y", target_type=TargetTypes.BINARY_CLASSIFICATION)
+
+    # alpha_dom=10 in the data helper saturates the sigmoid for drifted
+    # rows -- all test labels become class 1 and the suite raises on
+    # 'val target has only one unique value'. continue_on_model_failure
+    # makes the suite swallow the per-model crash so we can still inspect
+    # the auto-action stamp that landed BEFORE the MLP fit.
+
+    captured_ctx_holder: dict = {}
+    _orig_train_one = pt._train_one_target
+
+    def _stash_ctx(ctx, target_type, targets, cur_target_name, cur_target_values):
+        captured_ctx_holder["ctx"] = ctx
+        return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
+
+    pt._train_one_target = _stash_ctx
+    import mlframe.training.core.main as _main
+    pt_alias = _main.pr
+    _orig_pt_alias = pt_alias._train_one_target
+    pt_alias._train_one_target = _stash_ctx
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            train_mlframe_models_suite(
+                df=df, target_name="drift_e2e_clf", model_name="mt",
+                features_and_targets_extractor=fte,
+                mlframe_models=["mlp"],
+                use_mlframe_ensembles=False,
+                verbose=0,
+                split_config=TrainingSplitConfig(
+                    test_size=0.15, val_size=0.15,
+                    # val_sequential_fraction=1.0 forces val to be a single
+                    # contiguous slice from the train/test boundary instead
+                    # of mixing in random rows from earlier. Required for
+                    # this drift-injection synthetic so the train slice
+                    # is purely pre-drift.
+                    val_sequential_fraction=1.0,
+                ),
+                hyperparams_config=ModelHyperparamsConfig(),
+                behavior_config=TrainingBehaviorConfig(continue_on_model_failure=True),
+                baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=True),
+            )
+    finally:
+        pt._train_one_target = _orig_train_one
+        pt_alias._train_one_target = _orig_pt_alias
+
+    ctx = captured_ctx_holder.get("ctx")
+    assert ctx is not None
+    metadata = ctx.metadata or {}
+
+    auto_action = metadata.get("feature_drift_auto_action", {})
+    assert auto_action, (
+        f"feature_drift_auto_action missing on classification target. "
+        f"metadata keys: {list(metadata.keys())}"
+    )
+    by_type = next(iter(auto_action.values()))
+    by_target = next(iter(by_type.values()))
+    sklearn_override = by_target["sklearn_override"]
+    # The classification family must be selected, NOT the regression one.
+    assert sklearn_override["alpha"] == ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION["alpha"], (
+        f"expected classification alpha={ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION['alpha']}, "
+        f"got alpha={sklearn_override['alpha']}. The compute_feature_distribution_drift "
+        f"target_type routing is broken."
+    )
+    assert sklearn_override["activation"] == "identity"
