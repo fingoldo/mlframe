@@ -879,7 +879,7 @@ class BestEpochModelCheckpoint(ModelCheckpoint):
 class PeriodicLearningRateFinder(LearningRateFinder):
     def __init__(self, period: int, *args, **kwargs):
         if not isinstance(period, int) or isinstance(period, bool):
-            raise ValueError(f"period must be an int, got {type(period).__name__}")
+            raise TypeError(f"period must be an int, got {type(period).__name__}")
         if period <= 0:
             raise ValueError(f"period must be positive, got {period!r}")
         super().__init__(*args, **kwargs)
