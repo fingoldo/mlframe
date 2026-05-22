@@ -29,6 +29,14 @@ class TestComposiSkipConfig:
         cfg = CompositeTargetDiscoveryConfig()
         assert cfg.composite_skip_when_ablation_delta_pct == 0.0
 
+    def test_require_beats_raw_baseline_default_is_off(self) -> None:
+        cfg = CompositeTargetDiscoveryConfig()
+        assert cfg.require_beats_raw_baseline is False
+
+    def test_per_bin_n_bins_default_is_off(self) -> None:
+        cfg = CompositeTargetDiscoveryConfig()
+        assert cfg.per_bin_n_bins == 0
+
     def test_config_flag_accepts_positive_ratio(self) -> None:
         cfg = CompositeTargetDiscoveryConfig(composite_skip_when_raw_dominates_ratio=0.05)
         assert cfg.composite_skip_when_raw_dominates_ratio == 0.05
@@ -36,6 +44,14 @@ class TestComposiSkipConfig:
     def test_config_flag_accepts_positive_ablation_pct(self) -> None:
         cfg = CompositeTargetDiscoveryConfig(composite_skip_when_ablation_delta_pct=500.0)
         assert cfg.composite_skip_when_ablation_delta_pct == 500.0
+
+    def test_config_flag_accepts_require_beats_raw_baseline(self) -> None:
+        cfg = CompositeTargetDiscoveryConfig(require_beats_raw_baseline=True)
+        assert cfg.require_beats_raw_baseline is True
+
+    def test_config_flag_accepts_per_bin_n_bins(self) -> None:
+        cfg = CompositeTargetDiscoveryConfig(per_bin_n_bins=5)
+        assert cfg.per_bin_n_bins == 5
 
 
 class TestDiscoveryHonoursSkipFlag:

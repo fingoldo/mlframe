@@ -85,13 +85,15 @@ class TestBug3PureLagComposite:
     default ``eps_mi_gain=0.01`` rejected this legitimate composition;
     the raw-y baseline gate is the proper filter."""
 
-    def test_unit_eps_mi_gain_default_is_negative(self) -> None:
-        """Default lowered from +0.01 -> -0.5 so pure-lag composites
-        pass the pre-filter."""
+    def test_unit_eps_mi_gain_default_is_very_negative(self) -> None:
+        """Default is -10.0 so pure-lag composites pass the pre-filter
+        even when MI(y, X_no_base) is large (1.0+ on AR-1 datasets
+        like TVT where lag explains nearly everything)."""
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.eps_mi_gain == -0.5, (
-            "regression: eps_mi_gain default should be -0.5 to let "
-            "pure-lag composites through the pre-filter")
+        assert cfg.eps_mi_gain == -10.0, (
+            "regression: eps_mi_gain default should be -10.0 to let "
+            "pure-lag composites through the pre-filter on AR-1 data "
+            "where mi_gain is structurally large-negative")
 
     def test_biz_value_pure_lag_yields_specs(self) -> None:
         """End-to-end: AR(1) with autocorr=0.999 should produce at

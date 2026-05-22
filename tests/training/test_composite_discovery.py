@@ -93,7 +93,7 @@ class TestConfig:
         # regression / balanced-binary scenarios. Imbalanced classification
         # / heavy-tail regression should override explicitly.
         assert cfg.mi_sample_n == 100_000
-        assert cfg.top_k_after_mi == 8
+        assert cfg.top_k_after_mi == 32
         assert cfg.fail_on_no_gain == "fallback_raw"
 
     def test_explicit_base_list(self) -> None:

@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-05-22 — Composite-discovery: four more default flips to keep pure-lag composites alive
+
+After flipping the two top-level skip gates earlier today, a second
+TVT run showed composite discovery still didn't produce the lag-
+subtraction composite (``TVT - alpha*TVT_prev``) that would have
+saved the Identity-MLP from OOD collapse. Four lower-level gates
+were independently filtering it out:
+
+1. **MI pre-filter (``eps_mi_gain``)** ``-0.5 -> -10.0``. Pure-lag
+   composites have ``T = noise``, so ``MI(T, X_no_base) ~ 0`` while
+   ``MI(y, X_no_base)`` can be ``1.0+`` on AR-1 data (where lag
+   explains nearly everything). ``mi_gain`` is therefore structurally
+   large-negative. The -0.5 threshold from the May 11 incident still
+   left the TVT composite below the gate; -10.0 effectively disables
+   the MI pre-filter. Broken composites are still caught by the
+   transform's own ``domain_check`` and ``is_degenerate`` flag.
+
+2. **Top-K trim after MI sort (``top_k_after_mi``)** ``8 -> 32``.
+   Specs are sorted by ``-mi_gain`` then trimmed to top-K. Pure-lag
+   composites with ``mi_gain ~ -1.0`` were sorted to the BOTTOM of
+   the order and cut by top_k=8. With ~19 max candidates (4 unary
+   + 5 bivariate * 3 bases), 32 is "keep them all".
+
+3. **Per-spec raw-baseline gate (``require_beats_raw_baseline``)**
+   ``True -> False``. The gate uses a tiny LGBM as a model-agnostic
+   proxy for "is this composite useful". That proxy lies for
+   downstream linear models: on a pure-lag composite tiny LGBM gets
+   CV-RMSE ~5-10x worse than tiny LGBM on raw y (because LGBM on raw
+   directly fits y from features incl. lag_y, whereas on the
+   composite it has nothing to learn). The gate therefore rejects
+   the composite, even though for an Identity-MLP downstream the
+   composite is the ONLY thing preventing OOD-extrapolation
+   collapse on unseen-groups test splits. Tree-only zoos can re-
+   enable by setting ``require_beats_raw_baseline=True``.
+
+4. **Per-bin variant of #3 (``per_bin_n_bins``)** ``5 -> 0``.
+   Refinement of the tiny-LGBM proxy gate; same model-mix safety
+   problem.
+
+Production TVT run (4M rows, 25 features, group-aware split on 771
+wells, Identity-MLP downstream) pre-fix:
+  - Composite discovery picked ``TVT-monresYj-Y`` (requires nonlinear
+    inverse, useless to linear MLP) -> MLP collapsed R^2=-326.
+Post-fix:
+  - Discovery's candidate space now reaches the tiny-rerank phase
+    with the ``linres-TVT_prev`` / ``monres-TVT_prev`` family
+    intact; tiny-rerank no longer rejects them via the LGBM proxy.
+
+The cumulative effect of the six defaults flipped today (two top-
+level + four lower-level): composite discovery is now "always run,
+let everything through, the downstream training is the real filter".
+The compute cost is bounded by the number of bases (configurable)
+and ~7 transforms; per-target compute scales linearly.
+
 ## 2026-05-22 — Composite-discovery skip gates default to off
 
 ``CompositeTargetDiscoveryConfig.composite_skip_when_raw_dominates_ratio``

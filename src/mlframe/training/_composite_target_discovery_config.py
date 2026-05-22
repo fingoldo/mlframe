@@ -228,27 +228,28 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Final ``raw_baseline_rmse`` gate AND ``tiny_model_rerank`` use
     # FULL train_idx so final spec precision is unaffected by mi_sample_n.
     mi_sample_n: Optional[int] = 100_000
-    top_k_after_mi: int = 8
+    # Top-K trim after the MI gate. Generous default so pure-lag
+    # composites (``y - alpha*lag_y``) -- which have structurally
+    # NEGATIVE mi_gain because their residual is noise -- aren't
+    # sorted to the bottom of the (mi_gain, name) ordering and
+    # truncated out. With 4 unary + ~5 bivariate transforms across
+    # 3 bases the max candidate count is ~19; 32 is "keep them all".
+    top_k_after_mi: int = 32
     # Pre-filter threshold for ``mi_gain = MI(T, X_no_base) - MI(y, X_no_base)``.
-    # Default lowered from +0.01 -> -0.5 on 2026-05-11 (R10c bug #3)
-    # after a production TVT regression run discovered 0 specs despite
-    # BaselineDiagnostics ablation correctly identifying ``TVT_prev``
-    # as the dominant feature. Root cause: pure-lag composite
-    # ``T = y - y_prev = noise`` has ``MI(T, X_no_base) ~ 0`` while
-    # ``MI(y, X_no_base) > 0``, so ``mi_gain`` is structurally
-    # NEGATIVE for the correct composite -- a sign of a clean lag fit,
-    # not a sign the composite is useless. The MI-gain pre-filter
-    # was rejecting LEGITIMATE compositions.
-    #
-    # The actual "is this composite predictively useful" decision is
-    # made downstream by the raw-y baseline gate (Phase B; compares
-    # tiny CV-RMSE of composite vs raw-y on the same screening folds).
-    # With ``eps_mi_gain=-0.5`` the pre-filter only drops composites
-    # whose mi_gain is MUCH worse than raw -- typical "transform broke
-    # the target" cases (logratio on negative y, ratio on near-zero
-    # base). Pure-lag composites pass through to the raw-y gate where
-    # they are correctly evaluated.
-    eps_mi_gain: float = -0.5
+    # Defaults walked +0.01 -> -0.5 -> -10.0 across the same TVT
+    # regression incident: pure-lag composite ``T = y - y_prev = noise``
+    # has ``MI(T, X_no_base) ~ 0`` while ``MI(y, X_no_base)`` can be
+    # large (0.5-1.5 for AR-1 datasets where lag explains nearly
+    # everything), so ``mi_gain`` is structurally very negative for
+    # the correct composite. -0.5 left the MLP-saving composite still
+    # below the gate on TVT (mi_y > 0.5). -10.0 effectively disables
+    # the MI pre-filter; broken composites (e.g. logratio on negative
+    # y) are still caught by the transform's own ``domain_check`` and
+    # ``is_degenerate`` flag earlier in the pipeline. The downstream
+    # raw-y baseline gate (Phase B) is the real "is this composite
+    # useful" decision -- but that gate is now off by default for
+    # the same model-mix safety reason (see ``require_beats_raw_baseline``).
+    eps_mi_gain: float = -10.0
     mi_n_neighbors: int = 3  # sklearn mutual_info_regression k.
 
     # MI estimator. "knn" uses the Kraskov estimator (sklearn default,
@@ -365,9 +366,27 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #
     # Tolerance > 1.0 allows composites that are *slightly* worse on
     # the screening sample but might still help in the cross-target
-    # ensemble. 1.0 = strict (composite MUST beat raw). Default 1.02
-    # = composite kept if within 2% of raw, rejected if worse.
-    require_beats_raw_baseline: bool = True
+    # ensemble. 1.0 = strict (composite MUST beat raw); 1.02 = within
+    # 2% of raw on tiny LGBM.
+    #
+    # Default flipped True -> False because the gate uses a tiny
+    # LGBM as a model-agnostic proxy, and that proxy LIES for
+    # downstream linear models. The TVT incident: the pure-lag
+    # composite ``y - alpha*lag_y`` has residual T = noise, so any
+    # downstream model trained on T predicts T_hat ~ 0 and the
+    # composite estimator returns y_hat = lag_y -- essentially
+    # ``predict y by its lag``. Tiny LGBM on this composite gets
+    # CV-RMSE = std(noise) which can be 5-10x worse than tiny LGBM
+    # on raw y (which directly fits y from features including
+    # lag_y). The gate therefore rejects the composite, even
+    # though for an Identity-MLP downstream model the composite
+    # is the ONLY thing preventing OOD extrapolation collapse on
+    # unseen-groups test splits.
+    #
+    # Set True to re-enable when running tree-only zoos and you
+    # want to cut the per-target training compute on composites
+    # the boosters won't benefit from.
+    require_beats_raw_baseline: bool = False
     raw_baseline_tolerance: float = 1.02
 
     # R10b improvement #1: regime-aware gate. In addition to the
@@ -381,10 +400,14 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #
     # Tolerance defaults looser than the global gate (1.10 vs 1.02)
     # because per-bin estimates have higher variance on small
-    # screening samples. Set ``per_bin_n_bins=0`` to disable the
-    # per-bin check.
+    # screening samples. ``per_bin_n_bins=0`` disables the check.
+    #
+    # Default flipped 5 -> 0 (off) alongside ``require_beats_raw_baseline``
+    # since the per-bin gate is a refinement of the same tiny-LGBM-
+    # proxy logic and inherits the same model-mix safety problem.
+    # Set > 0 to re-enable when running tree-only zoos.
     raw_baseline_per_bin_tolerance: float = 1.10
-    per_bin_n_bins: int = 5
+    per_bin_n_bins: int = 0
 
     # R10b improvement #10: median-of-seeds gate. Tiny CV-RMSE with
     # 3 folds is variance-prone (one unlucky split can drag the mean).
