@@ -122,7 +122,6 @@
   "feature_selection/filters/_numba_utils.py::count_cand_nbins",
   "feature_selection/filters/_numba_utils.py::unpack_and_sort",
   "feature_selection/filters/_screen_predictors.py::screen_predictors",
-  "feature_selection/filters/cat_interactions.py::run_cat_interaction_step",
   "feature_selection/filters/discretization.py::categorize_1d_array",
   "feature_selection/filters/discretization.py::categorize_dataset",
   "feature_selection/filters/discretization.py::digitize",

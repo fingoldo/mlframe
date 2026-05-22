@@ -50,7 +50,7 @@ def run_cat_interaction_step(
     selected_so_far: list = None,
     weights: np.ndarray = None,    # Per-row sample weights; None = uniform.
     streaming_cache: dict = None,  # Prior-fit cache for incremental re-fit.
-    dtype=np.int32,
+    dtype: type = np.int32,
     verbose: int = 0,
 ) -> tuple:
     """One cat-FE iteration. Augments ``data`` / ``cols`` / ``nbins`` with new ordinal-encoded columns capturing pair (and k-way) synergies. Returns the augmented arrays

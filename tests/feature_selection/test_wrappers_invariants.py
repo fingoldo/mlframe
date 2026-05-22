@@ -68,14 +68,21 @@ class TestEvalFoldClosureCapture:
     """
 
     def _find_eval_fold(self) -> ast.FunctionDef:
-        """Locate the ``_eval_fold`` FunctionDef inside ``RFECV.fit`` by AST-walking ``_rfecv.py``."""
+        """Locate the ``_eval_fold`` FunctionDef inside ``RFECV.fit`` by AST-walking ``_rfecv.py``
+        and any sibling helper module the fit-body was split into (post-monolith-split)."""
+        import pathlib
         import mlframe.feature_selection.wrappers._rfecv as mod_rfecv
-        with open(mod_rfecv.__file__, encoding="utf-8") as f:
-            tree = ast.parse(f.read())
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold":
-                return node
-        pytest.fail("could not locate _eval_fold FunctionDef in _rfecv.py")
+        _dir = pathlib.Path(mod_rfecv.__file__).resolve().parent
+        for _name in ("_rfecv.py", "_rfecv_fit.py"):
+            _p = _dir / _name
+            if not _p.exists():
+                continue
+            with open(_p, encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold":
+                    return node
+        pytest.fail("could not locate _eval_fold FunctionDef in _rfecv.py or _rfecv_fit.py")
 
     def test_eval_fold_signature_uses_default_arg_capture(self):
         fn = self._find_eval_fold()

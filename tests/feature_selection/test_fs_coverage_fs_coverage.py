@@ -144,7 +144,8 @@ def test_mrmr_max_confirmation_cand_nbins_none_vs_50(max_confirmation_cand_nbins
     mrmr.fit(X_df, y)
     assert mrmr.support_ is not None
     # At least one feature must survive (min_features_fallback=1 default since 2026-05-16 §1).
-    assert mrmr.support_.sum() >= 1, (
+    # ``MRMR.support_`` is an int-index array (not a bool mask), so non-empty == ``len(..) >= 1``.
+    assert len(mrmr.support_) >= 1, (
         f"fitted MRMR must yield non-empty support_ regardless of max_confirmation_cand_nbins; got"
         f" support_={mrmr.support_}"
     )
