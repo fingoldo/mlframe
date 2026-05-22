@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Set, Tuple
 import numpy as np
 from joblib import Parallel, delayed
 
+from ._joblib_safe import run_in_big_stack_thread
 from .discretization import discretize_array
 from .engineered_recipes import build_hermite_pair_recipe
 from .hermite_fe import optimise_hermite_pair
@@ -130,7 +131,7 @@ def run_polynom_pair_fe(
     else:
         X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
 
-    def _eval_one_pair(raw_vars_pair, X_arr, y_arr):
+    def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr):
         vals_a_full = X_arr[:, raw_vars_pair[0]]
         vals_b_full = X_arr[:, raw_vars_pair[1]]
         if np.std(vals_a_full) < 1e-12 or np.std(vals_b_full) < 1e-12:
@@ -203,6 +204,15 @@ def run_polynom_pair_fe(
         # Return FULL arrays so the injection step applies the polynomial
         # to all rows (subsampling was only for the optimiser's MI loop).
         return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
+
+    def _eval_one_pair(raw_vars_pair, X_arr, y_arr):
+        # Windows loky workers have a 1MB main-thread stack -- numba's
+        # JIT cache load runs an llvmlite finalize chain that needs
+        # ~2-3MB and crashes the worker. Running the impl in a sub-thread
+        # with 8MB stack avoids the overflow; pass-through no-op on Linux.
+        return run_in_big_stack_thread(
+            _eval_one_pair_impl, raw_vars_pair, X_arr, y_arr,
+        )
 
     _poly_t0 = time.perf_counter()
     # 2026-05-18 threshold: at n=1M, 15 pairs, joblib worker spin-up
