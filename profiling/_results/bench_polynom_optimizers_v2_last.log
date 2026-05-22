@@ -1,0 +1,94 @@
+# Warmup (one tiny call per optimizer to JIT all kernels)...
+
+# bench_polynom_optimizers
+#   N_ROWS=4000, N_PAIRS=12, N_SEEDS=3, N_TRIALS=200, degrees=3-6, basis=hermite, mi_estimator=plugin
+#   target: discrete (sign(2*x_a^2 - x_b + noise) > median)
+
+  pair= 0  optuna          time_mean=   7.38s mi_mean= 0.5796  (n_seeds=3)
+  pair= 0  cma             time_mean=   0.39s mi_mean= 0.5796  (n_seeds=3)
+  pair= 0  cma_batch       time_mean=   0.35s mi_mean= 0.5796  (n_seeds=3)
+  pair= 0  random_batch    time_mean=   0.79s mi_mean= 0.5796  (n_seeds=3)
+  pair= 0  numba_kernel    time_mean=   0.67s mi_mean= 0.5796  (n_seeds=3)
+
+  pair= 1  optuna          time_mean=   7.87s mi_mean= 0.5751  (n_seeds=3)
+  pair= 1  cma             time_mean=   0.42s mi_mean= 0.5751  (n_seeds=3)
+  pair= 1  cma_batch       time_mean=   0.36s mi_mean= 0.5751  (n_seeds=3)
+  pair= 1  random_batch    time_mean=   0.86s mi_mean= 0.5751  (n_seeds=3)
+  pair= 1  numba_kernel    time_mean=   0.67s mi_mean= 0.5751  (n_seeds=3)
+
+  pair= 2  optuna          time_mean=   7.33s mi_mean= 0.5843  (n_seeds=3)
+  pair= 2  cma             time_mean=   0.40s mi_mean= 0.5843  (n_seeds=3)
+  pair= 2  cma_batch       time_mean=   0.39s mi_mean= 0.5843  (n_seeds=3)
+  pair= 2  random_batch    time_mean=   0.82s mi_mean= 0.5843  (n_seeds=3)
+  pair= 2  numba_kernel    time_mean=   0.67s mi_mean= 0.5843  (n_seeds=3)
+
+  pair= 3  optuna          time_mean=   7.43s mi_mean= 0.5848  (n_seeds=3)
+  pair= 3  cma             time_mean=   0.42s mi_mean= 0.5848  (n_seeds=3)
+  pair= 3  cma_batch       time_mean=   0.46s mi_mean= 0.5927  (n_seeds=3)
+  pair= 3  random_batch    time_mean=   0.91s mi_mean= 0.5848  (n_seeds=3)
+  pair= 3  numba_kernel    time_mean=   0.69s mi_mean= 0.5848  (n_seeds=3)
+
+  pair= 4  optuna          time_mean=   7.39s mi_mean= 0.5742  (n_seeds=3)
+  pair= 4  cma             time_mean=   0.39s mi_mean= 0.5742  (n_seeds=3)
+  pair= 4  cma_batch       time_mean=   0.37s mi_mean= 0.5742  (n_seeds=3)
+  pair= 4  random_batch    time_mean=   0.83s mi_mean= 0.5742  (n_seeds=3)
+  pair= 4  numba_kernel    time_mean=   0.68s mi_mean= 0.5742  (n_seeds=3)
+
+  pair= 5  optuna          time_mean=   7.36s mi_mean= 0.5737  (n_seeds=3)
+  pair= 5  cma             time_mean=   0.39s mi_mean= 0.5737  (n_seeds=3)
+  pair= 5  cma_batch       time_mean=   0.36s mi_mean= 0.5737  (n_seeds=3)
+  pair= 5  random_batch    time_mean=   0.97s mi_mean= 0.5737  (n_seeds=3)
+  pair= 5  numba_kernel    time_mean=   0.74s mi_mean= 0.5737  (n_seeds=3)
+
+  pair= 6  optuna          time_mean=   7.41s mi_mean= 0.5781  (n_seeds=3)
+  pair= 6  cma             time_mean=   0.40s mi_mean= 0.5781  (n_seeds=3)
+  pair= 6  cma_batch       time_mean=   0.36s mi_mean= 0.5781  (n_seeds=3)
+  pair= 6  random_batch    time_mean=   0.85s mi_mean= 0.5781  (n_seeds=3)
+  pair= 6  numba_kernel    time_mean=   0.71s mi_mean= 0.5781  (n_seeds=3)
+
+  pair= 7  optuna          time_mean=   7.28s mi_mean= 0.5833  (n_seeds=3)
+  pair= 7  cma             time_mean=   0.39s mi_mean= 0.5833  (n_seeds=3)
+  pair= 7  cma_batch       time_mean=   0.37s mi_mean= 0.5833  (n_seeds=3)
+  pair= 7  random_batch    time_mean=   0.93s mi_mean= 0.5833  (n_seeds=3)
+  pair= 7  numba_kernel    time_mean=   0.79s mi_mean= 0.5833  (n_seeds=3)
+
+  pair= 8  optuna          time_mean=   7.76s mi_mean= 0.5825  (n_seeds=3)
+  pair= 8  cma             time_mean=   0.42s mi_mean= 0.5825  (n_seeds=3)
+  pair= 8  cma_batch       time_mean=   0.37s mi_mean= 0.5825  (n_seeds=3)
+  pair= 8  random_batch    time_mean=   0.87s mi_mean= 0.5825  (n_seeds=3)
+  pair= 8  numba_kernel    time_mean=   0.69s mi_mean= 0.5825  (n_seeds=3)
+
+  pair= 9  optuna          time_mean=   7.48s mi_mean= 0.5846  (n_seeds=3)
+  pair= 9  cma             time_mean=   0.51s mi_mean= 0.5846  (n_seeds=3)
+  pair= 9  cma_batch       time_mean=   0.46s mi_mean= 0.5846  (n_seeds=3)
+  pair= 9  random_batch    time_mean=   0.94s mi_mean= 0.5846  (n_seeds=3)
+  pair= 9  numba_kernel    time_mean=   0.68s mi_mean= 0.5846  (n_seeds=3)
+
+  pair=10  optuna          time_mean=   7.51s mi_mean= 0.5765  (n_seeds=3)
+  pair=10  cma             time_mean=   0.38s mi_mean= 0.5765  (n_seeds=3)
+  pair=10  cma_batch       time_mean=   0.36s mi_mean= 0.5765  (n_seeds=3)
+  pair=10  random_batch    time_mean=   0.83s mi_mean= 0.5765  (n_seeds=3)
+  pair=10  numba_kernel    time_mean=   0.68s mi_mean= 0.5765  (n_seeds=3)
+
+  pair=11  optuna          time_mean=   7.19s mi_mean= 0.5852  (n_seeds=3)
+  pair=11  cma             time_mean=   0.39s mi_mean= 0.5852  (n_seeds=3)
+  pair=11  cma_batch       time_mean=   0.36s mi_mean= 0.5852  (n_seeds=3)
+  pair=11  random_batch    time_mean=   0.79s mi_mean= 0.5852  (n_seeds=3)
+  pair=11  numba_kernel    time_mean=   0.67s mi_mean= 0.5852  (n_seeds=3)
+
+
+# AGGREGATE
+  optimizer         time_total   time_mean     mi_mean      mi_std   speedup_vs_optuna
+  optuna              268.15s      7.449s      0.5801      0.0043                1.00x
+  cma                  14.71s      0.409s      0.5801      0.0043               18.23x
+  cma_batch            13.81s      0.384s      0.5808      0.0056               19.41x
+  random_batch         31.14s      0.865s      0.5801      0.0043                8.61x
+  numba_kernel         25.06s      0.696s      0.5801      0.0043               10.70x
+
+# MI-quality: fraction of (pair, seed) cells where optimizer's MI is within 1% / 5% / 10% of the per-cell best across all 4 optimizers
+  optuna          within_1%=0.94  within_5%=1.00  within_10%=1.00
+  cma             within_1%=0.94  within_5%=1.00  within_10%=1.00
+  cma_batch       within_1%=1.00  within_5%=1.00  within_10%=1.00
+  random_batch    within_1%=0.94  within_5%=1.00  within_10%=1.00
+  numba_kernel    within_1%=0.94  within_5%=1.00  within_10%=1.00
+

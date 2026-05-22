@@ -103,7 +103,7 @@ def _bench_one(optimizer: str, pair_seed: int, opt_seed: int):
 
 
 def main():
-    OPTIMIZERS = ("optuna", "cma", "cma_batch", "random_batch")
+    OPTIMIZERS = ("optuna", "cma", "cma_batch", "random_batch", "numba_kernel")
     pair_seeds = list(range(N_PAIRS))
     opt_seeds = list(range(N_SEEDS))
 

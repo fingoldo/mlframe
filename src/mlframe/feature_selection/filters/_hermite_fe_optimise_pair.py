@@ -80,10 +80,10 @@ def optimise_hermite_pair(
         raise ValueError(
             f"unknown mi_estimator={mi_estimator!r}; expected 'plugin' or 'ksg'"
         )
-    if optimizer not in ("optuna", "cma", "cma_batch", "random_batch"):
+    if optimizer not in ("optuna", "cma", "cma_batch", "random_batch", "numba_kernel"):
         raise ValueError(
             f"unknown optimizer={optimizer!r}; expected one of "
-            f"'optuna', 'cma', 'cma_batch', 'random_batch'"
+            f"'optuna', 'cma', 'cma_batch', 'random_batch', 'numba_kernel'"
         )
     # Auto-pick n_neighbors based on n.
     n = len(y)
@@ -353,7 +353,7 @@ def optimise_hermite_pair(
         bf_idx_best = -1
         raw_mi_best = -np.inf
 
-        if optimizer in ("cma", "cma_batch", "random_batch"):
+        if optimizer in ("cma", "cma_batch", "random_batch", "numba_kernel"):
             # 2026-05-20 NEW-D: translate the Optuna-trial-based
             # ``early_stop_no_improve`` knob into a CMA-generation count.
             _early_stop_gens = None
@@ -391,11 +391,27 @@ def optimise_hermite_pair(
                         eval_kwargs=eval_kwargs,
                         early_stop_no_improve_gens=_early_stop_gens,
                     )
-                else:  # random_batch
+                elif optimizer == "random_batch":
                     # 2026-05-22: pure batch random search + elitism. No
                     # Optuna, no CMA dependency. One MI batch call per iter.
                     from ._hermite_fe_optimise import _run_random_batch_search
                     cma_result = _run_random_batch_search(
+                        ca_size=ca_size, cb_size=cb_size,
+                        coef_range=coef_range, n_trials=n_trials, seed=seed,
+                        direction_only=direction_only,
+                        warm_start_seeds=warm_seeds,
+                        eval_kwargs=eval_kwargs,
+                    )
+                else:  # numba_kernel
+                    # 2026-05-22: all-numba single-pair entry point. Zero
+                    # joblib / Optuna / cma deps -- one @njit(parallel=True)
+                    # kernel inlines polyeval / bf dispatch / plugin MI.
+                    # Limitations vs other optimizers: requires plugin MI
+                    # (no KSG), polynomial basis only (no RBF/Sigmoid factory
+                    # bases), no eval_pair_fn closures (multi_fidelity is
+                    # disabled inside the kernel).
+                    from ._numba_polynom_optimizer import run_numba_kernel_search
+                    cma_result = run_numba_kernel_search(
                         ca_size=ca_size, cb_size=cb_size,
                         coef_range=coef_range, n_trials=n_trials, seed=seed,
                         direction_only=direction_only,

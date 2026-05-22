@@ -349,6 +349,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_max_polynom_degree: int = 8,
         fe_min_polynom_coeff: float = -10.0,
         fe_max_polynom_coeff: float = 10.0,
+        # 2026-05-22: explicit __init__ params for the fe-* knobs that the
+        # polynom-pair FE inner search consults via getattr(self, ...).
+        # Pre-fix these were accessible by setting them as attributes after
+        # construction (``mrmr.fe_optimizer = 'cma_batch'``) but the
+        # ``FeatureSelectionConfig.mrmr_kwargs`` validator rejected them as
+        # unknown because they weren't in this signature. Adding here lets
+        # users pass them through ``mrmr_kwargs={'fe_optimizer': ...}`` via
+        # the suite config.
+        fe_hermite_l2_penalty: float = 0.05,
+        fe_polynomial_basis: str = "chebyshev",
+        fe_mi_estimator: str = "plugin",
+        # 2026-05-22: cma_batch is the new default (20.58x faster than
+        # optuna, within_1%=1.00 vs all other optimizers on a 12-pair bench).
+        # See profiling/bench_polynom_optimizers.py.
+        fe_optimizer: str = "cma_batch",
+        fe_warm_start: bool = True,
+        fe_multi_fidelity: bool = True,
         # verbosity and formatting
         verbose: bool | int = 0,
         ndigits: int = 5,
