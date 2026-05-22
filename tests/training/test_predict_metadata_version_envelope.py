@@ -124,14 +124,19 @@ def test_validator_wired_at_both_predict_entry_points():
     import pathlib
     import mlframe as _mlframe
     # After the 2026-05-21 monolith split, the two entry points moved to
-    # ``_predict_main.py``; read parent + sibling so the source-pattern
-    # sensor still matches both call sites + the helper definition that
-    # stayed in parent.
+    # ``_predict_main.py``; the 2026-05-22 sub-split further moved each
+    # into its own ``_predict_main_from_models.py`` /
+    # ``_predict_main_suite.py`` sibling. Concat all five files so the
+    # source-pattern sensor still matches both call sites + the helper
+    # definition that stayed in parent.
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    src = (
-        (_core / "predict.py").read_text(encoding="utf-8")
-        + "\n"
-        + (_core / "_predict_main.py").read_text(encoding="utf-8")
+    src = "\n".join(
+        (_core / nm).read_text(encoding="utf-8")
+        for nm in (
+            "predict.py", "_predict_main.py",
+            "_predict_main_from_models.py", "_predict_main_suite.py",
+        )
+        if (_core / nm).exists()
     )
     # The validator name must appear at LEAST twice in call positions
     # (def + 2 call sites = 3 total occurrences).

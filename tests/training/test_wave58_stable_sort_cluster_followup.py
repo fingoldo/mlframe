@@ -62,17 +62,22 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 def _read(rel: str) -> str:
     """Read a source file under src/mlframe.
 
-    2026-05-21 hermite_fe monolith split compat: when the requested file is
-    ``feature_selection/filters/hermite_fe.py``, append the optimise + mi
-    siblings so source-pattern sensors that pre-date the split still match.
+    Monolith-split compat: append matching siblings so source-pattern
+    sensors that pre-date the splits still match.
     """
     primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
     if rel == "feature_selection/filters/hermite_fe.py":
         _dir = MLFRAME_ROOT / "feature_selection" / "filters"
-        for nm in ("_hermite_fe_optimise.py", "_hermite_fe_mi.py"):
+        for nm in ("_hermite_fe_optimise.py", "_hermite_fe_optimise_pair.py", "_hermite_fe_mi.py"):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif rel == "feature_selection/filters/cat_interactions.py":
+        # 2026-05-22 split: run_cat_interaction_step (which contains the
+        # kway_results.sort site) moved to _cat_interactions_step.py.
+        sibling = MLFRAME_ROOT / "feature_selection" / "filters" / "_cat_interactions_step.py"
+        if sibling.exists():
+            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     return primary
 
 
