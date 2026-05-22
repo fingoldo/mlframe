@@ -62,6 +62,21 @@ DEFAULT_FEATURE_DRIFT_WARN_THRESHOLD_Z: float = 3.0
 than this many train-std away from the train mean."""
 
 
+ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {}
+"""Placeholder for a future recurrent-model (LSTM / GRU / RNN /
+Transformer) override under feature drift.
+
+The MLP override family below was grounded by sweeps over a tabular
+sklearn-MLP. The recurrent failure mode under drift is mechanically
+different: feature/sequence shift evolves the hidden state through
+unfamiliar regions, and the cure is more about input gating / robust
+attention / sequence normalisation than the "collapse to linear"
+strategy that wins on tabular MLP. Until a recurrent-sequence-DGP
+sweep grounds equivalent values, this dict stays EMPTY and the wire-in
+in ``_phase_recurrent`` does not auto-apply any recurrent override.
+"""
+
+
 ROBUST_MLP_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {
     "alpha": 1e-4,
     "hidden_layer_sizes": (32, 16),
@@ -212,8 +227,20 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             elif _act in ("leaky_relu", "leakyrelu"):
                 out["network_params"]["activation_function"] = torch.nn.LeakyReLU
             elif _act == "identity":
-                # No hidden layers -> linear head; weights init still kaiming-fine.
-                out["network_params"]["nlayers"] = 0
+                # Identity activation = a stack of linear layers with no
+                # nonlinearity between them. Mathematically this collapses
+                # to a single linear transform on the input. The mlframe
+                # ``generate_mlp`` REJECTS ``nlayers < 1`` (raises
+                # ValueError), so we cannot encode this as ``nlayers=0``;
+                # instead we keep the requested ``nlayers`` and inject
+                # ``torch.nn.Identity`` as the per-layer activation. The
+                # composition is still linear because every layer is
+                # ``Linear -> Identity``.
+                out["network_params"]["activation_function"] = torch.nn.Identity
+                # Aux dropout sources also break linearity if non-zero --
+                # zero them so the network really IS linear end-to-end.
+                out["network_params"]["dropout_prob"] = 0.0
+                out["network_params"]["inputs_dropout_prob"] = 0.0
             else:
                 untranslated.append(f"activation={_act}")
         except Exception:
@@ -224,6 +251,51 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             continue
         out.setdefault("model_params", {})[k] = v
 
+    if untranslated:
+        out["__untranslated__"] = untranslated
+    return out
+
+
+def translate_sklearn_mlp_overrides_to_recurrent_config_kwargs(
+    sklearn_overrides: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Translate the same sklearn-MLP-shape override into the
+    ``RecurrentConfig`` field shape used by mlframe's LSTM / GRU / RNN /
+    Transformer wrappers.
+
+    Mapping (BEST-EFFORT, not empirically grounded for recurrent yet):
+      - ``alpha`` -> ``weight_decay`` (RecurrentConfig has it directly).
+      - ``hidden_layer_sizes`` -> ``mlp_hidden_sizes`` (the post-recurrent
+        MLP head; the recurrent layers themselves are uncontrolled here).
+      - ``activation`` -> no direct mapping. ``identity`` cannot collapse
+        the recurrent cell to linear, so this key is recorded as
+        untranslated rather than silently dropped.
+
+    This translator is NOT used at runtime until
+    ``ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT`` is populated (currently
+    empty). The empirical grounding for recurrent will require a
+    sequence-DGP sweep -- the MLP sweep does not transfer because the
+    recurrent failure mode (hidden-state extrapolation) is mechanically
+    different from MLP feature-range extrapolation.
+    """
+    if not sklearn_overrides:
+        return {}
+    out: Dict[str, Any] = {}
+    untranslated: List[str] = []
+    if "alpha" in sklearn_overrides:
+        out["weight_decay"] = float(sklearn_overrides["alpha"])
+    if "hidden_layer_sizes" in sklearn_overrides:
+        hls = sklearn_overrides["hidden_layer_sizes"]
+        if isinstance(hls, (tuple, list)) and len(hls) >= 1:
+            out["mlp_hidden_sizes"] = tuple(int(h) for h in hls)
+        else:
+            untranslated.append("hidden_layer_sizes")
+    if "activation" in sklearn_overrides:
+        # Recurrent cells (LSTM/GRU/RNN) have hard-coded gate activations;
+        # transformer uses softmax+MLP. None of them have a single
+        # "activation" knob the way sklearn MLPRegressor does. Skip rather
+        # than silently force an incompatible value.
+        untranslated.append(f"activation={sklearn_overrides['activation']} (no direct recurrent equivalent)")
     if untranslated:
         out["__untranslated__"] = untranslated
     return out

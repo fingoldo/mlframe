@@ -309,14 +309,20 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         })
         assert out["network_params"]["activation_function"] is torch.nn.Tanh
 
-    def test_activation_identity_collapses_to_nlayers_0(self):
+    def test_activation_identity_uses_nn_identity_with_zero_dropout(self):
         """The bench winner uses ``activation='identity'`` -- a linear head.
-        The mlframe MLP has no native identity activation, so we encode it as
-        ``nlayers=0`` (no hidden layer, just the final linear projection)."""
+        mlframe ``generate_mlp`` rejects ``nlayers < 1`` (ValueError), so we
+        instead use ``torch.nn.Identity`` as the per-layer activation and
+        zero out dropout sources. Layer composition is then Linear -> Identity
+        -> Linear -> Identity ..., mathematically collapsing to a single linear
+        transform of the input -- equivalent to sklearn's identity activation."""
+        import torch
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
             "activation": "identity",
         })
-        assert out["network_params"]["nlayers"] == 0
+        assert out["network_params"]["activation_function"] is torch.nn.Identity
+        assert out["network_params"]["dropout_prob"] == 0.0
+        assert out["network_params"]["inputs_dropout_prob"] == 0.0
 
     def test_unknown_activation_recorded_as_untranslated(self):
         out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({
@@ -340,9 +346,12 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         # Translation: AdamW weight_decay=1e-4, network nlayers=0 (identity
         # collapse), plus the hidden topology still encoded (the wire-in's
         # deep-merge consumes network_params).
+        import torch
         assert out["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
-        assert out["network_params"]["nlayers"] == 0
+        assert out["network_params"]["activation_function"] is torch.nn.Identity
         assert out["network_params"]["first_layer_num_neurons"] == 32
+        assert out["network_params"]["nlayers"] == 2  # from hidden=(32, 16)
+        assert out["network_params"]["dropout_prob"] == 0.0
         assert "__untranslated__" not in out
 
 
@@ -403,10 +412,14 @@ class TestFeatureDriftAutoActionWireIn:
 
         # The original use_layernorm=False is preserved (drift override does
         # not touch it); first_layer_num_neurons is OVERRIDDEN by the bench
-        # pick (32, was 128); nlayers comes from the bench pick (0, identity).
+        # pick (32, was 128); activation_function becomes torch.nn.Identity
+        # (linear-collapse path) and dropout sources are zeroed.
+        import torch
         assert _merged["network_params"]["use_layernorm"] is False
         assert _merged["network_params"]["first_layer_num_neurons"] == 32
-        assert _merged["network_params"]["nlayers"] == 0
+        assert _merged["network_params"]["nlayers"] == 2
+        assert _merged["network_params"]["activation_function"] is torch.nn.Identity
+        assert _merged["network_params"]["dropout_prob"] == 0.0
         # learning_rate stays untouched by the override; weight_decay is
         # added from the bench pick's alpha translation.
         assert _merged["model_params"]["learning_rate"] == 3e-3
