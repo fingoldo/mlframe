@@ -327,9 +327,14 @@ def preprocess_dataframe(
     # Treat StringDtype as legacy object; the explicit cat-handling path
     # converts to ``category`` downstream when appropriate.
     if isinstance(df, pd.DataFrame):
+        # Pandas allows duplicate column names; ``df[c]`` for a duplicate-named
+        # ``c`` returns a DataFrame (not a Series) which has no ``.dtype``.
+        # Walk dtypes positionally instead so the column-by-name lookup never
+        # fires on duplicates - the dedicated dup-column raise downstream
+        # handles surfacing the real error to the caller.
         _string_cols = [
-            c for c in df.columns
-            if isinstance(df[c].dtype, pd.StringDtype)
+            c for c, _dt in zip(df.columns, df.dtypes)
+            if isinstance(_dt, pd.StringDtype)
         ]
         if _string_cols:
             df = df.copy()

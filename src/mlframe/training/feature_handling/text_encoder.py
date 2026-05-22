@@ -217,8 +217,8 @@ class TextColumnEncoder:
         texts: Sequence[str],
         also_transform: bool = False,
     ):
-        # TODO: when polars-ds ships native TF-IDF / hashing, branch
-        # here via self._dispatcher.has() and feed the polars-native
+        # TODO 2026-05-21: when polars-ds ships native TF-IDF / hashing,
+        # branch here via self._dispatcher.has() and feed the polars-native
         # path. For now sklearn is the only impl.
         from sklearn.feature_extraction.text import (
             HashingVectorizer,

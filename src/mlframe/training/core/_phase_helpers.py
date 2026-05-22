@@ -489,11 +489,11 @@ def _phase_pandas_conversion_and_cat_prep(
         # ``memory_usage(deep=True)`` is heavier than ``estimated_size`` but
         # only fires when conversion already paid the materialisation cost.
         #
-        # 2026-05-21 observability fix: prior code had NO log around the
+        # Observability: prior code had NO log around the
         # ``memory_usage(deep=True)`` call which on 4M-row x 25-col frames
-        # with any object-dtype columns scans every cell -- 6.5-min silent
-        # gap observed on the 2026-05-21 TVT run. Bracketing with t0/t1
-        # logs so operators see WHERE the wall-time goes.
+        # with any object-dtype columns scans every cell - multi-minute
+        # silent gap observed on TVT runs. Bracket with t0/t1 logs so
+        # operators see WHERE the wall-time goes.
         _t0_memsize = timer()
         try:
             if isinstance(train_df_pd, pd.DataFrame):
@@ -524,7 +524,7 @@ def _phase_pandas_conversion_and_cat_prep(
         # Joint train+val union for stable codes across splits. Test never
         # contributes to the union (held-out must look unseen); OOV values
         # land as null codes.
-        # 2026-05-21 observability fix: bracket with t0/t1 logs so the
+        # Observability: bracket with t0/t1 logs so the
         # cat-feature-prep step's wall-time is visible (silent gap on
         # 4M-row frames previously).
         _t0_cb_prep = timer()

@@ -264,6 +264,55 @@ def _train_model_with_fallback(
     # type for cat_feature ... =NaN`` (fuzz c0062). Mirror the polars
     # __MISSING__ sentinel for the pandas surface so the bug is patched
     # at the trainer boundary regardless of which upstream path led here.
+    if _is_pandas and model_type_name in CATBOOST_MODEL_TYPES:
+        # CatBoost Pool rejects category-dtype columns absent from cat_features
+        # with "has dtype 'category' but is not in cat_features list". The
+        # ordinal-encoding auto-flip path narrows cat_features when text/
+        # embedding routing reclassifies a column without reverting its
+        # category dtype on the frame. Reconcile here: widen cat_features
+        # with any category-dtype column not already routed elsewhere, and
+        # cast category-dtype columns routed to text/embedding back to object.
+        _text_set = set(fit_params.get("text_features") or [])
+        _emb_set = set(fit_params.get("embedding_features") or [])
+        _cat_dtype_cols = [
+            c for c, dt in zip(train_df.columns, train_df.dtypes)
+            if isinstance(dt, pd.CategoricalDtype)
+        ]
+        _explicit_cats = set(fit_params.get("cat_features") or [])
+        _missing_cats = [c for c in _cat_dtype_cols if c not in _explicit_cats and c not in _text_set and c not in _emb_set]
+        if _missing_cats:
+            fit_params["cat_features"] = sorted(_explicit_cats | set(_missing_cats))
+        _decategorise_for_text_or_emb = [c for c in _cat_dtype_cols if c in _text_set or c in _emb_set]
+        if _decategorise_for_text_or_emb:
+            train_df = train_df.copy() if not getattr(train_df, "_mlframe_filled", False) else train_df
+            for _c in _decategorise_for_text_or_emb:
+                # Use ``astype("string").fillna(sentinel)`` so OOV-null cells
+                # (from the train+val joint Enum cast, strict=False on test)
+                # don't surface as NaN -- CB rejects NaN in cat_features with
+                # "Invalid type for cat_feature ... NaN: cat_features must be
+                # integer or string". Sentinel matches the upstream Polars
+                # __MISSING__ pattern.
+                train_df[_c] = train_df[_c].astype("string").fillna("__MISSING__").astype(object)
+            train_df._mlframe_filled = True
+            # Mirror onto eval_set for early-stopping evaluation.
+            _eval_set = fit_params.get("eval_set")
+            if _eval_set:
+                _new_eval_set = []
+                for pair in _eval_set:
+                    if isinstance(pair, tuple) and len(pair) == 2 and isinstance(pair[0], pd.DataFrame):
+                        _eval_df, _eval_y = pair
+                        _eval_df_filled = _eval_df
+                        for _c in _decategorise_for_text_or_emb:
+                            if _c in _eval_df_filled.columns:
+                                if not getattr(_eval_df_filled, "_mlframe_filled", False):
+                                    _eval_df_filled = _eval_df_filled.copy()
+                                _eval_df_filled[_c] = _eval_df_filled[_c].astype("string").fillna("__MISSING__").astype(object)
+                                _eval_df_filled._mlframe_filled = True
+                        _new_eval_set.append((_eval_df_filled, _eval_y))
+                    else:
+                        _new_eval_set.append(pair)
+                fit_params["eval_set"] = _new_eval_set
+
     if _is_pandas and model_type_name in CATBOOST_MODEL_TYPES and "cat_features" in fit_params and fit_params["cat_features"]:
         _cat_cols = [c for c in fit_params["cat_features"] if c in train_df.columns]
         if _cat_cols:
@@ -456,7 +505,15 @@ def _train_model_with_fallback(
                     "extraction.",
                     text_feat,
                 )
+                # Reroute the dropped text columns to cat_features so CB's
+                # categorical handling still sees them (otherwise CB tries to
+                # cast the string values to float on the retry and raises
+                # ``Cannot convert 'X' to float``).
+                _existing_cats = list(fit_params.get("cat_features") or [])
+                _moved_to_cat = [c for c in text_feat if c not in _existing_cats]
                 fit_params = {k: v for k, v in fit_params.items() if k != "text_features"}
+                if _moved_to_cat:
+                    fit_params["cat_features"] = _existing_cats + _moved_to_cat
                 try_again = True
             else:
                 # Raise -- same error without text_features in params is

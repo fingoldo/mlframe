@@ -320,13 +320,13 @@ def get_training_configs(
     CB_CLASSIF = CB_GENERAL_PARAMS.copy()
     CB_CLASSIF.update({"eval_metric": def_classif_metric})
     # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
-    # TODO: Raise issue at https://github.com/catboost/catboost/issues
+    # TODO 2026-05-21: Raise issue at https://github.com/catboost/catboost/issues
     # "custom_metric": tuple(catboost_custom_classif_metrics or [])
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
     CB_REGR.update({"eval_metric": def_regr_metric})
     # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
-    # TODO: Raise issue at https://github.com/catboost/catboost/issues
+    # TODO 2026-05-21: Raise issue at https://github.com/catboost/catboost/issues
     # "custom_metric": tuple(catboost_custom_regr_metrics or [])
 
     HGB_GENERAL_PARAMS = dict(

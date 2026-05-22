@@ -577,6 +577,13 @@ def train_recurrent_models(
                     ctx=ctx, split="test",
                 ) if (test_sequences is not None or test_df_pd is not None) else None
 
+                # ``use_ordinary_models=False`` + ``recurrent_models=[lstm]`` is a
+                # valid suite combo where the recurrent branch is the only producer
+                # for this target_type. Ensure the nested entry exists before
+                # appending so we don't trip ``KeyError`` on a fresh
+                # ``models[target_type]`` slot.
+                models.setdefault(target_type, {}).setdefault(cur_target_name, [])
+
                 if val_preds_arr is None and test_preds_arr is None and train_preds is None:
                     # All splits failed prediction - graceful skip, keep moving (per continue_on_model_failure semantics).
                     logger.warning("Recurrent %s for %s: all splits failed prediction; skipping ensemble integration.", recurrent_model_name, cur_target_name)
