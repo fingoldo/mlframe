@@ -833,9 +833,10 @@ def make_train_test_split(
         )
 
     logger.info(
-        f"{len(train_idx):_} train rows {train_details}, "
-        f"{len(val_idx):_} val rows {val_details}, "
-        f"{len(test_idx):_} test rows {test_details}."
+        "%d train rows %s, %d val rows %s, %d test rows %s.",
+        len(train_idx), train_details,
+        len(val_idx), val_details,
+        len(test_idx), test_details,
     )
 
     return (

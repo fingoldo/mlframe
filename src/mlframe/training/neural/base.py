@@ -458,7 +458,7 @@ class PytorchLightningEstimator(BaseEstimator):
             callbacks.append(StochasticWeightAveraging(**swa_params))
 
         if has_validation:
-            logger.info(f"Using early_stopping_rounds={self.early_stopping_rounds:_}")
+            logger.info("Using early_stopping_rounds=%d", self.early_stopping_rounds)
             callbacks.append(
                 EarlyStoppingCallback(
                     monitor=f"val_{metric_name}",

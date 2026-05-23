@@ -309,11 +309,13 @@ def generate_mlp(
 
         architecture = "->".join(str(size) for size in layer_sizes)
         logger.info(
-            f"Network architecture: {architecture} "
-            f"[{model_type}, n={format_num(total_neurons)}, w={format_num(total_weights)}] "
-            f"arch={arch_descr} act={act_descr} "
-            f"drop=in:{inputs_dropout_prob:g}/hid:{dropout_prob:g} "
-            f"norm={norm_descr} init={init_descr}"
+            "Network architecture: %s [%s, n=%s, w=%s] arch=%s act=%s "
+            "drop=in:%g/hid:%g norm=%s init=%s",
+            architecture, model_type,
+            format_num(total_neurons), format_num(total_weights),
+            arch_descr, act_descr,
+            inputs_dropout_prob, dropout_prob,
+            norm_descr, init_descr,
         )
 
     if weights_init_fcn:

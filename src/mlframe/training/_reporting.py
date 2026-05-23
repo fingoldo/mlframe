@@ -711,8 +711,9 @@ def report_regression_model_perf(
         if _is_multioutput:
             if print_report:
                 logger.info(
-                    f"  [multioutput regression: target shape={targets_arr.shape}, "
-                    f"skipping scatter plot -- per-output plotting would mix K clouds]"
+                    "  [multioutput regression: target shape=%s, "
+                    "skipping scatter plot -- per-output plotting would mix K clouds]",
+                    targets_arr.shape,
                 )
         else:
             from .regression_residual_audit import (
