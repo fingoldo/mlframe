@@ -336,6 +336,16 @@ class PytorchLightningEstimator(BaseEstimator):
                 torch.set_float32_matmul_precision(self.float32_matmul_precision)
                 logger.info("Enabled float32_matmul_precision=%s", self.float32_matmul_precision)
 
+        # Accept both eval_set conventions:
+        #   - bare 2-tuple ``(X_val, y_val)`` (this estimator's native form)
+        #   - list-of-tuples ``[(X_val, y_val), ...]`` (LightGBM / XGBoost form,
+        #     which ``_maybe_pass_sample_weight`` in composite_ensemble.py emits
+        #     uniformly so the same fit-call works across boosters and MLP).
+        # Without this normalisation, the OOF refit path indexes ``eval_set[1]``
+        # below and raises IndexError on the 1-element list -> MLP component
+        # silently dropped from CT_ENSEMBLE for every target (TVT prod 2026-05-23).
+        if isinstance(eval_set, list) and eval_set and isinstance(eval_set[0], tuple):
+            eval_set = eval_set[0]
         has_validation = eval_set[0] is not None
 
         eval_sample_weight = fit_params.get("eval_sample_weight")

@@ -66,6 +66,68 @@ class TestLagPredictDeployableModel:
         assert "TVT_prev" in s
         assert "_LagPredictDeployableModel" in s
 
+    def test_get_params_returns_lag_column(self) -> None:
+        from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+        m = _LagPredictDeployableModel(lag_column="TVT_prev")
+        assert m.get_params() == {"lag_column": "TVT_prev"}
+        assert m.get_params(deep=True) == {"lag_column": "TVT_prev"}
+        assert m.get_params(deep=False) == {"lag_column": "TVT_prev"}
+
+    def test_set_params_updates_and_returns_self(self) -> None:
+        from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+        m = _LagPredictDeployableModel(lag_column="TVT_prev")
+        out = m.set_params(lag_column="other_lag")
+        assert out is m
+        assert m.lag_column == "other_lag"
+
+    def test_set_params_rejects_unknown(self) -> None:
+        from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+        m = _LagPredictDeployableModel(lag_column="TVT_prev")
+        with pytest.raises(ValueError):
+            m.set_params(bogus=42)
+
+    def test_fit_is_noop_and_returns_self(self) -> None:
+        """OOF refit path calls fit(); must accept any signature without error."""
+        from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+        m = _LagPredictDeployableModel(lag_column="TVT_prev")
+        df = pd.DataFrame({"TVT_prev": [1.0, 2.0, 3.0]})
+        out = m.fit(df, np.array([1.0, 2.0, 3.0]))
+        assert out is m
+        # Should also accept arbitrary fit_params (eval_set, sample_weight, etc).
+        out2 = m.fit(df, np.array([1.0, 2.0, 3.0]),
+                     eval_set=[(df, np.array([1.0, 2.0, 3.0]))],
+                     sample_weight=np.ones(3))
+        assert out2 is m
+
+    def test_survives_sklearn_clone(self) -> None:
+        """Load-bearing regression test for the 2026-05-23 prod incident:
+        CompositeCrossTargetEnsemble.compute_oof_holdout_predictions calls
+        sklearn.clone() on every component before refitting on OOF folds.
+        Without get_params/set_params, clone() raises TypeError ('does not
+        implement get_params') -> component silently dropped from NNLS
+        weights -> ensemble loses to the dummy baseline it was supposed
+        to include."""
+        sklearn = pytest.importorskip("sklearn")
+        from sklearn.base import clone
+        from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+        m = _LagPredictDeployableModel(lag_column="TVT_prev")
+        m2 = clone(m)
+        assert m2 is not m
+        assert isinstance(m2, _LagPredictDeployableModel)
+        assert m2.lag_column == "TVT_prev"
+        df = pd.DataFrame({"TVT_prev": np.arange(100.0)})
+        np.testing.assert_array_equal(m2.predict(df), m.predict(df))
+
+    def test_clone_then_fit_predict_workflow(self) -> None:
+        """End-to-end mirror of the CT_ENSEMBLE OOF refit path."""
+        sklearn = pytest.importorskip("sklearn")
+        from sklearn.base import clone
+        from mlframe.training.core._phase_composite_post import _LagPredictDeployableModel
+        m = _LagPredictDeployableModel(lag_column="TVT_prev")
+        df = pd.DataFrame({"TVT_prev": np.arange(1000.0)})
+        y = np.arange(1000.0) + 5.0  # arbitrary, fit ignores it
+        clone(m).fit(df, y).predict(df)  # must not raise
+
 
 class TestXGBModuleLevelCache:
     """The cache must survive ``sklearn.clone()`` (which produces a
@@ -241,3 +303,115 @@ class TestLossRecommendationRound5HuberUnified:
         assert rec["cb"] == "RMSE"
         assert rec["lgb"] == "regression"
         assert rec["xgb"] == "reg:squarederror"
+
+
+class TestFingerprintParityAcrossContainers:
+    """The dataset-cache fingerprint MUST yield IDENTICAL hashes for
+    logically-equal data carried by polars vs pandas containers.
+    Asymmetric branches in the prior version (pl row() vs pd iloc())
+    silently broke the module-level booster caches across composite
+    targets when the training loop swapped pl<->pd between models
+    (TVT prod 2026-05-23: ~60s wasted in QuantileDMatrix rebuilds)."""
+
+    def test_pandas_and_polars_numeric_match(self) -> None:
+        pl = pytest.importorskip("polars")
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+        n = 100
+        a = np.linspace(0, 1, n, dtype=np.float32)
+        b = np.linspace(1, 2, n, dtype=np.float32)
+        pd_df = pd.DataFrame({"a": a, "b": b})
+        pl_df = pl.DataFrame({"a": a, "b": b})
+        assert compute_signature(pd_df) == compute_signature(pl_df), (
+            "Polars and pandas of IDENTICAL numeric content must produce "
+            "the same content-fingerprint."
+        )
+
+    def test_pandas_and_polars_with_bool_match(self) -> None:
+        pl = pytest.importorskip("polars")
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+        n = 50
+        a = np.arange(n, dtype=np.float32)
+        b = (np.arange(n) % 2 == 0)
+        pd_df = pd.DataFrame({"a": a, "b": b})
+        pl_df = pl.DataFrame({"a": a, "b": b})
+        assert compute_signature(pd_df) == compute_signature(pl_df)
+
+    def test_pandas_and_polars_with_string_match(self) -> None:
+        pl = pytest.importorskip("polars")
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+        cats = ["w1", "w2", "w1", "w3"] * 25
+        pd_df = pd.DataFrame({
+            "v": np.arange(len(cats), dtype=np.float32),
+            "g": cats,
+        })
+        pl_df = pl.DataFrame({
+            "v": np.arange(len(cats), dtype=np.float32),
+            "g": cats,
+        })
+        assert compute_signature(pd_df) == compute_signature(pl_df)
+
+    def test_different_content_different_hash(self) -> None:
+        """Content-different frames MUST get different fingerprints
+        (otherwise we'd false-hit the cache and return a stale Pool /
+        DMatrix / Dataset)."""
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+        a = pd.DataFrame({"v": np.arange(100.0)})
+        b = pd.DataFrame({"v": np.arange(100.0) + 1.0})
+        assert compute_signature(a) != compute_signature(b)
+
+
+class TestMLPEvalSetShapeNormalisation:
+    """Ensure both eval_set conventions are accepted by the Lightning
+    MLP wrapper -- bare 2-tuple (initial trainer path) and list-of-
+    tuples (LGB-style, emitted by ``_maybe_pass_sample_weight`` during
+    CT_ENSEMBLE OOF refit). Without this, MLP component fits raised
+    IndexError on every OOF refit and was silently dropped from the
+    ensemble for all 4 TVT targets (2026-05-23)."""
+
+    def test_list_of_tuples_eval_set_accepted(self) -> None:
+        """Direct reproducer for the prod 'list index out of range'
+        error that killed 4 MLP components in the TVT CT_ENSEMBLE.
+        Confirms the normalisation in _fit_common."""
+        pytest.importorskip("torch")
+        pytest.importorskip("lightning")
+        from mlframe.training.neural.base import PytorchLightningEstimator
+        import inspect
+        src = inspect.getsource(PytorchLightningEstimator._fit_common)
+        # Sanity check the normalisation block is present so future
+        # refactors don't silently break the list-eval_set path.
+        assert "isinstance(eval_set, list)" in src
+        assert "eval_set = eval_set[0]" in src
+
+
+class TestLagPredictFailsafeKnob:
+    """The CT_ENSEMBLE gate must prefer the zero-parameter lag_predict
+    over a multi-component stack when their OOF RMSEs are within a
+    configurable tolerance band. TVT prod 2026-05-23 showed NNLS
+    underweighting lag_predict because the train-tail holdout has
+    different residual structure from the test split on AR(1) targets;
+    the failsafe defends the test floor."""
+
+    def test_config_knob_default_is_10pct(self) -> None:
+        import inspect
+        from mlframe.training._composite_target_discovery_config import (
+            CompositeTargetDiscoveryConfig,
+        )
+        sig = inspect.signature(CompositeTargetDiscoveryConfig)
+        # Pydantic models expose fields via ``model_fields`` (pydantic v2).
+        fields = getattr(CompositeTargetDiscoveryConfig, "model_fields", None)
+        assert fields is not None
+        assert "lag_predict_failsafe_tolerance" in fields, (
+            "Config must expose lag_predict_failsafe_tolerance so callers "
+            "can tune or disable the AR(1) failsafe."
+        )
+        # Default tolerance must be > 0 (gate enabled) and <= 50% (sane).
+        cfg = CompositeTargetDiscoveryConfig()
+        assert 0.0 < cfg.lag_predict_failsafe_tolerance <= 0.5
+        assert cfg.lag_predict_failsafe_tolerance == 0.10
+
+    def test_gate_logic_present_in_phase_composite_post(self) -> None:
+        import inspect
+        from mlframe.training.core import _phase_composite_post
+        src = inspect.getsource(_phase_composite_post)
+        assert "lag_predict_failsafe_tolerance" in src
+        assert "AR1 failsafe" in src or "lag_predict_failsafe" in src

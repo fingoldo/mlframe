@@ -62,10 +62,32 @@ class _LagPredictDeployableModel:
     Prediction rule: ``y_hat[i] = X[lag_column].iloc[i]`` -- zero
     trainable parameters, returns the lag-target value verbatim per
     row. Inference cost is one column access; never extrapolates.
+
+    Implements ``get_params``/``set_params``/``fit`` so ``sklearn.clone``
+    accepts it during honest-OOF refit (CompositeCrossTargetEnsemble path,
+    2026-05-23 prod incident: clone failed -> component dropped -> NNLS
+    weights missed lag_predict and ensemble landed at RMSE 13.30 vs
+    lag_predict's 11.58 floor).
     """
 
     def __init__(self, lag_column: str) -> None:
         self.lag_column = str(lag_column)
+
+    def get_params(self, deep: bool = True) -> dict:  # noqa: ARG002 - sklearn API
+        return {"lag_column": self.lag_column}
+
+    def set_params(self, **params: Any) -> "_LagPredictDeployableModel":
+        for k, v in params.items():
+            if k != "lag_column":
+                raise ValueError(
+                    f"_LagPredictDeployableModel has no parameter {k!r}; "
+                    f"valid: ['lag_column']"
+                )
+            self.lag_column = str(v)
+        return self
+
+    def fit(self, X: Any, y: Any = None, **fit_params: Any) -> "_LagPredictDeployableModel":  # noqa: ARG002
+        return self
 
     def predict(self, X: Any) -> np.ndarray:
         if hasattr(X, "loc") or hasattr(X, "__getitem__"):
@@ -76,7 +98,6 @@ class _LagPredictDeployableModel:
                 return np.asarray(col, dtype=np.float64).reshape(-1)
             except (KeyError, TypeError):
                 pass
-        # Polars fallback
         if hasattr(X, "select"):
             try:
                 col = X.select(self.lag_column).to_numpy().reshape(-1)
@@ -722,7 +743,46 @@ def run_composite_post_processing(
                             _ens_diff = _ens_holdout - _oof_y_holdout
                             _ens_rmse = float(np.sqrt(np.mean(_ens_diff ** 2)))
                             _best_single_rmse = float(np.nanmin(_oof_rmses))
-                            if _ens_rmse > _best_single_rmse:
+                            # AR(1) failsafe: when lag_predict is in the pool
+                            # and its OOF RMSE is within tolerance of the best
+                            # trained component, prefer lag_predict outright.
+                            # Rationale: NNLS minimises squared error on the
+                            # train-tail holdout, which has DIFFERENT residual
+                            # structure than the test split on a group-aware
+                            # split of an AR(1) target (TVT prod 2026-05-23:
+                            # train-tail lag_predict RMSE=15.18 vs test
+                            # RMSE=11.58 - 31% gap). A zero-parameter dummy
+                            # cannot overfit so its OOF rank understates its
+                            # test rank. Tolerance defaults to +10% of the
+                            # best single; tune via the config knob below.
+                            _lag_failsafe_tol = float(getattr(
+                                composite_target_discovery_config,
+                                "lag_predict_failsafe_tolerance", 0.10,
+                            ))
+                            _lag_failsafe_taken = False
+                            if (_lag_failsafe_tol > 0
+                                    and "lag_predict" in _oof_names
+                                    and np.isfinite(_best_single_rmse)):
+                                _lp_idx = _oof_names.index("lag_predict")
+                                _lp_rmse = float(_oof_rmses[_lp_idx])
+                                if (np.isfinite(_lp_rmse)
+                                        and _lp_rmse <= (1.0 + _lag_failsafe_tol)
+                                        * _best_single_rmse):
+                                    logger.warning(
+                                        "[CompositeCrossTargetEnsemble] target='%s' "
+                                        "AR1 failsafe fired: lag_predict OOF "
+                                        "RMSE %.4g within +%.0f%% of best single "
+                                        "%.4g; preferring zero-parameter "
+                                        "lag_predict over %d-component stack "
+                                        "(cannot overfit on test).",
+                                        _orig_tname, _lp_rmse,
+                                        _lag_failsafe_tol * 100.0,
+                                        _best_single_rmse, len(_oof_names),
+                                    )
+                                    _ensemble = _oof_components[_lp_idx]
+                                    _lag_failsafe_taken = True
+                            if (not _lag_failsafe_taken
+                                    and _ens_rmse > _best_single_rmse):
                                 _best_idx = int(np.nanargmin(_oof_rmses))
                                 logger.warning(
                                     "[CompositeCrossTargetEnsemble] target='%s' "

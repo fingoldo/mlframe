@@ -783,6 +783,18 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     stacking_aware_gate_enabled: bool = False
     stacking_aware_gate_min_weight: float = 0.05
 
+    # AR(1) failsafe: when ``lag_predict`` is injected into the
+    # CompositeCrossTargetEnsemble component pool and its OOF holdout
+    # RMSE is within ``(1 + lag_predict_failsafe_tolerance)`` of the
+    # best single trained component, prefer the zero-parameter
+    # ``lag_predict`` over the multi-component stack. Defends against
+    # the train-tail-vs-test distribution mismatch on strong-AR targets
+    # (TVT prod 2026-05-23: train-tail lag RMSE=15.18 vs test=11.58, a
+    # 31% gap that drove NNLS to underweight lag_predict, leaving the
+    # ensemble 14.8% worse than the trivial dummy on TEST). Set to 0 to
+    # disable.
+    lag_predict_failsafe_tolerance: float = 0.10
+
     # Composite-feature stacking. When True, ``run_composite_target_discovery``
     # produces an opt-in stub call to ``composite_oof_predictions`` /
     # ``composite_predictions_as_feature`` on the discovered specs so

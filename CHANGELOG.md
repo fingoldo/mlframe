@@ -1,5 +1,74 @@
 # Changelog
 
+## 2026-05-23 — Round 5.1: clone-safe lag_predict + MLP eval_set normalisation + cross-container fingerprint + AR(1) failsafe
+
+Round-5 production rerun showed CT_ENSEMBLE TEST RMSE=13.30 vs
+lag_predict dummy 11.58 — still 14.8% worse. Root causes traced across
+three sub-systems: (1) the round-5 ``_LagPredictDeployableModel`` was
+silently dropped by ``sklearn.clone()`` during honest-OOF refit because
+it lacked ``get_params``/``set_params``; (2) MLP component fits raised
+``list index out of range`` for every target because the OOF path
+emits ``eval_set=[(X,y)]`` (LGB-style) but the Lightning estimator
+indexes ``eval_set[1]``; (3) the XGB module-level cache (round-5 fix
+B) never actually HIT across composite targets because the shared
+fingerprint hashed pl- vs pd-containers via asymmetric branches.
+
+### #1 ``_LagPredictDeployableModel`` is now sklearn-clone-compatible ([_phase_composite_post.py:51](src/mlframe/training/core/_phase_composite_post.py#L51))
+
+Adds ``get_params({"deep": ...})``, ``set_params(**)`` returning self,
+and a no-op ``fit(X, y, **fit_params)`` that accepts arbitrary
+``eval_set``/``sample_weight`` kwargs. Without these, ``sklearn.base.clone()``
+during CT_ENSEMBLE OOF refit raised ``TypeError`` → component dropped
+→ NNLS weights solved without seeing the zero-parameter baseline →
+ensemble landed at the worse-of-trained-only RMSE.
+
+Tests: ``TestLagPredictDeployableModel`` extended with
+``test_get_params_returns_lag_column``, ``test_set_params_updates_and_returns_self``,
+``test_set_params_rejects_unknown``, ``test_fit_is_noop_and_returns_self``,
+``test_survives_sklearn_clone``, ``test_clone_then_fit_predict_workflow``.
+
+### #2 AR(1) failsafe in honest-OOF gate ([_phase_composite_post.py:758](src/mlframe/training/core/_phase_composite_post.py#L758))
+
+NNLS minimises squared error on the trailing-20% train-tail holdout,
+which has different residual structure than the test split on
+group-aware splits of strong-AR targets (TVT prod: train-tail
+lag_predict RMSE 15.18 vs test 11.58, a 31% gap). On AR(1) targets
+the zero-parameter ``lag_predict`` cannot overfit, so its OOF rank
+understates its test rank — the gate now prefers lag_predict outright
+when its OOF RMSE is within +10% of the best single trained
+component.
+
+New config knob ``lag_predict_failsafe_tolerance: float = 0.10`` on
+``CompositeTargetDiscoveryConfig`` ([_composite_target_discovery_config.py:786](src/mlframe/training/_composite_target_discovery_config.py#L786)).
+Set to 0 to disable.
+
+### #3 MLP eval_set shape normalisation in Lightning ``_fit_common`` ([neural/base.py:339](src/mlframe/training/neural/base.py#L339))
+
+``_maybe_pass_sample_weight`` in ``composite_ensemble.py`` uniformly
+list-wraps ``eval_set`` to ``[(X_val, y_val)]`` for LightGBM
+compatibility, but ``PytorchLightningEstimator._fit_common`` indexed
+``eval_set[1]`` directly — a 1-element list raised IndexError. Now
+the Lightning estimator accepts both conventions (bare 2-tuple or
+list-of-tuples), un-wraps to the 2-tuple form, and proceeds. MLP
+component contributes to CT_ENSEMBLE across all targets again
+(4 MLP fits were being silently dropped in the 2026-05-23 run).
+
+### #4 Cross-container fingerprint parity ([_dataset_cache_fingerprint.py:43](src/mlframe/training/_dataset_cache_fingerprint.py#L43))
+
+``compute_signature`` now routes every row through a new
+``_canonicalise_row`` helper that strips dtype carriage (numpy scalar
+``.item()`` to Python value, ``None``/NaN sentinels, str-fallback)
+before hashing. Polars and pandas frames carrying logically-equal
+content now produce IDENTICAL fingerprints, so the module-level
+XGB DMatrix cache (and the equivalent LGB Dataset / CB Pool caches)
+finally HITs across composite targets — was missing 4/4 cold builds
+per ensemble run because the suite swaps pl ↔ pd between strategies.
+``compute_signature(pd.DataFrame(...)) == compute_signature(pl.DataFrame(...))``
+is now a tested invariant.
+
+Tests: ``TestFingerprintParityAcrossContainers``,
+``TestMLPEvalSetShapeNormalisation``, ``TestLagPredictFailsafeKnob``.
+
 ## 2026-05-23 — Round 5: lag_predict in CT_ENSEMBLE, module-level XGB cache, Huber-only leptokurtic band
 
 Production TVT log (third rerun) showed CT_ENSEMBLE TEST RMSE=12.73
