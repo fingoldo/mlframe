@@ -182,6 +182,22 @@ def _prewarm_numba_cache_body():
         _ = fast_ice_only(_yt_bool, _yp_f64, nbins=10, use_weights=True)
     except Exception:
         pass
+
+    # iter192 (2026-05-23): also prewarm fast_aucs_per_group_optimized with
+    # group_ids supplied (different numba signature than group_ids=None) and
+    # the (bool, float64) brier through the public wrapper to hit BOTH _seq
+    # and _par branches. c0037 binary profile attributed 693ms compile to
+    # fast_aucs_per_group_optimized (group_ids supplied) + 483ms to
+    # fast_brier_score_loss _seq path (short per-group brier slices --
+    # iter190 only covered the >=threshold _par path).
+    try:
+        _gi = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 0], dtype=np.int64)
+        _ = fast_aucs_per_group_optimized(y_true=_yt_bool, y_score=_yp_f64, group_ids=_gi)
+        # Short array -> dispatches to _fast_brier_score_loss_seq, distinct
+        # numba signature per dtype combo.
+        _ = fast_brier_score_loss(_yt_bool, _yp_f64)
+    except Exception:
+        pass
     _yti = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
     _ypi = np.array([0, 1, 0, 0, 1, 1], dtype=np.int64)
     try:
