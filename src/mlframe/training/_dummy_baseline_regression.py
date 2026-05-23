@@ -61,6 +61,72 @@ def _compute_regression_baselines(
         val_preds[q_label] = np.full(n_val, c)
         test_preds[q_label] = np.full(n_test, c)
 
+    # 2026-05-23: lag-predict baseline. For strongly auto-regressive
+    # targets (TVT-style data where lag1_corr ~ 0.999 within groups),
+    # the dumbest possible prediction -- ``y_hat = lag_target_value``
+    # in the same row -- can dramatically outperform mean / median
+    # baselines AND sometimes the user's trained models. Production
+    # TVT 2026-05-23: BaselineDiagnostics measured init_score(TVT_prev)
+    # RMSE=8.06 vs Ridge raw RMSE=11.63 -- a 31% improvement available
+    # for free, but the framework never reported it as a baseline.
+    #
+    # Detect via column-name heuristic so the user doesn't have to
+    # wire BaselineDiagnostics output into dummy-baselines: look for
+    # ``{target_name}_prev``, ``{target_name}_lag_1``, ``{target_name}_lag1``.
+    # If found, emit a ``lag_predict`` baseline that returns the column
+    # value per row.
+    for _lag_suffix in ("_prev", "_lag_1", "_lag1", "_lag"):
+        _lag_col = f"{target_name}{_lag_suffix}"
+        _col_in_train = (
+            hasattr(train_X, "columns") and _lag_col in train_X.columns
+        ) or (
+            hasattr(train_X, "schema") and _lag_col in train_X.schema
+        )
+        if not _col_in_train:
+            continue
+        try:
+            if hasattr(train_X, "to_numpy"):
+                # pandas / polars w/ to_numpy on a column
+                if hasattr(train_X, "columns"):
+                    _val_lag = (
+                        val_X[_lag_col].to_numpy() if n_val else np.array([])
+                    )
+                    _test_lag = (
+                        test_X[_lag_col].to_numpy() if n_test else np.array([])
+                    )
+                else:
+                    _val_lag = (
+                        val_X.select(_lag_col).to_numpy().reshape(-1)
+                        if n_val else np.array([])
+                    )
+                    _test_lag = (
+                        test_X.select(_lag_col).to_numpy().reshape(-1)
+                        if n_test else np.array([])
+                    )
+            else:
+                _val_lag = (
+                    np.asarray(val_X[_lag_col]) if n_val else np.array([])
+                )
+                _test_lag = (
+                    np.asarray(test_X[_lag_col]) if n_test else np.array([])
+                )
+            val_preds["lag_predict"] = np.asarray(_val_lag, dtype=np.float64)
+            test_preds["lag_predict"] = np.asarray(_test_lag, dtype=np.float64)
+            extras["lag_predict"] = {"feature_used": _lag_col}
+            logger.info(
+                "[dummy-baselines] target='%s' lag_predict baseline added "
+                "(feature=%s) -- y_hat = lag_target_value per row. On "
+                "strong-AR targets this often beats mean / Ridge baselines.",
+                target_name, _lag_col,
+            )
+            break
+        except Exception as _lag_err:
+            logger.debug(
+                "[dummy-baselines] target='%s' lag_predict(%s) probe "
+                "failed (%s); skipping",
+                target_name, _lag_col, _lag_err,
+            )
+
     # --- per_group_mean ---
     cat_col = _pick_per_group_categorical(
         train_X, cat_features, len(train_y), config.per_group_max_cardinality_ratio,

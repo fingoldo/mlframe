@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-05-23 — lag_predict dummy baseline for AR-target detection
+
+New dummy baseline ``lag_predict`` that returns the per-row value of
+the lag-target column (auto-detected via column-name heuristic:
+``{target_name}_prev`` / ``_lag_1`` / ``_lag1`` / ``_lag``). For
+strongly auto-regressive regression targets (TVT-style data with
+lag1_corr ~ 0.999 within groups), the dumbest possible prediction
+``y_hat = lag_target_value`` often crushes the mean / median dummies
+AND outperforms the user's trained Ridge / MLP models.
+
+Production TVT 2026-05-23: BaselineDiagnostics measured
+``init_score(TVT_prev)`` RMSE=8.06 vs Ridge raw RMSE=11.63 -- a 31%
+improvement available for free, but the framework didn't expose it as
+a baseline. With this change the dummy-strongest-pick logic will
+surface ``lag_predict`` as the strongest baseline; the cross-target
+verdict formatter then flags ``MODELS_BARELY_BEAT_TRIVIAL`` when the
+user's best model RMSE is within 1.5x of lag_predict's RMSE,
+signaling that the model zoo is missing capacity to capture the
+nonlinear residual structure on top of the lag.
+
+The baseline lives in [_dummy_baseline_regression.py:65](src/mlframe/training/_dummy_baseline_regression.py#L65)
+and is exercised by [test_lag_predict_dummy_baseline.py](tests/training/test_lag_predict_dummy_baseline.py).
+
 ## 2026-05-23 — TVT-rerun audit-followups round 2: 4 new P0 + 3 deferred-list resolutions
 
 After the morning's 10-fix landing, a fresh production TVT run surfaced
