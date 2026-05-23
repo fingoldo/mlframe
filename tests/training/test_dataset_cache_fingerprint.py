@@ -92,6 +92,47 @@ class TestSharedFingerprintHelper:
         arr3 = np.ones((100, 5))
         assert compute_signature(arr3) != sig1
 
+    def test_polars_uses_row_fast_path_not_full_to_numpy(self) -> None:
+        """Polars X must hit ``.row(idx)`` per-row sampling, NOT
+        ``df.to_numpy()`` which materialises the whole frame. c0103 iter261
+        attributed 4.51s (4 calls x 1.13s) to the to_numpy path on a 200k
+        x 25 polars frame.
+
+        Verify by patching ``to_numpy`` on a polars DataFrame to raise; the
+        fingerprint must still succeed via ``.row()``.
+        """
+        pl = pytest.importorskip("polars")
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+        df = pl.DataFrame({"a": np.arange(1000.0), "b": np.zeros(1000)})
+        called = {"to_numpy": 0}
+        real_to_numpy = df.to_numpy
+
+        def trap(*args, **kwargs):
+            called["to_numpy"] += 1
+            raise AssertionError(
+                "polars to_numpy must not be called for row sampling; "
+                "the .row(idx) fast path should handle this case."
+            )
+
+        try:
+            df.to_numpy = trap  # type: ignore[method-assign]
+            # Should succeed via .row(idx); never touch to_numpy.
+            sig = compute_signature(df)
+            assert sig is not None
+            assert called["to_numpy"] == 0
+        finally:
+            df.to_numpy = real_to_numpy  # type: ignore[method-assign]
+
+    def test_polars_signature_stable_across_identical_content(self) -> None:
+        """Two polars frames with identical content must share the
+        fingerprint even though they're distinct Python objects."""
+        pl = pytest.importorskip("polars")
+        from mlframe.training._dataset_cache_fingerprint import compute_signature
+        df1 = pl.DataFrame({"a": np.arange(500.0), "b": np.linspace(0, 1, 500)})
+        df2 = pl.DataFrame({"a": np.arange(500.0), "b": np.linspace(0, 1, 500)})
+        assert id(df1) != id(df2)
+        assert compute_signature(df1) == compute_signature(df2)
+
 
 # ----------------------------------------------------------------------
 # 2) Each callsite uses the helper (no id(X) leftover)

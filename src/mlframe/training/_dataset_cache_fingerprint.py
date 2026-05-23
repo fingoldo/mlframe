@@ -98,6 +98,20 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
             return hash(tuple(samples))
         except Exception:
             return None
+    # Polars fast path: ``df.row(idx)`` returns a single-row tuple in O(n_cols),
+    # whereas ``df.to_numpy()`` would materialise the entire (n_rows, n_cols)
+    # frame just to read 3 rows. c0103 iter261 profile attributed 4.51s
+    # (4 calls x 1.13s) to the to_numpy path on a 200k x 25 polars frame; the
+    # row() path runs in microseconds. Detect polars by the (.row, .slice)
+    # method pair, which pandas does not expose.
+    if hasattr(X, "row") and hasattr(X, "slice") and callable(getattr(X, "row", None)):
+        try:
+            for idx in indices:
+                if 0 <= idx < n_rows:
+                    samples.append(X.row(idx))
+            return hash(tuple(samples))
+        except Exception:
+            return None
     if hasattr(X, "to_numpy"):
         try:
             arr = X.to_numpy()
