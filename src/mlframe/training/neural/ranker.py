@@ -181,6 +181,17 @@ def ranknet_pairwise_loss_precomputed(
     Used by MLPRankerLightningModule when the batch sampler installed a
     per-query pair-index cache on the Dataset. Bit-exact equivalent of
     ``ranknet_pairwise_loss``; the only difference is who computes pair indices.
+
+    bench-attempt-rejected 2026-05-23 (iter183): tried calling
+    ``_ranknet_loss_precomputed_core`` directly from ``_compute_loss``,
+    bypassing this wrapper's dim / None / numel checks
+    (``GroupBatchSampler`` already guarantees informative pairs, so the
+    checks are dead code on the precomputed path). Bench
+    bench_ranker_loss_wrapper_overhead.py at cuda n_docs in (10,25,100):
+    wrapper=152-167us core=146-162us; delta only 5-9us / call. On the
+    c0027 540k-call shape that's just 3-5s saved against a 2782s wall
+    (0.1-0.2%). Below the threshold to justify removing the defensive
+    guard; the wrapper stays.
     """
     if scores.dim() != 1:
         scores = scores.view(-1)
