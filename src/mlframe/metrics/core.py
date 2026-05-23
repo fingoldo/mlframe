@@ -140,6 +140,33 @@ def _prewarm_numba_cache_body():
     except Exception:
         pass
 
+    # iter199 (2026-05-23): pre-warm polars group_by + agg path. c0042 binary
+    # profile attributed 2.557s to a single group_by(...).agg(...) call in
+    # _per_group_predict_polars on the first invocation per process. polars'
+    # query optimizer / Rust hash-aggregate kernel has a ~2-3s cold-start cost
+    # that warms in <2ms with ANY group_by call (verified via bench:
+    # cold=1.9ms tiny + 2.5s production-size; after warm: 0.5ms tiny + 2.5ms
+    # big). Trigger the warm here so the first dummy-baselines /
+    # per_group_predict call doesn't pay it. Tiny 10-row toy enum frame
+    # exercises the same code path at near-zero data cost. Same pattern as
+    # numba kernel prewarm; ~3s saved per process on binary / multiclass
+    # combos that compute per-group prior baselines.
+    try:
+        import polars as _pl
+        _enum_t = _pl.Enum(["a", "b", "c"])
+        _warm_df = _pl.DataFrame({
+            "cat": _pl.Series("cat", ["a", "b", "a", "c", "b"], dtype=_enum_t),
+            "__y__": _pl.Series("__y__", [1.0, 2.0, 1.5, 3.0, 2.0]),
+        })
+        _ = _warm_df.group_by("cat").agg(
+            _pl.col("__y__").mean().alias("__mean__"),
+            _pl.len().alias("__size__"),
+        )
+        # Also warm the join path (used in _per_group_predict_polars._predict):
+        _ = _warm_df.select("cat").join(_warm_df, on="cat", how="left")
+    except Exception:
+        pass
+
     # Numba compiles for each dtype separately.
     for dtype in [np.float32, np.float64]:
         y_true = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=dtype)
