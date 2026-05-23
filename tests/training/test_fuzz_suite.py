@@ -862,7 +862,21 @@ def _fuzz_combo_cleanup():
 @pytest.mark.timeout(300)
 @pytest.mark.parametrize("combo", COMBOS, ids=[c.pytest_id() for c in COMBOS])
 def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
-    """Run ``train_mlframe_models_suite`` on one random combo; log the outcome."""
+    """Run ``train_mlframe_models_suite`` on one random combo; log the outcome.
+
+    FUZZ-1 (2026-05-23) -- when ``MLFRAME_FUZZ_PERF_MODE`` env var is set
+    (any truthy value: 1/yes/true/on), each combo is downgraded to a tiny
+    config-coverage run: n_rows=1000, iterations=1, MRMR/Boruta/ensembles
+    /baseline_diagnostics/dummy_baselines all disabled. Goal: verify suite
+    wiring on every combo in seconds instead of minutes. Quality / metric
+    assertions are NOT meaningful in this mode -- it's a smoke test only.
+
+    Default (env unset): full combo runs unchanged.
+    """
+    import os as _os
+    if _os.environ.get("MLFRAME_FUZZ_PERF_MODE", "").lower() in ("1", "yes", "true", "on"):
+        from ._fuzz_combo import apply_perf_mode
+        combo = apply_perf_mode(combo)
     _skip_if_deps_missing(combo.models)
 
     # Apply xfail automatically for known bugs. pytest's runtime-xfail marker
