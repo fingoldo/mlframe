@@ -230,7 +230,19 @@ def _mrmr_compute_x_fingerprint(X) -> str:
     reads and adds <1ms compared to the dtype-only path.
     """
     try:
-        if hasattr(X, "columns"):
+        # Polars LazyFrame fast-path: collect_schema() once so we don't
+        # trigger six "Determining the column names of a LazyFrame
+        # requires resolving its schema" PerformanceWarnings (one per
+        # X.columns / X.schema[c] access). For eager polars.DataFrame
+        # and pandas these attribute accesses are O(1) and warn-free.
+        _is_lazy_polars = (
+            hasattr(X, "collect_schema")
+            and type(X).__name__ == "LazyFrame"
+        )
+        if _is_lazy_polars:
+            _resolved_schema = X.collect_schema()
+            cols = tuple(sorted(str(c) for c in _resolved_schema.names()))
+        elif hasattr(X, "columns"):
             cols = tuple(sorted(str(c) for c in X.columns))
         elif hasattr(X, "shape"):
             cols = tuple(str(i) for i in range(X.shape[1] if X.ndim > 1 else 1))
@@ -241,7 +253,15 @@ def _mrmr_compute_x_fingerprint(X) -> str:
         # positional LIST so name-indexing fails. Pandas: ``X.dtypes`` is a
         # Series indexable by column name. Check ``schema`` first to route
         # polars correctly.
-        if hasattr(X, "schema") and hasattr(X, "columns"):
+        if _is_lazy_polars:
+            try:
+                dtypes_repr = tuple(
+                    (str(c), _canonicalise_dtype_str(_resolved_schema[c]))
+                    for c in _resolved_schema.names()
+                )
+            except Exception:
+                dtypes_repr = ()
+        elif hasattr(X, "schema") and hasattr(X, "columns"):
             try:
                 dtypes_repr = tuple(
                     (str(c), _canonicalise_dtype_str(X.schema[c]))
@@ -261,10 +281,13 @@ def _mrmr_compute_x_fingerprint(X) -> str:
             dtypes_repr = ()
         # Cell-content sample: 10 evenly-spaced positions per column. Prevents
         # same-schema-different-content X frames from colliding in the cache.
+        # Skip cell-sampling for LazyFrame: each column read triggers a full
+        # materialisation, the cost dominates the schema-only fingerprint.
+        # The schema+dtype repr above is already collision-resistant enough.
         cell_sample = ()
         try:
             n_sample = min(10, n_rows) if n_rows > 0 else 0
-            if n_sample > 0 and hasattr(X, "columns"):
+            if n_sample > 0 and hasattr(X, "columns") and not _is_lazy_polars:
                 step = max(1, n_rows // n_sample)
                 positions = [i * step for i in range(n_sample) if i * step < n_rows]
                 samples = []
