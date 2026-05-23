@@ -137,6 +137,11 @@ class TestRawYBaselineGate:
             base_candidates=["y_prev"],
             transforms=["diff", "linear_residual"],
             eps_mi_gain=-1.0,
+            # Opt the gate IN: the default was flipped to False so the
+            # baseline-rmse property is NaN unless we explicitly request
+            # the comparison. The test's whole point is to verify the
+            # gate's behaviour, so the gate MUST run here.
+            require_beats_raw_baseline=True,
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="y",

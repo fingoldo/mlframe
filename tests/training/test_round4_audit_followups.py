@@ -1,6 +1,6 @@
 """Round-4 audit-followup tests covering 5 of 7 deferred items.
 
-* #5 Effective-rank probe in generate_mlp -- catches zeros-init / LeakyReLU(0)
+* #5 Degenerate-init probe in generate_mlp -- catches zeros-init / LeakyReLU(0)
   pathologies that the Identity-MLP guard misses.
 * #6 ``ValLossDivergenceCallback`` -- WARNs when val_loss grows 100x its baseline,
   catching collapses DURING training before paying the full budget.
@@ -29,13 +29,13 @@ import numpy as np
 import pytest
 
 
-class TestEffectiveRankProbe:
+class TestDegenerateInitProbe:
     def test_zeros_init_triggers_warn(self, caplog) -> None:
         torch = pytest.importorskip("torch")
         from mlframe.training.neural.flat import generate_mlp
         caplog.set_level(logging.WARNING, logger="mlframe.training.neural.flat")
         # Force zeros initialisation. The probe inspects the just-built
-        # nn.Linear modules; with zero weights every layer has rank 0.
+        # nn.Linear modules; with zero weights every layer has std 0.
         generate_mlp(
             num_features=10, num_classes=1, nlayers=2,
             activation_function=torch.nn.ReLU,
@@ -43,12 +43,34 @@ class TestEffectiveRankProbe:
             use_layernorm=False, dropout_prob=0.0,
             inputs_dropout_prob=0.0, verbose=0,
         )
-        rank_warnings = [
+        warnings = [
             r for r in caplog.records
-            if "rank-deficient" in r.message
+            if "degenerate Linear layer" in r.message
         ]
-        assert rank_warnings, (
-            f"effective-rank probe didn't fire on zeros-initialised MLP; "
+        assert warnings, (
+            f"degenerate-init probe didn't fire on zeros-initialised MLP; "
+            f"captured records: {[r.message for r in caplog.records]}"
+        )
+
+    def test_constant_init_triggers_warn(self, caplog) -> None:
+        """``constant_(W, c)`` also collapses to zero std and must be caught."""
+        torch = pytest.importorskip("torch")
+        from functools import partial
+        from mlframe.training.neural.flat import generate_mlp
+        caplog.set_level(logging.WARNING, logger="mlframe.training.neural.flat")
+        generate_mlp(
+            num_features=10, num_classes=1, nlayers=2,
+            activation_function=torch.nn.ReLU,
+            weights_init_fcn=partial(torch.nn.init.constant_, val=0.5),
+            use_layernorm=False, dropout_prob=0.0,
+            inputs_dropout_prob=0.0, verbose=0,
+        )
+        warnings = [
+            r for r in caplog.records
+            if "degenerate Linear layer" in r.message
+        ]
+        assert warnings, (
+            f"degenerate-init probe didn't fire on constant_-initialised MLP; "
             f"captured records: {[r.message for r in caplog.records]}"
         )
 
@@ -64,13 +86,13 @@ class TestEffectiveRankProbe:
             use_layernorm=False, dropout_prob=0.0,
             inputs_dropout_prob=0.0, verbose=0,
         )
-        rank_warnings = [
+        warnings = [
             r for r in caplog.records
-            if "rank-deficient" in r.message
+            if "degenerate Linear layer" in r.message
         ]
-        assert not rank_warnings, (
-            f"effective-rank probe fired spuriously on kaiming_normal init: "
-            f"{[r.message for r in rank_warnings]}"
+        assert not warnings, (
+            f"degenerate-init probe fired spuriously on kaiming_normal init: "
+            f"{[r.message for r in warnings]}"
         )
 
 

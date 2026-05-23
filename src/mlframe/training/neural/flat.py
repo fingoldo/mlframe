@@ -358,46 +358,55 @@ def generate_mlp(
         init_name = weights_init_fcn.func.__name__ if isinstance(weights_init_fcn, partial) else weights_init_fcn.__name__
         logger.info("Applied %s initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases", init_name)
 
-    # Effective-rank probe (audit Agent A round-2 P1, landed 2026-05-23).
+    # Degenerate-init probe (audit Agent A round-2 P1, landed 2026-05-23).
     # The Identity-activation guard above catches the "stack of Linear
     # -> Identity" footgun BEFORE the network is built. This probe runs
     # AFTER ``weights_init_fcn`` has been applied so it catches the
-    # COMPLEMENTARY init-side pathologies that produce rank-deficient
-    # weights even with a real nonlinearity:
+    # COMPLEMENTARY init-side pathologies that produce dead layers:
     #   * ``weights_init_fcn=torch.nn.init.zeros_`` (all weights zero,
-    #     layer outputs zero, no gradient signal -- rank 0)
-    #   * accidental ``constant_`` init (rank 1 on every layer)
-    #   * any callable that violates Kaiming / Xavier full-rank assumption
+    #     layer outputs zero, no gradient signal)
+    #   * accidental ``constant_`` init (all weights identical)
+    #   * any callable that produces zero-variance weight matrices
     #
-    # Per-Linear rank check: WARN when any layer's rank ratio falls below
-    # 0.5. Cheap (one matrix_rank per Linear; 4M-row data cost is zero
-    # since this runs on weight matrices only).
+    # bench-attempt-rejected (2026-05-23, c0039 / iter256): full
+    # ``torch.linalg.matrix_rank`` (SVD-based) cost 785ms per Linear
+    # layer = 7.85s for a 10-layer suite (5.2pct of total wall on c0039).
+    # std-based check below is O(n*m) vs SVD's O(n*m^2), runs in
+    # microseconds, and catches every common-case pathology this probe
+    # was added to detect (zeros_/constant_/scalar-init). The rare
+    # "non-zero-std but rank-deficient by construction" case (e.g. a
+    # custom init that copies one row across the matrix) is a
+    # model-design bug that should be caught at design time, not at
+    # every fit. Bench: profiling/bench_mlp_rank_probe_std_vs_svd.py.
     try:
-        _min_rank_ratio: float = 1.0
+        _worst_std: float = float("inf")
         _worst_layer_name: str = ""
         for _name, _module in model.named_modules():
             if isinstance(_module, nn.Linear):
                 with torch.no_grad():
                     _W = _module.weight.detach()
-                    _r = int(torch.linalg.matrix_rank(_W).item())
-                    _min_dim = min(_W.shape)
-                    _ratio = _r / max(_min_dim, 1)
-                    if _ratio < _min_rank_ratio:
-                        _min_rank_ratio = _ratio
+                    # Population std (unbiased=False) avoids n>1 special
+                    # case for 1-element weights (1x1 Linear).
+                    _std = float(torch.std(_W, unbiased=False).item())
+                    if _std < _worst_std:
+                        _worst_std = _std
                         _worst_layer_name = _name or f"Linear({_W.shape[1]}->{_W.shape[0]})"
-        if _min_rank_ratio < 0.5:
+        # Threshold: 1e-8 catches zeros_ (std=0) and constant_ (std=0)
+        # without false-positives on legitimate kaiming/xavier inits whose
+        # std is typically 0.01-0.2 depending on fan_in / fan_out.
+        if _worst_std < 1e-8:
             logger.warning(
-                "generate_mlp: rank-deficient Linear layer detected -- "
-                "weakest layer '%s' has rank ratio %.2f (rank/min_dim). "
+                "generate_mlp: degenerate Linear layer detected -- "
+                "weakest layer '%s' has weight std %.2e (~zero). "
                 "Common causes: weights_init_fcn=zeros_ / constant_, or "
                 "pathological init. The model will not learn useful "
                 "representations on this layer; pick a non-degenerate "
                 "init (kaiming_normal_ / xavier_uniform_).",
-                _worst_layer_name, _min_rank_ratio,
+                _worst_layer_name, _worst_std,
             )
     except Exception as _rank_err:
         logger.debug(
-            "generate_mlp: effective-rank probe failed (non-fatal): %s",
+            "generate_mlp: degenerate-init probe failed (non-fatal): %s",
             _rank_err,
         )
 

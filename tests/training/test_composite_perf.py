@@ -233,9 +233,34 @@ class TestDeterministicScreeningModels:
             learning_rate=0.1, random_state=0, deterministic=False,
         )
         # Ridge is deterministic by construction; both branches build
-        # functionally equivalent models.
+        # functionally equivalent models. Dict equality is NaN-unsafe
+        # (``imp__missing_values=nan`` is the SimpleImputer default and
+        # ``nan != nan`` per IEEE-754); compare with a NaN-safe helper.
         assert type(m_det) is type(m_nondet)
-        assert m_det.get_params() == m_nondet.get_params()
+        _params_det = m_det.get_params()
+        _params_nondet = m_nondet.get_params()
+        assert set(_params_det) == set(_params_nondet), (
+            f"param-key drift: det-only={set(_params_det) - set(_params_nondet)}, "
+            f"nondet-only={set(_params_nondet) - set(_params_det)}"
+        )
+        for _k in _params_det:
+            _v_det = _params_det[_k]
+            _v_nondet = _params_nondet[_k]
+            try:
+                _both_nan = (
+                    isinstance(_v_det, float) and isinstance(_v_nondet, float)
+                    and _v_det != _v_det and _v_nondet != _v_nondet
+                )
+            except Exception:
+                _both_nan = False
+            if _both_nan:
+                continue
+            # Use repr() for non-trivially-comparable objects like sklearn
+            # estimators -- ``Ridge(random_state=0) == Ridge(random_state=0)``
+            # returns False because BaseEstimator doesn't implement __eq__.
+            assert repr(_v_det) == repr(_v_nondet), (
+                f"param {_k!r} drift: det={_v_det!r} vs nondet={_v_nondet!r}"
+            )
 
     def test_discovery_with_determinism_flag_runs(self) -> None:
         """End-to-end smoke: discovery with ``deterministic_screening_models=True``
