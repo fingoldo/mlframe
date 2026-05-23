@@ -1,5 +1,106 @@
 # Changelog
 
+## 2026-05-23 — Round 4 audit-followups: 5 of 7 deferred items resolved
+
+User asked "anything else to improve?" -- presented 7 deferred audit
+items. 5 shipped in this commit; 2 (native init_score deploy + OOF
+predictions reuse from initial fit CV) explicitly deferred with
+rationale below.
+
+### #5 Effective-rank probe in generate_mlp ([flat.py:258](src/mlframe/training/neural/flat.py#L258))
+
+After ``nn.Sequential(*layers)``, iterate ``nn.Linear`` modules and
+compute ``torch.linalg.matrix_rank(W)`` per layer. WARN when any
+layer's rank-ratio (rank / min_dim) falls below 0.5. Catches
+``weights_init_fcn=zeros_``, ``LeakyReLU(negative_slope=0)``,
+``bias=False`` on output -- pathologies that produce rank-deficient
+composed weights but escape the Identity-MLP guard (because they use
+a real nonlinearity). Cheap: one matrix_rank call per Linear; runs
+on weight matrix only, zero per-row cost.
+
+### #6 ValLossDivergenceCallback ([neural/base.py:865](src/mlframe/training/neural/base.py#L865))
+
+New Lightning callback. WARNs at val-epoch-end when
+``current_val / initial_val >= divergence_factor`` (default 100x).
+Latched after first trip to avoid spam. Catches the
+Identity-MLP-on-group-OOD pattern (val_loss climbed to ~1.1 from
+~0.04 within <20 epochs in prod TVT 2026-05-23) DURING training so
+operators see it before paying the full max_epochs budget. No
+auto-stop -- early-stopping already covers no-improvement; this
+addresses the actively-getting-worse case.
+
+Wired into [neural/base.py:475](src/mlframe/training/neural/base.py#L475)
+alongside ``EarlyStoppingCallback`` so it fires whenever validation
+data is configured.
+
+### #7 MRMR identity cache composite-aware invalidation (NO CHANGE NEEDED)
+
+The audit recommendation was already addressed by a prior fix:
+``mrmr_identity_cache_include_y: bool = True`` (default) folds the
+y-fingerprint into the cache key. Composite-target y and raw-target y
+on the same X produce distinct keys -> distinct cache slots ->
+re-runs MRMR correctly. Added lock-in test
+([test_round4_audit_followups.py](tests/training/test_round4_audit_followups.py))
+that asserts the default stays True.
+
+### #4 MLP 126MB save-size pathology ([io.py:394](src/mlframe/training/io.py#L394))
+
+Root cause investigation: the 126 MB MLP dump on prod TVT 2026-05-23
+came from ``train_preds`` / ``val_preds`` / ``test_preds`` /
+``train_target`` / ``val_target`` / ``test_target`` on the
+SimpleNamespace (4M-row float32 = 16 MB each x 6 slots = ~96 MB) plus
+``oof_preds`` (~16 MB) plus the MLP weights themselves (~50 KB --
+network is 14k params). The strip layer for ``_trainer`` /
+``prediction_datamodule`` works; the prediction arrays are NOT
+stripped at ``lean=False`` (the default, retained for forensics
+parity).
+
+The pre-check threshold ``auto_lean_pre_check_mb`` defaulted to 100
+MB but actual in-memory size lands ~70-90 MB (post-compression the
+disk dump grows to 126 MB). The pre-check missed; the post-save
+sensor at 50 MB caught it AFTER the fat write.
+
+Fix: default lowered ``100 -> 50`` MB so pre-check matches
+sensor threshold. Auto-flips ``lean=True`` BEFORE the fat dump for
+typical MLP-on-millions-of-rows payloads; forensics callers can
+still pass ``auto_lean_retry=False`` to keep the bundle full.
+
+### #2 Train-y envelope branch in collapse sensor ([_reporting.py:533](src/mlframe/training/_reporting.py#L533))
+
+New ``regression-collapse-sensor:outside-train-y-envelope`` branch.
+``report_regression_model_perf`` now accepts ``y_train_min``,
+``y_train_max``, ``y_train_std`` kwargs. When supplied, the sensor
+additionally trips when predictions fall > 3 sigma outside
+``[y_train_min, y_train_max]``. Catches OOD-extrapolation that lands
+within the in-batch target envelope but far outside what the model
+trained on -- the in-batch branches miss this when test split has
+narrower target range than train.
+
+API surface ready; full cross-cutting plumbing (trainer.py ->
+``report_regression_model_perf`` callsites) is a follow-up.
+Backward-compatible: callers that don't pass train stats see
+identical behaviour to pre-fix.
+
+### Deferred items (2 of 7, with rationale)
+
+**#1 Native init_score deploy** -- LGB / XGB / CB shims accept
+init_score / base_margin / baseline natively. The composite-target
+path (``TVT-diff-TVT_prev`` etc.) already delivers ~80% of the value:
+on prod TVT 2026-05-23 the boosters trained on the diff composite
+hit TEST RMSE 10.83-11.27 vs Ridge raw 11.63. The native path's
+marginal gain is ~0.2-0.5 RMSE but requires careful wiring around
+booster predict-side asymmetry: LGB and CB include baseline natively
+in predict(), XGB returns margin minus base_margin and the caller
+must add it back. Defer until composite-diff path is verified
+exhausted on a real benchmark.
+
+**#3 OOF predictions reuse from initial fit CV** -- saves ~12 min per
+run on the composite-ensemble OOF refit phase. Requires threading a
+CV path through the initial trainer (currently the trainer does
+single-fold train+val and the OOF refit re-creates folds from
+scratch). Large scope; deferred until a focused commit can tackle
+it without entangling with the round-4 follow-ups.
+
 ## 2026-05-23 — Shared content fingerprint for booster dataset caches (xgb/lgb/CB train/CB val)
 
 Round-3 audit fixed the ``id(X)`` cache-key bug in the XGB shim

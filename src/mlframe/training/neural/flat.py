@@ -356,6 +356,49 @@ def generate_mlp(
         init_name = weights_init_fcn.func.__name__ if isinstance(weights_init_fcn, partial) else weights_init_fcn.__name__
         logger.info("Applied %s initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases", init_name)
 
+    # Effective-rank probe (audit Agent A round-2 P1, landed 2026-05-23).
+    # The Identity-activation guard above catches the "stack of Linear
+    # -> Identity" footgun BEFORE the network is built. This probe runs
+    # AFTER ``weights_init_fcn`` has been applied so it catches the
+    # COMPLEMENTARY init-side pathologies that produce rank-deficient
+    # weights even with a real nonlinearity:
+    #   * ``weights_init_fcn=torch.nn.init.zeros_`` (all weights zero,
+    #     layer outputs zero, no gradient signal -- rank 0)
+    #   * accidental ``constant_`` init (rank 1 on every layer)
+    #   * any callable that violates Kaiming / Xavier full-rank assumption
+    #
+    # Per-Linear rank check: WARN when any layer's rank ratio falls below
+    # 0.5. Cheap (one matrix_rank per Linear; 4M-row data cost is zero
+    # since this runs on weight matrices only).
+    try:
+        _min_rank_ratio: float = 1.0
+        _worst_layer_name: str = ""
+        for _name, _module in model.named_modules():
+            if isinstance(_module, nn.Linear):
+                with torch.no_grad():
+                    _W = _module.weight.detach()
+                    _r = int(torch.linalg.matrix_rank(_W).item())
+                    _min_dim = min(_W.shape)
+                    _ratio = _r / max(_min_dim, 1)
+                    if _ratio < _min_rank_ratio:
+                        _min_rank_ratio = _ratio
+                        _worst_layer_name = _name or f"Linear({_W.shape[1]}->{_W.shape[0]})"
+        if _min_rank_ratio < 0.5:
+            logger.warning(
+                "generate_mlp: rank-deficient Linear layer detected -- "
+                "weakest layer '%s' has rank ratio %.2f (rank/min_dim). "
+                "Common causes: weights_init_fcn=zeros_ / constant_, or "
+                "pathological init. The model will not learn useful "
+                "representations on this layer; pick a non-degenerate "
+                "init (kaiming_normal_ / xavier_uniform_).",
+                _worst_layer_name, _min_rank_ratio,
+            )
+    except Exception as _rank_err:
+        logger.debug(
+            "generate_mlp: effective-rank probe failed (non-fatal): %s",
+            _rank_err,
+        )
+
     model.example_input_array = torch.zeros(1, num_features)
 
     return model

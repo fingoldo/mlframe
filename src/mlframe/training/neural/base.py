@@ -473,6 +473,17 @@ class PytorchLightningEstimator(BaseEstimator):
                     verbose=False,
                 )
             )
+            # 2026-05-23 audit-followup #6: divergence detector. Warns
+            # when val_loss climbs >=100x its baseline within training
+            # so operators catch Identity-MLP-style collapses before
+            # paying the full training budget. No automatic stop --
+            # ES already covers the no-improvement case.
+            callbacks.append(
+                ValLossDivergenceCallback(
+                    monitor=f"val_{metric_name}",
+                    divergence_factor=100.0,
+                )
+            )
 
         trainer = L.Trainer(**trainer_params, callbacks=callbacks)
 
@@ -860,6 +871,76 @@ class AggregatingValidationCallback(Callback):
         metric_value = self.metric_fcn(y_true=labels, y_score=predictions)
         pl_module.log(name="val_" + self.metric_name, value=metric_value, on_epoch=self.on_epoch, on_step=self.on_step, prog_bar=True)
         self.init_accumulators()
+
+
+class ValLossDivergenceCallback(Callback):
+    """Detect catastrophic val-loss divergence DURING training.
+
+    Identity-MLP-style collapses on group-aware test splits often show
+    up as val_loss growing wildly within the first few epochs while
+    train_loss decreases (model fits train, extrapolates badly on val
+    because val groups differ from train). The post-predict
+    ``regression-collapse-sensor`` catches this AFTER fit, but operators
+    pay the full training budget first.
+
+    This callback WARNs at val-epoch-end when ``current_val / initial_val
+    >= divergence_factor`` (default 100x). The warning includes the
+    epoch number and current value, giving operators a chance to abort
+    OR signal that the model is unrecoverable so the checkpoint loader
+    later doesn't surprise them with a near-dummy fit.
+
+    No automatic stop -- early-stopping already handles the
+    "no-improvement" case; this callback addresses the "actively
+    getting worse by orders of magnitude" case.
+    """
+
+    def __init__(
+        self,
+        monitor: str = "val_loss",
+        divergence_factor: float = 100.0,
+    ) -> None:
+        super().__init__()
+        self._monitor = monitor
+        self._divergence_factor = float(divergence_factor)
+        self._initial_value: Optional[float] = None
+        self._warned: bool = False
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        if self._warned:
+            return
+        metrics = trainer.callback_metrics
+        if self._monitor not in metrics:
+            return
+        try:
+            current = float(metrics[self._monitor])
+        except (TypeError, ValueError):
+            return
+        if not (current == current) or current <= 0:  # NaN / non-positive guard
+            return
+        if self._initial_value is None:
+            # Skip epoch 0's metric -- often noisy before warm-up
+            # converges. Latch on epoch 1's value as the baseline.
+            if trainer.current_epoch <= 0:
+                return
+            self._initial_value = current
+            return
+        if current >= self._initial_value * self._divergence_factor:
+            logger.warning(
+                "[mlp-val-divergence] epoch %d: %s=%.4g is %.1fx the "
+                "initial baseline %.4g (>%.0fx threshold). The model is "
+                "actively diverging on validation -- expect the loaded "
+                "best checkpoint to be a near-dummy / collapsed fit "
+                "(production TVT 2026-05-23 Identity-MLP-on-group-OOD: "
+                "val_loss climbed to ~1.1 from initial ~0.04 in <20 epochs "
+                "before stopping at a noise-floor checkpoint). Pick a "
+                "real nonlinearity, drop ``use_layernorm`` on already-"
+                "z-scored inputs, or let composite-target discovery "
+                "produce a bounded-residual target.",
+                trainer.current_epoch, self._monitor,
+                current, current / self._initial_value,
+                self._initial_value, self._divergence_factor,
+            )
+            self._warned = True
 
 
 class BestEpochModelCheckpoint(ModelCheckpoint):

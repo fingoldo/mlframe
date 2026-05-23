@@ -367,6 +367,15 @@ def report_regression_model_perf(
     n_features: int | None = None,
     plot_outputs: str | None = None,
     plot_dpi: int | None = None,
+    # 2026-05-23 audit-followup #2: train-y envelope for the collapse sensor.
+    # When supplied, the sensor's linear-extrapolation branch additionally
+    # checks pred range against the TRAIN-y range, not just the in-batch
+    # target range. Catches OOD-extrapolation that lands within the
+    # in-batch target envelope but far outside what the model was trained
+    # to produce.
+    y_train_min: float | None = None,
+    y_train_max: float | None = None,
+    y_train_std: float | None = None,
 ) -> tuple[np.ndarray, None]:
     """
     Generate a detailed performance report for regression models.
@@ -530,7 +539,31 @@ def report_regression_model_perf(
             _collapse_mean_shift = (
                 _y_std > 0 and abs(_pred_mean - _y_mean) > 3.0 * _y_std
             )
-            if _collapse_std or _collapse_extrapolation or _collapse_mean_shift:
+            # Train-y envelope branch (2026-05-23 audit-followup #2):
+            # when train-y stats are plumbed, additionally trip when pred
+            # falls more than 3 sigma outside the [y_train_min, y_train_max]
+            # range. Catches the case where in-batch target_std happens to
+            # be tighter than train-y_std and the linear-extrapolation
+            # branch misses (eg. test split with narrow target range vs
+            # wide train range).
+            _collapse_train_envelope = False
+            if (y_train_min is not None and y_train_max is not None
+                    and y_train_std is not None and y_train_std > 0):
+                try:
+                    _pred_min = float(np.min(preds_arr))
+                    _pred_max = float(np.max(preds_arr))
+                    _below_lo = (
+                        (float(y_train_min) - _pred_min) / float(y_train_std)
+                    )
+                    _above_hi = (
+                        (_pred_max - float(y_train_max)) / float(y_train_std)
+                    )
+                    if _below_lo > 3.0 or _above_hi > 3.0:
+                        _collapse_train_envelope = True
+                except Exception:
+                    pass
+            if (_collapse_std or _collapse_extrapolation
+                    or _collapse_mean_shift or _collapse_train_envelope):
                 # Branch name carries the diagnostic. The "linear-extrapolation"
                 # tag historically pointed at Identity-MLP stacks, but Ridge /
                 # LinearRegression on a group-aware split with feature-distribution
@@ -550,6 +583,8 @@ def report_regression_model_perf(
                 elif _collapse_extrapolation:
                     _branch = ("linear-extrapolation"
                                if _is_neural_stack else "group-ood-shift")
+                elif _collapse_train_envelope:
+                    _branch = "outside-train-y-envelope"
                 else:
                     _branch = "mean-shift"
                 _hint = (

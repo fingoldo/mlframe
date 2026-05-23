@@ -391,7 +391,7 @@ def save_mlframe_model(
     lean: bool = False,
     durable: bool = False,
     auto_lean_retry: bool = True,
-    auto_lean_pre_check_mb: float = 100.0,
+    auto_lean_pre_check_mb: float = 50.0,
 ) -> bool:
     """
     Save an mlframe model to a compressed file.
