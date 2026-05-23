@@ -84,6 +84,37 @@ import warnings as _warnings
 from contextlib import contextmanager as _contextmanager
 
 
+# iter189 (2026-05-23): Lightning's _load_external_callbacks scans every
+# installed Python distribution via importlib.metadata.entry_points on EACH
+# Trainer.fit() / Trainer.predict() invocation -- ~180ms / call on a Windows
+# box with a typical anaconda site-packages (5346 dist-info METADATA reads).
+# c0065 iter189 profile attributed 1.484s to this across 6 fit calls (~6% of
+# the 23.4s wall). Result is process-stable (sys.path + installed dists don't
+# change between fits), so cache it.
+#
+# Mirrors the _PROBE_PRECISION_CACHE pattern in mlp_runtime_defaults.py
+# (iter181) and _CB_GPU_USABLE_CACHE in _cb_pool.py. Defensive try/except so
+# a Lightning internal-API rename surfaces as a slow-but-correct fallback,
+# not an ImportError that crashes mlframe import.
+try:
+    from lightning.fabric.utilities import registry as _lf_registry
+    if not getattr(_lf_registry, "_mlframe_callback_cache_installed", False):
+        _orig_load_external_callbacks = _lf_registry._load_external_callbacks
+        _external_callback_cache: Dict[str, list] = {}
+
+        def _load_external_callbacks_cached(group: str) -> list:
+            cached = _external_callback_cache.get(group)
+            if cached is None:
+                cached = _orig_load_external_callbacks(group)
+                _external_callback_cache[group] = cached
+            return list(cached)  # defensive copy so callers can't mutate cache
+
+        _lf_registry._load_external_callbacks = _load_external_callbacks_cached
+        _lf_registry._mlframe_callback_cache_installed = True
+except Exception:
+    pass
+
+
 # Wave 87 (2026-05-21): scoped Lightning DataLoader warning suppressor.
 # Lightning's data_connector emits "does not have many workers which may be a
 # bottleneck" for every train/val/predict DataLoader; the recommendation is
