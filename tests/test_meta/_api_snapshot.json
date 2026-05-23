@@ -263,7 +263,6 @@
     "mro": [
       "enum.StrEnum",
       "builtins.str",
-      "enum.ReprEnum",
       "enum.Enum",
       "builtins.object"
     ]

@@ -147,6 +147,12 @@ polars_ext = [
 ]
 
 # Plotting and dashboards.
+# ``ipywidgets`` is pulled in for CatBoost's MetricVisualizer (the ``plot=True``
+# code path lazy-loads ``ipywidgets`` and re-raises ImportError when it's
+# missing -- triggered transitively even when mlframe sets plot=False, on
+# certain CB minor builds). Pinning here keeps the windows CI runner from
+# failing on ``ModuleNotFoundError: No module named 'ipywidgets'`` inside
+# ``catboost/widget/ipythonwidget.py``.
 viz = [
     "matplotlib>=3.7",
     "plotly>=5.15",
@@ -155,6 +161,7 @@ viz = [
     "hvplot>=0.9",
     "vegafusion[embed]>=1.5",
     "vl-convert-python>=1.0",
+    "ipywidgets>=8.0",
 ]
 
 # Experiment tracking.

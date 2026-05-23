@@ -82,10 +82,32 @@ def _public_names() -> list[str]:
 
 
 def _capture_class(obj: type) -> dict:
+    # Normalize MRO entries that are conditional on the Python minor version.
+    # ``enum.StrEnum`` is stdlib on Python 3.11+ (with ``enum.ReprEnum`` in
+    # the MRO), polyfilled inside ``mlframe.training._configs_base`` on
+    # Python 3.10 (no ``ReprEnum`` in the MRO). Comparing the literal MRO
+    # then trips the snapshot on every Python-minor swap. Collapse all
+    # ``StrEnum`` / ``IntEnum`` / ``Enum`` bases to a canonical
+    # ``enum.<Name>`` and DROP the ``ReprEnum`` entry entirely (it is a
+    # stdlib internal that only exists in 3.11+) so the snapshot is portable.
+    _SKIP_NAMES = {"ReprEnum"}
+    _CANONICAL_ENUMS = {"StrEnum", "IntEnum", "Enum", "IntFlag", "Flag"}
+    _canon = []
+    _seen_canon = set()
+    for c in obj.__mro__[1:]:
+        if c.__name__ in _SKIP_NAMES:
+            continue
+        if c.__name__ in _CANONICAL_ENUMS:
+            key = f"enum.{c.__name__}"
+        else:
+            key = c.__module__ + "." + c.__name__
+        if key not in _seen_canon:
+            _seen_canon.add(key)
+            _canon.append(key)
     return {
         "kind": "class",
         "module": obj.__module__,
-        "mro": [c.__module__ + "." + c.__name__ for c in obj.__mro__[1:]],
+        "mro": _canon,
     }
 
 
