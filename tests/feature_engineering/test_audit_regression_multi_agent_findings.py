@@ -977,6 +977,24 @@ class TestBruteforceLeakageFreeEncoding:
 
     def test_kfold_helper_produces_different_encoding_than_fit_all(self):
         pytest.importorskip("category_encoders")
+        # category_encoders >= 2.6 ships ``__sklearn_tags__`` that calls
+        # ``super().__sklearn_tags__()``; that hook only exists on
+        # sklearn >= 1.6 base classes. The matrix slot where
+        # category_encoders is new but sklearn is older (Python 3.9 CI
+        # wheels still pin sklearn 1.5.x) raises ``AttributeError:
+        # 'super' object has no attribute '__sklearn_tags__'`` on every
+        # CatBoostEncoder.fit / fit_transform / _check_fit_inputs call.
+        # Detect the incompat upfront and skip cleanly; newer-sklearn
+        # boxes still exercise the encoding sensor end-to-end.
+        import sklearn
+        _sk_major, _sk_minor = (int(x) for x in sklearn.__version__.split(".")[:2])
+        if (_sk_major, _sk_minor) < (1, 6):
+            pytest.skip(
+                f"sklearn {sklearn.__version__} predates the "
+                f"``__sklearn_tags__`` hook category_encoders >= 2.6 "
+                f"calls via ``super().__sklearn_tags__()``. Test requires "
+                f"sklearn >= 1.6."
+            )
         from category_encoders import CatBoostEncoder
         from mlframe.feature_engineering.bruteforce import _kfold_target_encode
 
@@ -989,25 +1007,7 @@ class TestBruteforceLeakageFreeEncoding:
         oof = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=42)
 
         encoder = CatBoostEncoder(cols=["cat"], return_df=True)
-        try:
-            fit_all = encoder.fit_transform(df[["cat"]], target)
-        except AttributeError as exc:
-            # category_encoders 2.6.x ships ``__sklearn_tags__`` that calls
-            # ``super().__sklearn_tags__()`` -- the parent class only gained
-            # that method in sklearn >= 1.6. On the matrix combo where
-            # category_encoders is new but sklearn is older (e.g. Python
-            # 3.9 wheels still pin sklearn 1.5.x), CatBoostEncoder.fit
-            # raises ``AttributeError: 'super' object has no attribute
-            # '__sklearn_tags__'``. That's a genuine upstream incompat,
-            # not anything mlframe controls; skip rather than xfail so
-            # newer sklearn boxes still exercise the encoding sensor.
-            if "__sklearn_tags__" in str(exc):
-                pytest.skip(
-                    f"category_encoders / sklearn version mismatch on this "
-                    f"runner ({exc}); needs sklearn >= 1.6 for category_encoders "
-                    f">= 2.6 __sklearn_tags__ chain."
-                )
-            raise
+        fit_all = encoder.fit_transform(df[["cat"]], target)
 
         # The two encodings must differ - if they were identical we'd not have removed the leak.
         diff = float(np.mean(np.abs(oof["cat"].values - fit_all["cat"].values)))

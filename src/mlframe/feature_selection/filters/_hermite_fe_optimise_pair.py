@@ -94,24 +94,34 @@ def optimise_hermite_pair(
             n_neighbors = 5
         else:
             n_neighbors = 7
-    try:
-        import optuna
-        from optuna.samplers import TPESampler
-        # TPESampler(multivariate=True) emits ExperimentalWarning per study init; flag has been "experimental"
-        # since 2020 and is the recommended setting for correlated params -- suppress the noise.
-        import warnings as _w
+    # Optuna is only needed on the ``optimizer="optuna"`` branch. Defer the
+    # import (and its verbosity-level mutation) to that branch so installs
+    # without optuna can still use ``cma`` / ``cma_batch`` / ``random_batch``
+    # / ``numba_kernel`` optimisers. The error message is preserved for the
+    # actual Optuna path.
+    optuna = None  # type: ignore[assignment]
+    TPESampler = None  # type: ignore[assignment]
+    if optimizer == "optuna":
         try:
-            from optuna.exceptions import ExperimentalWarning
-            _w.filterwarnings("ignore", category=ExperimentalWarning)
-        except ImportError:
-            pass
-    except ImportError as e:
-        raise ImportError(
-            "optimise_hermite_pair requires the optional optuna package. "
-            "Install via pip install optuna."
-        ) from e
-
-    optuna.logging.set_verbosity(optuna.logging.WARNING)
+            import optuna  # noqa: F811  late-bind for optional dep
+            from optuna.samplers import TPESampler  # noqa: F811
+            # TPESampler(multivariate=True) emits ExperimentalWarning per study
+            # init; flag has been "experimental" since 2020 and is the recommended
+            # setting for correlated params — suppress the noise.
+            import warnings as _w
+            try:
+                from optuna.exceptions import ExperimentalWarning
+                _w.filterwarnings("ignore", category=ExperimentalWarning)
+            except ImportError:
+                pass
+        except ImportError as e:
+            raise ImportError(
+                "optimise_hermite_pair(optimizer='optuna') requires the optional "
+                "optuna package. Install via pip install optuna, or pick an "
+                "in-tree optimiser ('cma' / 'cma_batch' / 'random_batch' / "
+                "'numba_kernel')."
+            ) from e
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     bin_funcs = bin_funcs or _DEFAULT_BIN_FUNCS
 
