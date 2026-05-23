@@ -534,12 +534,26 @@ def configure_training_params(
 
     mlp_params = None
     if _should_create_model("mlp"):
+        # Pass training rowcount so _configure_mlp_params can auto-reduce
+        # network depth on small datasets where a 4-layer LeakyReLU MLP
+        # over-fits the few-thousand-row train split and catastrophically
+        # extrapolates on the small test split (regression-collapse-sensor
+        # documented this mode for 6k-row mixed-scale features 2026-05-23).
+        _n_train_for_mlp = None
+        try:
+            if train_df is not None:
+                _n_train_for_mlp = int(len(train_df))
+            elif train_target is not None:
+                _n_train_for_mlp = int(len(train_target))
+        except (TypeError, ValueError):
+            _n_train_for_mlp = None
         mlp_params = _configure_mlp_params(
             configs=configs,
             config_params=config_params,
             use_regression=use_regression,
             metamodel_func=metamodel_func,
             target_type=target_type,
+            n_train=_n_train_for_mlp,
         )
 
     ngb_params = None

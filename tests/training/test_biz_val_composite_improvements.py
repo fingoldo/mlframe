@@ -408,7 +408,17 @@ class TestBizValStackedDiscovery:
         # correctly rejects them. The real biz_val WIN appears on data with
         # richer residual structure where pass-2 candidates clear the gate
         # (see #3 wiring docstring + production TVT smoke).
-        assert stacked_mae <= plain_mae * 1.02, (
-            f"stacked REGRESSED holdout MAE: plain={plain_mae:.4f}, "
-            f"stacked={stacked_mae:.4f} (delta {(stacked_mae - plain_mae) / max(plain_mae, 1e-9) * 100:.2f}% > 2% threshold)"
-        )
+        #
+        # Absolute-floor guard: this synthetic DGP (alpha=1.5 polynomial)
+        # is fit-able to numerical-noise MAE (~1e-7); the relative 2%
+        # threshold blows up on float-noise diffs (74% delta between
+        # 6e-8 and 1e-7 has no signal). Skip the relative check when both
+        # MAEs are below the f32-precision noise floor.
+        _NOISE_FLOOR = 1e-5
+        if max(plain_mae, stacked_mae) <= _NOISE_FLOOR:
+            pass  # both numerically zero -- no signal to gate
+        else:
+            assert stacked_mae <= plain_mae * 1.02, (
+                f"stacked REGRESSED holdout MAE: plain={plain_mae:.4f}, "
+                f"stacked={stacked_mae:.4f} (delta {(stacked_mae - plain_mae) / max(plain_mae, 1e-9) * 100:.2f}% > 2% threshold)"
+            )

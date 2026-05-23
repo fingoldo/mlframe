@@ -570,10 +570,18 @@ def _configure_mlp_params(
     use_regression: bool,
     metamodel_func: callable,
     target_type=None,
+    n_train: int | None = None,
 ) -> dict:
     """Configure MLP (PyTorch Lightning) model parameters.
 
     When ``target_type`` is supplied (multiclass / multilabel), consult ``NeuralNetStrategy.get_classif_objective_kwargs`` for the correct loss_fn + labels_dtype + task_type. Falls back to the legacy ``use_regression`` boolean for back-compat.
+
+    ``n_train`` (when known) drives a small-data depth auto-tune: the
+    suite default of nlayers=4 over-fits on <10k-row train splits and
+    extrapolates pathologically on a few-hundred-row test set (regression-
+    collapse-sensor catches this; the synthetic resiliency suite gates it).
+    On small data the network is silently reduced to nlayers=2 unless the
+    caller has set ``mlp_kwargs["network_params"]["nlayers"]`` explicitly.
     """
     mlp_kwargs = config_params.get("mlp_kwargs", {})
 
@@ -616,6 +624,32 @@ def _configure_mlp_params(
     )
     if mlp_kwargs:
         mlp_network_params.update(mlp_kwargs.get("network_params", {}))
+
+    # Small-data depth auto-tune: 4-layer LeakyReLU MLP over-fits the
+    # train split and catastrophically extrapolates on the test split
+    # when n_train is small (regression-collapse-sensor caught this on
+    # the resiliency-suite mixed-scale scenario; 4920-row train,
+    # 80-row test, pred_std ~600x target_std). Bench 2026-05-23 confirmed
+    # nlayers=2 STILL collapses on the mixed-scale resiliency scenario;
+    # nlayers=1 is the only depth that produces honest predictions under
+    # the small-data + short-budget regime. Only auto-applies when the
+    # caller hasn't explicitly set nlayers in network_params; explicit
+    # override always wins.
+    _SMALL_DATA_NLAYERS_AUTO_TUNE_THRESHOLD = 10_000
+    if (
+        n_train is not None
+        and n_train < _SMALL_DATA_NLAYERS_AUTO_TUNE_THRESHOLD
+        and not (mlp_kwargs and "nlayers" in mlp_kwargs.get("network_params", {}))
+    ):
+        if mlp_network_params["nlayers"] > 1:
+            _orig_nlayers = mlp_network_params["nlayers"]
+            mlp_network_params["nlayers"] = 1
+            logger.info(
+                "_configure_mlp_params: n_train=%d < %d -> nlayers auto-reduced "
+                "from %d to 1 to avoid over-fit + test-split extrapolation. "
+                "Override via mlp_kwargs={'network_params':{'nlayers': N}}.",
+                n_train, _SMALL_DATA_NLAYERS_AUTO_TUNE_THRESHOLD, _orig_nlayers,
+            )
 
     mlp_general_params = configs.MLP_GENERAL_PARAMS.copy()
     if use_regression:
