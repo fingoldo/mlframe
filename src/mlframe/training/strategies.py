@@ -545,15 +545,20 @@ _RECURRENT_STRATEGY = RecurrentModelStrategy()
 MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
     # Tree models
     "cb": _CATBOOST_STRATEGY,
+    "catboost": _CATBOOST_STRATEGY,  # alias
     "lgb": _TREE_STRATEGY,
+    "lightgbm": _TREE_STRATEGY,  # alias
     "xgb": _XGBOOST_STRATEGY,
+    "xgboost": _XGBOOST_STRATEGY,  # alias
     # HistGradientBoosting
     "hgb": _HGB_STRATEGY,
+    "histgradientboosting": _HGB_STRATEGY,  # alias
     # Neural networks
     "mlp": _NEURAL_STRATEGY,
     "ngb": _NEURAL_STRATEGY,
     # Linear models
     "linear": _LINEAR_STRATEGY,
+    "lr": _LINEAR_STRATEGY,  # common shorthand; previously fell through to TreeModelStrategy + UserWarning
     "ridge": _LINEAR_STRATEGY,
     "lasso": _LINEAR_STRATEGY,
     "elasticnet": _LINEAR_STRATEGY,

@@ -282,13 +282,12 @@ def plot_feature_importance(
                     for _fig in figs:
                         _ipy_display(_fig)
                 except Exception:
-                    # Fall back to plt.show on any import / display
-                    # error; the warning is acceptable here.
-                    plt.ion()
-                    plt.show()
+                    # Fall back to plt.show on any import / display error.
+                    from mlframe.metrics._calibration_plot import _show_plots_unless_agg
+                    _show_plots_unless_agg()
             else:
-                plt.ion()
-                plt.show()
+                from mlframe.metrics._calibration_plot import _show_plots_unless_agg
+                _show_plots_unless_agg()
         # Close ALL figs (top + bottom) unless inside an IPython /
         # Jupyter kernel where the inline display already rendered
         # them. Previously only the last-assigned fig was closed in

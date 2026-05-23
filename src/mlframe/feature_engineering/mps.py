@@ -592,7 +592,17 @@ def show_mps_regions(
     if show_chart:
 
         fig = plot_positions(prices=prices, raw_prices=raw_prices, positions=positions, profits=profits, figsize=figsize, use_plotly=use_plotly, title=title)
-        fig.show()
+        # Skip fig.show() on the non-interactive matplotlib Agg backend
+        # (CI / pytest / headless scripts pin Agg) to avoid the
+        # "FigureCanvasAgg is non-interactive, and thus cannot be shown"
+        # UserWarning. Plotly figures keep show() (browser-routed; no
+        # backend coupling).
+        if use_plotly:
+            fig.show()
+        else:
+            import matplotlib as _mpl
+            if _mpl.get_backend().lower() not in {"agg", "pdf", "ps", "svg", "cairo"}:
+                fig.show()
 
     return dict(profit_quantile=profit_quantile_value, max_profit=max_profit, **res)
 

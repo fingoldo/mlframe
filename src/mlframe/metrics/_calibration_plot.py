@@ -230,6 +230,26 @@ def _close_unless_interactive(figs, was_shown: bool) -> None:
         plt.close(f)
 
 
+def _show_plots_unless_agg() -> bool:
+    """Call ``plt.ion(); plt.show()`` only when matplotlib is on an
+    interactive backend. Returns True iff show was actually invoked.
+
+    Background: when the global backend is ``Agg`` (matplotlib's headless
+    default for pytest / CI / scripted runs and the one pinned by
+    ``tests/training/conftest.py``), ``plt.show()`` emits the
+    "FigureCanvasAgg is non-interactive, and thus cannot be shown"
+    UserWarning and renders nothing. The interactive-kernel branch
+    (IPython / Jupyter) is already routed through ``display(fig)``
+    upstream; this helper guards the bare-Python fallback.
+    """
+    import matplotlib as _mpl
+    if _mpl.get_backend().lower() in {"agg", "pdf", "ps", "svg", "cairo"}:
+        return False  # non-interactive backend; plt.show would just warn
+    plt.ion()
+    plt.show()
+    return True
+
+
 def show_calibration_plot(
     freqs_predicted: np.ndarray,
     freqs_true: np.ndarray,
@@ -532,8 +552,7 @@ def show_calibration_plot(
         # display hooks during ``plt.show()`` BEFORE we close it, so
         # the rendered output is preserved.
         if show_plots:
-            plt.ion()
-            plt.show()
+            _show_plots_unless_agg()
         _close_unless_interactive(fig, was_shown=show_plots)
 
     else:
