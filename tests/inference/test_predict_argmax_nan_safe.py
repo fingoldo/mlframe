@@ -23,33 +23,59 @@ from pathlib import Path
 import numpy as np
 
 
-def test_no_bare_argmax_on_combined_or_avg_probs() -> None:
-    src_path = (
+_PREDICT_SIBLINGS = (
+    "predict.py",
+    "_predict_main.py",
+    "_predict_main_from_models.py",
+    "_predict_main_suite.py",
+    "_predict_pre_pipeline.py",
+)
+
+
+def _read_predict_core_combined_source() -> str:
+    """``predict.py`` was split into ``_predict_main*.py`` siblings during the
+    2026-05-22 monolith split; the wave-91 fix sites + the underlying
+    ``argmax_classes_safe`` imports moved with them. Sensor must read the
+    parent + every sibling so the test survives the split."""
+    core_dir = (
         Path(__file__).resolve().parent.parent.parent
-        / "src" / "mlframe" / "training" / "core" / "predict.py"
+        / "src" / "mlframe" / "training" / "core"
     )
-    src = src_path.read_text(encoding="utf-8")
+    parts = []
+    for nm in _PREDICT_SIBLINGS:
+        p = core_dir / nm
+        if p.exists():
+            parts.append(p.read_text(encoding="utf-8"))
+    return "\n".join(parts)
+
+
+def test_no_bare_argmax_on_combined_or_avg_probs() -> None:
+    src = _read_predict_core_combined_source()
     # The 4 audit-flagged sites (per-target + suite-wide in both predict
     # entries) must NOT use np.argmax(_combined, ...) or np.argmax(avg_probs, ...).
     assert "np.argmax(_combined" not in src, (
-        "bare np.argmax(_combined) found in predict.py -- one of the 4 "
-        "wave-91 audit sites regressed; use argmax_classes_safe instead."
+        "bare np.argmax(_combined) found in predict core sources -- one of "
+        "the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
     )
     assert "np.argmax(avg_probs" not in src, (
-        "bare np.argmax(avg_probs) found in predict.py -- one of the 4 "
-        "wave-91 audit sites regressed; use argmax_classes_safe instead."
+        "bare np.argmax(avg_probs) found in predict core sources -- one of "
+        "the 4 wave-91 audit sites regressed; use argmax_classes_safe instead."
     )
 
 
 def test_argmax_classes_safe_imports_present() -> None:
     """The 4 fixed sites each import argmax_classes_safe lazily; together
     with the 2 pre-existing per-model sites that's 6 lazy imports total."""
-    src_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "src" / "mlframe" / "training" / "core" / "predict.py"
+    src = _read_predict_core_combined_source()
+    # Match both ``from ...utils.nan_safe import argmax_classes_safe`` (3 dots,
+    # original ``predict.py`` parent depth) AND ``from ...utils.nan_safe`` /
+    # ``from ....utils.nan_safe`` variants the post-split siblings may use
+    # depending on their own depth. Counting the symbol-name occurrences in
+    # ``from`` statements is robust to either form.
+    n_imports = sum(
+        1 for ln in src.splitlines()
+        if ln.lstrip().startswith("from") and "nan_safe" in ln and "argmax_classes_safe" in ln
     )
-    src = src_path.read_text(encoding="utf-8")
-    n_imports = src.count("from ...utils.nan_safe import argmax_classes_safe")
     # Wave-21 added 2 per-model sites; wave-91 adds 4 ensemble sites = 6 total.
     assert n_imports >= 6, (
         f"expected >= 6 argmax_classes_safe imports (2 per-model + 4 "
