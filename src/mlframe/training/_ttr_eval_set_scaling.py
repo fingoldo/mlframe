@@ -78,9 +78,19 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
         """
         if self.transformer_ is None:
             return super().predict(X, **predict_params)
-        # Mirror the parent's predict path so we can intercept T_hat.
+        # iter191 (2026-05-23): inline the parent TransformedTargetRegressor.predict
+        # path so we predict ONCE (not twice). The previous form called
+        # self.regressor_.predict(X) for the sensor probe then super().predict(X)
+        # for the actual return -- both invoke the inner regressor on the full X,
+        # doubling predict wall time. c0115 profile attributed 1.222s to TTR
+        # predict over 2 calls (611ms each on 200k rows). Saving the second
+        # invocation drops to ~611ms across both, ~600ms saved.
         try:
+            t_hat = self.regressor_.predict(X, **predict_params)
+        except TypeError:
+            # Some regressors (sklearn linear models) reject **predict_params.
             t_hat = self.regressor_.predict(X)
+        try:
             t_hat_arr = np.asarray(t_hat, dtype=np.float64).reshape(-1)
             if t_hat_arr.size:
                 _abs_max = float(np.max(np.abs(t_hat_arr)))
@@ -102,4 +112,13 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
                 "ttr-scaled-extrapolation-sensor probe failed (non-fatal): %s",
                 _sensor_err,
             )
-        return super().predict(X, **predict_params)
+        # Inline the parent's inverse_transform path so we don't re-predict.
+        # Mirrors sklearn.compose.TransformedTargetRegressor.predict bit-for-bit.
+        t_hat_np = np.asarray(t_hat)
+        if t_hat_np.ndim == 1:
+            pred_trans = self.transformer_.inverse_transform(t_hat_np.reshape(-1, 1))
+        else:
+            pred_trans = self.transformer_.inverse_transform(t_hat_np)
+        if pred_trans.ndim == 2 and pred_trans.shape[1] == 1:
+            pred_trans = pred_trans.squeeze(axis=1)
+        return pred_trans
