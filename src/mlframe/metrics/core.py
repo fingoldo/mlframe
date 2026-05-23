@@ -198,6 +198,16 @@ def _prewarm_numba_cache_body():
         _ = fast_brier_score_loss(_yt_bool, _yp_f64)
     except Exception:
         pass
+
+    # iter198 (2026-05-23) bench-attempt-rejected: tried prewarming
+    # ``fast_aucs(bool, float64)`` to eliminate the 667ms _compile_for_args
+    # attributed to fast_aucs in c0133 multiclass. Verification re-run wall:
+    # 7.97s -> 8.22s (within ~250ms run-to-run noise; (bool, f64) confirmed
+    # warm via direct bench at 0.4ms / call). Suspected reason: the runtime
+    # exercises ANOTHER dtype combo (likely int8/int64 + float32) that's
+    # still cold, so the (bool, f64) prewarm doesn't move the needle.
+    # Adding all 10 dtype combos would add ~3.4s to prewarm time -- worse
+    # than the current state. Pinning a smaller subset is unbounded; skip.
     _yti = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
     _ypi = np.array([0, 1, 0, 0, 1, 1], dtype=np.int64)
     try:
