@@ -117,9 +117,19 @@ automl = [
 # encodings. Both are used by ``preprocessing_extensions_config`` /
 # ``MRMR.fe_max_steps`` paths -- they belong with feature engineering,
 # not with AutoML hyperparameter search.
+# ``cma`` powers the default Hermite-FE pair optimiser
+# (``_hermite_fe_optimise_pair.optimise_hermite_pair(optimizer='cma')``)
+# and its ``cma_batch`` variant; without it the dispatcher silently
+# returns ``None`` and downstream FE skips engineered candidates.
+# ``optuna`` backs the legacy TPE optimiser path (``optimizer='optuna'``)
+# kept for benchmark comparisons in tests/feature_selection/
+# test_biz_val_filters_hermite_fe.py and as a fallback hint in the
+# error message.
 feature_engineering = [
     "pysr>=0.18",
     "optbinning>=0.19",
+    "cma>=3.2",
+    "optuna>=3.0",
 ]
 
 # Resampling, encoding, stratification.
