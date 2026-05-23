@@ -150,6 +150,37 @@ def resolve_mlp_dataloader_defaults(
 _BF16_MIN_CC_MAJOR: int = 8
 
 
+# iter181: per-process cache for the CUDA precision probe. The probe
+# itself is invariant across calls in a single process (torch driver
+# state doesn't change once it's been initialised). c0091 iter181
+# profile attributed 5.95 s across 2 calls (~3 s / call) all to the
+# torch.cuda.is_available() + get_device_capability() round-trip --
+# pure repeated work that memoisation eliminates. Mirrors the
+# ``_CB_GPU_USABLE_CACHE`` pattern in _cb_pool.py.
+_PROBE_PRECISION_CACHE: "dict[int, str]" = {}
+
+
+def _probe_cuda_precision_cached(device_id: int) -> str:
+    """Cached CUDA precision probe. Returns "bf16-mixed" on Ampere+,
+    "32-true" otherwise. Probe outcome is process-stable."""
+    if device_id in _PROBE_PRECISION_CACHE:
+        return _PROBE_PRECISION_CACHE[device_id]
+    try:
+        import torch
+        if not bool(torch.cuda.is_available()):
+            result = "32-true"
+        else:
+            try:
+                cc_major, _ = torch.cuda.get_device_capability(int(device_id))
+                result = "bf16-mixed" if cc_major >= _BF16_MIN_CC_MAJOR else "32-true"
+            except Exception:
+                result = "32-true"
+    except Exception:
+        result = "32-true"
+    _PROBE_PRECISION_CACHE[device_id] = result
+    return result
+
+
 def resolve_mlp_precision_default(
     *,
     user_override: str | None = None,
@@ -183,6 +214,14 @@ def resolve_mlp_precision_default(
     """
     if user_override is not None:
         return str(user_override)
+    # iter181: when both probe-override args are None, dispatch to the
+    # per-process cached probe. The probe is invariant across calls in
+    # one process, so memoising shaves ~3 s per call after the first.
+    # The explicit-override path below stays uncached to preserve
+    # caller-supplied test inputs (different cuda_available / cc_major
+    # combos must each compute independently).
+    if cuda_available is None and cuda_compute_capability_major is None:
+        return _probe_cuda_precision_cached(int(device_id))
     if cuda_available is None:
         try:
             import torch
