@@ -50,6 +50,19 @@ from pyutilz.system import ensure_dir_exists
 logger = logging.getLogger(__name__)
 
 
+# iter193 (2026-05-23): per-process cache for the polars-ds Pipeline
+# from_json() roundtrip validation. ``_finalize_and_save_metadata`` calls
+# ``Pipeline.from_json(_js)`` on EVERY fit to verify the JSON roundtrips;
+# c0141 profile attributed 5.413s wall to this single call. The validation
+# is deterministic in the input JSON (same JSON -> same parse result), so
+# we cache the result keyed by ``hash(_js)``. First-fit pays the 5s, subse-
+# quent fits within the same process do a 1us dict lookup. Mirrors the
+# _PROBE_PRECISION_CACHE (iter181), _CB_GPU_USABLE_CACHE, and
+# _mlframe_callback_cache_installed (iter189) patterns for process-stable
+# costs. Falls back to live validation on cache miss.
+_PIPELINE_JSON_ROUNDTRIP_CACHE: dict[int, bool] = {}
+
+
 class _PolarsDsPipelineJsonProxy:
     """Pickle-fast wrapper around a polars-ds ``Pipeline``.
 
@@ -850,8 +863,23 @@ def _finalize_and_save_metadata(ctx: TrainingContext, *, verbose: int | None = N
             if isinstance(_pipeline_orig, _PdsPipeline):
                 try:
                     _js = _pipeline_orig.to_json()
-                    _PdsPipeline.from_json(_js)  # roundtrip validation
-                    metadata["pipeline"] = _PolarsDsPipelineJsonProxy(_pipeline_orig)
+                    _js_hash = hash(_js)
+                    _rt_ok = _PIPELINE_JSON_ROUNDTRIP_CACHE.get(_js_hash)
+                    if _rt_ok is None:
+                        # Cache miss: pay the 5s validation, then memoise the
+                        # result so subsequent fits in this process skip it.
+                        # Negative-result caching too: a JSON that fails parse
+                        # this time will fail every time (deterministic).
+                        try:
+                            _PdsPipeline.from_json(_js)
+                            _rt_ok = True
+                        except Exception:
+                            _rt_ok = False
+                        _PIPELINE_JSON_ROUNDTRIP_CACHE[_js_hash] = _rt_ok
+                    if _rt_ok:
+                        metadata["pipeline"] = _PolarsDsPipelineJsonProxy(_pipeline_orig)
+                    else:
+                        raise RuntimeError("cached: roundtrip parse failed")
                 except Exception as _rt_exc:
                     logger.debug(
                         "polars-ds Pipeline JSON roundtrip failed (%s); "
