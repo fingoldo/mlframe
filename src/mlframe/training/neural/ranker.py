@@ -545,6 +545,7 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         seed: int = 42,
         verbose: int = 0,
         enable_checkpointing: bool = False,
+        accumulate_grad_batches: int = 32,
     ):
         self.loss_fn = loss_fn
         self.n_estimators = n_estimators
@@ -555,6 +556,21 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         self.seed = seed
         self.verbose = verbose
         self.enable_checkpointing = enable_checkpointing
+        # OPT-6 (2026-05-23): accumulate gradients across N "batches" (queries)
+        # before each optimizer.step(). The Lightning-native equivalent of
+        # explicit batch-packing across queries: each forward+backward is
+        # cheap per-query, but optimizer.step() at ~5ms/call is the dominant
+        # cost on the LTR-MLP tiny-batch (one-query-per-batch) path. iter183/
+        # 216 measured 162000 optimizer.step() calls on c0098 LTR -> 800s of
+        # 1150s wall (75%). With accumulate=32 the call count drops to ~5000
+        # for the same epochs; effective batch size becomes 32 queries
+        # (~10-50 rows/query x 32 = ~300-1600 rows per gradient update),
+        # which is well within stable-optimizer territory for AdamW + LayerNorm.
+        # accumulate_grad_batches=1 reverts to the legacy per-query update
+        # path. Set via constructor for callers that need bit-exact gradient
+        # flow vs prior behaviour (e.g., test reproducibility on a tiny
+        # query set where the 32x averaging shifts the loss surface).
+        self.accumulate_grad_batches = max(1, int(accumulate_grad_batches))
 
     def _x_to_array(self, X) -> np.ndarray:
         if isinstance(X, pd.DataFrame):
@@ -744,6 +760,10 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             # ModelCheckpoint default is dead weight in the suite (joblib-serialised) and
             # emits "Checkpoint directory exists and is not empty" UserWarning across LTR runs.
             enable_checkpointing=self.enable_checkpointing,
+            # OPT-6 (2026-05-23): see __init__ docstring -- amortizes
+            # optimizer.step() cost across N batches (queries). 1 = legacy
+            # per-query update; 32 = batched gradient update.
+            accumulate_grad_batches=self.accumulate_grad_batches,
         )
         trainer.fit(
             model=self.module_,
