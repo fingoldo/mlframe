@@ -303,12 +303,48 @@ def _maybe_wrap_multilabel(estimator, target_type, multilabel_config=None,
     # Default + "wrapper" + "auto"-without-native: MultiOutputClassifier
     n_jobs = cfg.wrapper_n_jobs
     if n_jobs == "auto":
-        # Avoid nested-parallelism thrashing when inner estimator already
-        # uses n_jobs=-1 (most GBMs do). Use up to half of CPUs, cap at K.
-        import os
-        cpu = os.cpu_count() or 1
-        n_jobs = min(n_labels or cpu, max(1, cpu // 2))
+        # OPT-5 (2026-05-23): pick n_jobs based on expected per-label work,
+        # not just n_labels. joblib's loky backend pays ~500ms per worker
+        # spawn (pickle X, fork process, import estimator deps); for small K
+        # (3-4) AND small N (<50k) this overhead exceeds the parallel win.
+        # Bench (HistGradientBoostingClassifier max_iter=5):
+        #   n=50000  K= 3: parallel=6.24s  manual-loop=0.54s (11.5x SLOWER parallel)
+        #   n=200000 K= 3: parallel=3.37s  manual-loop=8.01s (2.4x parallel win)
+        #   n=50000  K=10: parallel=6.68s  manual-loop=3.82s (1.7x SLOWER parallel)
+        #   n=200000 K=10: parallel=6.47s  manual-loop=7.53s (~equal)
+        #   n=50000  K=50: parallel=2.54s  manual-loop=6.71s (2.6x parallel win)
+        # Pre-fix the unconditional ``min(K, cpu//2)`` always spawned the
+        # worker pool, paying spawn overhead even when K=3+small-n means
+        # sequential wins. The new rule routes tiny workloads to n_jobs=1.
+        # SAVING: c0023 iter190 attributed 90s to time.sleep waiting on
+        # joblib workers for K=3 multilabel at 200k -- expected ~10-30s
+        # saved depending on inner estimator's per-label fit time.
+        n_jobs = _auto_wrapper_n_jobs(n_labels=n_labels)
     return MultiOutputClassifier(estimator, n_jobs=n_jobs)
+
+
+def _auto_wrapper_n_jobs(n_labels: Optional[int]) -> int:
+    """OPT-5 (2026-05-23): smart ``wrapper_n_jobs='auto'`` resolver.
+
+    Returns 1 (sequential, no joblib spawn overhead) when the workload is
+    too small to amortize loky's process-fork + pickle-X cost (~500ms /
+    worker). Returns ``min(K, cpu//2)`` for large workloads where parallel
+    actually wins.
+
+    This is a heuristic on n_labels alone -- a more sophisticated form
+    would also factor in n_rows + inner-estimator class. Conservative
+    choice: prefer sequential whenever K <= 4 (covers c0023 / c0095 /
+    c0062 / c0123 multilabel shapes observed in fuzz). For K >= 5 the
+    spawn cost amortises across enough labels to recover parallel win.
+
+    Override via ``MultilabelDispatchConfig.wrapper_n_jobs=<int>`` -- the
+    auto path only activates on the string ``"auto"`` default.
+    """
+    if n_labels is None or n_labels <= 4:
+        return 1
+    import os
+    cpu = os.cpu_count() or 1
+    return min(n_labels, max(1, cpu // 2))
 
 
 def _compute_chain_orders(n_labels, n_chains, order_strategy="random",
