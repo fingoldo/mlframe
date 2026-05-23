@@ -498,6 +498,7 @@ def run_composite_post_processing(
                     # alphas has K entries". Reproduced by fuzz c0047
                     # (multi-base auto-promoted to linresM-num_1+num_dep).
                     _base_full_per_spec: dict[str, np.ndarray] = {}
+                    _base_val_per_spec: dict[str, np.ndarray] = {}
                     for _spec_for_oof in _spec_list:
                         _b_primary = _build_full_column_from_splits(
                             _spec_for_oof["base_column"],
@@ -519,10 +520,21 @@ def run_composite_post_processing(
                                         n_total=len(_oof_y_full),
                                     )
                                 )
-                            _b_filtered = np.column_stack(_b_cols)[filtered_train_idx]
+                            _b_stack_full = np.column_stack(_b_cols)
+                            _b_filtered = _b_stack_full[filtered_train_idx]
+                            try:
+                                _b_val = _b_stack_full[filtered_val_idx]
+                            except Exception:
+                                _b_val = None
                         else:
                             _b_filtered = _b_primary[filtered_train_idx]
+                            try:
+                                _b_val = _b_primary[filtered_val_idx]
+                            except Exception:
+                                _b_val = None
                         _base_full_per_spec[_spec_for_oof["base_column"]] = _b_filtered
+                        if _b_val is not None:
+                            _base_val_per_spec[_spec_for_oof["base_column"]] = _b_val
                     # Build the spec-or-None list parallel to components.
                     _component_specs: list[dict[str, Any] | None] = []
                     for _name in _component_names:
@@ -558,6 +570,44 @@ def run_composite_post_processing(
                                 _sw_for_oof = np.asarray(_sw_raw)[filtered_train_idx]
                             except (TypeError, IndexError):
                                 _sw_for_oof = None
+                    # Resolve the OOF holdout source. ``external_val``
+                    # (default) replaces the train-tail carving with the
+                    # suite's val frame: fit clones on full train,
+                    # predict on val. ``train_tail`` keeps the legacy
+                    # internal trailing-slice / random-shuffle carve.
+                    _oof_source = str(getattr(
+                        composite_target_discovery_config,
+                        "oof_holdout_source", "external_val",
+                    )).lower()
+                    _ext_X = None
+                    _ext_y = None
+                    _ext_base_per_spec = None
+                    if _oof_source == "external_val":
+                        try:
+                            _ext_y_arr = (
+                                np.asarray(_oof_y_full)[filtered_val_idx]
+                            )
+                        except (TypeError, IndexError):
+                            _ext_y_arr = None
+                        if (filtered_val_df is not None
+                                and _ext_y_arr is not None
+                                and len(_ext_y_arr) > 0):
+                            _ext_X = filtered_val_df
+                            _ext_y = _ext_y_arr
+                            _ext_base_per_spec = _base_val_per_spec or None
+                            logger.info(
+                                "[CompositeCrossTargetEnsemble] target='%s' "
+                                "honest-OOF source='external_val' (n=%d); "
+                                "skipping train-tail carve.",
+                                _orig_tname, len(_ext_y_arr),
+                            )
+                        else:
+                            logger.info(
+                                "[CompositeCrossTargetEnsemble] target='%s' "
+                                "external_val OOF requested but val unavailable; "
+                                "falling back to train_tail.",
+                                _orig_tname,
+                            )
                     try:
                         _oof_pred_matrix, _oof_y_holdout, _surviving = (
                             compute_oof_holdout_predictions(
@@ -574,6 +624,9 @@ def run_composite_post_processing(
                                 ),
                                 time_ordering=_time_ordering,
                                 sample_weight=_sw_for_oof,
+                                external_holdout_X=_ext_X,
+                                external_holdout_y=_ext_y,
+                                external_holdout_base_per_spec=_ext_base_per_spec,
                             )
                         )
                     except Exception as _oof_err:

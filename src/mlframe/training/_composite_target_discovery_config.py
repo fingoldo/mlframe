@@ -772,6 +772,29 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     oof_holdout_frac: float = 0.2
     oof_random_state: int = DEFAULT_RANDOM_SEED
 
+    # OOF holdout source for the cross-target ensemble stacker. Two
+    # modes:
+    #
+    # - ``"external_val"`` (default): fit each component clone on the
+    #   FULL train slice, predict on the suite's val frame. Skips the
+    #   train-tail carving entirely. Eliminates the train-tail-vs-test
+    #   distribution mismatch that biased NNLS on group-aware splits
+    #   of strong-AR targets (TVT prod 2026-05-23: train-tail
+    #   lag_predict RMSE 15.18 vs test 11.58; NNLS underweighted the
+    #   dominant zero-parameter baseline because it looked bad on the
+    #   train-tail slice that the stacker minimised against). Val is
+    #   the natural honest holdout: components used val for early-
+    #   stopping during initial training, but the OOF clones are
+    #   re-fit on full train (no val rows) before predicting on val,
+    #   so val rows are unseen by the re-fitted estimator.
+    #
+    # - ``"train_tail"``: legacy single-slice carve from the trailing
+    #   ``oof_holdout_frac`` of train (time-aware when ``time_ordering``
+    #   is monotone, random shuffle otherwise). Use when val is
+    #   unavailable or when the suite is run without group-aware /
+    #   AR-heavy targets.
+    oof_holdout_source: str = "external_val"
+
     # Stacking-aware gate (measure-first NNLS gate). When True AND
     # ``cross_target_ensemble_strategy`` is ``linear_stack`` or
     # ``nnls_stack``, the ensemble-build path first runs

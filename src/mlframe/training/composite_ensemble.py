@@ -298,6 +298,162 @@ def _oof_cache_put(key: tuple, value: tuple) -> None:
     _OOF_HOLDOUT_CACHE[key] = value
 
 
+def _compute_oof_with_external_holdout(
+    *,
+    component_models: list[Any],
+    component_names: list[str],
+    component_specs: list[dict[str, Any] | None],
+    train_X: Any,
+    y_train_full: np.ndarray,
+    base_train_full_per_spec: dict[str, np.ndarray],
+    external_holdout_X: Any,
+    external_holdout_y: np.ndarray,
+    external_holdout_base_per_spec: dict[str, np.ndarray],
+    sample_weight: np.ndarray | None,
+    full_key: tuple | None,
+) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Fit each component clone on full train, predict on caller-
+    supplied external holdout (typically the suite's val split).
+
+    Mirrors the per-component branch in :func:`compute_oof_holdout_predictions`
+    but skips the internal train/holdout slicing.
+    """
+    y_train_full = y_train_full.astype(np.float64)
+    holdout_cols: list[np.ndarray] = []
+    surviving_names: list[str] = []
+    for model, name, spec in zip(
+        component_models, component_names, component_specs,
+    ):
+        try:
+            inner, pp = _unwrap_shim(model)
+            X_stack_t = _transform_via(pp, train_X)
+            X_holdout_t = _transform_via(pp, external_holdout_X)
+            if isinstance(inner, CompositeTargetEstimator):
+                if spec is None:
+                    raise ValueError("composite component with no spec")
+                base_full = base_train_full_per_spec.get(
+                    spec["base_column"],
+                )
+                if base_full is None:
+                    raise ValueError(
+                        f"missing base column '{spec['base_column']}' "
+                        "for external-holdout OOF (train side)"
+                    )
+                transform = get_transform(spec["transform_name"])
+                valid = transform.domain_check(y_train_full, base_full)
+                if valid.sum() < 10:
+                    raise ValueError(
+                        "too few valid rows after domain filter"
+                    )
+                t_train = transform.forward(
+                    y_train_full[valid], base_full[valid],
+                    spec["fitted_params"],
+                )
+                inner_clone = clone(inner.estimator_)
+                if isinstance(X_stack_t, pd.DataFrame):
+                    X_train_valid = X_stack_t.iloc[valid].reset_index(
+                        drop=True,
+                    )
+                elif _is_polars_df(X_stack_t):
+                    X_train_valid = X_stack_t.filter(pl.Series(valid))
+                else:
+                    X_train_valid = X_stack_t[valid]
+                _sw_train_valid = (
+                    None if sample_weight is None
+                    else sample_weight[valid]
+                )
+                _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c = (
+                    _carve_inner_eval_split(
+                        X_train_valid, t_train, random_state=0,
+                    )
+                )
+                _eval_set_c = (
+                    (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
+                )
+                _sw_fit_c = (
+                    _sw_train_valid[:len(_t_fit_c)]
+                    if _sw_train_valid is not None else None
+                )
+                _maybe_pass_sample_weight(
+                    inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
+                    eval_set=_eval_set_c,
+                )
+                _extra = tuple(spec.get("extra_base_columns") or ())
+                _base_columns = (
+                    (spec["base_column"], *_extra) if _extra else None
+                )
+                wrapped = CompositeTargetEstimator.from_fitted_inner(
+                    fitted_inner=inner_clone,
+                    transform_name=spec["transform_name"],
+                    base_column=spec["base_column"],
+                    base_columns=_base_columns,
+                    transform_fitted_params=spec["fitted_params"],
+                    y_train=y_train_full[valid],
+                )
+                preds = wrapped.predict(X_holdout_t)
+            else:
+                inner_clone = clone(inner)
+                _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r = (
+                    _carve_inner_eval_split(
+                        X_stack_t, y_train_full, random_state=0,
+                    )
+                )
+                _eval_set_r = (
+                    (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
+                )
+                _sw_fit_r = (
+                    sample_weight[:len(_y_fit_r)]
+                    if sample_weight is not None else None
+                )
+                _maybe_pass_sample_weight(
+                    inner_clone, _X_fit_r, _y_fit_r, _sw_fit_r,
+                    eval_set=_eval_set_r,
+                )
+                preds = inner_clone.predict(X_holdout_t)
+            preds = np.asarray(preds).reshape(-1).astype(np.float64)
+            if preds.shape[0] != external_holdout_y.shape[0]:
+                raise ValueError(
+                    f"component '{name}' predicted "
+                    f"{preds.shape[0]} rows but external holdout has "
+                    f"{external_holdout_y.shape[0]}"
+                )
+            if not np.all(np.isfinite(preds)):
+                raise ValueError("non-finite holdout predictions")
+            holdout_cols.append(preds)
+            surviving_names.append(name)
+        except Exception as exc:
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] external-holdout OOF "
+                "refit failed for component '%s': %s. Excluded from "
+                "ensemble weights.", name, exc,
+            )
+            continue
+    _surviving_n = len(surviving_names)
+    _total_n = len(component_names)
+    if _surviving_n < _total_n:
+        _dropped = [
+            n for n in component_names if n not in set(surviving_names)
+        ]
+        logger.info(
+            "compute_oof_holdout_predictions (external-holdout): built "
+            "OOF matrix with %d of %d components (dropped %d: %s).",
+            _surviving_n, _total_n, _total_n - _surviving_n, _dropped,
+        )
+    if not holdout_cols:
+        _empty = (np.zeros((0, 0)), np.zeros(0), [])
+        if full_key is not None:
+            _oof_cache_put(full_key, _empty)
+        return _empty
+    _final = (
+        np.column_stack(holdout_cols),
+        external_holdout_y,
+        surviving_names,
+    )
+    if full_key is not None:
+        _oof_cache_put(full_key, _final)
+    return _final
+
+
 def compute_oof_holdout_predictions(
     component_models: list[Any],
     component_names: list[str],
@@ -311,6 +467,9 @@ def compute_oof_holdout_predictions(
     kfold: int = 1,
     sample_weight: np.ndarray | None = None,
     cache_key: tuple | None = None,
+    external_holdout_X: Any | None = None,
+    external_holdout_y: np.ndarray | None = None,
+    external_holdout_base_per_spec: dict[str, np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute honest holdout predictions for each component.
 
@@ -325,6 +484,16 @@ def compute_oof_holdout_predictions(
 
     Split strategy:
 
+    - **External holdout** (preferred when ``external_holdout_X`` is
+      supplied): fit each component clone on the FULL train, predict
+      on the caller-provided external frame (the suite's val split).
+      Eliminates the train-tail-vs-test distribution mismatch that
+      biases NNLS weights on group-aware splits of strong-AR targets
+      (TVT prod 2026-05-23: train-tail lag_predict RMSE 15.18 vs test
+      11.58 - NNLS underweights the dominant baseline because it
+      looks bad on the train-tail). Caller is responsible for
+      providing the parallel base columns via
+      ``external_holdout_base_per_spec`` for composite components.
     - ``time_ordering`` provided and monotone-non-decreasing OR
       ``time_ordering`` is ``None`` but rows are otherwise detected to
       be time-ordered: take the trailing ``holdout_frac`` slice as the
@@ -505,6 +674,30 @@ def compute_oof_holdout_predictions(
         if _full_key is not None:
             _oof_cache_put(_full_key, _result)
         return _result
+
+    # External honest holdout (caller-supplied val frame). Skip the
+    # train-tail split entirely: fit each component clone on the FULL
+    # train, predict on the external frame, return the parallel y
+    # column the caller supplied. Defends against AR(1) train-tail
+    # distribution mismatch.
+    if (external_holdout_X is not None
+            and external_holdout_y is not None
+            and len(external_holdout_y) > 0):
+        return _compute_oof_with_external_holdout(
+            component_models=component_models,
+            component_names=component_names,
+            component_specs=component_specs,
+            train_X=train_X,
+            y_train_full=y_train_full,
+            base_train_full_per_spec=base_train_full_per_spec,
+            external_holdout_X=external_holdout_X,
+            external_holdout_y=np.asarray(external_holdout_y, dtype=np.float64),
+            external_holdout_base_per_spec=(
+                external_holdout_base_per_spec or {}
+            ),
+            sample_weight=sample_weight,
+            full_key=_full_key,
+        )
 
     # Decide whether to do a time-aware split. We use the explicit
     # ``time_ordering`` signal when supplied; absent that we attempt

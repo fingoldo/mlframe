@@ -383,6 +383,149 @@ class TestMLPEvalSetShapeNormalisation:
         assert "eval_set = eval_set[0]" in src
 
 
+class TestExternalValHoldoutOOF:
+    """The architectural fix that complements the AR(1) failsafe:
+    when an external holdout frame is supplied (typically the suite's
+    val split), the OOF helper fits component clones on the FULL
+    train and predicts on the external frame. Eliminates the train-
+    tail-vs-test distribution mismatch that biased NNLS weights on
+    AR(1) targets in TVT prod 2026-05-23."""
+
+    def _make_components(self) -> tuple:
+        """Two trivial raw regressors that just memorise mean(y)."""
+        from sklearn.dummy import DummyRegressor
+        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        m_a = DummyRegressor(strategy="mean")
+        m_b = DummyRegressor(strategy="median")
+        c_a = PrePipelinePredictShim(m_a, None, "raw#0")
+        c_b = PrePipelinePredictShim(m_b, None, "raw#1")
+        return [c_a, c_b], ["raw#0", "raw#1"], [None, None]
+
+    def test_external_holdout_returns_external_y(self) -> None:
+        from mlframe.training.composite_ensemble import (
+            compute_oof_holdout_predictions,
+        )
+        components, names, specs = self._make_components()
+        n_train, n_val = 200, 50
+        rng = np.random.default_rng(0)
+        X_train = pd.DataFrame({
+            "a": rng.normal(0, 1, n_train),
+            "b": rng.normal(0, 1, n_train),
+        })
+        y_train = rng.normal(10, 1, n_train).astype(np.float64)
+        X_val = pd.DataFrame({
+            "a": rng.normal(0, 1, n_val),
+            "b": rng.normal(0, 1, n_val),
+        })
+        y_val = rng.normal(50, 1, n_val).astype(np.float64)
+        # Fit the raw components on train so they exist.
+        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        for c in components:
+            assert isinstance(c, PrePipelinePredictShim)
+            c.model.fit(X_train, y_train)
+        preds, y_h, surv = compute_oof_holdout_predictions(
+            component_models=components,
+            component_names=names,
+            component_specs=specs,
+            train_X=X_train,
+            y_train_full=y_train,
+            base_train_full_per_spec={},
+            holdout_frac=0.2,
+            random_state=0,
+            external_holdout_X=X_val,
+            external_holdout_y=y_val,
+            external_holdout_base_per_spec={},
+        )
+        assert preds.shape == (n_val, 2), preds.shape
+        assert y_h.shape == (n_val,)
+        np.testing.assert_allclose(y_h, y_val)
+        assert set(surv) == {"raw#0", "raw#1"}
+        # Both dummy components predict ~mean(y_train)=10, far from
+        # mean(y_val)=50 -- the external holdout is honest because
+        # the components never saw val rows in this OOF pass.
+        assert abs(float(preds.mean()) - 10.0) < 1.0
+
+    def test_train_tail_path_still_works(self) -> None:
+        """Default external_holdout_X=None retains the legacy
+        trailing-slice / random-shuffle behaviour."""
+        from mlframe.training.composite_ensemble import (
+            compute_oof_holdout_predictions,
+        )
+        components, names, specs = self._make_components()
+        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        n_train = 200
+        rng = np.random.default_rng(0)
+        X_train = pd.DataFrame({
+            "a": rng.normal(0, 1, n_train),
+            "b": rng.normal(0, 1, n_train),
+        })
+        y_train = rng.normal(0, 1, n_train).astype(np.float64)
+        for c in components:
+            c.model.fit(X_train, y_train)
+        preds, y_h, surv = compute_oof_holdout_predictions(
+            component_models=components,
+            component_names=names,
+            component_specs=specs,
+            train_X=X_train,
+            y_train_full=y_train,
+            base_train_full_per_spec={},
+            holdout_frac=0.2,
+            random_state=0,
+        )
+        expected_n_holdout = int(round(n_train * 0.2))
+        assert preds.shape == (expected_n_holdout, 2)
+        assert y_h.shape == (expected_n_holdout,)
+        assert set(surv) == {"raw#0", "raw#1"}
+
+    def test_external_holdout_with_short_y_falls_through(self) -> None:
+        """Empty external_holdout_y triggers the train-tail fallback."""
+        from mlframe.training.composite_ensemble import (
+            compute_oof_holdout_predictions,
+        )
+        components, names, specs = self._make_components()
+        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        rng = np.random.default_rng(0)
+        X_train = pd.DataFrame({"a": rng.normal(0, 1, 200)})
+        y_train = rng.normal(0, 1, 200).astype(np.float64)
+        for c in components:
+            c.model.fit(X_train, y_train)
+        preds, y_h, surv = compute_oof_holdout_predictions(
+            component_models=components,
+            component_names=names,
+            component_specs=specs,
+            train_X=X_train,
+            y_train_full=y_train,
+            base_train_full_per_spec={},
+            holdout_frac=0.2,
+            random_state=0,
+            external_holdout_X=X_train.iloc[:0],
+            external_holdout_y=np.zeros(0, dtype=np.float64),
+            external_holdout_base_per_spec={},
+        )
+        # Empty external holdout -> fell back to train-tail (n=40).
+        assert preds.shape[0] == 40
+
+    def test_config_knob_default_is_external_val(self) -> None:
+        from mlframe.training._composite_target_discovery_config import (
+            CompositeTargetDiscoveryConfig,
+        )
+        cfg = CompositeTargetDiscoveryConfig()
+        assert cfg.oof_holdout_source == "external_val"
+
+    def test_caller_consults_oof_holdout_source(self) -> None:
+        """Lock in the wiring: the caller in _phase_composite_post.py
+        must consult the new ``oof_holdout_source`` knob before calling
+        the OOF helper. Source-level guard against silent regression
+        on the path that decides which mode the helper runs in."""
+        import inspect
+        from mlframe.training.core import _phase_composite_post
+        src = inspect.getsource(_phase_composite_post)
+        assert "oof_holdout_source" in src
+        assert "external_val" in src
+        assert "external_holdout_X" in src
+        assert "external_holdout_y" in src
+
+
 class TestLagPredictFailsafeKnob:
     """The CT_ENSEMBLE gate must prefer the zero-parameter lag_predict
     over a multi-component stack when their OOF RMSEs are within a

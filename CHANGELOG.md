@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-05-23 — Round 5.2: val-as-honest-OOF-holdout (architectural)
+
+Round-5.1 added the AR(1) failsafe to defend the TVT-style case
+(lag_predict beats trained components by 14.8% on test); this
+follow-up removes the root cause underlying that failsafe.
+
+### Problem
+
+``compute_oof_holdout_predictions`` carved its honest holdout from
+the trailing 20% of train (time-aware) or a random 20% (otherwise).
+On a group-aware split of a strong-AR target, that train-tail has
+fundamentally different residual structure than the test split that
+the ensemble will be evaluated on (TVT prod: lag_predict
+val_RMSE=15.18 on the train-tail vs test_RMSE=11.58 - a 31% gap).
+NNLS minimises against the train-tail slice and underweights any
+component that ranks well on test but poorly on the train-tail. The
+ensemble stacker is fitted on the wrong region.
+
+### Fix ([composite_ensemble.py:301](src/mlframe/training/composite_ensemble.py#L301), [_phase_composite_post.py:560](src/mlframe/training/core/_phase_composite_post.py#L560))
+
+New optional kwargs on ``compute_oof_holdout_predictions``:
+- ``external_holdout_X`` (the suite's val frame)
+- ``external_holdout_y`` (val target column)
+- ``external_holdout_base_per_spec`` (val base columns per spec)
+
+When supplied, the helper skips the internal train-tail carving:
+each component clone is fit on the FULL train, and predictions are
+made on the external frame. The caller in ``_phase_composite_post.py``
+now builds parallel ``_base_val_per_spec`` alongside the existing
+``_base_full_per_spec`` and threads ``filtered_val_df`` / val-y /
+val-bases into the helper.
+
+New ``CompositeTargetDiscoveryConfig.oof_holdout_source`` knob with
+two modes:
+- ``"external_val"`` (default): the new path. Eliminates train-tail
+  distribution mismatch. Val is the natural honest holdout because
+  the OOF re-fit clones are trained on full train only (val rows
+  never seen by the re-fitted estimator).
+- ``"train_tail"``: legacy single-slice carve, retained for callers
+  without a val frame or running without group-aware AR-heavy targets.
+
+The AR(1) failsafe from round-5.1 is retained as a second line of
+defence (cheap; tolerance gate already covers degenerate cases).
+
+Tests: ``TestExternalValHoldoutOOF`` (5 new scenarios), 34 round-5
+tests total (was 29), 77 composite-ensemble regressions green.
+
 ## 2026-05-23 — Round 5.1: clone-safe lag_predict + MLP eval_set normalisation + cross-container fingerprint + AR(1) failsafe
 
 Round-5 production rerun showed CT_ENSEMBLE TEST RMSE=13.30 vs
