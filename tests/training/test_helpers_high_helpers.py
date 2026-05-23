@@ -492,23 +492,24 @@ def test_hhus20_quantile_wrapper_uses_parallel_as_context_manager(monkeypatch):
     monkeypatch.setattr(joblib.Parallel, "__enter__", _track_enter)
     monkeypatch.setattr(joblib.Parallel, "__exit__", _track_exit)
 
-    # Locate any callable in quantile_wrapper that internally builds a
-    # parallel section. The wrapper test only needs to verify the
-    # context-manager protocol is used; we exercise the public entry that
-    # spins up workers when fit on a tiny dataset.
-    QW = getattr(qw, "QuantileRegressorWrapper", None) or getattr(qw, "MultiQuantileWrapper", None)
-    if QW is None:
-        pytest.skip("quantile_wrapper module lacks expected wrapper class")
+    # Locate the canonical multi-output quantile wrapper. The previous
+    # name-probe looked for ``QuantileRegressorWrapper`` / ``MultiQuantileWrapper``
+    # neither of which exist; the real class is ``_QuantileMultiOutputWrapper``
+    # (underscore-prefixed but the only callable that fans out K parallel
+    # per-alpha fits). The lookup is hard-pinned so a future rename surfaces
+    # as an AttributeError instead of a silent skip.
+    QW = qw._QuantileMultiOutputWrapper
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((30, 3))
+    y = X[:, 0] + 0.1 * rng.standard_normal(30)
+    from sklearn.linear_model import QuantileRegressor
+    base = QuantileRegressor(alpha=0.0, solver="highs")
+    wrapper = QW(base_estimator=base, alphas=(0.1, 0.5, 0.9), n_jobs=2)
     try:
-        rng = np.random.default_rng(0)
-        X = rng.standard_normal((30, 3))
-        y = X[:, 0] + 0.1 * rng.standard_normal(30)
-        from sklearn.linear_model import QuantileRegressor
-        base = QuantileRegressor(alpha=0.0, solver="highs")
-        wrapper = QW(base_estimator=base, alphas=(0.1, 0.5, 0.9), n_jobs=2)
         wrapper.fit(X, y)
     except Exception:
-        # If wrapper fit raises (env/lib issue), still assert: no leaked enter without exit
+        # Real fit failures (env/lib) are tolerated here -- the assertion
+        # below only cares about Parallel context-manager hygiene.
         pass
     # Every enter must have a matching exit.
     assert len(enters) == len(exits), (
