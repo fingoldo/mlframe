@@ -41,14 +41,20 @@ def test_discretize_array_uniform_via_method_dispatch():
 
 
 def test_discretize_array_sklearn_dispatch():
+    """``discretize_array`` no longer dispatches via a ``method='sklearn'``
+    string (it only supports 'uniform' / 'quantile' now). The sklearn-
+    based path lives on the dedicated ``discretize_sklearn`` helper -
+    test goes there directly. The 'sklearn' string must now raise
+    ValueError rather than silently fall through (pre-fix the test
+    swallowed any exception via pytest.skip and ran no real assertion)."""
     rng = np.random.default_rng(2)
     arr = rng.standard_normal(500).astype(np.float64)
-    try:
-        out = discretize_array(arr, n_bins=10, method="sklearn")
-    except Exception as exc:
-        pytest.skip(f"sklearn dispatch error in env: {exc}")
-        return
+    with pytest.raises(ValueError, match="Unsupported discretization method"):
+        discretize_array(arr, n_bins=10, method="sklearn")
+    # Real coverage of the sklearn binning path via the dedicated helper.
+    out = discretize_sklearn(arr, n_bins=10)
     assert out is not None
+    assert out.shape == arr.shape
 
 
 def test_discretize_uniform_direct():
@@ -77,15 +83,20 @@ def test_discretize_2d_array_uniform():
 def test_discretize_sklearn_direct():
     rng = np.random.default_rng(6)
     arr = rng.standard_normal(300).astype(np.float64)
-    try:
-        out = discretize_sklearn(arr, n_bins=7)
-    except Exception:
-        pytest.skip("sklearn binning unavailable in env")
-        return
+    out = discretize_sklearn(arr, n_bins=7)
     assert out is not None
+    assert out.shape == arr.shape
+    assert out.min() >= 0
+    assert out.max() < 7
 
 
 def test_categorize_dataset_smoke():
+    """``categorize_dataset`` signature was simplified: the legacy
+    ``quantization_nbins`` kwarg is now ``n_bins`` (matching the rest of
+    the discretization API), and the ``categories_strategy`` kwarg was
+    consolidated into ``method='quantile'`` / ``'uniform'``. Pre-fix the
+    test swallowed the resulting TypeError via pytest.skip and never
+    actually exercised the function."""
     import pandas as pd
     rng = np.random.default_rng(7)
     df = pd.DataFrame(
@@ -95,11 +106,8 @@ def test_categorize_dataset_smoke():
             "int_ord": rng.integers(0, 5, 200),
         }
     )
-    try:
-        result = categorize_dataset(df, quantization_nbins=5)
-        assert result is not None
-    except Exception as exc:
-        pytest.skip(f"categorize_dataset env error: {exc}")
+    result = categorize_dataset(df, n_bins=5)
+    assert result is not None
 
 
 def test_digitize_smoke():
@@ -159,14 +167,23 @@ def test_discretize_array_n_bins_large():
 
 def test_categorize_1d_array_smoke():
     if not _HAVE_1D:
+        # Helper isn't part of the public API in this build - skip is
+        # appropriate (env-only, not a masked bug).
         pytest.skip("categorize_1d_array not exported")
     rng = np.random.default_rng(12)
     arr = rng.choice(["X", "Y", "Z"], 200)
-    try:
-        out = categorize_1d_array(arr)
-        assert out is not None
-    except Exception:
-        pytest.skip("categorize_1d_array env error")
+    # ``categorize_1d_array`` requires explicit ``min_ncats``, ``method``,
+    # ``astropy_sample_size`` and ``method_kwargs`` parameters. Pre-fix
+    # the test wrapped this in a bare-except->skip that masked the
+    # signature drift entirely; pass the smoke-defaults explicitly.
+    out = categorize_1d_array(
+        arr,
+        min_ncats=50,
+        method="quantile",
+        astropy_sample_size=10_000,
+        method_kwargs={},
+    )
+    assert out is not None
 
 
 def test_discretize_array_unknown_method_raises_or_falls_back():

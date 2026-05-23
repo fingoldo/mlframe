@@ -96,6 +96,15 @@ from contextlib import contextmanager as _contextmanager
 # (iter181) and _CB_GPU_USABLE_CACHE in _cb_pool.py. Defensive try/except so
 # a Lightning internal-API rename surfaces as a slow-but-correct fallback,
 # not an ImportError that crashes mlframe import.
+#
+# iter259 (2026-05-23) follow-up: patching only ``_lf_registry`` misses the
+# real callers. ``callback_connector.py`` and ``fabric.py`` do
+# ``from lightning.fabric.utilities.registry import _load_external_callbacks``
+# at import time, which binds the ORIGINAL function into the caller's module
+# namespace -- mutating ``_lf_registry._load_external_callbacks`` after that
+# leaves caller bindings stale. c0119 iter259 profile still attributed 3.73s
+# to ``_load_external_callbacks`` (12 calls x 311ms) despite the iter189
+# patch. Rebind in every importer to make the cache actually fire.
 try:
     from lightning.fabric.utilities import registry as _lf_registry
     if not getattr(_lf_registry, "_mlframe_callback_cache_installed", False):
@@ -110,6 +119,19 @@ try:
             return list(cached)  # defensive copy so callers can't mutate cache
 
         _lf_registry._load_external_callbacks = _load_external_callbacks_cached
+        # Rebind in every Lightning module that imported the original by name.
+        # Each ``from ... import _load_external_callbacks`` creates a local
+        # binding that mutating the source module does not affect. Walk
+        # sys.modules and rebind every match. Best-effort: a Lightning version
+        # that adds a new caller will fall back to the slow path until the
+        # next mlframe release, never breaking.
+        import sys as _sys_for_rebind
+        for _mod_name, _mod in list(_sys_for_rebind.modules.items()):
+            if _mod is None or not _mod_name.startswith("lightning"):
+                continue
+            _local_ref = getattr(_mod, "_load_external_callbacks", None)
+            if _local_ref is _orig_load_external_callbacks:
+                _mod._load_external_callbacks = _load_external_callbacks_cached
         _lf_registry._mlframe_callback_cache_installed = True
 except Exception:
     pass

@@ -274,7 +274,21 @@ class GeomAvgClassifier(BaseEstimator, ClassifierMixin):
     def predict_proba(self, X):
         check_is_fitted(self)
         X = check_array(X)
-        posProbs = (np.prod(X[:, : self.nprobs], axis=1) ** (1 / self.nprobs)).reshape(-1, 1)
+        # Geometric mean is undefined on negatives, and ``a ** (1/n)`` returns
+        # NaN with a RuntimeWarning when ``np.prod(...) < 0``. The estimator
+        # documents that X carries pre-computed probability columns (values
+        # in [0, 1]) - silently clip into the valid domain so a stray
+        # ``-0.0`` from a downstream softmax-eps doesn't poison every row,
+        # and use the log-sum-exp form to avoid intermediate over/underflow
+        # for nprobs>=2 (a 10-way product of small probs collapses to 0.0
+        # in float64). Pre-fix the test cluster around np.prod hit
+        # "invalid value encountered in sqrt" on every check_estimator call
+        # because sklearn's synthetic X is N(0, 1) including negatives.
+        _x = np.clip(X[:, : self.nprobs].astype(np.float64), 0.0, 1.0)
+        # log-mean-exp: posProbs = exp(mean(log(x))) so 0-prob rows return 0
+        # instead of nan from log(0); use a tiny epsilon to keep the log finite.
+        _logx = np.log(np.clip(_x, 1e-300, 1.0))
+        posProbs = np.exp(_logx.mean(axis=1)).reshape(-1, 1)
         return np.concatenate([1 - posProbs, posProbs], axis=1)
 
 

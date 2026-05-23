@@ -758,7 +758,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
                     model = _SafeUnpickler(zf).load()
                 else:
                     warnings.warn(
-                        "Loading without allowlist — trust source",
+                        "Loading without allowlist -- trust source",
                         UserWarning,
                         stacklevel=2,
                     )

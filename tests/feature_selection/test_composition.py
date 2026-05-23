@@ -212,11 +212,32 @@ class TestWiring:
     def test_engineered_column_is_scorable(self):
         x_a, x_b, y = _additive_pair(n=400, seed=20)
         X = np.column_stack([x_a, x_b])
+        # ``_additive_pair`` is y = sign(x_a + x_b): the trivial pair
+        # (x_a + x_b) directly captures the signal, so the *polynomial*
+        # optimiser typically can't beat that trivial baseline by the
+        # default 5pct uplift threshold. The wiring test only needs an
+        # engineered column to exercise the column-scoring path - lower
+        # the threshold + bump trials to make column emission reliable
+        # on this fixture. Pre-fix the test silently skipped ~30pct of
+        # runs (depending on seed); with the explicit threshold the
+        # wiring contract is exercised every time.
         out = compose_pair_fe(
-            X, y, n_rounds=1, top_k_per_round=1, n_trials=10, max_degree=2,
+            X, y, n_rounds=1, top_k_per_round=1, n_trials=80, max_degree=2,
+            # 0.5 == "accept any finite engineered column even when its MI
+            # is half of the baseline" -- the wiring test only needs A
+            # column to score; the polynomial can't beat the trivial
+            # ``x_a + x_b`` baseline on a perfectly-additive fixture
+            # because (x_a + x_b) already captures all signal, and the
+            # default ``> 1.05`` threshold rejects every polynomial whose
+            # MI ties or only marginally improves over the trivial pair.
+            baseline_uplift_threshold=0.5,
         )
-        if out["X_aug"].shape[1] <= 2:
-            pytest.skip("optimiser did not exceed baseline; no engineered column to wire-test")
+        assert out["X_aug"].shape[1] > 2, (
+            "compose_pair_fe optimiser failed to emit any engineered "
+            "column on the additive pair fixture even with "
+            "baseline_uplift_threshold=1.0 - regression in the "
+            "polynomial fit / MI scoring path."
+        )
         new_col = out["X_aug"][:, 2]
         assert np.all(np.isfinite(new_col))
         mi = _mi_1d(new_col, y, discrete_target=True)

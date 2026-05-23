@@ -73,6 +73,12 @@ def test_member_quality_gate_routes_to_oof_not_val():
     try:
         # max_ensembling_level=1 keeps the call cheap; only the gate path matters here.
         # train_target supplied so the regression path doesn't crash on missing y.
+        # k2_catastrophic_mae_ratio=inf DISABLES the K>2 catastrophic-dropout
+        # pre-filter (which would otherwise drop member_c on OOF outlier-MAE
+        # BEFORE the quality gate ever runs, leaving K=2 and skipping the gate
+        # entirely on the ``len(_gate_preds_for_check) > 2`` guard at L580).
+        # The catastrophic-drop path already routes to OOF correctly; this
+        # test specifically validates the OOF routing of the FINER gate.
         score_ensemble(
             models_and_predictions=[member_a, member_b, member_c],
             ensemble_name="test",
@@ -83,6 +89,7 @@ def test_member_quality_gate_routes_to_oof_not_val():
             verbose=False,
             ensembling_methods=("arithm",),  # one flavor minimises downstream noise
             uncertainty_quantile=0,  # skip the conf-ensemble branch
+            k2_catastrophic_mae_ratio=float("inf"),
         )
     finally:
         ens_score_mod.compute_member_quality_gate = real_gate

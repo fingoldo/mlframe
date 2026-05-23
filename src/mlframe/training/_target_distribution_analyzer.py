@@ -793,20 +793,44 @@ def _normalise_X(
             f"Input type was {type(X).__name__}; check the dispatch above."
         )
     # If EVERY column ended up categorical AND the input was numpy-shaped, that's the
-    # original misclassification path -- WARN-log so it surfaces in test runs even when
-    # the caller suppresses the analyzer report.
+    # original misclassification path. Fire the WARN only when the SOURCE input actually
+    # carried numeric polars / numpy dtypes that we lost during dispatch -- if the polars
+    # frame was genuinely all-String/all-Categorical (e.g. hypothesis-generated text
+    # columns), all-cat classification is the CORRECT outcome and a WARN is pure noise.
     if (
         _n_cols_total >= 2
         and not numeric_cols
         and len(categorical_cols) == _n_cols_total
         and not isinstance(X, pd.DataFrame)
     ):
-        logger.warning(
-            "_normalise_X: classified ALL %d columns as categorical from %s input. "
-            "This was the P0 #3 misclassification symptom on polars frames; verify the "
-            "dispatch handled your input shape correctly.",
-            _n_cols_total, type(X).__name__,
-        )
+        # Probe the source for at least one numeric polars dtype; if none, the
+        # all-cat classification is correct and we should stay silent.
+        _source_had_numeric = False
+        try:
+            if "polars" in type(X).__module__:
+                import polars as _pl
+                _numeric_pl_dtypes = (
+                    _pl.Float32, _pl.Float64,
+                    _pl.Int8, _pl.Int16, _pl.Int32, _pl.Int64,
+                    _pl.UInt8, _pl.UInt16, _pl.UInt32, _pl.UInt64,
+                    _pl.Boolean,
+                )
+                _schema = getattr(X, "schema", None) or {}
+                for _src_dt in _schema.values():
+                    if isinstance(_src_dt, _numeric_pl_dtypes) or _src_dt in _numeric_pl_dtypes:
+                        _source_had_numeric = True
+                        break
+        except Exception:
+            # If the probe itself fails, assume there could be numeric data
+            # and surface the WARN -- prefer false positive over silent miss.
+            _source_had_numeric = True
+        if _source_had_numeric:
+            logger.warning(
+                "_normalise_X: classified ALL %d columns as categorical from %s input "
+                "despite source having numeric dtypes. This was the P0 #3 misclassification "
+                "symptom on polars frames; verify the dispatch handled your input shape correctly.",
+                _n_cols_total, type(X).__name__,
+            )
     return df, numeric_cols, categorical_cols
 
 

@@ -402,7 +402,17 @@ def score_ensemble(
                     else:
                         _maes.append(float("nan"))
                 _maes_arr = np.asarray(_maes)
-                _best_mae = float(np.nanmin(_maes_arr))
+                # Defensive: if every per-member MAE was NaN (shape mismatch
+                # on every member, or t_kn itself NaN), ``np.nanmin`` emits
+                # ``RuntimeWarning: All-NaN slice encountered`` and returns
+                # NaN. The subsequent ``> 0.0`` short-circuits the diagnostic
+                # block so the warning is the only observable -- but it
+                # pollutes the log with no actionable signal. Short-circuit
+                # cleanly when all-NaN: skip the blowout diagnostic block.
+                if np.all(np.isnan(_maes_arr)):
+                    _best_mae = float("nan")
+                else:
+                    _best_mae = float(np.nanmin(_maes_arr))
                 if _best_mae > 0.0 and math.isfinite(_best_mae):
                     _ratios = _maes_arr / _best_mae
                     # E4.3 (2026-05-21): surface a borderline-member diagnostic for operators.
