@@ -200,6 +200,17 @@ def _prewarm_numba_cache_body():
         _yt_f64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.float64)
         _yp_f64 = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6, 0.5, 0.5], dtype=np.float64)
         _ = _fast_brier_score_loss_par(_yt_f64, _yp_f64)
+        # iter190 (2026-05-23): also prewarm bool->float64 signature for the
+        # _par reductions. c0023 profile attributed 4.156s of
+        # _compile_for_args to fast_brier_score_loss across 2 fresh compiles
+        # -- the (bool, float64) signature emitted by multilabel per-class
+        # loops (``y_true = targets == class_name`` -> ndarray[bool]) was
+        # NOT covered. Pre-warming once at import time pays the same 4s
+        # upfront but moves it OUT of the first-fit hot path. Same fix
+        # applied to fast_log_loss_binary_par for symmetry.
+        _yt_bool = _yt_f64.astype(np.bool_)
+        _ = _fast_brier_score_loss_par(_yt_bool, _yp_f64)
+        _ = _fast_log_loss_binary_par(_yt_bool, _yp_f64, 1e-15)
         _ = _fast_log_loss_binary_par(_yt_f64, _yp_f64, 1e-15)
         _yt_i64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int64)
         _yp_i64 = np.array([0, 1, 0, 1, 0, 1, 0, 1, 1, 0], dtype=np.int64)
