@@ -467,6 +467,12 @@ def compute_feature_distribution_drift(
     cols = feature_names or _numeric_columns(train_df)
     per_feature: Dict[str, Dict[str, float]] = {}
     candidates: List[tuple[str, float]] = []
+    # bench-attempt-rejected 2026-05-23: tried vectorising as
+    # train_df[cols].mean() + .std(ddof=0) once per side. profiling bench
+    # bench_feature_drift_vectorize.py shows loop=170ms vec=162ms (1.05x)
+    # at 200k x K=30, and vec is SLOWER at smaller sizes (0.42x at 10k x
+    # K=10) due to pandas Series-construction overhead. Per-col numpy
+    # path stays.
     for col in cols:
         train_vals = _col_to_numpy(train_df, col)
         if train_vals is None:
