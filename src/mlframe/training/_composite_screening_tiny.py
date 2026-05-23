@@ -163,10 +163,21 @@ def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
         return cb.CatBoostRegressor(**kwargs)
     if family_lower in ("linear", "ridge"):
         from sklearn.linear_model import Ridge
-        # Ridge is deterministic by construction; the flag is a no-op
-        # here but accepting the kwarg keeps the call signature
-        # uniform across families.
-        return Ridge(alpha=1.0, random_state=random_state)
+        from sklearn.pipeline import Pipeline
+        from sklearn.impute import SimpleImputer
+        # Wrap Ridge in a SimpleImputer pipeline because Ridge raises on
+        # NaN inputs (prod TVT 2026-05-23: tens of thousands of warnings
+        # spammed per discovery run when ``tiny_screening_families``
+        # included "linear" alongside "lightgbm" -- LGBM handles NaN
+        # natively, Ridge doesn't). Mean-imputing the screening matrix
+        # for the proxy is sound: this isn't the production model, just
+        # a screening proxy for "would a downstream linear model find
+        # this composite useful". Ridge is deterministic by construction;
+        # the random_state kwarg accepted for call-signature uniformity.
+        return Pipeline([
+            ("imp", SimpleImputer(strategy="mean")),
+            ("ridge", Ridge(alpha=1.0, random_state=random_state)),
+        ])
     raise ValueError(
         f"_build_tiny_model: unknown family '{family}'. "
         "Supported: lightgbm, xgboost, catboost, linear / ridge."

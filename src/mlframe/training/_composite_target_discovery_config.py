@@ -81,9 +81,13 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # All four are accessible via explicit user configuration (``CompositeTargetEstimator(...)`` directly) and ship with their own tests; auto-discovery integration is the open item beyond this PR.
     transforms: List[str] = Field(
         default_factory=lambda: [
-            "diff", "additive_residual", "ratio", "logratio", "linear_residual",
+            "diff", "additive_residual", "median_residual",
+            "ratio", "logratio", "linear_residual",
             "linear_residual_robust",  # trimmed-LS variant; safe on outlier-contaminated bases.
             "quantile_residual", "monotonic_residual",
+            # 2026-05-23: y_quantile_clip unary (requires_base=False) -- limit-damage
+            # transform for neural / linear downstream models.
+            "y_quantile_clip",
             # Pack J unary y-transforms (``requires_base=False`` -- tried once across all bases via the discovery loop's per-transform dedup).
             "cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y",
             # Pack K chain transforms (bivariate residual + unary tail compression).
@@ -416,6 +420,25 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Set > 0 to re-enable when running tree-only zoos.
     raw_baseline_per_bin_tolerance: float = 1.10
     per_bin_n_bins: int = 0
+
+    # 2026-05-23 audit-followup C1: force-inject the ``(top_ablation_feature,
+    # diff)`` and ``(top_ablation_feature, additive_residual)`` specs into
+    # the discovery output when the top-feature ablation delta% exceeds
+    # this threshold, regardless of gate / MI / top-K filtering. This is
+    # the "AR-target safety net" -- ensures the simplest possible
+    # residualisation composite (``y - top_AR_feature``) is always tried
+    # for AR-dominated targets, since that's the composite that bounds
+    # linear-stack MLP extrapolation damage on group-aware splits.
+    #
+    # Default 0.0 (DISABLED). The current gate flips (eps_mi_gain=-10.0,
+    # require_beats_raw_baseline=False, top_k_after_mi=32) + the
+    # ``additive_residual`` transform already produce the AR-diff spec
+    # organically on TVT-style data; this flag is an explicit insurance
+    # for paranoid configurations where a user re-enables the gates.
+    # Enable by setting > 0.0 (typical threshold 50.0 to match
+    # ``hint_strength_threshold_pct``). Full implementation pending
+    # plumbing of per-feature ablation pct into discovery internals.
+    force_inject_diff_on_top_ablation_pct: float = 0.0
 
     # R10b improvement #10: median-of-seeds gate. Tiny CV-RMSE with
     # 3 folds is variance-prone (one unlucky split can drag the mean).

@@ -289,12 +289,21 @@ _PREDICT_BATCH_FALLBACK: int = 1024
 # the resolved size when activations get wide; the ceiling just needs to be
 # permissive enough that the budget actually binds. Bumping to 65536 lets
 # small-feature frames run with 1-3 batches per epoch instead of thousands.
-_TRAIN_BATCH_MIN: int = 32
+_TRAIN_BATCH_MIN: int = 4096
 _TRAIN_BATCH_MAX: int = 65536
-_TRAIN_BATCH_FALLBACK: int = 1024
+_TRAIN_BATCH_FALLBACK: int = 8192
 _TRAIN_ACTIVATION_MULTIPLIER: int = 12
 _TRAIN_MEM_FRACTION: float = 0.10
 _TRAIN_DTYPE_BYTES: int = 4
+
+
+# Module-level cache of the first successful memory probe. ``psutil.virtual_memory().available``
+# fluctuates BETWEEN calls within the same suite run (PyTorch tensors not yet GC'd,
+# Lightning state, intermediate dataloaders) -- prod TVT 2026-05-23 hit 64x variance in
+# resolved batch_size (65536 -> 1024 across 8 MLP trainings on identical data shape).
+# Cache the FIRST probe so all subsequent auto-batch resolutions in one process share a
+# stable memory budget. Set ``MLFRAME_FORCE_REPROBE=1`` to bypass.
+_PROBE_MEM_CACHE: int | None = None
 
 
 def _probe_available_memory_bytes(
@@ -312,6 +321,13 @@ def _probe_available_memory_bytes(
     boxes can target the actual training device's free memory rather than
     always device 0.
     """
+    global _PROBE_MEM_CACHE
+    # Cached-probe path: one stable budget per process so consecutive MLP
+    # trainings in the same suite don't get wildly different batch sizes
+    # from a fluctuating ``available`` reading.
+    if (_PROBE_MEM_CACHE is not None
+            and not os.environ.get("MLFRAME_FORCE_REPROBE")):
+        return _PROBE_MEM_CACHE
     if cuda_available is None:
         try:
             import torch
@@ -324,13 +340,15 @@ def _probe_available_memory_bytes(
         try:
             import torch
             free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
-            return int(free_bytes)
+            _PROBE_MEM_CACHE = int(free_bytes)
+            return _PROBE_MEM_CACHE
         except Exception:
             pass
     # CPU mode (or CUDA probe failed): use psutil if available, else None.
     try:
         import psutil
-        return int(psutil.virtual_memory().available)
+        _PROBE_MEM_CACHE = int(psutil.virtual_memory().available)
+        return _PROBE_MEM_CACHE
     except Exception:
         return None
 

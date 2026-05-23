@@ -202,6 +202,125 @@ def _additive_residual_domain(
 
 
 # ----------------------------------------------------------------------
+# median_residual: T = y - median(y | bin(base)). Non-parametric
+# bin-conditional residual; no fitted alpha/beta, no PCHIP spline.
+# Pure additive inverse y = T + median_bin[base], MLP-friendly because
+# the inverse is a constant lookup per row instead of a nonlinear
+# function. Distinct from ``quantile_residual`` (which divides by IQR
+# and reintroduces nonlinear inverse scaling) and ``monotonic_residual``
+# (which fits a PCHIP -- nonlinear inverse).
+# ----------------------------------------------------------------------
+_MEDIAN_RESIDUAL_N_BINS: int = 20
+
+
+def _median_residual_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+    finite = np.isfinite(y) & np.isfinite(base)
+    if not finite.any():
+        return {
+            "bin_edges": np.array([0.0]), "bin_medians": np.array([0.0]),
+            "fallback_median": 0.0,
+        }
+    y_f = y[finite].astype(np.float64)
+    b_f = base[finite].astype(np.float64)
+    n_bins = int(_MEDIAN_RESIDUAL_N_BINS)
+    quantiles = np.linspace(0.0, 1.0, n_bins + 1)
+    bin_edges = np.quantile(b_f, quantiles)
+    bin_edges = np.unique(bin_edges)
+    if bin_edges.size < 2:
+        bin_edges = np.array([bin_edges[0], bin_edges[0] + 1e-9])
+    bin_idx = np.digitize(b_f, bin_edges[1:-1])
+    bin_medians = np.full(bin_edges.size - 1, np.median(y_f), dtype=np.float64)
+    for i in range(bin_edges.size - 1):
+        mask = bin_idx == i
+        if mask.any():
+            bin_medians[i] = float(np.median(y_f[mask]))
+    return {
+        "bin_edges": bin_edges,
+        "bin_medians": bin_medians,
+        "fallback_median": float(np.median(y_f)),
+    }
+
+
+def _median_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
+    bin_edges = np.asarray(params["bin_edges"], dtype=np.float64)
+    bin_medians = np.asarray(params["bin_medians"], dtype=np.float64)
+    fallback = float(params.get("fallback_median", 0.0))
+    if bin_edges.size < 2:
+        return np.full_like(base, fallback, dtype=np.float64)
+    idx = np.digitize(base, bin_edges[1:-1])
+    idx = np.clip(idx, 0, bin_medians.size - 1)
+    return bin_medians[idx]
+
+
+def _median_residual_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    return y - _median_residual_g(base, params)
+
+
+def _median_residual_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    return t_hat + _median_residual_g(base, params)
+
+
+def _median_residual_domain(
+    y: np.ndarray | None, base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(base)
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(y)
+
+
+# ----------------------------------------------------------------------
+# y_quantile_clip: T = clip(y, q_lo, q_hi). Unary y-only transform
+# (requires_base=False) that limits the target range to [q_lo, q_hi]
+# at fit time. Inverse is the identity (no un-clip possible since
+# clipping is lossy on extremes). Used as a limit-damage transform
+# for neural / linear downstream models that might extrapolate
+# wildly outside train-y range; downstream model's predictions
+# stay bounded by the clipped y_train range.
+# ----------------------------------------------------------------------
+_Y_QUANTILE_CLIP_LO: float = 0.005
+_Y_QUANTILE_CLIP_HI: float = 0.995
+
+
+def _y_quantile_clip_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+    finite = np.isfinite(y)
+    if not finite.any():
+        return {"q_lo": 0.0, "q_hi": 0.0}
+    y_f = y[finite].astype(np.float64)
+    q_lo = float(np.quantile(y_f, _Y_QUANTILE_CLIP_LO))
+    q_hi = float(np.quantile(y_f, _Y_QUANTILE_CLIP_HI))
+    return {"q_lo": q_lo, "q_hi": q_hi}
+
+
+def _y_quantile_clip_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    q_lo = float(params.get("q_lo", -np.inf))
+    q_hi = float(params.get("q_hi", np.inf))
+    return np.clip(y.astype(np.float64), q_lo, q_hi)
+
+
+def _y_quantile_clip_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    q_lo = float(params.get("q_lo", -np.inf))
+    q_hi = float(params.get("q_hi", np.inf))
+    return np.clip(np.asarray(t_hat, dtype=np.float64), q_lo, q_hi)
+
+
+def _y_quantile_clip_domain(
+    y: np.ndarray | None, base: np.ndarray,
+) -> np.ndarray:
+    if y is None:
+        return np.isfinite(base) | ~np.isfinite(base)  # all True
+    return np.isfinite(y)
+
+
+# ----------------------------------------------------------------------
 # ratio: T = y / base. Requires |base| >= eps.
 # ----------------------------------------------------------------------
 
@@ -582,6 +701,38 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
         tags=frozenset({TAG_CORE, TAG_REGRESSION}),
     ),
+    "median_residual": Transform(
+        name="median_residual",
+        forward=_median_residual_forward,
+        inverse=_median_residual_inverse,
+        fit=_median_residual_fit,
+        domain_check=_median_residual_domain,
+        description=(
+            "T = y - median(y | bin(base)) using 20 quantile-bins of base. "
+            "Inverse y_hat = T_hat + median_bin[base]. Non-parametric residual "
+            "with PURE additive inverse (constant-per-bin lookup) -- distinct "
+            "from monotonic_residual (PCHIP nonlinear inverse) and "
+            "quantile_residual (divides by IQR, also nonlinear). MLP-friendly: "
+            "any T_hat extrapolation maps back to y via simple addition."
+        ),
+        tags=frozenset({TAG_CORE, TAG_REGRESSION}),
+    ),
+    "y_quantile_clip": Transform(
+        name="y_quantile_clip",
+        forward=_y_quantile_clip_forward,
+        inverse=_y_quantile_clip_inverse,
+        fit=_y_quantile_clip_fit,
+        domain_check=_y_quantile_clip_domain,
+        description=(
+            "T = clip(y, q_0.005, q_0.995) -- unary y-only limit-damage "
+            "transform. Bounds downstream model's effective target range "
+            "to [q_lo, q_hi] of train y; predictions stay bounded by the "
+            "same clip on inverse. Useful for neural / linear downstream "
+            "models that might extrapolate wildly outside train range."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        requires_base=False,
+    ),
     "ratio": Transform(
         name="ratio",
         forward=_ratio_forward,
@@ -899,6 +1050,8 @@ def get_transform(name: str) -> Transform:
 TRANSFORM_NAME_SHORT: dict[str, str] = {
     "diff": "diff",
     "additive_residual": "addres",
+    "median_residual": "medres",
+    "y_quantile_clip": "yqclip",
     "ratio": "ratio",
     "logratio": "logr",
     "linear_residual": "linres",

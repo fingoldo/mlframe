@@ -531,23 +531,54 @@ def report_regression_model_perf(
                 _y_std > 0 and abs(_pred_mean - _y_mean) > 3.0 * _y_std
             )
             if _collapse_std or _collapse_extrapolation or _collapse_mean_shift:
-                _branch = (
-                    "std-collapse" if _collapse_std
-                    else ("linear-extrapolation" if _collapse_extrapolation
-                          else "mean-shift")
+                # Branch name carries the diagnostic. The "linear-extrapolation"
+                # tag historically pointed at Identity-MLP stacks, but Ridge /
+                # LinearRegression on a group-aware split with feature-distribution
+                # shift produces the SAME signature (pred mean drifts off,
+                # max|pred-y| crosses 5*y_std, R^2 << -1). Disambiguate by model
+                # name so operators don't waste time blaming neural-stack
+                # collapse for a generic OOD-shift outcome.
+                _model_name_s = str(model_name) if model_name else ""
+                _is_neural_stack = any(
+                    tag in _model_name_s for tag in (
+                        "PytorchLightning", "MLP", "TabularNet",
+                        "_TTRWithEvalSetScaling",
+                    )
+                )
+                if _collapse_std:
+                    _branch = "std-collapse"
+                elif _collapse_extrapolation:
+                    _branch = ("linear-extrapolation"
+                               if _is_neural_stack else "group-ood-shift")
+                else:
+                    _branch = "mean-shift"
+                _hint = (
+                    "For Identity-MLP / linear-stack: set nlayers=1 or pick a "
+                    "real nonlinearity (nn.ReLU / nn.GELU); the stacked-Linear "
+                    "footgun catastrophically extrapolates on unseen-groups "
+                    "test splits (prod TVT 2026-05-22). For MLP+LN_in: try "
+                    "``mlp_kwargs={'network_params': {'use_layernorm': False}}``. "
+                    "For tree boosters: check fit_params learning_rate / n_estimators."
+                    if _is_neural_stack
+                    else (
+                    "Likely cause: group-aware split + feature distribution "
+                    "shift between train and test wells/groups. The linear "
+                    "model's coefficients fit on train-feature scale, but "
+                    "test rows have features from a different distribution -- "
+                    "predictions drift off systematically. Mitigations: "
+                    "(a) let composite-target discovery propose a residualised "
+                    "target with bounded variance, (b) use a tree booster "
+                    "(less sensitive to feature scale shift), (c) verify the "
+                    "group-aware split assumptions match downstream model "
+                    "robustness expectations."
+                    )
                 )
                 logger.warning(
                     "[regression-collapse-sensor:%s] %s: predictions appear pathological -- "
                     "pred_std=%.3g (%.1f%% of target_std=%.3g), "
                     "pred_mean=%.3g vs target_mean=%.3g, "
                     "max|pred-y|=%.3g (%.1fx target_std), R2=%.3g. "
-                    "Likely cause: undertrained or pathological model. "
-                    "For Identity-MLP / linear-stack: set nlayers=1 or pick a "
-                    "real nonlinearity (nn.ReLU / nn.GELU); the stacked-Linear "
-                    "footgun catastrophically extrapolates on unseen-groups "
-                    "test splits (prod TVT 2026-05-22). For MLP+LN_in: try "
-                    "``mlp_kwargs={'network_params': {'use_layernorm': False}}``. "
-                    "For tree boosters: check fit_params learning_rate / n_estimators.",
+                    "%s",
                     _branch,
                     model_name,
                     _pred_std,
@@ -556,6 +587,7 @@ def report_regression_model_perf(
                     _pred_mean, _y_mean,
                     _max_err, _max_err / max(_y_std, 1e-12),
                     _r2,
+                    _hint,
                 )
         except Exception as _sensor_err:
             logger.debug(

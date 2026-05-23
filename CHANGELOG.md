@@ -1,5 +1,98 @@
 # Changelog
 
+## 2026-05-23 — TVT-rerun audit-followups round 2: 4 new P0 + 3 deferred-list resolutions
+
+After the morning's 10-fix landing, a fresh production TVT run surfaced
+four more issues + delivered evidence the previous fixes worked
+(CT_ENSEMBLE recovered RMSE=11.63 = Ridge raw baseline, R²=1.00 in 66min
+wall-clock; pure-lag composites `linres-TVT_prev`, `linresR-TVT_prev`,
+`logr-TVT_prev` all discovered organically).
+
+### New fixes
+
+**MLP auto-batch_size variance** ([mlp_runtime_defaults.py:300](src/mlframe/training/mlp_runtime_defaults.py#L300))
+``_probe_available_memory_bytes`` was re-probing CPU memory on every
+call, producing 64x batch_size variance between consecutive MLP
+trainings on identical data shape (65536 -> 1024 across 8 MLPs).
+38% of run wall-clock wasted on 5 MLP timeouts. Fix: module-level
+``_PROBE_MEM_CACHE`` returns the first successful probe value for all
+subsequent calls in one process. ``MLFRAME_FORCE_REPROBE=1`` bypasses
+the cache (testing). Plus ``_TRAIN_BATCH_MIN`` raised 32 -> 4096 and
+``_TRAIN_BATCH_FALLBACK`` 1024 -> 8192 so even a pathological probe
+result can't produce sub-1024 batches on tabular workloads.
+
+**Ridge tiny-screener NaN spam** ([_composite_screening_tiny.py:164](src/mlframe/training/_composite_screening_tiny.py#L164))
+Yesterday's D1 fix (added ``"linear"`` to ``tiny_screening_families``
+default) overlooked that Ridge raises on NaN inputs while LGBM handles
+them natively. The TVT rerun spammed tens of thousands of WARNING
+log lines + spent ~5 extra minutes in discovery on failed folds.
+Fix: wrap the Ridge tiny-screener in a ``SimpleImputer(strategy="mean")
+-> Ridge`` Pipeline so NaN cells are mean-imputed for the proxy
+screening (this isn't the production model, just a proxy gate).
+
+**Residual-std degeneracy filter** ([_composite_discovery_fit.py:343](src/mlframe/training/_composite_discovery_fit.py#L343))
+The pre-fix ``is_degenerate`` check only caught composites where the
+transform absorbed <5% of y variance (T ~= y). The OPPOSITE pathology
+also exists: transform absorbs SO much of y that T is at or below the
+noise floor. Production TVT-logr-TVT_prev had y_std=644, T_std=0.001 --
+ratio 644000:1. Downstream models trained on essentially white noise
+AND tiny T-errors compounded via inverse_transform into significant
+y-scale error. Fix: new check after ``transform.fit`` that computes
+``T_std / y_std`` and rejects when ratio < 0.001 (T below 0.1% of y
+scale, below f32 noise floor for typical tabular targets).
+
+**Collapse sensor: group-OOD-shift branch** ([_reporting.py:539](src/mlframe/training/_reporting.py#L539))
+The pre-fix collapse sensor tagged everything as ``linear-extrapolation``
+with a hint blaming Identity-MLP stacks. But Ridge / LinearRegression
+on a group-aware split with feature-distribution shift produces the
+SAME signature (pred drift off, max|pred-y| > 5*y_std, R^2 << -1).
+Operators on the TVT rerun saw the misleading hint on Ridge's
+composite-target failures and wasted triage time. Fix: branch logic
+detects neural-stack-style model names (PytorchLightning / MLP /
+TabularNet / _TTRWithEvalSetScaling) -- when present, keep the
+``linear-extrapolation`` tag + neural-stack hint; otherwise emit
+``group-ood-shift`` tag + group-aware-split hint with mitigations
+(composite residualisation, tree booster, split assumptions audit).
+
+### New composite transforms
+
+**``median_residual``** ([composite_transforms.py:188](src/mlframe/training/composite_transforms.py#L188))
+T = y - median(y | bin_20(base)). Non-parametric residual via 20
+quantile-bins. Inverse is PURE additive: ``y = T + median_bin[base]``.
+Distinct from ``monotonic_residual`` (PCHIP nonlinear inverse) and
+``quantile_residual`` (divides by IQR, nonlinear). MLP-friendly: even
+worst-case T_hat extrapolation maps via simple per-row addition,
+bounded by train-y range.
+
+**``y_quantile_clip``** (unary, [composite_transforms.py:265](src/mlframe/training/composite_transforms.py#L265))
+T = clip(y, q_0.005, q_0.995). Limit-damage transform that bounds
+downstream model's effective target range to [q_lo, q_hi] of train
+y. Inverse symmetrically clips T_hat so predictions stay within the
+same quantile envelope -- explicit guarantee against neural / linear
+extrapolation past train-y bounds.
+
+Both transforms registered in the registry, short-alias map (``medres``,
+``yqclip``), and added to the default ``transforms`` list.
+
+### Config knobs
+
+**``force_inject_diff_on_top_ablation_pct``** ([_composite_target_discovery_config.py:420](src/mlframe/training/_composite_target_discovery_config.py#L420))
+Placeholder for the C1 paranoia-insurance: force-inject
+``(top_ablation_feat, diff)`` and ``(top_ablation_feat,
+additive_residual)`` specs into discovery output regardless of
+gate filtering. Default 0.0 (DISABLED) because the current gate
+flips + ``additive_residual`` transform already produce these
+composites organically on TVT-style data. Full plumbing pending.
+
+### Tests added
+- [test_tvt_run_2026_05_23_audit_followups.py](tests/training/test_tvt_run_2026_05_23_audit_followups.py)
+  (17 tests, all green): MLP batch-size probe cache + reprobe env;
+  Ridge NaN handling roundtrip; residual-std degeneracy source-guard
+  + threshold-math verification; group-OOD-shift sensor branch fires
+  for Ridge, linear-extrapolation still fires for MLP; median_residual
+  + y_quantile_clip roundtrip + alias + default-list presence; C1 config
+  knob default OFF.
+
 ## 2026-05-23 — TVT-MLP audit followups: 26-finding disposition + 10 P0/P1 fixes
 
 Spawned four audit agents on the TVT-Identity-MLP collapse cascade

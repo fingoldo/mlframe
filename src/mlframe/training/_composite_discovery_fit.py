@@ -340,6 +340,54 @@ def fit(
                 ),
             ))
             return _local
+        # 2026-05-23: upper-bound degeneracy check. The pre-fix
+        # ``is_degenerate`` flag in transform.fit only catches the
+        # LOWER bound (transform explains <5% of y variance -- T ~= y).
+        # The OPPOSITE pathology also exists: transform absorbs SO
+        # much of y that the residual T is at or below the noise
+        # floor (production TVT-logr-TVT_prev 2026-05-23: y_std=644,
+        # T_std=0.001 -- ratio 644000:1). Even a tiny fitting error
+        # on T compounds via inverse_transform into significant
+        # y-scale error, AND downstream models train on essentially
+        # white noise. Compute residual std on full train sample
+        # (cheap: one transform.forward call) and reject when
+        # T_std / y_std < 0.001 (T is below 0.1% of y scale -- below
+        # typical noise floor for f32 tabular targets).
+        try:
+            _y_train_valid = y_train[valid].astype(np.float64)
+            _base_train_valid = base_train[valid].astype(np.float64)
+            _t_train_full = transform.forward(
+                _y_train_valid, _base_train_valid, fitted_params,
+            )
+            _t_train_finite = _t_train_full[np.isfinite(_t_train_full)]
+            _y_train_finite = _y_train_valid[np.isfinite(_y_train_valid)]
+            if _t_train_finite.size > 1 and _y_train_finite.size > 1:
+                _y_std = float(np.std(_y_train_finite))
+                _t_std = float(np.std(_t_train_finite))
+                _residual_ratio = (
+                    _t_std / _y_std if _y_std > 0 else 1.0
+                )
+                if _residual_ratio < 0.001:
+                    _local.append(self._reject(
+                        base, transform_name, mi_y_for_base, valid_frac,
+                        reason=(
+                            f"residual T below noise floor: "
+                            f"T_std={_t_std:.3g} vs y_std={_y_std:.3g} "
+                            f"(ratio={_residual_ratio:.2e} < 0.001). "
+                            f"Composite would train downstream models on "
+                            f"essentially white noise AND amplify tiny "
+                            f"T-errors into y-scale errors via "
+                            f"inverse_transform."
+                        ),
+                    ))
+                    return _local
+        except Exception as _residual_err:
+            # Probe failure is non-fatal -- continue to MI screening.
+            logger.debug(
+                "composite_discovery: residual-std probe failed "
+                "for base=%s transform=%s: %s (continuing)",
+                base, transform_name, _residual_err,
+            )
         # T on the screening sample (which is a subset of train).
         valid_screen = transform.domain_check(y_screen, base_screen)
         if valid_screen.sum() < 50:
