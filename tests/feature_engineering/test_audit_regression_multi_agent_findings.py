@@ -978,32 +978,6 @@ class TestBruteforceLeakageFreeEncoding:
     def test_kfold_helper_produces_different_encoding_than_fit_all(self):
         pytest.importorskip("category_encoders")
         from category_encoders import CatBoostEncoder
-        # category_encoders >= 2.6 ships ``__sklearn_tags__`` that calls
-        # ``super().__sklearn_tags__()``; on certain category_encoders /
-        # sklearn combos (e.g. the Python 3.9 ubuntu CI runner) the MRO
-        # super() target lacks that method and CatBoostEncoder.fit raises
-        # ``AttributeError: 'super' object has no attribute
-        # '__sklearn_tags__'``. Detect the broken chain BEFORE the heavy
-        # ``_kfold_target_encode`` call (which would hit the same chain
-        # first) and skip cleanly; newer working combos still exercise
-        # the encoding sensor end-to-end.
-        try:
-            _probe_enc = CatBoostEncoder(cols=["c"])
-            # Either of these triggers the broken __sklearn_tags__ chain
-            # on the bad combo without doing real work.
-            if hasattr(_probe_enc, "__sklearn_tags__"):
-                _probe_enc.__sklearn_tags__()
-            elif hasattr(_probe_enc, "_get_tags"):
-                _probe_enc._get_tags()
-        except AttributeError as _tag_exc:
-            if "__sklearn_tags__" in str(_tag_exc):
-                pytest.skip(
-                    f"category_encoders / sklearn version mismatch on this "
-                    f"runner: {_tag_exc}. CatBoostEncoder's "
-                    f"``__sklearn_tags__`` super() chain is broken on this "
-                    f"combo (upstream incompat, not anything mlframe owns)."
-                )
-            raise
         from mlframe.feature_engineering.bruteforce import _kfold_target_encode
 
         rng = np.random.default_rng(0)
@@ -1012,10 +986,30 @@ class TestBruteforceLeakageFreeEncoding:
         df["cat"] = df["cat"].astype("category")
         target = pd.Series(rng.standard_normal(n))
 
-        oof = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=42)
-
-        encoder = CatBoostEncoder(cols=["cat"], return_df=True)
-        fit_all = encoder.fit_transform(df[["cat"]], target)
+        # category_encoders >= 2.6 ships ``__sklearn_tags__`` that calls
+        # ``super().__sklearn_tags__()``; on certain category_encoders /
+        # sklearn combos (Python 3.9 ubuntu CI runner: sklearn 1.5.x +
+        # category_encoders 2.6.x) the MRO super() target lacks that
+        # method and CatBoostEncoder.fit raises ``AttributeError: 'super'
+        # object has no attribute '__sklearn_tags__'`` deep inside
+        # ``_check_fit_inputs -> _get_tags -> _to_old_tags(get_tags(self))``.
+        # The instance-method probe doesn't trigger the bug because the
+        # MRO walk goes via sklearn's get_tags() helper, not the regular
+        # method-resolution path. Wrap the actual fit calls so the
+        # detection is the same path that would otherwise fail.
+        try:
+            oof = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=42)
+            encoder = CatBoostEncoder(cols=["cat"], return_df=True)
+            fit_all = encoder.fit_transform(df[["cat"]], target)
+        except AttributeError as exc:
+            if "__sklearn_tags__" in str(exc):
+                pytest.skip(
+                    f"category_encoders / sklearn version mismatch on this "
+                    f"runner: {exc}. CatBoostEncoder.fit's "
+                    f"``__sklearn_tags__`` super() chain is broken on this "
+                    f"combo (upstream incompat, not anything mlframe owns)."
+                )
+            raise
 
         # The two encodings must differ - if they were identical we'd not have removed the leak.
         diff = float(np.mean(np.abs(oof["cat"].values - fit_all["cat"].values)))
