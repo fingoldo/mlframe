@@ -120,6 +120,68 @@ def _signature_of(X) -> tuple:
     return compute_signature(X)
 
 
+# Module-level DMatrix cache keyed by content fingerprint. Survives
+# ``sklearn.clone()`` (which creates a fresh shim instance with empty
+# instance attrs) so OOF refits and per-target re-fits on identical
+# data reuse the C++ DMatrix instead of rebuilding from scratch.
+#
+# Production TVT 2026-05-23: the CompositeCrossTargetEnsemble OOF refit
+# helper calls ``clone(inner)`` per component, each clone has an empty
+# instance cache, so QuantileDMatrix was rebuilt 4 times (20+s wasted
+# per ensemble round). Round-4 added the content-fingerprint key but
+# kept the cache instance-local; round-6 (this commit) moves it module-
+# level so the fingerprint actually delivers reuse across clones.
+#
+# Why an ``OrderedDict`` with LRU eviction (cap=8): each entry holds
+# a QuantileDMatrix carrying ~200-500 MB of C++ memory on the 4M-row
+# TVT scale. 8 entries is enough to keep train + val for 4 targets
+# (raw + 3 composites) hot WITHOUT pinning the entire booster training
+# memory budget. Eviction order is access-driven (``move_to_end`` on
+# hit) so the most-recently-used train matrix never gets dropped.
+#
+# ``MLFRAME_XGB_CACHE_DISABLE=1`` env var forces bypass (testing only).
+from collections import OrderedDict as _OrderedDict
+import os as _os
+import threading as _threading
+
+_XGB_DMATRIX_CACHE: "_OrderedDict[tuple, Any]" = _OrderedDict()
+_XGB_DMATRIX_CACHE_CAP: int = 8
+_XGB_DMATRIX_CACHE_LOCK = _threading.Lock()
+
+
+def _xgb_cache_disabled() -> bool:
+    return bool(_os.environ.get("MLFRAME_XGB_CACHE_DISABLE"))
+
+
+def _xgb_cache_get(key: tuple):
+    if _xgb_cache_disabled() or key is None:
+        return None
+    with _XGB_DMATRIX_CACHE_LOCK:
+        dm = _XGB_DMATRIX_CACHE.get(key)
+        if dm is not None:
+            _XGB_DMATRIX_CACHE.move_to_end(key)
+        return dm
+
+
+def _xgb_cache_put(key: tuple, dmatrix: Any) -> None:
+    if _xgb_cache_disabled() or key is None or dmatrix is None:
+        return
+    with _XGB_DMATRIX_CACHE_LOCK:
+        if key in _XGB_DMATRIX_CACHE:
+            _XGB_DMATRIX_CACHE.move_to_end(key)
+        _XGB_DMATRIX_CACHE[key] = dmatrix
+        # LRU eviction.
+        while len(_XGB_DMATRIX_CACHE) > _XGB_DMATRIX_CACHE_CAP:
+            _XGB_DMATRIX_CACHE.popitem(last=False)
+
+
+def _xgb_cache_clear() -> None:
+    """Release all cached DMatrixes (call between long-running suite
+    invocations to free C++ memory)."""
+    with _XGB_DMATRIX_CACHE_LOCK:
+        _XGB_DMATRIX_CACHE.clear()
+
+
 def _build_quantile_dmatrix(
     X, y, sample_weight, *, ref_dmatrix=None, enable_categorical: bool = True,
 ):
@@ -320,9 +382,26 @@ class _DMatrixReuseMixin:
             self._init_cache()
 
         # ---- Train DMatrix: cache-or-build ---------------------------
+        # Lookup priority:
+        #   1. Instance-level cache (same shim instance, same data) --
+        #      fast path, no global-dict contention.
+        #   2. Module-level cache (different shim, e.g. sklearn.clone() in
+        #      composite-ensemble OOF refit, with identical content) --
+        #      survives the clone-empties-cache problem.
+        #   3. Fresh build, populate BOTH caches.
         train_key = _signature_of(X)
-        if self._cached_train_key == train_key and self._cached_train_dmatrix is not None:
+        dtrain = None
+        _cache_source: str = "miss"
+        if (self._cached_train_key == train_key
+                and self._cached_train_dmatrix is not None):
             dtrain = self._cached_train_dmatrix
+            _cache_source = "instance"
+        else:
+            _global_hit = _xgb_cache_get(train_key)
+            if _global_hit is not None:
+                dtrain = _global_hit
+                _cache_source = "module"
+        if dtrain is not None:
             dtrain.set_label(np.asarray(y))
             if sample_weight is not None:
                 dtrain.set_weight(np.asarray(sample_weight))
@@ -332,9 +411,12 @@ class _DMatrixReuseMixin:
                 # set ones to clear any prior weight; XGBoost will treat
                 # an all-1 weight identically to no-weight.
                 dtrain.set_weight(np.ones(dtrain.num_row(), dtype=np.float32))
+            # Promote module-hit to instance-level for the next call.
+            self._cached_train_dmatrix = dtrain
+            self._cached_train_key = train_key
             logger.debug(
-                "[xgb-shim] reused cached train DMatrix (id=%d, shape=%dx%d)",
-                id(dtrain), dtrain.num_row(), dtrain.num_col(),
+                "[xgb-shim] reused %s cached train DMatrix (id=%d, shape=%dx%d)",
+                _cache_source, id(dtrain), dtrain.num_row(), dtrain.num_col(),
             )
         else:
             dtrain = _build_quantile_dmatrix(
@@ -343,8 +425,10 @@ class _DMatrixReuseMixin:
             )
             self._cached_train_dmatrix = dtrain
             self._cached_train_key = train_key
+            _xgb_cache_put(train_key, dtrain)
             logger.debug(
-                "[xgb-shim] built fresh train DMatrix (id=%d, shape=%dx%d)",
+                "[xgb-shim] built fresh train DMatrix (id=%d, shape=%dx%d); "
+                "stored in module cache for cross-clone reuse",
                 id(dtrain), dtrain.num_row(), dtrain.num_col(),
             )
 

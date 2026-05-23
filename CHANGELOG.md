@@ -1,5 +1,84 @@
 # Changelog
 
+## 2026-05-23 — Round 5: lag_predict in CT_ENSEMBLE, module-level XGB cache, Huber-only leptokurtic band
+
+Production TVT log (third rerun) showed CT_ENSEMBLE TEST RMSE=12.73
+vs lag_predict dummy 11.58 -- framework's ensemble lost to the trivial
+baseline. Three RMSE-impact fixes ship in this commit.
+
+### #1 lag_predict as a deployable CT_ENSEMBLE component ([_phase_composite_post.py:50](src/mlframe/training/core/_phase_composite_post.py#L50))
+
+New ``_LagPredictDeployableModel`` class wraps the lag_predict dummy
+baseline behind the same ``predict(X) -> ndarray`` interface every
+CT_ENSEMBLE component exposes. Composite-post phase now injects it
+automatically into the component pool whenever the dummy-baselines
+metadata for the target reports a ``lag_predict`` feature_used.
+
+The existing honest-OOF gate then evaluates lag_predict on the same
+holdout as every other component and naturally selects it via
+``np.nanargmin(_oof_rmses)`` when it dominates. Zero trainable
+parameters, one column read per inference call -- no extrapolation
+possible. Pre-fix the framework had lag_predict visible in the
+dummy-baselines table but invisible to ensemble component selection;
+post-fix it's a first-class candidate.
+
+### #2 XGB shim module-level DMatrix cache ([xgb_shim.py:121-183](src/mlframe/training/xgb_shim.py#L121-L183))
+
+Round-4 fixed the ``id(X)`` cache-key bug by moving to a content
+fingerprint, but kept the cache instance-local. ``sklearn.clone()``
+in ``CompositeCrossTargetEnsemble.compute_oof_holdout_predictions``
+produces fresh shim instances with EMPTY ``_cached_train_dmatrix``,
+so the content fingerprint helped within one instance but cross-
+instance reuse still missed. Production TVT log line 893/899/905/911
+showed 4 consecutive ``QuantileDMatrix`` rebuilds of identical
+content (~5s each = ~20s wasted per OOF round).
+
+Round-5 promotes the cache to module-level via
+``_XGB_DMATRIX_CACHE: OrderedDict[fingerprint, QuantileDMatrix]`` with
+LRU eviction (cap=8). ``_xgb_cache_get`` / ``_xgb_cache_put`` /
+``_xgb_cache_clear`` are public helpers. ``MLFRAME_XGB_CACHE_DISABLE=1``
+env var bypasses for testing. The fit() path consults instance cache
+first (fast path), falls through to module cache (cross-clone reuse),
+populates BOTH on a miss.
+
+### #4 Huber for all kurt > 1.5; pure-L1 band collapsed ([loss_recommendation.py:142](src/mlframe/training/loss_recommendation.py#L142))
+
+Round-3 raised ``_EXCESS_KURT_HEAVY`` 1.5 -> 3.0 to keep MAE/L1 off
+mildly leptokurtic residuals. Round-4 added Huber for the new (1.5,
+3.0] medium band. Production TVT residuals at kurt=6.37 STILL hit
+the (3.0, 10.0] pure-L1 branch and CatBoost STILL stopped at
+``es_best_iter=1`` (LGB at ``es_best_iter=5``) because the MAE
+gradient on a target whose 99% mass sits near zero is just
+``sign(noise)`` -- constant-magnitude random signal indistinguishable
+from no learning signal.
+
+Round-5 collapses the entire leptokurtic regime into a single Huber
+branch: ``excess_kurt > 1.5`` -> Huber:delta=1.345 / lgb=huber /
+xgb=reg:pseudohubererror, regardless of how far above 1.5 the kurt
+sits. Huber's bounded-influence loss keeps the gradient informative
+on small residuals AND attenuates outlier influence -- dominates
+pure L1 across the full range. Pure-L1 path reserved for explicit
+operator override via ``target_quantile=0.5``.
+
+Threshold lowered back ``_EXCESS_KURT_HEAVY: 3.0 -> 1.5``;
+``_EXCESS_KURT_MEDIUM`` constant removed (no longer needed -- the
+old "medium" band IS the new heavy band).
+
+### Tests (24 new tests, all green)
+
+[test_tvt_round5_lag_xgb_huber.py](tests/training/test_tvt_round5_lag_xgb_huber.py):
+* lag_predict deployable model: pandas + iloc-slice + repr + missing-column
+* XGB module-level cache: round-trip, sklearn.clone() survival pattern
+  (load-bearing test for the fix), LRU eviction, LRU promote-on-hit,
+  env-var disable
+* Loss recommendation: kurt threshold back to 1.5, Huber for medium
+  kurt, Huber for high kurt 3-10 (previously MAE), Gaussian still RMSE
+* Cross-shim signature fingerprint stable on iloc-sliced frames
+
+Round-3 test file updated: previous ``test_kurt_threshold_raised_to_3_0``
+and ``test_high_kurt_still_picks_mae`` adjusted for the round-5
+unified Huber regime.
+
 ## 2026-05-23 — Round 4 audit-followups: 5 of 7 deferred items resolved
 
 User asked "anything else to improve?" -- presented 7 deferred audit

@@ -23,30 +23,29 @@ from typing import Any, Dict
 import numpy as np
 
 
-_EXCESS_KURT_HEAVY: float = 3.0
-"""Threshold above which the residual is genuinely Laplace-or-heavier
-and L1/MAE is the right MLE.
+_EXCESS_KURT_HEAVY: float = 1.5
+"""Threshold above which Gaussian assumptions break and a robust loss
+(Huber by default; L1 reachable via ``prefer_l1_above_kurt``) wins.
 
-Default raised 1.5 -> 3.0 (2026-05-23 TVT-rerun audit): on production TVT
-composite residuals with ``excess_kurt=6.37`` the old 1.5 threshold
-triggered MAE objective, and the MAE gradient on a target where 99% of
-mass is near zero is just ``sign(noise)`` -- constant-magnitude random
-signal. CatBoost early-stopped at iter=1 on TVT-addres-TVT_prev;
-LightGBM at iter=5 on TVT-diff-TVT_prev. The Huber branch (excess_kurt>3.0,
-new default) handles the ``excess_kurt in (1.5, 3.0)`` range with
-bounded-influence loss that retains a useful gradient on small residuals
-AND remains robust on tails. Above 3.0 the distribution is sharp enough
-that pure L1 is genuinely appropriate."""
+History (TVT-rerun saga):
+* Pre-2026-05-22: 1.5 -> pure L1/MAE.
+* 2026-05-23 (round 3): raised 1.5 -> 3.0 because the MAE gradient on
+  near-zero residuals (production TVT composite ``excess_kurt=6.37``)
+  is just ``sign(noise)`` -- constant magnitude noise; CatBoost early-
+  stopped at iter=1. New Huber band on ``excess_kurt in (1.5, 3.0]``.
+* 2026-05-23 (round 5, this fix): collapsed the (3.0, 10.0] MAE band
+  too. The TVT residuals at kurt=6.37 STILL hit L1 with the previous
+  ladder and CB/LGB STILL underfit (es_best_iter=1 / 5). Pure L1 is
+  rare in practice; Huber dominates on the full kurt > 1.5 range with
+  bounded-influence loss that retains a useful gradient on small
+  residuals AND attenuates outlier influence. Threshold lowered back
+  to 1.5 with the understanding that ALL the "heavy" cases above 1.5
+  route through Huber, not L1. ``EXCESS_KURT_EXTREME`` is preserved
+  for the original extreme-tail Huber-with-larger-delta path; the
+  default Huber-delta-1.345 covers most leptokurtic distributions."""
 
 _EXCESS_KURT_EXTREME: float = 10.0
 """Threshold matching ``regression_residual_audit.EXCESS_KURT_EXTREME``. Above this the residual is contaminated (Student-t / mixture); Huber's bounded influence function is the safe default."""
-
-_EXCESS_KURT_MEDIUM: float = 1.5
-"""Lower-bound for the Huber band. ``excess_kurt in (_EXCESS_KURT_MEDIUM,
-_EXCESS_KURT_HEAVY)`` triggers Huber loss (was the old MAE band).
-1.5 retains the original threshold for the FIRST departure from Gaussian
-tolerance; Huber's gradient stays useful on small residuals AND attenuates
-outlier influence, so it dominates plain L1 in the medium-kurt regime."""
 
 _MIN_SAMPLE_N: int = 30
 """Below this we don't have enough mass to estimate kurtosis reliably; recommendation falls back to the standard default."""
@@ -140,39 +139,31 @@ def recommend_boosting_regression_loss(
             "excess_kurt": excess_kurt,
             "n_finite": n_finite,
         }
-    if excess_kurt > _EXCESS_KURT_EXTREME:
-        return {
-            "cb": "Huber:delta=1.345",
-            "lgb": "huber",
-            "xgb": "reg:pseudohubererror",
-            "rationale": f"excess_kurt={excess_kurt:.2f} > {_EXCESS_KURT_EXTREME} -- contaminated tails; Huber bounded-influence loss.",
-            "excess_kurt": excess_kurt,
-            "n_finite": n_finite,
-        }
     if excess_kurt > _EXCESS_KURT_HEAVY:
-        return {
-            "cb": "MAE",
-            "lgb": "regression_l1",
-            "xgb": "reg:absoluteerror",
-            "rationale": f"excess_kurt={excess_kurt:.2f} > {_EXCESS_KURT_HEAVY} -- Laplace/Student-t tails; L1 (MAE) is the Laplace MLE.",
-            "excess_kurt": excess_kurt,
-            "n_finite": n_finite,
-        }
-    if excess_kurt > _EXCESS_KURT_MEDIUM:
-        # Mild leptokurtic (Laplace-LIKE but not pure Laplace): Huber
-        # retains useful gradient on small residuals AND attenuates tail
-        # influence. Avoids the MAE-gradient-is-noise pathology
-        # (production TVT 2026-05-23: composite residuals with kurt~6
-        # got pure MAE objective and boosters stopped at iter=1-5).
+        # 2026-05-23 round 5: collapsed the previous (1.5, 3.0] Huber +
+        # (3.0, 10.0] L1 ladder into a single Huber band above 1.5.
+        # Pure L1 was triggering the "MAE-gradient-is-noise" pathology
+        # on production TVT residuals (kurt=6.37 -> CB es_best_iter=1,
+        # LGB es_best_iter=5) DESPITE the previous round's threshold
+        # raise from 1.5 -> 3.0. Huber's bounded-influence loss
+        # retains a useful gradient on small residuals AND attenuates
+        # outlier influence across the full leptokurtic range; pure L1
+        # is reserved for the rare cases where the operator explicitly
+        # prefers the Laplace MLE (set via ``target_quantile=0.5`` or
+        # by overriding the per-backend value post-call).
+        _extreme = excess_kurt > _EXCESS_KURT_EXTREME
         return {
             "cb": "Huber:delta=1.345",
             "lgb": "huber",
             "xgb": "reg:pseudohubererror",
             "rationale": (
-                f"excess_kurt={excess_kurt:.2f} in "
-                f"({_EXCESS_KURT_MEDIUM}, {_EXCESS_KURT_HEAVY}] -- "
-                "mildly leptokurtic; Huber bounded-influence loss keeps "
-                "the gradient informative on small residuals while "
+                f"excess_kurt={excess_kurt:.2f} > {_EXCESS_KURT_HEAVY}"
+                + (
+                    f" (extreme tails, > {_EXCESS_KURT_EXTREME})"
+                    if _extreme else ""
+                )
+                + " -- Huber bounded-influence loss keeps the "
+                "gradient informative on small residuals while "
                 "attenuating outlier influence."
             ),
             "excess_kurt": excess_kurt,

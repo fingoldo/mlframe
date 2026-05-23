@@ -48,6 +48,50 @@ _PROB_NORM_EPS = 1e-12
 _WATCHDOG_RELATIVE_THRESHOLD = 0.01
 
 
+class _LagPredictDeployableModel:
+    """Wraps the ``lag_predict`` dummy baseline as a deployable model.
+
+    Production TVT 2026-05-23: lag_predict beat every trained component
+    on TEST RMSE (11.58 vs ensemble's 12.73). The dummy was visible in
+    the dummy-baselines table but invisible to CT_ENSEMBLE's component
+    pool -- final delivery used the worse stacker output. This wrapper
+    presents lag_predict via the same ``predict(X) -> ndarray`` shape
+    every other CT_ENSEMBLE component exposes, so the existing
+    honest-OOF gate naturally selects it when it dominates.
+
+    Prediction rule: ``y_hat[i] = X[lag_column].iloc[i]`` -- zero
+    trainable parameters, returns the lag-target value verbatim per
+    row. Inference cost is one column access; never extrapolates.
+    """
+
+    def __init__(self, lag_column: str) -> None:
+        self.lag_column = str(lag_column)
+
+    def predict(self, X: Any) -> np.ndarray:
+        if hasattr(X, "loc") or hasattr(X, "__getitem__"):
+            try:
+                col = X[self.lag_column]
+                if hasattr(col, "to_numpy"):
+                    return np.asarray(col.to_numpy(), dtype=np.float64).reshape(-1)
+                return np.asarray(col, dtype=np.float64).reshape(-1)
+            except (KeyError, TypeError):
+                pass
+        # Polars fallback
+        if hasattr(X, "select"):
+            try:
+                col = X.select(self.lag_column).to_numpy().reshape(-1)
+                return np.asarray(col, dtype=np.float64)
+            except Exception:
+                pass
+        raise KeyError(
+            f"_LagPredictDeployableModel: column {self.lag_column!r} "
+            f"not found on X (type={type(X).__name__})"
+        )
+
+    def __repr__(self) -> str:
+        return f"_LagPredictDeployableModel(lag_column={self.lag_column!r})"
+
+
 # Wave 100 (2026-05-21): _run_composite_target_wrapping (~390 lines)
 # moved to sibling file _phase_composite_wrapping.py to drop this file
 # below the 1k-line monolith threshold. Re-exported below so existing
@@ -307,6 +351,46 @@ def run_composite_post_processing(
                         PrePipelinePredictShim(_inner, _pp, _name)
                     )
                     _component_names.append(_name)
+                # 2026-05-23: inject lag_predict dummy baseline as a free component
+                # for the cross-target ensemble pool. On strongly auto-regressive
+                # targets (TVT-style, lag1_corr ~0.999 within groups) the dumbest
+                # ``y_hat = lag_target_value`` baseline often beats every trained
+                # model on RMSE (prod TVT 2026-05-23: lag_predict TEST RMSE=11.58
+                # vs CT_ENSEMBLE 12.73, ensemble loses to dummy by ~10%). Inject
+                # the lag column as a zero-cost deployable component so the
+                # existing honest-OOF gate naturally selects it when it
+                # dominates. NO trainable parameters; cost is one column read.
+                try:
+                    _dbl_for_target = (
+                        metadata.get("dummy_baselines", {})
+                        .get(str(_tt_e), {})
+                        .get(str(_orig_tname), {})
+                    )
+                    _dbl_extras = _dbl_for_target.get("extras", {})
+                    _lag_meta = _dbl_extras.get("lag_predict") if isinstance(
+                        _dbl_extras, dict,
+                    ) else None
+                    if _lag_meta is not None:
+                        _lag_col = _lag_meta.get("feature_used")
+                        if _lag_col:
+                            _lag_model = _LagPredictDeployableModel(_lag_col)
+                            _components.append(
+                                PrePipelinePredictShim(_lag_model, None, "lag_predict")
+                            )
+                            _component_names.append("lag_predict")
+                            logger.info(
+                                "[CompositeCrossTargetEnsemble] target='%s' "
+                                "injected lag_predict (feature=%s) as a free "
+                                "ensemble component. honest-OOF gate will "
+                                "auto-select if it dominates trained models.",
+                                _orig_tname, _lag_col,
+                            )
+                except Exception as _lag_inj_err:
+                    logger.debug(
+                        "[CompositeCrossTargetEnsemble] lag_predict injection "
+                        "failed for target='%s' (non-fatal): %s",
+                        _orig_tname, _lag_inj_err,
+                    )
                 for _spec in _spec_list:
                     _composite_entries = (models or {}).get(_tt_e, {}).get(
                         _spec["name"], []

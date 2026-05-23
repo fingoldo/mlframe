@@ -89,41 +89,44 @@ class TestOOFRefitEvalSetPassthrough:
 
 
 class TestLossRecommendationHuberBand:
-    def test_kurt_threshold_raised_to_3_0(self) -> None:
+    def test_kurt_threshold_back_to_1_5_with_huber_unified_band(self) -> None:
+        """Round-5 (2026-05-23 evening): threshold lowered back 3.0 -> 1.5
+        AND the pure-L1 (3.0, 10.0] band was collapsed into the Huber
+        branch. Production TVT residuals at kurt=6.37 STILL underfit
+        under pure L1 (CB es_best_iter=1) DESPITE the round-3 threshold
+        raise. Huber covers the entire leptokurtic regime now."""
         from mlframe.training import loss_recommendation
-        assert loss_recommendation._EXCESS_KURT_HEAVY == 3.0
-        assert loss_recommendation._EXCESS_KURT_MEDIUM == 1.5
+        assert loss_recommendation._EXCESS_KURT_HEAVY == 1.5
 
-    def test_medium_kurt_band_picks_huber(self) -> None:
-        """``excess_kurt`` in (1.5, 3.0] should now pick Huber not MAE.
-        Production TVT composite residuals had kurt~6 -- new threshold
-        directs Huber there instead of pure L1 (MAE gradient on
-        near-zero residuals is constant-magnitude noise)."""
+    def test_huber_for_all_leptokurtic(self) -> None:
+        """Both medium (~2.5) and high (~6) kurt should pick Huber, not
+        the old MAE path."""
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
         rng = np.random.default_rng(0)
-        # Laplace-LIKE with kurt ~ 2.5 (between 1.5 and 3.0):
-        # mix of normal + small fraction of outliers.
+        # Medium-kurt Laplace-like
         n = 5000
         base = rng.normal(0, 1, n)
         outliers = rng.normal(0, 4, n) * (rng.random(n) < 0.05).astype(float)
         y = base + outliers
         rec = recommend_boosting_regression_loss(y)
-        if 1.5 < rec["excess_kurt"] <= 3.0:
+        if rec["excess_kurt"] > 1.5:
             assert "Huber" in rec["cb"], rec
             assert rec["lgb"] == "huber", rec
             assert rec["xgb"] == "reg:pseudohubererror", rec
 
-    def test_high_kurt_still_picks_mae(self) -> None:
+    def test_high_kurt_now_picks_huber_too(self) -> None:
+        """High kurt (~6+) previously picked MAE; round-5 collapses
+        into Huber for the same gradient-on-near-zero-residuals reason
+        that bit CB es_best_iter=1 on production TVT composite residual."""
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
         rng = np.random.default_rng(0)
         n = 5000
-        # Strongly leptokurtic: kurt > 3 typically
-        y = rng.standard_t(df=3, size=n)
+        y = rng.standard_t(df=3, size=n)  # kurt ~ 6+
         rec = recommend_boosting_regression_loss(y)
-        if rec["excess_kurt"] > 3.0 and rec["excess_kurt"] <= 10.0:
-            assert rec["cb"] == "MAE", rec
-            assert rec["lgb"] == "regression_l1", rec
-            assert rec["xgb"] == "reg:absoluteerror", rec
+        if rec["excess_kurt"] > 1.5:
+            assert "Huber" in rec["cb"], rec
+            assert rec["lgb"] == "huber", rec
+            assert rec["xgb"] == "reg:pseudohubererror", rec
 
 
 class TestXGBShimContentFingerprint:
