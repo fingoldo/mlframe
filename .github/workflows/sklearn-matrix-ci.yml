@@ -9,7 +9,7 @@
 # Coverage of the wrapper / delegation / sklearn-API surface:
 #   tests/training/test_composite.py
 #   tests/training/test_composite_polish.py
-#   tests/training/test_composite_polish_round2.py
+#   tests/training/test_composite_polish_refinement.py
 #   tests/training/test_composite_provenance.py
 #   tests/training/test_composite_perf.py
 #   tests/training/test_composite_business_value_locks.py
@@ -115,7 +115,7 @@ jobs:
           pytest \
             tests/training/test_composite.py \
             tests/training/test_composite_polish.py \
-            tests/training/test_composite_polish_round2.py \
+            tests/training/test_composite_polish_refinement.py \
             tests/training/test_composite_provenance.py \
             tests/training/test_composite_perf.py \
             tests/training/test_composite_business_value_locks.py \
