@@ -90,6 +90,17 @@ def _config_for_models(
     cb_border_count: int = 254,
     hgb_max_leaf_nodes: int = 31,
     rfecv_cv_n_splits: int = 2,
+    # iter180 DEPTH-4 booster sub-params (depth-3 gate + depth-4 sub-knob pairs).
+    lgb_boosting_type: str = "gbdt",
+    lgb_dart_drop_rate: float = 0.1,
+    lgb_goss_top_rate: float = 0.2,
+    xgb_tree_method: str = "auto",
+    xgb_hist_max_bin: int = 256,
+    cb_bootstrap_type: str = "Bayesian",
+    cb_bayesian_bagging_temperature: float = 1.0,
+    cb_bernoulli_subsample: float = 0.8,
+    cb_grow_policy: str = "SymmetricTree",
+    cb_lossguide_max_leaves: int = 31,
 ) -> dict:
     cfg: dict = {"iterations": iterations}
     if early_stopping_rounds is not None:
@@ -99,25 +110,53 @@ def _config_for_models(
     if "mlp" in models and mlp_predict_batch_size is not None:
         cfg["mlp_predict_batch_size"] = mlp_predict_batch_size
     if "lgb" in models:
-        cfg["lgb_kwargs"] = {
+        _lgb_kw = {
             "device_type": "cpu", "verbose": -1,
             # iter170 inner knobs.
             "feature_fraction": lgb_feature_fraction,
             "num_leaves": lgb_num_leaves,
+            # iter180 depth-3 gate.
+            "boosting_type": lgb_boosting_type,
         }
+        # iter180 DEPTH-4 sub-knobs gated by boosting_type.
+        if lgb_boosting_type == "dart":
+            _lgb_kw["drop_rate"] = lgb_dart_drop_rate
+        elif lgb_boosting_type == "goss":
+            _lgb_kw["top_rate"] = lgb_goss_top_rate
+            # 'goss' is incompatible with feature_fraction < 1 in LGB; drop the conflict.
+            _lgb_kw.pop("feature_fraction", None)
+        cfg["lgb_kwargs"] = _lgb_kw
     if "xgb" in models:
-        cfg["xgb_kwargs"] = {
+        _xgb_kw = {
             "device": "cpu", "verbosity": 0,
             # iter170 inner knobs.
             "max_depth": xgb_max_depth,
             "colsample_bynode": xgb_colsample_bynode,
+            # iter180 depth-3 gate.
+            "tree_method": xgb_tree_method,
         }
+        # iter180 DEPTH-4 sub-knob.
+        if xgb_tree_method == "hist":
+            _xgb_kw["max_bin"] = xgb_hist_max_bin
+        cfg["xgb_kwargs"] = _xgb_kw
     if "cb" in models:
-        cfg["cb_kwargs"] = {
+        _cb_kw = {
             "task_type": "CPU", "verbose": 0,
             # iter170 inner knob.
             "border_count": cb_border_count,
+            # iter180 depth-3 gates.
+            "bootstrap_type": cb_bootstrap_type,
+            "grow_policy": cb_grow_policy,
         }
+        # iter180 DEPTH-4 sub-knobs gated by bootstrap_type.
+        if cb_bootstrap_type == "Bayesian":
+            _cb_kw["bagging_temperature"] = cb_bayesian_bagging_temperature
+        elif cb_bootstrap_type == "Bernoulli":
+            _cb_kw["subsample"] = cb_bernoulli_subsample
+        # iter180 DEPTH-4 sub-knob gated by grow_policy.
+        if cb_grow_policy == "Lossguide":
+            _cb_kw["max_leaves"] = cb_lossguide_max_leaves
+        cfg["cb_kwargs"] = _cb_kw
     if "hgb" in models:
         cfg["hgb_kwargs"] = {
             # iter170 inner knob.
@@ -363,6 +402,16 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
             **_safe_cfg_kwargs(
                 MultilabelDispatchConfig,
                 force_native_xgb_multilabel=combo.multilabel_force_native_xgb_cfg,
+                # iter180 DEPTH-4 list-typed: per_label_thresholds (uniform 0.4 vs None),
+                # chain_seeds (deterministic per-chain seeds vs None).
+                per_label_thresholds=(
+                    None if combo.multilabel_per_label_thresholds_cfg is None
+                    else [0.4, 0.4, 0.4]  # K=3 default labels in fuzz frame
+                ),
+                chain_seeds=(
+                    None if combo.multilabel_chain_seeds_cfg is None
+                    else list(range(combo.multilabel_n_chains_cfg))
+                ),
             ),
         ),
     }
@@ -972,6 +1021,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # iter170 deep cache axes (defensive).
                 prefetch_enabled=combo.fhc_cache_prefetch_enabled_cfg,
                 prefetch_vram_safety_factor=combo.fhc_cache_prefetch_vram_safety_factor_cfg,
+                # iter180 DEPTH-4 -- persistence mode gates disk-tier sub-fields.
+                persistence=combo.fhc_cache_persistence_cfg,
             ))
             _memory = MemoryConfig(**_safe_cfg_kwargs(
                 MemoryConfig,
@@ -1085,6 +1136,17 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 cb_border_count=combo.cb_border_count_cfg,
                 hgb_max_leaf_nodes=combo.hgb_max_leaf_nodes_cfg,
                 rfecv_cv_n_splits=combo.rfecv_cv_n_splits_cfg,
+                # iter180 DEPTH-4 booster sub-params.
+                lgb_boosting_type=combo.lgb_boosting_type_cfg,
+                lgb_dart_drop_rate=combo.lgb_dart_drop_rate_cfg,
+                lgb_goss_top_rate=combo.lgb_goss_top_rate_cfg,
+                xgb_tree_method=combo.xgb_tree_method_cfg,
+                xgb_hist_max_bin=combo.xgb_hist_max_bin_cfg,
+                cb_bootstrap_type=combo.cb_bootstrap_type_cfg,
+                cb_bayesian_bagging_temperature=combo.cb_bayesian_bagging_temperature_cfg,
+                cb_bernoulli_subsample=combo.cb_bernoulli_subsample_cfg,
+                cb_grow_policy=combo.cb_grow_policy_cfg,
+                cb_lossguide_max_leaves=combo.cb_lossguide_max_leaves_cfg,
             ),
             preprocessing_config=_preprocessing_for_combo(combo),
             verbose=0,

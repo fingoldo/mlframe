@@ -618,6 +618,31 @@ AXES: dict[str, tuple[Any, ...]] = {
     # --- RecurrentConfig deep (only when recurrent_model)
     "recurrent_input_mode_cfg": ("hybrid", "sequence_only", "tabular_only"),
     "recurrent_num_workers_cfg": (0, 2),
+    # =====================================================================
+    # 2026-05-23 iter180 -- DEPTH-4 booster sub-params + FHC persistence
+    # + multilabel list-typed depth-3 fields. Booster axes work as pairs:
+    # the boosting_type/tree_method/bootstrap_type/grow_policy gate
+    # (depth-3) UNLOCKS the depth-4 sub-knob. Sub-knob axes default to
+    # the library default so they're no-ops unless the gate is active.
+    # =====================================================================
+    # LGB boosting_type + depth-4 sub-params
+    "lgb_boosting_type_cfg": ("gbdt", "dart", "goss"),
+    "lgb_dart_drop_rate_cfg": (0.1, 0.3),         # only when boosting_type='dart'
+    "lgb_goss_top_rate_cfg": (0.2, 0.4),          # only when boosting_type='goss'
+    # XGB tree_method + depth-4 sub-params
+    "xgb_tree_method_cfg": ("auto", "hist"),
+    "xgb_hist_max_bin_cfg": (256, 64),            # only when tree_method='hist'
+    # CB bootstrap_type + grow_policy + depth-4 sub-params
+    "cb_bootstrap_type_cfg": ("Bayesian", "Bernoulli", "MVS"),
+    "cb_bayesian_bagging_temperature_cfg": (1.0, 5.0),  # only when bootstrap_type='Bayesian'
+    "cb_bernoulli_subsample_cfg": (0.8, 0.5),     # only when bootstrap_type='Bernoulli'
+    "cb_grow_policy_cfg": ("SymmetricTree", "Lossguide"),
+    "cb_lossguide_max_leaves_cfg": (31, 63),      # only when grow_policy='Lossguide'
+    # FHC.cache.persistence (depth-4 because it gates disk-tier sub-fields)
+    "fhc_cache_persistence_cfg": ("auto", "off", "read_write"),
+    # MultilabelDispatchConfig depth-4 list-typed fields (never set pre-iter180)
+    "multilabel_per_label_thresholds_cfg": (None, "uniform_0.4"),
+    "multilabel_chain_seeds_cfg": (None, "explicit"),
 }
 
 
@@ -886,6 +911,21 @@ class FuzzCombo:
     fhc_text_respect_explicit_cat_dtype_cfg: bool = True
     recurrent_input_mode_cfg: str = "hybrid"
     recurrent_num_workers_cfg: int = 0
+    # 2026-05-23 iter180 -- DEPTH-4 booster sub-params + FHC persistence
+    # + multilabel list-typed fields.
+    lgb_boosting_type_cfg: str = "gbdt"
+    lgb_dart_drop_rate_cfg: float = 0.1
+    lgb_goss_top_rate_cfg: float = 0.2
+    xgb_tree_method_cfg: str = "auto"
+    xgb_hist_max_bin_cfg: int = 256
+    cb_bootstrap_type_cfg: str = "Bayesian"
+    cb_bayesian_bagging_temperature_cfg: float = 1.0
+    cb_bernoulli_subsample_cfg: float = 0.8
+    cb_grow_policy_cfg: str = "SymmetricTree"
+    cb_lossguide_max_leaves_cfg: int = 31
+    fhc_cache_persistence_cfg: str = "auto"
+    multilabel_per_label_thresholds_cfg: "str | None" = None
+    multilabel_chain_seeds_cfg: "str | None" = None
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -2091,6 +2131,20 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         fhc_text_respect_explicit_cat_dtype_cfg=axes.get("fhc_text_respect_explicit_cat_dtype_cfg", True),
         recurrent_input_mode_cfg=axes.get("recurrent_input_mode_cfg", "hybrid"),
         recurrent_num_workers_cfg=axes.get("recurrent_num_workers_cfg", 0),
+        # 2026-05-23 iter180 -- DEPTH-4.
+        lgb_boosting_type_cfg=axes.get("lgb_boosting_type_cfg", "gbdt"),
+        lgb_dart_drop_rate_cfg=axes.get("lgb_dart_drop_rate_cfg", 0.1),
+        lgb_goss_top_rate_cfg=axes.get("lgb_goss_top_rate_cfg", 0.2),
+        xgb_tree_method_cfg=axes.get("xgb_tree_method_cfg", "auto"),
+        xgb_hist_max_bin_cfg=axes.get("xgb_hist_max_bin_cfg", 256),
+        cb_bootstrap_type_cfg=axes.get("cb_bootstrap_type_cfg", "Bayesian"),
+        cb_bayesian_bagging_temperature_cfg=axes.get("cb_bayesian_bagging_temperature_cfg", 1.0),
+        cb_bernoulli_subsample_cfg=axes.get("cb_bernoulli_subsample_cfg", 0.8),
+        cb_grow_policy_cfg=axes.get("cb_grow_policy_cfg", "SymmetricTree"),
+        cb_lossguide_max_leaves_cfg=axes.get("cb_lossguide_max_leaves_cfg", 31),
+        fhc_cache_persistence_cfg=axes.get("fhc_cache_persistence_cfg", "auto"),
+        multilabel_per_label_thresholds_cfg=axes.get("multilabel_per_label_thresholds_cfg", None),
+        multilabel_chain_seeds_cfg=axes.get("multilabel_chain_seeds_cfg", None),
     )
 
 
