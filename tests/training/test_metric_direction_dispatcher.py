@@ -59,6 +59,14 @@ import pytest
     ("val_MAPE", False), ("val_smape", False),
     ("val_log_loss", False), ("val_logloss", False),
     ("val_brier", False), ("val_brier_score", False),
+    # Multi-class / multi-label aggregation variants. Without these, the
+    # canonicalised lookup misses the parent ("log_loss" != "log_loss_macro")
+    # and _pick_strongest warns then silently defaults to minimize.
+    # _dummy_metrics_pick_plot.py always emits the *_macro / *_micro
+    # variants for multilabel / multiclass dummy baseline tables.
+    ("val_log_loss_macro", False), ("val_log_loss_micro", False),
+    ("test_logloss_weighted", False), ("val_brier_macro", False),
+    ("val_brier_score_micro", False), ("val_cross_entropy_macro", False),
     ("val_ICE", False), ("val_integral_error", False),
     ("val_ECE", False), ("val_KL", False), ("val_perplexity", False),
     ("val_pinball", False), ("val_hamming_loss", False),

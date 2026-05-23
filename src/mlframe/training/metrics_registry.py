@@ -181,6 +181,17 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     "median_absolute_error", "max_error",
     # Probabilistic / calibration losses
     "log_loss", "logloss", "brier", "brier_score", "cross_entropy",
+    # Multi-class / multi-label aggregation variants of the probabilistic
+    # losses. _dummy_metrics_pick_plot.py emits ``log_loss_macro`` /
+    # ``log_loss_micro`` per split; without these the canonical lookup
+    # returns None and _pick_strongest warns then silently defaults to
+    # minimize. Direction is the same as the un-aggregated parent (mean
+    # of per-class losses is still a loss).
+    "log_loss_macro", "log_loss_micro", "log_loss_weighted",
+    "logloss_macro", "logloss_micro", "logloss_weighted",
+    "brier_macro", "brier_micro", "brier_weighted",
+    "brier_score_macro", "brier_score_micro", "brier_score_weighted",
+    "cross_entropy_macro", "cross_entropy_micro", "cross_entropy_weighted",
     "kl_divergence", "kl", "perplexity",
     "ice", "integral_error", "integral_calibration_error",
     "ece", "expected_calibration_error",
