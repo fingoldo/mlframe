@@ -524,7 +524,18 @@ class MLPTorchModel(L.LightningModule):
         if loss_unreduced.dim() == 1 and sample_weight.dim() == 1 and loss_unreduced.shape == sample_weight.shape:
             raw = torch.dot(loss_unreduced, sample_weight)
         else:
-            raw = (loss_unreduced * sample_weight).sum()
+            # Multilabel BCE / multiclass per-sample losses produce a 2-D
+            # (B, K) loss tensor while sample_weight is 1-D (B,); torch
+            # broadcasts (B,) as (1, B) which collides with the (B, K)
+            # right-aligned shape (B vs K mismatch). Reshape 1-D weights to
+            # (B, 1) so they broadcast across labels / classes uniformly.
+            # Fuzz c0052 (multilabel + MLP + uniform weights) crashed here
+            # before the unsqueeze: "tensor a (3) must match tensor b (30928)".
+            if loss_unreduced.dim() == 2 and sample_weight.dim() == 1 and sample_weight.shape[0] == loss_unreduced.shape[0]:
+                sample_weight_b = sample_weight.unsqueeze(1)
+            else:
+                sample_weight_b = sample_weight
+            raw = (loss_unreduced * sample_weight_b).sum()
         # Safe divide avoids the prior ``if weight_sum > 0`` Python branch (a
         # forced GPU->CPU sync ~30 us per call) without losing the all-zero-
         # weight semantic: when weight_sum is 0, raw is also 0 (sum(loss * 0)),

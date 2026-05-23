@@ -77,8 +77,18 @@ def test_wrapper_routes_to_dot_for_1d():
     assert torch.isfinite(out).item()
 
 
-def test_wrapper_broadcast_fallback_for_2d_loss():
-    """Multi-output regression (loss shape (N, K)) must still work via fallback."""
+def test_wrapper_broadcast_2d_loss_with_1d_weights():
+    """Multi-output / multilabel: 2-D loss + 1-D sample_weight must broadcast.
+
+    Fuzz c0052 (multilabel + MLP + uniform weights) crashed because torch
+    right-aligns (B,) against (B, K) -> dim 1 collision (B vs K). The
+    wrapper now unsqueezes 1-D sample_weight to (B, 1) so it broadcasts
+    across labels / classes uniformly.
+
+    Regression test: pre-fix this raised
+    ``RuntimeError: size of tensor a (3) must match the size of tensor b (64)``.
+    Post-fix it must produce a finite scalar loss with valid gradient.
+    """
     from mlframe.training.neural.flat import MLPTorchModel  # type: ignore
 
     class _Stub:
@@ -87,17 +97,42 @@ def test_wrapper_broadcast_fallback_for_2d_loss():
         _compute_weighted_loss = MLPTorchModel._compute_weighted_loss
 
     stub = _Stub()
-    # 2-D pred/label gives 2-D loss-unreduced; sample_weight is (N,) — broadcast
-    # would mis-align trailing dim, so the wrapper falls back to the broadcast
-    # branch which raises a clear RuntimeError (vs. silent torch.dot crash).
     pred = torch.randn(64, 3, requires_grad=True)
     labels = torch.randn(64, 3)
     sw = torch.rand(64) + 0.1
-    # K != N, so broadcast (64,3) * (64,) is a true shape error; assert the
-    # fallback is exercised by checking we hit the broadcast multiply (which
-    # raises) not torch.dot (which would raise a different ndim error).
-    with pytest.raises(RuntimeError, match="size of tensor"):
-        MLPTorchModel._compute_weighted_loss(stub, pred, labels, sw)
+    out = MLPTorchModel._compute_weighted_loss(stub, pred, labels, sw)
+    assert out.shape == ()
+    assert torch.isfinite(out).item()
+    out.backward()
+    assert pred.grad is not None and torch.isfinite(pred.grad).all().item()
+
+
+def test_wrapper_multilabel_bce_with_sample_weights():
+    """Multilabel BCEWithLogitsLoss + per-sample weights must not crash.
+
+    Direct repro of fuzz c0052 (multilabel_classification + 3 labels +
+    MLP + uniform weights). BCEWithLogitsLoss with reduction='none' emits
+    a (B, K) loss tensor; the (B,) weight tensor must broadcast across
+    labels.
+    """
+    from mlframe.training.neural.flat import MLPTorchModel  # type: ignore
+
+    class _Stub:
+        loss_fn = torch.nn.BCEWithLogitsLoss()
+        _loss_unreduced = MLPTorchModel._loss_unreduced
+        _compute_weighted_loss = MLPTorchModel._compute_weighted_loss
+
+    stub = _Stub()
+    pred = torch.randn(128, 3, requires_grad=True)
+    labels = torch.randint(0, 2, (128, 3)).float()
+    sw = torch.rand(128) + 0.1
+    out = MLPTorchModel._compute_weighted_loss(stub, pred, labels, sw)
+    assert out.shape == ()
+    assert torch.isfinite(out).item()
+    # Sanity: weighted loss equals manual (loss * weights.unsqueeze(1)).sum() / weights.sum()
+    loss_un = torch.nn.functional.binary_cross_entropy_with_logits(pred, labels, reduction="none")
+    expected = (loss_un * sw.view(-1, 1)).sum() / sw.sum()
+    assert torch.allclose(out, expected, atol=1e-5)
 
 
 @pytest.mark.biz_transformer
