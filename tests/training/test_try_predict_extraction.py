@@ -114,8 +114,16 @@ def test_outer_try_body_shrunk() -> None:
     """Verify the mega-try body is shorter now -- nested def is gone."""
     from pathlib import Path
 
-    src_path = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training" / "core" / "predict.py"
-    src = src_path.read_text(encoding="utf-8")
+    # ``predict.py`` was carved up into ``_predict_main.py`` /
+    # ``_predict_pre_pipeline.py`` siblings during the monolith-split
+    # wave; the lifted ``_try_predict_with_pp_fallback`` helper now
+    # lives in ``_predict_pre_pipeline.py``. Concat all three so the
+    # source-grep boundary check still matches the relocated code.
+    _core = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training" / "core"
+    src_parts = []
+    for _p in sorted(_core.glob("predict.py")) + sorted(_core.glob("_predict*.py")):
+        src_parts.append(_p.read_text(encoding="utf-8"))
+    src = "\n".join(src_parts)
     # The lifted helper is now at module level.
     assert "\ndef _try_predict_with_pp_fallback(" in src
     # The thin-wrapper closure call inside the for-loop body now delegates.

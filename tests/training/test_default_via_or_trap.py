@@ -42,7 +42,22 @@ _SRC_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
 
 
 def _read(rel: str) -> str:
-    return (_SRC_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file. For modules that have been split into sibling
+    helpers (e.g. ``mrmr.py`` -> ``_mrmr_fit_impl.py`` /
+    ``_mrmr_fingerprints.py`` / ``_mrmr_fe_step.py`` /
+    ``_mrmr_validate_transform.py``), concat every sibling so the
+    source-grep boundary check still matches the relocated code."""
+    primary = (_SRC_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "feature_selection/filters/mrmr.py":
+        _dir = _SRC_ROOT / "feature_selection" / "filters"
+        for nm in (
+            "_mrmr_fingerprints.py", "_mrmr_fit_impl.py",
+            "_mrmr_fe_step.py", "_mrmr_validate_transform.py",
+        ):
+            _sib = _dir / nm
+            if _sib.exists():
+                primary = primary + "\n" + _sib.read_text(encoding="utf-8")
+    return primary
 
 
 def test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch():
@@ -92,7 +107,14 @@ def test_mrmr_fit_cache_max_zero_disables_cache():
     )
     assert "_cap_raw = getattr(self, \"fit_cache_max\", 4)" in src
     assert "_cap = int(4 if _cap_raw is None else _cap_raw)" in src
-    assert "if _cap <= 0:\n                MRMR._FIT_CACHE.clear()" in src, (
+    # Whitespace-flexible: the sibling-split moved this code one nesting
+    # level shallower, so the leading indent inside the ``if _cap <= 0:``
+    # block dropped from 16 to 12 spaces. Match any indent so the
+    # source-grep stays robust to future re-nesting.
+    import re as _re
+    assert _re.search(
+        r"if _cap <= 0:\s+MRMR\._FIT_CACHE\.clear\(\)", src
+    ), (
         "fit_cache_max<=0 branch must explicitly clear the cache, not rely on "
         "the cleanup while-loop running zero times."
     )

@@ -208,9 +208,17 @@ def test_regression_collapse_sensor_fires(caplog):
     assert any("regression-collapse-sensor" in m for m in msgs), (
         f"Expected `[regression-collapse-sensor] ...` WARNING; got: {msgs}"
     )
-    assert any("use_layernorm" in m for m in msgs), (
-        f"Sensor warning must hint at the LN_in fix; got: {msgs}"
-    )
+    # The sensor warning must include an actionable mitigation hint -- the
+    # current message lists (a) composite-target discovery, (b) tree booster,
+    # (c) group-aware split verification, so accept any of those keywords.
+    # Pre-2026-05-22 the hint was "use_layernorm"; the rewrite swapped to a
+    # more comprehensive set rooted in the actual production failure mode
+    # (group-aware split + feature distribution shift drives the collapse,
+    # NOT a missing layernorm).
+    assert any(
+        ("composite-target" in m) or ("tree booster" in m) or ("group-aware split" in m)
+        for m in msgs
+    ), (f"Sensor warning must hint at a fix; got: {msgs}")
 
 
 def test_regression_collapse_sensor_silent_on_healthy_predictions(caplog):

@@ -26,7 +26,18 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file. For ``training/pipeline.py`` (which had its
+    extensions / fit-transform / to_pandas-fallback logic carved into
+    sibling modules), concat the siblings so the source-grep boundary
+    check still matches the relocated code."""
+    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "training/pipeline.py":
+        _dir = MLFRAME_ROOT / "training"
+        for nm in ("_pipeline_extensions.py", "_pipeline_fit_transform.py"):
+            _sib = _dir / nm
+            if _sib.exists():
+                primary = primary + "\n" + _sib.read_text(encoding="utf-8")
+    return primary
 
 
 def test_bench_mrmr_no_em_dash_in_print() -> None:

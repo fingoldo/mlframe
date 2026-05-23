@@ -156,6 +156,13 @@ def _build_ransac_regressor(config: LinearModelConfig) -> BaseEstimator:
     """
     return RANSACRegressor(
         estimator=Ridge(alpha=getattr(config, "alpha", 1.0) or 1.0),
+        # sklearn 1.x raises ValueError("`min_samples` needs to be explicitly
+        # set when estimator is not a LinearRegression.") whenever the inner
+        # estimator differs from the default. 0.5 = "use half of n_samples
+        # per RANSAC trial" - a standard textbook default that scales with
+        # dataset size and avoids the singular-fit failure mode of very small
+        # min_samples on high-dimensional feature spaces.
+        min_samples=getattr(config, "ransac_min_samples", 0.5),
         max_trials=config.max_trials,
         residual_threshold=config.residual_threshold,
         random_state=config.random_state,

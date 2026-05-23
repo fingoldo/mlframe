@@ -79,6 +79,7 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     "QuantileRegressionConfig.coverage_pairs": "coverage_pairs validator exists on the config but reporting path uses alphas directly",
     "TreeModelConfig.lgb_kwargs": "duplicate of ModelHyperparamsConfig.lgb_kwargs (which IS consumed via model_dump splat)",
     "TreeModelConfig.xgb_kwargs": "duplicate of ModelHyperparamsConfig.xgb_kwargs (which IS consumed via model_dump splat)",
+    "CompositeTargetDiscoveryConfig.force_inject_diff_on_top_ablation_pct": "ablation-only knob for the diff-injection sensitivity study; not consumed by production discovery path (kept for the bench/audit script to vary)",
 }
 
 

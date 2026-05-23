@@ -101,10 +101,15 @@ class TestIdentityMLPGuard:
 
 
 class TestRegressionCollapseSensorBranches:
-    """The pre-fix sensor caught only std-collapse. After the fix, two
-    more branches catch the patterns that bit production TVT:
-    linear-extrapolation (R^2 < -1 AND max|pred-y| > 5*y_std) and
-    mean-shift (|pred_mean - y_mean| > 3*y_std)."""
+    """The pre-fix sensor caught only std-collapse. After the fix, an
+    additional ``group-ood-shift`` branch catches the patterns that bit
+    production TVT: the old narrow ``linear-extrapolation`` (R^2 < -1 AND
+    max|pred-y| > 5*y_std) and ``mean-shift`` (|pred_mean - y_mean| >
+    3*y_std) branches were consolidated into a single ``group-ood-shift``
+    label because in production the underlying cause is always the same
+    (group-aware split with feature distribution shift between train and
+    test groups). The unified label keeps the actionable mitigation set
+    (composite-target / tree booster / group-split verification) intact."""
 
     def test_linear_extrapolation_branch_trips(self, caplog) -> None:
         from mlframe.training import _reporting
@@ -118,8 +123,10 @@ class TestRegressionCollapseSensorBranches:
             model=None, preds=preds,
             print_report=False, show_perf_chart=False, verbose=False,
         )
+        # group-ood-shift covers the old linear-extrapolation regime.
         assert any(
-            "regression-collapse-sensor:linear-extrapolation" in rec.message
+            "regression-collapse-sensor:group-ood-shift" in rec.message
+            or "regression-collapse-sensor:linear-extrapolation" in rec.message
             for rec in caplog.records
         ), [r.message for r in caplog.records if "sensor" in r.message]
 
@@ -127,33 +134,25 @@ class TestRegressionCollapseSensorBranches:
         from mlframe.training import _reporting
         caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
         # Land in MEAN-SHIFT-only regime: pred mean shifted >3 sigma but
-        # within <5 sigma envelope so the linear-extrapolation branch
-        # (R^2 < -1 AND max|pred-y| > 5*y_std) doesn't trip first.
-        # target_mean=11500, y_std=600; pred_mean=11500-2200=9300
-        # |shift|/y_std = 3.67 > 3 (mean-shift trips)
-        # max|pred-y| ~ 2200 + 6*200 ~= 3400 = 5.67x y_std -- still
-        # within ~3 sigma to keep test stable across seeds, so push
-        # shift down to 2000 and y_std up to 800.
+        # within <5 sigma envelope. group-ood-shift covers both the old
+        # mean-shift and linear-extrapolation regimes since they're the
+        # same prod cause; accept either label.
         rng_t = np.random.default_rng(0)
         rng_p = np.random.default_rng(1)
         targets = 11500 + rng_t.normal(0, 800, 1000)
-        # pred_std=300 > 0.2 * y_std (avoids std-collapse branch);
-        # mean shift 2500 > 3 * y_std (trips mean-shift); max|pred-y|
-        # > 5 * y_std also (so linear-extrapolation may trip first).
         preds = 9000 + rng_p.normal(0, 300, 1000)
         _reporting.report_regression_model_perf(
             targets=targets, columns=[], model_name="test-shift",
             model=None, preds=preds,
             print_report=False, show_perf_chart=False, verbose=False,
         )
-        # Either mean-shift fires alone, or both fire and the priority
-        # order picks linear-extrapolation; accept either as evidence
-        # that an extended-sensor branch tripped (the OR is the
-        # invariant: pre-fix only std-collapse would catch this and
-        # it doesn't fire here because pred_std isn't tiny).
         assert any(
             "regression-collapse-sensor:" in rec.message
-            and ("mean-shift" in rec.message or "linear-extrapolation" in rec.message)
+            and (
+                "mean-shift" in rec.message
+                or "linear-extrapolation" in rec.message
+                or "group-ood-shift" in rec.message
+            )
             for rec in caplog.records
         ), [r.message for r in caplog.records if "sensor" in r.message]
 

@@ -17,31 +17,38 @@ import copy
 import pytest
 
 
-def test_main_py_uses_deepcopy_for_precomputed_composite_specs():
-    """Source-level guard: the deepcopy must remain at the assignment site."""
+def _read_main_or_split() -> str:
+    """The ``train_mlframe_models_suite`` body was carved out of ``main.py``
+    into ``_main_train_suite.py`` during the monolith-split wave; the
+    deepcopy assignments moved with it. Concat both files so the
+    source-grep boundary check still matches the relocated code."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "main.py"
-    ).read_text(encoding="utf-8")
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    primary = (_core / "main.py").read_text(encoding="utf-8")
+    sib = _core / "_main_train_suite.py"
+    if sib.exists():
+        primary = primary + "\n" + sib.read_text(encoding="utf-8")
+    return primary
+
+
+def test_main_py_uses_deepcopy_for_precomputed_composite_specs():
+    """Source-level guard: the deepcopy must remain at the assignment site."""
+    src = _read_main_or_split()
     assert "_copy.deepcopy(precomputed.composite_target_specs)" in src, (
-        "main.py must use deepcopy when assigning precomputed.composite_target_specs to "
-        "metadata. Without this, a downstream phase mutating the metadata slot also "
-        "mutates the caller's precomputed bundle -- the leak resurfaces in the next "
+        "main.py (or _main_train_suite.py sibling) must use deepcopy when "
+        "assigning precomputed.composite_target_specs to metadata. Without "
+        "this, a downstream phase mutating the metadata slot also mutates "
+        "the caller's precomputed bundle -- the leak resurfaces in the next "
         "suite call reusing the same bundle (wave 11 #3 regression)."
     )
 
 
 def test_main_py_uses_deepcopy_for_precomputed_dummy_baselines():
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "main.py"
-    ).read_text(encoding="utf-8")
+    src = _read_main_or_split()
     assert "_copy_db.deepcopy(precomputed.dummy_baselines)" in src, (
-        "main.py must use deepcopy when assigning precomputed.dummy_baselines (wave 11 #3)."
+        "main.py (or _main_train_suite.py sibling) must use deepcopy when "
+        "assigning precomputed.dummy_baselines (wave 11 #3)."
     )
 
 
