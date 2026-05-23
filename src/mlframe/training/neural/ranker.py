@@ -244,6 +244,7 @@ class GroupBatchSampler(Sampler):
         relevance: np.ndarray,
         shuffle: bool = True,
         seed: int = 0,
+        queries_per_batch: int = 1,
     ):
         # Wave 56 (2026-05-20): forward to torch Sampler base. Currently passing
         # data_source=None is a no-op (newer torch silently accepts it); explicit
@@ -254,6 +255,22 @@ class GroupBatchSampler(Sampler):
         self.shuffle = shuffle
         self.seed = seed
         self._epoch = 0
+        # OPT-7 (2026-05-23): when > 1, pack ``queries_per_batch`` queries
+        # into ONE batch -- the concatenated row indices flow through the
+        # DataLoader as one batch, the Dataset attaches the offset-corrected
+        # concatenated (i_idx, j_idx) pair tensors built from per-query
+        # cache, and Lightning runs ONE forward + ONE backward + ONE
+        # optimizer.step per packed batch. iter216 measured 162000 / epoch
+        # = 800s of optimizer wall on c0098 LTR; packing 32 queries drops
+        # that to ~5000 / epoch.
+        self.queries_per_batch = max(1, int(queries_per_batch))
+        # Per-batch partition info: tuple(concat_indices) ->
+        # list of (per_query_cache_key, query_start_offset_in_batch). The
+        # Dataset reads this to compose per-query pair indices into a
+        # single offset-corrected concat pair tensor.
+        # Cleared at epoch start (set_epoch) -- prefetch overlap relies on
+        # entries surviving from yield to __getitems__, but not beyond.
+        self._batch_partition: dict[tuple, list[tuple]] = {}
 
         sort_idx = np.argsort(self.group_ids, kind="stable")
         sorted_groups = self.group_ids[sort_idx]
@@ -275,17 +292,47 @@ class GroupBatchSampler(Sampler):
 
     def set_epoch(self, epoch: int) -> None:
         self._epoch = int(epoch)
+        # OPT-7: drop last epoch's partition entries -- yields fresh order so
+        # batch composition changes.
+        if self.queries_per_batch > 1:
+            self._batch_partition.clear()
 
     def __iter__(self):
         order = np.arange(len(self._query_slices))
         if self.shuffle:
             rng = np.random.default_rng(self.seed + self._epoch)
             rng.shuffle(order)
-        for i in order:
-            yield self._query_slices[i].tolist()
+        if self.queries_per_batch == 1:
+            # Legacy per-query path -- bit-exact prior behaviour.
+            for i in order:
+                yield self._query_slices[i].tolist()
+            return
+        # OPT-7 multi-query path: pack queries_per_batch queries / yield.
+        qpb = self.queries_per_batch
+        for batch_start in range(0, len(order), qpb):
+            batch_q_ids = order[batch_start : batch_start + qpb]
+            slices = [self._query_slices[q] for q in batch_q_ids]
+            concat = np.concatenate(slices)
+            # Per-query starts in concat positions (offsets for pair indices).
+            offsets = [0]
+            for s in slices:
+                offsets.append(offsets[-1] + len(s))
+            # Build per-query (cache_key, batch_offset) list. The Dataset's
+            # ``install_pair_index_cache`` keys per-query (i_idx, j_idx) by
+            # ``tuple(query_indices.tolist())``; mirror that here so the
+            # Dataset can look them up.
+            partition = [(tuple(s.tolist()), offsets[i]) for i, s in enumerate(slices)]
+            indices_list = concat.tolist()
+            key = tuple(indices_list)
+            self._batch_partition[key] = partition
+            yield indices_list
 
     def __len__(self) -> int:
-        return len(self._query_slices)
+        # Legacy: one batch = one query. OPT-7 batched: ceil(n_queries / qpb).
+        if self.queries_per_batch <= 1:
+            return len(self._query_slices)
+        n = len(self._query_slices)
+        return (n + self.queries_per_batch - 1) // self.queries_per_batch
 
 
 class _RankerDataset(Dataset):
@@ -302,6 +349,16 @@ class _RankerDataset(Dataset):
         # leaving this attribute as None falls back to the in-loss runtime cache
         # (tuple(rel.tolist()) key) which needs a per-call GPU->CPU sync.
         self._pair_idx_by_query: dict[bytes, tuple] | None = None
+        # OPT-7 (2026-05-23): optional reference to the active batch sampler so
+        # ``__getitems__`` can read multi-query batch partition info to compose
+        # offset-corrected concatenated pair tensors. Set via
+        # ``attach_sampler``; None means legacy single-query path only.
+        self._sampler: Optional["GroupBatchSampler"] = None
+
+    def attach_sampler(self, sampler: "GroupBatchSampler") -> None:
+        """OPT-7: register the active batch sampler so multi-query batch
+        partition info is reachable from ``__getitems__``. Idempotent."""
+        self._sampler = sampler
 
     def install_pair_index_cache(self, query_slices: list[np.ndarray]) -> None:
         """Build (i_idx, j_idx) once per query on CPU; key by ``tuple(indices)``
@@ -366,8 +423,50 @@ class _RankerDataset(Dataset):
             # the same identity semantics for row-index lists from
             # GroupBatchSampler.
             indices_key = tuple(indices)
-        # Attach precomputed pair indices if available. The 4-tuple shape is
-        # recognised by _ranker_passthrough_collate + training_step.
+        # OPT-7 (2026-05-23): multi-query batch -- sampler stamped a
+        # partition table when it yielded this batch. Compose per-query
+        # pair tensors into one offset-corrected concat by adding each
+        # query's start-offset to its (i_idx, j_idx). After concat, the
+        # standard loss kernel
+        # ``softplus(-(scores[i_idx] - scores[j_idx])).mean()`` computes
+        # the cross-query loss in ONE forward+backward; each (i, j) pair
+        # is intra-query by construction so no cross-query contamination.
+        if (
+            self._sampler is not None
+            and self._sampler.queries_per_batch > 1
+            and indices_key is not None
+            and self._pair_idx_by_query is not None
+        ):
+            partition = self._sampler._batch_partition.get(indices_key)
+            if partition is not None:
+                concat_i_parts: List[torch.Tensor] = []
+                concat_j_parts: List[torch.Tensor] = []
+                for qkey, qstart in partition:
+                    pair = self._pair_idx_by_query.get(qkey)
+                    if pair is None:
+                        continue
+                    i_idx, j_idx = pair
+                    if i_idx is None or j_idx is None:
+                        # No informative pair sentinel from install_pair_index_cache.
+                        continue
+                    if qstart == 0:
+                        concat_i_parts.append(i_idx)
+                        concat_j_parts.append(j_idx)
+                    else:
+                        concat_i_parts.append(i_idx + qstart)
+                        concat_j_parts.append(j_idx + qstart)
+                if concat_i_parts:
+                    cat_i = (concat_i_parts[0] if len(concat_i_parts) == 1
+                             else torch.cat(concat_i_parts))
+                    cat_j = (concat_j_parts[0] if len(concat_j_parts) == 1
+                             else torch.cat(concat_j_parts))
+                    return [(self.X[idx], self.y[idx], cat_i, cat_j)]
+                # All queries in batch had zero informative pairs (rare):
+                # fall through to 2-tuple shape so loss returns 0.
+                return [(self.X[idx], self.y[idx])]
+        # Legacy single-query path: attach precomputed pair indices if available.
+        # The 4-tuple shape is recognised by _ranker_passthrough_collate +
+        # training_step.
         if self._pair_idx_by_query is not None and indices_key is not None:
             pair = self._pair_idx_by_query.get(indices_key)
             if pair is not None:
@@ -545,7 +644,8 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         seed: int = 42,
         verbose: int = 0,
         enable_checkpointing: bool = False,
-        accumulate_grad_batches: int = 32,
+        accumulate_grad_batches: int = 1,
+        queries_per_batch: int = 32,
     ):
         self.loss_fn = loss_fn
         self.n_estimators = n_estimators
@@ -556,6 +656,20 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         self.seed = seed
         self.verbose = verbose
         self.enable_checkpointing = enable_checkpointing
+        # OPT-7 (2026-05-23): TRUE LTR batch packing. GroupBatchSampler packs
+        # N=``queries_per_batch`` queries into each yielded batch; the Dataset
+        # composes per-query (i_idx, j_idx) pair tensors with offset
+        # corrections into one concat. Net: ONE forward + ONE backward +
+        # ONE optimizer.step per packed batch instead of one per query.
+        # iter216 measured 162000 batches / epoch on c0098 LTR (~800s in
+        # optimizer.step alone); qpb=32 drops to ~5000 batches with same
+        # gradient information. SUPERSEDES OPT-6 (accumulate_grad_batches)
+        # which only amortised optimizer.step but kept forward+backward
+        # per-query -- now both are amortised. Default reverted from 32 to 1
+        # for ``accumulate_grad_batches`` since OPT-7 is the active path.
+        # Set ``queries_per_batch=1`` to revert to the legacy per-query
+        # path (e.g., for bit-exact gradient reproduction).
+        self.queries_per_batch = max(1, int(queries_per_batch))
         # OPT-6 (2026-05-23): accumulate gradients across N "batches" (queries)
         # before each optimizer.step(). The Lightning-native equivalent of
         # explicit batch-packing across queries: each forward+backward is
@@ -696,9 +810,14 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         )
 
         train_ds = _RankerDataset(X_arr, y_arr)
+        # OPT-7: pack queries_per_batch queries per gradient update. ranknet
+        # loss needs precomputed per-query (i_idx, j_idx); the multi-query
+        # path needs both. listnet falls back to single-query.
+        _train_qpb = self.queries_per_batch if (self.loss_fn == "ranknet" and y_arr.ndim == 1) else 1
         train_sampler = GroupBatchSampler(
             group_ids=np.asarray(group_ids), relevance=y_arr,
             shuffle=True, seed=self.seed,
+            queries_per_batch=_train_qpb,
         )
         if len(train_sampler) == 0:
             raise ValueError(
@@ -712,6 +831,8 @@ class MLPRanker(BaseEstimator, RegressorMixin):
         # falls back to the legacy path on those.
         if self.loss_fn == "ranknet" and y_arr.ndim == 1:
             train_ds.install_pair_index_cache(train_sampler._query_slices)
+            if _train_qpb > 1:
+                train_ds.attach_sampler(train_sampler)
         train_loader = DataLoader(
             train_ds,
             batch_sampler=train_sampler,
@@ -724,12 +845,16 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             X_val_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X_val)))
             y_val_arr = np.asarray(y_val, dtype=np.float32).ravel()
             val_ds = _RankerDataset(X_val_arr, y_val_arr)
+            _val_qpb = self.queries_per_batch if (self.loss_fn == "ranknet" and y_val_arr.ndim == 1) else 1
             val_sampler = GroupBatchSampler(
                 group_ids=np.asarray(group_ids_val), relevance=y_val_arr,
                 shuffle=False, seed=self.seed,
+                queries_per_batch=_val_qpb,
             )
             if self.loss_fn == "ranknet" and y_val_arr.ndim == 1:
                 val_ds.install_pair_index_cache(val_sampler._query_slices)
+                if _val_qpb > 1:
+                    val_ds.attach_sampler(val_sampler)
             if len(val_sampler) > 0:
                 val_loader = DataLoader(
                     val_ds, batch_sampler=val_sampler, num_workers=0,
