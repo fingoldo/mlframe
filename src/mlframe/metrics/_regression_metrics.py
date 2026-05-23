@@ -537,12 +537,17 @@ def _fused_regression_pass1_seq(y_true: np.ndarray, y_pred: np.ndarray):
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
-def _fused_regression_pass1_par(y_true: np.ndarray, y_pred: np.ndarray):
+def _fused_regression_pass1_par(y_true: np.ndarray, y_pred: np.ndarray, n_threads: int):
     """Pass 1 of the fused regression-metrics kernel (parallel, per-thread
     accumulators). See module-level rationale on the racy ``max`` reduction
-    -- this is the explicit per-thread pattern that sidesteps it."""
+    -- this is the explicit per-thread pattern that sidesteps it.
+
+    ``n_threads`` is passed in rather than fetched via
+    ``numba.get_num_threads()`` inside the kernel so the @njit-cache
+    persists across runs (ctypes calls block caching with the
+    "Cannot cache compiled function" NumbaWarning).
+    """
     n = y_true.shape[0]
-    n_threads = numba.get_num_threads()
     chunk_size = (n + n_threads - 1) // n_threads
     local_sum_abs = np.zeros(n_threads, dtype=np.float64)
     local_sum_sqr = np.zeros(n_threads, dtype=np.float64)
@@ -631,7 +636,7 @@ def fast_regression_metrics_block(
         return {"MAE": 0.0, "RMSE": 0.0, "MaxError": 0.0, "R2": 0.0}
     use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
     if use_par:
-        sum_abs, sum_sqr, max_abs, sum_y = _fused_regression_pass1_par(yt, yp)
+        sum_abs, sum_sqr, max_abs, sum_y = _fused_regression_pass1_par(yt, yp, numba.get_num_threads())
         y_mean = sum_y / n
         ss_tot = _fused_regression_pass2_par(yt, y_mean)
     else:

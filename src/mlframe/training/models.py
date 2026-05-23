@@ -28,9 +28,27 @@ from sklearn.linear_model import (
 )
 from sklearn.calibration import CalibratedClassifierCV
 
+import sklearn as _sklearn
+
 from .configs import LinearModelConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _sklearn_deprecates_penalty() -> bool:
+    """Sklearn 1.8 deprecated ``LogisticRegression(penalty=...)`` in favour
+    of ``l1_ratio``. Pre-1.8 the canonical API is ``penalty='l1' / 'l2' /
+    'elasticnet'`` (and ``l1_ratio`` is silently ignored unless penalty
+    is 'elasticnet'). Detect once at module load.
+    """
+    try:
+        major, minor = _sklearn.__version__.split(".", 2)[:2]
+        return (int(major), int(minor)) >= (1, 8)
+    except (ValueError, AttributeError):
+        return False
+
+
+_SKLEARN_DEPRECATES_PENALTY = _sklearn_deprecates_penalty()
 
 
 # ==================================================================================
@@ -225,9 +243,17 @@ def _build_ridge_classifier(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
-    """Build a Lasso classifier via LogisticRegression with L1 penalty (l1_ratio=1 via saga)."""
-    return LogisticRegression(
-        l1_ratio=1,
+    """Build a Lasso classifier via LogisticRegression with L1 penalty.
+
+    Sklearn changed the API for choosing the penalty between 1.7 and 1.8:
+    pre-1.8 honoured ``penalty='l1'`` (and warned that ``l1_ratio`` is
+    only used when ``penalty='elasticnet'``); 1.8 deprecated the
+    ``penalty`` kwarg in favour of ``l1_ratio`` (l1_ratio=1 == pure L1).
+    Dispatch on the installed version so neither variant produces a
+    spurious warning AND the actual L1 regularisation lands on either
+    side of the cutover.
+    """
+    _kwargs = dict(
         C=1.0 / config.alpha if config.alpha > 0 else 1.0,
         solver="saga",
         max_iter=config.max_iter,
@@ -236,6 +262,11 @@ def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
         n_jobs=config.n_jobs,
         verbose=_get_sklearn_verbose(config.verbose),
     )
+    if _SKLEARN_DEPRECATES_PENALTY:
+        _kwargs["l1_ratio"] = 1.0  # pure L1 under the new 1.8 API
+    else:
+        _kwargs["penalty"] = "l1"  # canonical pre-1.8 API
+    return LogisticRegression(**_kwargs)
 
 
 def _build_elasticnet_classifier(config: LinearModelConfig) -> BaseEstimator:

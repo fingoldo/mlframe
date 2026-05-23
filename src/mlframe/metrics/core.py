@@ -715,17 +715,21 @@ def _max_abs_pct_error_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[f
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
-def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[float, int]:
+def _max_abs_pct_error_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: int) -> Tuple[float, int]:
     """Parallel variant. ~2.3× faster than seq at N=1M.
 
     NOTE: ``if err > max_err: max_err = err`` inside ``prange`` is a
     race -- numba auto-detects ``+=`` as a reduction but NOT if-based
     max-update; concurrent threads can drop max-updates. Solution:
     per-thread max array + final reduction outside the prange.
+
+    ``nthr`` is passed in (rather than called via numba.get_num_threads
+    inside the kernel) so the @njit-cache can persist across runs.
+    get_num_threads is a ctypes call that triggers the NumbaWarning
+    "Cannot cache compiled function as it uses dynamic globals".
     """
     n = len(y_true)
     epsilon = np.finfo(np.float64).eps
-    nthr = numba.get_num_threads()
     per_thread_max = np.zeros(nthr, dtype=np.float64)
     n_zero = 0
     for i in numba.prange(n):
@@ -760,7 +764,7 @@ def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) ->
     # max via per-thread accumulator + final reduction; lose-band runs
     # to ~200k due to setup cost).
     if len(y_true) >= 500_000:
-        value, n_zero = _max_abs_pct_error_kernel_par(y_true, y_pred)
+        value, n_zero = _max_abs_pct_error_kernel_par(y_true, y_pred, numba.get_num_threads())
     else:
         value, n_zero = _max_abs_pct_error_kernel(y_true, y_pred)
     if n_zero > 0:
