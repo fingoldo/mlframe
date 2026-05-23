@@ -70,3 +70,37 @@ def test_lightning_cache_install_marker_set():
     assert getattr(_lf_registry, "_mlframe_callback_cache_installed", False), (
         "expected _mlframe_callback_cache_installed marker after import"
     )
+
+
+def test_lightning_cache_rebound_in_caller_modules():
+    """The cache MUST be rebound in every Lightning module that imported
+    ``_load_external_callbacks`` by name. Lightning's
+    ``callback_connector.py`` and ``fabric.py`` both do
+    ``from lightning.fabric.utilities.registry import _load_external_callbacks``
+    at module import time, which binds the ORIGINAL function into the caller's
+    namespace -- mutating ``_lf_registry._load_external_callbacks`` after that
+    does NOT affect those local bindings. c0119 iter259 profile attributed
+    3.73s / 12 calls to the uncached function because the iter189 patch only
+    touched the registry, not the importers.
+
+    This test pins the rebind: every Lightning module that holds a reference
+    must point at the cached wrapper, not the original.
+    """
+    import sys
+    import mlframe.training.neural.base  # noqa: F401  # installs the patch
+
+    expected_name = "_load_external_callbacks_cached"
+    mismatched = []
+    for mod_name, mod in list(sys.modules.items()):
+        if mod is None or not mod_name.startswith("lightning"):
+            continue
+        f = getattr(mod, "_load_external_callbacks", None)
+        if f is None:
+            continue
+        if getattr(f, "__name__", None) != expected_name:
+            mismatched.append((mod_name, getattr(f, "__name__", "?")))
+    assert not mismatched, (
+        f"these Lightning modules still hold the uncached function: "
+        f"{mismatched}. Lightning may have added a new import site -- extend "
+        f"the rebind loop in mlframe/training/neural/base.py."
+    )

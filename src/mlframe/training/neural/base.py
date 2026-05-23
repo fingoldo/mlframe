@@ -125,13 +125,30 @@ try:
         # sys.modules and rebind every match. Best-effort: a Lightning version
         # that adds a new caller will fall back to the slow path until the
         # next mlframe release, never breaking.
+        #
+        # Both the umbrella ``lightning.*`` and the standalone ``lightning_fabric.*``
+        # namespaces exist in modern Lightning installs (the umbrella re-exports
+        # the standalone package); we must cover both prefixes or callers via
+        # the standalone path bypass the cache.
         import sys as _sys_for_rebind
+        _rebind_prefixes = ("lightning.", "lightning_fabric.", "lightning_pytorch.")
         for _mod_name, _mod in list(_sys_for_rebind.modules.items()):
-            if _mod is None or not _mod_name.startswith("lightning"):
+            if _mod is None:
+                continue
+            if not (
+                _mod_name == "lightning"
+                or _mod_name == "lightning_fabric"
+                or _mod_name.startswith(_rebind_prefixes)
+            ):
                 continue
             _local_ref = getattr(_mod, "_load_external_callbacks", None)
-            if _local_ref is _orig_load_external_callbacks:
+            if _local_ref is None or _local_ref is _load_external_callbacks_cached:
+                continue
+            try:
                 _mod._load_external_callbacks = _load_external_callbacks_cached
+            except Exception:
+                # Frozen / immutable module objects: skip silently.
+                pass
         _lf_registry._mlframe_callback_cache_installed = True
 except Exception:
     pass
