@@ -106,6 +106,7 @@ def test_biz_cma_es_at_least_2x_faster_than_optuna():
     which is still a healthy win, not a regression. Real regression per
     the original spec is "fall below 2x". Floor relaxed to 2x to match.
     """
+    pytest.importorskip("optuna")  # Optuna is the lower-bound side of the comparison; skip on minimal CI installs.
     from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
     x_a, x_b, y = _xor_pair(n=2000, seed=42)
 
