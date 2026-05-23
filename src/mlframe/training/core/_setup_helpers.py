@@ -63,6 +63,111 @@ logger = logging.getLogger(__name__)
 _PIPELINE_JSON_ROUNDTRIP_CACHE: dict[int, bool] = {}
 
 
+# iter275 (2026-05-23): cross-process file cache. The in-memory cache above
+# only helps repeated fits within ONE process. Fresh-process workflows
+# (fuzz combo re-runs, pytest-xdist workers, CI, dev iteration) pay the
+# full 8.5s validation on every first call. c0141 iter275 profile
+# attributed 8.57s to a single ``from_json`` (20 polars Exprs x 428ms each).
+# Across 150 fuzz combos that's ~21 min wasted on deterministic work.
+#
+# The file cache is keyed by ``hash(_js) + polars_ds version + polars
+# version``; a polars-ds upgrade invalidates the whole cache (different
+# version tag) so a wheel that suddenly fails roundtrip on previously-OK
+# JSONs surfaces immediately rather than silently using stale "safe"
+# verdicts. Single-file JSON layout for simple atomic-replace; cap at 1000
+# entries with FIFO eviction so the file stays small + readable.
+_PIPELINE_JSON_DISK_CACHE_PATH: str | None = None
+_PIPELINE_JSON_DISK_CACHE_LOADED: bool = False
+_PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES: int = 1000
+
+
+def _pipeline_disk_cache_path() -> str:
+    """Resolve the per-version disk cache path on first use."""
+    global _PIPELINE_JSON_DISK_CACHE_PATH
+    if _PIPELINE_JSON_DISK_CACHE_PATH is not None:
+        return _PIPELINE_JSON_DISK_CACHE_PATH
+    import tempfile
+    cache_dir = os.path.join(tempfile.gettempdir(), "mlframe_caches")
+    os.makedirs(cache_dir, exist_ok=True)
+    _PIPELINE_JSON_DISK_CACHE_PATH = os.path.join(
+        cache_dir, "polars_ds_pipeline_roundtrip.json"
+    )
+    return _PIPELINE_JSON_DISK_CACHE_PATH
+
+
+def _pipeline_disk_cache_version_tag() -> str:
+    """Cache tag derived from the polars-ds + polars wheel versions.
+
+    A wheel upgrade invalidates every prior verdict by changing the tag,
+    so a wheel that newly fails roundtrip on previously-OK JSONs does NOT
+    silently inherit a stale 'safe' verdict. Best-effort: when version
+    introspection fails, return ``"unknown"`` (cache still works within
+    one process; cross-process lookups just collide on the unknown tag).
+    """
+    parts = []
+    for mod_name in ("polars_ds", "polars"):
+        try:
+            mod = __import__(mod_name)
+            parts.append(f"{mod_name}={getattr(mod, '__version__', 'unknown')}")
+        except Exception:
+            parts.append(f"{mod_name}=unknown")
+    return "|".join(parts)
+
+
+def _load_pipeline_disk_cache_into_memory() -> None:
+    """One-shot disk -> in-memory rehydrate; safe to call repeatedly."""
+    global _PIPELINE_JSON_DISK_CACHE_LOADED
+    if _PIPELINE_JSON_DISK_CACHE_LOADED:
+        return
+    _PIPELINE_JSON_DISK_CACHE_LOADED = True  # set early so partial failures don't retry
+    path = _pipeline_disk_cache_path()
+    if not os.path.exists(path):
+        return
+    try:
+        import json as _json
+        with open(path, "r", encoding="utf-8") as fh:
+            data = _json.load(fh)
+    except Exception:
+        return  # corrupt file: ignore, will be overwritten on next save
+    if not isinstance(data, dict) or data.get("version_tag") != _pipeline_disk_cache_version_tag():
+        return  # version mismatch: ignore stale entries
+    entries = data.get("entries")
+    if not isinstance(entries, dict):
+        return
+    for hash_str, ok in entries.items():
+        try:
+            _PIPELINE_JSON_ROUNDTRIP_CACHE[int(hash_str)] = bool(ok)
+        except (ValueError, TypeError):
+            continue  # skip malformed entries
+
+
+def _persist_pipeline_disk_cache() -> None:
+    """Snapshot the in-memory cache to disk via atomic replace.
+
+    Best-effort: any IO / serialization failure is swallowed so the live
+    training path is never broken by cache persistence trouble. FIFO-cap
+    keeps the on-disk file small enough to read in microseconds.
+    """
+    try:
+        import json as _json
+        path = _pipeline_disk_cache_path()
+        entries = _PIPELINE_JSON_ROUNDTRIP_CACHE
+        if len(entries) > _PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES:
+            # FIFO eviction: keep the most recent N (dict preserves insertion order)
+            keep_keys = list(entries.keys())[-_PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES:]
+            entries = {k: entries[k] for k in keep_keys}
+        payload = {
+            "version_tag": _pipeline_disk_cache_version_tag(),
+            "entries": {str(k): bool(v) for k, v in entries.items()},
+        }
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            _json.dump(payload, fh)
+        os.replace(tmp_path, path)
+    except Exception:
+        pass
+
+
 class _PolarsDsPipelineJsonProxy:
     """Pickle-fast wrapper around a polars-ds ``Pipeline``.
 
@@ -864,18 +969,26 @@ def _finalize_and_save_metadata(ctx: TrainingContext, *, verbose: int | None = N
                 try:
                     _js = _pipeline_orig.to_json()
                     _js_hash = hash(_js)
+                    # iter275: hydrate from disk cache once per process; gives
+                    # cross-process reuse so fuzz combo re-runs / pytest-xdist
+                    # workers / CI all skip the 8.5s validation after the first
+                    # process verified this JSON. No-op after the first call.
+                    _load_pipeline_disk_cache_into_memory()
                     _rt_ok = _PIPELINE_JSON_ROUNDTRIP_CACHE.get(_js_hash)
                     if _rt_ok is None:
-                        # Cache miss: pay the 5s validation, then memoise the
-                        # result so subsequent fits in this process skip it.
-                        # Negative-result caching too: a JSON that fails parse
-                        # this time will fail every time (deterministic).
+                        # Cache miss: pay the 5-8s validation, then memoise
+                        # the result so subsequent fits in this process skip
+                        # it AND future processes inherit the verdict via the
+                        # disk cache. Negative-result caching too: a JSON
+                        # that fails parse this time will fail every time
+                        # (deterministic).
                         try:
                             _PdsPipeline.from_json(_js)
                             _rt_ok = True
                         except Exception:
                             _rt_ok = False
                         _PIPELINE_JSON_ROUNDTRIP_CACHE[_js_hash] = _rt_ok
+                        _persist_pipeline_disk_cache()
                     if _rt_ok:
                         metadata["pipeline"] = _PolarsDsPipelineJsonProxy(_pipeline_orig)
                     else:

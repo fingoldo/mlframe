@@ -124,3 +124,81 @@ def test_pipeline_json_cache_keyed_by_content_not_object_identity():
     # Reconstructed same content -> same hash.
     assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(hash('{"steps": [{"type": "a"}]}')) is True
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
+
+
+def test_pipeline_json_disk_cache_roundtrip(tmp_path, monkeypatch):
+    """iter275 cross-process file cache: persist verdict to disk so a
+    fresh process inherits the validation result."""
+    from mlframe.training.core import _setup_helpers as sh
+
+    # Redirect cache to a per-test tmpdir to keep prod cache untouched.
+    cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
+    sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
+
+    # Seed the in-memory cache + persist to disk.
+    fake_hash = hash('{"steps": [{"type": "test_disk_cache"}]}')
+    sh._PIPELINE_JSON_ROUNDTRIP_CACHE[fake_hash] = True
+    sh._persist_pipeline_disk_cache()
+
+    import os
+    assert os.path.exists(cache_file), "disk cache file must be created on persist"
+
+    # Wipe the in-memory cache + reset loaded marker, then hydrate from disk.
+    sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
+    sh._load_pipeline_disk_cache_into_memory()
+
+    assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(fake_hash) is True, (
+        "disk cache must rehydrate into the in-memory cache on load"
+    )
+
+
+def test_pipeline_json_disk_cache_version_invalidation(tmp_path, monkeypatch):
+    """A polars-ds version change invalidates the on-disk cache so a
+    wheel that newly fails roundtrip can't silently inherit a stale
+    'safe' verdict."""
+    from mlframe.training.core import _setup_helpers as sh
+    import os
+    import json as _json
+
+    cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
+    sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
+
+    # Hand-craft a cache file with a stale version tag.
+    fake_hash = "12345"
+    with open(cache_file, "w", encoding="utf-8") as fh:
+        _json.dump(
+            {
+                "version_tag": "polars_ds=0.0.0-stale|polars=0.0.0-stale",
+                "entries": {fake_hash: True},
+            },
+            fh,
+        )
+
+    sh._load_pipeline_disk_cache_into_memory()
+    assert int(fake_hash) not in sh._PIPELINE_JSON_ROUNDTRIP_CACHE, (
+        "stale-version cache file must NOT hydrate entries into in-memory"
+    )
+
+
+def test_pipeline_json_disk_cache_corrupt_file_does_not_crash(tmp_path, monkeypatch):
+    """A corrupted cache file (truncated JSON, garbage bytes) must not
+    crash the training pipeline; load is best-effort."""
+    from mlframe.training.core import _setup_helpers as sh
+
+    cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)
+    monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_LOADED", False)
+    sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
+
+    with open(cache_file, "w", encoding="utf-8") as fh:
+        fh.write("{not valid json")
+
+    # Should NOT raise.
+    sh._load_pipeline_disk_cache_into_memory()
+    # In-memory cache should remain empty (no entries inherited).
+    assert len(sh._PIPELINE_JSON_ROUNDTRIP_CACHE) == 0
