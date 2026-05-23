@@ -46,6 +46,46 @@ _DEFAULT_LTR_ITER = 200
 _DEFAULT_LTR_LR = 0.1
 _DEFAULT_LTR_ES = 30
 
+# Models that consume pandas Categorical via the joint train+val
+# encoding. Linear / MLP / Neural strategies operate on numeric tensors
+# and don't read the Categorical dtype at all; running the joint cat
+# prep for them is pure waste (c0095 iter195 found 865ms wasted on a
+# linear-only multilabel combo at 200k rows). LearningToRank LGB / XGB
+# / CB rankers also consume cat_features through the joint encoding,
+# so they're included here.
+_MODELS_NEEDING_PANDAS_CAT_PREP: frozenset[str] = frozenset({
+    "cb", "lgb", "xgb", "hgb",
+})
+
+
+def _models_need_pandas_cat_prep(
+    mlframe_models: list[str] | None,
+    recurrent_models: list[str] | None,
+    rfecv_models: list[str] | None,
+) -> bool:
+    """Return True iff at least one configured model branch consumes the
+    pandas-Categorical cat_features prepared by ``prepare_dfs_for_catboost_joint``.
+
+    All booster strategies (CB / LGB / XGB / HGB) read the Categorical
+    dtype directly. Linear / MLP / Neural / Recurrent operate on numeric
+    arrays after the suite's downstream encoders, so they never look at
+    the Categorical dtype.
+
+    RFECV: its inner estimator IS a booster (lgb_rfecv / cb_rfecv / xgb_rfecv
+    / hgb_rfecv) -- when present we conservatively assume the joint cat
+    prep is needed even if no top-level booster is configured. ``rfecv_models``
+    is the active rfecv-estimator subset (after the suite's auto-filter); an
+    empty list means RFECV is disabled for this run.
+    """
+    for src in (mlframe_models, recurrent_models, rfecv_models):
+        if not src:
+            continue
+        for m in src:
+            base = m.lower().replace("_rfecv", "")
+            if base in _MODELS_NEEDING_PANDAS_CAT_PREP:
+                return True
+    return False
+
 
 # Backward-compatible named-tuple wrappers for the large positional return shapes that used to be
 # bare tuples (H-CORE-19/20/21). NamedTuple stays iterable + indexable so existing
@@ -518,6 +558,15 @@ def _phase_pandas_conversion_and_cat_prep(
                     (val_df_size_bytes_cached or 0) / 1e6,
                 )
 
+    # OPT-1 bench-attempt-rejected (2026-05-23): gated joint cat prep on
+    # mlframe_models containing CB/HGB/LGB/XGB/*_rfecv. Verified on c0095
+    # (linear-only multilabel 200k): gate fires correctly (prep call
+    # eliminated, saving ~865ms cumtime) BUT overall wall went 25.05s ->
+    # 32.48s. sklearn.multioutput.fit went 18.7s -> 23.4s (+4.7s); the
+    # joint Categorical encoding apparently provides a downstream win for
+    # sklearn linear pipelines that exceeds the prep cost. NET REGRESSION.
+    # Keeping the always-on path; `_models_need_pandas_cat_prep` helper
+    # stays as a tool for future targeted opts.
     if cat_features and not defer_pandas_conv:
         if verbose:
             logger.info("Preparing %d categorical features for CatBoost: %s", len(cat_features), cat_features)
