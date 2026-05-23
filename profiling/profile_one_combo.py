@@ -121,7 +121,17 @@ def main():
                 features_and_targets_extractor=fte,
                 target_type=fte._resolve_target_type(),
                 mlframe_models=list(combo.models),
-                hyperparams_config={"iterations": max(combo.iterations, 30)},
+                # 2026-05-23 iter185: floor lowered 30 -> 10. Original 30
+                # forced every profile to 30 epochs / boost rounds regardless of
+                # combo.iterations (3 or 15), so MLP regressor / LTR ranker on
+                # 200k rows took ~80s for 2 fits with the bulk going into
+                # Lightning's per-epoch validation + checkpoint cycle. 10 still
+                # triggers ES paths (default patience 5-10) and exercises the
+                # multi-epoch boost loop; 3x faster MLP profile, ~40s saved on
+                # MLP-heavy 200k combos (c0033 regression). Aligns with user
+                # instruction "у всех моделей сделай поменьше дефолтное число
+                # итераций" for fuzz / profile-time runs.
+                hyperparams_config={"iterations": max(combo.iterations, 10)},
                 # 2026-05-12 Wave 31: save_charts=False gives a 7x speedup on
             # multiclass combos by skipping wasted chart rendering to a
             # temp dir. Profiler measures training cost, not chart-render cost.

@@ -154,10 +154,12 @@ AXES: dict[str, tuple[Any, ...]] = {
     "outlier_detection": (None, "isolation_forest", "lof", "ocsvm"),  # #3, batch 3 +LOF/OCSVM
     "use_ensembles": (False, True),                              # #5
     "continue_on_model_failure": (False, True),                  # #21
-    # iterations: 3 (single-iter sanity) + 15 (multi-iter ES/convergence).
+    # iterations: 3 (single-iter sanity) + 10 (multi-iter ES/convergence).
     # Was (3, 30) in 2026-04 — 30 reduced to 15 on 2026-04-27 for fuzz speed;
-    # the multi-iter boosting code path is the same and ES still triggers.
-    "iterations": (3, 15),                                       # #15
+    # 15 -> 10 on 2026-05-23 (iter185) per user instruction "у всех моделей
+    # сделай поменьше дефолтное число итераций". Multi-iter boosting code path
+    # is the same and ES still triggers (default patience 5-10).
+    "iterations": (3, 10),                                       # #15
     "prefer_calibrated_classifiers": (False, True),              # #32
     "inject_degenerate_cols": (False, True),                     # #7 (const + all-null)
     "inject_inf_nan": (False, True),                             # #10
