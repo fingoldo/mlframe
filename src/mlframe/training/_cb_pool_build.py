@@ -172,22 +172,17 @@ def _maybe_get_or_build_cb_pool(
 
     sample_weight = fit_params.get("sample_weight")
 
-    # Cache key: id(df) alone is unsafe because Python reuses ids after
-    # GC. Two tests in the same process that each build a fresh frame
-    # may land on the same ``id(train_df)`` value -- hitting a cache entry
-    # built for a DIFFERENT frame with DIFFERENT cat_features/columns.
-    # Include a content signature (columns tuple) so collisions with
-    # distinct data produce a miss instead of a corrupted reuse.
-    try:
-        _cols = tuple(train_df.columns) if hasattr(train_df, "columns") else None
-    except Exception:
-        _cols = None
-    try:
-        _shape = getattr(train_df, "shape", None)
-        _shape_sig = (int(_shape[0]), int(_shape[1])) if _shape and len(_shape) >= 2 else None
-    except Exception:
-        _shape_sig = None
-    key = (id(train_df), _cols, _shape_sig, cat_features, text_features, embedding_features)
+    # Cache key: content-fingerprint via shared helper. Pre-2026-05-23
+    # used ``id(train_df)`` which broke across ``sklearn.clone()`` and
+    # ``train_df.iloc[...]`` -- same id(X)-cache-bug class found across
+    # all four booster dataset caches (xgb_shim, lgb_shim, this train
+    # Pool, val Pool). Now keyed on (cols, shape, 3-row content hash,
+    # cat/text/embedding feature tuples).
+    from ._dataset_cache_fingerprint import compute_signature
+    key = compute_signature(
+        train_df,
+        extra=(cat_features, text_features, embedding_features),
+    )
 
     # Verify train_target length matches train_df row count BEFORE the
     # Pool-reuse fast-path. RFECV's inner CV folds occasionally hand us

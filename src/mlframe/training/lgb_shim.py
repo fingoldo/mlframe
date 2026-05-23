@@ -140,28 +140,24 @@ def lgb_dataset_reuse_capable() -> bool:
 # ---------------------------------------------------------------------
 
 def _signature_of(X, categorical_feature=None) -> tuple:
-    """Cache key for a feature matrix.
+    """Cache key for a feature matrix; delegates to shared content fingerprint.
 
-    Combines ``id(X)`` (fast path: same Python object -> same data) with
-    a content-summary tuple (columns + shape + categorical_feature) so
-    two distinct DataFrame objects that share an ``id()`` (Python recycles
-    ids after GC) still miss the cache rather than corrupting it. Mirrors
-    the design of ``_CB_POOL_CACHE`` in trainer.py and the XGB shim's
-    ``_signature_of``.
+    Combines the cross-shim content fingerprint (cols + shape + 3-row
+    sample hash) with the LGB-specific ``categorical_feature`` so cat-list
+    changes invalidate the cached Dataset (LightGBM bakes cat-feature
+    binning at construct time; reusing the cached dataset with a
+    different cat-list would silently produce wrong splits).
 
-    ``categorical_feature`` is included because LightGBM bakes the cat-feature
-    list into the Dataset's binning at construct time; switching it between
-    fits would silently produce wrong splits if we reused the cached dataset.
+    Pre-2026-05-23 the key included ``id(X)`` -- defeated by
+    ``sklearn.clone()`` + ``.iloc`` slicing in composite-ensemble OOF
+    refit, same as the XGB shim and CB Pool caches. Now content-based.
     """
-    cols = tuple(X.columns) if hasattr(X, "columns") else None
-    shape = getattr(X, "shape", (None, None))
-    n_rows = int(shape[0]) if shape and shape[0] is not None else None
-    n_cols = int(shape[1]) if shape and len(shape) > 1 and shape[1] is not None else None
+    from ._dataset_cache_fingerprint import compute_signature
     if isinstance(categorical_feature, list):
         cat_key = tuple(categorical_feature)
     else:
         cat_key = categorical_feature  # 'auto' or None passes through
-    return (id(X), cols, n_rows, n_cols, cat_key)
+    return compute_signature(X, extra=(cat_key,))
 
 
 def _build_dataset(

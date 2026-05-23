@@ -643,16 +643,15 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
             rewritten.append(entry)
             continue
 
-        try:
-            _cols = tuple(val_df.columns) if hasattr(val_df, "columns") else None
-        except Exception:
-            _cols = None
-        try:
-            _shape = getattr(val_df, "shape", None)
-            _shape_sig = (int(_shape[0]), int(_shape[1])) if _shape and len(_shape) >= 2 else None
-        except Exception:
-            _shape_sig = None
-        key = (id(val_df), _cols, _shape_sig, cat_features, text_features, embedding_features)
+        # Content-fingerprint via shared helper (2026-05-23): pre-fix
+        # ``id(val_df)`` cache key broke across sklearn.clone() and
+        # .iloc[...] slicing -- same id(X) bug as xgb_shim / lgb_shim /
+        # CB train Pool. Consolidated.
+        from ._dataset_cache_fingerprint import compute_signature
+        key = compute_signature(
+            val_df,
+            extra=(cat_features, text_features, embedding_features),
+        )
 
         cached = _CB_VAL_POOL_CACHE.get(key)
         if cached is not None:
@@ -666,8 +665,9 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
                     cached.set_label(_lab)
                     cached._mlframe_last_target_id = id(val_target)
                 logger.info(
-                    "[cb-val-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) " "swapped%s without rebuild",
-                    key[0],
+                    "[cb-val-pool-reuse] hit key=(cols=%d,n=%d,cat=%d,text=%d,emb=%d) " "swapped%s without rebuild",
+                    len(key[0]) if key[0] is not None else 0,
+                    key[1] if key[1] is not None else 0,
                     len(cat_features),
                     len(text_features),
                     len(embedding_features),

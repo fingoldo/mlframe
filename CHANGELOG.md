@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-05-23 — Shared content fingerprint for booster dataset caches (xgb/lgb/CB train/CB val)
+
+Round-3 audit fixed the ``id(X)`` cache-key bug in the XGB shim
+(``QuantileDMatrix`` rebuilt across sklearn.clone() + ``.iloc[]``
+slicing). User flagged that the SAME bug class likely existed in
+the other booster dataset caches -- confirmed:
+
+  | Site | Cache | Pre-fix key |
+  |------|-------|-------------|
+  | ``xgb_shim:164``         | QuantileDMatrix    | ``(id(X), cols, n_rows, n_cols)`` |
+  | ``lgb_shim:164``         | LGB Dataset        | ``(id(X), cols, n_rows, n_cols, cat_key)`` |
+  | ``_cb_pool_build:190``   | CB train Pool      | ``(id(train_df), cols, shape, cat/text/emb)`` |
+  | ``_cb_pool:655``         | CB val Pool        | ``(id(val_df), cols, shape, cat/text/emb)`` |
+
+All four had the same pathology: ``sklearn.clone()`` produces fresh
+shim instances with empty caches anyway, but the cache-key would
+also differ because ``id()`` of the train/val frame changes across
+``train_df.iloc[idx].reset_index(drop=True)`` calls. Cross-target
+reuse of the same logical X also missed.
+
+Fix: new shared helper
+[_dataset_cache_fingerprint.py](src/mlframe/training/_dataset_cache_fingerprint.py)
+exposes ``compute_signature(X, *, extra=())`` returning a content-based
+key ``(columns, n_rows, n_cols, 3-row content hash, extra)``. All four
+callsites refactored to delegate. Content hash is O(n_cols) -- 4M-row
+frames fingerprint in microseconds.
+
+Tests in [test_dataset_cache_fingerprint.py](tests/training/test_dataset_cache_fingerprint.py):
+
+  * Helper math: identical content -> same key; different content /
+    columns / shape / extras -> different keys.
+  * Per-site usage: XGB / LGB shim source-guard against ``id(X)``
+    re-introduction; CB train/val Pool source-guard against
+    ``id(train_df)`` / ``id(val_df)`` in key construction.
+  * Cross-shim invariant: XGB and LGB signatures both stable on
+    identical-content frames with different ids.
+
 ## 2026-05-23 — TVT-rerun (round 3): 4 critical RMSE-impact fixes from 4-agent audit
 
 Fresh TVT production run WITH tree boosters added to the zoo (cb/xgb/lgb)
