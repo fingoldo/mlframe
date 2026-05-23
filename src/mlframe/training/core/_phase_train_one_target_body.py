@@ -827,7 +827,14 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
 
         _finalize_per_target_ensembling(
             ens_models=ens_models,
-            train_df_transformed=train_df_transformed,
+            # ``train_df_transformed`` is set inside the inner weight-schema
+            # loop after a successful ``process_model`` call; if every model
+            # in the suite errored out (unknown model name, infinity-row
+            # ShapeError, etc.) the loop never executes the assignment.
+            # Use locals().get(...) so the post-loop ensembling block degrades
+            # gracefully to ``None`` instead of UnboundLocalError; the
+            # ensembling helper already skips when its inputs are unusable.
+            train_df_transformed=locals().get("train_df_transformed"),
             behavior_config=behavior_config,
             ctx=ctx,
             cur_target_name=cur_target_name,

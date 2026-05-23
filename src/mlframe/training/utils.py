@@ -508,6 +508,33 @@ def get_pandas_view_of_polars_df(
                     len(nested_cols), shown_repr,
                 )
 
+    # Remap pl.Categorical -> pl.Enum keyed on the column's own unique
+    # values BEFORE the Arrow bridge. polars 1.x's global string-cache
+    # leaks ALL categories ever seen by the process into every pl.Categorical
+    # column's dictionary, so a column with values {'a', 'b'} in production
+    # would deserialise with codes 4, 5, 6 (instead of 0, 1, 2) after a
+    # sibling test added 'C', 'B', 'A', 'cat_0' to the cache. pl.Enum is
+    # per-Series and ignores the global cache, so its Arrow round-trip
+    # produces a clean dictionary with codes starting at 0 and matching the
+    # column's actual category universe. The remap is a no-op for non-
+    # Categorical columns and adds O(n_unique) per Categorical column
+    # (single .unique() pass) on first access. Verified against the
+    # ``tests/training/test_utils.py::TestGetPandasViewOfPolarsDF`` cluster
+    # which fails under xdist when sibling tests pollute the cache.
+    if pl is not None and isinstance(df, pl.DataFrame):
+        _cat_remaps = []
+        for _name, _dt in df.schema.items():
+            if _dt == pl.Categorical:
+                _cat_remaps.append(_name)
+        if _cat_remaps:
+            _exprs = []
+            for _name in _cat_remaps:
+                _ser = df.get_column(_name)
+                # drop_nulls so the Enum domain doesn't carry a sentinel;
+                # nulls round-trip through Arrow as null codes regardless.
+                _uniques = _ser.drop_nulls().unique().to_list()
+                _exprs.append(pl.col(_name).cast(pl.Enum(_uniques)))
+            df = df.with_columns(_exprs)
     tbl = df.to_arrow()
 
     # Note: short-circuit on "no dictionary columns" was benchmarked 2026-04-14 and
