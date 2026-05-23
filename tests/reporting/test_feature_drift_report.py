@@ -343,14 +343,19 @@ class TestSklearnToMlframeMlpKwargsTranslator:
         )
         # The winner is {alpha=1e-4, hidden=(32,16), activation='identity'}
         # (R^2 / RMSE / MAE all agree on this config under min-max cross-DGP).
-        # Translation: AdamW weight_decay=1e-4, network nlayers=0 (identity
-        # collapse), plus the hidden topology still encoded (the wire-in's
-        # deep-merge consumes network_params).
+        # Translation: AdamW weight_decay=1e-4, identity activation collapses
+        # the stack to a single linear transform -- the translator MUST set
+        # ``nlayers=1`` (not 2 from hidden topology) so generate_mlp builds an
+        # honest ``Linear(in, out) -> Identity`` instead of a 25->32->16->1
+        # Identity stack that mathematically collapses but optimises poorly
+        # and catastrophically OOD-extrapolates under covariate shift (prod
+        # TVT 2026-05-22: stacked Identity went to ~-17 sigma on test split,
+        # R^2=-326 while Ridge R^2=1.00 on the same data).
         import torch
         assert out["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
         assert out["network_params"]["activation_function"] is torch.nn.Identity
         assert out["network_params"]["first_layer_num_neurons"] == 32
-        assert out["network_params"]["nlayers"] == 2  # from hidden=(32, 16)
+        assert out["network_params"]["nlayers"] == 1  # identity collapse
         assert out["network_params"]["dropout_prob"] == 0.0
         assert "__untranslated__" not in out
 
@@ -417,7 +422,9 @@ class TestFeatureDriftAutoActionWireIn:
         import torch
         assert _merged["network_params"]["use_layernorm"] is False
         assert _merged["network_params"]["first_layer_num_neurons"] == 32
-        assert _merged["network_params"]["nlayers"] == 2
+        # identity-activation collapses the stack to a single linear transform
+        # (see TestSklearnToMlframeMlpKwargsTranslator commentary above)
+        assert _merged["network_params"]["nlayers"] == 1
         assert _merged["network_params"]["activation_function"] is torch.nn.Identity
         assert _merged["network_params"]["dropout_prob"] == 0.0
         # learning_rate stays untouched by the override; weight_decay is
