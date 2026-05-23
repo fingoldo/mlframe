@@ -304,16 +304,18 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
             elif _act in ("leaky_relu", "leakyrelu"):
                 out["network_params"]["activation_function"] = torch.nn.LeakyReLU
             elif _act == "identity":
-                # Identity activation = a stack of linear layers with no
-                # nonlinearity between them. Mathematically this collapses
-                # to a single linear transform on the input. The mlframe
-                # ``generate_mlp`` REJECTS ``nlayers < 1`` (raises
-                # ValueError), so we cannot encode this as ``nlayers=0``;
-                # instead we keep the requested ``nlayers`` and inject
-                # ``torch.nn.Identity`` as the per-layer activation. The
-                # composition is still linear because every layer is
-                # ``Linear -> Identity``.
+                # Identity activation = single linear transform on the
+                # input. ``generate_mlp`` requires ``nlayers >= 1``;
+                # force ``nlayers=1`` so the network is an honest
+                # ``Linear(in, out) -> Identity`` instead of a multi-
+                # layer stack that mathematically collapses but
+                # is redundantly parameterised, optimises poorly,
+                # and catastrophically OOD-extrapolates under
+                # covariate shift (prod TVT 2026-05-22: 25->32->16->1
+                # Identity stack went to ~-17 sigma on test split,
+                # R^2=-326 while Ridge R^2=1.00 on the same data).
                 out["network_params"]["activation_function"] = torch.nn.Identity
+                out["network_params"]["nlayers"] = 1
                 # Aux dropout sources also break linearity if non-zero --
                 # zero them so the network really IS linear end-to-end.
                 out["network_params"]["dropout_prob"] = 0.0

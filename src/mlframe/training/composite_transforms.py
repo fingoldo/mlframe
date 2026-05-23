@@ -166,6 +166,42 @@ def _diff_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
 
 
 # ----------------------------------------------------------------------
+# additive_residual: T = y - base - beta (alpha=1.0 fixed, beta learned).
+# Strict-AR-1 sweet spot between ``diff`` (no offset) and
+# ``linear_residual`` (alpha+beta both learned). Pure additive
+# inverse: y = T + base + beta. Distinct from ``diff`` when the
+# (y, base) relationship has a non-zero level shift.
+# ----------------------------------------------------------------------
+def _additive_residual_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+    finite = np.isfinite(y) & np.isfinite(base)
+    if not finite.any():
+        return {"beta": 0.0}
+    beta = float(np.mean(y[finite] - base[finite]))
+    return {"beta": beta}
+
+
+def _additive_residual_forward(
+    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    return y - base - float(params.get("beta", 0.0))
+
+
+def _additive_residual_inverse(
+    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+) -> np.ndarray:
+    return t_hat + base + float(params.get("beta", 0.0))
+
+
+def _additive_residual_domain(
+    y: np.ndarray | None, base: np.ndarray,
+) -> np.ndarray:
+    base_ok = np.isfinite(base)
+    if y is None:
+        return base_ok
+    return base_ok & np.isfinite(y)
+
+
+# ----------------------------------------------------------------------
 # ratio: T = y / base. Requires |base| >= eps.
 # ----------------------------------------------------------------------
 
@@ -532,6 +568,20 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         description="T = y - base. Inverse y_hat = T_hat + base. No fitted parameters.",
         tags=frozenset({TAG_CORE, TAG_REGRESSION}),
     ),
+    "additive_residual": Transform(
+        name="additive_residual",
+        forward=_additive_residual_forward,
+        inverse=_additive_residual_inverse,
+        fit=_additive_residual_fit,
+        domain_check=_additive_residual_domain,
+        description=(
+            "T = y - base - beta (alpha=1.0 fixed, beta=mean(y_train - base_train) learned). "
+            "Inverse y_hat = T_hat + base + beta. Strict-AR-1 sweet spot between ``diff`` "
+            "(no offset) and ``linear_residual`` (alpha+beta both learned). Pure additive "
+            "inverse keeps the composite MLP-friendly: no nonlinear inverse to learn."
+        ),
+        tags=frozenset({TAG_CORE, TAG_REGRESSION}),
+    ),
     "ratio": Transform(
         name="ratio",
         forward=_ratio_forward,
@@ -848,6 +898,7 @@ def get_transform(name: str) -> Transform:
 # adding a new transform never silently breaks naming.
 TRANSFORM_NAME_SHORT: dict[str, str] = {
     "diff": "diff",
+    "additive_residual": "addres",
     "ratio": "ratio",
     "logratio": "logr",
     "linear_residual": "linres",

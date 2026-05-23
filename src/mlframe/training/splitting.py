@@ -185,6 +185,20 @@ def make_train_test_split(
             "Each group stays within ONE split (no per-row leakage).",
             _n_groups,
         )
+        logger.warning(
+            "Group-aware split: downstream models with unbounded output "
+            "ranges (Identity-MLP, LinearRegression, plain MLP without "
+            "output clipping) can extrapolate catastrophically on test "
+            "groups whose feature distribution differs from train. "
+            "Production TVT 2026-05-22: Identity-MLP collapsed R^2=-326 "
+            "on unseen-wells test split while Ridge nailed R^2=1.00 on "
+            "identical data. Mitigations: (a) prefer Ridge over plain "
+            "LinearRegression, (b) use a real nonlinearity (nn.ReLU / "
+            "nn.GELU) instead of nn.Identity in MLP configs, (c) let "
+            "composite-target discovery propose a residualised target "
+            "(``y - alpha*top_AR_feature``) that bounds the residual "
+            "variance so prediction extrapolation can't blow up.",
+        )
     else:
         logger.info(
             "Group-aware splitting: disabled (groups=None; rows split "

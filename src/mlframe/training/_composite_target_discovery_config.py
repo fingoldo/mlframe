@@ -81,7 +81,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # All four are accessible via explicit user configuration (``CompositeTargetEstimator(...)`` directly) and ship with their own tests; auto-discovery integration is the open item beyond this PR.
     transforms: List[str] = Field(
         default_factory=lambda: [
-            "diff", "ratio", "logratio", "linear_residual",
+            "diff", "additive_residual", "ratio", "logratio", "linear_residual",
             "linear_residual_robust",  # trimmed-LS variant; safe on outlier-contaminated bases.
             "quantile_residual", "monotonic_residual",
             # Pack J unary y-transforms (``requires_base=False`` -- tried once across all bases via the discovery loop's per-transform dedup).
@@ -347,12 +347,20 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # different top features on the same data, so a candidate that
     # wins for one family may lose for another. Aggregation via
     # ``tiny_consensus``:
-    # - "single_lgbm" (default): one LightGBM, fastest.
-    # - "per_family": train ``tiny_screening_models`` per family;
-    #   aggregate by ``tiny_consensus`` ("union": top-M from each
-    #   family; "borda": Borda-count rank aggregation).
-    tiny_screening_models: str = "single_lgbm"  # "single_lgbm" | "per_family"
-    tiny_screening_families: Tuple[str, ...] = ("lightgbm",)
+    # - "single_lgbm" (legacy): one LightGBM, fastest but model-agnostic
+    #   proxy gates lie for downstream linear / neural models.
+    # - "per_family" (default): train one tiny model per entry in
+    #   ``tiny_screening_families`` and aggregate by ``tiny_consensus``
+    #   ("union": top-M from each family; "borda": Borda-count rank).
+    #   Default families ``("lightgbm", "linear")`` cover the two
+    #   distinct downstream regimes: tree boosters (LGBM proxy) and
+    #   linear / neural models (Ridge proxy). A composite useful only
+    #   for one of the two still survives via the union aggregation.
+    #   The 2x screening compute is the price for model-mix safety
+    #   (prod TVT 2026-05-22: single-LGBM proxy rejected the only
+    #   composite that would have saved the downstream Identity-MLP).
+    tiny_screening_models: str = "per_family"  # "single_lgbm" | "per_family"
+    tiny_screening_families: Tuple[str, ...] = ("lightgbm", "linear")
     tiny_consensus: str = "union"  # "union" | "borda"
 
     # Raw-y baseline gate. During tiny-model rerank, also train a tiny

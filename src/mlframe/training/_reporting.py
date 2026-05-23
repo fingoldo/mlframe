@@ -503,21 +503,59 @@ def report_regression_model_perf(
         try:
             _pred_std = float(np.std(preds_arr)) if preds_arr.size > 1 else 0.0
             _y_std = float(np.std(targets_arr)) if targets_arr.size > 1 else 0.0
-            if _y_std > 0 and _pred_std < 0.2 * _y_std and float(R2) < 0:
+            _pred_mean = float(np.mean(preds_arr)) if preds_arr.size else 0.0
+            _y_mean = float(np.mean(targets_arr)) if targets_arr.size else 0.0
+            _r2 = float(R2)
+            _collapse_std = (
+                _y_std > 0 and _pred_std < 0.2 * _y_std and _r2 < 0
+            )
+            # Linear-extrapolation branch: an Identity-MLP / unbounded
+            # linear model on a group-aware test split can blow predictions
+            # far past target range while STD stays moderate (so the
+            # std-collapse gate above misses). Prod TVT 2026-05-22 had
+            # pred_std=10 vs y_std=645 but R^2=-326 with |pred-y|.max()
+            # = 13058 (20 sigma off). Trip when R^2 < -1.0 AND the worst
+            # prediction lands more than 5 sigma off the corresponding target.
+            try:
+                _max_err = float(np.max(np.abs(preds_arr - targets_arr)))
+            except Exception:
+                _max_err = 0.0
+            _collapse_extrapolation = (
+                _y_std > 0 and _r2 < -1.0 and _max_err > 5.0 * _y_std
+            )
+            # Mean-shift branch: predictions systematically far from target
+            # mean. Identity-MLP / mis-scaled regression can produce a
+            # cluster around 0 raw while target mean is non-zero -- pred_std
+            # might be moderate but pred_mean is off by many sigma.
+            _collapse_mean_shift = (
+                _y_std > 0 and abs(_pred_mean - _y_mean) > 3.0 * _y_std
+            )
+            if _collapse_std or _collapse_extrapolation or _collapse_mean_shift:
+                _branch = (
+                    "std-collapse" if _collapse_std
+                    else ("linear-extrapolation" if _collapse_extrapolation
+                          else "mean-shift")
+                )
                 logger.warning(
-                    "[regression-collapse-sensor] %s: predictions appear collapsed -- "
-                    "pred_std=%.3g (%.1f%% of target_std=%.3g), R2=%.3g < 0. "
-                    "Likely cause: undertrained or pathological model emitting a near-"
-                    "constant value. For MLP: try ``mlp_kwargs={'network_params': "
-                    "{'use_layernorm': False}}`` (LN_in is wrong for tabular regression "
-                    "when the upstream pre-pipeline already z-scored features), increase "
-                    "``max_epochs`` past the time budget, or use a simpler model. "
+                    "[regression-collapse-sensor:%s] %s: predictions appear pathological -- "
+                    "pred_std=%.3g (%.1f%% of target_std=%.3g), "
+                    "pred_mean=%.3g vs target_mean=%.3g, "
+                    "max|pred-y|=%.3g (%.1fx target_std), R2=%.3g. "
+                    "Likely cause: undertrained or pathological model. "
+                    "For Identity-MLP / linear-stack: set nlayers=1 or pick a "
+                    "real nonlinearity (nn.ReLU / nn.GELU); the stacked-Linear "
+                    "footgun catastrophically extrapolates on unseen-groups "
+                    "test splits (prod TVT 2026-05-22). For MLP+LN_in: try "
+                    "``mlp_kwargs={'network_params': {'use_layernorm': False}}``. "
                     "For tree boosters: check fit_params learning_rate / n_estimators.",
+                    _branch,
                     model_name,
                     _pred_std,
                     100.0 * _pred_std / max(_y_std, 1e-12),
                     _y_std,
-                    float(R2),
+                    _pred_mean, _y_mean,
+                    _max_err, _max_err / max(_y_std, 1e-12),
+                    _r2,
                 )
         except Exception as _sensor_err:
             logger.debug(

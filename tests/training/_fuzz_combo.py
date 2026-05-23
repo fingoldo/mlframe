@@ -354,6 +354,34 @@ AXES: dict[str, tuple[Any, ...]] = {
     "composite_use_stacked_discovery_cfg": (False, True),
     "composite_use_stacked_discovery_residual_cfg": (False, True),
     "composite_skip_wrap_pass_predict_cfg": (True, False),
+    # 2026-05-22 — six gate-flip axes from the TVT-MLP-collapse cascade.
+    # Each pair holds (post-fix default, pre-fix default). The pre-fix
+    # value is kept in the fuzz space so a regression that re-enables
+    # one of the gates still gets exercised against the full model zoo
+    # via fuzz coverage; canonicalised away when composite discovery
+    # is OFF.
+    "composite_skip_raw_dominates_ratio_cfg": (0.0, 0.03),
+    "composite_skip_ablation_delta_pct_cfg": (0.0, 500.0),
+    "composite_eps_mi_gain_cfg": (-10.0, -0.5),
+    "composite_top_k_after_mi_cfg": (32, 8),
+    "composite_require_beats_raw_baseline_cfg": (False, True),
+    "composite_per_bin_n_bins_cfg": (0, 5),
+    # 2026-05-22 — tiny-screening proxy axis. "per_family" with
+    # ("lightgbm","linear") is the new default; "single_lgbm" is the
+    # legacy proxy that hurt downstream linear / neural models.
+    "composite_tiny_screening_mode_cfg": ("per_family", "single_lgbm"),
+    # 2026-05-22 — additive_residual transform inclusion (default ON).
+    # Disable via False to verify the discovery still functions on the
+    # legacy transform set + that fallback compositions still emerge.
+    "composite_include_additive_residual_cfg": (True, False),
+    # 2026-05-22 — MLP activation footgun axis. Currently NOT plumbed
+    # into the suite call (fuzz suite uses MLP defaults), so the axis
+    # exists for completeness but doesn't yet flip the network config.
+    # Activate via a follow-up that threads ``hyperparams_config`` into
+    # ``_config_for_models``. Until then the direct unit test
+    # ``test_tvt_mlp_audit_followups.TestIdentityMLPGuard`` covers the
+    # train-time guard.
+    "mlp_activation_cfg": ("ReLU", "Identity"),
     # 2026-05-21 -- mini-HPT analyzer (target + feature side). When True,
     # ``train_mlframe_models_suite`` runs both analyze_target_distribution
     # and analyze_feature_distribution after the split; target-side
@@ -779,6 +807,19 @@ class FuzzCombo:
     # 2026-05-19 -- composite-discovery stacked-residual axes.
     composite_use_stacked_discovery_cfg: bool = False
     composite_use_stacked_discovery_residual_cfg: bool = False
+    # 2026-05-22 — six gate-flip axes from the TVT-MLP-collapse cascade.
+    # Defaults are the POST-FIX values; pre-fix variants live in AXES for
+    # regression coverage. All canonicalise to post-fix when composite
+    # discovery is OFF.
+    composite_skip_raw_dominates_ratio_cfg: float = 0.0
+    composite_skip_ablation_delta_pct_cfg: float = 0.0
+    composite_eps_mi_gain_cfg: float = -10.0
+    composite_top_k_after_mi_cfg: int = 32
+    composite_require_beats_raw_baseline_cfg: bool = False
+    composite_per_bin_n_bins_cfg: int = 0
+    composite_tiny_screening_mode_cfg: str = "per_family"
+    composite_include_additive_residual_cfg: bool = True
+    mlp_activation_cfg: str = "ReLU"
     composite_skip_wrap_pass_predict_cfg: bool = True
     # 2026-05-21 -- mini-HPT (target + feature distribution analyzer) toggle.
     # Default True mirrors the suite signature default; archived
@@ -1279,6 +1320,50 @@ class FuzzCombo:
                 self.composite_discovery_enabled_cfg
                 and self.target_type == "regression"
             ) else True,
+            # 2026-05-22 -- TVT-MLP audit-followup gate axes. All only
+            # meaningful when composite discovery is on; canonicalise
+            # to the post-fix default when off.
+            self.composite_skip_raw_dominates_ratio_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else 0.0,
+            self.composite_skip_ablation_delta_pct_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else 0.0,
+            self.composite_eps_mi_gain_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else -10.0,
+            self.composite_top_k_after_mi_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else 32,
+            self.composite_require_beats_raw_baseline_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else False,
+            self.composite_per_bin_n_bins_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else 0,
+            self.composite_tiny_screening_mode_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else "per_family",
+            self.composite_include_additive_residual_cfg if (
+                self.composite_discovery_enabled_cfg
+                and self.target_type == "regression"
+            ) else True,
+            # mlp_activation_cfg only meaningful when 'mlp' is in models
+            # AND target_type is regression / classification head;
+            # canonicalise to "ReLU" otherwise. NOTE: axis not yet
+            # plumbed into the suite call (see comment in AXES dict).
+            self.mlp_activation_cfg if (
+                "mlp" in self.models
+                and self.target_type in ("regression", "binary_classification",
+                                          "multiclass_classification")
+            ) else "ReLU",
             # 2026-05-21 -- mini-HPT (target + feature distribution analyzer)
             # toggle. Axis is meaningful on every target type since both
             # detectors run unconditionally when enabled.
@@ -1994,6 +2079,34 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         composite_use_stacked_discovery_residual_cfg=axes.get(
             "composite_use_stacked_discovery_residual_cfg", False
         ),
+        # 2026-05-22 -- six gate-flip axes from the TVT-MLP-collapse
+        # cascade. Defaults match the post-fix values; AXES holds the
+        # pre-fix variant for regression coverage.
+        composite_skip_raw_dominates_ratio_cfg=axes.get(
+            "composite_skip_raw_dominates_ratio_cfg", 0.0
+        ),
+        composite_skip_ablation_delta_pct_cfg=axes.get(
+            "composite_skip_ablation_delta_pct_cfg", 0.0
+        ),
+        composite_eps_mi_gain_cfg=axes.get(
+            "composite_eps_mi_gain_cfg", -10.0
+        ),
+        composite_top_k_after_mi_cfg=axes.get(
+            "composite_top_k_after_mi_cfg", 32
+        ),
+        composite_require_beats_raw_baseline_cfg=axes.get(
+            "composite_require_beats_raw_baseline_cfg", False
+        ),
+        composite_per_bin_n_bins_cfg=axes.get(
+            "composite_per_bin_n_bins_cfg", 0
+        ),
+        composite_tiny_screening_mode_cfg=axes.get(
+            "composite_tiny_screening_mode_cfg", "per_family"
+        ),
+        composite_include_additive_residual_cfg=axes.get(
+            "composite_include_additive_residual_cfg", True
+        ),
+        mlp_activation_cfg=axes.get("mlp_activation_cfg", "ReLU"),
         composite_skip_wrap_pass_predict_cfg=axes.get(
             "composite_skip_wrap_pass_predict_cfg", True
         ),
@@ -2294,10 +2407,19 @@ def build_composite_discovery_config_from_flat(
     mi_sample_strategy: str = "random",
     stacked_residual_aggregation: str = "mean",
     discovery_n_jobs: int = 1,
+    # 2026-05-22 TVT-MLP audit-followup axes.
+    composite_skip_raw_dominates_ratio: float = 0.0,
+    composite_skip_ablation_delta_pct: float = 0.0,
+    composite_eps_mi_gain: float = -10.0,
+    composite_top_k_after_mi: int = 32,
+    composite_require_beats_raw_baseline: bool = False,
+    composite_per_bin_n_bins: int = 0,
+    composite_tiny_screening_mode: str = "per_family",
+    composite_include_additive_residual: bool = True,
 ):
     """Build a CompositeTargetDiscoveryConfig honoring the discovery
     enable + transforms_mode axes + (iter162) nested MI / stacked /
-    parallelism knobs."""
+    parallelism knobs + (2026-05-22) TVT-MLP audit-followup gate axes."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
     if not enabled:
         return CompositeTargetDiscoveryConfig(enabled=False)
@@ -2315,6 +2437,16 @@ def build_composite_discovery_config_from_flat(
         ]
     else:
         transforms = None
+    # The additive_residual toggle works on top of any transforms_mode:
+    # if the chosen mode would include bivariate residuals, ensure
+    # additive_residual is present / absent as requested.
+    if (transforms is not None and composite_include_additive_residual
+            and "additive_residual" not in transforms
+            and transforms_mode in (None, "legacy")):
+        transforms = ["additive_residual"] + transforms
+    elif (transforms is not None and not composite_include_additive_residual
+            and "additive_residual" in transforms):
+        transforms = [t for t in transforms if t != "additive_residual"]
     kw: Dict[str, Any] = {
         "enabled": True,
         "base_candidates": "auto",
@@ -2328,7 +2460,19 @@ def build_composite_discovery_config_from_flat(
         "mi_sample_strategy": mi_sample_strategy,
         "stacked_residual_aggregation": stacked_residual_aggregation,
         "discovery_n_jobs": discovery_n_jobs,
+        # 2026-05-22 TVT-MLP audit-followup axes.
+        "composite_skip_when_raw_dominates_ratio": composite_skip_raw_dominates_ratio,
+        "composite_skip_when_ablation_delta_pct": composite_skip_ablation_delta_pct,
+        "eps_mi_gain": composite_eps_mi_gain,
+        "top_k_after_mi": composite_top_k_after_mi,
+        "require_beats_raw_baseline": composite_require_beats_raw_baseline,
+        "per_bin_n_bins": composite_per_bin_n_bins,
+        "tiny_screening_models": composite_tiny_screening_mode,
     }
+    if composite_tiny_screening_mode == "per_family":
+        kw["tiny_screening_families"] = ("lightgbm", "linear")
+    else:
+        kw["tiny_screening_families"] = ("lightgbm",)
     if transforms is not None:
         kw["transforms"] = transforms
     return CompositeTargetDiscoveryConfig(**kw)
@@ -2349,6 +2493,14 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
         mi_sample_strategy=combo.composite_mi_sample_strategy_cfg,
         stacked_residual_aggregation=combo.composite_stacked_residual_aggregation_cfg,
         discovery_n_jobs=combo.composite_discovery_n_jobs_cfg,
+        composite_skip_raw_dominates_ratio=combo.composite_skip_raw_dominates_ratio_cfg,
+        composite_skip_ablation_delta_pct=combo.composite_skip_ablation_delta_pct_cfg,
+        composite_eps_mi_gain=combo.composite_eps_mi_gain_cfg,
+        composite_top_k_after_mi=combo.composite_top_k_after_mi_cfg,
+        composite_require_beats_raw_baseline=combo.composite_require_beats_raw_baseline_cfg,
+        composite_per_bin_n_bins=combo.composite_per_bin_n_bins_cfg,
+        composite_tiny_screening_mode=combo.composite_tiny_screening_mode_cfg,
+        composite_include_additive_residual=combo.composite_include_additive_residual_cfg,
     )
 
 

@@ -10,9 +10,13 @@ Mirror the historical local class semantics exactly:
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from sklearn.base import clone as _clone
 from sklearn.compose import TransformedTargetRegressor
+
+logger = logging.getLogger(__name__)
 
 
 class _TTRWithEvalSetScaling(TransformedTargetRegressor):
@@ -54,3 +58,48 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
                     fit_params["eval_set"] = new_es
         # Defer the actual fit to the parent (which will refit transformer + call regressor.fit).
         return super().fit(X, y, **fit_params)
+
+    def predict(self, X, **predict_params):
+        """Predict + diagnostic check on the scaled-space prediction range.
+
+        The parent ``TransformedTargetRegressor.predict`` runs the inner
+        regressor to get T_hat (scaled space) and then applies
+        ``transformer_.inverse_transform`` to recover y_hat. For a
+        StandardScaler-wrapped target, ``inverse_transform`` is the
+        linear map ``T_hat * scale_ + mean_`` -- no clipping, no sanity
+        check. If the inner regressor is an Identity-MLP / unbounded
+        linear model and the test rows are OOD, T_hat can land at e.g.
+        -17 sigma and inverse_transform faithfully maps that to a
+        completely wrong y_hat (prod TVT 2026-05-22 incident).
+
+        Detect the -17 sigma signal IN SCALED SPACE before
+        ``inverse_transform`` obscures it. WARN-log on |T_hat|.max() > 10
+        so operators see the scaled-space outlier directly.
+        """
+        if self.transformer_ is None:
+            return super().predict(X, **predict_params)
+        # Mirror the parent's predict path so we can intercept T_hat.
+        try:
+            t_hat = self.regressor_.predict(X)
+            t_hat_arr = np.asarray(t_hat, dtype=np.float64).reshape(-1)
+            if t_hat_arr.size:
+                _abs_max = float(np.max(np.abs(t_hat_arr)))
+                if _abs_max > 10.0:
+                    logger.warning(
+                        "[ttr-scaled-extrapolation-sensor] inner regressor "
+                        "%s emitted |T_hat|.max()=%.2f sigma in scaled "
+                        "target space (>10 sigma is unphysical for "
+                        "z-scored y). inverse_transform will faithfully "
+                        "map this to a far-OOD y_hat. Likely cause: "
+                        "unbounded-output downstream model (Identity-MLP, "
+                        "plain LinearRegression) extrapolating on test "
+                        "rows whose feature distribution differs from "
+                        "train (prod TVT 2026-05-22).",
+                        type(self.regressor_).__name__, _abs_max,
+                    )
+        except Exception as _sensor_err:
+            logger.debug(
+                "ttr-scaled-extrapolation-sensor probe failed (non-fatal): %s",
+                _sensor_err,
+            )
+        return super().predict(X, **predict_params)

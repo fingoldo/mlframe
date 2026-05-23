@@ -145,9 +145,17 @@ def _build_huber_regressor(config: LinearModelConfig) -> BaseEstimator:
 
 
 def _build_ransac_regressor(config: LinearModelConfig) -> BaseEstimator:
-    """Build a RANSACRegressor model for robust regression with outliers."""
+    """Build a RANSACRegressor model for robust regression with outliers.
+
+    Inner estimator is Ridge (not LinearRegression) so the regression
+    coefficients are bounded by L2 regularisation and predictions
+    can't extrapolate unboundedly on unseen-distribution test data.
+    Plain LinearRegression has no such bound; on group-aware splits
+    this can produce wildly off predictions identical to the
+    Identity-MLP failure mode (prod TVT 2026-05-22).
+    """
     return RANSACRegressor(
-        estimator=LinearRegression(n_jobs=config.n_jobs),
+        estimator=Ridge(alpha=getattr(config, "alpha", 1.0) or 1.0),
         max_trials=config.max_trials,
         residual_threshold=config.residual_threshold,
         random_state=config.random_state,

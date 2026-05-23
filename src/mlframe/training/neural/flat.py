@@ -76,7 +76,14 @@ def generate_mlp(
         min_layer_neurons: Minimum neurons per layer
         neurons_by_layer_arch: Architecture pattern for neuron counts
         consec_layers_neurons_ratio: Ratio between consecutive layers
-        activation_function: Activation function class (will be instantiated)
+        activation_function: Activation function class (will be instantiated).
+            ``torch.nn.Identity`` or ``None`` with ``nlayers>=2`` is the
+            "linear MLP" footgun -- collapses to a single affine map with
+            3x redundant parameterisation, bad optimisation, and known
+            catastrophic OOD extrapolation under covariate shift (prod
+            TVT 2026-05-22: R^2=-326). Pick ``nlayers=1`` with Identity
+            for honest linear, or pick a real nonlinearity for a
+            nonlinear MLP. A WARN fires if the footgun config is detected.
         weights_init_fcn: Weight initialization function
         dropout_prob: Dropout probability after each layer
         inputs_dropout_prob: Dropout probability for input features
@@ -132,6 +139,39 @@ def generate_mlp(
         raise ValueError(
             f"first_layer_num_neurons must be >= min_layer_neurons "
             f"({min_layer_neurons}), got {first_layer_num_neurons!r}"
+        )
+
+    # Identity-MLP footgun guard. ``nn.Identity`` (or ``None``) on a
+    # multi-layer net composes to a single affine map but with 3x
+    # redundantly-parameterised matrices: bad optimisation landscape,
+    # weight_decay applied per-matrix instead of per-effective-coef,
+    # and CATASTROPHIC OOD extrapolation under covariate shift
+    # (production TVT 2026-05-22: 25->32->16->1 Identity-MLP went to
+    # ~-17 sigma on the test split, R^2=-326 while Ridge nailed R^2=1.00
+    # on the same data). For a truly linear regressor, ``nlayers=1``
+    # gives an honest single Linear -> Identity which is well-conditioned
+    # AND has the same expressivity. Multi-layer Identity is always a
+    # mistake; warn loudly so the operator picks one or the other.
+    _is_identity_activation = (
+        activation_function is None
+        or activation_function is nn.Identity
+    )
+    if _is_identity_activation and nlayers >= 2 and num_classes != 0:
+        logger.warning(
+            "generate_mlp: activation_function=%s with nlayers=%d on a %s "
+            "head will COLLAPSE to a single affine map at inference. "
+            "The 3+ redundantly-parameterised matrices DO NOT add "
+            "expressivity (any composition of linear maps is linear), "
+            "but they DO degrade optimisation and catastrophically "
+            "amplify OOD-extrapolation on unseen-groups test splits "
+            "(prod TVT 2026-05-22: Identity-MLP R^2=-326 vs Ridge R^2=1.00 "
+            "on identical data). Pick one: set nlayers=1 for an honest "
+            "linear model, OR pick a real nonlinearity (nn.ReLU, nn.GELU, "
+            "nn.LeakyReLU) for an actual nonlinear function.",
+            "Identity/None" if activation_function is None
+            else activation_function.__name__,
+            nlayers,
+            "regression" if num_classes == 1 else "classification",
         )
 
     layers = []

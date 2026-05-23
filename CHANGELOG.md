@@ -1,5 +1,120 @@
 # Changelog
 
+## 2026-05-23 — TVT-MLP audit followups: 26-finding disposition + 10 P0/P1 fixes
+
+Spawned four audit agents on the TVT-Identity-MLP collapse cascade
+(2026-05-22 incident: R^2=-326 on group-aware test split, Ridge nailed
+R^2=1.00 on identical data). 26 individual findings; full disposition
+table below.
+
+### Code changes shipped
+
+**Identity-MLP train-time guard** ([flat.py:137](src/mlframe/training/neural/flat.py#L137))
+Warns when ``activation_function in (None, nn.Identity)`` with
+``nlayers>=2`` and ``num_classes != 0``. Identity stacked over multi-
+layer Linear collapses to a single affine map but with 3+ redundantly-
+parameterised matrices; bad optimisation landscape + catastrophic
+OOD extrapolation. The warn includes actionable hints (set nlayers=1
+or pick a real nonlinearity) + the TVT incident reference.
+
+**Drift translator forces nlayers=1 for Identity** ([feature_drift_report.py:316](src/mlframe/training/feature_drift_report.py#L316))
+When auto-applying ``activation="identity"`` from sklearn-style
+overrides, the translator now forces ``nlayers=1`` so the produced
+network is an honest single ``Linear -> Identity`` instead of the
+3-layer stack that bit production.
+
+**Extended regression-collapse sensor** ([_reporting.py:482](src/mlframe/training/_reporting.py#L482))
+Pre-fix the sensor caught ONLY std-collapse (``pred_std < 0.2*y_std AND
+R^2 < 0``). The TVT MLP-Identity case had pred_std=10 (not tiny) and
+the sensor missed. Added two more branches: ``linear-extrapolation``
+(``R^2 < -1 AND max|pred-y| > 5*y_std`` -- catches the wild-prediction
+case) and ``mean-shift`` (``|pred_mean - y_mean| > 3*y_std`` -- catches
+wrong-constant). The branch name is now in the log tag for triage.
+
+**TTR scaled-extrapolation sensor** ([_ttr_eval_set_scaling.py:60](src/mlframe/training/_ttr_eval_set_scaling.py#L60))
+``_TTRWithEvalSetScaling.predict`` override that checks ``|T_hat|.max()``
+in SCALED target space BEFORE ``inverse_transform``. A -17 sigma signal
+in scaled space is unphysical for z-scored y; the parent's linear
+inverse_transform faithfully maps it to wildly-wrong raw y. Logging
+the scaled-space outlier gives operators a cleaner diagnostic.
+
+**Group-aware split WARN** ([splitting.py:188](src/mlframe/training/splitting.py#L188))
+``GroupShuffleSplit`` path now WARN-logs the OOD-extrapolation risk
+for downstream non-L2 models (Identity-MLP, LinearRegression, MLP
+without output clipping) with mitigation suggestions: prefer Ridge,
+use real nonlinearity, let composite discovery propose residualised
+targets.
+
+**RANSAC inner is Ridge, not LinearRegression** ([models.py:147](src/mlframe/training/models.py#L147))
+``_build_ransac_regressor`` was using plain ``LinearRegression`` as
+inner estimator -- unbounded coefficients, same extrapolation
+failure mode as Identity-MLP. Replaced with ``Ridge(alpha=config.alpha)``
+so coefficients are L2-bounded.
+
+**``additive_residual`` transform** ([composite_transforms.py:166](src/mlframe/training/composite_transforms.py#L166))
+New transform: ``T = y - base - beta`` with ``alpha=1.0`` fixed,
+``beta=mean(y_train - base_train)`` learned. Strict-AR-1 sweet spot
+between ``diff`` (no offset) and ``linear_residual`` (alpha+beta both
+learned). Pure additive inverse: ``y = T + base + beta``. Registered
+with short alias ``addres`` and added to the default ``transforms`` list.
+
+**``tiny_screening`` defaults to per-family LGBM+linear** ([_composite_target_discovery_config.py:354](src/mlframe/training/_composite_target_discovery_config.py#L354))
+``tiny_screening_models: "single_lgbm" -> "per_family"`` with
+``tiny_screening_families: ("lightgbm",) -> ("lightgbm", "linear")``.
+The single-LGBM proxy was the same model-agnostic-proxy pattern as
+the six gates flipped 2026-05-22. Adding Ridge to the screening
+families gives composites useful for linear / neural downstream a
+second voice in the union-aggregation.
+
+**Fuzz axes for the new gate knobs** ([_fuzz_combo.py:357](tests/training/_fuzz_combo.py#L357))
+Eight new ``composite_*_cfg`` axes hold (post-fix, pre-fix) pairs so
+the fuzz suite regression-covers any silent revert: skip-ratio,
+ablation-pct, eps_mi_gain, top_k_after_mi, require_beats_raw_baseline,
+per_bin_n_bins, tiny_screening_mode, include_additive_residual.
+``mlp_activation_cfg`` axis added for future plumbing (currently
+exercised by direct unit tests in ``test_tvt_mlp_audit_followups``).
+
+### Tests added
+- [test_tvt_mlp_audit_followups.py](tests/training/test_tvt_mlp_audit_followups.py)
+  (11 tests): additive_residual roundtrip + alias + default-list
+  presence; Identity-guard warns on multi-layer + silent on
+  nlayers=1 / ReLU; collapse-sensor extended branches; RANSAC
+  Ridge inner; drift translator nlayers=1 force; tiny_screening
+  per_family default.
+
+### Full disposition table (26 findings)
+
+| ID | Tier | Finding | Disposition |
+|----|------|---------|-------------|
+| A1 | P0 | Identity-on-multi-layer guard ([flat.py:197](src/mlframe/training/neural/flat.py#L197)) | RESOLVED |
+| A2 | P0 | Linear-extrapolation branch in collapse-sensor ([_reporting.py:506](src/mlframe/training/_reporting.py#L506)) | RESOLVED |
+| A3 | P0 | Drift translator force nlayers=1 ([feature_drift_report.py:316](src/mlframe/training/feature_drift_report.py#L316)) | RESOLVED |
+| A4 | P1 | Effective-rank probe post-Sequential build | FUTURE — duplicates A1 for the common case; rank probe needed only for less-common configs (zeros-init, bias=False on output) |
+| A5 | P1 | Reject activation_function=None for num_classes>=1 | RESOLVED (folded into A1: the guard treats None and nn.Identity uniformly) |
+| A6 | P2 | Docstring warn about Identity multi-layer ([flat.py:79](src/mlframe/training/neural/flat.py#L79)) | RESOLVED |
+| A7 | P2 | Type-narrow Callable -> type[nn.Module] | FUTURE — non-blocking; A1 catches misuse at runtime |
+| B1 | P0 | Predictions-outside-train-y-envelope sensor | RESOLVED via the in-batch mean-shift / linear-extrapolation branches (A2). Plumbing y_train_min/max through is FUTURE |
+| B2 | P0 | Plumb y_train_min/max/std into _train_model_with_fallback | FUTURE — invasive cross-cutting; A2 covers detection at the in-batch level |
+| B3 | P1 | GroupShuffleSplit WARN ([splitting.py:188](src/mlframe/training/splitting.py#L188)) | RESOLVED |
+| B4 | P1 | TTR predict override pre-inverse range check ([_ttr_eval_set_scaling.py](src/mlframe/training/_ttr_eval_set_scaling.py)) | RESOLVED |
+| B5 | P1 | Tighten collapse sensor mean-shift branch | RESOLVED (folded into A2) |
+| B6 | P2 | val_loss divergence warn in validation_step | FUTURE — A2 catches the symptom post-predict |
+| B7 | P2 | RANSAC LinearRegression -> Ridge ([models.py:147](src/mlframe/training/models.py#L147)) | RESOLVED |
+| C1 | P0 | Force-inject (top_ablation_feat, diff) spec | DOC — effectively covered by today's gate-flips + ``additive_residual`` addition: the spec is now generated AND survives the gate cascade on the default config. Force-injection-as-guarantee against re-enabled gates is FUTURE |
+| C2 | P0 | additive_residual transform ([composite_transforms.py:166](src/mlframe/training/composite_transforms.py#L166)) | RESOLVED |
+| C3 | P1 | median_residual transform (PCHIP-free, MLP-friendly) | FUTURE — new transform infrastructure; defer until concrete failure case |
+| C4 | P1 | y_quantile_clip unary | FUTURE — same |
+| C5 | P1 | kNN_target_mean_residual | FUTURE — same |
+| C6 | P2 | Promote linear_residual_grouped with auto-groups extraction | FUTURE — orchestration layer touches MRMR config; defer |
+| C7 | P2 | Surface skip thresholds in suite README | DOC — block comments at the dataclass field are already verbose; README cross-link is FUTURE |
+| D1 | P0 | tiny_screening_models per_family + linear ([_composite_target_discovery_config.py:354](src/mlframe/training/_composite_target_discovery_config.py#L354)) | RESOLVED |
+| D2 | P0 | mrmr.py fe_smart_polynom_iters default change | FUTURE — requires plumbing downstream-zoo awareness into MRMR config; can't flip blindly without compute-cost regression |
+| D3 | P1 | RFECV outer estimators include linear / MLP | FUTURE — significant scope; would also mask the real MLP/Ridge feature-set mismatch instead of revealing it |
+| D4 | P1 | Drift neural override threshold (LogReg-vs-LGBM) | FUTURE — 10% threshold is empirically calibrated against the bench DGPs; changing without that empirical work is unsupported |
+| D5 | P2 | MRMR identity cache cross-target invalidation | FUTURE — flip to False would re-run MRMR per composite (~88min savings lost); defer until composite-target-aware cache key lands |
+
+RESOLVED: 11 findings. DOC: 1. FUTURE: 14.
+
 ## 2026-05-22 — Composite-discovery: four more default flips to keep pure-lag composites alive
 
 After flipping the two top-level skip gates earlier today, a second
