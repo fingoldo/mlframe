@@ -606,6 +606,12 @@ def get_training_configs(
     _lgb_device = "cuda" if (has_gpu and LGB_GPU_AVAILABLE) else "cpu"
     LGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
+        # 2026-05-23: explicit ``learning_rate`` plumbed so the suite's
+        # ``learning_rate=`` kwarg actually reaches LightGBM (pre-fix LGB
+        # silently inherited library default 0.1 which happened to match
+        # the suite default but broke the override surface contract --
+        # users passing learning_rate=0.05 got LGB at 0.1).
+        learning_rate=learning_rate,
         early_stopping_rounds=early_stopping_rounds,
         device_type=_lgb_device,
         random_state=random_seed,

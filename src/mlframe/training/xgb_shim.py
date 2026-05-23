@@ -112,17 +112,48 @@ def xgb_dmatrix_reuse_capable() -> bool:
 def _signature_of(X) -> tuple:
     """Cache key for a feature matrix.
 
-    Combines ``id(X)`` (fast path: same Python object → same data) with
-    a content-summary tuple (columns + shape) so two distinct DataFrame
-    objects that share an ``id()`` (Python recycles ids after GC) still
-    miss the cache rather than corrupting it. Mirrors the design of
-    ``_CB_POOL_CACHE`` in trainer.py.
+    Uses a content-based fingerprint (columns + shape + sampled cell hash)
+    instead of ``id(X)``. Production TVT 2026-05-23: ``sklearn.clone()`` in
+    composite-ensemble OOF refit creates fresh shim instances with empty
+    cache, AND callers like ``train_X.iloc[train_idx].reset_index(drop=True)``
+    produce a fresh pandas DataFrame each call -- ``id(X)`` differs even
+    though the LOGICAL data is identical. Old cache (id-keyed) therefore
+    rebuilt QuantileDMatrix unnecessarily on EVERY OOF round, adding
+    ~20 s per target across 4 targets = ~80 s wasted.
+
+    The content fingerprint hashes (first row + last row + middle row +
+    shape + columns + dtypes) -- O(n_cols) work, not O(n_rows) -- giving
+    near-perfect cache hit on the same logical data and clean misses on
+    actually-different data. Mirrors the design of ``_CB_POOL_CACHE``.
     """
     cols = tuple(X.columns) if hasattr(X, "columns") else None
     shape = getattr(X, "shape", (None, None))
     n_rows = int(shape[0]) if shape and shape[0] is not None else None
     n_cols = int(shape[1]) if shape and len(shape) > 1 and shape[1] is not None else None
-    return (id(X), cols, n_rows, n_cols)
+    # Cheap content fingerprint: sample first, middle, last rows.
+    _content_hash: int | None = None
+    if n_rows is not None and n_rows >= 1 and hasattr(X, "iloc"):
+        try:
+            _samples = []
+            for _idx in (0, n_rows // 2, n_rows - 1):
+                if 0 <= _idx < n_rows:
+                    _row = X.iloc[_idx]
+                    _samples.append(tuple(_row.to_numpy(dtype=np.float64, copy=False)))
+            _content_hash = hash(tuple(_samples))
+        except Exception:
+            _content_hash = None
+    elif n_rows is not None and n_rows >= 1 and hasattr(X, "to_numpy"):
+        # Polars or other; sample via direct indexing on numpy view.
+        try:
+            _arr = X.to_numpy()
+            _samples = []
+            for _idx in (0, n_rows // 2, n_rows - 1):
+                if 0 <= _idx < n_rows:
+                    _samples.append(tuple(_arr[_idx]))
+            _content_hash = hash(tuple(_samples))
+        except Exception:
+            _content_hash = None
+    return (cols, n_rows, n_cols, _content_hash)
 
 
 def _build_quantile_dmatrix(

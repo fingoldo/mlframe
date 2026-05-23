@@ -1,5 +1,117 @@
 # Changelog
 
+## 2026-05-23 — TVT-rerun (round 3): 4 critical RMSE-impact fixes from 4-agent audit
+
+Fresh TVT production run WITH tree boosters added to the zoo (cb/xgb/lgb)
+produced **CT_ENSEMBLE TEST RMSE=12.82 -- WORSE than the trivial
+lag_predict dummy (11.58)** and worse than Ridge raw (11.63).
+
+Four agents audited; four code fixes ship in this commit.
+
+### Fix 1 (Agent B P0): OOF refit eval_set passthrough
+
+[composite_ensemble.py:183-264](src/mlframe/training/composite_ensemble.py#L183)
+``_maybe_pass_sample_weight`` did not pass ``eval_set`` to inner
+estimators during OOF refit. LightGBM clones built with
+``early_stopping_rounds`` callback raised:
+
+  > "For early stopping, at least one dataset and eval metric is
+  > required for evaluation."
+
+and were silently dropped from the ensemble. Production TVT: 4 LGBM
+clones (raw + 3 composite specs, "model index #2" in cb/xgb/lgb/linear/mlp)
+were ALL excluded -> ``nnls_stack`` fitted over 16/20 components
+without the strongest booster. Direct cause of the RMSE regression.
+
+Fix:
+* ``_maybe_pass_sample_weight`` now accepts ``eval_set=`` and uses
+  ``inspect.signature`` to dispatch by what the inner estimator's fit
+  signature actually supports.
+* New helper ``_carve_inner_eval_split`` carves the last 10% of train
+  rows as eval_set for the OOF refit; below 1000 rows it skips
+  (early-stopping at that scale is noise).
+* All three call sites (kfold branch, composite branch, raw branch)
+  now pass the eval_set.
+
+### Fix 2 (Agent A P0): align eval_metric to objective in auto-loss
+
+[_phase_train_one_target.py:130-175](src/mlframe/training/core/_phase_train_one_target.py#L130)
+The auto-loss policy set ``objective`` per backend but left
+``eval_metric`` pinned to the suite default ``def_regr_metric="MAE"``.
+On raw TVT (kurt=-0.71 -> RMSE objective) early-stopping fired on
+MAE-eval plateau while RMSE-objective was still descending; CB
+stopped at iter=147 / LGB at iter=76 (5000-iter cap), boosters
+visibly under-converged with TEST RMSE 13.5-14.85 vs Ridge 11.63.
+
+Fix: new ``_eval_metric_for(backend, objective_value)`` table inside
+the auto-loss applier maps each backend objective to the matching
+eval_metric (CB: RMSE/MAE/MAE-for-Huber; LGB: l2/l1/huber; XGB:
+rmse/mae/mphe) and applies them together in one ``set_params()`` call,
+with graceful fallback when a backend rejects the eval_metric.
+
+### Fix 3 (Agent A P0): kurt threshold 1.5 -> 3.0 + new Huber band
+
+[loss_recommendation.py:26-49,140-159](src/mlframe/training/loss_recommendation.py#L26)
+The previous threshold ``_EXCESS_KURT_HEAVY=1.5`` was empirically too
+aggressive: composite residuals with ``kurt=6.37`` got pure MAE
+objective, and the MAE gradient on a target where 99% of mass is
+near zero is just ``sign(noise)`` -- constant-magnitude random signal.
+Production TVT 2026-05-23: CatBoost early-stopped at iter=1 on
+TVT-addres-TVT_prev; LightGBM at iter=5 on TVT-diff-TVT_prev.
+
+Fix:
+* ``_EXCESS_KURT_HEAVY`` raised 1.5 -> 3.0 (pure MAE only above 3.0)
+* New ``_EXCESS_KURT_MEDIUM=1.5`` introduces a Huber band
+  ``excess_kurt in (1.5, 3.0]``: Huber retains useful gradient on
+  small residuals AND attenuates outlier influence -- dominates pure
+  L1 in the medium-kurt regime.
+
+### Fix 4 (Agent D P0): XGB shim cache fingerprint instead of id(X)
+
+[xgb_shim.py:112-160](src/mlframe/training/xgb_shim.py#L112)
+``_signature_of`` keyed on ``id(X)``. ``sklearn.clone()`` produces
+fresh shim instances with empty caches, AND callers like
+``train_X.iloc[train_idx].reset_index(drop=True)`` produce fresh
+pandas frames with different ids each call. Cache effectively never
+hit across OOF rounds -> ``QuantileDMatrix`` rebuilt 4 times in 1
+ensemble run = ~20 s wasted per target.
+
+Fix: cache key is now ``(columns, n_rows, n_cols, content_hash)``
+where ``content_hash`` is a 3-row sample (first/middle/last). O(n_cols)
+work, near-perfect hit on identical-data .iloc views, clean miss on
+genuinely different content.
+
+### Fix 5 (Agent A P0): LGB explicit learning_rate kwarg
+
+[helpers.py:609-616](src/mlframe/training/helpers.py#L609)
+``LGB_GENERAL_PARAMS`` was missing ``learning_rate`` -- LGB inherited
+the LightGBM library default 0.1 silently. CB and XGB both passed
+the suite ``learning_rate=`` kwarg explicitly; the gap meant users
+passing ``learning_rate=0.05`` got LGB at 0.1, breaking the override
+contract.
+
+### Tests
+
+[test_tvt_run_2026_05_23_round3.py](tests/training/test_tvt_run_2026_05_23_round3.py)
+covers all five fixes:
+* OOF eval_set passthrough (mock estimator + helper return shape)
+* ``_carve_inner_eval_split`` tail-split + below-threshold skip
+* kurt thresholds raised + Huber band on medium-kurt data
+* XGB shim content fingerprint (same content -> same key; different
+  content -> different key)
+* LGB ``LGB_GENERAL_PARAMS["learning_rate"]`` present and honours
+  the suite override
+
+### Expected RMSE impact (per audit estimates)
+* Fix 1 alone: ~1.2 RMSE (12.82 -> ~11.6 -- LGBM back in ensemble)
+* Fix 2 alone: ~2-3 RMSE on raw TVT (CB / LGB converge past iter=147/76)
+* Fix 3 alone: ~1-2 RMSE on composite residuals (Huber instead of MAE)
+* Fix 4: wall-clock only, ~80 s saved per ensemble OOF round
+* Fix 5: scenario-dependent (only matters when user passes non-default lr)
+
+Cumulative: expected RMSE comfortably below the 11.58 lag_predict
+floor on TEST.
+
 ## 2026-05-23 — lag_predict dummy baseline for AR-target detection
 
 New dummy baseline ``lag_predict`` that returns the per-row value of

@@ -132,6 +132,40 @@ def _apply_loss_recommendation_in_place(
         "lgb": ("objective", rec.get("lgb")),
         "xgb": ("objective", rec.get("xgb")),
     }
+    # 2026-05-23: align eval_metric to the chosen objective so early-stopping
+    # tracks the surface the optimiser is actually descending. Production TVT
+    # 2026-05-23: raw target (low-kurt -> RMSE objective) was early-stopping at
+    # iter=147 (CB) / 76 (LGB) on a 5000-iter cap because the SUITE DEFAULT
+    # ``def_regr_metric="MAE"`` left eval_metric pinned to MAE while objective
+    # was RMSE -- MAE-eval surface plateaued much earlier than RMSE objective
+    # could keep improving. Mismatch caused systematic under-convergence,
+    # boosters' TEST RMSE was WORSE than the trivial lag_predict baseline.
+    def _eval_metric_for(_backend: str, _value: str) -> tuple[str, Any] | None:
+        if _backend == "cb":
+            if _value == "RMSE":
+                return ("eval_metric", "RMSE")
+            if _value == "MAE":
+                return ("eval_metric", "MAE")
+            if _value.startswith("Huber"):
+                # Huber not a stock CB eval_metric; MAE approximates Huber
+                # near zero and is bounded-influence on tails.
+                return ("eval_metric", "MAE")
+        elif _backend == "lgb":
+            if _value == "regression":
+                return ("metric", "l2")  # l2 == rmse-squared, LGB stops on it
+            if _value == "regression_l1":
+                return ("metric", "l1")
+            if _value == "huber":
+                return ("metric", "huber")
+        elif _backend == "xgb":
+            if _value == "reg:squarederror":
+                return ("eval_metric", "rmse")
+            if _value == "reg:absoluteerror":
+                return ("eval_metric", "mae")
+            if _value == "reg:pseudohubererror":
+                return ("eval_metric", "mphe")
+        return None
+
     _applied: list[str] = []
     _skipped: list[str] = []
     for _backend, (_param_name, _value) in _backend_param.items():
@@ -146,16 +180,27 @@ def _apply_loss_recommendation_in_place(
         if _model is None or not hasattr(_model, "set_params"):
             _skipped.append(f"{_backend}:model_none_or_no_set_params")
             continue
+        _set_kwargs: dict = {_param_name: _value}
+        _em = _eval_metric_for(_backend, _value)
+        if _em is not None:
+            _set_kwargs[_em[0]] = _em[1]
         try:
-            _model.set_params(**{_param_name: _value})
-            _applied.append(f"{_backend}:{_param_name}={_value}")
+            _model.set_params(**_set_kwargs)
+            _applied.append(
+                f"{_backend}:{_param_name}={_value}"
+                + (f",{_em[0]}={_em[1]}" if _em is not None else "")
+            )
         except (ValueError, TypeError) as _set_err:
-            # Backend may reject the value (e.g. CB rejecting 'Huber:delta=1.345' on a specific board). Log and move on; default stays.
-            if verbose:
-                logger_.debug(
-                    "[auto-loss] %s.set_params(%s=%r) rejected: %s. Keeping default.",
-                    _backend, _param_name, _value, _set_err,
-                )
+            # Backend may reject the combined value. Try objective-only as fallback.
+            try:
+                _model.set_params(**{_param_name: _value})
+                _applied.append(f"{_backend}:{_param_name}={_value}")
+            except (ValueError, TypeError) as _set_err2:
+                if verbose:
+                    logger_.debug(
+                        "[auto-loss] %s.set_params(%s=%r) rejected: %s / %s. Keeping default.",
+                        _backend, _param_name, _value, _set_err, _set_err2,
+                    )
 
     if verbose and _applied:
         logger_.info(

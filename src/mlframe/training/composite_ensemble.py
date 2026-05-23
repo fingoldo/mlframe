@@ -180,21 +180,87 @@ def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
     return bool(np.all(np.diff(af) >= 0))
 
 
-def _maybe_pass_sample_weight(fit_callable, X, y, sw: np.ndarray | None):
-    """Call ``fit_callable.fit(X, y, sample_weight=sw)`` when sw is given AND fit accepts it; else ``fit(X, y)``.
+def _maybe_pass_sample_weight(
+    fit_callable, X, y,
+    sw: np.ndarray | None,
+    eval_set: tuple | None = None,
+):
+    """Call ``fit_callable.fit(X, y[, sample_weight, eval_set])`` honouring whichever
+    kwargs the inner estimator's fit signature exposes.
 
-    Avoids hard-coding which inner estimators support sample_weight (CatBoost / LGB / sklearn all do; some
-    custom shims may not). Falls back to the plain call on TypeError so missing-kwarg shims keep working."""
-    if sw is None:
-        return fit_callable.fit(X, y)
+    Avoids hard-coding which inner estimators support sample_weight (CatBoost / LGB /
+    sklearn all do; some custom shims may not).
+
+    ``eval_set`` plumbed 2026-05-23 to fix the OOF-refit silent-drop pathology
+    (production TVT 2026-05-23: LGBM clones with ``early_stopping_rounds`` callback
+    attached but no eval data raised ``"For early stopping, at least one dataset
+    and eval metric is required for evaluation"`` and were dropped from the
+    cross-target ensemble -- ensemble RMSE 12.82 worse than dummy 11.58).
+
+    Falls back to the plain call on TypeError so missing-kwarg shims keep working.
+    """
+    import inspect as _inspect
     try:
-        import inspect as _inspect
         _sig = _inspect.signature(fit_callable.fit)
-        if "sample_weight" in _sig.parameters or any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()):
-            return fit_callable.fit(X, y, sample_weight=sw)
+        _params = _sig.parameters
+        _accepts_var_kw = any(
+            p.kind == _inspect.Parameter.VAR_KEYWORD for p in _params.values()
+        )
+        _kwargs: dict = {}
+        if sw is not None and (
+            "sample_weight" in _params or _accepts_var_kw
+        ):
+            _kwargs["sample_weight"] = sw
+        if eval_set is not None and (
+            "eval_set" in _params or _accepts_var_kw
+        ):
+            # LightGBM expects a list of (X, y) tuples; XGBoost/CatBoost
+            # accept either (X, y) tuple or list-of-tuples. Normalising to
+            # list-of-tuples covers all three.
+            _es = eval_set if isinstance(eval_set, list) else [eval_set]
+            _kwargs["eval_set"] = _es
+        if _kwargs:
+            return fit_callable.fit(X, y, **_kwargs)
     except (TypeError, ValueError):
         pass
+    # Retry with sample_weight alone if combined call failed
+    if sw is not None:
+        try:
+            return fit_callable.fit(X, y, sample_weight=sw)
+        except (TypeError, ValueError):
+            pass
     return fit_callable.fit(X, y)
+
+
+def _carve_inner_eval_split(
+    X, y, *, frac: float = 0.1, random_state: int | None = 0,
+):
+    """Return ``(X_fit, y_fit, X_eval, y_eval)`` for OOF refits that need
+    an eval_set to satisfy early-stopping callbacks on cloned boosters.
+
+    Uses the last ``frac`` of rows (deterministic, no shuffle) to keep
+    the inner split reproducible and to mirror the temporal nature of
+    the production split where val_placement='forward' carves the tail.
+    For row counts below 1000 the split is skipped (returns
+    ``X, y, None, None``) -- early-stopping at that scale is noise."""
+    try:
+        n = len(y)
+    except TypeError:
+        return X, y, None, None
+    if n < 1000:
+        return X, y, None, None
+    n_eval = max(100, int(frac * n))
+    if n_eval >= n - 100:
+        return X, y, None, None
+    # Last-tail split. Deterministic, no shuffle.
+    cut = n - n_eval
+    if hasattr(X, "iloc"):
+        return X.iloc[:cut], y[:cut], X.iloc[cut:], y[cut:]
+    if hasattr(X, "select") and hasattr(X, "slice"):
+        # polars
+        return X.slice(0, cut), y[:cut], X.slice(cut, n_eval), y[cut:]
+    # ndarray
+    return X[:cut], y[:cut], X[cut:], y[cut:]
 
 
 # Module-level memo cache for compute_oof_holdout_predictions. OOF-K-NOT-CACHED: keyed by
@@ -392,7 +458,15 @@ def compute_oof_holdout_predictions(
                     else:
                         inner_clone = clone(inner)
                         _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
-                        _maybe_pass_sample_weight(inner_clone, X_stack_t, y_stack, _sw_stack)
+                        _X_fit, _y_fit, _X_ev, _y_ev = _carve_inner_eval_split(
+                            X_stack_t, y_stack, random_state=int(random_state),
+                        )
+                        _eval_set = (_X_ev, _y_ev) if _X_ev is not None else None
+                        _sw_fit = _sw_stack[:len(_y_fit)] if _sw_stack is not None else None
+                        _maybe_pass_sample_weight(
+                            inner_clone, _X_fit, _y_fit, _sw_fit,
+                            eval_set=_eval_set,
+                        )
                         preds = inner_clone.predict(X_holdout_t)
                     preds = np.asarray(preds).reshape(-1).astype(np.float64)
                     if not np.all(np.isfinite(preds)):
@@ -518,7 +592,18 @@ def compute_oof_holdout_predictions(
                 else:
                     X_stack_valid = X_stack_t[valid]
                 _sw_stack_valid = None if sample_weight is None else sample_weight[train_idx][valid]
-                _maybe_pass_sample_weight(inner_clone, X_stack_valid, t_stack, _sw_stack_valid)
+                _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c = _carve_inner_eval_split(
+                    X_stack_valid, t_stack, random_state=0,
+                )
+                _eval_set_c = (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
+                _sw_fit_c = (
+                    _sw_stack_valid[:len(_t_fit_c)]
+                    if _sw_stack_valid is not None else None
+                )
+                _maybe_pass_sample_weight(
+                    inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
+                    eval_set=_eval_set_c,
+                )
                 # Multi-base parity: same fix as the kfold OOF branch
                 # above. Without base_columns, predict reconstructs only
                 # the primary base column and trips the K-alphas shape check.
@@ -540,7 +625,17 @@ def compute_oof_holdout_predictions(
                 # (X_stack, y_stack) and predict on X_holdout.
                 inner_clone = clone(inner)
                 _sw_stack = None if sample_weight is None else sample_weight[train_idx]
-                _maybe_pass_sample_weight(inner_clone, X_stack_t, y_stack, _sw_stack)
+                _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r = _carve_inner_eval_split(
+                    X_stack_t, y_stack, random_state=0,
+                )
+                _eval_set_r = (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
+                _sw_fit_r = (
+                    _sw_stack[:len(_y_fit_r)] if _sw_stack is not None else None
+                )
+                _maybe_pass_sample_weight(
+                    inner_clone, _X_fit_r, _y_fit_r, _sw_fit_r,
+                    eval_set=_eval_set_r,
+                )
                 preds = inner_clone.predict(X_holdout_t)
             preds = np.asarray(preds).reshape(-1).astype(np.float64)
             if not np.all(np.isfinite(preds)):
