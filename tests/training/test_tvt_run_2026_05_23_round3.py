@@ -173,9 +173,17 @@ class TestLGBLearningRatePlumbing:
         override-surface gap."""
         from mlframe.training.helpers import get_training_configs
         configs = get_training_configs(learning_rate=0.05)
-        lgb_params = configs.get("LGB_GENERAL_PARAMS")
-        assert lgb_params is not None
+        # ``get_training_configs`` returns a SimpleNamespace; the LGB
+        # params live on the ``LGB_GENERAL_PARAMS`` attribute. Use
+        # ``getattr`` so this stays portable if the return type is
+        # tightened to a Pydantic model later.
+        lgb_params = getattr(configs, "LGB_GENERAL_PARAMS", None)
+        assert lgb_params is not None, (
+            f"LGB_GENERAL_PARAMS attribute missing on return of "
+            f"get_training_configs; got attrs: {dir(configs)}"
+        )
         assert "learning_rate" in lgb_params, (
-            f"LGB_GENERAL_PARAMS missing learning_rate: keys={list(lgb_params.keys())}"
+            f"LGB_GENERAL_PARAMS missing learning_rate: "
+            f"keys={list(lgb_params.keys())}"
         )
         assert lgb_params["learning_rate"] == 0.05
