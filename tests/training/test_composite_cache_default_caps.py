@@ -22,13 +22,23 @@ def test_default_caps_are_non_none(tmp_path):
 
 
 @pytest.mark.fast
-def test_explicit_none_still_disables_cap(tmp_path):
-    """Operator opt-out path still works."""
+def test_explicit_none_pair_raises(tmp_path):
+    """Both caps None is an unauditable footgun. Per audit A5 Low #13 the constructor now refuses
+    so the operator must explicitly pass a large finite cap (or float('inf') / 10**9) to opt into unbounded growth."""
     from mlframe.training.composite_cache import DiscoveryCache
 
-    cache = DiscoveryCache(str(tmp_path), max_entries=None, max_size_mb=None)
+    with pytest.raises(ValueError, match="grow without bound"):
+        DiscoveryCache(str(tmp_path), max_entries=None, max_size_mb=None)
+
+
+@pytest.mark.fast
+def test_explicit_one_none_other_set_works(tmp_path):
+    """Disabling ONE cap is fine -- the other cap still gates eviction."""
+    from mlframe.training.composite_cache import DiscoveryCache
+
+    cache = DiscoveryCache(str(tmp_path), max_entries=None, max_size_mb=2000.0)
     assert cache.max_entries is None
-    assert cache.max_size_mb is None
+    assert cache.max_size_mb == 2000.0
 
 
 @pytest.mark.fast

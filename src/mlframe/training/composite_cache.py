@@ -527,14 +527,16 @@ class DiscoveryCache:
         self.max_entries = max_entries
         self.max_size_mb = max_size_mb
         self._lru_path = os.path.join(self.cache_dir, ".lru")
-        # DISC-MAX-UNBOUNDED: a None default for BOTH caps means the cache grows monotonically on
-        # repeated R&D runs. Surface a one-time WARN at construction so the operator notices before
-        # the disk fills; if they set either cap explicitly the warning stays silent.
+        # Both caps None means the cache grows monotonically on repeated R&D runs and silently
+        # fills the disk. CI / test runs commonly suppress warnings, so a WARN-only signal
+        # disappears in practice -- promote to a hard ValueError so the operator is forced to make
+        # an explicit choice. Pass ``max_entries=10**9`` or ``max_size_mb=float("inf")`` if the
+        # genuine intent is "no eviction".
         if max_entries is None and max_size_mb is None:
-            warnings.warn(
+            raise ValueError(
                 f"DiscoveryCache at {self.cache_dir!r} constructed with max_entries=None and max_size_mb=None: "
-                f"cache will grow without bound. Pass at least one cap to enable LRU eviction.",
-                stacklevel=2,
+                "the cache would grow without bound. Pass at least one explicit cap (or float('inf') / 10**9 "
+                "to opt into unbounded growth) so the choice is auditable."
             )
 
     # ------------------------------------------------------------------
