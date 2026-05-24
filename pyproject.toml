@@ -280,7 +280,7 @@ mlframe = ["py.typed"]
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra -x -s --no-cov --strict-markers --strict-config --ignore=legacy --ignore=benchmarks --ignore=profiling"
+addopts = "-ra -x -s --no-cov --strict-markers --strict-config --timeout=60 --ignore=legacy --ignore=benchmarks --ignore=profiling"
 xfail_strict = true
 doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
 markers = [
@@ -301,6 +301,7 @@ markers = [
     "requires_torch: requires torch",
     "uses_matplotlib: test produces matplotlib figures; triggers plt.close('all') + gc in cleanup_memory autouse",
     "uses_torch: test allocates GPU/CPU torch tensors; triggers torch.cuda.empty_cache in cleanup_memory autouse",
+    "numba_disabled: include in the NUMBA_DISABLE_JIT=1 nightly coverage run; tests run 10-100x slower under no-JIT, see scripts/run_numba_coverage.{sh,ps1}",
 ]
 filterwarnings = [
     "error::DeprecationWarning:mlframe",
