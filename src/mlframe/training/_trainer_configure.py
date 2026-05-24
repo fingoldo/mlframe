@@ -184,10 +184,17 @@ def configure_training_params(
     n_classes: int | None = None,
     multilabel_dispatch_config: MultilabelDispatchConfig | None = None,
     # TrainingBehaviorConfig field; accepted here as a no-op so the caller's
-    # ``**effective_behavior_params`` splat (train_eval.py:576) doesn't fail
+    # ``**effective_behavior_params`` splat (train_eval.py:592) doesn't fail
     # with 'unexpected keyword'. The cache bound is consumed in
     # _pipeline_helpers via behavior_config attached to common_params.
     pre_pipeline_cache_max: int = 4,
+    # Catch-all for the rest of TrainingBehaviorConfig: train_eval.py splats every
+    # behavior field as **effective_behavior_params and most of them are consumed
+    # downstream via the behavior_config object attached to common_params, NOT via
+    # this signature. Without **_unused_behavior_kwargs every new behavior knob
+    # would break the splat with TypeError. Bind the splat catch-all so the suite
+    # stays forward-compatible with new TrainingBehaviorConfig fields.
+    **_unused_behavior_kwargs,
 ):
     """Configure training parameters for all model types.
 

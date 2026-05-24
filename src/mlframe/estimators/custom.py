@@ -40,6 +40,15 @@ from sklearn.base import BaseEstimator, RegressorMixin, _fit_context, clone
 # Module-level PowerTransformer removed: it was never fit and unsafe across threads.
 # Callers should pass a fitted PowerTransformer to inv_box_cox_plus_c via the `transformer` kwarg.
 
+# sklearn 1.6 renamed check_array's force_all_finite -> ensure_all_finite (force_all_finite
+# is deprecated in 1.6 and removed in 1.8). Resolve once at import time so call sites stay
+# clean and the same source supports the 1.5-1.8 matrix.
+import sklearn as _skl
+_skl_ver = tuple(int(p) for p in _skl.__version__.split(".")[:2])
+_FORCE_ALL_FINITE_KW = (
+    {"ensure_all_finite": True} if _skl_ver >= (1, 6) else {"force_all_finite": True}
+)
+
 # ----------------------------------------------------------------------------------------------------------------------------
 # Core
 # ----------------------------------------------------------------------------------------------------------------------------
@@ -70,16 +79,16 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
             check_inverse=check_inverse,
         )
         self.es_fit_param_name = es_fit_param_name
-        
+
     def _transform_y(self, y):
         y = check_array(
             y,
             input_name="y",
             accept_sparse=False,
-            force_all_finite=True,
             ensure_2d=False,
             dtype="numeric",
             allow_nd=True,
+            **_FORCE_ALL_FINITE_KW,
         )
         if y.ndim == 1:
             y_2d = y.reshape(-1, 1)
@@ -125,10 +134,10 @@ class ESTransformedTargetRegressor(TransformedTargetRegressor):
                 y,
                 input_name="y",
                 accept_sparse=False,
-                force_all_finite=True,
                 ensure_2d=False,
                 dtype="numeric",
                 allow_nd=True,
+                **_FORCE_ALL_FINITE_KW,
             )
 
             # store the number of dimension of the target to predict an array of
@@ -216,7 +225,7 @@ class PdOrdinalEncoder(OrdinalEncoder):
 
 class PdKBinsDiscretizer(KBinsDiscretizer):
 
-    def __init__(self, n_bins=5, encode='onehot', strategy='quantile', dtype=None, subsample='warn', random_state=None):
+    def __init__(self, n_bins=5, encode='onehot', strategy='quantile', dtype=None, subsample=200_000, random_state=None):
         super().__init__(n_bins=n_bins,encode=encode, strategy=strategy, dtype=dtype, subsample=subsample, random_state=random_state)
 
     def transform(self, X):

@@ -41,25 +41,35 @@ def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
 
 
 def _verify_sidecar(path: str) -> bool:
+    """Verify the pickle bundle against its `.sha256` sidecar.
+
+    Default contract is fail-closed: a missing sidecar returns False so loaders
+    refuse the bundle. Set ``MLFRAME_ALLOW_UNVERIFIED_PICKLE=1`` to opt back into
+    the legacy permissive behaviour (loud WARN). Mirrors inference.predict._verify_sidecar
+    so the two pickle entry points share the same security posture.
+    """
     sidecar = path + ".sha256"
-    # Wave 48 (2026-05-20): the prior isfile-then-open pattern was a TOCTOU race
-    # (sidecar deleted between check and open raised FileNotFoundError uncaught
-    # mid model-load). Try-open and treat missing sidecar as "no verification".
-    # Wave 84 (2026-05-21): WARN when sidecar is missing -- previously a silently-
-    # missing sidecar opened an RCE bypass (attacker plants pickle, omits sidecar,
-    # _verify_sidecar returns True). Loud WARN so the operator sees the gap.
     try:
         with open(sidecar, encoding="utf-8") as f:
             expected = f.read().strip().split()[0].lower()
     except FileNotFoundError:
         import logging as _lg
-        _lg.getLogger(__name__).warning(
-            "_verify_sidecar: no .sha256 sidecar for %s -- pickle load proceeds WITHOUT "
-            "content verification (RCE risk if path is attacker-reachable). "
-            "Generate the sidecar with `sha256sum <path> > <path>.sha256` to enable verification.",
+        import os as _os
+        if _os.environ.get("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "").strip() in ("1", "true", "True", "yes"):
+            _lg.getLogger(__name__).warning(
+                "_verify_sidecar: no .sha256 sidecar for %s; MLFRAME_ALLOW_UNVERIFIED_PICKLE is set so "
+                "load proceeds WITHOUT content verification (RCE risk if path is attacker-reachable). "
+                "Generate the sidecar with `sha256sum <path> > <path>.sha256` to remove the opt-in.",
+                path,
+            )
+            return True
+        _lg.getLogger(__name__).error(
+            "_verify_sidecar: no .sha256 sidecar for %s -- refusing to load. "
+            "Generate the sidecar with `sha256sum <path> > <path>.sha256` or set "
+            "MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 to allow unverified loads.",
             path,
         )
-        return True
+        return False
     return _sha256_of_file(path).lower() == expected
 
 import matplotlib as mpl

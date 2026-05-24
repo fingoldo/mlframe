@@ -197,10 +197,6 @@ class TestESTransformedTargetRegressorCompliance:
     def test_clone_of_unfitted_wrapper(self):
         _assert_clone_returns_unfitted_shell(self._make())
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="ESTransformedTargetRegressor.fit calls sklearn.utils.check_array(force_all_finite=...) which sklearn>=1.6 renamed to ensure_all_finite. Pre-existing bug in src/mlframe/estimators/custom.py lines 124/76; not in S25 scope (sklearn-compliance harness only).",
-    )
     def test_fit_then_predict_happy_path(self):
         rng = np.random.default_rng(0)
         X = rng.uniform(0.5, 5.0, size=(40, 3))
