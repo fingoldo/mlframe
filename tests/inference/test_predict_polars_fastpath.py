@@ -90,17 +90,20 @@ def test_predict_from_models_polars_fastpath_cb_keeps_polars():
 def test_predict_from_models_polars_fastpath_xgb_keeps_polars():
     """Same as the CB test but with XGBoost (also polars-native via the sklearn wrapper)."""
     xgb = pytest.importorskip("xgboost")
-    # XGBoost's polars-native QuantileDMatrix path was added in 2.1+.
-    # On Python 3.9 CI wheels (xgb 2.0.x) the iterator probe rejects
-    # ``polars.dataframe.frame.DataFrame`` with ``TypeError: Value type is
-    # not supported for data iterator``. The fastpath sensor only makes
-    # sense when XGB itself can consume polars; skip on older XGB.
+    # XGBoost's QuantileDMatrix data-iterator on the 2.1.x line still
+    # rejects ``polars.dataframe.frame.DataFrame`` with ``TypeError:
+    # Value type is not supported for data iterator`` (verified xgb
+    # 2.1.4 on Python 3.9 CI 2026-05-24). The polars-iterator path
+    # only became reliable on the 3.0+ line. The fastpath sensor
+    # only makes sense when XGB itself can consume polars natively;
+    # skip on older XGB so the assertion target reflects production
+    # rather than the version constraint.
     _xgb_ver = tuple(int(x) for x in xgb.__version__.split(".")[:2])
-    if _xgb_ver < (2, 1):
+    if _xgb_ver < (3, 0):
         pytest.skip(
-            f"xgboost {xgb.__version__} predates native polars support "
-            f"in QuantileDMatrix (added in 2.1); fastpath sensor requires "
-            f"a polars-aware XGB."
+            f"xgboost {xgb.__version__} QuantileDMatrix iterator does "
+            f"not accept polars frames (verified failure on 2.1.4); "
+            f"native polars support stabilised in 3.0+."
         )
     df = _build_polars_frame()
     models, metadata = _run_suite(df, ["xgb"])

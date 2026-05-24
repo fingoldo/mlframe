@@ -93,6 +93,7 @@ def test_kaleido_recovery_restores_persistent_path(tmp_path):
     """After a failure + recovery, the next save should use the
     restarted persistent server (fast path), not stay on oneshot
     forever."""
+    pytest.importorskip("kaleido")  # Not in CI [all,dev] extras; sensor needs the real package to patch.
     import plotly.graph_objects as go
     from mlframe.reporting.renderers.plotly import (
         PlotlyRenderer, _restart_kaleido_server,

@@ -189,9 +189,6 @@
     "module": "mlframe.training.pu_learning",
     "mro": [
       "sklearn.base.BaseEstimator",
-      "sklearn.utils._repr_html.base.ReprHTMLMixin",
-      "sklearn.utils._repr_html.base._HTMLDocumentationLinkMixin",
-      "sklearn.utils._metadata_requests._MetadataRequester",
       "sklearn.base.ClassifierMixin",
       "builtins.object"
     ]

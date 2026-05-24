@@ -82,23 +82,48 @@ def _public_names() -> list[str]:
 
 
 def _capture_class(obj: type) -> dict:
-    # Normalize MRO entries that are conditional on the Python minor version.
-    # ``enum.StrEnum`` is stdlib on Python 3.11+ (with ``enum.ReprEnum`` in
-    # the MRO), polyfilled inside ``mlframe.training._configs_base`` on
-    # Python 3.10 (no ``ReprEnum`` in the MRO). Comparing the literal MRO
-    # then trips the snapshot on every Python-minor swap. Collapse all
-    # ``StrEnum`` / ``IntEnum`` / ``Enum`` bases to a canonical
-    # ``enum.<Name>`` and DROP the ``ReprEnum`` entry entirely (it is a
-    # stdlib internal that only exists in 3.11+) so the snapshot is portable.
+    # Normalize MRO entries that vary with stdlib / dependency minor versions.
+    # 1. ``enum.StrEnum`` is stdlib on Python 3.11+ (with ``enum.ReprEnum`` in
+    #    the MRO), polyfilled inside ``mlframe.training._configs_base`` on
+    #    Python 3.10 (no ``ReprEnum`` in the MRO). Collapse all
+    #    ``StrEnum``/``IntEnum``/``Enum`` bases to canonical ``enum.<Name>``
+    #    and DROP the ``ReprEnum`` entry entirely.
+    # 2. sklearn shuffles its internal ``_HTMLDocumentationLinkMixin`` /
+    #    ``ReprHTMLMixin`` etc. between minor releases (``_repr_html.base`` vs
+    #    ``_estimator_html_repr``). DROP every sklearn-internal mixin
+    #    (``sklearn.*._*Mixin`` / ``_*Requester``) from the MRO so the snapshot
+    #    survives the dep-pin matrix. mlframe doesn't depend on sklearn's
+    #    private mixin layout; only the public base (``BaseEstimator``,
+    #    ``ClassifierMixin``, ``RegressorMixin``, ``TransformerMixin``,
+    #    ``MetaEstimatorMixin``) matters for the API contract.
     _SKIP_NAMES = {"ReprEnum"}
     _CANONICAL_ENUMS = {"StrEnum", "IntEnum", "Enum", "IntFlag", "Flag"}
+    _PUBLIC_SKLEARN_MIXINS = {
+        "BaseEstimator", "ClassifierMixin", "RegressorMixin",
+        "TransformerMixin", "MetaEstimatorMixin", "ClusterMixin",
+        "BiclusterMixin", "OutlierMixin", "DensityMixin",
+        "MultiOutputMixin", "OneToOneFeatureMixin",
+    }
     _canon = []
     _seen_canon = set()
     for c in obj.__mro__[1:]:
         if c.__name__ in _SKIP_NAMES:
             continue
+        # sklearn internal: any class whose module starts with sklearn.utils.
+        # or whose name starts with an underscore. sklearn moves these freely
+        # between minor releases (``_repr_html.base.ReprHTMLMixin`` ->
+        # ``_estimator_html_repr._HTMLDocumentationLinkMixin`` between
+        # sklearn 1.5 and 1.6 was the 2026-05-24 CI trigger).
+        if c.__module__.startswith("sklearn.utils."):
+            continue
+        if c.__module__.startswith("sklearn.") and c.__name__.startswith("_"):
+            continue
         if c.__name__ in _CANONICAL_ENUMS:
             key = f"enum.{c.__name__}"
+        elif c.__module__.startswith("sklearn.") and c.__name__ in _PUBLIC_SKLEARN_MIXINS:
+            # Canonical sklearn.base location (sklearn moves these between
+            # sklearn.base and sklearn.utils.* between minor releases too).
+            key = f"sklearn.base.{c.__name__}"
         else:
             key = c.__module__ + "." + c.__name__
         if key not in _seen_canon:
