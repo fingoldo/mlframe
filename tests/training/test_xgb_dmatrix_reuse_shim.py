@@ -579,7 +579,19 @@ class TestXGBShimIntegrationWithMlframeSuite:
             shim_logger.removeHandler(h)
             shim_logger.setLevel(prev_level)
 
-        reuse_msgs = [m for m in records if "reused cached train DMatrix" in m]
+        # The shim emits two distinct "reuse" messages:
+        #   * ``[xgb-shim] reused instance cached train DMatrix`` -- same
+        #     wrapper instance reused for predict + a second fit;
+        #   * ``[xgb-shim] reused cached train DMatrix from module cache``
+        #     -- a freshly-cloned wrapper found the cached DMatrix in the
+        #     process-wide module cache.
+        # Both prove the cache wiring works across the weight-schema loop;
+        # match either form.
+        reuse_msgs = [
+            m for m in records
+            if "reused cached train DMatrix" in m
+            or "reused instance cached train DMatrix" in m
+        ]
         # With 2 weight schemas (uniform + recency), we expect:
         #   - 1 build on the first fit (uniform);
         #   - 1 reuse on the second (recency, same train_df_polars id).
@@ -587,11 +599,12 @@ class TestXGBShimIntegrationWithMlframeSuite:
         # the cache resets and we'd see 0 reuses — that's the regression
         # path this test pins down.
         assert reuse_msgs, (
-            "Expected at least one '[xgb-shim] reused cached train DMatrix' "
-            "log line — the shim cache didn't kick in across weight-schema "
-            "iterations. Either the shim isn't wired (toggle off), or "
-            "sklearn.clone() blanks the cache between iterations and we "
-            "need to re-prime it from the strategy loop in core.py."
+            "Expected at least one '[xgb-shim] reused {instance,} cached "
+            "train DMatrix' log line — the shim cache didn't kick in "
+            "across weight-schema iterations. Either the shim isn't wired "
+            "(toggle off), or sklearn.clone() blanks the cache between "
+            "iterations and we need to re-prime it from the strategy "
+            "loop in core.py."
         )
 
 

@@ -132,9 +132,9 @@ def _apply_loss_recommendation_in_place(
         "lgb": ("objective", rec.get("lgb")),
         "xgb": ("objective", rec.get("xgb")),
     }
-    # 2026-05-23: align eval_metric to the chosen objective so early-stopping
-    # tracks the surface the optimiser is actually descending. Production TVT
-    # 2026-05-23: raw target (low-kurt -> RMSE objective) was early-stopping at
+    # Align eval_metric to the chosen objective so early-stopping
+    # tracks the surface the optimiser is actually descending. Production TVT:
+    # raw target (low-kurt -> RMSE objective) was early-stopping at
     # iter=147 (CB) / 76 (LGB) on a 5000-iter cap because the SUITE DEFAULT
     # ``def_regr_metric="MAE"`` left eval_metric pinned to MAE while objective
     # was RMSE -- MAE-eval surface plateaued much earlier than RMSE objective

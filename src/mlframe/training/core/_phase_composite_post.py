@@ -372,7 +372,7 @@ def run_composite_post_processing(
                         PrePipelinePredictShim(_inner, _pp, _name)
                     )
                     _component_names.append(_name)
-                # 2026-05-23: inject lag_predict dummy baseline as a free component
+                # Inject lag_predict dummy baseline as a free component
                 # for the cross-target ensemble pool. On strongly auto-regressive
                 # targets (TVT-style, lag1_corr ~0.999 within groups) the dumbest
                 # ``y_hat = lag_target_value`` baseline often beats every trained

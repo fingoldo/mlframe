@@ -92,7 +92,14 @@ class TestTfidfHappyPath:
 
     def test_idempotency(self, small_text_polars):
         """fit().transform(df) and fit_transform(df) on the same df
-        should produce identical sparse matrices."""
+        should produce numerically-identical sparse matrices.
+
+        sklearn 1.x TfidfTransformer accumulates ``np.sum`` in float64
+        but the order-of-summation differs between fit-then-transform
+        and fit_transform paths (cache invalidation in
+        TfidfTransformer.fit_transform). Diffs land at f64-precision
+        (~5e-17). Use assert_allclose with a tiny tolerance instead of
+        assert_array_equal to absorb that without false-positives."""
         # min_df=1 on this 5-row toy fixture; production default min_df=2 would
         # prune every token to empty vocab on this size.
         enc1 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20, min_df=1))
@@ -102,7 +109,7 @@ class TestTfidfHappyPath:
         enc2 = TextColumnEncoder(column="txt", params=TfidfParams(max_features=20, min_df=1))
         out2 = enc2.fit_transform(small_text_polars)
 
-        np.testing.assert_array_equal(out1.toarray(), out2.toarray())
+        np.testing.assert_allclose(out1.toarray(), out2.toarray(), rtol=0, atol=1e-15)
 
 
 # =====================================================================
@@ -242,22 +249,35 @@ class TestCapabilityDetector:
 
     def test_dispatcher_prefer_true_uses_caps(self):
         d = PolarsNativeDispatcher(prefer_polarsds=True)
-        # If installed, basic Blueprint ops are available.
+        # The dispatcher's blueprint.* caps require both ``polars_ds`` AND
+        # its ``polars_ds.pipeline`` submodule (the Blueprint factory lives
+        # there). Some installed polars_ds builds ship without
+        # ``.pipeline`` (lightweight subset); the dispatcher correctly
+        # reports caps=0 in that case. Skip when either is missing.
         try:
             import polars_ds  # noqa: F401
-            assert d.has("blueprint.impute")
-            assert d.has("blueprint.scale")
+            import polars_ds.pipeline  # noqa: F401
         except ImportError:  # pragma: no cover
-            pytest.skip("polars-ds not installed")
+            pytest.skip("polars-ds (or polars_ds.pipeline) not installed")
+        assert d.has("blueprint.impute")
+        assert d.has("blueprint.scale")
 
     def test_get_version_returns_string(self):
         reset_capability_cache()
         d = PolarsNativeDispatcher(prefer_polarsds=True)
         v = d.get_version()
+        # get_version() depends on the ``polars_ds.pipeline`` submodule
+        # being importable; treat absence of either polars_ds OR the
+        # .pipeline submodule as the None-case.
         try:
             import polars_ds  # noqa: F401
-            assert isinstance(v, str)
+            import polars_ds.pipeline  # noqa: F401
+            _has_full_polars_ds = True
         except ImportError:
+            _has_full_polars_ds = False
+        if _has_full_polars_ds:
+            assert isinstance(v, str)
+        else:
             assert v is None
 
 
