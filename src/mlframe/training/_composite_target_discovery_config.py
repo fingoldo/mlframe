@@ -854,7 +854,19 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     extreme_ar_group_aware_skip: bool = True
     extreme_ar_threshold: float = 0.99
 
-    # Composite-feature stacking. When True, ``run_composite_target_discovery``
+    # Build CT_ENSEMBLE for raw targets even when ZERO composite specs
+    # were discovered. Without this knob, the entry guard in
+    # ``_phase_composite_post`` requires composite_specs_by_target_type
+    # to be non-empty, so the dummy-floor gate + lag_predict injection
+    # + AR(1) failsafe never run on raw-only targets. The suite then
+    # ships a simple-arithmetic ensemble of raw models that is worse
+    # than the best single component when 3-of-4 boosters are above the
+    # lag floor (TVT prod 2026-05-24: EnsARITHM TEST=12.45 vs Ridge
+    # alone 11.63, lag_predict 11.58). With this knob the OOF gate sees
+    # Ridge alone and prefers it, or falls back to lag_predict if the
+    # AR-failsafe tolerance is met. Disable to revert to the legacy
+    # raw-models-only ensemble path (mean/median/arith flavours only).
+    always_build_ct_ensemble_for_raw: bool = True
     # produces an opt-in stub call to ``composite_oof_predictions`` /
     # ``composite_predictions_as_feature`` on the discovered specs so
     # downstream code can attach the predictions as engineered features.

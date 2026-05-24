@@ -1,5 +1,60 @@
 # Changelog
 
+## 2026-05-24 — Round 5.4: MLP-skip on extreme-AR + raw-only CT_ENSEMBLE + verdict-table test fallback
+
+TVT prod 2026-05-24 (post-round-5.3) successfully short-circuited
+composite discovery (extreme_ar_group_aware_skip fired, ~10 min
+saved) and Ridge converged to within 0.4% of the lag_predict floor
+(11.63 vs 11.58 on TEST RMSE). Three excesses remained:
+
+* MLP still trained 2.7 min only to be excluded from every ensemble
+  by the quality-gate (R2=-286 on TEST, pred_std=58 vs target_std=645);
+* the simple-arithmetic ensemble (EnsARITHM=12.45) was worse than
+  Ridge alone (11.63) because 3-of-4 boosters dragged the mean down;
+* the verdict table showed best_model="-" even though Ridge had a
+  computable TEST metric -- val metrics were not populated for the
+  trained models, so the val-only lookup returned NaN.
+
+### #1 MLP-skip on extreme-AR + group-aware ([_phase_train_one_target_body.py:256](src/mlframe/training/core/_phase_train_one_target_body.py#L256), [_model_configs.py:482](src/mlframe/training/_model_configs.py#L482))
+
+Mirror of the round-5.3 composite-discovery `extreme_ar_group_aware_skip`.
+When `lag1_autocorr_per_group >= mlp_extreme_ar_threshold` AND the
+splitter prefers group-aware, the MLP step is skipped and a WARN log
+line is emitted referencing the knob to disable. Saves 2.7 min train
++ 126 MB save dump per run with zero downstream impact (the ensemble
+gate was dropping these predictions every run anyway). New
+`TrainingBehaviorConfig` knobs:
+- ``mlp_extreme_ar_group_aware_skip: bool = True``
+- ``mlp_extreme_ar_threshold: float = 0.99``
+
+### #2 CT_ENSEMBLE for raw-only targets ([_phase_composite_post.py:345](src/mlframe/training/core/_phase_composite_post.py#L345), [_composite_target_discovery_config.py:857](src/mlframe/training/_composite_target_discovery_config.py#L857))
+
+When 0 composite specs exist (extreme-AR skip fired), synthesise
+empty per-target entries for every regression target with at least
+one trained model so the existing CT_ENSEMBLE loop runs against the
+raw component pool + lag_predict + dummy-floor + AR(1)-failsafe gates.
+Eliminates the bypass that left the suite shipping a simple-arithmetic
+ensemble (provably worse than the best single component when most
+boosters land above the lag floor). New
+`CompositeTargetDiscoveryConfig.always_build_ct_ensemble_for_raw:
+bool = True`. Disable to revert to the legacy arithmetic-ensemble
+path.
+
+### #3 Verdict-table test-fallback for best_model ([_phase_composite_post.py:230](src/mlframe/training/core/_phase_composite_post.py#L230))
+
+When val metrics are unpopulated for ALL trained models in a slot,
+fall back to test metrics tagged "(test fallback)" in the display
+name. Strictly more informative than "-" even with the cross-split
+caveat. The val-first ordering is preserved so models with proper val
+metrics show without the tag.
+
+Tests: 8 new in [test_tvt_round5_4_followups.py](tests/training/test_tvt_round5_4_followups.py)
+covering config-knob defaults, gate-logic-present source-inspect, plus
+two numerical equivalence locks (DTW bincount aggregation vs Python
+loop; sliding-window batched matmul vs per-row loop -- these mirror
+the optimisations shipped to the wellbore contest repo). 78 composite/
+ensemble regression tests green.
+
 ## 2026-05-23 — Round 5.3: dummy-floor gate + extreme-AR skip + group-aware tiny-rerank + failsafe tolerance
 
 Round-5.2 (val-as-honest-OOF) shipped, run after run still landed at

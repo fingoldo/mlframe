@@ -213,6 +213,7 @@ def _run_suite_end_dummy_baselines_summary(
                 )
                 _best_val: float | None = None
                 _best_name = "-"
+                _best_split = None  # "val" or "test" -- track for tag
                 if _yscale_entries:
                     for _ye in _yscale_entries:
                         _split_metric = _ye.get("metrics", {}).get("val", {})
@@ -226,7 +227,10 @@ def _run_suite_end_dummy_baselines_summary(
                         ):
                             _best_val = float(_v)
                             _best_name = _ye.get("model_name") or "Composite"
+                            _best_split = "val"
                 else:
+                    # First pass: prefer VAL metrics (aligned with dummy's
+                    # primary_metric which is val_*).
                     for _m in _model_list:
                         _v = _entry_metric(_m, "val", _metric_name)
                         if not np.isfinite(_v):
@@ -240,10 +244,42 @@ def _run_suite_end_dummy_baselines_summary(
                             _best_name = getattr(_m, "model_name", None) or type(
                                 getattr(_m, "model", _m)
                             ).__name__
+                            _best_split = "val"
+                    # Second pass: fall back to TEST metrics if VAL was
+                    # never populated for any model in this slot. The
+                    # verdict block then surfaces a "(test)" tag so the
+                    # operator sees this is a cross-split comparison
+                    # (apples-to-oranges with the val_RMSE dummy but
+                    # still strictly more informative than "-"). TVT
+                    # prod 2026-05-24: the trained models' val metrics
+                    # were unpopulated in the suite run, so the verdict
+                    # table showed "best_model=-" even though Ridge
+                    # had TEST RMSE=11.63 right there in the log.
+                    if _best_val is None:
+                        for _m in _model_list:
+                            _v = _entry_metric(_m, "test", _metric_name)
+                            if not np.isfinite(_v):
+                                continue
+                            if (
+                                _best_val is None
+                                or (_is_minimize and _v < _best_val)
+                                or (not _is_minimize and _v > _best_val)
+                            ):
+                                _best_val = _v
+                                _best_name = getattr(_m, "model_name", None) or type(
+                                    getattr(_m, "model", _m)
+                                ).__name__
+                                _best_split = "test"
                 if _best_val is not None:
+                    # Tag the model name with "(test fallback)" so the
+                    # operator can spot val-vs-test cross-comparisons.
+                    _display_name = (
+                        f"{_best_name} (test fallback)"
+                        if _best_split == "test" else _best_name
+                    )
                     _best_metrics[(str(_tt), str(_tname))] = {
                         _pm: _best_val,
-                        "model_name": _best_name,
+                        "model_name": _display_name,
                     }
         # composite -> raw target map so the verdict block uses the raw median(y_raw) constant as the trivial baseline
         # (not the inverted-T fake baseline that uses fitted alpha).
@@ -342,6 +378,42 @@ def run_composite_post_processing(
             len(composite_specs_by_target_type or {}),
             _n_specs_total,
         )
+    # Build CT_ENSEMBLE for raw-target models even when 0 composite
+    # specs were discovered. On extreme-AR + group-aware regression
+    # (composite-discovery extreme_ar_group_aware_skip fires; see round
+    # 5.3) the existing entry guard requiring composite_specs_by_target_type
+    # silently bypasses the dummy-floor gate + lag_predict injection,
+    # leaving the suite shipping a simple-arithmetic ensemble of the raw
+    # models -- which is provably WORSE than the best single component
+    # when 3 of 4 boosters are above the lag-predict floor (TVT prod
+    # 2026-05-24: EnsARITHM TEST=12.45 vs Ridge alone 11.63 vs
+    # lag_predict 11.58). Synthesise a per-target empty-spec entry for
+    # every regression target with at least one trained model so the
+    # below loop runs, lag_predict is injected, and the OOF + dummy-
+    # floor + AR(1)-failsafe gates pick the right component.
+    _build_for_raw_only = bool(getattr(
+        composite_target_discovery_config,
+        "always_build_ct_ensemble_for_raw", True,
+    ))
+    if (composite_target_discovery_config.enabled
+            and _ce_strategy != "off"
+            and not composite_specs_by_target_type
+            and _build_for_raw_only):
+        from ..target_types import TargetTypes as _TT
+        _raw_only_specs: dict = {}
+        _reg_models = (models or {}).get(_TT.REGRESSION, {}) if models else {}
+        for _raw_tname, _entries in _reg_models.items():
+            if _entries and not is_composite_target_name(str(_raw_tname)):
+                _raw_only_specs.setdefault(_TT.REGRESSION, {})[_raw_tname] = []
+        if _raw_only_specs:
+            composite_specs_by_target_type = _raw_only_specs
+            logger.info(
+                "[CompositeCrossTargetEnsemble] always_build_ct_ensemble_for_raw=True: "
+                "synthesised raw-only entries for %d regression target(s) "
+                "(no composite specs were discovered); ensemble loop will inject "
+                "lag_predict and run the dummy-floor + AR(1)-failsafe gates.",
+                len(_raw_only_specs.get(_TT.REGRESSION, {})),
+            )
     if (composite_target_discovery_config.enabled
             and _ce_strategy != "off"
             and composite_specs_by_target_type):
