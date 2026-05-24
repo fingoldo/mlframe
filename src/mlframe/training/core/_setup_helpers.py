@@ -124,9 +124,14 @@ def _load_pipeline_disk_cache_into_memory() -> None:
     if not os.path.exists(path):
         return
     try:
-        import json as _json
-        with open(path, "r", encoding="utf-8") as fh:
-            data = _json.load(fh)
+        try:
+            import orjson as _orjson  # 3-10x faster on the hot read path
+            with open(path, "rb") as fh:
+                data = _orjson.loads(fh.read())
+        except ImportError:
+            import json as _json
+            with open(path, "r", encoding="utf-8") as fh:
+                data = _json.load(fh)
     except Exception:
         return  # corrupt file: ignore, will be overwritten on next save
     if not isinstance(data, dict) or data.get("version_tag") != _pipeline_disk_cache_version_tag():
@@ -149,7 +154,6 @@ def _persist_pipeline_disk_cache() -> None:
     keeps the on-disk file small enough to read in microseconds.
     """
     try:
-        import json as _json
         path = _pipeline_disk_cache_path()
         entries = _PIPELINE_JSON_ROUNDTRIP_CACHE
         if len(entries) > _PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES:
@@ -161,8 +165,14 @@ def _persist_pipeline_disk_cache() -> None:
             "entries": {str(k): bool(v) for k, v in entries.items()},
         }
         tmp_path = path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as fh:
-            _json.dump(payload, fh)
+        try:
+            import orjson as _orjson
+            with open(tmp_path, "wb") as fh:
+                fh.write(_orjson.dumps(payload))
+        except ImportError:
+            import json as _json
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                _json.dump(payload, fh)
         os.replace(tmp_path, path)
     except Exception:
         pass
@@ -272,9 +282,10 @@ def _apply_outlier_detection_global(
     if verbose:
         logger.info("Fitting outlier detector (once for all targets)...")
 
-    # sklearn outlier detectors coerce input via check_array; non-numeric columns
-    # (string/categorical/embedding-list) crash fit. Drop non-numeric on each call
-    # so polars and pandas paths stay symmetric.
+    # sklearn outlier detectors coerce input via check_array; non-numeric columns (string/categorical/embedding-list) crash fit. Drop non-numeric on each
+    # call so polars and pandas paths stay symmetric. bench-attempt-rejected (2026-05-24): caching the numeric column list across the train + val calls
+    # would require asserting train+val schemas match, but val can legitimately have different dtypes (e.g. early-rare-category never seen in train);
+    # the per-call schema iteration is ~us on typical column counts so the cache adds maintenance burden without measurable wall gain.
     def _numeric_only_view(df_):
         if isinstance(df_, pl.DataFrame):
             numeric_cols = [
