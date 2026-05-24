@@ -28,6 +28,7 @@ import pytest
 @pytest.mark.timeout(600)
 def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
     """Synthetic kaleido failure must not hang; output file must exist."""
+    pytest.importorskip("kaleido")  # Not in CI [all,dev] extras; sensor needs the real package to patch.
     import plotly.graph_objects as go
     from mlframe.reporting.renderers.plotly import (
         PlotlyRenderer, _restart_kaleido_server,

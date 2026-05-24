@@ -89,7 +89,19 @@ def test_predict_from_models_polars_fastpath_cb_keeps_polars():
 
 def test_predict_from_models_polars_fastpath_xgb_keeps_polars():
     """Same as the CB test but with XGBoost (also polars-native via the sklearn wrapper)."""
-    pytest.importorskip("xgboost")
+    xgb = pytest.importorskip("xgboost")
+    # XGBoost's polars-native QuantileDMatrix path was added in 2.1+.
+    # On Python 3.9 CI wheels (xgb 2.0.x) the iterator probe rejects
+    # ``polars.dataframe.frame.DataFrame`` with ``TypeError: Value type is
+    # not supported for data iterator``. The fastpath sensor only makes
+    # sense when XGB itself can consume polars; skip on older XGB.
+    _xgb_ver = tuple(int(x) for x in xgb.__version__.split(".")[:2])
+    if _xgb_ver < (2, 1):
+        pytest.skip(
+            f"xgboost {xgb.__version__} predates native polars support "
+            f"in QuantileDMatrix (added in 2.1); fastpath sensor requires "
+            f"a polars-aware XGB."
+        )
     df = _build_polars_frame()
     models, metadata = _run_suite(df, ["xgb"])
     assert models

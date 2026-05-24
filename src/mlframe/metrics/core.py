@@ -302,16 +302,31 @@ def _prewarm_numba_cache_body():
         # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works.
         pass
 
-    yt_ml = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0], [0, 0, 1]], dtype=np.uint8)
-    yp_ml = np.array([[1, 1, 0], [1, 0, 1], [1, 0, 0], [0, 1, 1]], dtype=np.uint8)
-    _ = _fast_hamming_loss_seq(yt_ml, yp_ml)
-    _ = _fast_hamming_loss_par(yt_ml, yp_ml)
-    _ = _fast_subset_accuracy_seq(yt_ml, yp_ml)
-    _ = _fast_jaccard_score_seq(yt_ml, yp_ml)
-    # Bitmap variant takes packed uint64 + K; prewarm K<=64 path.
-    yt_packed = np.array([0b011, 0b101, 0b110, 0b001], dtype=np.uint64)
-    yp_packed = np.array([0b110, 0b101, 0b100, 0b011], dtype=np.uint64)
-    _ = _fast_jaccard_bitmap_seq(yt_packed, yp_packed, 3)
+    # Wrap the multilabel prewarm in try/except for the same reason as the
+    # regression block above: ``_fast_hamming_loss_par`` (parallel=True) on
+    # certain numba minor builds (observed numba 0.63.x on the GitHub-hosted
+    # py3.12 / py3.13 ubuntu runners) trips an internal
+    # ``AssertionError: unexpected cycle in lookup()`` deep inside
+    # ``numba/parfors/parfor.py:3886``. The sequential paths still compile
+    # fine and downstream consumers transparently fall back; failing the
+    # whole prewarm here would mask everything that comes after.
+    try:
+        yt_ml = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0], [0, 0, 1]], dtype=np.uint8)
+        yp_ml = np.array([[1, 1, 0], [1, 0, 1], [1, 0, 0], [0, 1, 1]], dtype=np.uint8)
+        _ = _fast_hamming_loss_seq(yt_ml, yp_ml)
+        _ = _fast_hamming_loss_par(yt_ml, yp_ml)
+        _ = _fast_subset_accuracy_seq(yt_ml, yp_ml)
+        _ = _fast_jaccard_score_seq(yt_ml, yp_ml)
+        # Bitmap variant takes packed uint64 + K; prewarm K<=64 path.
+        yt_packed = np.array([0b011, 0b101, 0b110, 0b001], dtype=np.uint64)
+        yp_packed = np.array([0b110, 0b101, 0b100, 0b011], dtype=np.uint64)
+        _ = _fast_jaccard_bitmap_seq(yt_packed, yp_packed, 3)
+    except Exception:
+        # Catches the numba-internal ``AssertionError`` raised from
+        # ``parfor.py:3886`` lookup() as well as any compile / runtime fault
+        # in the sequential helpers. AssertionError inherits from Exception
+        # so the bare ``except Exception`` is sufficient.
+        pass
 
     # Verify nogil=True actually stuck; silent fallback would make parallel val/test metric evaluation secretly sequential.
     _assert_numba_nogil_active()

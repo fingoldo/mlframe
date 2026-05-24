@@ -392,8 +392,20 @@ def test_fe_p2_5_default_catboost_encoder_output_deterministic():
     })
     y = np.array([0, 1, 0, 1, 0, 1, 1, 0] * 4, dtype=np.int64)
 
-    out1 = enc1.fit_transform(df, y)
-    out2 = enc2.fit_transform(df, y)
+    # category_encoders 2.6 / sklearn < 1.6 combo (Python 3.9 CI) breaks the
+    # ``__sklearn_tags__`` super() chain inside CatBoostEncoder.fit; skip on
+    # the upstream-incompat path (same guard as
+    # ``test_kfold_helper_produces_different_encoding_than_fit_all`` etc).
+    try:
+        out1 = enc1.fit_transform(df, y)
+        out2 = enc2.fit_transform(df, y)
+    except AttributeError as exc:
+        if "__sklearn_tags__" in str(exc):
+            pytest.skip(
+                f"category_encoders / sklearn version mismatch on this runner: "
+                f"{exc}."
+            )
+        raise
     # Same seed -> same encoding.
     np.testing.assert_array_equal(out1.to_numpy(), out2.to_numpy())
 
