@@ -24,6 +24,7 @@ def _ensure_prewarmed():
 def test_polars_group_by_warm_after_prewarm():
     """After prewarm, a production-size polars group_by + agg on Enum-dtype
     must run in well under the ~2.5s fresh-process cold-start cost."""
+    import os
     import polars as pl
 
     _ensure_prewarmed()
@@ -50,10 +51,18 @@ def test_polars_group_by_warm_after_prewarm():
     # ~2-5ms post-warm; 250ms gives margin for CPU-saturated suite runs
     # where polars contends with concurrent numba/torch work, without
     # masking a missed prewarm which would be >2500ms).
-    assert elapsed_ms < 250.0, (
-        f"polars group_by + agg on 200k rows took {elapsed_ms:.1f}ms; "
-        f">250ms suggests the cold-start warm-up did NOT fire. Verify "
-        f"_prewarm_numba_cache_body includes the polars group_by warm."
+    # GitHub-hosted shared CI runners (verified Windows 3.11 2026-05-24
+    # at 585ms) need a wider band -- per-worker CPU contention from
+    # parallel xdist jobs blows past the 250ms desktop ceiling without
+    # the prewarm having actually missed. Raise to 1500ms on CI: still
+    # an order of magnitude below the 2500-3000ms cold-start signature,
+    # so the sensor's purpose (catch missed prewarm) is preserved.
+    _ceiling_ms = 1500.0 if os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS") else 250.0
+    assert elapsed_ms < _ceiling_ms, (
+        f"polars group_by + agg on 200k rows took {elapsed_ms:.1f}ms "
+        f"(ceiling {_ceiling_ms:.0f}ms); >ceiling suggests the cold-start "
+        f"warm-up did NOT fire. Verify _prewarm_numba_cache_body includes "
+        f"the polars group_by warm."
     )
 
 
@@ -81,7 +90,14 @@ def test_polars_join_warm_after_prewarm():
     elapsed_ms = (time.perf_counter() - t) * 1000
 
     assert joined.height == n
-    assert elapsed_ms < 500.0, (
-        f"polars join on 200k rows took {elapsed_ms:.1f}ms; >500ms suggests "
-        f"the join warm-up did NOT fire."
+    # Same CI band as the group_by sensor: shared GitHub runners flake
+    # past the desktop ceiling under concurrent xdist load. Cold-start
+    # join would be >2500ms, so the elevated 2000ms CI ceiling still
+    # catches a missed prewarm.
+    import os as _os
+    _ceiling_ms = 2000.0 if _os.environ.get("CI") or _os.environ.get("GITHUB_ACTIONS") else 500.0
+    assert elapsed_ms < _ceiling_ms, (
+        f"polars join on 200k rows took {elapsed_ms:.1f}ms (ceiling "
+        f"{_ceiling_ms:.0f}ms); >ceiling suggests the join warm-up did "
+        f"NOT fire."
     )
