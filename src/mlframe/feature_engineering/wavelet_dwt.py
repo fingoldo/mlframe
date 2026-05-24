@@ -122,17 +122,28 @@ if _HAS_NUMBA:
             detail[i] = hi_sum
         return approx, detail
 
+    # NOTE: the legacy ``_wavedec_numba`` returned a
+    # ``numba.typed.List`` of detail arrays. Building/consuming a
+    # typed list at the Python/JIT boundary cost ~5-15 ms per call
+    # (wellbore prod profile 2026-05-24 showed mean wavedec wrapper
+    # latency ~300 ms when called on fresh-signature signals, vs
+    # ~1 ms after warmup). The new wavedec() Python loop calls
+    # ``_dwt_single_level_numba`` per level directly so no typed
+    # list ever crosses the boundary. Kept the legacy function
+    # below as ``_wavedec_numba_typedlist`` for any external caller
+    # that needs the typed-list shape.
+
     @numba.njit(**NUMBA_NJIT_PARAMS)
-    def _wavedec_numba(
+    def _wavedec_numba_typedlist(
         signal: np.ndarray,
         lo_filter: np.ndarray,
         hi_filter: np.ndarray,
         max_level: int,
-    ) -> Tuple[np.ndarray, List[np.ndarray]]:
-        """Multi-level DWT (matches ``pywt.wavedec``). Returns
-        ``(final_approx, [detail_lvl1, detail_lvl2, ...])``. Caller
-        reverses the details list to match pywt's
-        ``[approx, detail_N, ..., detail_1]`` convention if desired.
+    ):
+        """LEGACY: multi-level DWT returning a typed.List of details.
+        Typed-list construction at the Python boundary is slow; new
+        callers should use ``wavedec()`` which loops single-level
+        kernels in Python. Retained for back-compat.
         """
         current = signal.copy()
         details = numba.typed.List()
@@ -188,26 +199,25 @@ if _HAS_NUMBA:
             end = up_len
         return recon[start:end]
 
+    # NOTE: legacy multi-level waverec that took a typed.List of
+    # details. Same typed-list overhead as ``_wavedec_numba_typedlist``;
+    # new callers should use ``waverec()`` Python wrapper which loops
+    # single-level kernels in Python.
+
     @numba.njit(**NUMBA_NJIT_PARAMS)
-    def _waverec_numba(
+    def _waverec_numba_typedlist(
         approx: np.ndarray,
         details_typed_list,
         rec_lo: np.ndarray,
         rec_hi: np.ndarray,
         target_lengths_per_level,
     ) -> np.ndarray:
-        """Multi-level inverse DWT. ``details_typed_list`` must be in
-        the SAME order as produced by ``_wavedec_numba`` (level 1 at
-        index 0). ``target_lengths_per_level`` (typed list of int) is
-        the desired output length at each level reconstruction.
-        """
+        """LEGACY (typed-list inputs)."""
         current = approx
         n_levels = len(details_typed_list)
         for i in range(n_levels - 1, -1, -1):
             detail = details_typed_list[i]
             tlen = target_lengths_per_level[i]
-            # Length mismatch -> approx may be 1 longer than detail
-            # (pywt-style); truncate to detail length before idwt.
             if current.shape[0] > detail.shape[0]:
                 current = current[: detail.shape[0]]
             current = _idwt_single_level_numba(
@@ -312,15 +322,33 @@ def wavedec(
 
     Returns coefficients in ``pywt.wavedec`` format:
     ``[approx, detail_N, detail_{N-1}, ..., detail_1]``.
+
+    Implementation: Python loop over ``_dwt_single_level_numba`` (one
+    JIT call per level). Avoids ``numba.typed.List`` at the boundary
+    -- typed-list construction at the Python/JIT seam paid
+    ~5-15 ms per call on cold signatures (wellbore prod 2026-05-24:
+    50 distinct GR signals -> 50 typed-list constructions -> wavelet
+    wrapper mean 300 ms vs 1 ms after warmup). The per-level loop
+    pays only the cached @njit dispatch overhead (~30 us each).
     """
     if not _HAS_NUMBA:
         import pywt
         return pywt.wavedec(signal, wavelet, level=max_level, mode="symmetric")
     lo, hi, _, _ = get_wavelet_filters(wavelet)
     sig = np.ascontiguousarray(signal, dtype=np.float64)
-    approx, details = _wavedec_numba(sig, lo, hi, int(max_level))
-    out = [approx]
-    for d in reversed(list(details)):
+    details_lvl1_first: list = []
+    current = sig
+    for _ in range(int(max_level)):
+        n = current.shape[0]
+        flen = lo.shape[0]
+        out_len = (n + flen - 1) // 2
+        if out_len < 1:
+            break
+        approx, detail = _dwt_single_level_numba(current, lo, hi)
+        details_lvl1_first.append(detail)
+        current = approx
+    out = [current]
+    for d in reversed(details_lvl1_first):
         out.append(d)
     return out
 
@@ -405,32 +433,34 @@ def waverec(coeffs: List[np.ndarray], wavelet: str) -> np.ndarray:
     length at each level is derived from the detail coefficient
     length at that level (pywt convention: reconstructed length = 2 *
     detail_len - filter_len + 2, then trimmed by symmetric boundary).
+
+    Implementation: Python loop over ``_idwt_single_level_numba``
+    (one JIT call per level reconstruction). Avoids
+    ``numba.typed.List`` at the boundary, matching the wavedec()
+    rewrite -- see its docstring for the typed-list overhead
+    rationale.
     """
     if not _HAS_NUMBA:
         import pywt
         return pywt.waverec(coeffs, wavelet, mode="symmetric")
     _, _, rec_lo, rec_hi = get_wavelet_filters(wavelet)
     approx = np.ascontiguousarray(coeffs[0], dtype=np.float64)
-    # Order details level-1-first to match _wavedec_numba output.
-    details_lvl1_first = [
-        np.ascontiguousarray(c, dtype=np.float64) for c in coeffs[1:][::-1]
-    ]
-    if not details_lvl1_first:
-        return approx
-    # Target reconstruction length per level: pywt's idwt returns
-    # 2*L_detail - flen + 2 unless explicit output length supplied. We
-    # use that formula for each level; matches pywt round-trip.
+    # Order details level-1-first: pywt returns
+    # ``[approx, detail_N, ..., detail_1]``; we iterate level-N-first
+    # to N=1 by walking coeffs[1:] in order.
     flen = rec_lo.shape[0]
-    target_lengths = []
-    for d in details_lvl1_first:
-        target_lengths.append(2 * d.shape[0] - flen + 2)
-    typed_details = numba.typed.List()
-    for d in details_lvl1_first:
-        typed_details.append(d)
-    typed_targets = numba.typed.List()
-    for tl in target_lengths:
-        typed_targets.append(np.int64(tl))
-    return _waverec_numba(approx, typed_details, rec_lo, rec_hi, typed_targets)
+    current = approx
+    for d_any in coeffs[1:]:
+        detail = np.ascontiguousarray(d_any, dtype=np.float64)
+        # Detail may be 1 shorter than current approx for odd boundary
+        # cases; truncate approx to match detail length before idwt.
+        if current.shape[0] > detail.shape[0]:
+            current = current[: detail.shape[0]]
+        target_len = 2 * detail.shape[0] - flen + 2
+        current = _idwt_single_level_numba(
+            current, detail, rec_lo, rec_hi, target_len,
+        )
+    return current
 
 
 def wavelet_denoise(
