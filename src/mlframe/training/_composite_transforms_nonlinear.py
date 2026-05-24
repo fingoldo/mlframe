@@ -170,6 +170,74 @@ def _row_alpha_beta(
         dtype=np.float64,
     )
     return uniq_alpha[inv], uniq_beta[inv]
+def _quantile_residual_per_bin_stats_v1_pyloop(
+    y_clean: np.ndarray, bin_idx: np.ndarray, actual_n_bins: int,
+    min_bin_n: int, global_median: float, global_iqr: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Reference: build per-bin boolean masks; under-populated bins keep global fallback."""
+    bin_medians = np.full(actual_n_bins, global_median, dtype=np.float64)
+    bin_iqrs = np.full(actual_n_bins, global_iqr, dtype=np.float64)
+    bin_sizes = np.zeros(actual_n_bins, dtype=np.int64)
+    for b in range(actual_n_bins):
+        mask = bin_idx == b
+        bin_n = int(mask.sum())
+        bin_sizes[b] = bin_n
+        if bin_n < min_bin_n:
+            continue
+        bin_y = y_clean[mask]
+        bin_medians[b] = float(np.median(bin_y))
+        bin_iqr = float(np.subtract(*np.percentile(bin_y, [75, 25])))
+        bin_iqrs[b] = bin_iqr if bin_iqr > 1e-6 else global_iqr
+    return bin_medians, bin_iqrs, bin_sizes
+
+
+def _quantile_residual_per_bin_stats_v2_pandas_groupby(
+    y_clean: np.ndarray, bin_idx: np.ndarray, actual_n_bins: int,
+    min_bin_n: int, global_median: float, global_iqr: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Vectorised via pandas groupby quantile([.25, .5, .75]); under-populated bins (count < min_bin_n) are reset to global fallback to match the v1 semantics exactly."""
+    import pandas as _pd
+    bin_medians = np.full(actual_n_bins, global_median, dtype=np.float64)
+    bin_iqrs = np.full(actual_n_bins, global_iqr, dtype=np.float64)
+    bin_sizes = np.zeros(actual_n_bins, dtype=np.int64)
+    ser = _pd.Series(y_clean)
+    gb = ser.groupby(bin_idx, sort=True)
+    counts = gb.count()
+    qs = gb.quantile([0.25, 0.5, 0.75]).unstack()
+    idx = counts.index.to_numpy()
+    bin_sizes[idx] = counts.to_numpy()
+    keep = counts.to_numpy() >= min_bin_n
+    if keep.any():
+        kept_idx = idx[keep]
+        q25 = qs[0.25].to_numpy()[keep]
+        q50 = qs[0.5].to_numpy()[keep]
+        q75 = qs[0.75].to_numpy()[keep]
+        bin_medians[kept_idx] = q50
+        raw_iqr = q75 - q25
+        bin_iqrs[kept_idx] = np.where(raw_iqr > 1e-6, raw_iqr, global_iqr)
+    return bin_medians, bin_iqrs, bin_sizes
+
+
+def _quantile_residual_per_bin_stats(
+    y_clean: np.ndarray, bin_idx: np.ndarray, actual_n_bins: int,
+    min_bin_n: int, global_median: float, global_iqr: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Size-aware dispatcher across per-bin quantile-stats variants.
+
+    Bench (bench_median_quantile_residual.py): v2 pandas-groupby wins at small n / large n_bins (e.g. n=100k+20bins: 1.72x over v1) and ties / loses on large n with few bins. Threshold: route to v2 when ``y_clean.size <= 200_000``; otherwise v1 is on par or faster. Sort-based numba variant tried and rejected (extra argsort dominated -- see bench-attempt-rejected note in bench_median_quantile_residual.py).
+    """
+    if y_clean.size <= 200_000:
+        try:
+            return _quantile_residual_per_bin_stats_v2_pandas_groupby(
+                y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
+            )
+        except Exception:
+            pass
+    return _quantile_residual_per_bin_stats_v1_pyloop(
+        y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
+    )
+
+
 def _quantile_residual_fit(
     y: np.ndarray, base: np.ndarray,
     n_bins: int = _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
@@ -239,21 +307,10 @@ def _quantile_residual_fit(
     global_iqr = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
     # Per-bin assignment via np.searchsorted (right-side: edges[i-1] <= x < edges[i]).
     bin_idx = np.clip(np.searchsorted(edges[1:-1], base_clean, side="right"), 0, actual_n_bins - 1)
-    bin_medians = np.full(actual_n_bins, global_median, dtype=np.float64)
-    bin_iqrs = np.full(actual_n_bins, global_iqr, dtype=np.float64)
-    bin_sizes: list[int] = []
-    for b in range(actual_n_bins):
-        mask = bin_idx == b
-        bin_n = int(mask.sum())
-        bin_sizes.append(bin_n)
-        if bin_n < min_bin_n:
-            # Under-populated: keep global fallback.
-            continue
-        bin_y = y_clean[mask]
-        bin_medians[b] = float(np.median(bin_y))
-        bin_iqr = float(np.subtract(*np.percentile(bin_y, [75, 25])))
-        # Floor IQR against constant-y bins so the inverse stays well-defined; use global IQR as a sensible scale anchor rather than 1e-6.
-        bin_iqrs[b] = bin_iqr if bin_iqr > 1e-6 else global_iqr
+    bin_medians, bin_iqrs, bin_sizes_arr = _quantile_residual_per_bin_stats(
+        y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
+    )
+    bin_sizes: list[int] = bin_sizes_arr.tolist()
     return {
         "bin_edges": edges,
         "bin_medians": bin_medians,

@@ -213,6 +213,45 @@ def _additive_residual_domain(
 _MEDIAN_RESIDUAL_N_BINS: int = 20
 
 
+def _median_residual_per_bin_medians_v1_pyloop(
+    y_f: np.ndarray, bin_idx: np.ndarray, n_bins: int,
+) -> np.ndarray:
+    """Reference implementation: build per-bin boolean masks and take ``np.median`` on each."""
+    out = np.full(n_bins, np.median(y_f), dtype=np.float64)
+    for i in range(n_bins):
+        mask = bin_idx == i
+        if mask.any():
+            out[i] = float(np.median(y_f[mask]))
+    return out
+
+
+def _median_residual_per_bin_medians_v2_pandas_groupby(
+    y_f: np.ndarray, bin_idx: np.ndarray, n_bins: int,
+) -> np.ndarray:
+    """Single hash-groupby pass via pandas; bins with no rows keep the global median."""
+    import pandas as _pd
+    global_med = float(np.median(y_f))
+    out = np.full(n_bins, global_med, dtype=np.float64)
+    grp = _pd.Series(y_f).groupby(bin_idx, sort=True).median()
+    out[grp.index.to_numpy()] = grp.to_numpy()
+    return out
+
+
+def _median_residual_per_bin_medians(
+    y_f: np.ndarray, bin_idx: np.ndarray, n_bins: int,
+) -> np.ndarray:
+    """Size-aware dispatcher across the per-bin median variants.
+
+    Bench (bench_median_quantile_residual.py, n in {100k, 1M} x n_bins in {10, 20}): v2 pandas-groupby is the best CPU variant at n=100k (~1.2-1.45x over v1 numpy mask loop) but ties / loses at n=1M (~1.15x). v4 numba-sort-based was slower at every size (extra argsort dominates). Routes by total element count: pandas wins on small n; numpy mask-loop wins on large n. Threshold derived from measurement.
+    """
+    if y_f.size <= 200_000:
+        try:
+            return _median_residual_per_bin_medians_v2_pandas_groupby(y_f, bin_idx, n_bins)
+        except Exception:
+            pass
+    return _median_residual_per_bin_medians_v1_pyloop(y_f, bin_idx, n_bins)
+
+
 def _median_residual_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     finite = np.isfinite(y) & np.isfinite(base)
     if not finite.any():
@@ -229,11 +268,7 @@ def _median_residual_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     if bin_edges.size < 2:
         bin_edges = np.array([bin_edges[0], bin_edges[0] + 1e-9])
     bin_idx = np.digitize(b_f, bin_edges[1:-1])
-    bin_medians = np.full(bin_edges.size - 1, np.median(y_f), dtype=np.float64)
-    for i in range(bin_edges.size - 1):
-        mask = bin_idx == i
-        if mask.any():
-            bin_medians[i] = float(np.median(y_f[mask]))
+    bin_medians = _median_residual_per_bin_medians(y_f, bin_idx, bin_edges.size - 1)
     return {
         "bin_edges": bin_edges,
         "bin_medians": bin_medians,
