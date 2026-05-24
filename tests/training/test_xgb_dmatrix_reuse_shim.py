@@ -38,6 +38,7 @@ import pandas as pd
 import pytest
 
 pytest.importorskip("xgboost")
+pytestmark = pytest.mark.requires_xgb
 import xgboost as xgb
 from xgboost import XGBClassifier, XGBRegressor
 

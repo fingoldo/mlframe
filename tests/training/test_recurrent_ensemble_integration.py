@@ -28,6 +28,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from shared import SimpleFeaturesAndTargetsExtractor  # noqa: E402
 
 
+pytestmark = [pytest.mark.requires_torch, pytest.mark.requires_cb, pytest.mark.uses_torch]
+
 N_ROWS = 200
 SEQ_LEN = 6
 N_SEQ_FEATURES = 3

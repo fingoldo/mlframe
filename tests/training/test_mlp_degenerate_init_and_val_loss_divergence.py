@@ -28,6 +28,8 @@ import logging
 import numpy as np
 import pytest
 
+pytestmark = [pytest.mark.requires_torch, pytest.mark.uses_torch]
+
 
 class TestDegenerateInitProbe:
     def test_zeros_init_triggers_warn(self, caplog) -> None:
