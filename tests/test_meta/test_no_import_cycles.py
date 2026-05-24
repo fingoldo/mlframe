@@ -52,16 +52,25 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # start, then re-imports this sibling at its bottom.
     "mlframe.feature_selection.filters._hermite_fe_mi → mlframe.feature_selection.filters.hermite_fe",
     # composite_transforms monolith split: function-signature default values
-    # in the two sibling modules reference parent-resident constants
+    # in the sibling modules reference parent-resident constants
     # (_GROUPED_MIN_GROUP_SIZE, _QUANTILE_RESIDUAL_DEFAULT_*, etc.). Defaults
     # evaluate at module-load so the imports must be top-level. Cycle resolves
     # at runtime because parent defines all constants BEFORE importing siblings.
-    "mlframe.training._composite_transforms_linear → mlframe.training._composite_transforms_nonlinear → mlframe.training.composite_transforms",
+    # 2026-05-24: extended to 5-node cycle as ``_naming`` and ``_registry``
+    # siblings landed.
+    "mlframe.training._composite_transforms_linear → mlframe.training._composite_transforms_naming → mlframe.training._composite_transforms_nonlinear → mlframe.training._composite_transforms_registry → mlframe.training.composite_transforms",
     # _phase_helpers_fit_split monolith split: the body sibling
     # _phase_helpers_fit_pipeline references the parent's FitPipelineResult
     # NamedTuple at top-level. Resolves at runtime because parent defines
     # FitPipelineResult before importing the sibling at its bottom.
     "mlframe.training.core._phase_helpers_fit_pipeline → mlframe.training.core._phase_helpers_fit_split",
+    # _target_distribution_analyzer monolith split: the body siblings
+    # (``_modes``, ``_features``, ``_target_fn``) reference parent-resident
+    # dataclasses / type aliases at top-level. Same pattern as the
+    # composite_transforms cycle above — parent defines them BEFORE
+    # importing siblings at its bottom, so the cycle resolves at runtime
+    # without an actual ImportError.
+    "mlframe.training._target_distribution_analyzer → mlframe.training._target_distribution_analyzer_features → mlframe.training._target_distribution_analyzer_modes → mlframe.training._target_distribution_analyzer_target_fn",
 }
 
 
