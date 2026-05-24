@@ -3,11 +3,15 @@ Shared fixtures for feature_selection tests.
 Used by both test_wrappers.py and test_filters.py
 """
 import os
+import sys
 
 import pytest
 import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
+
+
+_MRMR_MOD_NAME = "mlframe.feature_selection.filters.mrmr"
 
 
 @pytest.fixture(autouse=True)
@@ -26,9 +30,18 @@ def _clear_mrmr_fit_cache_between_tests():
     Public ``MRMR.clear_fit_cache()`` is already documented as the
     suite-boundary drain hook (mrmr.py:511-519); we reuse it here so test
     isolation matches the production-mediated reset path exactly.
+
+    Fast-path: ~54 / 118 files under tests/feature_selection/ never touch
+    MRMR, so the autouse import would force the ~hundreds-of-ms numba+sklearn
+    subgraph eagerly. Probe ``sys.modules`` first; if the mrmr module is not
+    yet loaded, no test in scope has triggered a fit and the cache is
+    guaranteed empty -- skip the import entirely.
     """
+    _mrmr_mod = sys.modules.get(_MRMR_MOD_NAME)
+    if _mrmr_mod is None:
+        yield
+        return
     try:
-        from mlframe.feature_selection.filters import mrmr as _mrmr_mod
         _mrmr_mod.MRMR.clear_fit_cache()
         # Module-level cross-target identity cache must also drain: a prior
         # test storing an "identity" fingerprint can short-circuit fit() in a
@@ -39,7 +52,7 @@ def _clear_mrmr_fit_cache_between_tests():
         with getattr(_mrmr_mod, "_MRMR_IDENTITY_FP_LOCK", _NullCtx()):
             _mrmr_mod._MRMR_IDENTITY_FP_CACHE.clear()
     except Exception:
-        # If the import fails (e.g. coverage-active subprocess that skips
+        # If clearing fails (e.g. coverage-active subprocess that skips
         # heavy fixtures), don't block the test from running its own setup.
         pass
     yield
@@ -52,9 +65,10 @@ class _NullCtx:
         return False
 
 
-# Fast-mode flag: when MLFRAME_FAST=1 (or "true"/"yes"), parametric / loop-heavy tests collapse to a single representative case so the suite runs
-# in a fraction of full-suite time during local dev iteration. Each fast-mode-aware test still hits every code branch with one input.
-IS_FAST_MODE = os.environ.get("MLFRAME_FAST", "").strip().lower() in ("1", "true", "yes", "on")
+# Re-export the canonical fast-mode flag and helper from the root conftest. Subdir tests historically imported ``IS_FAST_MODE`` from this conftest; preserve that name
+# but make the import-time snapshot a thin re-export of the live root value. ``is_fast_mode()`` is the authoritative live check used inside the collection hook below;
+# the constant captures the value at import time for callers that only need a parametrize-decorator-time snapshot.
+from tests.conftest import IS_FAST_MODE, is_fast_mode  # noqa: F401, E402
 
 
 def _coverage_active() -> bool:
@@ -74,10 +88,12 @@ COVERAGE_ACTIVE = _coverage_active()
 
 # NOTE: a richer ``fast_subset`` lives in tests/conftest.py (top-level).
 # This local copy preserves the historical ``n=`` kwarg used by callers in
-# ``feature_selection``. Both share the same MLFRAME_FAST env-var gate.
+# ``feature_selection``. Both share the same MLFRAME_FAST env-var gate via
+# the live ``is_fast_mode()`` check (not the import-time snapshot, so a
+# mid-session env mutation is observed correctly).
 def fast_subset(seq, n: int = 1):
     items = list(seq)
-    if IS_FAST_MODE and len(items) > n:
+    if is_fast_mode() and len(items) > n:
         return items[:n]
     return items
 
@@ -107,10 +123,12 @@ def pytest_collection_modifyitems(config, items):
     skip_xdist = pytest.mark.skip(reason="requires sequential execution (numba cache lock)")
     skip_slow = pytest.mark.skip(reason="MLFRAME_FAST=1 set; slow-marked test skipped for fast iteration")
     dist = getattr(config.option, "dist", "no")
+    # ``is_fast_mode()`` is live (re-reads MLFRAME_FAST) and reflects ``--fast`` set by the root conftest's ``pytest_configure`` even when this hook runs before the snapshot updates.
+    fast = is_fast_mode()
     for item in items:
         if dist != "no" and "no_xdist" in item.keywords:
             item.add_marker(skip_xdist)
-        if IS_FAST_MODE and "slow" in item.keywords:
+        if fast and "slow" in item.keywords:
             item.add_marker(skip_slow)
 
 
