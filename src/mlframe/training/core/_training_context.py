@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -160,7 +161,10 @@ class TrainingContext:
     # CONV-MED-5: per-suite cache of pandas views of polars DFs keyed by id(polars_df) so two
     # non-Polars-native strategies that share the same source polars frame only pay one
     # ``get_pandas_view_of_polars_df`` conversion total within a single _train_one_target call.
-    _pandas_view_cache: dict = field(default_factory=dict)
+    # OrderedDict gives deterministic LRU eviction (move_to_end on hit, popitem(last=False) on
+    # overflow); a plain dict on CPython 3.7+ preserves insertion order but offers no API to
+    # mark "most recently used" so the FIFO eviction sometimes drops the wrong frame.
+    _pandas_view_cache: "OrderedDict[int, Any]" = field(default_factory=OrderedDict)
     # Suite-scoped cache observability counters. ``_train_one_target`` writes hit/miss
     # bumps here (``setdefault("<cache>", {"hits": 0, "misses": 0})``); ``finalize_suite``
     # aggregates the result into ``metadata["cache_stats"]``. Slot is REQUIRED because

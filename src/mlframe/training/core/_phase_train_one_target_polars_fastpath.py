@@ -13,6 +13,7 @@ resolving transparently.
 from __future__ import annotations
 
 import logging
+import os
 
 try:
     import polars as pl
@@ -23,6 +24,22 @@ from ..utils import filter_existing, get_pandas_view_of_polars_df
 from ._misc_helpers import _build_tier_dfs, _prep_polars_df
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
+
+
+def _pandas_view_cache_bytes(cache) -> int:
+    """Sum of approximate byte usage across cached pandas views.
+
+    Uses ``memory_usage(deep=False)`` for the dominant block-manager footprint without paying the
+    deep-walk cost on every eviction probe; per CLAUDE.md the goal is OOM avoidance, so a slight
+    under-estimate is preferable to a deep walk on a 100 GB frame at eviction time.
+    """
+    total = 0
+    for _v in cache.values():
+        try:
+            total += int(_v.memory_usage(deep=False).sum())
+        except Exception:
+            pass
+    return total
 
 
 def _prepare_strategy_inputs(
@@ -217,23 +234,32 @@ def _prepare_strategy_inputs(
             _pd_view = _view_cache.get(_src_id)
             # Pandas-view cache stats: count one HIT per reuse (id() match) and one MISS
             # per fresh conversion. Stamped on ctx so finalize_suite can read without
-            # touching the cache backend (a plain dict on ctx that exposes no counters).
+            # touching the cache backend.
             _cs_pv = ctx._cache_stats.setdefault("pandas_view_cache", {"hits": 0, "misses": 0})
             if _pd_view is None:
                 _cs_pv["misses"] += 1
                 _pd_view = get_pandas_view_of_polars_df(df_)
                 _view_cache[_src_id] = _pd_view
-                # Bound the cache to 4 entries (the suite has at most 3 frames active --
-                # train/val/test -- plus one slack for in-flight tier swaps). Without
-                # this the cache grows monotonically across targets and pins pandas
-                # blockmgrs that the upstream polars frames thought they freed.
-                # OrderedDict not used: ctx slot is plain dict for back-compat, so a
-                # popitem() FIFO is good enough at this small bound.
-                while len(_view_cache) > 4:
-                    _evict_k = next(iter(_view_cache))
-                    _view_cache.pop(_evict_k, None)
+                # Bound the cache to 4 entries (train/val/test + one slack) AND a byte budget so a
+                # single oversized pandas-view does not pin GB-scale blockmgr buffers across targets.
+                # Per CLAUDE.md the byte gate is the safety property; the count cap is a fallback.
+                # Threshold is overridable via ``MLFRAME_PANDAS_VIEW_CACHE_MAX_MB`` for HW with more RAM.
+                _max_count = 4
+                _max_mb_env = os.environ.get("MLFRAME_PANDAS_VIEW_CACHE_MAX_MB", "2048")
+                try:
+                    _max_bytes = float(_max_mb_env) * (1024 ** 2)
+                except ValueError:
+                    _max_bytes = 2048 * (1024 ** 2)
+                while len(_view_cache) > _max_count or _pandas_view_cache_bytes(_view_cache) > _max_bytes:
+                    if not _view_cache:
+                        break
+                    _view_cache.popitem(last=False)
             else:
                 _cs_pv["hits"] += 1
+                try:
+                    _view_cache.move_to_end(_src_id)
+                except (AttributeError, KeyError):
+                    pass
             common_params[df_key] = _pd_view
 
     # Defense-in-depth: after lazy conversion, every common_params DF must be non-polars.
