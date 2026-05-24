@@ -261,7 +261,7 @@ def run_composite_post_processing(
             and _ce_strategy != "off"
             and not composite_specs_by_target_type
             and _build_for_raw_only):
-        from ..target_types import TargetTypes as _TT
+        from ..configs import TargetTypes as _TT
         _raw_only_specs: dict = {}
         _reg_models = (models or {}).get(_TT.REGRESSION, {}) if models else {}
         for _raw_tname, _entries in _reg_models.items():

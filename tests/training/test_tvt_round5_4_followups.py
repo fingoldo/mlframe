@@ -85,6 +85,21 @@ class TestAlwaysBuildCtEnsembleForRaw:
         # double-count once their specs land).
         assert "is_composite_target_name" in src
 
+    def test_target_types_import_path_is_correct(self) -> None:
+        """Regression guard: the raw-only synthesis block does ``from
+        ..target_types import TargetTypes`` (BROKEN -- no such module;
+        TargetTypes lives in ``mlframe.training.configs``). TVT prod
+        2026-05-25 surfaced this as ModuleNotFoundError at the end of
+        Phase 4, killing the suite right before the ensemble verdict.
+        The import must resolve from ``mlframe.training.configs``.
+        """
+        from mlframe.training.core import _phase_composite_post
+        src = inspect.getsource(_phase_composite_post)
+        assert "from ..target_types import" not in src
+        assert "from ..configs import TargetTypes" in src
+        # Round-trip the import itself to be sure.
+        from mlframe.training.configs import TargetTypes  # noqa: F401
+
 
 class TestVerdictTableTestFallback:
     def _summary_src(self) -> str:
