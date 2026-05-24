@@ -242,11 +242,8 @@ def showcase_features_and_targets(
 
     head = df.head(5)
     if isinstance(df, pl.DataFrame):
-        # Audit D P2-4 (2026-05-18): bare ``.to_pandas()`` is the slow consolidation copy path,
-        # but ``head(5)`` is 5 rows -- the copy cost is dominated by per-cell overhead, not by
-        # bulk-buffer consolidation. Display-only, cold-path. NEEDED for downstream pandas-only
-        # ``.style.set_caption`` / Jupyter display rich rendering.
-        head = head.to_pandas()
+        # Route through Arrow split-blocks bridge so pl.Enum / pl.Categorical / pl.Date columns keep their pandas-native dtypes (CategoricalDtype / DatetimeTZDtype) instead of collapsing to object; preserves the display contract for Jupyter rich rendering.
+        head = get_pandas_view_of_polars_df(head)
 
     non_floats = head.select_dtypes(exclude=np.float32)
 
@@ -367,8 +364,7 @@ def showcase_features_and_targets(
 
         tail = df.tail(5)
         if isinstance(df, pl.DataFrame):
-            # Audit D P2-4 (2026-05-18): see head() comment above. Display-only, cold-path.
-            tail = tail.to_pandas()
+            tail = get_pandas_view_of_polars_df(tail)
 
         display(tail)
 

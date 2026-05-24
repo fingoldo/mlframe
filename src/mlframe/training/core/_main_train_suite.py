@@ -803,15 +803,12 @@ def train_mlframe_models_suite(
                     _frames = []
                     for _tt_s, _by_name in _leaderboards.items():
                         for _tname, _lb in _by_name.items():
-                            if hasattr(_lb, "write_csv") and not hasattr(_lb, "to_csv"):
-                                # polars DF: dump to CSV bytes then re-read for the concat below.
-                                import io as _io
-                                _buf = _io.BytesIO()
-                                _lb.write_csv(_buf)
-                                _buf.seek(0)
-                                _frame = _pd.read_csv(_buf)
-                            elif hasattr(_lb, "to_csv"):
-                                _frame = _pd.DataFrame(_lb) if not isinstance(_lb, _pd.DataFrame) else _lb
+                            if isinstance(_lb, pl.DataFrame):
+                                # Route through Arrow split-blocks bridge (~32x vs default to_pandas, preserves Enum/Categorical/datetime dtypes); the prior pl->CSV->pandas re-read densified all dtypes to string.
+                                from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
+                                _frame = _get_pandas_view(_lb)
+                            elif isinstance(_lb, _pd.DataFrame):
+                                _frame = _lb
                             else:
                                 _frame = _pd.DataFrame(_lb)
                             _frame.insert(0, "target_type", _tt_s)

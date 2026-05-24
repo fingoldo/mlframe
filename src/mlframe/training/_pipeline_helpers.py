@@ -399,7 +399,12 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
         else:
             col_names = [f"f{i}" for i in range(out.shape[1])]
         out = pd.DataFrame(out, columns=col_names, index=getattr(reduced, "index", None))
-        held_pd = held.to_pandas() if is_polars else held
+        # Mirror the sibling branch above (lines 373-378): bare ``held.to_pandas()`` consolidates Arrow buffers (~30x slower on wide frames + degrades pl.Enum to object dtype). Route through the project Arrow split-blocks bridge.
+        if is_polars:
+            from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+            held_pd = _get_pandas_view(held)
+        else:
+            held_pd = held
         # Single concat instead of per-column assignment loop.
         out = pd.concat([out, held_pd], axis=1)
     return out
