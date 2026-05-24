@@ -82,13 +82,14 @@ def compute_stacked_row_attention(
         layer_seed = seed + 1000 * layer
         # head_dim for this layer cannot exceed current_X_train.shape[1]; clamp adaptively (later layers have low-d input).
         layer_head_dim = min(head_dim, max(2, current_X_train.shape[1] - 1))
-        # Mode A: OOF y_mean for X_train.
+        # Mode A: OOF y_mean for X_train. Pass caller dtype through so .to_numpy() yields the requested dtype directly; the trailing astype(..., copy=False) is
+        # then a no-op identity. Without dtype= the inner default is float32 -- callers using float64 paid a full-buffer float32->float64 copy per layer.
         out_train = compute_row_attention(
             X_train=current_X_train, y_train=y_train, X_query=None, splitter=splitter,
             seed=layer_seed, n_heads=n_heads, head_dim=layer_head_dim, k=k,
             softmax_temp=softmax_temp, aggregate=("y_mean",), standardize=standardize,
             projection=projection, gpu_stage4=False, dedupe_threshold=None,
-            allow_overcomplete=True,
+            allow_overcomplete=True, dtype=dtype,
         ).to_numpy().astype(dtype, copy=False)
         layer_outputs_train.append(out_train)
 
@@ -99,7 +100,7 @@ def compute_stacked_row_attention(
                 seed=layer_seed, n_heads=n_heads, head_dim=layer_head_dim, k=k,
                 softmax_temp=softmax_temp, aggregate=("y_mean",), standardize=standardize,
                 projection=projection, gpu_stage4=False, dedupe_threshold=None,
-                allow_overcomplete=True,
+                allow_overcomplete=True, dtype=dtype,
             ).to_numpy().astype(dtype, copy=False)
             layer_outputs_query.append(out_query)
 

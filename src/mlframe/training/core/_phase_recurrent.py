@@ -60,8 +60,11 @@ def _coerce_features_to_float32(
     POLARS-PANDAS-CHURN fix: the recurrent path predicts on the same train/val/test frames three
     times per member (train_preds / val_preds / test_preds), each time paying a polars->numpy +
     np.asarray(float32) round-trip. When ``cache`` is supplied, the result is memoised by
-    ``cache_key`` (typically a (split_label, id(frame)) tuple) so the second and third hits return
-    the cached buffer. Already-float32 ndarrays are returned unchanged without the asarray copy.
+    ``cache_key`` (typically a (split_label, id(frame), cols_signature) tuple) so the second and
+    third hits return the cached buffer. The ``cols_signature`` component guards against
+    in-place column mutations between calls on the same frame id (a column add/remove invalidates
+    the cached ndarray's column layout). Already-float32 ndarrays are returned unchanged without
+    the asarray copy.
     """
     if features is None:
         return None
@@ -112,7 +115,12 @@ def _safe_predict_recurrent(
     if sequences is None and features is None:
         return None
     cache = getattr(ctx, "_recurrent_numpy_cache", None) if ctx is not None else None
-    cache_key = (split, id(features)) if features is not None else None
+    if features is not None:
+        _cols = getattr(features, "columns", None)
+        _cols_sig = tuple(_cols) if _cols is not None else None
+        cache_key = (split, id(features), _cols_sig)
+    else:
+        cache_key = None
     features = _coerce_features_to_float32(features, cache=cache, cache_key=cache_key)
     if features is None and sequences is None:
         return None

@@ -619,6 +619,10 @@ def create_windowed_features(
     if targets_creation_fcn:
         targets_names = [targets_creation_fcn.__name__]
 
+    # bench-attempt-rejected (2026-05-24): conditional skip of the dtype= kwarg (skip when features ndarray dtype already matches) is moot here -- features
+    # arrives as a list-of-lists from the outer accumulation loop, with no .dtype attribute. Constructing without dtype= gives object dtype and forces a
+    # downstream astype anyway; passing dtype= upfront is the correct shape. Measured at N=10k D=50: list-of-rows + dtype= = 105 ms, no dtype = 97 ms +
+    # mandatory astype = parity. Keep dtype= passed.
     X = pd.DataFrame(
         data=features,
         columns=features_names if features_creation_fcn else past_vars_names,

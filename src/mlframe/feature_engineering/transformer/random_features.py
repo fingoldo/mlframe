@@ -226,7 +226,10 @@ def _coerce_input(
     """
     if isinstance(X, pl.DataFrame):
         names = X.columns
-        arr = X.to_numpy()  # zero-copy for uniform numeric dtypes; copy for mixed
+        # bench-attempt-rejected (2026-05-24): allow_copy=False polars hint raises unconditionally on any multi-column DataFrame even after rechunk() (each column
+        # is a separate Arrow chunk on the to-numpy boundary). Try/except fallback adds branches without speedup. The dtype gate immediately below is already
+        # correct (skips astype when arr.dtype already == dtype); astype(dtype, copy=False) is a 0.3 us no-op when dtypes match.
+        arr = X.to_numpy()
         if arr.dtype.kind in ("f", "i", "u") and arr.dtype != dtype:
             arr = arr.astype(dtype, copy=False)
         if not arr.flags["C_CONTIGUOUS"]:

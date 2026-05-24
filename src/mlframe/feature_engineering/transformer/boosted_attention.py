@@ -83,12 +83,14 @@ def compute_boosted_attention(
 
     for layer in range(n_boost_layers):
         layer_seed = seed + 1000 * layer
-        # Mode A: OOF features for X_train with current_target_train as the "y".
+        # Mode A: OOF features for X_train with current_target_train as the "y". Forward caller dtype to compute_row_attention so the inner ndarray is produced
+        # at the requested dtype directly; the trailing astype is then a no-op identity.
         out_train_df = compute_row_attention(
             X_train=X_train, y_train=current_target_train, X_query=None, splitter=splitter,
             seed=layer_seed, n_heads=n_heads, head_dim=head_dim, k=k,
             softmax_temp=softmax_temp, aggregate=("y_mean",), standardize=standardize,
             projection=projection, gpu_stage4=False, dedupe_threshold=None,
+            dtype=dtype,
         )
         out_train = out_train_df.to_numpy().astype(dtype, copy=False)
         layer_outputs_train.append(out_train)
@@ -100,6 +102,7 @@ def compute_boosted_attention(
                 seed=layer_seed, n_heads=n_heads, head_dim=head_dim, k=k,
                 softmax_temp=softmax_temp, aggregate=("y_mean",), standardize=standardize,
                 projection=projection, gpu_stage4=False, dedupe_threshold=None,
+                dtype=dtype,
             )
             out_query = out_query_df.to_numpy().astype(dtype, copy=False)
             layer_outputs_query.append(out_query)

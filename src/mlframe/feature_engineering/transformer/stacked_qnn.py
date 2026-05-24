@@ -54,7 +54,9 @@ def compute_stacked_quantile_neighbours(
     if X_query is not None:
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)
 
-    # Layer 1: compute qnn features on standard X.
+    # Layer 1: compute qnn features on standard X. Q1 stays float32 by design (intermediate feature space for stacking; the caller dtype only governs the
+    # final Q2 output). The trailing astype(np.float32) is a no-op identity because compute_quantile_neighbours emits float32 above; bench-attempt-rejected
+    # (2026-05-24): a hasattr-gated skip-astype branch adds no win (astype(float32, copy=False) on float32 input is a 0.3 us no-op).
     Q1_train_df = compute_quantile_neighbours(
         X_train=X_train, y_train=y_train, X_query=None, splitter=splitter,
         seed=seed, k=k, quantile_grid=quantile_grid, softmax_temp=softmax_temp,

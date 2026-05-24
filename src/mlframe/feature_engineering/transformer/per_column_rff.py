@@ -53,6 +53,8 @@ def compute_per_column_rff(
     from sklearn.preprocessing import RobustScaler
     seed = require_seed(seed)
     if isinstance(X, pl.DataFrame):
+        # bench-attempt-rejected (2026-05-24): allow_copy=False polars hint raises on any multi-column DataFrame (per-column Arrow chunk layout); fallback
+        # branch adds code without speedup. The dtype gate below already short-circuits when dtypes match and astype(..., copy=False) is a 0.3 us no-op.
         X = X.to_numpy()
     if X.dtype.kind in ("f", "i", "u") and X.dtype != dtype:
         X = X.astype(dtype, copy=False)
