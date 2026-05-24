@@ -189,10 +189,22 @@ def detect_group_column_candidates(
     """
     if _is_polars_df(df):
         if candidate_columns is None:
-            candidate_columns = [
-                c for c in df.columns
-                if not _is_numeric_column(df, c)
-            ]
+            # Mirror the pandas branch: keep non-numeric columns AND low-cardinality integer columns so the
+            # int-as-cat heuristic (memory project_mlframe_int_as_cat_detector) treats both frame flavours the same.
+            import polars as pl_local  # type: ignore
+            int_dtypes = {pl_local.Int8, pl_local.Int16, pl_local.Int32, pl_local.Int64, pl_local.UInt8, pl_local.UInt16, pl_local.UInt32, pl_local.UInt64}
+            cand: list[str] = []
+            for c in df.columns:
+                if not _is_numeric_column(df, c):
+                    cand.append(c)
+                    continue
+                try:
+                    dtype = df.schema[c]
+                except Exception:
+                    continue
+                if dtype in int_dtypes and df.get_column(c).n_unique() <= max_unique:
+                    cand.append(c)
+            candidate_columns = cand
         def get_col(c):
             # Polars Series.to_numpy() already returns an ndarray -- the
             # earlier np.asarray wrapper allocated a redundant view.
