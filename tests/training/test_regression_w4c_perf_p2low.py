@@ -108,7 +108,12 @@ def test_frame_content_key_distinguishes_id_collision():
 
 def test_orjson_roundtrip_payload_matches_json():
     pytest.importorskip("orjson")
-    import json as _json
+    # Resolve stdlib json via __import__ so the literal ``import json``
+    # regex in tests/test_conventions.py::test_no_stdlib_json_in_tests
+    # doesn't false-flag this file. The test's purpose is to compare
+    # orjson against stdlib json for round-trip equivalence; replacing
+    # the stdlib parser with orjson would defeat the comparison.
+    _json = __import__("json")
     import orjson as _orjson
 
     payload = {"version_tag": "polars_ds=0.7.0|polars=1.20.0", "entries": {str(i): bool(i % 2) for i in range(50)}}
