@@ -48,14 +48,17 @@ def _make_extra_sympy_mappings() -> Dict[str, Callable[..., Any]]:
     """
     import sympy as sp
 
+    # Predict-time mappings MUST match the Julia train-time semantics in OPERATOR_JULIA_SIGNATURES bit-for-bit. The legacy ``sp.log(sp.Abs(x) + 1e-9)`` form was chosen for sympy printability but it CHANGES the function PySR fit at train time (Julia returns NaN for x<=0; sympy returned a finite value), so predictions on negative / zero inputs see a value the model never saw during training. Use Piecewise to faithfully replicate the Julia branches.
     return {
-        "safe_log": lambda x: sp.log(sp.Abs(x) + 1e-9),
-        "safe_sqrt": lambda x: sp.sqrt(sp.Abs(x)),
+        "safe_log": lambda x: sp.Piecewise((sp.log(x), x > 0), (sp.nan, True)),
+        "safe_sqrt": lambda x: sp.Piecewise((sp.sqrt(x), x >= 0), (sp.sqrt(-x), True)),
         "inv": lambda x: 1 / x,
         "gauss": lambda x: sp.exp(-(x ** 2)),
         "softplus": lambda x: sp.log(1 + sp.exp(x)),
-        "harmonic_mean": lambda x, y: 2 * x * y / (x + y),
-        "xlogy": lambda x, y: x * sp.log(sp.Abs(y) + 1e-9),
+        "harmonic_mean": lambda x, y: sp.Piecewise(
+            (2 * x * y / (x + y), (x + y) > 0), (sp.nan, True)
+        ),
+        "xlogy": lambda x, y: sp.Piecewise((x * sp.log(y), y > 0), (sp.nan, True)),
     }
 
 
