@@ -41,25 +41,44 @@ def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
 
 
 def _verify_sidecar(path: str) -> bool:
-    """If a ``<path>.sha256`` sidecar exists, verify it matches; otherwise return True (with WARN).
+    """Default-strict (fail-CLOSED) sha256 sidecar check.
 
-    Returns False only when a sidecar exists and its digest does NOT match.
+    Contract:
+    - sidecar present + digest matches -> True
+    - sidecar present + digest does NOT match -> False
+    - sidecar missing -> False by default (RCE-bypass guard)
+    - sidecar missing + ``MLFRAME_ALLOW_UNVERIFIED_PICKLE=1`` env var
+      -> True with WARN (legacy-deploy escape hatch)
 
-    Wave 84 (2026-05-21): a silently-missing sidecar previously opened an RCE
-    bypass (attacker plants pickle, omits sidecar -> _verify_sidecar returns True
-    -> joblib.load deserialises arbitrary code). Now WARN-logs so operators see
-    the verification gap.
+    The prior fail-OPEN behaviour (return True on missing sidecar) let an attacker who
+    could plant a pickle in the inference folder bypass content verification entirely
+    -- joblib.load then deserialised arbitrary code at the next predict call. The
+    escape-hatch env var preserves backward compatibility for operators who genuinely
+    need to load un-sidecar'd legacy bundles during the migration window; flip the
+    var, log shows the load was unverified, and security review can audit those
+    deploys explicitly.
     """
     sidecar = path + ".sha256"
     if not isfile(sidecar):
         import logging as _lg
-        _lg.getLogger(__name__).warning(
-            "_verify_sidecar: no .sha256 sidecar for %s -- joblib.load proceeds WITHOUT "
-            "content verification (RCE risk if path is attacker-reachable). "
-            "Generate the sidecar with `sha256sum <path> > <path>.sha256` to enable verification.",
+        _allow_unverified = os.environ.get("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "").strip()
+        if _allow_unverified and _allow_unverified.lower() not in ("0", "false", "no"):
+            _lg.getLogger(__name__).warning(
+                "_verify_sidecar: no .sha256 sidecar for %s -- MLFRAME_ALLOW_UNVERIFIED_PICKLE "
+                "is set so joblib.load proceeds WITHOUT content verification (RCE risk if path "
+                "is attacker-reachable). Generate the sidecar with `sha256sum <path> > <path>.sha256` "
+                "and unset the env var to restore default fail-closed behaviour.",
+                path,
+            )
+            return True
+        _lg.getLogger(__name__).error(
+            "_verify_sidecar: no .sha256 sidecar for %s -- refusing to load (default-strict). "
+            "Generate the sidecar with `sha256sum <path> > <path>.sha256` to enable verification, "
+            "or set MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 for legacy un-sidecar'd bundles (with "
+            "the understanding that loads are unverified).",
             path,
         )
-        return True
+        return False
     with open(sidecar, encoding="utf-8") as f:
         expected = f.read().strip().split()[0].lower()
     actual = _sha256_of_file(path).lower()

@@ -281,6 +281,19 @@ def _meta_sidecar_path(bundle_path: str) -> str:
     return bundle_path + ".meta.json"
 
 
+def _bundle_sha256(bundle_path: str, chunk: int = 1 << 20) -> Optional[str]:
+    """Compute SHA-256 of the bundle file at save-side. Returns None when the bundle file is not yet readable (caller logs a non-fatal WARN -- the load-side sidecar check is independent and remains the primary RCE guard)."""
+    import hashlib
+    try:
+        h = hashlib.sha256()
+        with open(bundle_path, "rb") as f:
+            for block in iter(lambda: f.read(chunk), b""):
+                h.update(block)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
 def _write_save_meta_sidecar(bundle_path: str, *, durable: bool = False) -> None:
     """Write the .meta.json sidecar next to the just-written bundle.
 
@@ -289,19 +302,28 @@ def _write_save_meta_sidecar(bundle_path: str, *, durable: bool = False) -> None
           "sidecar_version": 1,
           "saved_at_utc": "2026-05-20T12:34:56Z",
           "lib_versions": {"mlframe": "...", "lightgbm": "...", ...},
-          "bundle_sha256": "...",  # not yet -- placeholder for future
+          "bundle_sha256": "<64-char hex>"   # SHA-256 of the bundle file.
         }
 
     Atomic-written via the same ``atomic_write_bytes`` helper as the
     bundle itself so a crash mid-write doesn't leave a half-meta file.
+
+    ``bundle_sha256`` carries the actual SHA-256 of the just-written bundle so
+    operators can audit payload integrity against the meta sidecar (independent
+    of the inference-side ``.sha256`` sidecar check). When the bundle file is
+    not yet readable the field is omitted rather than written as a placeholder
+    -- callers downstream can detect absence vs. mismatch unambiguously.
     """
     import json
     import datetime as _dt
-    payload = {
+    payload: Dict[str, Any] = {
         "sidecar_version": _SIDECAR_META_VERSION,
         "saved_at_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "lib_versions": _collect_lib_versions(),
     }
+    digest = _bundle_sha256(bundle_path)
+    if digest is not None:
+        payload["bundle_sha256"] = digest
     meta_bytes = json.dumps(payload, sort_keys=True, indent=2).encode("utf-8")
 
     def _writer(f):

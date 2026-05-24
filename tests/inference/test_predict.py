@@ -26,8 +26,25 @@ def test_sha256_of_file_matches_hashlib(tmp_path):
 
 
 @pytest.mark.fast
-def test_verify_sidecar_absent_returns_true(tmp_path):
-    """No sidecar -> verifier returns True (pass-through, not failure)."""
+def test_verify_sidecar_absent_default_strict_returns_false(tmp_path, monkeypatch):
+    """Default-strict mode: missing sidecar -> False (RCE-bypass guard).
+
+    Prior contract was fail-OPEN (return True with WARN); flipped to
+    fail-CLOSED in S72 fix so an attacker who plants a pickle without a
+    matching sidecar cannot bypass content verification. Legacy un-sidecar'd
+    bundles can still be loaded via the MLFRAME_ALLOW_UNVERIFIED_PICKLE=1
+    escape hatch -- covered by the next test.
+    """
+    monkeypatch.delenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", raising=False)
+    p = tmp_path / "model.pkl"
+    p.write_bytes(b"x")
+    assert predict._verify_sidecar(str(p)) is False
+
+
+@pytest.mark.fast
+def test_verify_sidecar_absent_with_env_opt_in_returns_true(tmp_path, monkeypatch):
+    """MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 restores legacy pass-through with WARN."""
+    monkeypatch.setenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "1")
     p = tmp_path / "model.pkl"
     p.write_bytes(b"x")
     assert predict._verify_sidecar(str(p)) is True
