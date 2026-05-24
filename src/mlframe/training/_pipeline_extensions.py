@@ -168,20 +168,19 @@ def _apply_pysr_fe(
         )
     temp_target_col = "_pysr_y_"
 
-    # Inject y_train as a temporary column (bruteforce expects target as a column in the DataFrame).
-    # Caller already feeds the local ``train`` frame from ``apply_preprocessing_extensions._to_pandas``
-    # so this isn't visible to caller code; the ``finally`` block below removes the temp column on any
-    # exit path.
+    # Inject y_train as a temporary column (bruteforce expects target as a column in the DataFrame). Caller already feeds the local ``train`` frame from ``apply_preprocessing_extensions._to_pandas`` so this isn't visible to caller code; the ``finally`` block below removes the temp column on any exit path.
+    #
+    # The injection MUST live INSIDE the try block. The pre-fix shape did the assignment one line before ``try:``, leaving a narrow leak window: an exception fired between injection and try entry (e.g. ``int(getattr(config, "random_seed", 42))`` on a malformed config value) bypassed the ``finally`` and the temp target column leaked back to the caller's frame as a fake numeric feature.
     existing_y = train_df.columns.tolist()
     while temp_target_col in existing_y:
         temp_target_col = "_" + temp_target_col
-    train_df[temp_target_col] = np.asarray(y_train).ravel()
 
-    # Thread the suite-level seed through to PySR's internal sampler. Without
-    # this, run_pysr_feature_engineering's df.sample(...) draws a fresh row
-    # subset each call and equations drift run-to-run.
-    pysr_random_state = int(getattr(config, "random_seed", 42))
+    # Thread the suite-level seed through to PySR's internal sampler. Without this, run_pysr_feature_engineering's df.sample(...) draws a fresh row subset each call and equations drift run-to-run.
+    _column_was_injected = False
     try:
+        pysr_random_state = int(getattr(config, "random_seed", 42))
+        train_df[temp_target_col] = np.asarray(y_train).ravel()
+        _column_was_injected = True
         model = run_pysr_feature_engineering(
             df=train_df,
             target_col=temp_target_col,
@@ -197,18 +196,15 @@ def _apply_pysr_fe(
                 "PySR fit failed; skipping symbolic feature engineering.",
                 exc_info=True,
             )
-        # The ``finally`` clause below ALWAYS runs and drops the temp column, including on this
-        # except-return path. The previous duplicate drop here was redundant.
+        # The ``finally`` clause below ALWAYS runs and drops the temp column, including on this except-return path. The previous duplicate drop here was redundant.
         return []
     finally:
-        # Wave 52 (2026-05-20): wrap drop in try/except so a pandas KeyError chain
-        # on a corrupted MultiIndex column or a read-only frame doesn't mask the
-        # in-flight exception (errors="ignore" covers the missing-column case but
-        # not deeper pandas-internal failures).
-        try:
-            train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")
-        except Exception as _drop_err:
-            logger.debug("pipeline: temp_target_col drop failed in finally: %s", _drop_err)
+        # Wrap drop in try/except so a pandas KeyError chain on a corrupted MultiIndex column or a read-only frame doesn't mask the in-flight exception (errors="ignore" covers the missing-column case but not deeper pandas-internal failures). Skip the drop when injection itself failed -- nothing to remove.
+        if _column_was_injected:
+            try:
+                train_df.drop(columns=[temp_target_col], inplace=True, errors="ignore")
+            except Exception as _drop_err:
+                logger.debug("pipeline: temp_target_col drop failed in finally: %s", _drop_err)
 
     # Apply top-K equations (by score)
     eq_df = model.equations_
@@ -278,6 +274,36 @@ def _apply_pysr_fe(
     if out_transformer is not None and _col_to_index:
         out_transformer.append(PySRTransformer(model=model, col_to_index=_col_to_index, equations=out_equations or {}))
     return new_cols
+
+
+def _filter_to_numeric(_df):
+    """Drop non-numeric columns and bool-to-int8 promote in place, returning ``(filtered_view, dropped_names)``.
+
+    Module-level (not nested inside ``apply_preprocessing_extensions``) so the regression sensor for the 100GB no-copy rule can import it directly. Caller-frame mutation contract: bool columns ARE promoted to int8 in the caller's frame -- this is the documented price of obeying the no-full-frame-copy rule on 100+GB workloads. The float / numeric columns are exposed via a column-subset view; ``_df[_num_cols]`` returns a view that shares the underlying block buffers with the caller's frame for the unchanged columns.
+    """
+    if _df is None:
+        return _df, []
+    # Wave 29 P2 (2026-05-20): pre-fix silently passed through polars DataFrames; downstream ``_df.select_dtypes(...)`` then raised AttributeError with no diagnostic naming the type. Coerce polars -> pandas explicitly; raise on truly unsupported types so the upstream caller sees the boundary.
+    if not isinstance(_df, pd.DataFrame):
+        try:
+            import polars as _pl_local
+            if isinstance(_df, _pl_local.DataFrame):
+                _df = _df.to_pandas()
+            else:
+                return _df, []
+        except ImportError:
+            return _df, []
+    # Bool columns are numerically valid for sklearn KBins / StandardScaler / PolynomialFeatures (False=0, True=1) but ``select_dtypes(include="number")`` EXCLUDES bool dtype - the default code path silently drops useful binary features (e.g. ``is_after_ps`` event-membership flags). Cast bool -> int8 so they pass the "number" gate; int8 is the smallest dtype that round-trips True/False without precision loss.
+    # The CRITICAL no-df.copy() rule (CLAUDE.md "Memory / RAM constraints") forbids a full-frame clone here -- on a 100+ GB frame that would OOM the host. Pre-2026-05-24 fix did ``_df = _df.copy()``; replaced with a per-column in-place dtype mutation. Single-column assignment is a block-level dtype swap, so the unchanged numeric columns keep their original buffers (the regression sensor asserts ``np.shares_memory`` on the float columns).
+    import numpy as _np_local
+    _bool_cols = _df.select_dtypes(include="bool").columns.tolist()
+    for _c in _bool_cols:
+        _df[_c] = _df[_c].astype(_np_local.int8)
+    _num_cols = _df.select_dtypes(include="number").columns.tolist()
+    _dropped = [c for c in _df.columns if c not in _num_cols]
+    return _df[_num_cols], _dropped
+
+
 def apply_preprocessing_extensions(
     train_df,
     val_df,
@@ -464,57 +490,9 @@ def apply_preprocessing_extensions(
                     else:
                         test = split_df.drop(columns=[col]).join(new_split_df)
 
-    # Numeric-only gate for the sklearn-bridge pipeline. The downstream
-    # extensions (scaler / kbins / polynomial / nonlinear / dim_reducer
-    # and the median-imputer in front) all reject object/string dtypes
-    # with errors that range from clear (``Cannot use median strategy
-    # with non-numeric data``) to opaque (``ValueError: The truth value
-    # of an array with more than one element is ambiguous`` from inside
-    # PolynomialFeatures or RobustScaler). The contract is "if you turn
-    # on the sklearn-bridge, your frame should be numeric". When
-    # non-numeric columns survived (unencoded cat_mid, embedding object
-    # dtypes that the upstream cat-encoder skipped, etc.), drop them
-    # here with a single-line WARN. Surfaced by 1M-harness seed=11.
+    # Numeric-only gate for the sklearn-bridge pipeline. The downstream extensions (scaler / kbins / polynomial / nonlinear / dim_reducer and the median-imputer in front) all reject object/string dtypes with errors that range from clear (``Cannot use median strategy with non-numeric data``) to opaque (``ValueError: The truth value of an array with more than one element is ambiguous`` from inside PolynomialFeatures or RobustScaler). The contract is "if you turn on the sklearn-bridge, your frame should be numeric". When non-numeric columns survived (unencoded cat_mid, embedding object dtypes that the upstream cat-encoder skipped, etc.), drop them here with a single-line WARN. Surfaced by 1M-harness seed=11.
     #
-    # Note: the cat-encoder pre-pipeline normally runs BEFORE this
-    # function, so under standard configs this drop is a no-op. The
-    # gate exists to keep production callers + the 1M profiler harness
-    # robust against axis combinations where cat_encoding canonicalised
-    # to a path that bypassed the encoder.
-    def _filter_to_numeric(_df):
-        if _df is None:
-            return _df, []
-        # Wave 29 P2 fix (2026-05-20): pre-fix silently passed through
-        # polars DataFrames; downstream ``_df.select_dtypes(...)`` then
-        # raised AttributeError with no diagnostic naming the type. Coerce
-        # polars -> pandas explicitly (matches the sibling helpers that
-        # call ``get_pandas_view_of_polars_df``); raise on truly
-        # unsupported types so the upstream caller sees the boundary.
-        if not isinstance(_df, pd.DataFrame):
-            try:
-                import polars as _pl_local
-                if isinstance(_df, _pl_local.DataFrame):
-                    _df = _df.to_pandas()
-                else:
-                    return _df, []
-            except ImportError:
-                return _df, []
-        # Bool columns are numerically valid for sklearn KBins /
-        # StandardScaler / PolynomialFeatures (False=0, True=1) but
-        # ``select_dtypes(include="number")`` EXCLUDES bool dtype - the
-        # default code path silently drops useful binary features
-        # (e.g. ``is_after_ps`` event-membership flags). Cast bool -> int8
-        # in place so they pass the "number" gate. int8 is the smallest
-        # dtype that round-trips True/False without precision loss; mass
-        # cast is cheap (~1 byte per row).
-        import numpy as _np_local
-        _bool_cols = _df.select_dtypes(include="bool").columns.tolist()
-        if _bool_cols:
-            _df = _df.copy()  # avoid mutating caller's frame
-            _df[_bool_cols] = _df[_bool_cols].astype(_np_local.int8)
-        _num_cols = _df.select_dtypes(include="number").columns.tolist()
-        _dropped = [c for c in _df.columns if c not in _num_cols]
-        return _df[_num_cols], _dropped
+    # Note: the cat-encoder pre-pipeline normally runs BEFORE this function, so under standard configs this drop is a no-op. The gate exists to keep production callers + the 1M profiler harness robust against axis combinations where cat_encoding canonicalised to a path that bypassed the encoder.
 
     train, _dropped_train = _filter_to_numeric(train)
     val, _ = _filter_to_numeric(val)
