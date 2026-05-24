@@ -543,6 +543,19 @@ class TestPipelineConfigurations:
 class TestCreatePolardsPipeline:
     """Tests for create_polarsds_pipeline function."""
 
+    @pytest.fixture(autouse=True)
+    def _require_polars_ds(self, request):
+        """Skip every test in this class when polars-ds is missing.
+
+        Carries the same semantics as the per-test ``try: import polars_ds.pipeline; except ImportError: pytest.skip(...)`` blocks
+        that used to be duplicated 8 times below; consolidated into one autouse gate to avoid drift across the duplicates and
+        cut the noise in test bodies. The ``test_returns_none_when_polarsds_not_available`` test explicitly probes the
+        polars-ds-ABSENT path via ``patch.dict``, so it must run regardless of whether polars-ds is installed.
+        """
+        if request.node.name == "test_returns_none_when_polarsds_not_available":
+            return
+        pytest.importorskip("polars_ds.pipeline")
+
     def test_returns_none_when_polarsds_not_available(self):
         """Test that function returns None when polars-ds is not installed."""
         # Create simple Polars DataFrame
@@ -566,12 +579,6 @@ class TestCreatePolardsPipeline:
             scaler_name="standard",
         )
 
-        # Only run if polars-ds is available
-        try:
-            import polars_ds.pipeline
-        except ImportError:
-            pytest.skip("polars-ds not installed")
-
         pipeline = create_polarsds_pipeline(
             pl_df.select(feature_names),
             config,
@@ -583,11 +590,6 @@ class TestCreatePolardsPipeline:
     def test_pipeline_with_scaling(self, sample_polars_data):
         """Test pipeline creation with different scaling methods."""
         pl_df, feature_names, _ = sample_polars_data
-
-        try:
-            import polars_ds.pipeline
-        except ImportError:
-            pytest.skip("polars-ds not installed")
 
         for scaler_name in ['standard', 'min_max', 'abs_max', 'robust']:
             config = PreprocessingBackendConfig(
@@ -610,11 +612,6 @@ class TestCreatePolardsPipeline:
         # Convert to Polars
         pl_df = pl.from_pandas(df)
 
-        try:
-            import polars_ds.pipeline
-        except ImportError:
-            pytest.skip("polars-ds not installed")
-
         config = PreprocessingBackendConfig(
             prefer_polarsds=True,
             categorical_encoding="ordinal",
@@ -635,11 +632,6 @@ class TestCreatePolardsPipeline:
         # Convert to Polars
         pl_df = pl.from_pandas(df)
 
-        try:
-            import polars_ds.pipeline
-        except ImportError:
-            pytest.skip("polars-ds not installed")
-
         config = PreprocessingBackendConfig(
             prefer_polarsds=True,
             categorical_encoding="onehot",
@@ -656,11 +648,6 @@ class TestCreatePolardsPipeline:
     def test_pipeline_transformation(self, sample_polars_data):
         """Test that created pipeline can transform data."""
         pl_df, feature_names, _ = sample_polars_data
-
-        try:
-            import polars_ds.pipeline
-        except ImportError:
-            pytest.skip("polars-ds not installed")
 
         config = PreprocessingBackendConfig(
             prefer_polarsds=True,
@@ -683,11 +670,6 @@ class TestCreatePolardsPipeline:
         """Test pipeline creation without scaling."""
         pl_df, feature_names, _ = sample_polars_data
 
-        try:
-            import polars_ds.pipeline
-        except ImportError:
-            pytest.skip("polars-ds not installed")
-
         config = PreprocessingBackendConfig(
             prefer_polarsds=True,
             scaler_name=None,  # No scaling
@@ -704,11 +686,6 @@ class TestCreatePolardsPipeline:
     def test_custom_pipeline_name(self, sample_polars_data):
         """Test pipeline creation with custom name."""
         pl_df, feature_names, _ = sample_polars_data
-
-        try:
-            import polars_ds.pipeline
-        except ImportError:
-            pytest.skip("polars-ds not installed")
 
         config = PreprocessingBackendConfig(
             prefer_polarsds=True,
@@ -731,11 +708,6 @@ class TestCreatePolardsPipeline:
             "int_col": [1, 2, 3, 4, 5],
             "float_col": [1.0, 2.0, 3.0, 4.0, 5.0],
         })
-
-        try:
-            import polars_ds.pipeline
-        except ImportError:
-            pytest.skip("polars-ds not installed")
 
         config = PreprocessingBackendConfig(
             prefer_polarsds=True,
