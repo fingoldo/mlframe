@@ -42,16 +42,18 @@ def _run_composite_target_wrapping(
     test_df_pd,
     skip_predict: bool = False,
     enable_watchdog: bool = True,
-) -> dict[int, np.ndarray]:
+) -> dict[tuple, np.ndarray]:
     """Wrap T-scale inner models in CompositeTargetEstimator so predict() returns y-scale; record y-scale RMSE/MAE/R2 per split.
 
     Mutates ``models`` in-place (replaces each composite-target inner with its wrapper) and writes ``metadata["composite_target_y_scale_metrics"]``.
-    Returns the train-prediction cache (keyed by ``id(wrapper)``) so the downstream cross-target ensemble block can reuse the predictions
-    without re-calling ``.predict`` on the wrapped models.
+    Returns the train-prediction cache (keyed by ``(id(wrapper), id(filtered_train_df), shape)``) so the downstream cross-target ensemble block can reuse the predictions
+    without re-calling ``.predict`` on the wrapped models. Folding the frame identity into the key defends against ``id()`` recycling across GC cycles when wrappers
+    or frames get freed between the wrap pass and the ensemble pass on long-lived suites.
 
     ``skip_predict=True`` (Pack 2026-05-18): skip the 3-split predict() calls used to compute y-scale RMSE/MAE/R2 metrics. The wrap step (replacing each entry's inner with ``CompositeTargetEstimator``) still runs so downstream predict-path consumers see y-scale predictions; only the metric computation block is bypassed. Pack G watchdog (additive transforms: T-MAE == y-MAE) already covers the correctness check, so the y-scale metrics are redundant when watchdog is on -- skipping them saves up to ~30 predict() calls on multi-million-row frames per composite target.
     """
-    _train_pred_cache: dict[int, np.ndarray] = {}
+    _train_pred_cache: dict[tuple, np.ndarray] = {}
+    _train_frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
     for _tt_w, _by_name in (models or {}).items():
         if not isinstance(_by_name, dict):
             continue
@@ -203,7 +205,11 @@ def _run_composite_target_wrapping(
                                 type(_inner_dbg).__name__, _split_name, _pairs,
                             )
                         if _split_name == "train":
-                            _train_pred_cache[id(_wrapper_for_score)] = _y_pred
+                            _train_pred_cache[(id(_wrapper_for_score),) + _train_frame_key] = _y_pred
+                            # Inner-model key too: composite_post.py reads via ``getattr(comp, 'model', comp)`` which unwraps one level.
+                            _inner_for_write = getattr(_wrapper_for_score, "model", None)
+                            if _inner_for_write is not None and _inner_for_write is not _wrapper_for_score:
+                                _train_pred_cache[(id(_inner_for_write),) + _train_frame_key] = _y_pred
                         _diff = _y_pred - _y_split.astype(np.float64)
                         _finite = np.isfinite(_diff)
                         if _finite.sum() == 0:
