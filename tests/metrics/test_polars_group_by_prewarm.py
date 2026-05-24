@@ -46,12 +46,13 @@ def test_polars_group_by_warm_after_prewarm():
 
     assert result.height == n_groups
     # Cold-start without prewarm would be 2500-3000ms; with prewarm, even
-    # the production-size aggregation should complete in <100ms (typical
-    # ~2-5ms post-warm; 100ms gives plenty of margin for CI noise without
-    # masking a missed prewarm).
-    assert elapsed_ms < 100.0, (
+    # the production-size aggregation should complete in <250ms (typical
+    # ~2-5ms post-warm; 250ms gives margin for CPU-saturated suite runs
+    # where polars contends with concurrent numba/torch work, without
+    # masking a missed prewarm which would be >2500ms).
+    assert elapsed_ms < 250.0, (
         f"polars group_by + agg on 200k rows took {elapsed_ms:.1f}ms; "
-        f">100ms suggests the cold-start warm-up did NOT fire. Verify "
+        f">250ms suggests the cold-start warm-up did NOT fire. Verify "
         f"_prewarm_numba_cache_body includes the polars group_by warm."
     )
 
@@ -80,7 +81,7 @@ def test_polars_join_warm_after_prewarm():
     elapsed_ms = (time.perf_counter() - t) * 1000
 
     assert joined.height == n
-    assert elapsed_ms < 200.0, (
-        f"polars join on 200k rows took {elapsed_ms:.1f}ms; >200ms suggests "
+    assert elapsed_ms < 500.0, (
+        f"polars join on 200k rows took {elapsed_ms:.1f}ms; >500ms suggests "
         f"the join warm-up did NOT fire."
     )
