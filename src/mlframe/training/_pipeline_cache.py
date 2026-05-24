@@ -227,13 +227,14 @@ def _pipeline_signature_for_cache(pipeline) -> str:
     ``get_params`` (custom transformers without sklearn API) fall back to a
     class-only signature -- a conservative "no cache" since the same class
     might have different state.
+
+    ``random_state``/``random_seed`` is folded into the per-step kwargs string when surfaced via ``get_params`` so two structurally identical pipelines with different seeds do NOT collide -- important because the LRU is shared across the suite and a downstream stochastic step (RFF projection, RFECV CV splitter) would otherwise replay the wrong fit-transform output when the seed flipped between targets.
     """
     if pipeline is None:
         return "None"
     parts = []
     steps = getattr(pipeline, "steps", None)
     if steps is None:
-        # Single transformer (not a Pipeline) -- include its repr.
         return f"single:{type(pipeline).__name__}:{repr(pipeline)}"
     for name, step in steps:
         kls = type(step).__name__
@@ -242,7 +243,19 @@ def _pipeline_signature_for_cache(pipeline) -> str:
             kw = ",".join(f"{k}={params[k]!r}" for k in sorted(params))
         except Exception:
             kw = "?"
-        parts.append(f"{name}:{kls}({kw})")
+        # Fold the setattr-injected ``_mlframe_use_sample_weights_in_fs_`` marker into the per-step signature so a mid-suite toggle of weight-aware FS misses the cache. The marker lives in ``__dict__`` (set by ``_setup_helpers``) and is invisible to ``get_params``; without folding, a weight-blind fit cached under the prior toggle replays for a weight-aware caller.
+        _sw_marker = getattr(step, "_mlframe_use_sample_weights_in_fs_", None)
+        # Also fold any attribute-level random_state/random_seed that escaped get_params() (some custom transformers set it as instance attr post-init). Defence-in-depth against silent seed collisions.
+        _seed_extras = []
+        for _seed_attr in ("random_state", "random_seed", "seed"):
+            _seed_val = getattr(step, _seed_attr, None)
+            if _seed_val is not None and (not isinstance(params, dict) or _seed_attr not in params):
+                _seed_extras.append(f"{_seed_attr}={_seed_val!r}")
+        _seed_suffix = ("|" + ",".join(_seed_extras)) if _seed_extras else ""
+        if _sw_marker is not None:
+            parts.append(f"{name}:{kls}({kw}){_seed_suffix}|sw={bool(_sw_marker)}")
+        else:
+            parts.append(f"{name}:{kls}({kw}){_seed_suffix}")
     return "|".join(parts)
 
 
