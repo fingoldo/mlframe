@@ -201,9 +201,13 @@ class TestCatFEEnabled:
             warnings.simplefilter("ignore")
             mrmr.fit(df_tr, y_tr)
 
-        # Pick any cat-FE recipe (regardless of whether it survived selection)
-        if not mrmr._cat_fe_state_.recipes:
-            pytest.skip("no cat-FE recipes produced for this seed; not a regression")
+        # y = x1 XOR x2 is a textbook 2-way categorical interaction; cat-FE with min_interaction_information=0.1 MUST produce at least one recipe on this
+        # 1500-row training fixture. A pre-fix silent skip here hid a real regression where cat-FE failed to register the recipe for low-cardinality int8
+        # categories; restoring the assertion forces the failure to surface.
+        assert mrmr._cat_fe_state_.recipes, (
+            "cat-FE on XOR(x1,x2) target with min_interaction_information=0.1 should produce >=1 recipe; "
+            f"got 0. Inspect _cat_fe_state_ on the fitted MRMR for diagnostic detail."
+        )
         recipe = mrmr._cat_fe_state_.recipes[0]
 
         # Manually replay the recipe and compare against transform output

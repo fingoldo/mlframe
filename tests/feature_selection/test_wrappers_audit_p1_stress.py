@@ -268,24 +268,28 @@ class TestN3b_RuleEnum:
 class TestH39_MRMRFallback:
     def test_min_features_fallback_keeps_top_k_when_screen_empty(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
-        # Random labels - no signal anywhere.
+        # Force the fallback path by setting ``min_relevance_gain`` to a value larger than any plausible MI; with all-noise features and random labels
+        # the relevance gate filters out every candidate, leaving the screen empty -- the precise precondition for the ``min_features_fallback`` safety net.
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((300, 8)),
                          columns=[f"f{i}" for i in range(8)])
         y = rng.integers(0, 2, 300)
-        mrmr = MRMR(min_features_fallback=3, verbose=False)
+        mrmr = MRMR(min_features_fallback=3, min_relevance_gain=10.0, verbose=False)
         try:
             mrmr.fit(X, y)
-            if mrmr.n_features_ == 0:
-                # If the MI screen happens to find SOMETHING despite random
-                # labels, the fallback may not trigger. That's acceptable -
-                # the fallback is a safety net, not a forced behaviour.
-                pytest.skip("MI screen happened to find features; fallback not exercised")
-            else:
-                # Either real selection or fallback. Both produce >=1 feature.
-                assert mrmr.n_features_ >= 1
         except Exception as exc:
             pytest.skip(f"MRMR variant unavailable in this build: {exc}")
+        # ``min_features_fallback`` only kicks in when ``selected_vars`` is empty AND no engineered features are emitted (see ``_mrmr_fit_impl.py:725``).
+        # Whatever path ran, ``support_`` must be non-empty: either the screen surfaced at least one feature (selection path) OR the fallback engaged
+        # (top-K MI path). Both produce ``n_features_ >= 1``; n_features_ == 0 is the broken-contract case the parameter exists to prevent.
+        assert mrmr.n_features_ >= 1, (
+            f"min_features_fallback=3 with non-empty input should never leave support_ empty; got n_features_={mrmr.n_features_}"
+        )
+        # When the fallback engaged, ``fallback_used_`` is True and ``n_features_`` MUST equal ``min_features_fallback`` (the contract of the safety net).
+        if getattr(mrmr, "fallback_used_", False):
+            assert mrmr.n_features_ == 3, (
+                f"fallback_used_=True implies top-K-by-MI with K=min_features_fallback=3; got {mrmr.n_features_}"
+            )
 
 
 # ----------------------------------------------------------------------------

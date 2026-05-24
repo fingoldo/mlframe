@@ -596,8 +596,12 @@ class TestOrchestratorEndToEnd:
             cfg=cfg, dtype=np.int32,
         )
         kway_recipes = [r for r in state.recipes if r.extra.get("kway_order") == 3]
-        if not kway_recipes:
-            pytest.skip("3-way XOR seed didn't produce kway recipe on this seed")
+        # XOR(x1, x2, x3) -> y is a textbook 3-way interaction with zero pairwise MI and full triplet MI; the greedy k-way extender MUST surface
+        # the triplet recipe. If it does not, the bug is in the extender, not in the seed.
+        assert kway_recipes, (
+            f"3-way XOR target with max_kway_order=3 must produce at least one kway recipe; "
+            f"got recipes={[(r.src_names, r.extra.get('kway_order')) for r in state.recipes]}"
+        )
         recipe = kway_recipes[0]
         # Recipe carries the chained-lookup payload
         assert "chain_lookups" in recipe.extra

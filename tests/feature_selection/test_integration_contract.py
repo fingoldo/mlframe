@@ -247,10 +247,12 @@ def test_cat_fe_recipes_replay_matches_manual(xor_cat_df):
     recipes = list(getattr(mrmr, "_engineered_recipes_", []))
     if not recipes:
         # When no engineered feature survived screening, the contract is vacuously true; assert the cat-FE step at least produced candidate recipes so the
-        # test still exercises the code path it was designed for.
+        # test still exercises the code path it was designed for. The xor fixture's interaction signal is strong enough that 0 candidate recipes points at a
+        # real regression in the cat-FE pipeline, not at a seed-unlucky outcome.
         cat_state = getattr(mrmr, "_cat_fe_state_", None)
-        if cat_state is None or not cat_state.recipes:
-            pytest.skip("cat-FE produced 0 candidate recipes on this fixture; not a regression for this contract")
+        assert cat_state is not None and cat_state.recipes, (
+            "cat-FE on the XOR fixture produced 0 candidate recipes; the deterministic-encoding contract cannot be exercised. Investigate cat-FE pipeline."
+        )
         # Promote one cat-FE candidate to a "would-be" recipe and apply it manually -- we still verify deterministic encoding even when MRMR didn't keep it.
         recipe = cat_state.recipes[0]
         manual = apply_recipe(recipe, df_te)
