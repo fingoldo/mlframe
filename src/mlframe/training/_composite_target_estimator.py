@@ -281,7 +281,42 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "y_clip_low_hits": 0,
             "y_clip_high_hits": 0,
         }
+        # Stamp the construction-source flag so __sklearn_clone__ can refuse cloning a wrapper whose fitted state lives outside the __init__ signature. sklearn.base.clone() would otherwise return a silent unfitted shell and the first predict() call on the clone would raise NotFittedError mid-pipeline. The legitimate clone-on-unfitted-spec flow (sklearn.Pipeline, GridSearchCV) goes through __init__ and never trips this flag.
+        instance._built_via_from_fitted_inner = True
         return instance
+
+    def __sklearn_clone__(self) -> "CompositeTargetEstimator":
+        """Refuse cloning a wrapper built via :meth:`from_fitted_inner`.
+
+        ``from_fitted_inner`` assigns ``estimator_`` / ``fitted_params_`` /
+        ``runtime_stats_`` / ``feature_names_in_`` directly on the
+        instance, bypassing ``__init__``. ``sklearn.base.clone()`` copies
+        only ``get_params()`` output, so a clone of a from_fitted_inner
+        instance silently loses every fitted attribute and the first
+        downstream ``predict`` call raises ``NotFittedError`` from deep
+        inside whichever pipeline cloned it.
+
+        Standard ``fit()``-built instances clone normally via the
+        default sklearn path (the flag is only stamped by
+        from_fitted_inner).
+        """
+        if getattr(self, "_built_via_from_fitted_inner", False):
+            raise NotImplementedError(
+                "CompositeTargetEstimator: refusing to clone an instance built via "
+                "from_fitted_inner. The fitted state (estimator_, fitted_params_, "
+                "runtime_stats_, feature_names_in_) lives outside the __init__ "
+                "signature, so sklearn.base.clone() would silently produce an "
+                "unfitted shell and the first predict() call on the clone would "
+                "raise NotFittedError mid-pipeline. If you need a fresh wrapper, "
+                "construct it via the standard CompositeTargetEstimator(...) "
+                "constructor + fit(). If you need to deepcopy the fitted state, "
+                "use copy.deepcopy(instance) (not sklearn.base.clone)."
+            )
+        # Default sklearn clone semantics: reconstruct via class + cloned init params.
+        # Mirrors what BaseEstimator's default __sklearn_clone__ does (sklearn>=1.3).
+        klass = self.__class__
+        new_params = {name: clone(val, safe=False) for name, val in self.get_params(deep=False).items()}
+        return klass(**new_params)
 
     # ------------------------------------------------------------------
     # sklearn API
