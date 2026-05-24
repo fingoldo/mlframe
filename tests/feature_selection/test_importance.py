@@ -30,6 +30,8 @@ from mlframe.feature_selection.importance import (  # noqa: E402
     plot_feature_importance,
 )
 
+pytestmark = pytest.mark.uses_matplotlib
+
 
 # ----------------------------------------------------------------------------
 # Synthetic fixtures
