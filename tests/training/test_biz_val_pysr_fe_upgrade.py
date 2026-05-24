@@ -14,7 +14,7 @@ rediscover at least 2 of the 3 ground-truth equation forms
 
 Marked ``@pytest.mark.slow`` because PySR + Julia first-run cost ~30-60s.
 
-Marked ``@pytest.mark.no_xdist_parallel`` because PythonCall / Julia
+Marked ``@pytest.mark.no_xdist`` because PythonCall / Julia
 periodically segfaults (Windows access violation) inside ``pysr.sr.fit``
 under multi-worker xdist load — the native crash kills the worker, the
 master execnet channel dies, and ``BrokenPipeError`` cascades through
