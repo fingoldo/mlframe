@@ -1137,8 +1137,7 @@ class TestNumbaBootstrapKernelsEquivalence:
         from mlframe.training.dummy_baselines import (
             _NUMBA_AVAILABLE, _numba_paired_bootstrap_rmse,
         )
-        if not _NUMBA_AVAILABLE:
-            pytest.skip("numba not available")
+        assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         from sklearn.metrics import mean_squared_error
         rng = np.random.default_rng(0)
         n = 500
@@ -1184,8 +1183,7 @@ class TestNumbaBootstrapKernelsEquivalence:
         from mlframe.training.dummy_baselines import (
             _NUMBA_AVAILABLE, _numba_bootstrap_rmse_samples,
         )
-        if not _NUMBA_AVAILABLE:
-            pytest.skip("numba not available")
+        assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         from sklearn.metrics import mean_squared_error
         rng = np.random.default_rng(0)
         n = 500
@@ -1216,8 +1214,7 @@ class TestNumbaBootstrapKernelsEquivalence:
         from mlframe.training.dummy_baselines import (
             _NUMBA_AVAILABLE, _numba_paired_bootstrap_mae,
         )
-        if not _NUMBA_AVAILABLE:
-            pytest.skip("numba not available")
+        assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         rng = np.random.default_rng(0)
         n = 500
         y = rng.normal(size=n).astype(np.float64)
@@ -1234,8 +1231,7 @@ class TestNumbaBootstrapKernelsEquivalence:
         from mlframe.training.dummy_baselines import (
             _NUMBA_AVAILABLE, _numba_paired_bootstrap_logloss_binary,
         )
-        if not _NUMBA_AVAILABLE:
-            pytest.skip("numba not available")
+        assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         rng = np.random.default_rng(0)
         n = 500
         # True labels
@@ -1253,8 +1249,7 @@ class TestNumbaBootstrapKernelsEquivalence:
         from mlframe.training.dummy_baselines import (
             _NUMBA_AVAILABLE, _numba_bootstrap_logloss_binary_samples,
         )
-        if not _NUMBA_AVAILABLE:
-            pytest.skip("numba not available")
+        assert _NUMBA_AVAILABLE, "numba is a hard dependency per pyproject.toml; if this fails, the install is broken"
         rng = np.random.default_rng(0)
         n = 500
         y = rng.integers(0, 2, n).astype(np.int64)

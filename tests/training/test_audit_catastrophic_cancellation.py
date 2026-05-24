@@ -66,8 +66,7 @@ def test_per_member_std_3d_branch_precision():
     from mlframe.models.ensembling import (
         _per_member_mae_std_njit, _HAS_NUMBA_PER_MEMBER,
     )
-    if not _HAS_NUMBA_PER_MEMBER:
-        pytest.skip("numba not available")
+    assert _HAS_NUMBA_PER_MEMBER, "numba is a hard dependency per pyproject.toml; install is broken if False"
 
     rng = np.random.default_rng(7)
     K, N, C = 2, 100_000, 3
