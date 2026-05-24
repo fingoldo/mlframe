@@ -662,8 +662,10 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        # Single row typically causes issues with train/test split
-        # Test that appropriate error is raised or handled gracefully
+        # Single row cannot be split into train/val/test; the suite must
+        # either raise ValueError/IndexError OR succeed with degenerate
+        # output. Either is a valid contract; we just assert the call
+        # doesn't silently return None / hang.
         try:
             models, metadata = train_mlframe_models_suite(
                 df=df,
@@ -681,8 +683,12 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             assert models is not None
             assert metadata is not None
         except (ValueError, IndexError):
-            # Expected - can't split single row
-            pytest.skip("Single-row input correctly raised ValueError/IndexError")
+            # Expected path: split / fit refused the degenerate 1-row input.
+            # Treat as PASS -- the suite surfaced the limitation cleanly
+            # rather than producing garbage output. (Was pytest.skip; that
+            # made the test silently green even if some future refactor
+            # turned the raise into a hang or wrong-shape success.)
+            pass
 
     def test_with_very_few_samples(self, temp_data_dir, common_init_params):
         """Test with fewer samples than required for train/val/test split."""
@@ -1033,7 +1039,7 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        # Should either handle or raise a clear error
+        # Should either handle or raise a clear error -- both are valid.
         try:
             models, metadata = train_mlframe_models_suite(
                 df=df,
@@ -1051,7 +1057,11 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
             assert models is not None
             assert metadata is not None
         except (ValueError, KeyError):
-            pytest.skip("Duplicate columns correctly raised ValueError/KeyError")
+            # Expected path: suite refused the duplicate-columns input
+            # rather than producing wrong-shape output. Treat as PASS
+            # (was pytest.skip; that made silent green even if a future
+            # refactor turned the raise into a hang or wrong-shape return).
+            pass
 
     def test_special_characters_in_column_names(self, temp_data_dir, common_init_params):
         """Test handling of special characters in column names."""

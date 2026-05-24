@@ -342,8 +342,17 @@ def report_probabilistic_model_perf(
             _precomputed_aucs_per_class = [
                 (float(roc_batch[j]), float(pr_batch[j])) for j in range(_y_score_NK.shape[1])
             ]
+        except (KeyboardInterrupt, MemoryError, SystemExit):
+            # Operator cancellation / true OOM MUST propagate -- the
+            # previous ``except Exception`` swallowed KI, leaving the
+            # suite running in a half-state with no way to interrupt it.
+            raise
         except Exception as e:
-            # Any failure -> fall back to per-class fast_aucs path.
+            # Any other failure -> fall back to per-class fast_aucs path.
+            # Broad-except is kept here because the fast path goes through
+            # numba which raises numba.errors.TypingError on shape/dtype
+            # mismatches, and that's a legitimate fall-back trigger; but
+            # KI / MemoryError / SystemExit are re-raised above.
             logger.debug("compute_batch_aucs precompute failed (%s); using per-class path.", e)
             _precomputed_aucs_per_class = None
 

@@ -195,19 +195,12 @@ def test_suite_polynomial_features_lift_on_xor(tmp_path, seed):
 # Test 3 — TF-IDF column path
 # ---------------------------------------------------------------------------
 
-# Mirrors the xfail on the companion ``test_bizvalue_preproc_extensions.py``.
-# This is a REAL suite-level wiring bug: the linear suite baseline does not
-# actually exercise the TF-IDF path for "text"-typed columns in the current
-# plumbing, so both numeric-only and tfidf runs land on identical AUROC
-# across every seed in [42, 7, 99]. Unit + replay coverage at
-# tests/inference/test_predict_extensions_pipeline_replay.py and
-# test_preprocessing_extensions.py only validates the in-process replay,
-# NOT the suite-level "feature actually improves AUROC" contract. xfail
-# (strict-False) so the failure surfaces every PR; remove when wired.
-@pytest.mark.xfail(
-    strict=False,
-    reason="Real wiring bug: TF-IDF route inert for text-typed cols in linear suite; numeric and tfidf runs land identical AUROC. xfail until suite path is wired through.",
-)
+# Fixed 2026-05-24 (see companion bizvalue_preproc_extensions.py):
+# root cause was the unsupervised pre-screen treating pd.SparseDtype
+# fill cells as nulls; TF-IDF columns dropped en masse before the
+# linear model ever saw them. Pre-screen now walks sp_values for
+# Sparse columns. Suite-level AUROC now lifts ~+0.49 (1.00 vs 0.51
+# baseline) -- the contract this test enforces is finally honest.
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_suite_tfidf_column_path_lifts_auroc(tmp_path, seed):
     pytest.importorskip("sklearn.feature_extraction.text")

@@ -177,23 +177,19 @@ def test_polynomial_features_lift_on_xor_like_data(tmp_path, seed):
 # Test 3 (optional) — TF-IDF text-column path
 # ---------------------------------------------------------------------------
 
-# The 100-iter linear baseline does not actually exercise the TF-IDF path
-# for "text"-typed columns in the current suite plumbing - both numeric-
-# only and tfidf runs land on identical AUROC across every seed in
-# [42, 7, 99] -> delta = 0.0000 and the +0.05 lift assertion fails.
-# This is a REAL suite-level wiring bug (TF-IDF route silently inert for
-# text-typed columns in the linear pipeline), not test flakiness; the
-# unit-level + replay tests at test_preprocessing_extensions.py and
-# tests/inference/test_predict_extensions_pipeline_replay.py only cover
-# the in-process replay path, NOT the suite-level "feature actually
-# improves AUROC" contract this test asserts. xfail-strict-False so the
-# failure surfaces every PR (instead of being silently skipped) and the
-# fix removes the xfail; flip to ``@pytest.mark.skip`` only if even
-# running the suite regresses CI.
-@pytest.mark.xfail(
-    strict=False,
-    reason="Real wiring bug: TF-IDF route inert for text-typed cols in linear suite; numeric-only and tfidf runs land identical AUROC. xfail until suite path is wired through.",
-)
+# 2026-05-24 root cause + fix:
+# The previously-xfailing TF-IDF wiring bug was actually a pre-screen
+# false positive. apply_preprocessing_extensions DID produce the 50
+# ``text__tfidf_*`` columns correctly (verified via the "[pre-screen]
+# dropped 50 column(s)" log line) but the unsupervised pre-screen at
+# _phase_train_one_target_pre_screen.py:74 dropped every one of them
+# because pd.SparseDtype columns with ``fill_value=NaN`` (the default
+# under ``tfidf_keep_sparse=True``) report ``isna().sum() > 99%`` --
+# the sparse storage of "0 in unfilled cells" was conflated with
+# "mostly null". Fix landed in pre_screen.py: SparseDtype-aware null
+# count walks the sp_values rather than the dense materialisation.
+# Verified: baseline AUROC=0.5111 vs tfidf AUROC=1.0000 (delta=+0.4889
+# on seed=42 -- pure-text signal now reaches the linear model).
 @pytest.mark.parametrize("seed", [42, 7, 99])
 def test_tfidf_column_path_lifts_auroc(tmp_path, seed):
     pytest.importorskip("sklearn.feature_extraction.text")

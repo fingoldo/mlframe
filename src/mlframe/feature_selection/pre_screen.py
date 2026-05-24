@@ -125,8 +125,30 @@ def compute_unsupervised_drops(
             if col_name in protected:
                 continue
             col = train_df[col_name]
+            # SparseDtype-aware null check: ``Series.isna()`` on a
+            # pd.SparseDtype column with ``fill_value=NaN`` returns True
+            # for every UNFILLED cell, conflating sparse storage (which
+            # is by design "mostly fill_value") with "mostly null". For
+            # TF-IDF passthrough (tfidf_keep_sparse=True default), 50
+            # vocab features on a 1k-row frame land ~99% unfilled and
+            # the pre-screen dropped EVERY tfidf column. Detect sparse
+            # and count nulls only among the explicitly-stored values
+            # (``sp_values``), which represents the real non-fill data
+            # the model will actually see.
+            _is_sparse = isinstance(col.dtype, pd.SparseDtype)
             try:
-                null_count = int(col.isna().sum())
+                if _is_sparse:
+                    sp_arr = col.values  # pd.arrays.SparseArray
+                    fill_v = sp_arr.fill_value
+                    fill_is_nan = isinstance(fill_v, float) and np.isnan(fill_v)
+                    # null_count = NaN in fill + NaN in stored sp_values
+                    sp_vals = np.asarray(sp_arr.sp_values)
+                    n_stored = sp_vals.size
+                    n_unfilled = n_rows - n_stored
+                    stored_nan_count = int(np.isnan(sp_vals).sum()) if sp_vals.dtype.kind == "f" else 0
+                    null_count = (n_unfilled if fill_is_nan else 0) + stored_nan_count
+                else:
+                    null_count = int(col.isna().sum())
             except Exception:
                 null_count = 0
             if null_count > null_cutoff:
@@ -142,7 +164,19 @@ def compute_unsupervised_drops(
             if not pd.api.types.is_numeric_dtype(col.dtype):
                 continue
             try:
-                var_val = float(col.var())
+                # Sparse columns: variance is degenerate when computed on
+                # the dense materialisation (most cells = fill_value). Use
+                # variance of the stored sp_values instead -- if every
+                # stored cell is identical, the column is constant in the
+                # meaningful sense; otherwise it carries signal.
+                if _is_sparse:
+                    sp_vals = np.asarray(col.values.sp_values)
+                    if sp_vals.size <= 1:
+                        var_val = 0.0
+                    else:
+                        var_val = float(np.nanvar(sp_vals))
+                else:
+                    var_val = float(col.var())
             except (TypeError, ValueError):
                 var_val = None
             if var_val is None or np.isnan(var_val):

@@ -336,35 +336,58 @@ def test_reporting_classification_report_fallback_narrow(monkeypatch):
     classification_report fallback path MUST propagate (no bare except).
     """
     from mlframe.training import _reporting
-
-    # Patch a callable downstream of report_probabilistic_model_perf to raise KI.
-    # sklearn.metrics.classification_report is what the fallback wraps.
-    import sklearn.metrics as _skm
+    from mlframe.training import _reporting_probabilistic as _rp
 
     def _ki(*a, **kw):
         raise KeyboardInterrupt("simulated")
 
+    # Patch BOTH the import target (sklearn.metrics) AND the already-
+    # imported symbol in _reporting_probabilistic's module namespace.
+    # The latter is the live reference the fallback path resolves at
+    # call time -- monkeypatching only sklearn.metrics leaves the
+    # imported alias untouched, so KI is never actually raised inside
+    # the report path (the test would then silently pass with the
+    # original swallow regression undetected).
+    import sklearn.metrics as _skm
     monkeypatch.setattr(_skm, "classification_report", _ki)
+    monkeypatch.setattr(_rp, "classification_report", _ki)
+    # Also patch the metrics.core fast path so the try-branch itself
+    # raises KI (the test pre-condition: KI must propagate through any
+    # path in report_probabilistic_model_perf, fast OR fallback).
+    from mlframe.metrics import core as _metrics_core
+    monkeypatch.setattr(_metrics_core, "format_classification_report", _ki)
     fn = getattr(_reporting, "report_probabilistic_model_perf", None)
-    if fn is None:
-        pytest.skip("report_probabilistic_model_perf not present")
-    # Call signature varies by version; we want only to assert KI propagates.
-    # Use pytest.raises and try a minimal call - the patched _ki will
-    # either fire before any work or never get reached. If never reached,
-    # we still don't want a swallow path, so we additionally check by
-    # patching MemoryError-raising metric.
+    assert fn is not None, "report_probabilistic_model_perf must be importable"
+    # The print-report block at _reporting_probabilistic.py:479 is
+    # gated by ``logger.isEnabledFor(logging.INFO)``; default test
+    # logging is WARNING+ so the block is skipped unless we lift the
+    # threshold. Without this the test never reaches the classification-
+    # report call site and KI never has a chance to propagate.
+    import logging
+    monkeypatch.setattr(_rp.logger, "level", logging.INFO)
+    # 2026-05-24: switched from the legacy ``(y_true=, y_proba=)`` call
+    # to the current ``(targets=, columns=, model_name=, model=, ...)``
+    # signature. The previous test caught TypeError via pytest.skip
+    # ("signature mismatch") which silently masked any real swallow
+    # regression in the report path -- exactly the bug class the test
+    # was supposed to catch. KI is raised inside the patched
+    # ``classification_report`` callable and MUST propagate up to here.
+    import numpy as _np
     raised = False
     try:
-        fn(y_true=[0, 1, 0], y_proba=[[0.1, 0.9], [0.8, 0.2], [0.6, 0.4]])
+        fn(
+            targets=_np.array([0, 1, 0]),
+            columns=["f0"],
+            model_name="ki_propagation_probe",
+            model=None,
+            preds=_np.array([1, 0, 0]),
+            probs=_np.array([[0.1, 0.9], [0.8, 0.2], [0.6, 0.4]]),
+            verbose=False,
+            print_report=True,  # need this -> guard reaches the cls_report path
+            show_perf_chart=False,
+        )
     except KeyboardInterrupt:
         raised = True
-    except TypeError:
-        # signature mismatch on older versions
-        pytest.skip("report signature mismatch; cannot directly invoke")
-    except Exception:
-        # any swallow with broader exception means the path didn't reach
-        # classification_report - we skip rather than false-fail.
-        pytest.skip("report path did not reach patched classification_report")
     assert raised, "KeyboardInterrupt was swallowed by report_probabilistic_model_perf"
 
 
@@ -381,26 +404,36 @@ def test_dummy_baselines_numba_log_loss_kernel_narrow_catch(monkeypatch):
 
     # The narrow catch only catches (TypeError, ValueError,
     # FloatingPointError, RuntimeError). MemoryError must propagate.
-    # We monkeypatch sklearn.metrics.log_loss (used inside the kernel
-    # fallback path) to raise MemoryError.
-    import sklearn.metrics as _skm
+    # Patch the ``log_loss`` symbol already imported into the
+    # ``_dummy_metrics_pick_plot`` module namespace where
+    # ``_compute_metrics_table`` actually lives -- patching
+    # sklearn.metrics or dummy_baselines.log_loss misses because the
+    # in-function call binds the local module-namespace alias at
+    # import time, not the sklearn original.
+    from mlframe.training import _dummy_metrics_pick_plot as _dmpp
 
     def _mem(*a, **kw):
         raise MemoryError("simulated")
 
-    monkeypatch.setattr(_skm, "log_loss", _mem)
+    monkeypatch.setattr(_dmpp, "log_loss", _mem)
     fn = getattr(dummy_baselines, "_compute_metrics_table", None)
-    if fn is None:
-        pytest.skip("_compute_metrics_table not present")
+    assert fn is not None, "_compute_metrics_table must be importable"
     # Tiny inputs that exercise the log_loss branch.
     import numpy as _np
-    try:
-        with pytest.raises((MemoryError, KeyboardInterrupt)):
-            fn(
-                target_name="y",
-                y_true=_np.array([0, 1, 0, 1]),
-                y_pred=_np.array([[0.5, 0.5]] * 4),
-                target_type="binary_classification",
-            )
-    except TypeError:
-        pytest.skip("_compute_metrics_table signature mismatch")
+    _yval = _np.array([0, 1, 0, 1])
+    _ytest = _np.array([0, 1, 0, 1])
+    _pval = _np.array([[0.5, 0.5]] * 4)
+    _ptest = _np.array([[0.5, 0.5]] * 4)
+    with pytest.raises((MemoryError, KeyboardInterrupt)):
+        # 2026-05-24: updated to current ``_compute_metrics_table`` signature
+        # ``(target_type, val_preds, test_preds, val_y, test_y, ...)``.
+        # The previous call used the legacy ``(target_name=, y_true=, y_pred=)``
+        # signature which was silently masked behind ``pytest.skip("signature
+        # mismatch")``; that allowed a real swallow regression to slip through.
+        fn(
+            target_type="binary_classification",
+            val_preds={"y": _pval},
+            test_preds={"y": _ptest},
+            val_y=_yval,
+            test_y=_ytest,
+        )
