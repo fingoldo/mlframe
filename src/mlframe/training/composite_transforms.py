@@ -700,10 +700,13 @@ from ._composite_transforms_linear import (  # noqa: E402,F401
     _logratio_domain, _logratio_fit, _logratio_forward, _logratio_inverse,
 )
 from ._composite_transforms_nonlinear import (  # noqa: E402,F401
-    _ewma_compute, _ewma_residual_domain, _ewma_residual_fit,
-    _ewma_residual_forward, _ewma_residual_inverse, _frac_diff_domain,
-    _frac_diff_fit, _frac_diff_forward, _frac_diff_inverse, _frac_diff_weights,
-    _james_stein_shrinkage_factor, _make_chain_transform,
+    _ewma_compute, _ewma_compute_batched, _ewma_dispatch, _ewma_residual_domain,
+    _ewma_residual_fit, _ewma_residual_forward, _ewma_residual_inverse,
+    _frac_diff_domain, _frac_diff_fit, _frac_diff_forward, _frac_diff_inverse,
+    _frac_diff_inverse_compute, _frac_diff_inverse_compute_batched,
+    _frac_diff_inverse_dispatch, _frac_diff_weights,
+    _james_stein_shrinkage_factor, _lookup_ewma_backend,
+    _lookup_frac_diff_inv_backend, _make_chain_transform,
     _make_multi_chain_transform, _monotonic_residual_domain,
     _monotonic_residual_fit, _monotonic_residual_forward, _monotonic_residual_g,
     _monotonic_residual_inverse, _quantile_residual_assign_bins,
