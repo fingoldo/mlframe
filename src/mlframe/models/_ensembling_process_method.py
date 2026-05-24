@@ -116,29 +116,40 @@ def _process_single_ensemble_method(
         rrf_k=rrf_k,
     )
 
-    # Level-1 aggregation reads OOF predictions when present (the K-fold cross_val_predict output stamped by the trainer),
-    # not in-sample ``train_preds``/``train_probs`` -- the latter are produced by predicting on rows the model already saw
-    # during fit and leak that fit's residual structure into a meta-learner. Falling back to ``train_*`` keeps the path
-    # alive when OOF was unavailable (e.g. tiny datasets, multi-output paths where ``cross_val_predict`` skipped); a
-    # higher-level guard in ``score_ensemble`` raises when ``max_ensembling_level > 1`` AND any member is missing OOF.
+    # Level-1 aggregation reads OOF predictions when present (the K-fold cross_val_predict output stamped by the trainer), not in-sample ``train_preds``/``train_probs`` -- the latter are produced by predicting on rows the model already saw during fit and leak that fit's residual structure into a meta-learner. Falling back to ``train_*`` keeps the path alive when OOF was unavailable (e.g. tiny datasets, multi-output paths where ``cross_val_predict`` skipped); a higher-level guard in ``score_ensemble`` raises when ``max_ensembling_level > 1`` AND any member is missing OOF.
     #
-    # Existence check uses ``isinstance(..., np.ndarray)`` rather than ``is not None`` because MagicMock-based test
-    # doubles auto-fabricate any attribute access (mock.oof_probs returns a MagicMock, never None); falling back on
-    # the array-instance check keeps the production path identical while letting test mocks still hit the train_*
-    # branch when they only stamp train_*/val_* arrays.
-    def _oof_or_train(el, oof_attr, train_attr):
+    # Existence check uses ``isinstance(..., np.ndarray)`` rather than ``is not None`` because MagicMock-based test doubles auto-fabricate any attribute access (mock.oof_probs returns a MagicMock, never None); falling back on the array-instance check keeps the production path identical while letting test mocks still hit the train_*/branch when they only stamp train_*/val_* arrays.
+    #
+    # ``_fallback_used`` collects member indices where the OOF attribute was absent and we silently consumed ``train_*``. Surfaced as a single WARN below so operators can audit suites running with cross_val_predict disabled -- pre-fix shape was completely silent and the level-1 "train" branch of every ensemble flavour got evaluated on leaked rows.
+    _fallback_used: list[int] = []
+
+    def _oof_or_train(el, oof_attr, train_attr, _idx):
         _oof = getattr(el, oof_attr, None)
         if isinstance(_oof, np.ndarray):
             return _oof
-        return getattr(el, train_attr, None)
+        _train = getattr(el, train_attr, None)
+        if isinstance(_train, np.ndarray):
+            _fallback_used.append(_idx)
+        return _train
 
     if not is_regression:
-        predictions = (_oof_or_train(el, "oof_probs", "train_probs") for el in level_models_and_predictions)
-    elif (_oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds") is not None):
-        predictions = (_oof_or_train(el, "oof_preds", "train_preds") for el in level_models_and_predictions)
-        predictions = (el.reshape(-1, 1) if (el is not None) else el for el in predictions)
+        predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i) for _i, el in enumerate(level_models_and_predictions)]
+    elif (_oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0) is not None):
+        # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
+        _fallback_used.clear()
+        predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i) for _i, el in enumerate(level_models_and_predictions)]
+        predictions = [el.reshape(-1, 1) if (el is not None) else el for el in predictions]
     else:
-        predictions = ()
+        predictions = []
+
+    if _fallback_used:
+        logger.warning(
+            "ensemble '%s' L%d: OOF preds missing on members %s; silently fell back to in-sample train_* arrays. "
+            "Train-branch metrics for this ensemble are computed on LEAKED rows and will look optimistically biased. "
+            "Re-train with oof_n_splits>=2 (cross_val_predict) so OOF preds are stamped on every model, or call "
+            "score_ensemble(max_ensembling_level=1) accepting the train-fallback explicitly.",
+            ensemble_method, ensembling_level, _fallback_used,
+        )
 
     train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
         *predictions,
