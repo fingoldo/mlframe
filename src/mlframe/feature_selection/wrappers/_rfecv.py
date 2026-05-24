@@ -713,7 +713,12 @@ class RFECV(BaseEstimator, TransformerMixin):
         # fit-time support_ (because RFECV.fit dropped zero-variance cols at entry). Convert to pandas so the name-keyed transform path
         # kicks in and column-set drift becomes a clear RuntimeError instead of an opaque polars index mismatch.
         if isinstance(X, pl.DataFrame):
-            X = X.to_pandas()
+            # Mirror the sibling fit-path bridge kwargs (_rfecv_fit.py:102): use_pyarrow_extension_array+split_blocks+self_destruct keep numeric
+            # columns zero-copy through the Arrow split-blocks bridge instead of densifying into a single block on transform.
+            try:
+                X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
+            except TypeError:
+                X = X.to_pandas()
         # transform on an unfitted estimator must raise NotFittedError; silently returning X unchanged masquerades a config bug as a
         # successful transform and lets downstream pipelines run on the wrong column set.
         if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):

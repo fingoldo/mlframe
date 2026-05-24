@@ -353,11 +353,19 @@ def _transform_with_persisted_stats(
     if hasattr(X, "to_numpy"):
         _arr = X.to_numpy(dtype=np.float64) if not isinstance(X, _pl_DataFrame()) else None
         if _arr is None:
-            # polars: bridge to numpy via Arrow (zero-copy for numeric cols).
+            # polars: bridge to numpy via Arrow. Try ``allow_copy=False`` first for the uniform-float64 case so the underlying Arrow buffer
+            # is reused directly; fall back to the copy path on mixed / non-float64 dtypes.
             try:
                 import polars as pl
                 if isinstance(X, pl.DataFrame):
-                    _arr = X.to_numpy()
+                    try:
+                        _arr = X.to_numpy(allow_copy=False)
+                        if _arr.dtype != np.float64:
+                            _arr = _arr.astype(np.float64, copy=False)
+                    except (TypeError, RuntimeError):
+                        _arr = X.to_numpy()
+                        if _arr.dtype != np.float64:
+                            _arr = _arr.astype(np.float64, copy=False)
                 else:
                     _arr = X.to_numpy(dtype=np.float64)
             except ImportError:
@@ -477,10 +485,22 @@ def _fit_persist_and_transform(
         return fn(X_clean)
 
     if hasattr(X, "to_numpy"):
-        try:
-            _arr = X.to_numpy(dtype=np.float64)
-        except TypeError:
-            _arr = X.to_numpy().astype(np.float64, copy=False)
+        # Polars: try the zero-copy Arrow bridge first; only fall back to the copy path on mixed-dtype frames where allow_copy=False raises.
+        _is_polars = pl is not None and isinstance(X, pl.DataFrame)
+        if _is_polars:
+            try:
+                _arr = X.to_numpy(allow_copy=False)
+                if _arr.dtype != np.float64:
+                    _arr = _arr.astype(np.float64, copy=False)
+            except (TypeError, RuntimeError):
+                _arr = X.to_numpy()
+                if _arr.dtype != np.float64:
+                    _arr = _arr.astype(np.float64, copy=False)
+        else:
+            try:
+                _arr = X.to_numpy(dtype=np.float64)
+            except TypeError:
+                _arr = X.to_numpy().astype(np.float64, copy=False)
     else:
         _arr = np.asarray(X, dtype=np.float64)
 
@@ -527,10 +547,26 @@ def prime_nan_guard_stats(
     from sklearn.preprocessing import StandardScaler
 
     if hasattr(X_train, "to_numpy"):
+        # Symmetric polars zero-copy fastpath with the predict-time path so prime/predict don't disagree on bridge mechanics.
         try:
-            _arr = X_train.to_numpy(dtype=np.float64)
-        except TypeError:
-            _arr = X_train.to_numpy().astype(np.float64, copy=False)
+            import polars as _pl
+            _is_polars = isinstance(X_train, _pl.DataFrame)
+        except ImportError:
+            _is_polars = False
+        if _is_polars:
+            try:
+                _arr = X_train.to_numpy(allow_copy=False)
+                if _arr.dtype != np.float64:
+                    _arr = _arr.astype(np.float64, copy=False)
+            except (TypeError, RuntimeError):
+                _arr = X_train.to_numpy()
+                if _arr.dtype != np.float64:
+                    _arr = _arr.astype(np.float64, copy=False)
+        else:
+            try:
+                _arr = X_train.to_numpy(dtype=np.float64)
+            except TypeError:
+                _arr = X_train.to_numpy().astype(np.float64, copy=False)
     else:
         _arr = np.asarray(X_train, dtype=np.float64)
 
