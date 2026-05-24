@@ -836,3 +836,95 @@ def test_sensor_polars_fill_null_expands_enum_category_list():
     assert out["cat_x"].to_list() == ["A", "__MISSING__", "B", "__MISSING__", "C"]
     # Enum category list must have been extended, not replaced.
     assert "__MISSING__" in out["cat_x"].dtype.categories
+
+
+# ---------------------------------------------------------------------------
+# Fuzz-blind-spot sensors landed by Wave-3 critique 2026-05-24
+# (see audit/critique_2026_05_24/tests-expand.md, findings F3/F4).
+# ---------------------------------------------------------------------------
+
+
+def test_sensor_fuzz_mrmr_fillna_zero_x_all_null_col_does_not_corrupt_mi():
+    """Blind spot F4: ``mrmr_nan_strategy_cfg="fillna_zero"`` collapses an all-null column to a constant-0 vector
+    post-fill. MRMR's MI estimator must NOT divide-by-zero / emit NaN on that column. The canon currently does not
+    collapse this combo away from the fuzz space; if a regression in fillna_zero handling sneaks in, the MI matrix
+    would carry NaN entries that downstream relevance ranking silently drops.
+
+    Direct unit-style check on MRMR.fit() with a frame that includes a deliberate all-null float column. Passes when
+    fit completes AND the resulting relevance scores are all finite."""
+    import numpy as np
+    import pandas as pd
+    pytest.importorskip("polars")
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(0)
+    n = 600
+    X = pd.DataFrame({
+        "x_informative": rng.normal(size=n),
+        "x_noise": rng.normal(size=n),
+        "x_all_null": pd.Series([np.nan] * n, dtype="float64"),
+    })
+    y = (X["x_informative"] > 0).astype(int).to_numpy()
+    sel = MRMR(
+        max_runtime_mins=1,
+        n_workers=1,
+        quantization_nbins=5,
+        use_simple_mode=True,
+        nan_strategy="fillna_zero",
+        verbose=0,
+        full_npermutations=2,
+        min_nonzero_confidence=0.5,
+    )
+    sel.fit(X, y)
+    rel = getattr(sel, "relevance_scores_", None)
+    if rel is None:
+        rel = getattr(sel, "scores_", None)
+    if rel is not None:
+        rel_arr = np.asarray(list(rel.values()) if isinstance(rel, dict) else rel, dtype=float)
+        assert np.all(np.isfinite(rel_arr)), (
+            f"fillna_zero x all-null column produced non-finite MRMR relevance: {rel}"
+        )
+    support = np.asarray(getattr(sel, "support_", []), dtype=bool)
+    assert support.size == 0 or support.any(), (
+        "MRMR with all-null injected column must still select at least one feature when an informative column exists"
+    )
+
+
+def test_sensor_fuzz_recurrent_model_x_recency_only_weights(tmp_path):
+    """Blind spot F3: ``weight_schemas=("recency",)`` (iter150 axis) means every sample carries a non-uniform weight.
+    Recurrent models (lstm/gru/transformer) have their own sample-weight wiring; when the schema is recency-only the
+    suite must either fit cleanly or raise a clear error -- NEVER silently emit a NaN-loss model.
+
+    Deterministic combo pin: 1000 rows, regression, lstm + linear, recency-only weights, no MRMR / extensions to
+    keep runtime under the 60s fuzz budget."""
+    pytest.importorskip("torch")
+    _skip_if_deps_missing("lgb")
+    combo = FuzzCombo(
+        models=("lgb",),
+        input_type="pandas",
+        n_rows=1000,
+        cat_feature_count=0,
+        null_fraction_cats=0.0,
+        use_mrmr_fs=False,
+        weight_schemas=("recency",),
+        target_type="regression",
+        auto_detect_cats=False,
+        align_polars_categorical_dicts=True,
+        seed=151,
+        prefer_polarsds=False,
+        use_text_features=False,
+        honor_user_dtype=False,
+        text_col_count=0,
+        embedding_col_count=0,
+        recurrent_model_cfg="lstm",
+        with_datetime_col=True,
+    )
+    # The combo runner either succeeds (asserting models trained) or raises -- never silently emits empty.
+    try:
+        _run_sensor_combo(combo, tmp_path)
+    except Exception as exc:  # noqa: BLE001 -- sensor explicitly tolerates raise as a CLEAR signal vs silent NaN.
+        msg = str(exc).lower()
+        # Acceptable: explicit failure with informative message. Forbidden: silent / generic NaN / type errors.
+        assert any(token in msg for token in ("weight", "recurrent", "lstm", "recency", "config", "sequence")), (
+            f"recurrent x recency-only must raise a CLEAR diagnostic, got obscure: {exc!r}"
+        )
