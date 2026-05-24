@@ -804,7 +804,11 @@ def _normalise_X(
         and not isinstance(X, pd.DataFrame)
     ):
         # Probe the source for at least one numeric polars dtype; if none, the
-        # all-cat classification is correct and we should stay silent.
+        # all-cat classification is correct and we should stay silent. For
+        # numpy ndarray inputs we can't probe per-column dtype reliably (the
+        # array has a single dtype which may legitimately be object for a
+        # broken-dispatch shape the test layer wants to surface), so default
+        # to warning -- preferring false positive over silent miss.
         _source_had_numeric = False
         try:
             if "polars" in type(X).__module__:
@@ -820,6 +824,11 @@ def _normalise_X(
                     if isinstance(_src_dt, _numeric_pl_dtypes) or _src_dt in _numeric_pl_dtypes:
                         _source_had_numeric = True
                         break
+            else:
+                # Non-polars, non-pandas -- e.g. raw numpy ndarray. We can't
+                # tell whether the user expected numeric or not; warn so
+                # broken-dispatch shapes (test layer's intent) still surface.
+                _source_had_numeric = True
         except Exception:
             # If the probe itself fails, assume there could be numeric data
             # and surface the WARN -- prefer false positive over silent miss.

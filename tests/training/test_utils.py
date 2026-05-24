@@ -175,7 +175,14 @@ class TestGetPandasViewOfPolarsDF:
     def test_categorical_preserved_as_pd_categorical(self):
         """Test that Polars Categorical columns become pd.Categorical (int codes
         + categories dict), not strings. Benchmarked 2026-04-17: string cast
-        adds ~37% to CatBoost fit+predict and OOMs at 450k+ rows."""
+        adds ~37% to CatBoost fit+predict and OOMs at 450k+ rows.
+
+        Category-set equality (not order) is the contract -- the Arrow
+        split-blocks bridge may surface categories in encounter-order
+        on some polars / pyarrow combos and sorted-order on others; the
+        downstream CatBoost / LightGBM consumers don't care about the
+        dictionary order, only that the dtype is preserved.
+        """
         pl_df = pl.DataFrame({
             "category": pl.Series(["A", "B", "A", "C"]).cast(pl.Categorical),
         })
@@ -184,7 +191,7 @@ class TestGetPandasViewOfPolarsDF:
 
         assert isinstance(pd_df["category"].dtype, pd.CategoricalDtype)
         assert pd_df["category"].tolist() == ["A", "B", "A", "C"]
-        assert list(pd_df["category"].cat.categories) == ["A", "B", "C"]
+        assert set(pd_df["category"].cat.categories) == {"A", "B", "C"}
 
     def test_boolean_columns(self):
         """Test conversion of boolean columns."""
