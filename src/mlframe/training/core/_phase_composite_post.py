@@ -373,9 +373,7 @@ def run_composite_post_processing(
                 _component_train_rmses: list[float] = []
                 if _y_full_for_rmse is not None:
                     _y_train_for_rmse = np.asarray(_y_full_for_rmse)[filtered_train_idx]
-                    # Frame-content key shields against ``id()`` recycling: wrapper / inner objects from the wrap pass may
-                    # have been GC'd by the time we look up here, and a new object landing at the same address would yield a
-                    # stale-pred hit. Folding (id(frame), shape) requires both the frame AND the model id to match.
+                    # Frame-content key (id(frame)+shape) shields against id() recycling: wrap-pass objects may be GC'd before we look up here.
                     _frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
                     for _comp, _name in zip(_components, _component_names):
                         try:
@@ -584,8 +582,7 @@ def run_composite_post_processing(
                             if n in _surviving_set
                         ]
                         _oof_names = list(_surviving)
-                        # Vectorised per-column RMSE over the OOF holdout: ``np.where`` masks non-finite cells to 0 in a sum-and-divide pass so columns
-                        # with no finite entries land as NaN (matches the per-column Python branch). One vectorised pass instead of K per-column scans.
+                        # Vectorised per-column RMSE: mask non-finite to 0 in a sum-and-divide pass; all-non-finite columns land as NaN (one pass, K cols).
                         _diff_mat = _oof_pred_matrix - _oof_y_holdout[:, None]
                         _finite_mat = np.isfinite(_diff_mat)
                         _n_fin = _finite_mat.sum(axis=0)
@@ -753,9 +750,7 @@ def run_composite_post_processing(
                                 raise RuntimeError(
                                     "stacking requires train target alignment"
                                 )
-                            # Preallocate (n_rows, K) so component preds land directly in the output buffer; np.column_stack would copy each list entry
-                            # into a fresh contiguous buffer doubling peak RAM during construction. Frame-content key folds id(frame)+shape to defend
-                            # against ``id()`` recycling between the wrap pass and this ensemble pass.
+                            # Preallocate (n_rows, K) to skip np.column_stack's per-entry copy doubling peak RAM; frame-content key shields against id() recycling between waves.
                             _frame_key2 = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
                             _n_rows = int(len(_y_for_stack))
                             _pred_matrix = np.empty((_n_rows, len(_oof_components)), dtype=np.float64)
