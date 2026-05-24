@@ -33,6 +33,23 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 
+def _build_disc_df_for_target(filtered_train_df, target_name: str, y_train_aligned):
+    """Build a per-target discovery frame that injects ``target_name`` WITHOUT mutating the caller's ``filtered_train_df``.
+
+    Pandas ``DataFrame.copy(deep=False)`` shares the underlying BlockManager with the source; a subsequent
+    ``out[target_name] = arr`` setitem can promote and mutate the SHARED block depending on the existing dtype layout,
+    causing the target column to intermittently appear on the caller's ``filtered_train_df`` post-loop. The per-target
+    discovery loop then accumulates leakage: target_A injected for the first iter shows up as a feature when target_B is
+    processed next. ``DataFrame.assign`` always builds a fresh BlockManager so the source is guaranteed untouched, at the
+    same memory cost as ``copy(deep=False)+setitem`` would have paid on the new column anyway.
+
+    Polars ``with_columns`` is naturally immutable and returns a fresh frame, so no special handling is needed there.
+    """
+    if isinstance(filtered_train_df, pd.DataFrame):
+        return filtered_train_df.assign(**{target_name: y_train_aligned})
+    return filtered_train_df.with_columns(pl.Series(target_name, y_train_aligned))
+
+
 def _discovery_config_signature(config: Any) -> ConfigSignatureV1:
     """Stable JSON-derived signature of a CompositeTargetDiscoveryConfig.
 
@@ -277,13 +294,7 @@ def run_composite_target_discovery(
                 )
                 continue
 
-            if isinstance(filtered_train_df, pd.DataFrame):
-                _disc_df = filtered_train_df.copy(deep=False)
-                _disc_df[_tname_disc] = _y_train_aligned
-            else:
-                _disc_df = filtered_train_df.with_columns(
-                    pl.Series(_tname_disc, _y_train_aligned)
-                )
+            _disc_df = _build_disc_df_for_target(filtered_train_df, _tname_disc, _y_train_aligned)
 
             # If hint enabled and BD ran, derive per-target config with dominant_features_hint from ablation top-K.
             _disc_cfg = composite_target_discovery_config
