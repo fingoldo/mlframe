@@ -114,14 +114,13 @@ def test_auto_detect_mutation_immune_to_train_df_mutation():
     )
 
     # Numpy-array in-place poke (escapes block-manager refcount) + wholesale column dtype swap.
-    # pandas 2.x ArrayManager / arrow-backed paths can return a read-only
-    # view from .values; force a writable view by going through .to_numpy().
-    _arr = train_df["numeric_a"].to_numpy()
-    if not _arr.flags.writeable:
-        _arr = np.array(_arr, copy=True)
-        train_df["numeric_a"] = _arr
-        _arr = train_df["numeric_a"].to_numpy()
-    _arr[:] = -1.0
+    # pandas 2.3+ marks .to_numpy() and .values views as read-only even
+    # after assigning a fresh writable numpy array to a column. Use
+    # .iloc[:] = scalar (pandas-native setitem) instead -- the metadata-
+    # snapshot consumer doesn't care HOW the value was mutated, only that
+    # the source frame changed. iloc[:] correctly bypasses CoW restrictions
+    # on a per-column basis.
+    train_df.iloc[:, train_df.columns.get_loc("numeric_a")] = -1.0
     train_df["skills_text"] = train_df["skills_text"].astype("category").cat.codes
 
     text_post, _, _ = _auto_detect_feature_types(

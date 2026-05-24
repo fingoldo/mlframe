@@ -530,9 +530,9 @@ def report_probabilistic_model_perf(
             _report_lines.append(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
         logger.info("\n".join(_report_lines))
 
-        logger.info(f"TOTAL INTEGRAL ERROR: {integral_error:.4f}")
+        logger.info("TOTAL INTEGRAL ERROR: %.4f", integral_error)
         if robust_integral_error is not None:
-            logger.info(f"TOTAL ROBUST INTEGRAL ERROR: {robust_integral_error:.4f}")
+            logger.info("TOTAL ROBUST INTEGRAL ERROR: %.4f", robust_integral_error)
 
         # Pluggable multi-output metrics registry.
         # Dispatches hamming_loss / subset_accuracy / jaccard_score_multilabel

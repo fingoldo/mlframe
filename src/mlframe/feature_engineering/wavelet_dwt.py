@@ -30,7 +30,7 @@ Public API:
 """
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import numpy as np
 
@@ -406,13 +406,20 @@ _DISPATCH_BATCHED_MIN_N = 64
 
 
 def set_wavedec_dispatch_threshold(n_signals: int) -> None:
+    """Update the row-count threshold at which ``wavedec_dispatch``
+    switches from the Python-loop fallback to ``wavedec_batched``.
+
+    Default ``_DISPATCH_BATCHED_MIN_N=64`` was picked from a micro-bench
+    on a typical numba-enabled host; callers on slower CPUs can raise
+    this to defer the batched path further.
+    """
     global _DISPATCH_BATCHED_MIN_N
     _DISPATCH_BATCHED_MIN_N = int(n_signals)
 
 
 def wavedec_dispatch(
     signals: np.ndarray, wavelet: str, max_level: int,
-):
+) -> Union[List[np.ndarray], List[List[np.ndarray]]]:
     """Auto-pick between single-signal loop and batched parallel DWT.
 
     1-D input -> single ``wavedec``. 2-D input with N below threshold

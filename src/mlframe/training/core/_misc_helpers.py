@@ -648,6 +648,14 @@ def _auto_detect_feature_types(
             _meta_embed_obj = None
 
         nunique_cols: list = []
+        # pandas 2.3+ surfaces object string columns as
+        # ``pd.StringDtype(na_value=nan)`` whose ``str(dtype)`` reads
+        # ``'<StringDtype(na_value=nan)>'`` -- doesn't start with
+        # "object" / "string" / "category" so the legacy prefix check
+        # silently dropped every high-cardinality text column to the
+        # numeric-only path (skills_text -> text=[], observed big
+        # machine 2026-05-24). Cover the StringDtype variants too.
+        _string_like_dtype_tokens = ("object", "string", "category", "stringdtype")
         for col in _columns:
             if col in user_assigned:
                 continue
@@ -655,7 +663,12 @@ def _auto_detect_feature_types(
             if honor_user_dtype and dtype_name == "category":
                 honored_user_dtype_cols.append(col)
                 continue
-            if dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category":
+            _dtype_lc = dtype_name.lower().lstrip("<")
+            _is_string_like = (
+                any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens)
+                or "stringdtype" in _dtype_lc
+            )
+            if _is_string_like:
                 # Skip object columns whose cells are ndarray / list (embedding vectors). nunique() hashes
                 # the cells via PyObjectHashTable which raises ``TypeError: unhashable type: 'numpy.ndarray'``.
                 # Treat them as embeddings: route to embedding_features and skip the cardinality check
