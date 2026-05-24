@@ -89,11 +89,11 @@ def compute_probabilistic_multiclass_error(
         )
 
     if isinstance(y_true, (pd.Series, pd.DataFrame)):
-        y_true = y_true.values
+        y_true = y_true.to_numpy()
     if isinstance(y_score, (pd.Series, pd.DataFrame)):
-        y_score = y_score.values
+        y_score = y_score.to_numpy()
     if labels is not None and isinstance(labels, (pd.Series, pd.DataFrame)):
-        labels = labels.values
+        labels = labels.to_numpy()
 
     if isinstance(y_score, Sequence):
         probs = y_score
@@ -168,7 +168,9 @@ def compute_probabilistic_multiclass_error(
                 if isinstance(_yp, pl.Series):
                     _yp = _yp.to_numpy()
                 elif isinstance(_yp, (pd.Series,)):
-                    _yp = _yp.values
+                    # ``.to_numpy()`` materialises nullable Int/Float dtypes as object-free ndarrays; ``.values`` returns an ExtensionArray that
+                    # silently breaks downstream ``np.ascontiguousarray(_, dtype=np.float64)`` for pandas nullable columns.
+                    _yp = _yp.to_numpy()
                 _y_pred_cols.append(np.ascontiguousarray(_yp, dtype=np.float64))
             if len(_y_pred_cols) == 1:
                 _y_pred_NK = _y_pred_cols[0].reshape(-1, 1)
@@ -186,7 +188,9 @@ def compute_probabilistic_multiclass_error(
                 if isinstance(_yt, pl.Series):
                     _yt = _yt.cast(pl.Int8).to_numpy()
                 elif isinstance(_yt, (pd.Series,)):
-                    _yt = _yt.values.astype(np.int8)
+                    # ``.to_numpy()`` round-trips pandas nullable BooleanArray to a real bool ndarray; ``.values.astype(np.int8)`` on a nullable
+                    # boolean returns object-dtype and silently mis-casts None entries to 1 -- the bug the audit caught at metric line 189.
+                    _yt = _yt.to_numpy().astype(np.int8)
                 else:
                     _yt = np.ascontiguousarray(_yt, dtype=np.int8)
                 _y_true_cols.append(_yt)

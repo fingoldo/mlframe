@@ -75,7 +75,7 @@ class Leaderboard:
         self.ranks = self.table.rank(method="min", ascending=False)
         self.max_ranks = self.table.rank(method="max", ascending=False)
 
-        self.is_partial = self.table.isna().values.sum() > 0
+        self.is_partial = self.table.isna().to_numpy().sum() > 0
 
         if not self.is_partial:
             self.ranks = self.ranks.astype(int)
@@ -188,7 +188,7 @@ class Leaderboard:
                         )
                     to_print = (
                         ranking.apply(lambda x: f"{x:.2f}: ") + ranking.index
-                    ).values
+                    ).to_numpy()
                     result[f"Method: {method}, Params: {some_params}"] = to_print
 
                     tie_numbers[f"Method: {method}, Params: {some_params}"] = ranking.shape[0] - ranking.nunique()
@@ -204,7 +204,7 @@ class Leaderboard:
                     )
                 to_print = (
                     ranking.apply(lambda x: f"{x:.2f}: ") + ranking.index
-                ).values
+                ).to_numpy()
                 result[f"Method: {method}, Params: {{}}"] = to_print
                 tie_numbers[f"Method: {method}, Params: {{}}"] = ranking.shape[0] - ranking.nunique()
 

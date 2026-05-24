@@ -238,11 +238,11 @@ def compute_fairness_metrics(
     # to numpy at the boundary so the bin loop sees a uniform indexable
     # surface regardless of caller-side carrier type.
     if hasattr(y_true, "to_numpy"):
-        y_true = np.asarray(y_true.to_numpy())
+        y_true = y_true.to_numpy()
     else:
         y_true = np.asarray(y_true)
     if hasattr(y_pred, "to_numpy"):
-        y_pred = np.asarray(y_pred.to_numpy())
+        y_pred = y_pred.to_numpy()
     else:
         y_pred = np.asarray(y_pred)
 

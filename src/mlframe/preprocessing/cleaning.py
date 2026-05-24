@@ -192,7 +192,7 @@ def is_variable_truly_continuous(
                 f"df and variable_name must be provided; got df={df!r}, "
                 f"variable_name={variable_name!r}."
             )
-        values = df[variable_name].values
+        values = df[variable_name].to_numpy()
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
     # what is the smallest rounding after which variable stops changing?
@@ -627,7 +627,7 @@ def analyse_and_clean_features(
                         # (if there is a nan cat already, or if there are more than 1 such rare cats)
                         if nmerged > 1 or nan_vals_already_in_index > 0:
                             if verbose:
-                                nrows_merged = to_be_merged.values.sum()
+                                nrows_merged = to_be_merged.to_numpy().sum()
                                 logger.info(
                                     "Merging %s values of feature %s into a single %s value due to being too rare (%s/%s [%s percent]): %s",
                                     nmerged,
@@ -636,7 +636,7 @@ def analyse_and_clean_features(
                                     format(nrows_merged, THOUSANDS_SEPARATOR + "d"),
                                     format(nrows, THOUSANDS_SEPARATOR + "d"),
                                     round(nrows_merged / nrows * 100, 4),
-                                    to_be_merged.index.values.tolist(),
+                                    to_be_merged.index.to_list(),
                                 )
                             repl_instructions = {}
                             for next_var in to_be_merged.index:
@@ -714,7 +714,7 @@ def analyse_and_clean_features(
         if col not in constant_features:
             # 8. Tracks unique values of each feature (or feature ranges, for continuous vars) for future novelty detection.
             if (col not in manyvalued_features) or (not col_is_numeric):
-                features_unique_values[col] = set(col_unique_values.index.values)
+                features_unique_values[col] = set(col_unique_values.index.to_numpy())
             else:
                 """
                 features_ranges[col]=df[col].describe().astype(np.float32).to_dict()

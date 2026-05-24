@@ -116,7 +116,8 @@ def _load_features_file(features_file: str):
 
     features = joblib.load(features_file)
     if isinstance(features, pd.core.indexes.base.Index):
-        features = features.values.tolist()
+        # ``.to_list()`` is the pandas-modern path (handles nullable dtypes); ``.values.tolist()`` round-trips through ndarray needlessly.
+        features = features.to_list()
     return features
 
 
@@ -175,7 +176,7 @@ def read_trained_models(
         logger.warning("Did not find features file for %s", featureset)
 
     if features is None:
-        features = X.columns.values.tolist()
+        features = X.columns.to_list()
     else:
         X = X[features]
 
