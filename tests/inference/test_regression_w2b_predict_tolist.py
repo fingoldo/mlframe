@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
-import json
+import orjson
 import joblib
 
 import numpy as np
@@ -20,8 +20,8 @@ def test_load_features_file_json_path_returns_list(tmp_path):
     feats = ["a", "b", "c"]
     features_path = tmp_path / "features.dump"
     json_path = str(features_path) + ".json"
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(feats, f)
+    with open(json_path, "wb") as f:
+        f.write(orjson.dumps(feats))
     loaded = _load_features_file(str(features_path))
     assert loaded == feats
 

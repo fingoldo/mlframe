@@ -69,7 +69,17 @@ def test_w2c_19_kfold_encode_returns_dataframe_with_correct_shape_dtype_index():
         index=pd.RangeIndex(n),
     )
     target = pd.Series(rng.integers(0, 2, size=n).astype(float), index=df.index)
-    out = _kfold_target_encode(df, cols=["cat_a", "cat_b"], target=target, n_splits=5, random_state=0)
+    # category_encoders 2.6 / sklearn < 1.6 combos (Python 3.9 CI) break the
+    # ``__sklearn_tags__`` super() chain inside CatBoostEncoder.fit; skip
+    # on the upstream-incompat path (same guard as sibling tests).
+    try:
+        out = _kfold_target_encode(df, cols=["cat_a", "cat_b"], target=target, n_splits=5, random_state=0)
+    except AttributeError as exc:
+        if "__sklearn_tags__" in str(exc):
+            pytest.skip(
+                f"category_encoders / sklearn version mismatch on this runner: {exc}."
+            )
+        raise
     assert isinstance(out, pd.DataFrame)
     assert out.shape == (n, 2)
     assert list(out.columns) == ["cat_a", "cat_b"]

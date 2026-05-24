@@ -23,7 +23,7 @@ Post-fix contract:
 from __future__ import annotations
 
 import hashlib
-import json
+import orjson
 import os
 from pathlib import Path
 
@@ -106,7 +106,7 @@ def test_write_save_meta_sidecar_populates_real_bundle_sha256(tmp_pickle: Path):
     _write_save_meta_sidecar(str(tmp_pickle))
     meta_path = Path(_meta_sidecar_path(str(tmp_pickle)))
     assert meta_path.is_file(), "meta sidecar must be written next to the bundle"
-    payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    payload = orjson.loads(meta_path.read_bytes())
     assert "bundle_sha256" in payload, "bundle_sha256 key must be present"
     expected = _sha256_hex(tmp_pickle)
     assert payload["bundle_sha256"] == expected, (
