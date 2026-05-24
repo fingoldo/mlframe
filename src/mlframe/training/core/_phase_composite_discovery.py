@@ -106,6 +106,7 @@ def run_composite_target_discovery(
     cat_features: list[str] | None,
     verbose: bool,
     discovery_cache_dir: Any = None,
+    group_ids: Any = None,
 ) -> tuple[dict, dict]:
     """Run composite-target discovery for regression targets.
 
@@ -144,6 +145,33 @@ def run_composite_target_discovery(
     ))
     _existing_diags = metadata.get("baseline_diagnostics", {})
 
+    # Extreme-AR + group-aware short-circuit: when the target is
+    # dominated by an AR lag and the split is group-aware, the
+    # residual T = y - alpha * lag has near-zero signal on unseen
+    # groups; every trained model on T overfits per-group patterns
+    # and produces predictions worse than the trivial median(T)
+    # dummy in y-scale on the test split. Discovery + training of
+    # such specs is pure waste (TVT prod 2026-05-23: 3 composite
+    # specs shipped, all 9 trained models on residuals failed
+    # dummy-floor gate with R2<0 and pred_std 3-5x target_std,
+    # ~10 min wall-time per target wasted).
+    _extreme_ar_skip = bool(getattr(
+        composite_target_discovery_config,
+        "extreme_ar_group_aware_skip", True,
+    ))
+    _extreme_ar_threshold = float(getattr(
+        composite_target_discovery_config,
+        "extreme_ar_threshold", 0.99,
+    ))
+    _td_report = metadata.get("target_distribution_report", {}) or {}
+    _td_diag = _td_report.get("diagnostics", {}) or {}
+    _td_knobs = _td_report.get("knob_overrides", {}) or {}
+    _lag1_ar = _td_diag.get("lag1_autocorr_per_group")
+    _split_cfg_overrides = _td_knobs.get("split_config", {}) or {}
+    _group_aware_recommended = bool(
+        _split_cfg_overrides.get("prefer_group_aware", False)
+    )
+
     for _tt_disc, _named_disc in list(target_by_type.items()):
         if _tt_disc != TargetTypes.REGRESSION:
             continue
@@ -154,6 +182,34 @@ def run_composite_target_discovery(
                     str(_tt_disc), {})[_tname_disc] = [{
                         "name": _tname_disc, "kept": False, "rejected": True,
                         "reason": "multilabel target unsupported (R3.18 future PR)",
+                    }]
+                continue
+
+            if (_extreme_ar_skip
+                    and _group_aware_recommended
+                    and _lag1_ar is not None
+                    and float(_lag1_ar) >= _extreme_ar_threshold):
+                logger.warning(
+                    "[CompositeTargetDiscovery] extreme-AR + group-aware "
+                    "skip fired for target='%s' (lag1_autocorr_per_group="
+                    "%.4f >= %.2f, split prefers group-aware). Residual "
+                    "targets have near-zero signal on unseen groups and "
+                    "every trained model on T overfits per-group patterns "
+                    "to ship predictions worse than the median(T) dummy "
+                    "in y-scale. Discovery skipped; lag_predict in "
+                    "CT_ENSEMBLE pool will carry the AR signal. Disable "
+                    "via composite_target_discovery_config."
+                    "extreme_ar_group_aware_skip=False.",
+                    _tname_disc, float(_lag1_ar), _extreme_ar_threshold,
+                )
+                metadata["composite_target_failures"].setdefault(
+                    str(_tt_disc), {})[_tname_disc] = [{
+                        "name": _tname_disc, "kept": False, "rejected": True,
+                        "reason": (
+                            f"extreme_ar_group_aware_skip=True + "
+                            f"lag1_autocorr_per_group={float(_lag1_ar):.4f} "
+                            f">= threshold {_extreme_ar_threshold}"
+                        ),
                     }]
                 continue
 
@@ -368,6 +424,44 @@ def run_composite_target_discovery(
                     _disc_instance = CompositeTargetDiscovery(_disc_cfg)
                     if _use_hint and _diag is not None and _hint_strengths:
                         _disc_instance._hint_strengths_pct = _hint_strengths
+                    # Group-aware tiny-rerank: when the production split
+                    # is group-aware, the tiny-CV rerank must use
+                    # GroupKFold or it ranks specs by a metric that
+                    # doesn't reflect the production OOF distribution
+                    # (TVT prod 2026-05-23: random KFold tiny-rerank
+                    # promoted 3 composite specs whose trained models
+                    # all failed dummy-floor gate on group-aware test).
+                    # Slice group_ids to filtered_train rows so the
+                    # rerank sees the same groups the discovery loop
+                    # samples from.
+                    if (group_ids is not None
+                            and _group_aware_recommended
+                            and filtered_train_idx is not None):
+                        try:
+                            _grp_arr = np.asarray(group_ids)
+                            if _grp_arr.shape[0] >= int(
+                                np.max(filtered_train_idx) + 1
+                            ):
+                                _disc_instance._group_ids_for_rerank = (
+                                    _grp_arr[filtered_train_idx]
+                                )
+                                logger.info(
+                                    "[CompositeTargetDiscovery] target='%s' "
+                                    "tiny-rerank will use GroupKFold "
+                                    "(group_ids supplied, n_groups=%d on "
+                                    "training rows).",
+                                    _tname_disc,
+                                    int(np.unique(
+                                        _disc_instance._group_ids_for_rerank
+                                    ).size),
+                                )
+                        except (TypeError, ValueError, IndexError) as _gerr:
+                            logger.debug(
+                                "[CompositeTargetDiscovery] could not slice "
+                                "group_ids for target='%s': %s; tiny-rerank "
+                                "falls back to KFold.",
+                                _tname_disc, _gerr,
+                            )
                     # Pack #3 wiring: stacked 2-pass discovery (OOF predictions
                     # from pass 1 augment feature_cols for pass 2). Wraps the
                     # standard ``fit()`` so the rest of the phase code path is

@@ -814,9 +814,45 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # the train-tail-vs-test distribution mismatch on strong-AR targets
     # (TVT prod 2026-05-23: train-tail lag RMSE=15.18 vs test=11.58, a
     # 31% gap that drove NNLS to underweight lag_predict, leaving the
-    # ensemble 14.8% worse than the trivial dummy on TEST). Set to 0 to
-    # disable.
-    lag_predict_failsafe_tolerance: float = 0.10
+    # ensemble 14.8% worse than the trivial dummy on TEST). Default
+    # bumped 0.10 -> 0.50 because on train-tail holdouts of group-aware
+    # AR(1) splits the gap between lag_predict OOF RMSE and the best
+    # trained-model OOF RMSE is commonly 30-40%; a 10% tolerance never
+    # fires in practice. Set to 0 to disable.
+    lag_predict_failsafe_tolerance: float = 0.50
+
+    # Dummy-floor gate: when honest OOF predictions are available, drop
+    # any component from the CompositeCrossTargetEnsemble pool whose
+    # OOF RMSE > raw target's strongest-dummy RMSE x (1 + tolerance).
+    # A trained model that loses to a parameter-free dummy on the
+    # honest holdout cannot improve the ensemble; keeping it dilutes
+    # NNLS weight and harms test performance. TVT prod 2026-05-23
+    # surfaced this as the load-bearing failure mode: composite-target
+    # models on residual T overfit on group-aware splits (pred_std up
+    # to 5x target_std, R2 down to -22 on test), but NNLS still gave
+    # them positive weight. With the gate the pool reduces to
+    # {lag_predict} + components that genuinely beat the dummy, and
+    # the ensemble cannot ship worse than the dummy. Set
+    # ``ct_ensemble_dummy_floor_enabled = False`` to disable; bump
+    # ``ct_ensemble_dummy_floor_tolerance`` to keep components within
+    # a small slack above the dummy (default 0 = strict).
+    ct_ensemble_dummy_floor_enabled: bool = True
+    ct_ensemble_dummy_floor_tolerance: float = 0.0
+
+    # Extreme-AR + group-aware skip. When the target is dominated by
+    # an AR lag (``lag1_autocorr_per_group >= extreme_ar_threshold``)
+    # AND the split is group-aware (test wells/groups unseen at
+    # training), composite-target discovery is short-circuited because
+    # the residual T = y - alpha * lag has near-zero signal on unseen
+    # groups; any trained model on T overfits per-group patterns and
+    # produces predictions worse than the trivial median(T) dummy on
+    # the test split (TVT prod 2026-05-23: 3 composite specs shipped,
+    # all 9 trained models on residuals failed dummy gate with R2 <0,
+    # ~10 min of wall-time wasted per target). Set
+    # ``extreme_ar_group_aware_skip = False`` to force discovery to
+    # run anyway.
+    extreme_ar_group_aware_skip: bool = True
+    extreme_ar_threshold: float = 0.99
 
     # Composite-feature stacking. When True, ``run_composite_target_discovery``
     # produces an opt-in stub call to ``composite_oof_predictions`` /

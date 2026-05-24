@@ -1,5 +1,75 @@
 # Changelog
 
+## 2026-05-23 — Round 5.3: dummy-floor gate + extreme-AR skip + group-aware tiny-rerank + failsafe tolerance
+
+Round-5.2 (val-as-honest-OOF) shipped, run after run still landed at
+TEST RMSE 13.28 vs lag_predict 11.58 because three deeper failures
+remained: (1) the val-OOF only changes which holdout NNLS sees, but
+NNLS still gave positive weight to composite-residual models whose
+honest-OOF RMSE was 2-4x worse than the parameter-free dummy; (2)
+composite-target discovery happily proposed residual targets whose
+trained models are guaranteed garbage on group-aware AR(1) splits;
+(3) the tiny-CV rerank that promoted those specs was running random
+KFold on a sample, not the GroupKFold the production split uses.
+
+### #1 Dummy-floor gate in CT_ENSEMBLE pool ([_phase_composite_post.py:670](src/mlframe/training/core/_phase_composite_post.py#L670))
+
+After honest-OOF RMSEs are computed, drop any component whose OOF
+RMSE > raw target's strongest-dummy RMSE × (1 + tolerance). A
+trained model that loses to a parameter-free dummy on the honest
+holdout cannot improve the ensemble; including it dilutes NNLS
+weights and harms test performance. Empty-pool guard: when the gate
+would drop every component, log and skip (existing single-best
+fallback handles).
+
+New config knobs ``CompositeTargetDiscoveryConfig.ct_ensemble_dummy_floor_enabled``
+(default True) and ``ct_ensemble_dummy_floor_tolerance`` (default 0.0
+= strict, components must beat dummy outright).
+
+### #2 Extreme-AR + group-aware discovery skip ([_phase_composite_discovery.py:147](src/mlframe/training/core/_phase_composite_discovery.py#L147))
+
+Short-circuit composite-target discovery when
+``lag1_autocorr_per_group >= extreme_ar_threshold`` AND the target-
+distribution analyzer recommended group-aware splitting. The residual
+T = y − α·lag has near-zero signal on unseen groups; every trained
+model on T overfits per-group patterns and ships predictions worse
+than median(T) in y-scale. Skipping saves ~10 min wall-time per
+target on the prod TVT dataset (3 specs × 3 boosters × ~1 min each).
+``lag_predict`` in the CT_ENSEMBLE pool carries the AR signal.
+
+New knobs ``extreme_ar_group_aware_skip`` (default True) and
+``extreme_ar_threshold`` (default 0.99).
+
+### #3 Group-aware tiny-rerank ([_composite_screening_tiny.py:512](src/mlframe/training/_composite_screening_tiny.py#L512), [_composite_discovery_tiny_rerank.py:62](src/mlframe/training/_composite_discovery_tiny_rerank.py#L62))
+
+``_tiny_cv_rmse_y_scale`` and ``_tiny_cv_rmse_raw_y`` now accept an
+optional ``groups`` kwarg; when supplied the CV splitter switches
+from ``KFold`` to ``GroupKFold`` so the rerank RMSE matches the
+production OOF distribution. ``_phase_composite_discovery`` sets
+``CompositeTargetDiscovery._group_ids_for_rerank`` when production
+split is group-aware AND group_ids supplied; ``_tiny_model_rerank``
+reads the attribute and threads the slice into both y-scale and
+raw-y screening calls.
+
+The previous random-KFold-on-sample rerank promoted residual specs
+whose trained models then failed catastrophically on the actual
+group-aware test split; this aligns the rerank with reality so
+unviable specs are caught at the discovery stage.
+
+### #4 AR(1) failsafe tolerance 0.10 → 0.50 ([_composite_target_discovery_config.py:773](src/mlframe/training/_composite_target_discovery_config.py#L773))
+
+The round-5.1 failsafe never fired in practice because the gap
+between lag_predict OOF RMSE and the best trained-model OOF RMSE
+on group-aware AR(1) splits is consistently 30-40%, well outside
+the 10% band. Bumped default to 0.50 so the gate actually activates
+on the failure mode it was designed for.
+
+Tests: ``TestDummyFloorGateCtEnsemble`` (2), ``TestExtremeArGroupAwareSkip``
+(2), ``TestGroupAwareTinyRerank`` (4 + e2e GroupKFold vs KFold
+discrimination test), ``TestLagPredictFailsafeKnob`` updated for the
+new 0.50 default. 42 round-5 tests green (was 34); 127 composite
+ensemble/discovery regressions green.
+
 ## 2026-05-23 — Round 5.2: val-as-honest-OOF-holdout (architectural)
 
 Round-5.1 added the AR(1) failsafe to defend the TVT-style case

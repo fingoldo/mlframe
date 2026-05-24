@@ -201,6 +201,7 @@ def _tiny_cv_rmse_raw_y(
     bin_var: np.ndarray | None = None,
     time_aware: bool = False,
     cv_splitter: Any = None,
+    groups: np.ndarray | None = None,
 ):
     """CV-RMSE of a tiny model trained DIRECTLY on raw y (no transform).
 
@@ -215,11 +216,12 @@ def _tiny_cv_rmse_raw_y(
     Same fit / fold / parallelism contract as :func:`_tiny_cv_rmse_y_scale`
     so the comparison is apples-to-apples.
     """
-    from sklearn.model_selection import KFold, TimeSeriesSplit
+    from sklearn.model_selection import KFold, TimeSeriesSplit, GroupKFold
     n = len(y_train)
     if n < cv_folds * 10:
         return float("nan")
     y_clean = y_train.astype(np.float64)
+    finite_mask = None
     if not np.all(np.isfinite(y_clean)):
         finite_mask = np.isfinite(y_clean)
         y_clean = y_clean[finite_mask]
@@ -229,12 +231,25 @@ def _tiny_cv_rmse_raw_y(
     if len(y_clean) < cv_folds * 10:
         return float("nan")
 
+    groups_clean = None
+    if groups is not None:
+        _g = np.asarray(groups)
+        if _g.shape[0] == len(y_train):
+            groups_clean = _g[finite_mask] if finite_mask is not None else _g
+            if int(np.unique(groups_clean).size) < cv_folds:
+                groups_clean = None
     if cv_splitter is not None:
         kf = cv_splitter
+        _precomputed_splits = None
+    elif groups_clean is not None:
+        kf = GroupKFold(n_splits=cv_folds)
+        _precomputed_splits = list(kf.split(x_clean, groups=groups_clean))
     elif time_aware:
         kf = TimeSeriesSplit(n_splits=cv_folds)
+        _precomputed_splits = None
     else:
         kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+        _precomputed_splits = None
 
     # bin_var aligns to the masked y_clean / x_clean. If caller
     # passed it, mask it the same way.
@@ -302,7 +317,11 @@ def _tiny_cv_rmse_raw_y(
             )
             return float("nan"), None
 
-    splits = list(kf.split(x_clean))
+    splits = (
+        _precomputed_splits
+        if _precomputed_splits is not None
+        else list(kf.split(x_clean))
+    )
     if n_jobs > 1 and len(splits) > 1:
         try:
             from joblib import Parallel, delayed
@@ -528,6 +547,7 @@ def _tiny_cv_rmse_y_scale(
     n_bins: int = 5,
     time_aware: bool = False,
     early_stop_threshold: float = float("inf"),
+    groups: np.ndarray | None = None,
 ):
     """Compute CV-RMSE of a tiny model on the y-scale (after inverse).
 
@@ -547,7 +567,7 @@ def _tiny_cv_rmse_y_scale(
     so the inner LightGBM doesn't oversubscribe. NaN if anything
     degenerates so callers can deprioritise.
     """
-    from sklearn.model_selection import KFold, TimeSeriesSplit
+    from sklearn.model_selection import KFold, TimeSeriesSplit, GroupKFold
     n = len(y_train)
     if n < cv_folds * 10:
         return float("nan")
@@ -561,10 +581,22 @@ def _tiny_cv_rmse_y_scale(
     if not np.all(np.isfinite(t_clean)):
         return float("nan")
 
-    if time_aware:
+    groups_clean = None
+    if groups is not None:
+        _g_arr = np.asarray(groups)
+        if _g_arr.shape[0] == len(y_train):
+            groups_clean = _g_arr[valid]
+            if int(np.unique(groups_clean).size) < cv_folds:
+                groups_clean = None  # fall back to KFold if not enough groups
+    if groups_clean is not None:
+        kf = GroupKFold(n_splits=cv_folds)
+        splits = list(kf.split(x_clean, groups=groups_clean))
+    elif time_aware:
         kf = TimeSeriesSplit(n_splits=cv_folds)
+        splits = list(kf.split(x_clean))
     else:
         kf = KFold(n_splits=cv_folds, shuffle=True, random_state=random_state)
+        splits = list(kf.split(x_clean))
 
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
@@ -655,7 +687,8 @@ def _tiny_cv_rmse_y_scale(
             )
             return float("nan"), None
 
-    splits = list(kf.split(x_clean))
+    # ``splits`` was built above (GroupKFold path inserted before this
+    # function body so groups-aware tiny-CV uses the same fold contract).
     if n_jobs > 1 and len(splits) > 1:
         try:
             from joblib import Parallel, delayed

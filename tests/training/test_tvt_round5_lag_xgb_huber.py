@@ -534,23 +534,21 @@ class TestLagPredictFailsafeKnob:
     different residual structure from the test split on AR(1) targets;
     the failsafe defends the test floor."""
 
-    def test_config_knob_default_is_10pct(self) -> None:
-        import inspect
+    def test_config_knob_default_is_50pct_round_52(self) -> None:
+        """Round 5.2: tolerance bumped 0.10 -> 0.50 because the
+        train-tail-vs-test gap on group-aware AR(1) splits is 30-40%,
+        and a 10% tolerance never fires in practice."""
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
-        sig = inspect.signature(CompositeTargetDiscoveryConfig)
-        # Pydantic models expose fields via ``model_fields`` (pydantic v2).
         fields = getattr(CompositeTargetDiscoveryConfig, "model_fields", None)
         assert fields is not None
-        assert "lag_predict_failsafe_tolerance" in fields, (
-            "Config must expose lag_predict_failsafe_tolerance so callers "
-            "can tune or disable the AR(1) failsafe."
-        )
-        # Default tolerance must be > 0 (gate enabled) and <= 50% (sane).
+        assert "lag_predict_failsafe_tolerance" in fields
         cfg = CompositeTargetDiscoveryConfig()
-        assert 0.0 < cfg.lag_predict_failsafe_tolerance <= 0.5
-        assert cfg.lag_predict_failsafe_tolerance == 0.10
+        assert cfg.lag_predict_failsafe_tolerance == 0.50, (
+            f"Round 5.2 bumped this from 0.10 to 0.50; got "
+            f"{cfg.lag_predict_failsafe_tolerance}"
+        )
 
     def test_gate_logic_present_in_phase_composite_post(self) -> None:
         import inspect
@@ -558,3 +556,149 @@ class TestLagPredictFailsafeKnob:
         src = inspect.getsource(_phase_composite_post)
         assert "lag_predict_failsafe_tolerance" in src
         assert "AR1 failsafe" in src or "lag_predict_failsafe" in src
+
+
+class TestDummyFloorGateCtEnsemble:
+    """Drop any CT_ENSEMBLE component whose honest-OOF RMSE exceeds
+    the raw target's strongest-dummy RMSE x (1 + tolerance). A trained
+    model that loses to a parameter-free dummy on the honest holdout
+    cannot improve the ensemble (TVT prod 2026-05-23: composite-target
+    models on residual T failed the floor by 2-4x, NNLS still gave
+    them weight, ensemble landed at RMSE 13.28 vs 11.58 dummy floor)."""
+
+    def test_config_knob_default_enabled_strict(self) -> None:
+        from mlframe.training._composite_target_discovery_config import (
+            CompositeTargetDiscoveryConfig,
+        )
+        fields = getattr(CompositeTargetDiscoveryConfig, "model_fields", None)
+        assert fields is not None
+        assert "ct_ensemble_dummy_floor_enabled" in fields
+        assert "ct_ensemble_dummy_floor_tolerance" in fields
+        cfg = CompositeTargetDiscoveryConfig()
+        assert cfg.ct_ensemble_dummy_floor_enabled is True
+        # Strict by default: components must beat dummy outright.
+        assert cfg.ct_ensemble_dummy_floor_tolerance == 0.0
+
+    def test_gate_logic_present_in_phase_composite_post(self) -> None:
+        import inspect
+        from mlframe.training.core import _phase_composite_post
+        src = inspect.getsource(_phase_composite_post)
+        assert "ct_ensemble_dummy_floor_enabled" in src
+        assert "ct_ensemble_dummy_floor_tolerance" in src
+        assert "dummy-floor gate" in src.lower() or "dummy_floor" in src
+
+
+class TestExtremeArGroupAwareSkip:
+    """Skip composite-target discovery when the target is dominated by
+    an AR lag (>= 0.99) AND the production split is group-aware.
+    Residual targets have near-zero signal on unseen groups so every
+    trained model on T overfits per-group patterns and produces
+    predictions worse than the median(T) dummy in y-scale (TVT prod
+    2026-05-23: 9 trained models, all R2<0)."""
+
+    def test_config_defaults(self) -> None:
+        from mlframe.training._composite_target_discovery_config import (
+            CompositeTargetDiscoveryConfig,
+        )
+        fields = getattr(CompositeTargetDiscoveryConfig, "model_fields", None)
+        assert fields is not None
+        assert "extreme_ar_group_aware_skip" in fields
+        assert "extreme_ar_threshold" in fields
+        cfg = CompositeTargetDiscoveryConfig()
+        assert cfg.extreme_ar_group_aware_skip is True
+        assert 0.9 <= cfg.extreme_ar_threshold < 1.0
+        assert cfg.extreme_ar_threshold == 0.99
+
+    def test_skip_logic_present_in_phase_composite_discovery(self) -> None:
+        import inspect
+        from mlframe.training.core import _phase_composite_discovery
+        src = inspect.getsource(_phase_composite_discovery)
+        assert "extreme_ar_group_aware_skip" in src
+        assert "extreme_ar_threshold" in src
+        assert "lag1_autocorr_per_group" in src
+        assert "prefer_group_aware" in src
+
+
+class TestGroupAwareTinyRerank:
+    """Tiny-CV rerank in composite-discovery must use GroupKFold when
+    the production split is group-aware (TVT prod 2026-05-23: random
+    KFold rerank promoted 3 specs that all failed on group-aware test).
+    """
+
+    def test_y_scale_accepts_groups_kwarg(self) -> None:
+        import inspect
+        from mlframe.training._composite_screening_tiny import (
+            _tiny_cv_rmse_y_scale, _tiny_cv_rmse_raw_y,
+        )
+        sig_y = inspect.signature(_tiny_cv_rmse_y_scale)
+        assert "groups" in sig_y.parameters
+        sig_raw = inspect.signature(_tiny_cv_rmse_raw_y)
+        assert "groups" in sig_raw.parameters
+
+    def test_rerank_threads_groups_via_attribute(self) -> None:
+        """The rerank module must read self._group_ids_for_rerank and
+        forward via the ``groups=`` kwarg to the screening functions."""
+        import inspect
+        from mlframe.training import _composite_discovery_tiny_rerank as mod
+        src = inspect.getsource(mod)
+        assert "_group_ids_for_rerank" in src
+        assert "_groups_screen" in src
+        # Verify the kwarg is actually passed to both y-scale and raw-y
+        # multiseed wrappers (not just stored).
+        assert "groups=_groups_screen" in src
+
+    def test_discovery_phase_sets_group_attr_when_group_aware(self) -> None:
+        import inspect
+        from mlframe.training.core import _phase_composite_discovery
+        src = inspect.getsource(_phase_composite_discovery)
+        assert "_group_ids_for_rerank" in src
+        # Phase should only set when production split is group-aware AND
+        # group_ids were supplied; verify both gates are present.
+        assert "_group_aware_recommended" in src
+        assert "group_ids" in src
+
+    def test_groupkfold_used_when_groups_supplied(self) -> None:
+        """End-to-end: pass groups to _tiny_cv_rmse_y_scale and verify
+        it routes through GroupKFold (different fold assignment than
+        random KFold)."""
+        pytest.importorskip("lightgbm")
+        from mlframe.training._composite_screening_tiny import (
+            _tiny_cv_rmse_y_scale,
+        )
+        from mlframe.training.composite_transforms import get_transform
+        rng = np.random.default_rng(0)
+        n = 600
+        # Two well-separable groups, each predictable from its own subset.
+        groups = np.array([0] * (n // 2) + [1] * (n // 2), dtype=np.int64)
+        x = rng.normal(0, 1, (n, 3))
+        # Group 0 has y proportional to x[:,0]; group 1 has y proportional
+        # to x[:,1]. Random KFold can learn both jointly; GroupKFold leaves
+        # one group out and so generalises poorly -> worse RMSE -> proves
+        # the splitter is being honored.
+        base = np.zeros(n, dtype=np.float64)
+        y = np.where(
+            groups == 0, x[:, 0] * 5.0, x[:, 1] * 5.0,
+        ) + rng.normal(0, 0.1, n)
+        transform = get_transform("diff")
+        kf_rmse = _tiny_cv_rmse_y_scale(
+            y, base, transform, {}, x,
+            family="lightgbm",
+            n_estimators=20, num_leaves=8, learning_rate=0.1,
+            cv_folds=2, random_state=0,
+        )
+        gkf_rmse = _tiny_cv_rmse_y_scale(
+            y, base, transform, {}, x,
+            family="lightgbm",
+            n_estimators=20, num_leaves=8, learning_rate=0.1,
+            cv_folds=2, random_state=0,
+            groups=groups,
+        )
+        assert np.isfinite(kf_rmse)
+        assert np.isfinite(gkf_rmse)
+        # Group-aware OOF RMSE should be STRICTLY larger because the
+        # per-group structure leaks via random KFold.
+        assert gkf_rmse > kf_rmse, (
+            f"GroupKFold ({gkf_rmse:.3g}) should exceed KFold "
+            f"({kf_rmse:.3g}) on per-group-leaking synthetic data; "
+            f"check that the groups kwarg is actually being honoured."
+        )

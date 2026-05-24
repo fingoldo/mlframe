@@ -65,6 +65,26 @@ def _tiny_model_rerank(
     train_idx_screen = train_idx[sample_idx]
     y_screen = y_full[train_idx_screen]
 
+    # Group-aware tiny CV: when ``self._group_ids_for_rerank`` is set
+    # (production split is group-aware), slice the per-spec sample
+    # back to the same groups so the rerank ranks specs by the same
+    # OOF distribution the production split will evaluate. Random
+    # KFold on a group-aware production split rates per-group memorisers
+    # high; production then catches that as catastrophic test failure
+    # (TVT prod 2026-05-23: 3 composite specs promoted by random-KFold
+    # rerank, all 9 trained models failed dummy-floor on group-aware
+    # test). ``train_idx`` from the discovery entry point is
+    # ``np.arange(N_filtered_train)`` so ``sample_idx == train_idx_screen``.
+    _groups_full_for_rerank = getattr(self, "_group_ids_for_rerank", None)
+    _groups_screen = None
+    if _groups_full_for_rerank is not None:
+        try:
+            _ga = np.asarray(_groups_full_for_rerank)
+            if _ga.shape[0] >= int(np.max(train_idx_screen) + 1):
+                _groups_screen = _ga[train_idx_screen]
+        except (TypeError, ValueError, IndexError):
+            _groups_screen = None
+
     if self.config.tiny_screening_models == "single_lgbm":
         families = ["lightgbm"]
     else:  # per_family
@@ -169,6 +189,7 @@ def _tiny_model_rerank(
                     return_per_bin=want_per_bin,
                     n_bins=per_bin_n_bins_pre or 5,
                     time_aware=base_t_aware,
+                    groups=_groups_screen,
                 )
                 if want_per_bin:
                     rmse, per_bin_first, per_seed = (
@@ -199,6 +220,7 @@ def _tiny_model_rerank(
                     return_per_bin=want_per_bin,
                     n_bins=per_bin_n_bins_pre or 5,
                     time_aware=base_t_aware,
+                    groups=_groups_screen,
                 )
                 if want_per_bin and isinstance(result, tuple):
                     rmse, per_bin_first = result[0], result[1]
@@ -388,6 +410,7 @@ def _tiny_model_rerank(
                     base_random_state=self.config.random_state,
                     return_per_seed=True,
                     time_aware=_any_base_monotone,
+                    groups=_groups_screen,
                 )
                 raw_rmse_per_family[family] = res[0]
                 raw_per_seed_per_family[family] = res[-1]
@@ -407,6 +430,7 @@ def _tiny_model_rerank(
                     n_seed_repeats=n_seed_repeats_raw,
                     base_random_state=self.config.random_state,
                     time_aware=_any_base_monotone,
+                    groups=_groups_screen,
                 )
         # Per-base raw-y per-bin breakdown for the regime gate.
         # Cached by base column so multiple specs sharing a base
@@ -435,6 +459,7 @@ def _tiny_model_rerank(
                     ),
                     return_per_bin=True, n_bins=per_bin_n_bins,
                     bin_var=base_screen,
+                    groups=_groups_screen,
                 )
                 if isinstance(raw_result, tuple):
                     _, raw_per_bin = raw_result

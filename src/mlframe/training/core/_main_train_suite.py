@@ -680,6 +680,7 @@ def train_mlframe_models_suite(
             cat_features=cat_features,
             verbose=verbose,
             discovery_cache_dir=_discovery_cache_dir,
+            group_ids=group_ids,
         )
 
     (
