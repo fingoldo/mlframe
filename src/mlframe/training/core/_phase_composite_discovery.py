@@ -381,15 +381,10 @@ def run_composite_target_discovery(
                         random_state=int(42 if _rs_raw is None else _rs_raw),
                     )
                     _cfg_sig = _discovery_config_signature(_disc_cfg)
-                    # random_state is already folded into _df_sig (seeds the row-sample) and into
-                    # _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key
-                    # was a double-fold (DISC-RANDOM-STATE-DBL): two semantically identical inputs
-                    # both contribute to the key, so the same data + same config but with
-                    # random_state mutated would produce three independent hash mixes. Drop the
-                    # outer fold; pass 0 as the back-compat sentinel.
+                    # random_state is already folded into _df_sig (seeds the row-sample) and into _cfg_sig (via the dataclass dump). Passing it again to make_discovery_cache_key would be a double-fold (DISC-RANDOM-STATE-DBL): the same data + same config but with random_state mutated would produce three independent hash mixes. We rename the kwarg here to ``_legacy_random_state_sentinel=0`` so a future reader cannot misread "random_state=0" as the actual seed in use.
                     _disc_cache_key = make_discovery_cache_key(
                         _df_sig, _tname_disc, _cfg_sig,
-                        random_state=0,
+                        _legacy_random_state_sentinel=0,
                     )
                     _cached_payload = _disc_cache.get(_disc_cache_key)
                 except Exception as _cache_err:
