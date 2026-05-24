@@ -403,7 +403,8 @@ def data_signature(
         # Pandas: no equivalent of polars lazy-frame multi-column aggregate without materialising
         # the column, so we still call ``df[c].to_numpy()`` once per column. We at least avoid the
         # second materialisation for the sample bytes by reusing ``full`` (the gather slice is a
-        # view on ``full``).
+        # view on ``full``). bench-attempt-rejected: a single ``df[cols_to_hash].to_numpy()`` batches the dispatch but coerces all columns to
+        # the common dtype (object on mixed-dtype frames), which breaks the per-column ``str(dtype)`` folded into the signature.
         for c in cols_to_hash:
             if c not in df.columns:
                 continue

@@ -16,6 +16,19 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _extract_col_1d(df: Any, col: str) -> np.ndarray:
+    """Return ``df[col]`` as a flat ndarray, polars/pandas/array agnostic. Polars uses ``get_column`` (no ``.select().reshape`` round-trip)."""
+    if df is None:
+        return np.array([])
+    if hasattr(df, "columns") and not hasattr(df, "schema"):
+        return df[col].to_numpy()
+    if hasattr(df, "get_column"):
+        return df.get_column(col).to_numpy()
+    if hasattr(df, "select"):
+        return df.select(col).to_numpy().reshape(-1)
+    return np.asarray(df[col])
+
+
 def _compute_regression_baselines(
     target_name: str,
     train_X: Any,
@@ -85,31 +98,8 @@ def _compute_regression_baselines(
         if not _col_in_train:
             continue
         try:
-            if hasattr(train_X, "to_numpy"):
-                # pandas / polars w/ to_numpy on a column
-                if hasattr(train_X, "columns"):
-                    _val_lag = (
-                        val_X[_lag_col].to_numpy() if n_val else np.array([])
-                    )
-                    _test_lag = (
-                        test_X[_lag_col].to_numpy() if n_test else np.array([])
-                    )
-                else:
-                    _val_lag = (
-                        val_X.select(_lag_col).to_numpy().reshape(-1)
-                        if n_val else np.array([])
-                    )
-                    _test_lag = (
-                        test_X.select(_lag_col).to_numpy().reshape(-1)
-                        if n_test else np.array([])
-                    )
-            else:
-                _val_lag = (
-                    np.asarray(val_X[_lag_col]) if n_val else np.array([])
-                )
-                _test_lag = (
-                    np.asarray(test_X[_lag_col]) if n_test else np.array([])
-                )
+            _val_lag = _extract_col_1d(val_X, _lag_col) if n_val else np.array([])
+            _test_lag = _extract_col_1d(test_X, _lag_col) if n_test else np.array([])
             val_preds["lag_predict"] = np.asarray(_val_lag, dtype=np.float64)
             test_preds["lag_predict"] = np.asarray(_test_lag, dtype=np.float64)
             extras["lag_predict"] = {"feature_used": _lag_col}

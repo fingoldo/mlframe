@@ -109,11 +109,15 @@ def _run_target_distribution_analyzer(
                     for _hint_lower in sorted(_hit_lower):
                         _orig_col = _cols_lower_map[_hint_lower]
                         try:
+                            _stride = max(1, len(train_df) // 1024)
                             if hasattr(train_df, "iloc"):
-                                _sample = train_df.iloc[::max(1, len(train_df) // 1024)][_orig_col].to_numpy()
+                                _sample = train_df.iloc[::_stride][_orig_col].to_numpy()
                             else:
-                                # polars frame -- columns are accessed via attribute / [name]
-                                _sample = train_df[_orig_col].to_numpy()[::max(1, len(train_df) // 1024)]
+                                # polars: gather only the strided indices instead of materialising the full column then slicing -- avoids
+                                # paying for a multi-GB column to throw away >99% of it on a 1024-row monotonicity probe.
+                                _n = len(train_df)
+                                _idx = list(range(0, _n, _stride))
+                                _sample = train_df.get_column(_orig_col).gather(_idx).to_numpy()
                             _sample = np.asarray(_sample)
                             if _sample.dtype.kind in "Mm":
                                 _sample = _sample.astype("int64")
