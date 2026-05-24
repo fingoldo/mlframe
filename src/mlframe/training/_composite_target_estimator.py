@@ -82,6 +82,14 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         If True (default), rows that fail ``transform.domain_check`` at
         fit time are dropped before fitting the inner estimator. If
         False, ``fit`` raises :exc:`DomainViolationError` instead.
+    online_refit_enabled
+        Rolling-buffer streaming-refit knob. When True, the wrapper carries a last-N rolling buffer of (y, base) observations across :meth:`update` calls and re-estimates alpha / beta in-place when the streaming-mean z-score exceeds ``online_refit_z_threshold``. Default OFF because stateful estimators break ``sklearn.clone()`` (the clone starts with an empty buffer); enable only when calling :meth:`update` explicitly from a streaming harness.
+    online_refit_buffer_n
+        Max rows retained in the rolling buffer. Older entries are evicted FIFO.
+    online_refit_z_threshold
+        Absolute z-score on the running residual mean above which alpha / beta are refit.
+    online_refit_min_buffer_n
+        Minimum buffer size before a refit can fire; prevents single-row noise from triggering an alpha flip.
 
     Attributes set at fit
     ---------------------
@@ -550,10 +558,10 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             "n_train_valid": int(y_train.size),
             "n_train_invalid": n_invalid,
         }
-        # Best-effort feature names (pandas / polars).
+        # Best-effort feature names (pandas / polars). Narrowed except: an ndarray X legitimately lacks ``.columns`` (AttributeError); anything else (e.g. a polars frame whose column iteration raises) is anomalous and should surface, not silently swallow under bare Exception.
         try:
             self.feature_names_in_ = list(X.columns)
-        except Exception:
+        except AttributeError:
             pass
         # Live counters initialised lazily by predict.
         self.runtime_stats_ = {

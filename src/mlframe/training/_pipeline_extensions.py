@@ -89,7 +89,9 @@ def _apply_pysr_fe(
     # supplies binary_operators, unary_operators, complexity_of_operators, nested_constraints, and
     # extra_sympy_mappings; the raw pysr_params dict can still override any individual key.
     from mlframe.feature_engineering.pysr_operators import get_preset_kwargs
-    _preset_name = getattr(config, "pysr_operator_preset", None) or "standard"
+    # Explicit None-check rather than ``or "standard"``: the latter would silently rewrite ``pysr_operator_preset=""`` (a config-fixture mistake) to "standard" and mask the typo. Same class of bug as the prior ``or 42`` rewrite for ``random_state=0`` in _phase_composite_discovery.
+    _preset_raw = getattr(config, "pysr_operator_preset", None)
+    _preset_name = "standard" if _preset_raw is None else _preset_raw
     _preset = get_preset_kwargs(_preset_name)
 
     # Defaults tuned for the in-suite path. Key knobs (rationales in docs/pysr_fe_upgrade_research.md):
@@ -196,7 +198,6 @@ def _apply_pysr_fe(
                 "PySR fit failed; skipping symbolic feature engineering.",
                 exc_info=True,
             )
-        # The ``finally`` clause below ALWAYS runs and drops the temp column, including on this except-return path. The previous duplicate drop here was redundant.
         return []
     finally:
         # Wrap drop in try/except so a pandas KeyError chain on a corrupted MultiIndex column or a read-only frame doesn't mask the in-flight exception (errors="ignore" covers the missing-column case but not deeper pandas-internal failures). Skip the drop when injection itself failed -- nothing to remove.

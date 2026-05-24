@@ -166,8 +166,9 @@ def compute_positional_encoding(
                         "(permutation-invariant); call positions_within_group(df, group_col, sort_col) for the typical session / time-ordered use case."
                     )
 
-    # Clamp against fp32 overflow.
-    pos_f = (pos_arr.astype(np.float64) % 1_000_000.0).astype(dtype, copy=False)
+    # Clamp against fp32 overflow. Compute the modulo directly in the caller's float dtype (typically float32) so we skip the prior float64 intermediate (80MB on N=10M when dtype=float32, accumulates GC pressure across ticker-group loops).
+    _np_dtype = np.dtype(dtype)
+    pos_f = np.fmod(pos_arr.astype(_np_dtype, copy=False), _np_dtype.type(1_000_000.0))
 
     half = d_model // 2
     # div_term[i] = 1 / base^(2i / d_model) for i = 0..half-1

@@ -23,9 +23,9 @@ from pyutilz.system import clean_ram
 
 logger = logging.getLogger(__name__)
 
-# Module-level lock serialises Julia access across concurrent joblib workers. PySR spawns
-# Julia subprocesses that contend for the same .julia/ precompile cache and shared memory;
-# the lock keeps them sequential per-process.
+# Module-level lock serialises Julia access across concurrent joblib workers. PySR spawns Julia subprocesses that contend for the same .julia/ precompile cache and shared memory; the lock keeps them sequential per-process.
+#
+# CONTRACT: callers MUST set ``n_jobs=1`` at the joblib level when ``pysr_enabled=True``. The lock is held across the entire ``model.fit()`` call (potentially hours on tabular FE search), so any sibling worker waiting on PySR FE blocks for the same duration. Throughput-oriented FE parallelism is incompatible with PySR; pick one.
 _PYSR_LOCK = threading.Lock()
 
 DEFAULT_BINARY_OPERATORS: List[str] = ["+", "*"]

@@ -8,7 +8,7 @@ import math
 import warnings
 from dataclasses import dataclass, field
 from typing import (
-    Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple,
+    Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple,
 )
 
 import numpy as np
@@ -265,6 +265,14 @@ def _median_residual_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     quantiles = np.linspace(0.0, 1.0, n_bins + 1)
     bin_edges = np.quantile(b_f, quantiles)
     bin_edges = np.unique(bin_edges)
+    # Heavily-discretised base (e.g. integer counts with <20 distinct values) causes ``np.unique`` to collapse the n_bins+1 quantile edges to fewer slots. ``np.digitize`` then routes most rows to bin 0 and the per-bin median lookup defeats the residual residual modelling. Warn so downstream callers know the granularity collapsed before treating the residual as a useful signal.
+    if bin_edges.size - 1 < n_bins:
+        import warnings as _w
+        _w.warn(
+            f"_median_residual_fit: base has only {bin_edges.size - 1} distinct quantile edges (requested n_bins={n_bins}); residual granularity collapsed. Transform falls back to a coarse per-bin median - consider a different base or transform when this fires.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     if bin_edges.size < 2:
         bin_edges = np.array([bin_edges[0], bin_edges[0] + 1e-9])
     bin_idx = np.digitize(b_f, bin_edges[1:-1])
@@ -1064,6 +1072,12 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
     ),
 }
+
+
+from types import MappingProxyType as _MappingProxyType
+
+# Read-only view exported to callers; the underlying ``_TRANSFORMS_REGISTRY`` is module-private and any extension layer must edit it explicitly. Prevents test / extension code from pop-ing a transform and silently corrupting subsequent suite runs in the same process.
+TRANSFORMS_REGISTRY: "Mapping[str, Transform]" = _MappingProxyType(_TRANSFORMS_REGISTRY)
 
 
 def get_transform(name: str) -> Transform:

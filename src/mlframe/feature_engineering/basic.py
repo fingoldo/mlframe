@@ -66,7 +66,7 @@ def create_date_features(
     if len(cols) == 0:
         return df
 
-    logger.info("In create_date_features. RAM usage: %.1fGB.", get_own_memory_usage())
+    logger.debug("In create_date_features. RAM usage: %.1fGB.", get_own_memory_usage())
 
     is_pandas = isinstance(df, pd.DataFrame)
     is_polars = isinstance(df, pl.DataFrame)
@@ -133,10 +133,20 @@ def run_pysr_fe(
 ):
     """Fit a PySR symbolic regressor on a sampled polars frame.
 
+    DEPRECATED: use :func:`mlframe.feature_engineering.bruteforce.run_pysr_feature_engineering` instead -- that path adds leakage-free OOF support, preset wiring, reserved-name handling, and the global Julia lock. This legacy single-target entry point is retained for back-compat only.
+
     The frame is split into features (numeric columns NOT prefixed by ``target_columns_prefix``)
     and targets (columns starting with that prefix). Duplicate sanitised names are disambiguated
     with a numeric suffix so PySR sees a unique feature set.
     """
+    import warnings
+
+    warnings.warn(
+        "mlframe.feature_engineering.basic.run_pysr_fe is deprecated; use bruteforce.run_pysr_feature_engineering "
+        "for leakage-free OOF + preset support + reserved-name handling.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from pysr import PySRRegressor
 
     clean_ram()
