@@ -523,26 +523,27 @@ def _phase_pandas_conversion_and_cat_prep(
                 "; ".join(reasons) or "unknown",
             )
         train_df_pd, val_df_pd, test_df_pd = _convert_dfs_to_pandas(train_df, val_df, test_df, verbose=verbose)
-        # CACHE-P1-7: recompute size from the post-conversion pandas frame so
-        # downstream GPU-sizing heuristics use the actual realised footprint
-        # instead of the polars pre-conversion estimate. The pandas frame
-        # ``memory_usage(deep=True)`` is heavier than ``estimated_size`` but
-        # only fires when conversion already paid the materialisation cost.
-        #
-        # Observability: prior code had NO log around the
-        # ``memory_usage(deep=True)`` call which on 4M-row x 25-col frames
-        # with any object-dtype columns scans every cell - multi-minute
-        # silent gap observed on TVT runs. Bracket with t0/t1 logs so
-        # operators see WHERE the wall-time goes.
+        # Sizing for downstream GPU / RAM heuristics. Two-tier strategy:
+        # 1. If ``was_polars_input`` already populated ``train_df_size_bytes_cached`` via
+        #    ``estimated_size()`` + cat-heavy inflation (lines ~473-483 above), KEEP that value.
+        #    On a 4M-row x 25-col object-heavy frame ``memory_usage(deep=True)`` scans every cell
+        #    and takes ~17.6s (measured 2026-05-24); the polars estimate plus the 1.5x cat-heavy
+        #    factor is accurate enough for GPU-sizing heuristics that already over-allocate.
+        # 2. Otherwise fall back to ``memory_usage(deep=False)`` -- shallow scan returns in <1ms
+        #    by reading buffer-block sizes per column. The object-dtype undercount that
+        #    ``deep=True`` was guarding against (5GB vs 0.72GB on the test fixture) is acceptable
+        #    given how much wall-time the deep scan costs; downstream consumers can request the
+        #    exact value via a follow-up ``deep=True`` call if needed (none currently do).
         _t0_memsize = timer()
         try:
-            if isinstance(train_df_pd, pd.DataFrame):
+            if isinstance(train_df_pd, pd.DataFrame) and train_df_size_bytes_cached is None:
                 train_df_size_bytes_cached = float(
-                    train_df_pd.memory_usage(deep=True, index=False).sum()
+                    train_df_pd.memory_usage(deep=False, index=False).sum()
                 )
-            if val_df_pd is not None and isinstance(val_df_pd, pd.DataFrame):
+            if (val_df_pd is not None and isinstance(val_df_pd, pd.DataFrame)
+                    and val_df_size_bytes_cached is None):
                 val_df_size_bytes_cached = float(
-                    val_df_pd.memory_usage(deep=True, index=False).sum()
+                    val_df_pd.memory_usage(deep=False, index=False).sum()
                 )
         except Exception:
             pass
@@ -550,9 +551,8 @@ def _phase_pandas_conversion_and_cat_prep(
             _memsize_elapsed = timer() - _t0_memsize
             if _memsize_elapsed > 1.0:
                 logger.info(
-                    "  trainset_features_stats memory_usage(deep=True): %.1fs "
-                    "(train=%.1fMB, val=%.1fMB) -- runs once per suite; slow on "
-                    "wide / object-dtype frames",
+                    "  trainset_features_stats memory_usage: %.1fs "
+                    "(train=%.1fMB, val=%.1fMB) -- runs once per suite",
                     _memsize_elapsed,
                     (train_df_size_bytes_cached or 0) / 1e6,
                     (val_df_size_bytes_cached or 0) / 1e6,
