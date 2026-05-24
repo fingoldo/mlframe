@@ -90,31 +90,22 @@ class _LagPredictDeployableModel:
         return self
 
     def predict(self, X: Any) -> np.ndarray:
-        # Polars Series.to_numpy() returns a 1-D zero-copy ndarray for numeric dtypes; the prior .select(col).to_numpy().reshape(-1) path
-        # built a (N, 1) frame, materialised it as a 2-D ndarray, then reshaped -- two extra allocations per predict on the lag baseline.
+        # polars get_column is 1-D zero-copy for numerics; sidesteps the prior select().to_numpy().reshape that built a (N,1) frame first.
         if hasattr(X, "get_column"):
             try:
                 col = X.get_column(self.lag_column).to_numpy()
-                if col.dtype != np.float64:
-                    col = col.astype(np.float64, copy=False)
-                return col.reshape(-1)
+                return col.astype(np.float64, copy=False).reshape(-1)
             except Exception:
                 pass
         if hasattr(X, "loc") or hasattr(X, "__getitem__"):
             try:
                 col = X[self.lag_column]
                 if hasattr(col, "to_numpy"):
-                    arr = col.to_numpy()
-                    if arr.dtype != np.float64:
-                        arr = arr.astype(np.float64, copy=False)
-                    return arr.reshape(-1)
+                    return col.to_numpy().astype(np.float64, copy=False).reshape(-1)
                 return np.asarray(col, dtype=np.float64).reshape(-1)
             except (KeyError, TypeError):
                 pass
-        raise KeyError(
-            f"_LagPredictDeployableModel: column {self.lag_column!r} "
-            f"not found on X (type={type(X).__name__})"
-        )
+        raise KeyError(f"_LagPredictDeployableModel: column {self.lag_column!r} not found on X (type={type(X).__name__})")
 
     def __repr__(self) -> str:
         return f"_LagPredictDeployableModel(lag_column={self.lag_column!r})"
