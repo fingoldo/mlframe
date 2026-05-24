@@ -212,18 +212,19 @@ def test_frac_diff_inv_compute_batched_force_backend_identity(monkeypatch):
 
 
 def test_kernel_tuning_cache_lookup_does_not_crash_on_missing_pyutilz():
-    """Even if pyutilz / KernelTuningCache is unavailable, the dispatcher MUST fall back to the size-based default rather than raising. Verified by calling the lookup directly with a permanent monkeypatch that nukes the import path."""
+    """Even if pyutilz / KernelTuningCache is unavailable, the dispatcher MUST fall back to the size-based default rather than raising. Verified by snapshotting sys.modules around a force-None of the import path so the test is xdist-safe (no global state escapes)."""
+    import sys as _sys
     from mlframe.training import _composite_transforms_nonlinear as M
-    import importlib
-    saved_get = None
+    _key = "mlframe.feature_selection.filters._kernel_tuning"
+    _orig_snapshot = dict(_sys.modules)
     try:
-        sys = importlib.import_module("sys")
-        # Force-fail the import path by sticking ``None`` into sys.modules.
-        sys.modules["mlframe.feature_selection.filters._kernel_tuning"] = None
+        _sys.modules[_key] = None
         bc = M._lookup_ewma_backend(10, 100_000)
         assert bc == "njit_par"
     finally:
-        sys.modules.pop("mlframe.feature_selection.filters._kernel_tuning", None)
+        # Full snapshot/restore protects against cross-test pollution per CLAUDE.md Test-pollution rule.
+        _sys.modules.clear()
+        _sys.modules.update(_orig_snapshot)
 
 
 # ---------- End-to-end via ewma_residual / frac_diff registry ----------
