@@ -127,8 +127,10 @@ def _phase_fit_pipeline(
         getattr(pipeline_config, "categorical_encoding", None) == "ordinal"
         and not getattr(pipeline_config, "skip_categorical_encoding", False)
     )
+    # Skip the cat-schema scan entirely when CatBoost isn't in the suite -- the only consumer of ``_declared_cats`` below is the CB+ordinal warning
+    # block and the CB-native auto-flip; a non-CB suite cannot trip either branch so the pandas ``select_dtypes`` / polars schema iteration is pure waste.
     _declared_cats: list[str] = []
-    if train_df is not None:
+    if _has_cb and train_df is not None:
         if isinstance(train_df, pl.DataFrame):
             # Use isinstance(d, pl.Enum) instead of str(d).startswith("Enum")
             # so dtype detection is API-stable across polars versions and survives any repr change.
@@ -544,9 +546,9 @@ def _phase_fit_pipeline(
     metadata["extensions_pipeline"] = extensions_pipeline
     metadata["cat_features"] = cat_features
     _post_cols = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else list(train_df.columns)
-    # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias.
-    # Predict-side validators prefer the explicit name; old metadata files still resolve via "columns".
-    metadata["post_pipeline_columns"] = list(_post_cols)
+    # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias. ``_post_cols`` is already a freshly built list; reuse
+    # the same reference under both keys so an in-place mutation by one downstream consumer is visible under the other (the historical aliasing contract).
+    metadata["post_pipeline_columns"] = _post_cols
     metadata["columns"] = _post_cols
 
     if verbose:

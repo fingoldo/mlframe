@@ -45,12 +45,14 @@ from .composite_transforms import (  # noqa: E402
 )
 
 
-# Module-level numba kernels (JIT compile on first call). Pure-Python fallback
-# is the recursion in-line below when numba is not installed.
+# Module-level numba kernels (JIT compile on first call). Pure-Python fallback is the recursion in-line below when numba is not installed.
+#
+# Backend ladder (per CLAUDE.md / bench_ewma_frac_diff_backends.py 2026-05-24): EWMA + frac-diff-inverse are LEFT-RECURRENT in row order (out[i] = f(out[i-1], ...)) so prange over rows is impossible. The win comes from a BATCHED kernel (K, N) parallelising across K specs while each row recurrence stays serial. CUDA RawKernel implementation tried (one block per spec) and rejected: sequential per-thread recurrence is bandwidth-bound + host-device transfer kills it (CUDA was 5-100x SLOWER than njit at every tested size, see _benchmarks/_results/bench_ewma_frac_diff_backends_*.json). Two backends retained: single-spec njit (production) + parallel-batched njit.
 if _HAS_NUMBA:
 
     @_numba.njit(cache=True)
     def _ewma_kernel(base_f: np.ndarray, alpha: float, anchor: float) -> np.ndarray:
+        """v1 single-spec EWMA recurrence kernel; production default for K=1 path."""
         n = base_f.size
         out = np.empty(n, dtype=np.float64)
         state = anchor
@@ -61,10 +63,28 @@ if _HAS_NUMBA:
             out[i] = state
         return out
 
+    @_numba.njit(cache=True, parallel=True)
+    def _ewma_kernel_njit_par_batched(
+        base_batch: np.ndarray, alphas: np.ndarray, anchors: np.ndarray,
+    ) -> np.ndarray:
+        """v2 batched EWMA: K specs in parallel via prange over the spec axis. Each row-recurrence inside one spec stays serial (left-recurrence). Bench: 2.7-3.8x over per-spec v1 at K>=10, N>=100k."""
+        K, N = base_batch.shape
+        out = np.empty((K, N), dtype=np.float64)
+        for s in _numba.prange(K):
+            state = anchors[s]
+            a = alphas[s]
+            for i in range(N):
+                x = base_batch[s, i]
+                if np.isfinite(x):
+                    state = (1.0 - a) * state + a * x
+                out[s, i] = state
+        return out
+
     @_numba.njit(cache=True)
     def _frac_diff_inverse_kernel(
         t_f: np.ndarray, lags: int, weights: np.ndarray, anchor: float,
     ) -> np.ndarray:
+        """v1 single-spec frac-diff-inverse recurrence kernel; production default for K=1 path."""
         n = t_f.size
         out = np.empty(n, dtype=np.float64)
         inv_w0 = 1.0 / weights[0]
@@ -77,9 +97,31 @@ if _HAS_NUMBA:
                 lag_sum += weights[k_idx] * anchor
             out[i] = (t_f[i] - lag_sum) * inv_w0
         return out
+
+    @_numba.njit(cache=True, parallel=True)
+    def _frac_diff_inverse_kernel_njit_par_batched(
+        t_batch: np.ndarray, lags: int, weights_batch: np.ndarray, anchors: np.ndarray,
+    ) -> np.ndarray:
+        """v2 batched frac-diff-inverse: K specs in parallel via prange. Each spec carries its own (weights, anchor) row; row-recurrence inside one spec stays serial. Bench: 3.8-5.4x over per-spec v1 at K>=10."""
+        K, N = t_batch.shape
+        out = np.empty((K, N), dtype=np.float64)
+        for s in _numba.prange(K):
+            inv_w0 = 1.0 / weights_batch[s, 0]
+            anchor = anchors[s]
+            for i in range(N):
+                lag_sum = 0.0
+                upper = min(i + 1, lags + 1)
+                for k_idx in range(1, upper):
+                    lag_sum += weights_batch[s, k_idx] * out[s, i - k_idx]
+                for k_idx in range(upper, lags + 1):
+                    lag_sum += weights_batch[s, k_idx] * anchor
+                out[s, i] = (t_batch[s, i] - lag_sum) * inv_w0
+        return out
 else:
     _ewma_kernel = None  # type: ignore
+    _ewma_kernel_njit_par_batched = None  # type: ignore
     _frac_diff_inverse_kernel = None  # type: ignore
+    _frac_diff_inverse_kernel_njit_par_batched = None  # type: ignore
 
 
 # Soft-cap MAD floor: when MAD(T_train) is below
@@ -527,19 +569,215 @@ def _ewma_residual_fit(
 def _ewma_compute(base: np.ndarray, k: int, anchor: float) -> np.ndarray:
     """Exponentially-weighted moving average using ``alpha = 2 / (k + 1)``. Non-finite base values inherit the previous EWMA state (carry-forward), which keeps the recursion well-defined on rows the upstream domain check did not yet flag.
 
-    Numba kernel when available (~300x over pure Python on n=1M); pure-Python fallback otherwise.
+    Single-spec public API; routes through :func:`_ewma_dispatch` so a future force-override or HW-tuned threshold can replace the default njit path without touching every caller. Numba kernel ~300x over pure Python on n=1M; pure-Python fallback otherwise.
     """
     base_f = np.ascontiguousarray(np.asarray(base, dtype=np.float64).reshape(-1))
-    alpha = 2.0 / (k + 1)
-    if _HAS_NUMBA:
-        return _ewma_kernel(base_f, alpha, float(anchor))
-    out = np.empty(base_f.size, dtype=np.float64)
-    state = anchor
-    for i in range(base_f.size):
-        x = base_f[i]
-        if np.isfinite(x):
-            state = (1.0 - alpha) * state + alpha * x
-        out[i] = state
+    return _ewma_dispatch(base_f, float(k), float(anchor))
+
+
+# ----------------------------------------------------------------------
+# EWMA / frac-diff-inverse backend dispatch
+# ----------------------------------------------------------------------
+# Crossover constants are measurement-derived (bench_ewma_frac_diff_backends.py 2026-05-24 on GTX 1050 Ti + i7-7700k): batched-parallel is a net win once K>=2 AND N>=50k. Below that the prange spawn cost (~50us) overshoots the per-spec serial work. Module-level so kernel_tuning_cache can override via :func:`_lookup_ewma_backend` / :func:`_lookup_frac_diff_inv_backend`.
+_EWMA_PAR_MIN_K: int = 2
+_EWMA_PAR_MIN_N: int = 50_000
+_FRAC_DIFF_INV_PAR_MIN_K: int = 2
+_FRAC_DIFF_INV_PAR_MIN_N: int = 10_000
+
+
+def _ewma_force_backend() -> str:
+    """Read env-var override (``MLFRAME_EWMA_BACKEND=njit|njit_par``). Returns empty string when unset / unknown -- dispatcher then uses the size-based default."""
+    import os
+    v = os.environ.get("MLFRAME_EWMA_BACKEND", "").strip().lower()
+    return v if v in ("njit", "njit_par") else ""
+
+
+def _frac_diff_inv_force_backend() -> str:
+    """Read env-var override (``MLFRAME_FRAC_DIFF_INV_BACKEND=njit|njit_par``). Returns empty string when unset / unknown -- dispatcher then uses the size-based default."""
+    import os
+    v = os.environ.get("MLFRAME_FRAC_DIFF_INV_BACKEND", "").strip().lower()
+    return v if v in ("njit", "njit_par") else ""
+
+
+def _lookup_ewma_backend(K: int, N: int) -> str:
+    """Return ``"njit"`` or ``"njit_par"`` via the kernel_tuning_cache when available, else the measurement-backed size-based fallback (K=1 -> njit; K>=2 AND N>=50k -> njit_par). Cache key axes are (K, N); HW-tuned crossovers persist via the same pyutilz KernelTuningCache that powers joint_hist_batched."""
+    forced = _ewma_force_backend()
+    if forced:
+        return forced
+    try:
+        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        cache = get_kernel_tuning_cache()
+        if cache is not None:
+            choice = cache.lookup("ewma_dispatch", K=K, N=N)
+            if choice is not None:
+                bc = str(choice.get("backend_choice", "")).strip().lower()
+                if bc in ("njit", "njit_par"):
+                    return bc
+    except Exception:
+        pass
+    if K >= _EWMA_PAR_MIN_K and N >= _EWMA_PAR_MIN_N:
+        return "njit_par"
+    return "njit"
+
+
+def _lookup_frac_diff_inv_backend(K: int, N: int) -> str:
+    """Same contract as :func:`_lookup_ewma_backend` for the frac-diff-inverse kernel. Cache key: ``frac_diff_inverse_dispatch``."""
+    forced = _frac_diff_inv_force_backend()
+    if forced:
+        return forced
+    try:
+        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        cache = get_kernel_tuning_cache()
+        if cache is not None:
+            choice = cache.lookup("frac_diff_inverse_dispatch", K=K, N=N)
+            if choice is not None:
+                bc = str(choice.get("backend_choice", "")).strip().lower()
+                if bc in ("njit", "njit_par"):
+                    return bc
+    except Exception:
+        pass
+    if K >= _FRAC_DIFF_INV_PAR_MIN_K and N >= _FRAC_DIFF_INV_PAR_MIN_N:
+        return "njit_par"
+    return "njit"
+
+
+def _ewma_dispatch(base_f: np.ndarray, k_param: float, anchor: float) -> np.ndarray:
+    """Single-spec dispatcher: 1-D ``base_f`` shape (N,) -> EWMA(N,). Routes to the scalar njit kernel unless the env-var force-override picks ``njit_par`` (in which case the batched kernel runs with K=1 -- useful for A/B testing the par-batched path on a single spec; size-based default never picks njit_par for K=1)."""
+    alpha = 2.0 / (k_param + 1.0)
+    if not _HAS_NUMBA:
+        out = np.empty(base_f.size, dtype=np.float64)
+        state = anchor
+        for i in range(base_f.size):
+            x = base_f[i]
+            if np.isfinite(x):
+                state = (1.0 - alpha) * state + alpha * x
+            out[i] = state
+        return out
+    backend = _lookup_ewma_backend(1, int(base_f.size))
+    if backend == "njit_par":
+        base_batch = base_f.reshape(1, -1)
+        alphas = np.array([alpha], dtype=np.float64)
+        anchors = np.array([anchor], dtype=np.float64)
+        return _ewma_kernel_njit_par_batched(base_batch, alphas, anchors)[0]
+    return _ewma_kernel(base_f, alpha, float(anchor))
+
+
+def _ewma_compute_batched(
+    base_batch: np.ndarray, ks: np.ndarray, anchors: np.ndarray,
+) -> np.ndarray:
+    """Batched public API: run K independent EWMA specs on a (K, N) base matrix and return the (K, N) EWMA result. Each row carries its own ``k`` (half-life) and ``anchor`` (state-zero value). When K>=2 AND N is sufficiently large, the parallel-batched njit kernel kicks in -- routed through :func:`_lookup_ewma_backend` so HW-tuned thresholds persist via kernel_tuning_cache.
+
+    Bench (bench_ewma_frac_diff_backends.py): 2.7-3.8x over per-spec dispatch at K>=10, N>=100k. Callers that need to evaluate many EWMA specs on the same time series (e.g. cross-target discovery scanning k in [3, 5, 7, 14, 21]) should batch via this entry point.
+    """
+    base_batch = np.ascontiguousarray(np.asarray(base_batch, dtype=np.float64))
+    if base_batch.ndim == 1:
+        base_batch = base_batch.reshape(1, -1)
+    K, N = base_batch.shape
+    ks_a = np.ascontiguousarray(np.asarray(ks, dtype=np.float64).reshape(-1))
+    anchors_a = np.ascontiguousarray(np.asarray(anchors, dtype=np.float64).reshape(-1))
+    if ks_a.size != K or anchors_a.size != K:
+        raise ValueError(
+            f"_ewma_compute_batched: ks shape {ks_a.shape} and anchors shape {anchors_a.shape} must each equal (K={K},)"
+        )
+    alphas = 2.0 / (ks_a + 1.0)
+    if not _HAS_NUMBA:
+        out = np.empty((K, N), dtype=np.float64)
+        for s in range(K):
+            state = float(anchors_a[s])
+            a = float(alphas[s])
+            for i in range(N):
+                x = float(base_batch[s, i])
+                if np.isfinite(x):
+                    state = (1.0 - a) * state + a * x
+                out[s, i] = state
+        return out
+    backend = _lookup_ewma_backend(K, N)
+    if backend == "njit_par":
+        return _ewma_kernel_njit_par_batched(base_batch, alphas, anchors_a)
+    out = np.empty((K, N), dtype=np.float64)
+    for s in range(K):
+        out[s] = _ewma_kernel(
+            np.ascontiguousarray(base_batch[s]), float(alphas[s]), float(anchors_a[s]),
+        )
+    return out
+
+
+def _frac_diff_inverse_compute(
+    t_f: np.ndarray, lags: int, weights: np.ndarray, anchor: float,
+) -> np.ndarray:
+    """Single-spec frac-diff-inverse public API; routes through :func:`_frac_diff_inverse_dispatch`."""
+    t_f = np.ascontiguousarray(np.asarray(t_f, dtype=np.float64).reshape(-1))
+    weights = np.ascontiguousarray(np.asarray(weights, dtype=np.float64).reshape(-1))
+    return _frac_diff_inverse_dispatch(t_f, int(lags), weights, float(anchor))
+
+
+def _frac_diff_inverse_dispatch(
+    t_f: np.ndarray, lags: int, weights: np.ndarray, anchor: float,
+) -> np.ndarray:
+    """Single-spec dispatcher (1-D in, 1-D out). Default routes to scalar njit kernel; env-var force-override or KTC entry can pick the par-batched path with K=1."""
+    if not _HAS_NUMBA:
+        n = t_f.size
+        out = np.empty(n, dtype=np.float64)
+        inv_w0 = 1.0 / weights[0]
+        for i in range(n):
+            lag_sum = 0.0
+            upper = min(i + 1, lags + 1)
+            for k_idx in range(1, upper):
+                lag_sum += weights[k_idx] * out[i - k_idx]
+            for k_idx in range(upper, lags + 1):
+                lag_sum += weights[k_idx] * anchor
+            out[i] = (t_f[i] - lag_sum) * inv_w0
+        return out
+    backend = _lookup_frac_diff_inv_backend(1, int(t_f.size))
+    if backend == "njit_par":
+        t_batch = t_f.reshape(1, -1)
+        weights_batch = weights.reshape(1, -1)
+        anchors = np.array([anchor], dtype=np.float64)
+        return _frac_diff_inverse_kernel_njit_par_batched(t_batch, lags, weights_batch, anchors)[0]
+    return _frac_diff_inverse_kernel(t_f, lags, weights, anchor)
+
+
+def _frac_diff_inverse_compute_batched(
+    t_batch: np.ndarray, lags: int, weights_batch: np.ndarray, anchors: np.ndarray,
+) -> np.ndarray:
+    """Batched public API: K independent frac-diff-inverse specs on a (K, N) t_hat matrix. ``weights_batch`` is (K, lags+1), ``anchors`` is (K,). Bench: 3.8-5.4x over per-spec dispatch at K>=10.
+    """
+    t_batch = np.ascontiguousarray(np.asarray(t_batch, dtype=np.float64))
+    if t_batch.ndim == 1:
+        t_batch = t_batch.reshape(1, -1)
+    K, N = t_batch.shape
+    weights_batch = np.ascontiguousarray(np.asarray(weights_batch, dtype=np.float64))
+    if weights_batch.ndim == 1:
+        weights_batch = np.tile(weights_batch, (K, 1))
+    anchors_a = np.ascontiguousarray(np.asarray(anchors, dtype=np.float64).reshape(-1))
+    if anchors_a.size != K or weights_batch.shape[0] != K:
+        raise ValueError(
+            f"_frac_diff_inverse_compute_batched: anchors shape {anchors_a.shape} and weights_batch shape {weights_batch.shape} must each have K={K} rows"
+        )
+    if not _HAS_NUMBA:
+        out = np.empty((K, N), dtype=np.float64)
+        for s in range(K):
+            anchor = float(anchors_a[s])
+            inv_w0 = 1.0 / float(weights_batch[s, 0])
+            for i in range(N):
+                lag_sum = 0.0
+                upper = min(i + 1, lags + 1)
+                for k_idx in range(1, upper):
+                    lag_sum += float(weights_batch[s, k_idx]) * float(out[s, i - k_idx])
+                for k_idx in range(upper, lags + 1):
+                    lag_sum += float(weights_batch[s, k_idx]) * anchor
+                out[s, i] = (float(t_batch[s, i]) - lag_sum) * inv_w0
+        return out
+    backend = _lookup_frac_diff_inv_backend(K, N)
+    if backend == "njit_par":
+        return _frac_diff_inverse_kernel_njit_par_batched(t_batch, lags, weights_batch, anchors_a)
+    out = np.empty((K, N), dtype=np.float64)
+    for s in range(K):
+        out[s] = _frac_diff_inverse_kernel(
+            np.ascontiguousarray(t_batch[s]), lags,
+            np.ascontiguousarray(weights_batch[s]),
+            float(anchors_a[s]),
+        )
     return out
 def _ewma_residual_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
@@ -563,18 +801,34 @@ def _ewma_residual_domain(
 def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
     """Centred rolling median with truncation at boundaries.
 
-    Vectorised via ``pandas.Series.rolling(k, center=True, min_periods=1).median()`` (~80x over pure
-    Python on n=1M, k=7). Non-finite values are skipped by pandas' rolling-median (matches our
-    pre-vectorisation contract: "if window has any finite value, take median of finite values"). When
-    the window contains only non-finite values pandas returns NaN, which we replace with the row's own
-    value (or 0.0 if that's also non-finite) to match the legacy fallback.
+    Dispatcher: prefers ``bottleneck.move_median`` (forward-window with O(n log k) per-window quickselect; measured ~8-10x faster than pandas rolling at
+    k in [7, 21] on n=100k) and shifts the result to centre the window. Falls back to pandas ``rolling(center=True, min_periods=1).median()`` when
+    bottleneck is unavailable (matches the legacy 80x-over-pure-Python contract). Both paths return finite values in boundary positions where the
+    window has any finite cell, NaN only when the window is entirely non-finite -- which we then replace with the row's own value (or 0.0 if also
+    non-finite) to match the legacy fallback.
     """
-    import pandas as pd  # lazy
     arr_f = np.asarray(arr, dtype=np.float64).reshape(-1)
     if arr_f.size == 0:
         return arr_f.copy()
+    n = arr_f.size
     k = max(1, int(k))
-    out = pd.Series(arr_f).rolling(window=k, center=True, min_periods=1).median().to_numpy()
+    try:
+        import bottleneck as _bn  # lazy; optional dep but present in mlframe[all]
+        # ``move_median`` is forward-looking: position i holds the median of arr[i-k+1..i] (with min_count handling). Centring means position i should
+        # carry the median of arr[i-k//2..i+k//2]; achieved by shifting the forward result LEFT by ``k//2``. Tail rows whose centred window would have
+        # extended past the array end keep the last full-window median (boundary fallback consistent with min_periods=1 semantics).
+        _fwd = _bn.move_median(arr_f, window=k, min_count=1)
+        _shift = k // 2
+        if _shift == 0:
+            out = _fwd
+        else:
+            out = np.empty(n, dtype=np.float64)
+            out[: n - _shift] = _fwd[_shift:]
+            _tail_fill = _fwd[-1] if n > 0 and np.isfinite(_fwd[-1]) else (arr_f[-1] if n > 0 else 0.0)
+            out[n - _shift:] = _tail_fill
+    except ImportError:
+        import pandas as pd  # lazy fallback
+        out = pd.Series(arr_f).rolling(window=k, center=True, min_periods=1).median().to_numpy()
     bad = ~np.isfinite(out)
     if bad.any():
         fallback = np.where(np.isfinite(arr_f), arr_f, 0.0)
@@ -624,26 +878,13 @@ def _frac_diff_inverse(
 ) -> np.ndarray:
     """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction. Past y values are unknown at predict, so we ITERATIVELY reconstruct them: y_0 from T_0 + lag-anchors, y_1 from T_1 + y_0 + lag-anchors, etc.
 
-    Numba kernel when available (~260x over pure Python on n=1M, lags=30); pure-Python fallback otherwise.
+    Routes through :func:`_frac_diff_inverse_compute` -> :func:`_frac_diff_inverse_dispatch` so kernel_tuning_cache + env-var force-override choose the backend; default keeps the scalar njit kernel (~260x over pure Python on n=1M, lags=30).
     """
     lags = int(params["lags"])
     weights = np.ascontiguousarray(np.asarray(params["weights"], dtype=np.float64))
     anchor = float(params["anchor"])
     t_f = np.ascontiguousarray(np.asarray(t_hat, dtype=np.float64).reshape(-1))
-    if _HAS_NUMBA:
-        return _frac_diff_inverse_kernel(t_f, lags, weights, anchor)
-    n = t_f.size
-    out = np.empty(n, dtype=np.float64)
-    inv_w0 = 1.0 / weights[0]
-    for i in range(n):
-        lag_sum = 0.0
-        upper = min(i + 1, lags + 1)
-        for k_idx in range(1, upper):
-            lag_sum += weights[k_idx] * out[i - k_idx]
-        for k_idx in range(upper, lags + 1):
-            lag_sum += weights[k_idx] * anchor
-        out[i] = (t_f[i] - lag_sum) * inv_w0
-    return out
+    return _frac_diff_inverse_compute(t_f, lags, weights, anchor)
 def _frac_diff_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:

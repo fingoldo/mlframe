@@ -565,6 +565,14 @@ def train_mlframe_models_suite(
             logger.info("Computing trainset_features_stats on Polars...")
         with phase("trainset_features_stats", backend="polars"):
             trainset_features_stats = get_trainset_features_stats_polars(train_df)
+    elif isinstance(train_df_polars_pre, pl.DataFrame):
+        # Polars fastpath fallback: when the live ``train_df`` has been pandas-converted upstream (a non-native preprocessor forced the conversion) but
+        # the pre-conversion polars original is still pinned, prefer the polars backend. The pandas ``get_trainset_features_stats`` iterates cat columns
+        # in pure Python (one ``.unique()`` collect per col) while the polars backend batches them via a single ``.collect()`` with ``implode()``.
+        if verbose:
+            logger.info("Computing trainset_features_stats on Polars (using train_df_polars_pre; live train_df is pandas)...")
+        with phase("trainset_features_stats", backend="polars"):
+            trainset_features_stats = get_trainset_features_stats_polars(train_df_polars_pre)
     else:
         if verbose:
             logger.info("Computing trainset_features_stats on pandas...")
