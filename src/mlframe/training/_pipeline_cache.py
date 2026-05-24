@@ -15,6 +15,7 @@ What lives here:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from collections import OrderedDict
@@ -182,6 +183,41 @@ def _content_fingerprint_for_cache(arr) -> tuple:
         return _fresh_uncachable()
 
 
+def _full_target_content_hash(arr) -> str:
+    """Full blake2b content hash of a 1-D / 2-D target-like array.
+
+    The 4-cell (pandas Series / polars Series) and 10-cell (numpy) point-samples in
+    ``_content_fingerprint_for_cache`` collide on two distinct targets whose sampled cells coincide -
+    common for balanced-binary and collapsed-multilabel targets where many rows share identical class labels at the
+    boundary positions. The per-target pre_pipeline loop then silently reuses the prior target's fit-transform output.
+
+    This helper folds the FULL content (shape + dtype + every cell byte) into a deterministic 128-bit digest so the
+    cache key separates such pairs. Mirrors ``_full_y_content_hash`` in ``feature_selection/filters/_mrmr_fingerprints.py``
+    (cost ~5us per 100k cells; well under any cache benefit). Returns an empty string on conversion failure so the
+    caller can decide to skip the cache rather than serve a wrong-content hit.
+    """
+    if arr is None:
+        return ""
+    try:
+        if isinstance(arr, np.ndarray):
+            np_arr = arr
+        elif hasattr(arr, "to_numpy"):
+            np_arr = arr.to_numpy()
+        elif hasattr(arr, "values"):
+            np_arr = arr.values
+        else:
+            np_arr = np.asarray(arr)
+        if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
+            return ""
+        buf = np.ascontiguousarray(np_arr).tobytes()
+        h = hashlib.blake2b(buf, digest_size=16)
+        h.update(str(np_arr.shape).encode())
+        h.update(str(np_arr.dtype).encode())
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
 def _pipeline_signature_for_cache(pipeline) -> str:
     """Stable signature for the pipeline structure + per-step shallow params.
 
@@ -213,25 +249,19 @@ def _pipeline_signature_for_cache(pipeline) -> str:
 def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, target_name=None, sample_weight=None):
     """Compose a CONTENT-based cache key.
 
-    id()-keying was unsafe on two axes: GC-recycled ids can collide and
-    the per-target loop re-uses ``filtered_train_df`` (same id) across
-    different targets - the second target would otherwise see the first
-    target's fit-transform output. Including the target fingerprint AND
-    the target name guarantees per-target isolation.
+    id()-keying was unsafe on two axes: GC-recycled ids can collide and the per-target loop re-uses ``filtered_train_df``
+    (same id) across different targets - the second target would otherwise see the first target's fit-transform output.
+    Including the target fingerprint AND the target name guarantees per-target isolation.
 
-    The target-fingerprint AND target-name are deliberately BOTH folded for
-    defence-in-depth, NOT because both are required for correctness. Either
-    alone is sufficient: the content fingerprint detects any cell-level
-    divergence and the name detects name-only swaps where two targets happen
-    to share content. Keeping both means a future refactor that drops one
-    does not silently re-enable cross-target contamination. Do NOT refactor
-    to a single dimension assuming the other is redundant.
+    Target separation requires BOTH the full-content blake2b hash (``_full_target_content_hash``) AND the cell-sample
+    fingerprint. The full hash is the load-bearing discriminator: the 4-cell point-sample alone collides on balanced-binary
+    or collapsed-multilabel targets that share boundary cells. The target-name is still folded as cheap defence-in-depth
+    against name-only swaps where two targets coincidentally share content. Do NOT drop the full content hash assuming
+    the point-sample or name alone is sufficient.
 
-    ``sample_weight`` is folded only when the inner selector is marked
-    weight-aware (``_mlframe_use_sample_weights_in_fs_``); otherwise FS is
-    weight-invariant and the cache stays valid across weight schemas.
-    Weight fingerprinting uses the cheap 10-cell sampler shared with other
-    content-based keys so the cost is O(1) regardless of n_rows.
+    ``sample_weight`` is folded only when the inner selector is marked weight-aware (``_mlframe_use_sample_weights_in_fs_``);
+    otherwise FS is weight-invariant and the cache stays valid across weight schemas. Weight fingerprinting uses the cheap
+    10-cell sampler shared with other content-based keys so the cost is O(1) regardless of n_rows.
     """
     sig = _pipeline_signature_for_cache(pipeline)
     _wants_sw = False
@@ -252,6 +282,7 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
         _content_fingerprint_for_cache(train_df),
         _content_fingerprint_for_cache(val_df),
         _content_fingerprint_for_cache(train_target),
+        _full_target_content_hash(train_target),
         str(target_name) if target_name is not None else "",
         sig,
         _sw_fp,
