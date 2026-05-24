@@ -73,7 +73,12 @@ def test_phase_helpers_enum_cast_logs_oov_delta_on_test() -> None:
 def test_phase_polars_fixes_test_cast_logs_oov_delta() -> None:
     src = _read("training/core/_phase_polars_fixes.py")
     assert "[cat-alignment] test col=%s: %d row(s) cast-failed to null" in src
-    assert "_test_null_pre = int(test_df_polars[col].null_count())" in src
+    # The null-count baseline is now batched into one collect across all eligible cols (S44)
+    # instead of a per-col sync call inside the alignment loop. The diagnostic semantics are
+    # preserved: a pre-cast null_count is captured per col and compared against the post-cast
+    # null_count to emit the OOV log line.
+    assert "_test_nulls_pre" in src
+    assert "null_count()" in src
 
 
 def test_strategies_xgb_cat_cast_logs_oov_delta() -> None:
