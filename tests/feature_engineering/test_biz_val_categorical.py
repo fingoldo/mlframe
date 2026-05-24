@@ -117,9 +117,12 @@ def test_biz_val_categorical_compute_countaggs_singleton_series_smoke():
 
 
 def test_biz_val_categorical_compute_countaggs_top_n_zero_smoke():
-    """``counts_top_n=0`` must complete cleanly (no top-N features
-    included). Catches regression in the zero-branch."""
-    from mlframe.feature_engineering.categorical import compute_countaggs
+    """``counts_top_n=0`` must complete cleanly (no top-N features included). Catches regression in the zero-branch.
+
+    The corresponding ``get_countaggs_names()`` invocation must yield zero entries with top-N suffix conventions
+    (`_top_value_*` / `_top_count_*`) when top-N is disabled. A bare ``out is not None`` check would pass even if
+    the function silently emitted top-N positions in the value list despite the disable flags."""
+    from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
     arr = _make_cat_series(n=200, n_unique=5)
     out = compute_countaggs(
         arr, counts_top_n=0,
@@ -127,6 +130,19 @@ def test_biz_val_categorical_compute_countaggs_top_n_zero_smoke():
         counts_return_top_values=False,
     )
     assert out is not None
+    assert len(out) > 0
+    names = get_countaggs_names(
+        counts_top_n=0,
+        counts_return_top_counts=False,
+        counts_return_top_values=False,
+    )
+    assert len(names) == len(out), (
+        f"name list length ({len(names)}) must match value list length ({len(out)}); disabled top-N flags can't "
+        "silently leak top-N positions into the value tuple"
+    )
+    assert not any(("top_value_" in nm) or ("top_count_" in nm) or ("top_n_" in nm) for nm in names), (
+        f"counts_top_n=0 + disabled returns must yield no top-N feature names; got names={names[:20]}"
+    )
 
 
 def test_biz_val_categorical_get_countaggs_names_no_duplicates():

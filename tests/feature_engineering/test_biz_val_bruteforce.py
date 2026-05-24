@@ -61,9 +61,23 @@ pytestmark = [
 ]
 
 
+def _equation_strings(model) -> list[str]:
+    """Extract equation expression strings from a PySR result regardless of pandas vs dict layout."""
+    eqs = model.equations_
+    assert eqs is not None, "PySR must populate .equations_ after fit"
+    if hasattr(eqs, "columns"):
+        # PySRRegressor returns a pandas DataFrame with an "equation" column.
+        if "equation" in eqs.columns:
+            return [str(s) for s in eqs["equation"].tolist()]
+        if "sympy_format" in eqs.columns:
+            return [str(s) for s in eqs["sympy_format"].tolist()]
+        return [str(s) for s in eqs.iloc[:, 0].tolist()]
+    return [str(s) for s in list(eqs)]
+
+
 def test_biz_val_bruteforce_pysr_runs_and_returns_equations():
-    """Minimal PySR fit must produce a non-None ``.equations_``
-    DataFrame after training."""
+    """Minimal PySR fit must return at least one equation that mentions an input variable -- a bare ``is not None``
+    check passes even when PySR emits an empty / all-constant equation set."""
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     df = _make_synth(n=80, seed=42)
     model = run_pysr_feature_engineering(
@@ -71,11 +85,15 @@ def test_biz_val_bruteforce_pysr_runs_and_returns_equations():
         encode_categoricals=False, verbose=0,
         pysr_params_override=_MINI_PYSR,
     )
-    assert model.equations_ is not None, "PySR must populate .equations_ after fit"
+    eq_strs = _equation_strings(model)
+    assert len(eq_strs) >= 1, "PySR must return at least one equation"
+    assert any(("x0" in s) or ("x1" in s) or ("x2" in s) for s in eq_strs), (
+        f"none of the returned equations reference any input variable: {eq_strs}"
+    )
 
 
 def test_biz_val_bruteforce_pysr_accepts_polars():
-    """PySR via bruteforce must accept polars DataFrames."""
+    """PySR via bruteforce must accept polars DataFrames AND return behavioural equations (variable-referencing)."""
     import polars as pl
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     df = _make_synth(n=60, seed=42)
@@ -84,11 +102,15 @@ def test_biz_val_bruteforce_pysr_accepts_polars():
         encode_categoricals=False, verbose=0,
         pysr_params_override=_MINI_PYSR,
     )
-    assert model.equations_ is not None
+    eq_strs = _equation_strings(model)
+    assert len(eq_strs) >= 1
+    assert any(("x0" in s) or ("x1" in s) or ("x2" in s) for s in eq_strs), (
+        f"polars input must yield variable-referencing equations; got {eq_strs}"
+    )
 
 
 def test_biz_val_bruteforce_pysr_drop_columns_excludes_feature():
-    """``drop_columns=['x2']`` must exclude the noise column."""
+    """``drop_columns=['x2']`` must exclude the dropped column from every returned equation."""
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     df = _make_synth(n=60, seed=42)
     model = run_pysr_feature_engineering(
@@ -96,11 +118,16 @@ def test_biz_val_bruteforce_pysr_drop_columns_excludes_feature():
         sample_size=60, encode_categoricals=False, verbose=0,
         pysr_params_override=_MINI_PYSR,
     )
-    assert model.equations_ is not None
+    eq_strs = _equation_strings(model)
+    assert len(eq_strs) >= 1
+    assert not any("x2" in s for s in eq_strs), (
+        f"drop_columns=['x2'] must prevent x2 from appearing in any equation; got {eq_strs}"
+    )
 
 
 def test_biz_val_bruteforce_pysr_reserved_names_smoke():
-    """Default ``reserved_names=['im']`` renames conflicting columns."""
+    """Default ``reserved_names=['im']`` renames the conflicting input column so equations reference the renamed
+    sanitised symbol, not the raw ``im`` token (which collides with PySR's complex unit)."""
     from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
     df = _make_synth(n=50, seed=42)
     df["im"] = np.random.default_rng(0).normal(size=50)
@@ -109,4 +136,10 @@ def test_biz_val_bruteforce_pysr_reserved_names_smoke():
         encode_categoricals=False, verbose=0,
         pysr_params_override=_MINI_PYSR,
     )
-    assert model.equations_ is not None
+    eq_strs = _equation_strings(model)
+    assert len(eq_strs) >= 1
+    # The renamed column must NOT appear under its raw reserved name as a free symbol; if PySR consumed ``im`` it
+    # would have either raised (collision with imaginary unit) or returned no input-referencing equation.
+    assert any(("x0" in s) or ("x1" in s) or ("reserved_im" in s) for s in eq_strs), (
+        f"renamed reserved column should be discoverable in equations; got {eq_strs}"
+    )

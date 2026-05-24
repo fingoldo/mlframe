@@ -152,4 +152,8 @@ def test_predict_from_models_non_native_falls_back_to_pandas():
     )
     assert results["models_used"]
     # Predictions still produced -- the fallback path materialises the polars view as needed.
-    assert results["ensemble_predictions"] is not None
+    preds = results["ensemble_predictions"]
+    assert preds is not None
+    arr = np.asarray(preds)
+    assert arr.shape[0] == df.height, f"prediction length {arr.shape[0]} != input rows {df.height}"
+    assert np.all(np.isfinite(arr)), "non-native fallback emitted NaN/inf predictions"
