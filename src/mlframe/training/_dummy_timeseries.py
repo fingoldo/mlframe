@@ -60,7 +60,15 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
                 _dti = pd.to_datetime(ts, utc=True, errors="coerce")
                 if getattr(_dti, "tz", None) is not None:
                     _dti = _dti.tz_convert(None)
-                ts = _dti.to_numpy().view("int64")
+                # Pin the datetime64 unit to ns BEFORE .view("int64"). pandas
+                # 2.x can surface DatetimeIndex.to_numpy() at us / s units on
+                # some inputs (e.g. fresh-build pandas / arrow combos) and
+                # .view("int64") reads bytes as ints whose MEANING depends on
+                # the underlying unit. Downstream callers (and the test
+                # ::test_object_array_of_pd_timestamps_still_parsed) expect
+                # ns-since-epoch; a unit mismatch silently rounds the data
+                # into the 1970-epoch garbage band.
+                ts = _dti.to_numpy(dtype="datetime64[ns]").view("int64")
         # Else assume already numeric (epoch ints, floats).
         return ts
     except (TypeError, ValueError, AttributeError, pd.errors.OutOfBoundsDatetime) as _exc:

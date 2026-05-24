@@ -114,7 +114,14 @@ def test_auto_detect_mutation_immune_to_train_df_mutation():
     )
 
     # Numpy-array in-place poke (escapes block-manager refcount) + wholesale column dtype swap.
-    train_df["numeric_a"].values[:] = -1.0
+    # pandas 2.x ArrayManager / arrow-backed paths can return a read-only
+    # view from .values; force a writable view by going through .to_numpy().
+    _arr = train_df["numeric_a"].to_numpy()
+    if not _arr.flags.writeable:
+        _arr = np.array(_arr, copy=True)
+        train_df["numeric_a"] = _arr
+        _arr = train_df["numeric_a"].to_numpy()
+    _arr[:] = -1.0
     train_df["skills_text"] = train_df["skills_text"].astype("category").cat.codes
 
     text_post, _, _ = _auto_detect_feature_types(

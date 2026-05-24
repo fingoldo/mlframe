@@ -107,6 +107,13 @@ def coerce_timestamps_for_audit(
     arr = np.asarray(arr) if not isinstance(arr, np.ndarray) else arr
 
     if np.issubdtype(arr.dtype, np.datetime64):
+        # Force datetime64[ns] resolution per the docstring contract.
+        # pandas 2.x / numpy 2.x may surface DatetimeIndex.to_numpy() at
+        # us / s units, and the downstream audit kernels view-cast bytes
+        # to int64 expecting ns. Returning the input unit silently shifts
+        # the time-axis by 1000x and lands every row in the 1970 epoch.
+        if arr.dtype != np.dtype("datetime64[ns]"):
+            arr = arr.astype("datetime64[ns]")
         return arr
     if not (np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.floating)):
         # Object / string / pd.Timestamp etc. -- let pandas figure it out (string parsing path).

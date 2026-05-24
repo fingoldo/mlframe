@@ -945,6 +945,13 @@ def analyze_feature_distribution(
         # doesn't poison every correlation in its row/column. We're not
         # imputing the data downstream, just computing redundancy.
         sub = df[candidate_numeric].to_numpy(dtype=np.float64, na_value=np.nan)
+        # pandas / polars `.to_numpy()` may return a zero-copy view into the
+        # underlying ArrowExtensionArray buffer, which is read-only on
+        # pyarrow >=18. The in-place NaN fill below would crash with
+        # ``ValueError: assignment destination is read-only`` on those
+        # versions; force a writable copy when the view is not writable.
+        if not sub.flags.writeable:
+            sub = np.array(sub, copy=True)
         col_means = np.nanmean(sub, axis=0)
         # Vectorised mean fill -- np.take_along_axis would be overkill here.
         for j in range(sub.shape[1]):

@@ -53,7 +53,15 @@ def test_metadata_dict_snapshot_immune_to_numpy_inplace_mutation():
     pre_score_first = float(train_df["score"].iloc[0])
 
     # In-place numpy poke that escapes the shallow-copy block-manager refcount.
-    train_df["score"].values[0] = -9999.0
+    # pandas 2.x can hand back a read-only view from .values when the
+    # column is arrow-backed; ensure the underlying buffer is writable
+    # before the mutation so the test setup itself doesn't crash.
+    _arr = train_df["score"].to_numpy()
+    if not _arr.flags.writeable:
+        _arr = np.array(_arr, copy=True)
+        train_df["score"] = _arr
+        _arr = train_df["score"].to_numpy()
+    _arr[0] = -9999.0
     # Replace the object-dtype column wholesale to also confirm dtype-swap escape.
     train_df["skills_text"] = train_df["skills_text"].astype("category").cat.codes
 

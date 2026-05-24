@@ -40,9 +40,16 @@ def _build_models_params() -> dict:
 class TestPackHRealBackends:
     """Pack H integration test against the real CB / LGB / XGB classes."""
 
-    def test_heavy_tail_target_switches_all_three_to_l1(
+    def test_heavy_tail_target_switches_all_three_to_huber(
         self, heavy_tail_target: np.ndarray,
     ) -> None:
+        """2026-05-23 round-5 policy: kurt > 1.5 routes ALL three backends
+        to Huber, not MAE / L1. Pure L1 was triggering the "MAE-gradient-
+        is-noise" pathology on production TVT residuals (kurt=6.37 ->
+        CB es_best_iter=1, LGB es_best_iter=5). Huber's bounded-influence
+        loss retains a useful gradient on small residuals AND attenuates
+        outlier influence; pure L1 is reserved for explicit
+        ``target_quantile=0.5`` opt-in."""
         from mlframe.training.core._phase_train_one_target import (
             _apply_loss_recommendation_in_place,
         )
@@ -60,9 +67,9 @@ class TestPackHRealBackends:
         cb_loss = models_params["cb"]["model"].get_params().get("loss_function")
         lgb_obj = models_params["lgb"]["model"].get_params().get("objective")
         xgb_obj = models_params["xgb"]["model"].get_params().get("objective")
-        assert cb_loss == "MAE", f"cb loss_function expected MAE, got {cb_loss!r}"
-        assert lgb_obj == "regression_l1", f"lgb objective expected regression_l1, got {lgb_obj!r}"
-        assert xgb_obj == "reg:absoluteerror", f"xgb objective expected reg:absoluteerror, got {xgb_obj!r}"
+        assert cb_loss == "Huber:delta=1.345", f"cb loss_function expected Huber:delta=1.345, got {cb_loss!r}"
+        assert lgb_obj == "huber", f"lgb objective expected huber, got {lgb_obj!r}"
+        assert xgb_obj == "reg:pseudohubererror", f"xgb objective expected reg:pseudohubererror, got {xgb_obj!r}"
 
     def test_after_switch_backends_actually_fit_and_predict(
         self, heavy_tail_target: np.ndarray,

@@ -43,6 +43,15 @@ _TRAINER_EXTRA_ALIASES: dict[str, str] = {
     "gru": "ditto for GRU",
     "rnn": "ditto for vanilla RNN",
     "transformer": "ditto for transformer recurrent variant",
+    # Canonical long-form aliases for the short tree-strategy keys.
+    # 2026-05-24: get_strategy('CATBOOST') was previously falling through
+    # to the unknown-model UserWarning + TreeStrategy fallback. Adding
+    # the long-form aliases removes the warning and routes correctly.
+    "catboost": "long-form alias for 'cb' (CatBoost strategy)",
+    "lightgbm": "long-form alias for 'lgb' (LightGBM tree strategy)",
+    "xgboost": "long-form alias for 'xgb' (XGBoost strategy)",
+    "histgradientboosting": "long-form alias for 'hgb' (sklearn HistGradientBoosting)",
+    "lr": "common shorthand for 'linear' (logistic / ridge linear strategy); previously silently fell through to TreeStrategy + UserWarning",
 }
 
 
