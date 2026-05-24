@@ -155,7 +155,8 @@ def _resolve_cv_and_val_cv(
                 "Pass an explicit val_cv-compatible splitter to silence this.",
                 type(cv).__name__, early_stopping_val_nsplits,
             )
-            val_cv = copy.copy(cv)
+            # ``copy.copy`` is shallow and shares internal state with the original; mutating ``n_splits`` afterwards silently corrupts the caller's splitter reference. ``deepcopy`` is micro-cost on a splitter (a few floats / ints / a random state) and isolates this branch from the caller's object identity.
+            val_cv = copy.deepcopy(cv)
             val_cv.n_splits = early_stopping_val_nsplits
         if not early_stopping_rounds:
             early_stopping_rounds = 20

@@ -78,6 +78,14 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             raise ValueError(f"RFECV.fit sample_weight must be 1-D, got shape {self._fit_sample_weight_.shape}")
         if self._fit_sample_weight_.shape[0] != _n_rows_for_sw:
             raise ValueError(f"RFECV.fit sample_weight length {self._fit_sample_weight_.shape[0]} != n_rows {_n_rows_for_sw}")
+        # Also enforce the y-length invariant. When the caller derives y independently from X (multi-column y coerced row-by-row, polars+pandas mix at the suite boundary), the X-row check above misses the mismatch and sklearn raises an opaque IndexError deep in the per-fold slice.
+        if y is not None:
+            try:
+                _n_y = int(y.shape[0]) if hasattr(y, "shape") else len(y)
+                if self._fit_sample_weight_.shape[0] != _n_y:
+                    raise ValueError(f"RFECV.fit sample_weight length {self._fit_sample_weight_.shape[0]} != len(y) {_n_y}")
+            except TypeError:
+                pass
         if not np.all(np.isfinite(self._fit_sample_weight_)) or (self._fit_sample_weight_ < 0).any():
             raise ValueError("RFECV.fit sample_weight must be finite and non-negative")
 
@@ -99,6 +107,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         except Exception:
             pass
         try:
+            # ``self_destruct=True`` releases the polars buffers in-place. The suite is currently safe because ``_apply_pre_pipeline_transforms`` works on cloned per-target subsets, but a future caller that passes a shared polars frame would silently lose its data. We keep ``self_destruct=True`` for the peak-RAM win on 100+ GB frames but document the precondition: callers MUST own X (no shared references). The bare ``to_pandas()`` TypeError fallback handles older polars without these kwargs.
             X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
         except TypeError:
             X = X.to_pandas()
@@ -158,32 +167,36 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
 
     # X-side input checks. Run after y validation so common operator mistakes surface clearly at fit entry.
     if isinstance(X, pd.DataFrame):
-        # Estimator behaviour on Inf is undefined - LR crashes, CB silently treats as huge.
-        try:
-            _num = X.select_dtypes(include="number")
-            if _num.size > 0:
-                _inf_mask = np.isinf(_num.to_numpy())
-                if _inf_mask.any():
-                    _inf_cols = _num.columns[_inf_mask.any(axis=0)].tolist()
-                    raise ValueError(
-                        f"X contains +/-Inf values in column(s) {_inf_cols[:10]}. "
-                        f"Estimator behaviour on Inf is undefined. Drop or "
-                        f"clip these values before fit()."
-                    )
-        except (TypeError, ValueError) as exc:
-            if "+/-Inf" in str(exc):
-                raise
+        # Estimator behaviour on Inf is undefined - LR crashes, CB silently treats as huge. Stream column-by-column instead of materialising the full numeric block: ``X.select_dtypes(...).to_numpy()`` doubles peak RAM on a 100+ GB frame even before checking finiteness.
+        _inf_cols: list = []
+        for _c in X.columns:
+            try:
+                _col = X[_c]
+                if _col.dtype.kind not in "biufc":
+                    continue
+                if np.isinf(_col.to_numpy()).any():
+                    _inf_cols.append(_c)
+                    if len(_inf_cols) >= 10:
+                        break
+            except (TypeError, ValueError):
+                continue
+        if _inf_cols:
+            raise ValueError(
+                f"X contains +/-Inf values in column(s) {_inf_cols[:10]}. "
+                f"Estimator behaviour on Inf is undefined. Drop or "
+                f"clip these values before fit()."
+            )
 
         # Tree-based estimators handle NaN; linear models don't.
         if getattr(self, "verbose", 0):
-            _nan_count = int(X.isna().to_numpy().sum())
-            if _nan_count > 0:
+            # Existence-only check, lazy short-circuits at the first NaN cell instead of materialising the full bool-frame ``X.isna().to_numpy().sum()`` (OOMs on 100+ GB frames just to compute the warn-once count).
+            if bool(X.isna().any().any()):
                 logger.warning(
-                    "RFECV: X has %d NaN cells. Tree-based estimators "
+                    "RFECV: X has NaN cells. Tree-based estimators "
                     "(RF/CB/XGB/HGBM) handle NaN; linear models (LR, "
                     "Ridge, Lasso) do NOT and will crash on .fit(). "
                     "Pre-impute via SimpleImputer / KNNImputer if using "
-                    "linear estimators.", _nan_count,
+                    "linear estimators."
                 )
 
         _obj_cols = X.select_dtypes(include=["object", "string", "category"]).columns.tolist()
@@ -201,6 +214,17 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
 
     # n_samples < 2 * cv breaks every k-fold split.
     cv_n = self.cv if isinstance(self.cv, int) else getattr(self.cv, "n_splits", 3)
+    # GroupKFold / StratifiedGroupKFold split on the GROUP axis, not rows. ``X.shape[0] < 2 * cv_n`` slips past for a 30k-row frame with 3 groups + ``cv=GroupKFold(5)`` and then sklearn raises an opaque "Cannot have number of splits > number of groups" deep in the splitter. Check n_unique_groups against the floor explicitly when groups are provided.
+    if groups is not None:
+        _n_groups_for_floor: int | None = None
+        try:
+            _n_groups_for_floor = int(len(np.unique(np.asarray(groups))))
+        except (TypeError, ValueError):
+            _n_groups_for_floor = None
+        if _n_groups_for_floor is not None and _n_groups_for_floor < 2 * cv_n:
+            raise ValueError(
+                f"n_groups={_n_groups_for_floor} < 2 * cv ({cv_n}); group-aware splitter would fail. Reduce cv or merge groups."
+            )
     if X.shape[0] < 2 * cv_n:
         raise ValueError(
             f"n_samples={X.shape[0]} < 2 * cv ({cv_n}); each fold would "
@@ -229,16 +253,13 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             ",".join(map(str, np.asarray(y).ravel().tolist())).encode("utf-8"),
             digest_size=16,
         ).hexdigest()
-    # X-content sample (10 evenly-spaced rows, all columns) so two RUNS on
-    # different X with identical shape + column names cannot collide on the
-    # checkpoint signature. Cost is O(n_cols * 10) value reads -- negligible
-    # vs a single RFECV iteration. Without this, a user reusing a checkpoint
-    # across experiments with same schema gets silent stale resume.
+    # X-content sample (1024 evenly-spaced rows, all columns) so two RUNS on different X with identical shape + column names cannot collide on the checkpoint signature. Cost is O(n_cols * 1024) reads - still O(1) in n_rows and negligible vs a single RFECV iteration. The previous 10-sample stride collided on heavily-reshuffled X whose first/middle/last rows incidentally matched (e.g. after stratified rebalance preserving boundaries) and replayed support_ from the prior order. 1024 strided positions make this astronomically unlikely while staying well under the cost of a single iter.
     try:
         _n = int(X.shape[0])
         if _n > 0:
-            _step = max(1, _n // 10)
-            _positions = [i * _step for i in range(10) if i * _step < _n]
+            _n_x_samples = 1024
+            _step = max(1, _n // _n_x_samples)
+            _positions = [i * _step for i in range(_n_x_samples) if i * _step < _n]
             if isinstance(X, pd.DataFrame):
                 _x_sample_arr = X.iloc[_positions].to_numpy()
             else:
@@ -562,6 +583,8 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
 
             ``current_features`` and ``scores`` are passed as default args so they bind at def-time to the current outer-iter values; this is
             safe because the closure is created fresh each outer iter and consumed within that iter (sequentially or via joblib.Parallel).
+
+            Note: under ``n_jobs_effective > 1`` the per-fold ``scores.append`` calls happen from worker threads concurrently. The GIL makes ``list.append`` atomic so the result is order-INDEPENDENT for ``np.min(...)``-style aggregation, but per-fold log line ordering is best-effort. Don't rely on log order for fold attribution; emit ``nfold`` explicitly when needed.
             """
             if self.min_train_size and len(train_index) < self.min_train_size:
                 return None

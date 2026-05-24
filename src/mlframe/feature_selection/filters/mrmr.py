@@ -452,6 +452,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             # WinError 1455 (paging file too small) cascaded into MemoryError +
             # dangling joblib_memmapping_folder temp files that the resource
             # tracker could not clean up.
+            # ``max_nbytes`` is silently ignored by joblib's threading backend (it's a memmap-spill threshold for loky workers only). Kept here as a no-op for symmetry with the loky branch above; documented so a future reader doesn't misread it as a live tuning knob.
             parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES, backend="threading")
 
         # assert isinstance(estimator, (BaseEstimator,))
@@ -628,6 +629,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         argument emits a UserWarning so callers wrapping MRMR with GroupKFold know they need to
         precompute per-group MI themselves. The signature is retained for symmetry with sklearn's
         SelectorMixin.fit and to let sklearn Pipeline routing forward the kwarg without TypeError.
+
+        Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         2026-05-18 #2: cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
         if groups is not None:

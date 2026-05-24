@@ -211,8 +211,8 @@ def _mrmr_compute_y_fingerprint_sample(y, max_sample: int = 1000) -> str:
         else:
             step = max(1, n // max_sample)
             sample = arr[::step][:max_sample]
-        # Round to 6 decimals so floating-noise doesn't cause spurious cache misses.
-        payload = sample.astype(np.float64).round(6).tobytes()
+        # Bit-exact ``tobytes()`` instead of the prior 6-decimal round. Two truly-equal floats already produce identical bytes, so the rounding only papered over EQUIVALENT-but-not-identical inputs - which is the collision case we DON'T want to merge (regression targets with legitimate precision below 1e-6, e.g. log-returns, normalised labels).
+        payload = sample.astype(np.float64).tobytes()
         return hashlib.blake2b(payload, digest_size=10).hexdigest()
     except Exception:
         return f"yfp_id{id(y):x}"
@@ -381,12 +381,13 @@ def _content_array_signature(arr) -> tuple:
             return ("uncached", id(arr))
         shape = np_arr.shape
         dtype_str = str(np_arr.dtype)
-        # Sample 10 positions: 0, 11%, 22%, ..., 100%.
+        # Strided 1024-position sample. The prior 10-cell sample collided on any two frames whose ten boundary cells happened to agree (e.g. column-wise outlier clip that preserves min/median/max rows). 1024 strided positions keep the fingerprint O(1) in n_rows yet make a content-collision astronomically unlikely while remaining cheaper than a full blake2b on 100GB frames.
         flat = np_arr.ravel()
         n = flat.size
         if n == 0:
             return (shape, dtype_str, b"", col_names)
-        idx = [int(i * (n - 1) / 9) for i in range(10)] if n >= 10 else list(range(n))
+        _n_samples = 1024
+        idx = [int(i * (n - 1) / (_n_samples - 1)) for i in range(_n_samples)] if n >= _n_samples else list(range(n))
         try:
             sampled = bytes(flat[idx].tobytes())
         except Exception:

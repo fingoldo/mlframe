@@ -24,17 +24,23 @@ from mlframe.feature_selection.filters.mrmr import (
 )
 
 
-def _build_collision_targets(n: int = 200, seed: int = 0):
-    """Return (y_a, y_b) whose ``_content_array_signature`` 10-cell samples are byte-identical.
+def _sample_positions(n: int, n_samples: int = 1024) -> list[int]:
+    """Mirror ``_content_array_signature``'s 1024-sample positional stride."""
+    if n >= n_samples:
+        return [int(i * (n - 1) / (n_samples - 1)) for i in range(n_samples)]
+    return list(range(n))
 
-    The signature samples positions ``[int(i * (n-1) / 9) for i in range(10)]``. We pin those cells
-    to the same alternating 0/1 pattern in both targets, and randomise the rest differently so the
-    underlying class distributions diverge.
+
+def _build_collision_targets(n: int = 4096, seed: int = 0):
+    """Return (y_a, y_b) whose ``_content_array_signature`` strided samples are byte-identical.
+
+    The signature samples 1024 evenly-spaced positions. We pin those cells to the same alternating 0/1 pattern in both targets, and randomise the rest differently so the underlying class distributions diverge. We pick n>1024 so unsampled positions exist and remain distinct between the two targets.
     """
     rng = np.random.default_rng(seed)
-    sample_idx = [int(i * (n - 1) / 9) for i in range(10)]
+    sample_idx = _sample_positions(n)
+    n_samples = len(sample_idx)
     # Position-shared cells: alternating 0/1.
-    pinned = np.array([i % 2 for i in range(10)], dtype=np.int64)
+    pinned = np.array([i % 2 for i in range(n_samples)], dtype=np.int64)
 
     y_a = rng.integers(0, 2, size=n).astype(np.int64)
     # Different randomness for b's bulk -- distinct class distribution.
@@ -84,7 +90,7 @@ def test_mrmr_cache_does_not_collide_on_distinct_targets_with_shared_samples():
     MRMR._FIT_CACHE.clear()
     try:
         rng = np.random.default_rng(42)
-        n = 200
+        n = 4096
         # Build X with features whose informativeness for y_a vs y_b will differ.
         X = pd.DataFrame({
             "f0": rng.normal(size=n),
@@ -93,14 +99,13 @@ def test_mrmr_cache_does_not_collide_on_distinct_targets_with_shared_samples():
             "f3": rng.normal(size=n),
         })
         y_a_arr, y_b_arr = _build_collision_targets(n=n, seed=0)
-        # Make y_a strongly correlated with f0, y_b strongly correlated with f2 -- different bulk content
-        # AND different supports while still preserving the 10-cell sample collision.
-        sample_idx = [int(i * (n - 1) / 9) for i in range(10)]
+        # Make y_a strongly correlated with f0, y_b strongly correlated with f2 -- different bulk content AND different supports while still preserving the strided-sample collision.
+        sample_idx = _sample_positions(n)
         mask = np.ones(n, dtype=bool)
         mask[sample_idx] = False
         y_a_arr[mask] = (X["f0"].to_numpy()[mask] > 0).astype(np.int64)
         y_b_arr[mask] = (X["f2"].to_numpy()[mask] > 0).astype(np.int64)
-        # Sanity re-check after rebinding bulk: 10-cell sample still matches.
+        # Sanity re-check after rebinding bulk: strided sample still matches.
         assert (
             _content_array_signature(pd.Series(y_a_arr))
             == _content_array_signature(pd.Series(y_b_arr))

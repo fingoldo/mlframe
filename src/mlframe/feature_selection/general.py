@@ -34,17 +34,20 @@ from mlframe.feature_selection.mi import grok_compute_mutual_information, chatgp
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def benchmark_mi_algos(base_mi_algos: list, verbose: int = 0) -> list:
+def benchmark_mi_algos(base_mi_algos: list, verbose: int = 0, seed: int = 42) -> list:
 
     target_indices = np.array([0, 10, 20], dtype=np.int64)
 
+    # Deterministic per-call RNG. ``np.random.randint`` on the global legacy RNG made benchmark-based MI-implementation selection non-deterministic across processes, breaking reproducibility tests that expect identical column selection.
+    _rng = np.random.default_rng(seed)
+
     # prewarm
-    arr = np.random.randint(0, 15, size=(10, 200), dtype=np.int8)
+    arr = _rng.integers(0, 15, size=(10, 200), dtype=np.int8)
     for func in base_mi_algos:
         _ = func(data=arr, target_indices=target_indices)
 
     # main
-    arr = np.random.randint(0, 15, size=(1_000_000, 200), dtype=np.int8)
+    arr = _rng.integers(0, 15, size=(1_000_000, 200), dtype=np.int8)
     base_mi_algos, durations = benchmark_algos_by_runtime(
         implementations=base_mi_algos, algo_name="MI", n_reps=2, verbose=verbose, data=arr, target_indices=target_indices
     )
