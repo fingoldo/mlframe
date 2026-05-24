@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import threading
 import uuid
 from collections import OrderedDict
@@ -52,10 +53,23 @@ except ImportError:  # pragma: no cover -- optional accel
 # recycled mid-suite (rare but possible after explicit ``del`` / GC inside a loop). Bounded to
 # ``_FP_CACHE_MAX`` entries (LRU); the strong-ref guarantee that makes ``id()`` safe inside a suite
 # holds here too.
-# Audit D P2-3 (2026-05-18): bumped 32 → 128 so long-running Jupyter sessions that loop several
-# suites (each ≈ 5-15 distinct (id, n_cols) frames) don't thrash. 128 entries × ~200 bytes per
-# ContentFingerprint ≈ 25 KB working set -- negligible.
-_FP_CACHE_MAX = 128
+#
+# 128 entries × ~200 bytes per ContentFingerprint ≈ 25 KB working set -- negligible. Long-running
+# Jupyter sessions that loop dozens of suites with many transient frame ids can override via
+# ``MLFRAME_FP_CACHE_MAX`` so they don't thrash; default stays 128.
+def _fp_cache_max_default() -> int:
+    _raw = os.environ.get("MLFRAME_FP_CACHE_MAX")
+    if _raw:
+        try:
+            _v = int(_raw)
+            if _v > 0:
+                return _v
+        except ValueError:
+            pass
+    return 128
+
+
+_FP_CACHE_MAX = _fp_cache_max_default()
 _fingerprint_cache: "OrderedDict[Tuple[int, int, int], ContentFingerprint]" = OrderedDict()
 # Module lock that serialises mutations of the fingerprint memo and the
 # session token. Without it, ``_fp_cache_put`` / ``_fp_cache_get`` racing
