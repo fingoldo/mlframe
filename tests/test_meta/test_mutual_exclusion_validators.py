@@ -173,7 +173,21 @@ def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
             )
 
     if audited_pairs == 0:
-        pytest.skip("no 'mutually exclusive' phrases found in config docstrings")
+        # FYI for future contributors: this meta-test scans every
+        # config class for documented "mutually exclusive" pairs and
+        # verifies each pair has an enforcing validator. Currently
+        # NO config documents such a pair so the test has nothing
+        # to gate. Leaving as a parametrized skip with this explicit
+        # note so future contributors who add a mutex contract via
+        # docstring / Field(description=...) will have the test
+        # gate it automatically; if mutex contracts never appear,
+        # the test should be deleted in a follow-up.
+        pytest.skip(
+            "TODO: no 'mutually exclusive' phrases found in any "
+            "config docstring / field description; test is currently "
+            "inert. Either add mutex docs (test will gate them) or "
+            "delete the file if the contract pattern is not used."
+        )
     if failures:
         pytest.fail(
             f"{len(failures)} mutex-claim(s) without enforcing validator:\n  "

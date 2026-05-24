@@ -252,10 +252,22 @@ def test_polynomial_not_fitted_is_notfittederror() -> None:
 
 
 def test_ranking_unknown_flavor_valueerror_behavioural() -> None:
+    """Behavioural: unknown ranker ``flavor`` must raise ValueError with
+    a useful message naming the unknown flavor. Previously skipped via
+    ``hasattr(r, "_predict_ranker_scores")`` after the helper was
+    renamed from underscored-private to public ``predict_ranker_scores``;
+    the skip silently masked the raise-site contract on every CI run.
+    """
     import numpy as np
     from mlframe.training import ranking as r
 
-    if not hasattr(r, "_predict_ranker_scores"):
-        pytest.skip("internal helper renamed/removed; raise-site test still covers it")
+    # 2026-05-24: the helper signature is now ``predict_ranker_scores
+    # (fitted: dict, X, group_ids=None)`` where ``fitted`` must carry
+    # ``{"model": ..., "flavor": str}``; the unknown-flavor raise
+    # lives at ranking.py:510. Build a minimal ``fitted`` dict so the
+    # flavor check is the only thing the function reaches.
     with pytest.raises(ValueError, match="unknown ranker flavor"):
-        r._predict_ranker_scores(model=None, X=np.zeros((2, 2)), flavor="banana")
+        r.predict_ranker_scores(
+            fitted={"model": object(), "flavor": "banana"},
+            X=np.zeros((2, 2)),
+        )
