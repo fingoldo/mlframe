@@ -106,7 +106,22 @@ class TestAutoDetectFeatureTypesRobustness:
         Hypothesis polars-dataframe strategy generation on Windows is
         observed to stall past pytest's per-test deadline on the larger
         n_rows=(100,300) variant. Marked ``slow`` + ``max_examples=3`` so
-        the test gates the invariant in CI without flaking on draw time."""
+        the test gates the invariant in CI without flaking on draw time.
+
+        Skip under pytest-xdist: the Polars / Arrow allocator races
+        with sibling-worker buffer pools and the WORKER crashes
+        (observed 2026-05-24 big machine, 'worker gw3 crashed'). The
+        auto-detect contract is gated separately by the deterministic
+        tests in test_core_helper_functions.py; this Hypothesis fuzz
+        adds fuzz-coverage that isn't worth a process crash on the
+        parallel runner.
+        """
+        import os
+        if os.environ.get("PYTEST_XDIST_WORKER"):
+            pytest.skip(
+                "Polars allocator races with sibling-worker buffer pools "
+                "on this Hypothesis fuzz; run serially with -n0 to exercise."
+            )
         cfg = FeatureTypesConfig(auto_detect_feature_types=True,
                                  cat_text_cardinality_threshold=300)
         cat_candidates = [c for c, dt in df.schema.items()
