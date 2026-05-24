@@ -45,18 +45,28 @@ class TestRecommendation:
         assert rec["xgb"] == "reg:squarederror"
         assert abs(rec["excess_kurt"]) < 0.5  # well within Gaussian tolerance
 
-    def test_laplace_picks_mae(self) -> None:
+    def test_laplace_picks_huber(self) -> None:
+        """2026-05-23 round-5 policy: kurt > 1.5 routes to Huber across the
+        whole leptokurtic range. The previous (1.5, 10] MAE band was
+        collapsed because pure L1 was triggering the "MAE-gradient-is-
+        noise" pathology (CB es_best_iter=1 / LGB es_best_iter=5) on
+        production TVT composite residuals at kurt=6.37. Huber's
+        bounded-influence loss retains a useful gradient on small
+        residuals AND attenuates outlier influence; pure L1 / MAE is
+        now reserved for the explicit ``target_quantile=0.5`` opt-in."""
         rec = recommend_boosting_regression_loss(_laplace())
-        assert rec["cb"] == "MAE"
-        assert rec["lgb"] == "regression_l1"
-        assert rec["xgb"] == "reg:absoluteerror"
+        assert rec["cb"] == "Huber:delta=1.345"
+        assert rec["lgb"] == "huber"
+        assert rec["xgb"] == "reg:pseudohubererror"
         assert rec["excess_kurt"] > 1.5
 
     def test_student_t_picks_robust(self) -> None:
-        """Student-t with df=3 has theoretical kurt -> infinity; ladder picks Huber (extreme) or MAE depending on sample."""
+        """Student-t with df=3 has theoretical kurt -> infinity; the
+        post-round-5 single-Huber-band policy picks Huber regardless of
+        whether the sample lands in the moderate or extreme region."""
         rec = recommend_boosting_regression_loss(_student_t(df=3.0))
-        assert rec["cb"] in {"MAE", "Huber:delta=1.345"}
-        assert rec["lgb"] in {"regression_l1", "huber"}
+        assert rec["cb"] == "Huber:delta=1.345"
+        assert rec["lgb"] == "huber"
         assert rec["excess_kurt"] > 1.5
 
     def test_contaminated_picks_huber(self) -> None:
@@ -84,11 +94,13 @@ class TestRecommendation:
 class TestProductionRepro:
     """Hardened against the actual production residual moments (TVT-linres-TVT_prev, 2026-05-17).
 
-    The composite-CB residual chart logged skew=-0.08 excess_kurt=+2.40 (Laplace-like). A synthetic Laplace with similar moments must trigger MAE -- otherwise the helper would NOT have flipped the loss for that real run.
+    The composite-CB residual chart logged skew=-0.08 excess_kurt=+2.40 (Laplace-like). A synthetic with similar moments must trigger the robust (Huber) loss -- otherwise the helper would NOT have flipped the loss for that real run. Round-5 collapsed the (1.5, 10] MAE band into Huber after pure L1 was found to under-converge on kurt=6.37 prod residuals.
     """
 
-    def test_kurt_around_2_4_picks_mae(self) -> None:
-        """A target with excess_kurt ~ +2.4 (between Laplace 3 and Logistic 1.2) must pick MAE (the threshold is 1.5)."""
+    def test_kurt_around_2_4_picks_huber(self) -> None:
+        """A target with excess_kurt ~ +2.4 (between Laplace 3 and
+        Logistic 1.2) must pick Huber under the post-round-5 single-Huber
+        policy (threshold is 1.5 for Huber, was 1.5 for MAE pre-round-5)."""
         rng = np.random.default_rng(20260517)
         # Mix 80% Normal + 20% scaled Normal: gives excess_kurt ~ 2-3 reliably.
         n = 8000
@@ -97,5 +109,5 @@ class TestProductionRepro:
         main[heavy_idx] *= 4.0
         rec = recommend_boosting_regression_loss(main)
         assert rec["excess_kurt"] > 1.5, f"setup failed: kurt={rec['excess_kurt']:.2f}"
-        assert rec["cb"] == "MAE"
-        assert rec["lgb"] == "regression_l1"
+        assert rec["cb"] == "Huber:delta=1.345"
+        assert rec["lgb"] == "huber"

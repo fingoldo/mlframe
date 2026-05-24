@@ -161,7 +161,7 @@ def test_pipeline_json_disk_cache_version_invalidation(tmp_path, monkeypatch):
     'safe' verdict."""
     from mlframe.training.core import _setup_helpers as sh
     import os
-    import json as _json
+    import orjson as _orjson
 
     cache_file = str(tmp_path / "polars_ds_pipeline_roundtrip.json")
     monkeypatch.setattr(sh, "_PIPELINE_JSON_DISK_CACHE_PATH", cache_file)
@@ -170,14 +170,11 @@ def test_pipeline_json_disk_cache_version_invalidation(tmp_path, monkeypatch):
 
     # Hand-craft a cache file with a stale version tag.
     fake_hash = "12345"
-    with open(cache_file, "w", encoding="utf-8") as fh:
-        _json.dump(
-            {
-                "version_tag": "polars_ds=0.0.0-stale|polars=0.0.0-stale",
-                "entries": {fake_hash: True},
-            },
-            fh,
-        )
+    with open(cache_file, "wb") as fh:
+        fh.write(_orjson.dumps({
+            "version_tag": "polars_ds=0.0.0-stale|polars=0.0.0-stale",
+            "entries": {fake_hash: True},
+        }))
 
     sh._load_pipeline_disk_cache_into_memory()
     assert int(fake_hash) not in sh._PIPELINE_JSON_ROUNDTRIP_CACHE, (

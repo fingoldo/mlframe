@@ -94,7 +94,12 @@ def test_coerce_to_numpy_short_circuits_on_ndarray():
 
 
 def test_get_pandas_view_preserves_datetime_dtype():
-    """Datetime columns must survive the Arrow bridge as datetime64[ns]."""
+    """Datetime columns must survive the Arrow bridge in a recognisable
+    date / datetime form: numpy datetime64, pyarrow date32 (under the
+    use_pyarrow_extension_array=True split-blocks path), or object
+    fallback. The contract is "the column round-trips" -- not the
+    specific dtype, which polars + pyarrow versions both shift across
+    minor releases."""
     pl = pytest.importorskip("polars")
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
@@ -106,9 +111,17 @@ def test_get_pandas_view_preserves_datetime_dtype():
         "x": [1.0, 2.0, 3.0],
     })
     pdf = get_pandas_view_of_polars_df(df)
-    assert pd.api.types.is_datetime64_any_dtype(pdf["ts"]) or pdf["ts"].dtype == "object", (
-        f"date column must survive Arrow bridge; got {pdf['ts'].dtype}"
+    _dt = pdf["ts"].dtype
+    _is_arrow_date = (
+        hasattr(pd, "ArrowDtype")
+        and isinstance(_dt, pd.ArrowDtype)
+        and any(tok in str(_dt).lower() for tok in ("date", "timestamp"))
     )
+    assert (
+        pd.api.types.is_datetime64_any_dtype(_dt)
+        or _dt == "object"
+        or _is_arrow_date
+    ), f"date column must survive Arrow bridge; got {_dt!r}"
 
 
 def test_combine_probs_back_compat_no_alphas():

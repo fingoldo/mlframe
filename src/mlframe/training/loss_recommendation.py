@@ -11,8 +11,11 @@ Wiring: callers thread the returned per-backend loss name into the model factory
 
 Thresholds. The cutoffs come from the empirical excess-kurtosis ladder verified in ``regression_residual_audit.py``:
 - ``excess_kurt < 1.5`` -> near-Gaussian, keep RMSE (default).
-- ``1.5 <= excess_kurt <= 10`` -> Laplace / Student-t. MAE / L1 (Laplace MLE).
-- ``excess_kurt > 10`` -> contaminated outliers. Huber where supported (LightGBM ``huber``, CatBoost ``Huber``); XGBoost falls back to ``reg:pseudohubererror``.
+- ``excess_kurt >= 1.5`` -> heavy tails of any kind (Laplace, Student-t,
+  contaminated). Huber where supported (LightGBM ``huber``, CatBoost
+  ``Huber:delta=1.345``); XGBoost falls back to ``reg:pseudohubererror``.
+
+Note (round-5 2026-05-23): the previous (1.5, 10] MAE band was collapsed into the single Huber band above. Pure L1 / MAE was triggering the "MAE-gradient-is-noise" pathology on production TVT residuals (kurt=6.37 -> CB es_best_iter=1, LGB es_best_iter=5) -- the constant-magnitude sign-gradient stops the boosting iteration almost immediately. Huber's bounded-influence loss retains a useful gradient on small residuals AND attenuates outlier influence. Operators who explicitly want the Laplace MLE call with ``target_quantile=0.5``.
 
 If the target is too small to estimate moments reliably (``n_finite < 30``) the recommendation is conservative (RMSE, the standard default).
 """
