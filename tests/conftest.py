@@ -79,6 +79,17 @@ def fast_subset(values, *, representative=None, keep: int = 1):
     return values[:keep]
 
 
+def require_polars_ds():
+    """Skip the calling test when ``polars-ds`` is not importable. Single source of truth so the 8x duplicated
+    `pytest.importorskip("polars_ds")` calls in `tests/inference/`, `tests/training/test_pipeline.py`, and
+    `tests/training/test_polarsds_pipeline_json_proxy.py` can collapse to one helper invocation. Keeps the
+    importorskip reason consistent and centralises the gate when polars-ds gating changes."""
+    return pytest.importorskip(
+        "polars_ds",
+        reason="polars-ds optional extra not installed; tests exercising the polars-native PreprocessingBackendConfig fastpath are skipped",
+    )
+
+
 def pytest_addoption(parser):
     parser.addoption(
         "--fast",
@@ -356,8 +367,41 @@ except (ImportError, OSError, RuntimeError):  # pragma: no cover
     pass
 
 
+def _pytest_randomly_active() -> bool:
+    """True iff pytest-randomly is loaded AND not disabled via ``-p no:randomly``.
+
+    pytest-randomly seeds python/numpy/torch RNGs in its own ``pytest_runtest_setup``
+    hook BEFORE autouse fixtures run; our reset would then trample that seed and
+    collapse cross-test entropy to a single fixed value (defeating the whole point
+    of randomly shuffling test ordering). When randomly is active, defer to it.
+    """
+    try:
+        import pytest_randomly  # noqa: F401
+    except ImportError:
+        return False
+    # ``-p no:randomly`` makes the plugin importable but not loaded into the
+    # session; pytest_randomly sets ``random_seeder`` entry points only when
+    # actively loaded. ``sys.modules`` import is not proof; check the pytest
+    # plugin manager via the conftest pytestmark route is the strict signal,
+    # but cheap heuristic: presence of the env var pytest-randomly sets when
+    # it claims a session.
+    import os
+    return os.environ.get("PYTEST_RANDOMLY_SEED") is not None
+
+
 @pytest.fixture(autouse=True)
-def _reset_global_rng_state():
+def _reset_global_rng_state(request):
+    """Reset python/numpy/torch global RNGs to seed=0 before each test for legacy tests that
+    rely on the global RNG state being deterministic.
+
+    Defers to pytest-randomly when active so the random-ordering plugin's per-test seeds
+    aren't trampled (autouse fixtures fire AFTER pytest-randomly's setup hook). A test that
+    truly needs the deterministic seed=0 reset under random-ordering should request the
+    fixture explicitly or seed locally.
+    """
+    if _pytest_randomly_active():
+        yield
+        return
     import random as _random
     import numpy as _np
     _random.seed(0)
