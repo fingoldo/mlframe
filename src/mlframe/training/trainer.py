@@ -636,11 +636,14 @@ def _configure_mlp_params(
     # caller hasn't explicitly set nlayers in network_params; explicit
     # override always wins.
     _SMALL_DATA_NLAYERS_AUTO_TUNE_THRESHOLD = 10_000
-    if (
+    _is_small_data = (
         n_train is not None
         and n_train < _SMALL_DATA_NLAYERS_AUTO_TUNE_THRESHOLD
-        and not (mlp_kwargs and "nlayers" in mlp_kwargs.get("network_params", {}))
-    ):
+    )
+    _user_overrode_network = bool(
+        mlp_kwargs and "nlayers" in mlp_kwargs.get("network_params", {})
+    )
+    if _is_small_data and not _user_overrode_network:
         if mlp_network_params["nlayers"] > 1:
             _orig_nlayers = mlp_network_params["nlayers"]
             mlp_network_params["nlayers"] = 1
@@ -652,6 +655,13 @@ def _configure_mlp_params(
             )
 
     mlp_general_params = configs.MLP_GENERAL_PARAMS.copy()
+    # NOTE on LR auto-tune: an earlier iteration also auto-reduced
+    # learning_rate from 3e-3 to 3e-4 on small data, but that broke
+    # scenario01 (near-perfect AR signal that needs the full 3e-3 step
+    # to converge within max_epochs=30). The mixed-scale scenario that
+    # motivated the LR cut (scenario05) requires more than just LR
+    # tuning -- the per-target HPT detector in the file-level TODO is
+    # the right place. Keep nlayers=1 small-data tune; leave LR alone.
     if use_regression:
         mlp_general_params["model_params"] = mlp_general_params.get("model_params", {}).copy()
         mlp_general_params["model_params"]["loss_fn"] = F.mse_loss

@@ -561,6 +561,20 @@ class MLPTorchModel(L.LightningModule):
         Returns:
             Scalar loss tensor
         """
+        # Defensive shape alignment: torch's MSELoss / L1Loss / SmoothL1Loss
+        # emit a UserWarning ("Using a target size (torch.Size([N])) that is
+        # different to the input size (torch.Size([N, 1]))") AND apply
+        # incorrect broadcasting when predictions and labels disagree on a
+        # singleton trailing dim. training_step + validation_step squeeze
+        # raw_predictions in the common (N, 1) case, but other call paths
+        # (test fixtures, ranker, custom loss_fn) can still enter here
+        # mismatched. Squeeze the singleton dim on either side so the loss
+        # function never sees a broadcasting collision.
+        if predictions.dim() == 2 and predictions.shape[-1] == 1 and labels.dim() == 1:
+            predictions = predictions.squeeze(-1)
+        elif labels.dim() == 2 and labels.shape[-1] == 1 and predictions.dim() == 1:
+            labels = labels.squeeze(-1)
+
         if sample_weight is None:
             return self.loss_fn(predictions, labels)
 
