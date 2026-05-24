@@ -150,6 +150,9 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
     if not hasattr(ctx, "_cache_stats") or ctx._cache_stats is None:
         ctx._cache_stats = {}
 
+    # bench-attempt-rejected (2026-05-24): dropping the two outer ``tqdmu_lazy_start`` bars (keeping only the innermost weight-schema bar) saved ~1.1ms
+    # of the 2.6ms per outer iteration in a synthetic 2x3x4 nested loop. Reverted because the outer bars give users visible per-pre_pipeline + per-model
+    # progress on long suites; the small per-iter saving does not offset the diagnostic loss. ``tqdmu_lazy_start`` already suppresses single-item bars.
     for pre_pipeline, pre_pipeline_name in tqdmu_lazy_start(zip(pre_pipelines, pre_pipeline_names), desc="pre_pipeline", total=len(pre_pipelines)):
         # CatBoost + RFECV metamodel_func combination breaks sklearn.clone().
         if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, behavior_config):
@@ -526,6 +529,31 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 )
                 ctx._model_input_fingerprint_cache[_fp_cache_key] = (_schema_hash, _input_schema)
 
+            # Per-PP NGBoost-fallback invariant: when ``clone(original_model)`` raises ``TypeError`` (NGBoost: ``get_params`` exposes non-constructor
+            # attrs), the fallback path re-pays ``original_model.get_params(deep=False)`` + ``{k:v for k in sig}`` once per weight iteration. The snapshot
+            # is invariant across weights (only ``sample_weight`` differs at fit-time), so cache it once outside the loop. Lazy: compute on first use to
+            # avoid paying for models that don't hit the TypeError path.
+            _ngb_fallback_snapshot: dict | None = None
+
+            # Per-PP CB extras invariants: ``_filter_polars_cat_features_by_dtype`` + ``filter_existing(text/embedding)`` depend only on ``prepared_train`` +
+            # the (cat/text/embedding) feature lists -- all invariant across the weight loop. Compute once here so the inner loop only stitches the result
+            # into ``current_model_params["fit_params"]`` (avoids paying the dtype filter + ``filter_existing`` 3 scans per weight iteration).
+            _cb_extra_fit_invariant: dict[str, Any] | None = None
+            if polars_fastpath_active and mlframe_model_name == "cb":
+                _cb_extra_fit_invariant = {}
+                if _cat_features:
+                    _valid_cat_inv = _filter_polars_cat_features_by_dtype(prepared_train, _cat_features)
+                    if _valid_cat_inv:
+                        _cb_extra_fit_invariant["cat_features"] = _valid_cat_inv
+                if text_features:
+                    _cb_text_inv = filter_existing(prepared_train, text_features)
+                    if _cb_text_inv:
+                        _cb_extra_fit_invariant["text_features"] = _cb_text_inv
+                if embedding_features:
+                    _cb_emb_inv = filter_existing(prepared_train, embedding_features)
+                    if _cb_emb_inv:
+                        _cb_extra_fit_invariant["embedding_features"] = _cb_emb_inv
+
             for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items(), desc="weighting schema"):
                 model_name_with_weight = common_params["model_name"]
                 model_file_name=f"{mlframe_model_name}"
@@ -574,14 +602,16 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     # Direct constructor call with get_params() produces an equivalent unfitted instance.
                     cloned_model = type(original_model)(**original_model.get_params())
                 except TypeError:
-                    # NGBoost: get_params() exposes attributes the constructor doesn't accept.
-                    # SIG-IN-EXCEPT: memoize the inspect.signature lookup so the TypeError branch
-                    # isn't paying ~0.5-1ms per hit -- the cache lives at module scope keyed by
-                    # ``id(cls)`` because ``cls.__init__`` is class-invariant.
+                    # NGBoost: get_params() exposes attributes the constructor doesn't accept. ``_cached_init_params`` memoizes the inspect.signature
+                    # lookup so the TypeError branch isn't paying ~0.5-1ms per hit -- the cache lives at module scope keyed by ``id(cls)`` because
+                    # ``cls.__init__`` is class-invariant. The constructor-kwargs dict itself (``{k:v for k in sig}``) is invariant across the weight loop
+                    # (only sample_weight differs at fit-time), so cache the filtered dict on first hit and re-splat per iteration.
                     _cls = type(original_model)
                     _sig_params = _cached_init_params(_cls)
-                    _raw = original_model.get_params(deep=False)
-                    cloned_model = _cls(**{k: v for k, v in _raw.items() if k in _sig_params})
+                    if _ngb_fallback_snapshot is None:
+                        _raw = original_model.get_params(deep=False)
+                        _ngb_fallback_snapshot = {k: v for k, v in _raw.items() if k in _sig_params}
+                    cloned_model = _cls(**_ngb_fallback_snapshot)
                 # sklearn.clone() strips non-param attributes; re-assert mlframe sticky flags so the
                 # calibration directive and the polars-fastpath-broken marker survive each iteration.
                 if getattr(original_model, "_mlframe_posthoc_calibrate", False):
@@ -605,26 +635,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 current_model_params = models_params[mlframe_model_name].copy()
                 current_model_params["model"] = cloned_model
 
-                # CatBoost is the only Polars-native consumer that accepts cat_features / text_features /
-                # embedding_features at fit time; XGB and HGB auto-detect via enable_categorical=True.
-                if polars_fastpath_active and mlframe_model_name == "cb" and "fit_params" in current_model_params:
-                    extra_fit = {}
-                    if _cat_features:
-                        _valid_cat = _filter_polars_cat_features_by_dtype(
-                            prepared_train, _cat_features
-                        )
-                        if _valid_cat:
-                            extra_fit["cat_features"] = _valid_cat
-                    if text_features:
-                        cb_text = filter_existing(prepared_train, text_features)
-                        if cb_text:
-                            extra_fit["text_features"] = cb_text
-                    if embedding_features:
-                        cb_emb = filter_existing(prepared_train, embedding_features)
-                        if cb_emb:
-                            extra_fit["embedding_features"] = cb_emb
-                    if extra_fit:
-                        current_model_params["fit_params"] = {**current_model_params["fit_params"], **extra_fit}
+                # CatBoost is the only Polars-native consumer that accepts cat_features / text_features / embedding_features at fit time; XGB and HGB
+                # auto-detect via enable_categorical=True. Hoisted invariant ``_cb_extra_fit_invariant`` carries the filtered cat/text/embedding lists
+                # (invariant across weights); stitch them into the per-weight fit_params here.
+                if _cb_extra_fit_invariant and "fit_params" in current_model_params:
+                    if _cb_extra_fit_invariant:
+                        current_model_params["fit_params"] = {**current_model_params["fit_params"], **_cb_extra_fit_invariant}
 
                 # Build process_model kwargs using helper
                 process_model_kwargs = _build_process_model_kwargs(

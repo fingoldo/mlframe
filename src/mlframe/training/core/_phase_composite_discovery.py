@@ -189,6 +189,26 @@ def run_composite_target_discovery(
         _split_cfg_overrides.get("prefer_group_aware", False)
     )
 
+    # Suite-constant group_ids: coerce once + materialise the filtered slice + length cap; the per-target loop below otherwise pays a fresh
+    # ``np.asarray`` + ``np.max`` per regression target inside the tiny-rerank wiring block (group_ids is invariant across targets).
+    _grp_arr_hoisted: np.ndarray | None = None
+    _grp_filtered_slice: np.ndarray | None = None
+    _grp_max_required: int = 0
+    if (group_ids is not None
+            and _group_aware_recommended
+            and filtered_train_idx is not None):
+        try:
+            _grp_arr_hoisted = np.asarray(group_ids)
+            _grp_max_required = int(np.max(filtered_train_idx) + 1)
+            if _grp_arr_hoisted.shape[0] >= _grp_max_required:
+                _grp_filtered_slice = _grp_arr_hoisted[filtered_train_idx]
+        except (TypeError, ValueError, IndexError) as _hoist_err:
+            logger.debug(
+                "[CompositeTargetDiscovery] group_ids hoist failed (%s); "
+                "tiny-rerank will fall back to KFold for every target.",
+                _hoist_err,
+            )
+
     for _tt_disc, _named_disc in list(target_by_type.items()):
         if _tt_disc != TargetTypes.REGRESSION:
             continue
@@ -445,34 +465,16 @@ def run_composite_target_discovery(
                     # Slice group_ids to filtered_train rows so the
                     # rerank sees the same groups the discovery loop
                     # samples from.
-                    if (group_ids is not None
-                            and _group_aware_recommended
-                            and filtered_train_idx is not None):
-                        try:
-                            _grp_arr = np.asarray(group_ids)
-                            if _grp_arr.shape[0] >= int(
-                                np.max(filtered_train_idx) + 1
-                            ):
-                                _disc_instance._group_ids_for_rerank = (
-                                    _grp_arr[filtered_train_idx]
-                                )
-                                logger.info(
-                                    "[CompositeTargetDiscovery] target='%s' "
-                                    "tiny-rerank will use GroupKFold "
-                                    "(group_ids supplied, n_groups=%d on "
-                                    "training rows).",
-                                    _tname_disc,
-                                    int(np.unique(
-                                        _disc_instance._group_ids_for_rerank
-                                    ).size),
-                                )
-                        except (TypeError, ValueError, IndexError) as _gerr:
-                            logger.debug(
-                                "[CompositeTargetDiscovery] could not slice "
-                                "group_ids for target='%s': %s; tiny-rerank "
-                                "falls back to KFold.",
-                                _tname_disc, _gerr,
-                            )
+                    if _grp_filtered_slice is not None:
+                        _disc_instance._group_ids_for_rerank = _grp_filtered_slice
+                        logger.info(
+                            "[CompositeTargetDiscovery] target='%s' "
+                            "tiny-rerank will use GroupKFold "
+                            "(group_ids supplied, n_groups=%d on "
+                            "training rows).",
+                            _tname_disc,
+                            int(np.unique(_grp_filtered_slice).size),
+                        )
                     # Pack #3 wiring: stacked 2-pass discovery (OOF predictions
                     # from pass 1 augment feature_cols for pass 2). Wraps the
                     # standard ``fit()`` so the rest of the phase code path is
