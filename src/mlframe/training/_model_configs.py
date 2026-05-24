@@ -478,20 +478,6 @@ class TrainingBehaviorConfig(BaseConfig):
     # Default False: silently skipping a failed model is a semantic
     # shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
-    # Skip MLP training on extreme-AR + group-aware regressions. On
-    # targets with lag1_autocorr_per_group >= mlp_extreme_ar_threshold
-    # AND the splitter prefers group-aware (test wells/groups unseen),
-    # MLP's nearly-linear decision surface extrapolates catastrophically
-    # off the train manifold -- pred_std collapses to a few % of
-    # target_std and the predictions cluster far from the target mean
-    # (TVT prod 2026-05-24: R2=-286 on test, ensemble's quality-gate
-    # excluded MLP every run). The skip saves 2.7 min training + 126 MB
-    # save dump per run, with zero downstream impact because the gate
-    # was dropping these predictions anyway. Mirrors the composite-
-    # discovery extreme_ar_group_aware_skip from round 5.3. Disable to
-    # force MLP training in this regime.
-    mlp_extreme_ar_group_aware_skip: bool = True
-    mlp_extreme_ar_threshold: float = 0.99
     # Default False: feature-drift-driven per-target MLP HPT override
     # is OFF by default. The drift sensor still runs and stamps the
     # recommendation into metadata + emits a WARN log line so the

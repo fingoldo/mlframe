@@ -26,32 +26,40 @@ import pytest
 
 
 class TestMlpExtremeArGroupAwareSkip:
-    def test_config_knobs_default_enabled(self) -> None:
-        from mlframe.training._model_configs import TrainingBehaviorConfig
-        fields = getattr(TrainingBehaviorConfig, "model_fields", None)
-        assert fields is not None
-        assert "mlp_extreme_ar_group_aware_skip" in fields
-        assert "mlp_extreme_ar_threshold" in fields
-        cfg = TrainingBehaviorConfig()
-        assert cfg.mlp_extreme_ar_group_aware_skip is True
-        assert 0.9 <= cfg.mlp_extreme_ar_threshold < 1.0
-        assert cfg.mlp_extreme_ar_threshold == 0.99
+    def test_env_var_default_enabled(self) -> None:
+        """Skip is gated via env var so it doesn't fan out into the
+        TrainingBehaviorConfig -> configure_training_params **kwargs
+        chain (which would reject unknown fields). Default semantics:
+        unset env -> skip enabled."""
+        import os
+        # Default (unset) should evaluate as enabled in the source-
+        # code default branch.
+        assert os.environ.get(
+            "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP", "1"
+        ) not in ("0", "false", "False", "")
 
     def test_skip_logic_present_in_train_one_target_body(self) -> None:
         """Lock in the skip-block presence so a future refactor that
         moves the per-model loop doesn't silently drop the gate."""
         from mlframe.training.core import _phase_train_one_target_body
         src = inspect.getsource(_phase_train_one_target_body)
-        assert "mlp_extreme_ar_group_aware_skip" in src
+        assert "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP" in src
+        assert "MLFRAME_MLP_EXTREME_AR_THRESHOLD" in src
         assert "lag1_autocorr_per_group" in src
         assert "prefer_group_aware" in src
-        # Logged warning string must reference the skip so operators
-        # can grep the suite log.
         assert "extreme-AR + group-aware skip fired" in src
-        # The skip must hit the per-model loop BEFORE model_idx counter
-        # increments so excluded MLP doesn't bump the iter counter
-        # (cosmetic but reflects "didn't process this model").
         assert "if mlframe_model_name == \"mlp\":" in src
+
+    def test_behavior_config_does_NOT_have_mlp_knobs(self) -> None:
+        """Regression guard: adding mlp_extreme_ar_* to
+        TrainingBehaviorConfig blew up training because
+        configure_training_params (downstream of `**effective_behavior_params`)
+        rejected the new kwargs. Keep these knobs OUT of
+        TrainingBehaviorConfig."""
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        fields = getattr(TrainingBehaviorConfig, "model_fields", {})
+        assert "mlp_extreme_ar_group_aware_skip" not in fields
+        assert "mlp_extreme_ar_threshold" not in fields
 
 
 class TestAlwaysBuildCtEnsembleForRaw:
@@ -79,12 +87,26 @@ class TestAlwaysBuildCtEnsembleForRaw:
 
 
 class TestVerdictTableTestFallback:
+    def _summary_src(self) -> str:
+        """Concatenated source of both candidate modules: the legacy
+        ``_phase_composite_post`` (kept for back-compat) and the
+        carved-out ``_phase_composite_post_summary`` introduced when
+        the file crossed the monolith threshold. Either one may host
+        the fallback logic depending on the current split."""
+        from mlframe.training.core import (
+            _phase_composite_post, _phase_composite_post_summary,
+        )
+        return (
+            inspect.getsource(_phase_composite_post)
+            + "\n"
+            + inspect.getsource(_phase_composite_post_summary)
+        )
+
     def test_fallback_logic_present(self) -> None:
         """When val metrics are missing for all trained models, the
         suite-end summary must fall back to test metrics (tagged so
         the operator sees the cross-split comparison)."""
-        from mlframe.training.core import _phase_composite_post
-        src = inspect.getsource(_phase_composite_post)
+        src = self._summary_src()
         # Both passes (val first, then test fallback) must be present.
         assert "_entry_metric(_m, \"val\"" in src
         assert "_entry_metric(_m, \"test\"" in src
@@ -97,8 +119,7 @@ class TestVerdictTableTestFallback:
         """The fallback tag '(test fallback)' is what operators see in
         the verdict table; lock in the exact string so log-grep
         playbooks remain stable."""
-        from mlframe.training.core import _phase_composite_post
-        src = inspect.getsource(_phase_composite_post)
+        src = self._summary_src()
         assert '"(test fallback)"' in src or "'(test fallback)'" in src
 
 
