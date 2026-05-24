@@ -35,6 +35,47 @@ from sklearn.metrics import make_scorer
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _mrmr_instance_state_size_bytes(instance: Any) -> int:
+    """Best-effort byte estimate for a single fitted MRMR instance's selector + engineered-features state.
+
+    Used by the LRU eviction byte gate. Walks the small set of large state attributes (``mi_scores_``, ``_selectors_``, ``_engineered_features_``, ``_y_full_hash`` retained y) so the estimate reflects the dominant footprint without paying ``pickle.dumps`` cost on every eviction probe.
+    """
+    total = 0
+    for _attr in ("mi_scores_", "_selectors_", "_engineered_features_", "ranking_", "support_", "selected_features_"):
+        try:
+            _v = getattr(instance, _attr, None)
+            if _v is None:
+                continue
+            _nb = getattr(_v, "nbytes", None)
+            if isinstance(_nb, int):
+                total += _nb
+                continue
+            if isinstance(_v, dict):
+                for _vv in _v.values():
+                    _vvnb = getattr(_vv, "nbytes", None)
+                    if isinstance(_vvnb, int):
+                        total += _vvnb
+                    else:
+                        try:
+                            total += int(np.asarray(_vv).nbytes)
+                        except Exception:
+                            pass
+            elif isinstance(_v, (list, tuple)):
+                for _item in _v:
+                    _inb = getattr(_item, "nbytes", None)
+                    if isinstance(_inb, int):
+                        total += _inb
+        except Exception:
+            continue
+    return total
+
+
+def _mrmr_cache_bytes_total() -> int:
+    """Sum of state bytes across every cached MRMR instance in MRMR._FIT_CACHE."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    return sum(_mrmr_instance_state_size_bytes(_v) for _v in MRMR._FIT_CACHE.values())
+
+
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
     # Lazy import: ``.mrmr`` re-imports this module at its module bottom for
@@ -789,5 +830,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             MRMR._FIT_CACHE.clear()
         else:
             while len(MRMR._FIT_CACHE) > _cap:
+                MRMR._FIT_CACHE.popitem(last=False)
+        # Byte-size cap on top of entry count (audit A5 P1 #6): a 1k-feature suite
+        # carrying 4 cached MRMR instances each holding _selectors_ / _engineered_features_
+        # state can exceed 1 GB of process RSS. ``fit_cache_max_mb`` (default 1024 MB; env
+        # override ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``) bounds the aggregate cache footprint.
+        _mb_cap_raw = getattr(self, "fit_cache_max_mb", None)
+        if _mb_cap_raw is None:
+            _env_mb = os.environ.get("MLFRAME_MRMR_FIT_CACHE_MAX_MB", "1024")
+            try:
+                _mb_cap = float(_env_mb)
+            except ValueError:
+                _mb_cap = 1024.0
+        else:
+            try:
+                _mb_cap = float(_mb_cap_raw)
+            except (TypeError, ValueError):
+                _mb_cap = 1024.0
+        if _mb_cap > 0 and _cap > 0 and len(MRMR._FIT_CACHE) > 0:
+            _byte_cap = _mb_cap * (1024 ** 2)
+            while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
                 MRMR._FIT_CACHE.popitem(last=False)
     return self
