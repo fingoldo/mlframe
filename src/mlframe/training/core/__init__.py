@@ -1,4 +1,21 @@
-"""``mlframe.training.core`` training-suite top-level package: re-exports the public API."""
+"""``mlframe.training.core`` training-suite top-level package: re-exports the public API.
+
+Underscore-module convention
+----------------------------
+Every ``_phase_*.py`` / ``_predict_main_*.py`` / ``_setup_helpers.py`` / ``_misc_helpers.py``
+sibling under this package is **internal**. The leading underscore is the project's portable
+"do not import from outside the sibling cluster" signal:
+
+* Production code (anything that ships as part of the installed wheel) must NOT import any
+  ``mlframe.training.core._*`` module from elsewhere in the package tree -- the public surface is
+  exclusively the names re-exported from this ``__init__.py``.
+* Tests, ``_benchmarks/``, ``_profile_*`` harnesses, and ``audit/`` agents MAY import internal
+  modules directly for white-box coverage / instrumentation -- a tight test boundary.
+* Renames / signature changes inside a ``_*`` module DO NOT require a deprecation cycle. If
+  external code reaches into an underscore module it accepts the breakage risk.
+
+This is enforced as a meta-test: see ``tests/test_meta/test_no_production_underscore_imports.py``.
+"""
 from __future__ import annotations
 
 # Back-compat for tests that read these via ``mlframe.training.core.X`` before monkeypatching them at submodule level.

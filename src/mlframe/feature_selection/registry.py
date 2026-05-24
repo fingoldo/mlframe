@@ -73,7 +73,8 @@ def _instantiate_mrmr(**kwargs):
 
 
 def _instantiate_rfecv(**kwargs):
-    from mlframe.feature_selection.wrappers._rfecv import RFECV
+    # Go through the public re-export so the underscore module remains an implementation detail.
+    from mlframe.feature_selection.wrappers import RFECV
     return RFECV(**kwargs)
 
 

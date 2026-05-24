@@ -388,22 +388,22 @@ select = [
     "B",   # flake8-bugbear
 ]
 ignore = [
-    "E501",  # line too long (handled by black)
-    "E401",
-    "E402",
-    "E701",
-    "I001",
-    "N802",
-    "N803",
-    "N806",
-    "B006",
-    "F401",
-    "F541",
-    "UP031",
-    "UP006",
-    "UP007",
-    "UP045",
-    "UP037",
+    "E501",   # line-length: project uses 160 chars (CLAUDE.md repeated rule), black + black-line-length above enforce visually
+    "E401",   # multiple imports on one line: explicit ``import a, b`` is project-idiomatic in a few helpers; not worth churn
+    "E402",   # module-level import not at top: legitimate for try/except optional-dep gates (cupy, polars, torch)
+    "E701",   # multiple statements on one line (colon): used in compact one-liners like ``if x: continue``
+    "I001",   # unsorted imports: isort runs separately; ruff's isort variant collides with our black + manual section order
+    "N802",   # function name should be lowercase: legitimately mixed-case in math identifiers (e.g. ``computeFFT`` interop)
+    "N803",   # arg name should be lowercase: sklearn-API surface uses X / Y / Xt convention required by check_estimator
+    "N806",   # variable in function should be lowercase: same as N803 -- X / Y / Xt locals throughout estimator wrappers
+    "B006",   # mutable default arg: kept open; some configs use dataclass-like helpers where caller never mutates; consider re-enabling case-by-case
+    "F401",   # unused import: re-exports use explicit ``# noqa: F401`` inline; the global ignore is for tomb-stoned compat shims
+    "F541",   # f-string without placeholders: tolerated in log lines that get placeholders added later in dev
+    "UP031",  # printf-style %: keep for ``logger.info("... %s ...", val)`` lazy-format pattern (mandatory under structured logging)
+    "UP006",  # use ``list`` / ``dict`` over typing.List: project targets 3.9 minimum where the deferred annotation form needs from __future__ import; keep typing.List for ABI clarity
+    "UP007",  # use ``X | Y`` over Union: same 3.9 concern; ``Union`` evaluates eagerly without ``from __future__ import annotations``
+    "UP045",  # use ``X | None`` over Optional: same 3.9 concern
+    "UP037",  # quoted annotation: leave because we use forward references in dataclass slots heavily
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -426,3 +426,15 @@ exclude = "(legacy|benchmarks|profiling)/"
 [[tool.mypy.overrides]]
 module = "tests.*"
 ignore_errors = true
+
+# Strict-mode beachhead: mlframe.calibration is the smallest subpackage (4 files, ~1.3 kLOC total)
+# with a stable public surface, low optional-dep churn (only ``post.py`` pulls heavy deps and gates
+# them lazily), and tight scope (probability calibration metrics + post-hoc calibrators). Adopting
+# strict mode here first surfaces type drift on the smallest blast radius; expansion to other
+# subpackages should follow only after this one has been clean for one release.
+[[tool.mypy.overrides]]
+module = "mlframe.calibration.*"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = true
+no_implicit_optional = true

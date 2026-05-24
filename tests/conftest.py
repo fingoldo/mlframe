@@ -120,14 +120,11 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     if config.getoption("--fast"):
         os.environ[_FAST_ENV] = "1"
-    config.addinivalue_line(
-        "markers",
-        "fast_only: test only runs in fast mode (smoke-style).",
-    )
-    config.addinivalue_line(
-        "markers",
-        "slow_only: test is skipped in fast mode.",
-    )
+    # Markers ``fast_only`` / ``slow_only`` / ``no_xdist`` are registered in pyproject.toml
+    # ``[tool.pytest.ini_options].markers``; double-registering here invites silent description
+    # drift (audit D2 P2 #18). The conftest only registers markers that are conftest-private
+    # (defined and skipped here) or unique to the option-flag pattern that the marker docs in
+    # pyproject would not naturally cover.
     config.addinivalue_line(
         "markers",
         "fuzz: long-running fuzz-combo test; deselected unless --run-fuzz is passed.",
@@ -137,12 +134,6 @@ def pytest_configure(config):
         "biz_transformer: feature_engineering/transformer biz_val test (real "
         "datasets, multi-boosting); deselected unless --run-biz-transformer "
         "is passed.",
-    )
-    config.addinivalue_line(
-        "markers",
-        "no_xdist: skip when pytest-xdist parallelism is active (test needs "
-        "sequential execution: native-crash-prone composite fits, numba cache "
-        "lock contention, shared file-system state).",
     )
 
 

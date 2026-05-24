@@ -49,8 +49,12 @@ def _disable_broken_cupy() -> None:
             "RecursionError cascade. Set MLFRAME_KEEP_BROKEN_CUPY=1 to skip.",
             type(exc).__name__, exc,
         )
-        # Poison the import: subsequent `import cupy` raises ImportError,
-        # which mlframe's GPU code paths already handle as a fallback signal.
+        # Poison the import: ``sys.modules["cupy"] = None`` makes every subsequent ``import cupy``
+        # raise ``ImportError`` immediately (CPython's import machinery treats a None entry as a
+        # negative-cache marker -- documented behaviour since Python 2.x, still maintained in 3.12+
+        # despite the data-model deprecation note about non-module sys.modules entries; None is
+        # the explicit exception). mlframe's GPU code paths already handle ``import cupy`` failures
+        # as a fallback signal, so this is the cheapest poisoning primitive available.
         sys.modules["cupy"] = None  # type: ignore[assignment]
 
 

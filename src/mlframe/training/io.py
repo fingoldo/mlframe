@@ -263,9 +263,15 @@ def _collect_lib_versions() -> Dict[str, str]:
     are silently skipped (their absence is itself signal).
     """
     out: Dict[str, str] = {}
+    # cupy / numba / pydantic / lightning / torch added per audit D2 P2 #15: cupy pickles carry
+    # device-cookies that break across versions, numba caches AOT-compiled kernels keyed on
+    # version, pydantic schemas changed validator shape between 2.x minors, lightning serialises
+    # checkpoint format alongside torch model state. Skipping them in the meta sidecar means a
+    # subtle silent-deserialise-wrong on cross-version reload.
     for _name in (
         "mlframe", "numpy", "pandas", "polars", "scipy", "sklearn",
         "lightgbm", "xgboost", "catboost", "pyarrow", "dill",
+        "cupy", "numba", "pydantic", "lightning", "torch",
     ):
         try:
             _mod = __import__(_name)

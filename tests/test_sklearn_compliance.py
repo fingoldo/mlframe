@@ -86,8 +86,12 @@ def test_get_model_best_iter_with_pipeline():
     pipe.fit(X, y)
 
     best_iter = get_model_best_iter(pipe)
-    # lightgbm exposes best_iteration_ even without early stopping (may be 0 or the count)
-    assert isinstance(best_iter, (int, np.integer)) or best_iter is None or best_iter == 0 or best_iter
+    # lightgbm exposes best_iteration_ even without early stopping (may be 0 or the count).
+    # The prior assertion ``... or best_iter`` is a boolean trap -- truthy for any non-zero int
+    # so it accepted literally any return that wasn't False.
+    assert best_iter is None or isinstance(best_iter, (int, np.integer)), (
+        f"get_model_best_iter must return int / np.integer / None; got {best_iter!r} ({type(best_iter).__name__})"
+    )
 
 
 def test_feature_importance_sign_check_uses_sorted_order():
