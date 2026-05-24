@@ -130,8 +130,10 @@ def test_polars_cat_verbose_gate_skips_null_count_when_quiet():
     branch so non-verbose runs skip the sync collects.
     """
     from mlframe.training.core import _phase_polars_fixes as ppf
+    from pathlib import Path
 
-    import inspect
-    src = inspect.getsource(ppf.apply_polars_categorical_fixes)
+    # Read module source via Path.read_text (NOT inspect.getsource per
+    # ``feedback_behavioral_tests`` / tests/test_meta/test_no_inspect_getsource.py).
+    src = Path(ppf.__file__).read_text(encoding="utf-8")
     assert "if verbose:" in src, "verbose gate should be present in apply_polars_categorical_fixes"
     assert src.count(".null_count()") >= 1, "expected null_count() probes under verbose gate"

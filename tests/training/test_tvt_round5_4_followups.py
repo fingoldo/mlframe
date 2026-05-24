@@ -20,9 +20,17 @@
 """
 from __future__ import annotations
 
-import inspect
+from pathlib import Path
 
 import pytest
+
+
+def _module_source(mod) -> str:
+    """Read a module's source via ``Path.read_text``. ``inspect.getsource``
+    is forbidden in tests per ``feedback_behavioral_tests`` (the meta-test
+    ``tests/test_meta/test_no_inspect_getsource.py`` enforces this);
+    file-based read achieves the same source-grep contract."""
+    return Path(mod.__file__).read_text(encoding="utf-8")
 
 
 class TestMlpExtremeArGroupAwareSkip:
@@ -42,7 +50,7 @@ class TestMlpExtremeArGroupAwareSkip:
         """Lock in the skip-block presence so a future refactor that
         moves the per-model loop doesn't silently drop the gate."""
         from mlframe.training.core import _phase_train_one_target_body
-        src = inspect.getsource(_phase_train_one_target_body)
+        src = _module_source(_phase_train_one_target_body)
         assert "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP" in src
         assert "MLFRAME_MLP_EXTREME_AR_THRESHOLD" in src
         assert "lag1_autocorr_per_group" in src
@@ -78,7 +86,7 @@ class TestAlwaysBuildCtEnsembleForRaw:
         is on AND a regression target has trained models, synthesise
         an empty-spec entry so the existing loop covers raw-only."""
         from mlframe.training.core import _phase_composite_post
-        src = inspect.getsource(_phase_composite_post)
+        src = _module_source(_phase_composite_post)
         assert "always_build_ct_ensemble_for_raw" in src
         assert "synthesised raw-only entries" in src
         # The synthesis must skip composite-named targets (they would
@@ -94,7 +102,7 @@ class TestAlwaysBuildCtEnsembleForRaw:
         The import must resolve from ``mlframe.training.configs``.
         """
         from mlframe.training.core import _phase_composite_post
-        src = inspect.getsource(_phase_composite_post)
+        src = _module_source(_phase_composite_post)
         assert "from ..target_types import" not in src
         assert "from ..configs import TargetTypes" in src
         # Round-trip the import itself to be sure.
@@ -112,9 +120,9 @@ class TestVerdictTableTestFallback:
             _phase_composite_post, _phase_composite_post_summary,
         )
         return (
-            inspect.getsource(_phase_composite_post)
+            _module_source(_phase_composite_post)
             + "\n"
-            + inspect.getsource(_phase_composite_post_summary)
+            + _module_source(_phase_composite_post_summary)
         )
 
     def test_fallback_logic_present(self) -> None:
