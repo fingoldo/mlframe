@@ -28,6 +28,7 @@ import logging
 import os
 import tempfile
 import uuid
+from collections import OrderedDict
 import warnings
 from types import SimpleNamespace
 from typing import Callable, Optional, Dict, Any
@@ -737,6 +738,21 @@ def save_mlframe_model(
                 )
 
 
+# Inference-side warm cache for ``load_mlframe_model``. Keyed by (absolute file path, mtime_ns)
+# so a model overwrite invalidates automatically; ``MLFRAME_LOAD_MODEL_CACHE_MAX`` controls capacity
+# (default 32 -- a typical inference service holds <30 models in memory at once). The cache is
+# byte-size-gated per CLAUDE.md: any single model whose on-disk compressed size already exceeds
+# ``MLFRAME_LOAD_MODEL_CACHE_MAX_MB`` (default 2048) is loaded but NOT cached, because the
+# in-memory unpickled form is typically larger still and a 4 GB CatBoost model would exhaust
+# the inference host's RAM if cached.
+_LOAD_MODEL_CACHE: "OrderedDict[tuple, object]" = OrderedDict()
+
+
+def _load_model_cache_clear() -> None:
+    """Reset the inference-side ``load_mlframe_model`` cache. Useful in tests + when an operator wants to force a fresh load (e.g. after a model dir mass-update)."""
+    _LOAD_MODEL_CACHE.clear()
+
+
 def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = False) -> Optional[object]:
     """
     Load an mlframe model from a compressed file.
@@ -753,6 +769,29 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
     Returns:
         The loaded model object, or None if loading failed.
     """
+    # Warm cache for repeat-load callers (typical of a long-lived inference service running
+    # ``predict_mlframe_models_suite`` per request). Key on (abspath, mtime_ns) so a model
+    # overwrite invalidates automatically. Skip cache for >2 GB on-disk bundles (CatBoost on a
+    # rich suite can exceed this); the in-memory form is larger still and caching it would
+    # break the host's RAM budget.
+    _cache_key: Optional[tuple] = None
+    try:
+        _abs = os.path.abspath(file)
+        _st = os.stat(_abs)
+        _size_mb_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX_MB", "2048")
+        try:
+            _max_mb = float(_size_mb_env)
+        except ValueError:
+            _max_mb = 2048.0
+        if _st.st_size <= _max_mb * (1024 ** 2):
+            _cache_key = (_abs, _st.st_mtime_ns, bool(safe))
+            _hit = _LOAD_MODEL_CACHE.get(_cache_key)
+            if _hit is not None:
+                _LOAD_MODEL_CACHE.move_to_end(_cache_key)
+                return _hit
+    except OSError:
+        # Path doesn't exist or stat refused; fall through to the real loader which will surface the real error.
+        pass
     # Wave 19 P0 #1: validate the .meta.json sidecar BEFORE unpickling so the
     # operator sees library-version drift (catboost / lightgbm minor upgrades
     # silently change booster internals) instead of chasing a cryptic
@@ -785,6 +824,15 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
                         stacklevel=2,
                     )
                     model = dill.load(zf)
+        if _cache_key is not None:
+            _LOAD_MODEL_CACHE[_cache_key] = model
+            _max_count_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX", "32")
+            try:
+                _max_count = max(1, int(_max_count_env))
+            except ValueError:
+                _max_count = 32
+            while len(_LOAD_MODEL_CACHE) > _max_count:
+                _LOAD_MODEL_CACHE.popitem(last=False)
         return model
     except Exception as e:
         # logger.exception captures the traceback automatically so the
@@ -820,4 +868,5 @@ __all__ = [
     "load_mlframe_model",
     "clean_mlframe_model",
     "_SafeUnpickler",
+    "_load_model_cache_clear",
 ]
