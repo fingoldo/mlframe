@@ -88,16 +88,26 @@ def _force_cpu_training_defaults(_session_monkeypatch):
 
 @pytest.fixture(scope="session", autouse=True)
 def _prewarm_numba_once():
-    """Pre-warm numba JIT cache ONCE per session when running under pytest-xdist.
+    """Pre-warm numba JIT cache ONCE per session.
 
-    Without prewarm, multiple xdist workers race on .nbc/.nbi cache files at
-    first compile → lock contention and occasional Windows access violations.
-    Serial runs don't need this (single-process compile), and skipping the
-    call avoids an early-session crash if the prewarm itself trips a stale
-    cache artifact. Trigger only when -n <workers> is set.
+    Under pytest-xdist multiple workers race on .nbc/.nbi cache files at first
+    compile -> lock contention and occasional Windows access violations; the
+    session-scoped prewarm forces a single compile pass while workers are still
+    serial-importing the conftest. Serial runs ALSO benefit because the first
+    test hitting numba kernels otherwise pays the cold-compile cost inside its
+    own per-test timeout window; doing the compile in conftest setup amortises
+    it across the session.
+
+    Skip only on the xdist coordinator (PYTEST_XDIST_WORKER absent AND
+    PYTEST_XDIST_TESTRUNUID present) where each worker will run this fixture
+    itself; otherwise the coordinator would double-warm.
     """
     import os
-    if not os.environ.get("PYTEST_XDIST_WORKER"):
+    is_xdist_coordinator = (
+        os.environ.get("PYTEST_XDIST_TESTRUNUID") is not None
+        and not os.environ.get("PYTEST_XDIST_WORKER")
+    )
+    if is_xdist_coordinator:
         yield
         return
     try:
@@ -108,16 +118,75 @@ def _prewarm_numba_once():
     yield
 
 
+_SESSION_FIXTURE_SHAPES: dict[str, tuple] = {}
+_SESSION_FIXTURE_REFS: dict[str, object] = {}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _session_fixture_immutability_sensor():
+    """Tripwire for unintended mutation of session-scope DataFrame fixtures.
+
+    The session-scope ``sample_*_data`` fixtures share one DataFrame across hundreds of tests; mutating one
+    (e.g. ``df["new_col"] = ...``) silently changes the fixture for every later consumer. This sensor records the
+    fixture's shape signature (rows / cols / dtype tuple) at first use and re-checks at teardown. A signature
+    mismatch surfaces the leak with the fixture name, even if the mutating test itself passed.
+
+    Cheap (only re-reads tuples at session end) and informational (logs to stderr; does not fail the run because
+    a mutation may have legitimately occurred in a test that explicitly took a ``.copy()`` after fixture access)."""
+    yield
+    leaked = []
+    for name, original in _SESSION_FIXTURE_SHAPES.items():
+        ref = _SESSION_FIXTURE_REFS.get(name)
+        if ref is None:
+            continue
+        current = _df_shape_signature(ref)
+        if current != original:
+            leaked.append((name, original, current))
+    if leaked:
+        import sys
+        sys.stderr.write(
+            "[session-fixture-immutability-sensor] DETECTED MUTATION of session-scope fixtures:\n"
+        )
+        for name, before, after in leaked:
+            sys.stderr.write(f"  {name}: shape/cols/dtypes before={before} after={after}\n")
+        sys.stderr.write(
+            "[session-fixture-immutability-sensor] Tests should .copy() before mutating. "
+            "See tests/training/conftest.py docstrings on sample_regression_data / sample_classification_data.\n"
+        )
+
+
+def _df_shape_signature(df) -> tuple:
+    """Cheap shape+dtypes+column-names tuple used by the session-fixture immutability sensor at teardown.
+
+    Catches gross mutation (rename, dtype flip, row insertion) without the cost of hashing every cell. A test that
+    silently mutates a session-scope fixture would shift one of: ``df.shape``, ``df.columns.tolist()``, or the
+    dtypes tuple."""
+    try:
+        return (tuple(df.shape), tuple(df.columns.tolist()), tuple(str(t) for t in df.dtypes.tolist()))
+    except Exception:
+        return (None, None, None)
+
+
 @pytest.fixture(scope="session")
 def sample_regression_data():
-    """Synthetic regression dataset; session-scoped (deterministic via default_rng)."""
-    return make_simple_regression_data(n_samples=1000, n_features=10, seed=42)
+    """Synthetic regression dataset; session-scoped (deterministic via default_rng).
+
+    DO NOT MUTATE. Tests that need to add / rename / dtype-cast columns must do so on a ``.copy()`` first. The
+    session-scope sharing depends on stability across all consuming tests; mutating in-place silently changes the
+    fixture for every later consumer."""
+    df, feature_names, y = make_simple_regression_data(n_samples=1000, n_features=10, seed=42)
+    _SESSION_FIXTURE_SHAPES["sample_regression_data"] = _df_shape_signature(df)
+    _SESSION_FIXTURE_REFS["sample_regression_data"] = df
+    return df, feature_names, y
 
 
 @pytest.fixture(scope="session")
 def sample_classification_data():
-    """Synthetic binary classification dataset; session-scoped."""
-    return make_simple_classification_data(n_samples=1000, n_features=10, seed=42)
+    """Synthetic binary classification dataset; session-scoped. DO NOT MUTATE (see ``sample_regression_data``)."""
+    df, feature_names, y = make_simple_classification_data(n_samples=1000, n_features=10, seed=42)
+    _SESSION_FIXTURE_SHAPES["sample_classification_data"] = _df_shape_signature(df)
+    _SESSION_FIXTURE_REFS["sample_classification_data"] = df
+    return df, feature_names, y
 
 
 @pytest.fixture(scope="session")
