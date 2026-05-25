@@ -446,6 +446,18 @@ def post_calibrate_model(
 
     meta_model.fit(_binary_fit_X, _binary_fit_y, **fit_params)
 
+    try:
+        from mlframe.training.provenance import record_provenance as _record_provenance
+        _n_calib_fit = int(_binary_fit_X.shape[0]) if hasattr(_binary_fit_X, "shape") else None
+        _record_provenance(
+            metrics if isinstance(metrics, dict) else None,
+            "post_calibrate",
+            source="oof" if calib_probs is not None else "calib",
+            n_rows=_n_calib_fit,
+        )
+    except Exception:
+        pass
+
     # Always materialise calibrated val probs so the return tuple is consistent regardless of show_val. Without this
     # the pre-existing ``return ..., meta_val_probs, ...`` raises NameError whenever the caller leaves show_val=False
     # (the historical default) -- a latent bug surfaced once we tightened the test-leak guard above.

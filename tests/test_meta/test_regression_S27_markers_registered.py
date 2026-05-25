@@ -154,9 +154,17 @@ def test_pyproject_marker_parser_picks_up_known_entries():
 
 
 def test_conftest_marker_parser_picks_up_known_entries():
-    """Smoke: parser sees conftest-registered names."""
+    """Smoke: parser sees conftest-registered names.
+
+    ``fast_only`` / ``slow_only`` / ``no_xdist`` are pyproject-registered
+    (see ``[tool.pytest.ini_options].markers`` in pyproject.toml) per the
+    D2-P2-#18 dedup; only conftest-private markers (``fuzz``,
+    ``biz_transformer`` -- both gated by ``--run-*`` option flags) belong
+    here. Pyproject-side registration is checked by the sibling
+    ``test_pyproject_marker_parser_picks_up_known_entries``.
+    """
     conftest_markers = _parse_conftest_markers()
-    for required in ("fuzz", "biz_transformer", "fast_only", "slow_only"):
+    for required in ("fuzz", "biz_transformer"):
         assert required in conftest_markers, (
             f"Marker {required!r} missing from conftest.py addinivalue_line; "
             f"either conftest was edited or the parser is broken."

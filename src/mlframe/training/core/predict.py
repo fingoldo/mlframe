@@ -668,15 +668,24 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
     _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
     _validate_trusted_path(metadata_file, _root)
     if _kind == "pkl.zst":
+        # ``pickle.loads`` of a zstd-decompressed in-memory buffer; the file path went through
+        # ``_validate_trusted_path`` above and the version envelope is checked post-load below.
+        # Route through safe_pickle.verify_sidecar so a tampered .pkl.zst is rejected by digest
+        # mismatch before the loads(); legacy bundles without a sidecar still load (the trusted-
+        # path validation + version envelope are the existing gates).
+        from mlframe.utils.safe_pickle import verify_sidecar as _vsidecar
         import pickle as _pickle
         import zstandard as _zstd
+        if not _vsidecar(metadata_file, allow_unverified=True):
+            raise RuntimeError(
+                f"predict_from_models: sha256 sidecar mismatch on {metadata_file!r}; refusing to load."
+            )
         _dctx = _zstd.ZstdDecompressor()
         with open(metadata_file, "rb") as _f:
-            metadata = _pickle.loads(_dctx.decompress(_f.read()))
+            metadata = _pickle.loads(_dctx.decompress(_f.read()))  # noqa: BARE_PICKLE_OK  in-memory buffer, sidecar already verified above
     elif _kind == "pkl":
-        import pickle as _pickle
-        with open(metadata_file, "rb") as _f:
-            metadata = _pickle.load(_f)
+        from mlframe.utils.safe_pickle import safe_load as _sload
+        metadata = _sload(metadata_file, allow_unverified=True)
     else:
         metadata = joblib.load(metadata_file)
     # Wave 19 P0 #2: validate version envelope here too (the second predict
