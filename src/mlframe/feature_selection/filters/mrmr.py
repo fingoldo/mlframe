@@ -50,6 +50,7 @@ from ._mrmr_fingerprints import (  # noqa: E402,F401
     _target_to_numpy_values,
     _target_name_signature,
     _full_y_content_hash,
+    _full_x_content_hash,
     _replay_fitted_state,
     _lazy_chunks,
     _MRMR_IDENTITY_FP_CACHE,

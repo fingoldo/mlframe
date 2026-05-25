@@ -433,6 +433,48 @@ def _target_name_signature(y) -> tuple:
     return ()
 
 
+def _full_x_content_hash(X) -> str:
+    """Full-content blake2b digest over X for collision-free cache keying.
+
+    The cheap 1024-strided ``_content_array_signature`` is still used as a fast-path discriminator but two
+    truly different X frames whose 1024 strided cells happen to coincide (e.g. after a column-wise outlier
+    clip that preserves the sampled positions) collide. Folding a full blake2b of X.tobytes() into the
+    ``_FIT_CACHE`` key rules this out at O(len(X) bytes hashed) cost -- negligible next to MRMR fit time
+    (~50ms on a 200MB frame, vs minutes of actual screening).
+
+    Mirrors ``_full_y_content_hash`` so the y-side and X-side guarantees are symmetric. Returns ``""`` on
+    any conversion failure so the caller can choose to skip the cache rather than serve a wrong replay.
+    """
+    try:
+        if hasattr(X, "to_numpy"):
+            try:
+                arr = X.to_numpy()
+            except Exception:
+                return ""
+        elif hasattr(X, "values"):
+            arr = X.values
+        else:
+            arr = X
+        if not isinstance(arr, np.ndarray):
+            arr = np.asarray(arr)
+        # Object dtype (mixed-type pandas frames) cannot be hashed via tobytes deterministically; skip cache.
+        if arr.dtype == object:
+            return ""
+        buf = np.ascontiguousarray(arr).tobytes()
+        h = hashlib.blake2b(buf, digest_size=16)
+        h.update(str(arr.shape).encode())
+        h.update(str(arr.dtype).encode())
+        # Fold column names (DataFrame-only) so df vs df.rename produce different keys.
+        if hasattr(X, "columns"):
+            try:
+                h.update(",".join(str(c) for c in X.columns).encode())
+            except Exception:
+                pass
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
 def _full_y_content_hash(y) -> str:
     """Return a hex digest covering the full content of ``y`` for cache-key disambiguation.
 

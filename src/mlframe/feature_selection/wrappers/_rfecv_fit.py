@@ -106,9 +106,16 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
                     _polars_time_series_hint = True
         except Exception:
             pass
+        # ``self_destruct=True`` releases the polars buffers in-place; safe only when RFECV owns the frame. The suite-side _apply_pre_pipeline_transforms passes cloned per-target subsets so the
+        # safe path is the historical default, but ad-hoc / notebook callers who pass their own polars frame would silently lose data. Gate on the ``_mlframe_owned_frame_`` marker (set by suite
+        # internals on subsets it owns) OR on the explicit instance flag ``_rfecv_owns_polars_frame_`` so a caller can opt in deliberately. Default behaviour for unmarked frames: pay the extra
+        # buffer copy rather than corrupt caller data.
+        _frame_is_internally_owned = bool(
+            getattr(X, "_mlframe_owned_frame_", False)
+            or getattr(self, "_rfecv_owns_polars_frame_", False)
+        )
         try:
-            # ``self_destruct=True`` releases the polars buffers in-place. The suite is currently safe because ``_apply_pre_pipeline_transforms`` works on cloned per-target subsets, but a future caller that passes a shared polars frame would silently lose its data. We keep ``self_destruct=True`` for the peak-RAM win on 100+ GB frames but document the precondition: callers MUST own X (no shared references). The bare ``to_pandas()`` TypeError fallback handles older polars without these kwargs.
-            X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=True)
+            X = X.to_pandas(use_pyarrow_extension_array=True, split_blocks=True, self_destruct=_frame_is_internally_owned)
         except TypeError:
             X = X.to_pandas()
     if isinstance(y, pl.Series):
@@ -253,21 +260,34 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             ",".join(map(str, np.asarray(y).ravel().tolist())).encode("utf-8"),
             digest_size=16,
         ).hexdigest()
-    # X-content sample (1024 evenly-spaced rows, all columns) so two RUNS on different X with identical shape + column names cannot collide on the checkpoint signature. Cost is O(n_cols * 1024) reads - still O(1) in n_rows and negligible vs a single RFECV iteration. The previous 10-sample stride collided on heavily-reshuffled X whose first/middle/last rows incidentally matched (e.g. after stratified rebalance preserving boundaries) and replayed support_ from the prior order. 1024 strided positions make this astronomically unlikely while staying well under the cost of a single iter.
+    # Full-content X hash to disambiguate the skip-retrain signature. Strided / sampled X fingerprints collided on heavily-reshuffled X whose sampled rows incidentally matched (e.g. stratified rebalance preserving boundaries); a full blake2b over X.tobytes() rules this out for ~50ms on a 1M x 100 frame -- well under a single RFECV iter cost. Object-dtype frames fall back to str-cast hashing because tobytes is non-deterministic for object arrays. Symmetric with the X-content hash now folded into the MRMR _FIT_CACHE key.
     try:
         _n = int(X.shape[0])
         if _n > 0:
-            _n_x_samples = 1024
-            _step = max(1, _n // _n_x_samples)
-            _positions = [i * _step for i in range(_n_x_samples) if i * _step < _n]
             if isinstance(X, pd.DataFrame):
-                _x_sample_arr = X.iloc[_positions].to_numpy()
+                _numeric_cols = X.select_dtypes(include=["number", "bool"]).columns.tolist()
+                _nonnum_cols = [c for c in X.columns if c not in set(_numeric_cols)]
+                _h = hashlib.blake2b(digest_size=12)
+                if _numeric_cols:
+                    _h.update(np.ascontiguousarray(X[_numeric_cols].to_numpy()).tobytes())
+                for _c in _nonnum_cols:
+                    _h.update(str(_c).encode("utf-8"))
+                    _h.update(b"\x00")
+                    _h.update(",".join(map(str, X[_c].astype(str).tolist())).encode("utf-8"))
+                    _h.update(b"\x01")
+                _x_hash = _h.hexdigest()
             else:
-                _x_sample_arr = np.asarray(X)[_positions]
-            _x_hash = hashlib.blake2b(
-                np.ascontiguousarray(_x_sample_arr.astype(np.float64, copy=False, casting="unsafe") if _x_sample_arr.dtype.kind in "biufc" else np.asarray(_x_sample_arr, dtype=str)).tobytes(),
-                digest_size=12,
-            ).hexdigest()
+                _x_arr = np.asarray(X)
+                if _x_arr.dtype == object:
+                    _x_hash = hashlib.blake2b(
+                        ",".join(map(str, _x_arr.ravel().tolist())).encode("utf-8"),
+                        digest_size=12,
+                    ).hexdigest()
+                else:
+                    _x_hash = hashlib.blake2b(
+                        np.ascontiguousarray(_x_arr).tobytes(),
+                        digest_size=12,
+                    ).hexdigest()
         else:
             _x_hash = "empty"
     except (TypeError, ValueError):

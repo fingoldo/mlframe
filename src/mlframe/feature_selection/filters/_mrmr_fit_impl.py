@@ -86,6 +86,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         MRMR,
         _content_array_signature,
         _full_y_content_hash,
+        _full_x_content_hash,
         _hashable_params_signature,
         _replay_fitted_state,
         _target_name_signature,
@@ -133,15 +134,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _params_sig = _hashable_params_signature(self.get_params(deep=False))
         _x_sig = _content_array_signature(X)
         _y_sig = _content_array_signature(y)
-        # Two targets with statistically-similar 10-cell samples (e.g. balanced binary) collide on _y_sig
-        # alone and replay one another's support_. Include the target name AND a full blake2b over y to
-        # disambiguate. Empty hash => skip cache (don't risk a wrong replay).
+        # Two targets with statistically-similar sampled cells collide on _y_sig / _x_sig alone and replay one another's support_. Fold full blake2b hashes over BOTH X and y plus the target name to
+        # disambiguate; either empty hash => skip cache (don't risk a wrong replay). Symmetric X/y guarantee closes A1#8: the prior 1024-strided X sample alone left a window where a
+        # column-wise outlier clip preserving the sampled positions silently replayed the unclipped fit.
         _y_name = _target_name_signature(y)
         _y_full_hash = _full_y_content_hash(y)
-        if not _y_full_hash:
+        _x_full_hash = _full_x_content_hash(X)
+        if not _y_full_hash or not _x_full_hash:
             _cache_key = None
         else:
-            _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _params_sig)
+            _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _x_full_hash, _params_sig)
     except Exception:
         _cache_key = None
     if _cache_key is not None and _cache_key in MRMR._FIT_CACHE:
