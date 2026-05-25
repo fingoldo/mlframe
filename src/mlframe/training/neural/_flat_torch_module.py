@@ -6,6 +6,7 @@ Re-imported at the parent module bottom so historical
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional
 
 import lightning as L
@@ -13,6 +14,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from .base import MetricSpec, to_numpy_safe
 
