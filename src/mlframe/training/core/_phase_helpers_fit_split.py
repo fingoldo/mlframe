@@ -296,27 +296,31 @@ def _phase_train_val_test_split(
             )
             _stratify_y = None
     with phase("split_data"):
-        # Exclude TrainingSplitConfig fields that DON'T map onto
-        # make_train_test_split's signature. These knobs configure
-        # caller-side behaviour around the splitter:
-        # * ``use_groups`` -- consumed above to derive ``_groups``.
-        # * ``calib_size`` -- carves the post-train calibration slice
-        #   downstream, not in the splitter itself.
-        # * ``composite_cardinality_cap`` -- read above (line ~139) to
-        #   decide whether bucket stratification is feasible for the
-        #   target's cardinality; never passed to make_train_test_split.
-        # Adding new TrainingSplitConfig fields means updating this
-        # exclude set in lockstep or the suite will TypeError at the
-        # splitter call. 2026-05-25 prod TVT run surfaced the gap when
-        # ``composite_cardinality_cap`` shipped without the exclude.
+        # Dynamically derive the kwargs the splitter accepts by inspecting
+        # its signature, then drop any TrainingSplitConfig field not in
+        # that set. Static exclude lists drift: prod TVT 2026-05-25
+        # surfaced TWO consecutive TypeErrors (composite_cardinality_cap
+        # then bucket_stratify) because new caller-side fields shipped
+        # without exclude updates. Caller-side fields documented as of
+        # 2026-05-25:
+        #   use_groups -- derives _groups upstream
+        #   calib_size -- downstream post-train carve
+        #   composite_cardinality_cap -- bucket-stratify gate (line ~139)
+        #   bucket_stratify -- selects the bucket-stratify branch
+        # Signature-derived filtering catches future additions automatically.
+        import inspect as _inspect
+        _splitter_kwargs = set(_inspect.signature(make_train_test_split).parameters)
+        _explicit_kwargs = {"df", "timestamps", "stratify_y", "groups"}
+        _cfg_dict = {
+            k: v for k, v in split_config.model_dump().items()
+            if k in _splitter_kwargs and k not in _explicit_kwargs
+        }
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
             df=df,
             timestamps=timestamps,
             stratify_y=_stratify_y,
             groups=_groups,
-            **split_config.model_dump(
-                exclude={"use_groups", "calib_size", "composite_cardinality_cap"},
-            ),
+            **_cfg_dict,
         )
     if verbose:
         log_ram_usage()
