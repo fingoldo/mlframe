@@ -458,6 +458,32 @@ def post_calibrate_model(
     except Exception:
         pass
 
+    # CalibrationConfig.policy_auto_pick: run pick_best_calibrator on the OOF source so the metrics dict carries the auto-pick verdict (chosen method + ECE CI) alongside the legacy meta-model output. Enabled by default; opt-out via configs.calibration.policy_auto_pick = False.
+    _calib_cfg = getattr(configs, "calibration", None) if configs is not None else None
+    _policy_on = True if _calib_cfg is None else bool(getattr(_calib_cfg, "policy_auto_pick", True))
+    if _policy_on and isinstance(metrics, dict):
+        try:
+            from mlframe.calibration.policy import pick_best_calibrator
+            _emit_plot = bool(getattr(_calib_cfg, "emit_plot", False)) if _calib_cfg is not None else False
+            _plot_path = getattr(_calib_cfg, "plot_path", None) if _calib_cfg is not None else None
+            _n_boot = int(getattr(_calib_cfg, "n_bootstrap", 1000)) if _calib_cfg is not None else 1000
+            _alpha = float(getattr(_calib_cfg, "alpha", 0.05)) if _calib_cfg is not None else 0.05
+            _cand = getattr(_calib_cfg, "candidates", None) if _calib_cfg is not None else None
+            _policy = pick_best_calibrator(
+                probs=None,
+                y=None,
+                oof_probs=_binary_fit_X.ravel(),
+                oof_y=_binary_fit_y,
+                alpha=_alpha,
+                candidates=_cand,
+                n_bootstrap=_n_boot,
+                emit_plot=_emit_plot,
+                plot_path=_plot_path,
+            )
+            metrics["calibration_policy"] = {k: v for k, v in _policy.items() if k != "calibrated_probs"}
+        except Exception as _policy_err:
+            logger.warning("post_calibrate_model: calibration policy auto-pick failed: %s", _policy_err)
+
     # Always materialise calibrated val probs so the return tuple is consistent regardless of show_val. Without this
     # the pre-existing ``return ..., meta_val_probs, ...`` raises NameError whenever the caller leaves show_val=False
     # (the historical default) -- a latent bug surfaced once we tightened the test-leak guard above.

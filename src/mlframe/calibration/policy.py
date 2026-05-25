@@ -1,0 +1,422 @@
+"""Auto-select the best post-hoc calibrator by OOF ECE with bootstrap CI tiebreak.
+
+The ``pick_best_calibrator`` helper benches a small palette of binary calibrators
+(Sigmoid / Isotonic / Beta / Spline) on the OOF-train probabilities, computes the
+ECE point estimate plus a percentile bootstrap CI (1000 resamples by default), and
+returns the calibrator that minimises ECE — with a Kull-2017 default-rule fallback
+(Isotonic for n_oof >= 1000, Beta otherwise) when the candidate CIs overlap so the
+choice is non-arbitrary on small-sample / nearly-tied OOF fits.
+
+Wire-up: ``post_calibrate_model`` consults ``CalibrationConfig.policy_auto_pick``
+(default True) and threads the chosen calibrator into the meta-model fit. The
+chosen calibrator + its CI is also stamped into the metadata report so a reviewer
+can see at a glance which method the suite picked and how confident the OOF ECE
+estimate is.
+
+References:
+  - Kull, Filho, Flach (AISTATS 2017) "Beta calibration".
+  - Niculescu-Mizil & Caruana ICML 2005 "Predicting good probabilities".
+  - Naeini et al. AAAI 2015 (ECE binning).
+"""
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+DEFAULT_ECE_NBINS: int = 15
+DEFAULT_N_BOOTSTRAP: int = 1000
+DEFAULT_ALPHA: float = 0.05
+SMALL_SAMPLE_THRESHOLD: int = 1000
+
+CANDIDATE_NAMES: tuple[str, ...] = ("Sigmoid", "Isotonic", "Beta", "Spline")
+
+
+def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE_NBINS) -> float:
+    """Equal-width ECE over ``n_bins`` for binary probability ``p_pred[:, 1]`` or 1-D ``p_pred``.
+
+    Standard ECE: ``sum_b (|B_b| / N) * |acc(B_b) - conf(B_b)|`` over equal-width
+    confidence bins on ``[0, 1]``. Returns nan when ``p_pred`` is empty or all-nan.
+    """
+    p = np.asarray(p_pred, dtype=np.float64)
+    if p.ndim == 2 and p.shape[1] >= 2:
+        p = p[:, 1]
+    p = p.ravel()
+    y = np.asarray(y_true, dtype=np.float64).ravel()
+    if p.size == 0 or y.size != p.size:
+        return float("nan")
+    finite = np.isfinite(p) & np.isfinite(y)
+    if not finite.any():
+        return float("nan")
+    p = p[finite]
+    y = y[finite]
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    edges[-1] = np.nextafter(1.0, 2.0)
+    bin_ids = np.digitize(p, edges, right=False) - 1
+    bin_ids = np.clip(bin_ids, 0, n_bins - 1)
+    ece = 0.0
+    n = p.size
+    for b in range(n_bins):
+        mask = bin_ids == b
+        n_b = int(mask.sum())
+        if n_b == 0:
+            continue
+        conf = float(p[mask].mean())
+        acc = float(y[mask].mean())
+        ece += (n_b / n) * abs(acc - conf)
+    return float(ece)
+
+
+def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Optional[Callable[[np.ndarray], np.ndarray]]:
+    """Fit ``name`` on ``(calib_p, calib_y)``; return ``predict_proba_pos(p_test) -> p_test_calibrated`` or ``None``.
+
+    Optional deps (betacal for Beta, ml_insights for Spline) are guarded; absent dep
+    silently drops that candidate from the bench so the policy still runs with the
+    remaining baseline (Sigmoid / Isotonic via sklearn).
+    """
+    p = np.asarray(calib_p, dtype=np.float64)
+    if p.ndim == 2 and p.shape[1] >= 2:
+        p = p[:, 1]
+    p = p.reshape(-1, 1)
+    y = np.asarray(calib_y).ravel()
+    try:
+        if name == "Sigmoid":
+            from sklearn.linear_model import LogisticRegression
+            clf = LogisticRegression(C=1e10, solver="lbfgs")
+            clf.fit(p, y)
+            def _apply_sigmoid(probs: np.ndarray) -> np.ndarray:
+                q = np.asarray(probs, dtype=np.float64)
+                if q.ndim == 2 and q.shape[1] >= 2:
+                    q = q[:, 1]
+                return clf.predict_proba(q.reshape(-1, 1))[:, 1]
+            return _apply_sigmoid
+        if name == "Isotonic":
+            from sklearn.isotonic import IsotonicRegression
+            iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+            iso.fit(p.ravel(), y)
+            def _apply_iso(probs: np.ndarray) -> np.ndarray:
+                q = np.asarray(probs, dtype=np.float64)
+                if q.ndim == 2 and q.shape[1] >= 2:
+                    q = q[:, 1]
+                return iso.predict(q.ravel())
+            return _apply_iso
+        if name == "Beta":
+            try:
+                from betacal import BetaCalibration
+            except ImportError:
+                logger.debug("pick_best_calibrator: betacal not installed; skipping Beta")
+                return None
+            beta = BetaCalibration(parameters="abm")
+            beta.fit(p, y)
+            def _apply_beta(probs: np.ndarray) -> np.ndarray:
+                q = np.asarray(probs, dtype=np.float64)
+                if q.ndim == 2 and q.shape[1] >= 2:
+                    q = q[:, 1]
+                out = beta.predict(q.reshape(-1, 1))
+                return np.asarray(out).ravel()
+            return _apply_beta
+        if name == "Spline":
+            try:
+                import ml_insights as mli
+            except ImportError:
+                logger.debug("pick_best_calibrator: ml_insights not installed; skipping Spline")
+                return None
+            spline = mli.SplineCalib()
+            spline.fit(p.ravel(), y)
+            def _apply_spline(probs: np.ndarray) -> np.ndarray:
+                q = np.asarray(probs, dtype=np.float64)
+                if q.ndim == 2 and q.shape[1] >= 2:
+                    q = q[:, 1]
+                return np.asarray(spline.predict(q.ravel())).ravel()
+            return _apply_spline
+    except Exception as exc:
+        logger.warning("pick_best_calibrator: %s fit failed: %s", name, exc)
+        return None
+    return None
+
+
+def _cis_overlap(ci_a: tuple[float, float], ci_b: tuple[float, float]) -> bool:
+    """True if two percentile CIs overlap (closed intervals)."""
+    lo_a, hi_a = ci_a
+    lo_b, hi_b = ci_b
+    return not (hi_a < lo_b or hi_b < lo_a)
+
+
+def _emit_reliability_plot(
+    candidates: Mapping[str, dict[str, Any]],
+    oof_probs: np.ndarray,
+    oof_y: np.ndarray,
+    plot_path: str,
+    n_bins: int = DEFAULT_ECE_NBINS,
+) -> Optional[str]:
+    """Render a reliability diagram for every candidate alongside the raw OOF curve.
+
+    Returns the absolute path on success, ``None`` if matplotlib is unavailable or
+    the write fails. The plot is small (single figure, 4-6 lines) and is meant for
+    inclusion in the honest-diagnostics report bundle.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.warning("pick_best_calibrator: matplotlib not available; skipping reliability plot")
+        return None
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(plot_path)) or ".", exist_ok=True)
+    except OSError as exc:
+        logger.warning("pick_best_calibrator: could not create plot dir for %s: %s", plot_path, exc)
+        return None
+
+    raw_p = np.asarray(oof_probs, dtype=np.float64)
+    if raw_p.ndim == 2 and raw_p.shape[1] >= 2:
+        raw_p = raw_p[:, 1]
+    raw_p = raw_p.ravel()
+    y = np.asarray(oof_y, dtype=np.float64).ravel()
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+
+    def _curve(p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        bin_ids = np.clip(np.digitize(p, edges, right=False) - 1, 0, n_bins - 1)
+        xs = np.full(n_bins, np.nan)
+        ys = np.full(n_bins, np.nan)
+        for b in range(n_bins):
+            mask = bin_ids == b
+            if mask.any():
+                xs[b] = float(p[mask].mean())
+                ys[b] = float(y[mask].mean())
+        return xs, ys
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="perfect")
+    raw_x, raw_y = _curve(raw_p)
+    ax.plot(raw_x, raw_y, marker="o", label="raw OOF")
+    for name, info in candidates.items():
+        cal_p = info.get("calibrated_probs")
+        if cal_p is None:
+            continue
+        cx, cy = _curve(np.asarray(cal_p).ravel())
+        ax.plot(cx, cy, marker="x", label=f"{name} ECE={info['ece_mean']:.4f}")
+    ax.set_xlabel("predicted probability")
+    ax.set_ylabel("empirical frequency")
+    ax.set_title("Reliability diagram (OOF)")
+    ax.legend(loc="best", fontsize=8)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    fig.tight_layout()
+    try:
+        fig.savefig(plot_path, dpi=100)
+    except OSError as exc:
+        logger.warning("pick_best_calibrator: savefig failed for %s: %s", plot_path, exc)
+        plt.close(fig)
+        return None
+    plt.close(fig)
+    return os.path.abspath(plot_path)
+
+
+def pick_best_calibrator(
+    probs: Optional[np.ndarray],
+    y: Optional[np.ndarray],
+    oof_probs: np.ndarray,
+    oof_y: np.ndarray,
+    *,
+    alpha: float = DEFAULT_ALPHA,
+    candidates: Optional[Iterable[str]] = None,
+    n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
+    n_bins: int = DEFAULT_ECE_NBINS,
+    random_state: Optional[int] = 0,
+    emit_plot: bool = False,
+    plot_path: Optional[str] = None,
+) -> dict[str, Any]:
+    """Pick the calibrator that minimises OOF ECE (with bootstrap CI tiebreak).
+
+    Parameters
+    ----------
+    probs, y
+        Optional held-out probs / labels for diagnostic-only secondary ECE; not used
+        for the selection decision (selection is OOF-only to keep test honest).
+    oof_probs, oof_y
+        OOF-train probs/labels — the calibrator fit + ECE benchmark surface. Required.
+    alpha
+        Two-sided coverage; default 0.05 -> 95% percentile CI.
+    candidates
+        Iterable of calibrator names to try; defaults to ``CANDIDATE_NAMES``. Unknown
+        names are skipped with a warning.
+    n_bootstrap
+        Resample count for the OOF ECE CI; ``DEFAULT_N_BOOTSTRAP=1000``.
+    n_bins
+        ECE bin count; ``DEFAULT_ECE_NBINS=15`` mirrors the suite's standard report.
+    random_state
+        Seed for the bootstrap RNG. Pin for reproducibility.
+    emit_plot
+        When True, render a reliability diagram for every candidate to ``plot_path``.
+    plot_path
+        Output path; when ``emit_plot=True`` and ``plot_path is None``, defaults to
+        ``reports/calibration_<utc_ts>.png`` in the working directory.
+
+    Returns
+    -------
+    dict
+        ``{"chosen": <name>, "ece_mean": ..., "ece_ci": (lo, hi),
+           "alternatives": {<name>: {"ece_mean", "ece_ci"}}, "rule": <selection-rule>,
+           "n_oof": int, "plot_path": Optional[str]}``.
+
+    Selection rule
+    --------------
+    1. Bench every candidate; compute OOF ECE + bootstrap CI.
+    2. Sort by ECE mean ascending.
+    3. If the top candidate's CI does NOT overlap the runner-up's, return top.
+    4. Otherwise apply Kull-2017 default: Isotonic when ``n_oof >= 1000``, Beta when
+       ``n_oof < 1000``; if the default isn't in the OOF-tied subset, fall through
+       to the lowest-ECE candidate.
+    """
+    from mlframe.evaluation.bootstrap import bootstrap_metric
+
+    oof_p = np.asarray(oof_probs, dtype=np.float64)
+    if oof_p.ndim == 2 and oof_p.shape[1] >= 2:
+        oof_p_pos = oof_p[:, 1]
+    else:
+        oof_p_pos = oof_p.ravel()
+    oof_y_arr = np.asarray(oof_y).ravel()
+    n_oof = int(oof_y_arr.shape[0])
+    if oof_p_pos.shape[0] != n_oof:
+        raise ValueError(
+            f"pick_best_calibrator: oof_probs rows ({oof_p_pos.shape[0]}) do not match oof_y ({n_oof})"
+        )
+    if n_oof < 4:
+        raise ValueError(f"pick_best_calibrator: need at least 4 OOF rows; got n_oof={n_oof}")
+
+    cand_names = tuple(candidates) if candidates is not None else CANDIDATE_NAMES
+    unknown = [c for c in cand_names if c not in CANDIDATE_NAMES]
+    if unknown:
+        logger.warning("pick_best_calibrator: unknown candidate(s) ignored: %s", unknown)
+    cand_names = tuple(c for c in cand_names if c in CANDIDATE_NAMES)
+    if not cand_names:
+        raise ValueError(f"pick_best_calibrator: no valid candidate names; allowed={CANDIDATE_NAMES}")
+
+    results: dict[str, dict[str, Any]] = {}
+    classes = np.unique(oof_y_arr)
+    stratify = oof_y_arr if classes.size == 2 else None
+
+    metric_fn = lambda _y, _p, _nb=n_bins: _ece_score(_y, _p, n_bins=_nb)
+
+    for name in cand_names:
+        apply_fn = _fit_calibrator(name, oof_p_pos, oof_y_arr)
+        if apply_fn is None:
+            continue
+        try:
+            cal_oof = np.asarray(apply_fn(oof_p_pos), dtype=np.float64).ravel()
+            cal_oof = np.clip(cal_oof, 0.0, 1.0)
+        except Exception as exc:
+            logger.warning("pick_best_calibrator: %s.predict on OOF failed: %s", name, exc)
+            continue
+        try:
+            ci = bootstrap_metric(
+                oof_y_arr,
+                cal_oof,
+                metric_fn=metric_fn,
+                n_bootstrap=n_bootstrap,
+                alpha=alpha,
+                stratify=stratify,
+                random_state=random_state,
+            )
+        except Exception as exc:
+            logger.warning("pick_best_calibrator: bootstrap on %s failed: %s", name, exc)
+            continue
+        results[name] = {
+            "ece_mean": float(ci["point"]),
+            "ece_ci": (float(ci["lo"]), float(ci["hi"])),
+            "calibrated_probs": cal_oof,
+        }
+
+    if not results:
+        raise RuntimeError(
+            "pick_best_calibrator: every candidate calibrator failed; check optional deps "
+            "(betacal, ml_insights) and OOF input shape."
+        )
+
+    ranked = sorted(results.items(), key=lambda kv: kv[1]["ece_mean"])
+    chosen_name = ranked[0][0]
+    selection_rule = "lowest_ece"
+    if len(ranked) > 1:
+        top_ci = ranked[0][1]["ece_ci"]
+        runner_ci = ranked[1][1]["ece_ci"]
+        if _cis_overlap(top_ci, runner_ci):
+            default_choice = "Isotonic" if n_oof >= SMALL_SAMPLE_THRESHOLD else "Beta"
+            tied = [name for name, info in ranked if _cis_overlap(top_ci, info["ece_ci"])]
+            if default_choice in tied:
+                chosen_name = default_choice
+                selection_rule = "default_isotonic" if default_choice == "Isotonic" else "default_beta"
+            else:
+                # Default candidate isn't in the tied subset; fall back to the lowest-mean.
+                selection_rule = "lowest_ece_ci_overlap"
+        else:
+            selection_rule = "lowest_ece_ci_separated"
+
+    plot_out: Optional[str] = None
+    if emit_plot:
+        if plot_path is None:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            plot_path = os.path.join("reports", f"calibration_{ts}.png")
+        plot_out = _emit_reliability_plot(results, oof_p_pos, oof_y_arr, plot_path, n_bins=n_bins)
+
+    return {
+        "chosen": chosen_name,
+        "ece_mean": float(results[chosen_name]["ece_mean"]),
+        "ece_ci": tuple(results[chosen_name]["ece_ci"]),
+        "alternatives": {
+            name: {"ece_mean": info["ece_mean"], "ece_ci": info["ece_ci"]}
+            for name, info in results.items()
+        },
+        "rule": selection_rule,
+        "n_oof": n_oof,
+        "plot_path": plot_out,
+    }
+
+
+@dataclass
+class CalibrationConfig:
+    """Calibration-policy knobs for ``post_calibrate_model``.
+
+    Currently a single field; kept as a dataclass so further policy knobs (ECE bin
+    count override, candidate set override, plot emission toggle) can be added
+    without breaking call sites.
+
+    Parameters
+    ----------
+    policy_auto_pick
+        When True (default), ``post_calibrate_model`` invokes
+        :func:`pick_best_calibrator` on the OOF probs and uses its decision in
+        addition to (not in place of) the legacy meta-model path. The chosen
+        calibrator + CI is stamped into the metrics dict under
+        ``metadata["calibration_policy"]`` for downstream consumers (honest
+        diagnostics report, ops dashboards).
+    emit_plot
+        When True, the reliability plot is rendered to ``plot_path``.
+    plot_path
+        Optional explicit path for the reliability plot. ``None`` = auto-generate
+        ``reports/calibration_<utc_ts>.png``.
+    n_bootstrap
+        Bootstrap resample count for the OOF ECE CI (default 1000).
+    alpha
+        CI coverage; 0.05 -> 95% CI.
+    candidates
+        Restricted candidate set; ``None`` = ``CANDIDATE_NAMES``.
+    """
+
+    policy_auto_pick: bool = True
+    emit_plot: bool = False
+    plot_path: Optional[str] = None
+    n_bootstrap: int = DEFAULT_N_BOOTSTRAP
+    alpha: float = DEFAULT_ALPHA
+    candidates: Optional[tuple[str, ...]] = None
+
+
+__all__ = ["pick_best_calibrator", "CalibrationConfig", "CANDIDATE_NAMES", "DEFAULT_ECE_NBINS"]
