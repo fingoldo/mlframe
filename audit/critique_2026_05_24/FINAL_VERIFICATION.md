@@ -1,6 +1,6 @@
-# Final verification audit (2026-05-25, post-Wave-11)
+# Final verification audit (2026-05-25, post-Wave-12)
 
-Pass-through of every finding from the 11 Wave-0 critic agents + the Wave-7/8/9/10/11 architectural-proposal slate. Status derived from (a) per-wave DONE_*.json manifest, (b) git log `da68ca6..HEAD` (~165 commits: 88 pre-Wave-8 + 8 Wave-8 + 23 Wave-9 + 23 Wave-10 + 23 Wave-11 + 1 user fix), (c) regression-sensor file existence under `tests/`, (d) targeted source greps for items not in any manifest.
+Pass-through of every finding from the 11 Wave-0 critic agents + the Wave-7/8/9/10/11/12 architectural-proposal slate. Status derived from (a) per-wave DONE_*.json manifest, (b) git log `da68ca6..HEAD` (~195 commits: 88 pre-Wave-8 + 8 Wave-8 + 23 Wave-9 + 23 Wave-10 + 23 Wave-11 + 1 user fix + 30 Wave-12), (c) regression-sensor file existence under `tests/`, (d) targeted source greps for items not in any manifest.
 
 Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: every atomic finding gets a row. No round-number aggregation. No silent filtering. Low-tier surfaced alongside P0/P1/P2.
 
@@ -11,6 +11,8 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 **Wave 10 landed (commit range `c31b419d..04cfe69d`, 23 commits)**: W10A perf P2/Low residue (1 correction-only commit 27429ed3 - 9 A4 P2/Low items verified DONE in prior waves; FINAL_VERIFICATION mis-tracking of A4#5 corrected); W10B caching follow-ups (4 commits: b8083ef6 AP1 SuiteArtefactCache eviction sidecar accounting fix, 54d456ae MRMR x-hash extended to `_pre_pipeline_cache_key`, 65b3dded `_discovery_cache_bytes_total` helper for DiscoveryCache observability, c70c9317 A5#9 joint-stash architectural proposal deferred pending user OK); W10C tests infra residue (3 commits + manifest: 53d62fb8 T1 session-fixture immutability sensor extension, bb019e9e T5 BGM + RSD-kNN biz_value tests, 415d3e23 fast marker on bootstrap suite + strengthened dataset_cache_fingerprint assert; agent hung mid-sweep on fast-mode extension to remaining packages, fuzz dimension widening cross-axis, weak-assert W4-W8 cluster, numba bench-report script, pytest cache cleanup, RFECV monkey-patch upstream-fix); W10D code-arch residue (5 commits: faea57b3 CHANGELOG aggregate entry + 3 docs guides, 55e6b55d macOS+py3.13 CI matrix expansion + mypy strict expand to utils.safe_pickle, 8ab33fb9 cross-package underscore-import meta-test + top-level __init__ docstring + cupy SoftBan doc, b643da93 AP5 nightly run validation surfacing 2 fixes for Wave 11, d94313ab manifest); W10E monolith preventive splits (6 commits: 9d633121 strategies.py 956→316 with 4 siblings, 48626d64 extractors.py 937→326 with 3 siblings, 206ce81b train_eval.py 942→570 with 1 sibling, d61dd0cc helpers.py 994→267 with 1 sibling, ef9aec26 neural/flat.py 928→420 with 1 sibling, 2c2d8452 LOC-budget meta-test currently FAILS by design on 5 files >1k LOC). Plus d1820c55 numba-coverage report generator + meta-test extending AP5, and user direct commits aef36c5/d20f4b8b composite_cardinality_cap excluded from model_dump kwargs.
 
 **Wave 11 landed (commit range `2b7126e9..24595d56`, 23 commits + 1 user fix 92ff6a45)**: W11A final 5 monolith carves dropping last files >1k LOC below the threshold (bd7bc8d7 CompositeTargetEstimator 1116→687 via 3 utils/predict/update siblings, 451306d0 RFECV._rfecv_fit 1059→826 via _init validation-prelude sibling, b428661a neural/base 1057→748 via 3 logging/tensors/callbacks siblings, 19191e42 _ensembling_score 1025→950 via 1 _validate sibling, 24595d56 _phase_composite_post 1005→938 via 1 lag_predict sibling; LOC-budget meta-test now PASSES (0 files >1k); 3 deeper carves deferred with documented rationale: RFECV inner CV loop, ensembling_score body, composite_post cross-target loop); W11B numba CI + ALLOWLIST drained (3 commits: 290bd967 mps.py:129 IndexError FIXED - real bounds bug in `compute_area_profits` n_prices vs n_pos split surfaced by NUMBA_DISABLE_JIT, cd6669a6 biz_njit_poly_eval skipif gate under NUMBA_DISABLE_JIT=1, e6b89771 cross-package underscore-import ALLOWLIST drained 9→0 via public re-exports for CUDA_IS_AVAILABLE, XGB_GPU_AVAILABLE, LGB_GPU_AVAILABLE, short_model_tag, strip_shim_suffix, show_plots_unless_agg, is_gpu_available, get_kernel_tuning_cache); W11C tests-infra residue (6 commits: 5708acea RFECV verbose default 1→0 + 40 LOC conftest monkey-patch dropped (upstream-fix decision in own wrapper), 827efd89 session-scope cache cleanup fixture for `.pytest_cache` / `.nbc` / `.numba_cache` >7d old, 9eed7acb fast-mode `pytest.mark.fast` applied module-level to 8 files in calibration/metrics/inference/feature_engineering, 36d2ed04 fuzz cross-axis combo sensors C1+C2+C3 extending F1-F7 series, 2c97919d 7 weak-asserts W4-W8 strengthened to behavioural contracts, 02b3b7df finite-only assertion corrected to compute_countaggs name-vs-value parity); W11D misc residue (9 commits: 4a9548ec A2#4/S32 `_DEFAULT_DATE_METHODS` per-call copy, b2d631ea A2#12/S40 `_ratio_fit` empty-base / NumPy 2.x hard-error guard, 05386281 A5#7/S54 `_PRE_PIPELINE_CACHE` env-override + byte-budget LRU eviction, 60110565 A6 Low #39 estimators/custom .values → .to_numpy(), 9eef57e7 A3#2/S41 `_ensemble_chooser` test.* fallback WARN, 395ff949 A3#4/S43 `_rrf_aggregate_probs` K=1 raw-RRF WARN, 17e9cce9 B2#10 [MEM] cleanup_memory print gated behind MLFRAME_TEST_MEM_LOG=1 env, e910ff9c B2 PYTHONUNBUFFERED=1 default in conftest, 7b5e9098 manifest); plus 5 FINAL_VERIFICATION corrections flagged by W11D audit-sweep (A2 Low #25/26/28, A5 Low #15, D2 Low #20 verified-already-fixed). User direct commit 92ff6a45 signature-derived filter for split_config.model_dump kwargs (improvement over W10 d20f4b8b composite_cardinality_cap fix).
+
+**Wave 12 landed (commit range `4a0b5ae4..5454db7d`, 30 commits)**: W12A 3 deeper monolith carves (4 commits: a7ccf9eb _phase_composite_post xt_ensemble sibling 938→263 closing C1#1 in full, b1ce9710 _ensembling_score gate-source + KN/K2 catastrophic-drop helpers 950→709 target <600 missed because deeper carve requires EnsembleScoreState dataclass refactor deferred per behavioural-equivalence rule, 012ba68f _rfecv_fit setup + per-fold body siblings 826→536 target <500 missed because OuterLoopState dataclass needed, 15b0a5bb manifest); W12B 6 preventive 900-1000 LOC carves (5 commits: 44adf1ff target_temporal_audit 949→596 closing C1#11, fde4e938 baseline_diagnostics 942→507 via method-rebinding closing C1#13, c752a69d composite_discovery 878→469 via method-rebinding, d2a1a514 _phase_train_one_target dataset-cache helpers sibling 783→481, 158a75cd manifest; deferred: `_phase_train_one_target_body` 933 + `_main_train_suite` 921 single-function monoliths needing CodeStateBundle dataclass refactor); W12C B1 module-gap coverage (9 commits + 1 manifest, 10 new test files, 176 unit tests: b4bde927 drift_report 15 tests closing B1 U4, 03949498 feature_drift_report 20 tests closing B1 U5, 57008445 models_predicates 53 tests closing B1 U6, e8f806a8 io_clean_and_validate 13 tests closing B1 U7, e3a5bdbd composite_bayesian_bootstrap 7 tests closing B1 U8, 4138c1df phases_registry 15 tests closing B1 U9, 521f0534 lgb + xgb shim dataset_reuse_capable 10 tests batched closing B1 U10 + B1 U11, be45d10c ranking_helpers 15 tests closing B1 U12, 3376e3ad pysr_operators 28 tests closing B1 U21; dropped: pu_learning already covered, _timeseries_emit internal); W12D A2 + B2 + misc residue (12 commits: a479c1b3 B2#44 --instafail addopts wired + D2#4 dead fast_only/requires_lgb markers dropped, ad737eda A2#22 run_pysr_fe stronger delegation to bruteforce entry point, 949f33aa A2#20 composite_transforms registry contract suite 96 tests across 4 contracts × 24 transforms, 5d7f3b45 A2 W2 tvt_round5 weak-asserts strengthened to callable phase entries, 22db99b1 **REAL BUG FIX**: missing `os` + `ModelCheckpoint` imports in `_flat_torch_module.py` after W10E carve - would NameError at runtime, 2d9b5d33 lag_predict_failsafe_tolerance default flip 0.50→0.10, 8d27f966 / 73ccc299 / c4c22118 / 491ad293 / 7ddff2db meta-test baseline refreshes (5: API snapshot, logger lazy-format, predict.py bare-pickle whitelist line, extractors sibling-split cycle whitelist, _USER_DEFERRED_CYCLES growth 8→9), 5454db7d manifest).
 
 ## Per-finding status table
 
@@ -54,7 +56,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | A2#8 / S36 | P1 | recursive subset `.copy()` in create_aggregated_features | DEFERRED | Not addressed |
 | A2#9 / S37 | P1 | `from_fitted_inner` skips clone asymmetry vs fit | DONE | c043f386 (w1c S26) overrides `__sklearn_clone__` on `from_fitted_inner` instances |
 | A2#10 / S38 | P1 | `_median_residual_fit` Python loop with `np.median` per bin | DONE | 05688481 (w4b S45) size-aware dispatcher pandas-groupby fallback |
-| A2#11 / S39 | P1 | bruteforce rename mutating caller's frame in place | DEFERRED | Not addressed |
+| A2#11 / S39 | P1 | bruteforce rename mutating caller's frame in place | DEFERRED | Not addressed (architectural redesign of PySR hand-off contract; same root cause as A2#6) |
 | A2#12 / S40 | P1 | `_ratio_fit` empty-array `np.median` warning pitfall | DONE | b2d631ea (W11D `fix(composite_transforms): guard _ratio_fit against all-non-finite / all-zero base`) + `tests/training/test_regression_w11d_ratio_fit_empty_base.py` |
 | A2#13 | P2 | `make_discovery_cache_key random_state=0` sentinel arg | DONE | 2243fc33 (w5b A5_make_discovery_cache_key_seed_double_fold=DONE; renamed to `_legacy_random_state_sentinel`) |
 | A2#14 | P2 | `create_aggregated_features nonlinear_transforms=[np.cbrt]` literal each call | DONE | bbff3590 (A2_FE_timeseries_mutable_default=DONE per w5a) |
@@ -63,9 +65,9 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | A2#17 | P2 | `CompositeTargetEstimator.feature_names_in_` bare except Exception | DONE | bbff3590 (A2_FE_composite_target_estimator_bare_except=DONE; narrowed to AttributeError per w5a) |
 | A2#18 | P2 | `_PYSR_LOCK` global serialisation - user-facing docs | DONE | bbff3590 (A2_FE_pysr_lock_contract_doc=DONE per w5a) |
 | A2#19 | P2 | `pysr_operator_preset or "standard"` swallows empty string | DONE | bbff3590 (A2_FE_or_standard_collapses_empty_string=DONE per w5a) |
-| A2#20 | P2 | Composite Transform unit-test coverage gap | DEFERRED | Per-transform unit suites not authored; w3a/w3c did not add families. Backlog |
+| A2#20 | P2 | Composite Transform unit-test coverage gap | DONE | 949f33aa (W12D `test(composite_transforms): per-transform registry contract suite (fit/forward/inverse/domain/purity)`) + `tests/training/test_composite_transforms_registry_contract.py` (96 tests across 4 contracts × 24 transforms) |
 | A2#21 | Low | `create_date_features` per-call INFO log | DONE | bbff3590 (A2_FE_create_date_features_log_level=DONE; demoted to DEBUG per w5a) |
-| A2#22 | Low | Legacy `run_pysr_fe` vs `bruteforce.run_pysr_feature_engineering` duplicate | DONE | bbff3590 (A2_FE_run_pysr_fe_duplicate_deprecation=DONE; DeprecationWarning per w5a) |
+| A2#22 | Low | Legacy `run_pysr_fe` vs `bruteforce.run_pysr_feature_engineering` duplicate | DONE | bbff3590 (A2_FE_run_pysr_fe_duplicate_deprecation=DONE; DeprecationWarning per w5a) + ad737eda (W12D `fix(fe/basic): delegate single-target run_pysr_fe to bruteforce entry point`) - now structurally delegates to canonical implementation, not just warns; `tests/feature_engineering/test_regression_w12d_run_pysr_fe_delegation.py` pins delegation contract |
 | A2#23 | Low | sympy `safe_log` predict semantics ≠ Julia train | DONE | de7b5cb6 (A2_FE_sympy_safe_log_predict_semantics=DONE; Piecewise mapping per w5a) + `test_regression_w5_pysr_piecewise_semantics.py` |
 | A2#24 | Low | `_median_residual_fit np.unique` collapse warning gap | DONE | bbff3590 (A2_FE_composite_transform_median_collapse=DONE; RuntimeWarning per w5a) |
 | A2#25 | Low | misleading try/except/finally comment | DONE | W11D verified-already-fixed at `_pipeline_extensions.py:202` (substantive errors=ignore + nested try doc now in place; meta-prose flagged by audit no longer present) |
@@ -73,7 +75,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | - +Low | Low | `pd.DataFrame(data=features, dtype=)` SettingWithCopyWarning class | REJECTED | w2c #20 rejected (parity) |
 | - +Low | Low | `online_refit_*` docstring gap | DONE | W11D verified-already-fixed at `_composite_target_estimator.py:85-91` (all 4 online_refit_* params documented with default-OFF rationale) |
 | A2 W1 | weak | `test_biz_val_bruteforce.py` `model.equations_ is not None` x4 | DONE | 7157af4 (w3c B1_W1_pysr_bruteforce_weak_asserts=DONE) |
-| A2 W2 | weak | `test_tvt_round5_*.py` bare `is not None` cluster | DEFERRED | tvt_round5_lag_xgb_huber sites not surveyed (12+ assert-is-not-None sites; W11C strengthened other clusters but explicitly left tvt_round5 untouched per W11D manifest "belongs in dedicated test-strengthening wave") |
+| A2 W2 | weak | `test_tvt_round5_*.py` bare `is not None` cluster | DONE | 5d7f3b45 (W12D `test(training): strengthen W2 tvt_round5 'is not None' smokes to callable phase entries`); 20 sites in `test_tvt_round5_lag_xgb_huber.py` strengthened to assert callable phase entries and behavioural contracts; 2d9b5d33 documents the `lag_predict_failsafe_tolerance` default flip 0.50→0.10 as part of the same strengthening pass |
 | A2 W3 | weak | `test_biz_val_filters_hermite_fe.py` quantitative floor gap | DEFERRED | Directional finding, not addressed (also gated under NUMBA_DISABLE_JIT=1 skipif via cd6669a6 W11B) |
 | A2 W4 | weak | `test_phase_helpers_clone_elimination.py` clone-elision identity check | DONE | 2c97919d (W11C `test(training,fe): tighten W4-W8 weak-assert clusters to behavioural contracts`); training_core models container non-empty + requested family substring asserted |
 | A2 W5 | weak | `test_mlp_degenerate_init_*` divergence-detector assert | DONE | 2c97919d (W11C; `_safe_corr` zero-variance returns NaN or 0.0 - not inf; baseline diagnostics report has ablation / feature_ranks attr) |
@@ -206,15 +208,15 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B1 U1 / S18 | P0 | `crash_reporting.py` zero tests | DONE | 9e5192a3 (w3a U1=DONE) + `tests/training/test_crash_reporting.py` (9 tests) |
 | B1 U2 / S19 | P0 | `metrics_registry.py` zero direct tests | DONE | c4109ec9 (w3a U2=DONE) + `tests/training/test_metrics_registry.py` (24 tests) |
 | B1 U3 | P1 | `composite_auto_detect.py` no biz_value | DONE | c9ef9ace (w3a U3=DONE) + `tests/training/test_composite_auto_detect_biz_value.py` (23 tests) - one bug surfaced (FU-w3a-1, fixed in b7d3e4e9) |
-| B1 U4 | P1 | `drift_report.py` gap | DEFERRED | Not addressed |
-| B1 U5 | P1 | `feature_drift_report.py` gap (translators + drift) | DEFERRED | Not addressed |
-| B1 U6 | P1 | `models.py` predicate functions | DEFERRED | Not addressed |
-| B1 U7 | P1 | `io.py` `clean_mlframe_model` + `validate_load_meta_sidecar` | DEFERRED | Not addressed (S72 fixed verify, not validate helpers) |
-| B1 U8 | P2 | `composite_bayesian.py` bootstrap path | DEFERRED | Not addressed |
-| B1 U9 | P2 | `phases.py` registry helpers | DEFERRED | Not addressed |
-| B1 U10 | P2 | `lgb_shim.py` capability | DEFERRED | Not addressed |
-| B1 U11 | P2 | `xgb_shim.py` capability | DEFERRED | Not addressed |
-| B1 U12 | P2 | `ranking.py` qid_to_group_sizes / 3 backend prepare parity | DEFERRED | Not addressed |
+| B1 U4 | P1 | `drift_report.py` gap | DONE | b4bde927 (W12C `test(training): unit coverage for compute_label_distribution_drift + format_drift_report`) - 15 tests |
+| B1 U5 | P1 | `feature_drift_report.py` gap (translators + drift) | DONE | 03949498 (W12C `test(training): unit coverage for sklearn-MLP translators + feature distribution / categorical PSI drift`) - 20 tests |
+| B1 U6 | P1 | `models.py` predicate functions | DONE | 57008445 (W12C `test(training): unit coverage for model-type predicates and create_linear_model factory`) - 53 tests |
+| B1 U7 | P1 | `io.py` `clean_mlframe_model` + `validate_load_meta_sidecar` | DONE | e8f806a8 (W12C `test(training): unit coverage for clean_mlframe_model + validate_load_meta_sidecar`) - 13 tests |
+| B1 U8 | P2 | `composite_bayesian.py` bootstrap path | DONE | e3a5bdbd (W12C `test(training): unit coverage for bayesian_alpha_fit_bootstrap`) - 7 tests |
+| B1 U9 | P2 | `phases.py` registry helpers | DONE | 4138c1df (W12C `test(training): unit coverage for phase registry helpers`) - 15 tests |
+| B1 U10 | P2 | `lgb_shim.py` capability | DONE | 521f0534 (W12C `test(training): unit coverage for lgb_dataset_reuse_capable + xgb_dmatrix_reuse_capable`) - 10 tests batched with U11 |
+| B1 U11 | P2 | `xgb_shim.py` capability | DONE | 521f0534 (W12C same commit; xgb_dmatrix_reuse_capable side of the batched test file) |
+| B1 U12 | P2 | `ranking.py` qid_to_group_sizes / 3 backend prepare parity | DONE | be45d10c (W12C `test(training): unit coverage for ranking qid_to_group_sizes + prepare_*_inputs parity`) - 15 tests |
 | B1 U13 | n/a | `pu_learning.py` already well-covered | n/a | Closed per agent |
 | B1 U14 / S20 | P0 | `feature_selection/mi.py` 3 implementations no parity | DONE | fe179c7a (w3a U14=DONE) + `tests/feature_selection/test_mi_cross_parity.py` (19 tests) |
 | B1 U15 | P1 | `feature_selection/general.py` only meta coverage | DONE | 9f2497c7 (w3a U15=DONE) + `tests/feature_selection/test_general_efs_relevancy.py` (8 tests) |
@@ -223,12 +225,12 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B1 U18 | P2 | `feature_selection/pre_screen.py` gap | DONE | 3f5b03c1 (w3a U18=DONE) + `tests/feature_selection/test_pre_screen.py` (19 tests) |
 | B1 U19 | P2 | `feature_selection/registry.py` Protocol-conformance | DEFERRED | Not addressed |
 | B1 U20 | P2 | `feature_engineering/bruteforce.py` strengthen + edges | DONE (partial) | 7157af4 (W1 weak-asserts strengthened); edge tests deferred |
-| B1 U21 | P2 | `feature_engineering/pysr_operators.py` presets | DEFERRED | Not addressed |
+| B1 U21 | P2 | `feature_engineering/pysr_operators.py` presets | DONE | 3376e3ad (W12C `test(feature_engineering): unit coverage for pysr_operators preset bundles`) - 28 tests |
 | B1 U22 | n/a | `_timeseries_emit.py` already covered (underscore exempt) | n/a | Closed per agent |
 | B1 W1 | weak | bruteforce PySR weak asserts | DONE | 7157af4 (w3c B1_W1=DONE) |
 | B1 W7 | weak | compute_countaggs weak assert | DONE | 7157af4 (w3c B1_W7=DONE) |
 | B1 W8 | weak | predict_polars_fastpath weak assert | DONE | 7157af4 (w3c B1_W8=DONE) |
-| B1 W2-5,7 | weak | TVT/clone-elision/MLP-divergence/automl weak asserts | DONE (partial) | 2c97919d (W11C) closes W4 + W5 + W7 via 7 strengthened sites (AutoGluon finite probs + baseline diagnostics report + training_core family substring + _safe_corr zero-variance + compute_countaggs name-vs-value parity + _normalize_timestamps DatetimeIndex monotonic); W2 (tvt_round5) + W3 remain DEFERRED per W11D manifest "belongs in dedicated test-strengthening wave" |
+| B1 W2-5,7 | weak | TVT/clone-elision/MLP-divergence/automl weak asserts | DONE (partial) | 2c97919d (W11C) closes W4 + W5 + W7 via 7 strengthened sites (AutoGluon finite probs + baseline diagnostics report + training_core family substring + _safe_corr zero-variance + compute_countaggs name-vs-value parity + _normalize_timestamps DatetimeIndex monotonic) + 5d7f3b45 (W12D) closes W2 (tvt_round5_lag_xgb_huber 20 sites strengthened to callable phase entries); only W3 (hermite quantitative floor, gated under NUMBA_DISABLE_JIT=1 skipif via cd6669a6 W11B) remains directional |
 | B1 W6 | weak | dataset_cache_fingerprint idempotence assert | DONE | 415d3e23 (W10C `test(wave10c): fast marker on bootstrap suite + strengthen dataset_cache_fingerprint assert`) |
 | B1 F1 | fuzz | crash_reporting axis | DONE | f7698ac6 (W9B `test(fuzz): wire F1/F5 axes + F2/F6/F7 reachability sensors`; closes AP4) |
 | B1 F2 | fuzz | polarsds × LTR pair | DONE | f7698ac6 (W9B; F2 reachability sensor) |
@@ -273,7 +275,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B2#21 | P2 | test_wrappers_default_args.py layout-conditional skip | DEFERRED | Not addressed |
 | B2#22 | P2 | test_eval_medium_eval.py version-conditional skips | DEFERRED | Not addressed |
 | B2#23 | P2 | tests/perf/conftest.py collect_ignore_glob | OK | Correct as-is |
-| B2#24 / dead-markers | P2 | unused registered markers cluster | DONE (partial) | ebac7a3 (w3c B2_24_dead_markers_wire_in=DONE; wired requires_xgb / requires_torch / requires_cb / uses_torch / integration on 4 files); some markers remain to triage |
+| B2#24 / dead-markers | P2 | unused registered markers cluster | DONE | ebac7a3 (w3c B2_24_dead_markers_wire_in=DONE; wired requires_xgb / requires_torch / requires_cb / uses_torch / integration on 4 files) + a479c1b3 (W12D drops fast_only / requires_lgb dead markers); D2#4/S69 closed in full |
 | B2#25 | P2 | tests/conftest.py 472 LOC mixed responsibilities | OK | Under threshold; flagged for future |
 | B2#26 | P2 | tests/training/conftest.py top-of-file try-imports (flaml/networkx/lightning) | DEFERRED | Not addressed |
 | B2#27 | P2 | `cleanup_memory request` param | OK | Correct |
@@ -293,7 +295,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B2#41 | Low | tests/test_meta/conftest.py addoption swallow | OK | Intentional |
 | B2#42 | Low | thinc seed-overflow shim 45 LOC | DEFERRED | Not addressed (waiting on upstream) |
 | B2#43 | Low | metamorphic test "no val metric ... not applicable" skips | OK | Genuine non-applicability per agent |
-| B2#44 | Low | `--instafail` not in addopts | DEFERRED | Not addressed |
+| B2#44 | Low | `--instafail` not in addopts | DONE | a479c1b3 (W12D `test(infra): enable --instafail addopts; drop dead fast_only / requires_lgb markers`); pytest-instafail flushes failure output on first failure rather than at session end |
 | B2#45 | Low | Windows zstd quirk (dup #20) | DEFERRED | Not addressed |
 | B2 +PYTHONUNBUFFERED | P2 | Missing `PYTHONUNBUFFERED=1` default | DONE | e910ff9c (W11D `test(conftest): default PYTHONUNBUFFERED=1 so pytest -s streams output`); operator pre-sets still respected via setdefault |
 | B2 xfail audit | meta | `B2_xfail_without_owner_audit` | DONE | (w3c B2_xfail=DONE-CONFIRMED-CLEAN; only 2 xfails, both with reasons) |
@@ -302,27 +304,29 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 
 | ID | Sev | File | Status | Commit / Sensor / Reason |
 |---|---|---|---|---|
-| C1#1 | arch | `_phase_composite_post.py` (1129 LOC) | DONE | 24595d56 (W11A `refactor(training): carve _LagPredictDeployableModel to sibling below 1k LOC`) before=1005 / after=938; sibling `_phase_composite_post_lag_predict.py`; cross-target ensemble loop body (~830 LOC) remains in parent (closure-captured state across 20+ locals; safe extract needs FitState-style refactor - documented Wave-12 backlog) |
+| C1#1 | arch | `_phase_composite_post.py` (1129 LOC) | DONE | 24595d56 (W11A `refactor(training): carve _LagPredictDeployableModel to sibling below 1k LOC`) before=1005 / after=938 + a7ccf9eb (W12A `refactor(training): carve cross-target ensemble per-target body to sibling helper`) before=938 / after=263 via `_phase_composite_post_xt_ensemble.py` sibling (696 LOC); behavioural-equivalence sensors in `tests/training/test_monolith_split_w12a_phase_composite_post.py` (92 LOC) |
 | C1#2 | arch | `composite_transforms.py` (1142 LOC) | DONE | a68f08e4 (w6a) before=1194 / after=295 + `tests/training/test_monolith_split_w6a_composite_transforms.py` |
 | C1#3 | arch | `metrics/core.py` (1064 LOC) | DONE | 0e4e6cdf (w6b) before=1064 / after=232 + `tests/metrics/test_monolith_split_w6b_core.py` |
 | C1#4 | arch | `_setup_helpers.py` (1047 LOC) | DONE | 3b7f6cf4 (w6b) before=1058 / after=356 + `tests/training/test_monolith_split_w6b_setup_helpers.py` |
 | C1#5 | arch | `_target_distribution_analyzer.py` (1017 LOC) | DONE | 2bb3c896 (w6a) before=1017 / after=188 + `tests/training/test_monolith_split_w6a_target_dist.py` |
-| C1#6 | arch | `wrappers/_rfecv_fit.py` (998 LOC -> grew to 1059) | DONE | 451306d0 (W11A `refactor(feature_selection): carve RFECV.fit input-validation prelude below 830 LOC`) before=1059 / after=826; sibling `_rfecv_fit_init.py` (~225 LOC validation prelude); inner CV/elimination loop deferred to Wave-12 (FitState dataclass + behavioural-equivalence tests) |
+| C1#6 | arch | `wrappers/_rfecv_fit.py` (998 LOC -> grew to 1059) | DONE | 451306d0 (W11A `refactor(feature_selection): carve RFECV.fit input-validation prelude below 830 LOC`) before=1059 / after=826 + 012ba68f (W12A `refactor(feature_selection): carve RFECV.fit pre-loop setup helpers + per-fold body to siblings`) before=826 / after=536; siblings `_rfecv_fit_init.py` (validation prelude) + setup helpers + per-fold body; target <500 missed because deeper outer-loop carve requires OuterLoopState dataclass refactor (Wave-13 backlog) |
 | C1#7 | arch | `_composite_target_estimator.py` (998 LOC -> grew to 1116) | DONE | bd7bc8d7 (W11A `refactor(training): carve CompositeTargetEstimator below 700 LOC via method rebinding`) before=1116 / after=687; 3 siblings (utils + predict + update); method_rebinding_at_parent_bottom pattern |
 | C1#8 | arch | `training/helpers.py` (993 LOC) | DONE | d61dd0cc (W10E `refactor(training): carve helpers.py below 400 LOC via get_training_configs sibling`) before=994 / after=267 |
 | C1#9 | arch | `training/neural/recurrent.py` (963 LOC) | DEFERRED | Not landed |
 | C1#10 | arch | `boruta_shap.py` (952 LOC) | DEFERRED | Not landed |
-| C1#11 | arch | `target_temporal_audit.py` (949 LOC) | DEFERRED | Not landed |
+| C1#11 | arch | `target_temporal_audit.py` (949 LOC) | DONE | 44adf1ff (W12B `refactor(training): carve target_temporal_audit below 750 LOC via sibling re-export`) before=949 / after=596 |
 | C1#12 | arch | `_phase_helpers.py` (948 LOC) | DEFERRED | Not landed |
-| C1#13 | arch | `baseline_diagnostics.py` (942 LOC) | DEFERRED | Not landed |
+| C1#13 | arch | `baseline_diagnostics.py` (942 LOC) | DONE | fde4e938 (W12B `refactor(training): carve baseline_diagnostics below 750 LOC via method rebinding`) before=942 / after=507 |
 | C1#14 | arch | `train_eval.py` (941 LOC) | DONE | 206ce81b (W10E `refactor(training): carve train_eval.py below 700 LOC via select_target sibling`) before=942 / after=570 |
 | C1#15 | arch | `training/neural/flat.py` (927 LOC) | DONE | ef9aec26 (W10E `refactor(training/neural): carve flat.py below 600 LOC via MLPTorchModel sibling`) before=928 / after=420 |
 | C1#16 | arch | `extractors.py` (940 LOC) | DONE | 48626d64 (W10E `refactor(training): carve extractors.py below 800 LOC via sibling re-export`) before=937 / after=326 |
 | C1#17 | arch | `training/neural/ranker.py` (919 LOC) | DEFERRED | Not landed |
 | C1#18 | arch | `training/neural/base.py` (1057 LOC) | DONE | b428661a (W11A `refactor(neural): carve neural/base.py below 750 LOC via sibling helpers`) before=1057 / after=748; 3 siblings (logging + tensor_helpers + callbacks); PytorchLightningEstimator class stays in parent (555 LOC tight-coupled) |
 | C1 prev #1 | prev | `strategies.py` (956 LOC) preventive | DONE | 9d633121 (W10E `refactor(training): carve strategies.py below 800 LOC via sibling re-export`) before=956 / after=316 (4 siblings) |
-| C1 prev #2 | prev | `_ensembling_score.py` (1025 LOC) | DONE | 19191e42 (W11A `refactor(ensembling): carve score_ensemble input-validation prelude to sibling`) before=1025 / after=950; sibling `_ensembling_score_validate.py`; score_ensemble body (988 LOC) remains in parent (tight-coupled closure-captured state across gate-source-selection + cross-target loop + per-flavour reduce; deferred to Wave-12) |
-| C1 prev #3-#7 | prev | 5 remaining preventive files at 900-1000 LOC range | DEFERRED | LOC-cap sensor LANDED via 2c2d8452 (W10E `test(meta): add LOC-budget meta-test rejecting any mlframe .py over 1000 lines`); test now PASSES (W11A drained all files >1k); 5 remaining files at 900-1000 LOC queued for future preventive splits to avoid creep |
+| C1 prev #2 | prev | `_ensembling_score.py` (1025 LOC) | DONE | 19191e42 (W11A `refactor(ensembling): carve score_ensemble input-validation prelude to sibling`) before=1025 / after=950 + b1ce9710 (W12A `refactor(ensembling): carve gate-source + KN/K2 catastrophic-drop helpers to sibling`) before=950 / after=709; siblings `_ensembling_score_validate.py` + gate-source + KN/K2; target <600 missed because deeper carve requires EnsembleScoreState dataclass refactor (Wave-13 backlog) |
+| C1 prev #3 | prev | `composite_discovery.py` (878 LOC) | DONE | c752a69d (W12B `refactor(training): carve composite_discovery below 750 LOC via method rebinding`) before=878 / after=469 |
+| C1 prev #4 | prev | `_phase_train_one_target.py` (783 LOC) | DONE | d2a1a514 (W12B `refactor(training): carve _phase_train_one_target dataset-cache helpers to sibling`) before=783 / after=481; deferred: `_phase_train_one_target_body` (933 LOC standalone function) + `_main_train_suite` (921 LOC) single-function monoliths need CodeStateBundle dataclass refactor (Wave-13 backlog) |
+| C1 prev #5-#7 | prev | 3 remaining preventive files at 900-1000 LOC range | DEFERRED | LOC-cap sensor LANDED via 2c2d8452 (W10E `test(meta): add LOC-budget meta-test rejecting any mlframe .py over 1000 lines`); test now PASSES (W11A drained all files >1k, W12 closed C1#11 + C1#13 + composite_discovery + _phase_train_one_target); 3 remaining 900-1000 LOC files queued for future preventive splits |
 
 ### D1 - ML best practices (ml-best-practices.md, 13 findings)
 
@@ -349,7 +353,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | D2 #1 / S25 | P0 | sklearn check_estimator not run on composite/lag/early-stop/RFECV/Pd* | DONE | 7ca9f19a (w1c S25) + `tests/test_sklearn_compliance_composite.py` (23 tests + 1 xfailed) |
 | D2 #2 / S26 | P0 | `from_fitted_inner` sklearn.clone silent data loss | DONE | c043f386 (w1c S26) + `tests/training/test_regression_S26_composite_target_clone_safety.py` |
 | D2 #3 / S27 | P0 | unregistered marker `no_xdist_parallel` | DONE | eed502b (w1c S27) + `tests/test_meta/test_regression_S27_markers_registered.py` |
-| D2 #4 / S69 | P1 | 12 dead registered markers | DONE (partial) | ebac7a3 (B2#24 in w3c) wired 5; remaining markers triage deferred |
+| D2 #4 / S69 | P1 | 12 dead registered markers | DONE | ebac7a3 (B2#24 in w3c) wired 5 + a479c1b3 (W12D `test(infra): enable --instafail addopts; drop dead fast_only / requires_lgb markers`) drops the 2 remaining dead markers from pyproject.toml + tests/conftest.py + meta-test assertion |
 | D2 #5 / S70 | P1 | ~90 deps without upper-bound caps | DROPPED | User dropped per Wave-7 plan (AP10 dropped) |
 | D2 #6 / S71 | P1 | `src/mlframe/__init__.py` public API stale | DONE | 8ab33fb9 (W10D `feat(meta-test): cross-package underscore-import sensor + top-level public API docstring + cupy SoftBan rationale`) |
 | D2 #7 / S72 | P1 | Pickle/joblib RCE: `_verify_sidecar` fail-open + bundle_sha256 unfilled | DONE | 1ef73ef3 (w1c S72) + 61d25bcd / b7f86580 (AP6 safe_pickle centralisation across 4 entry-points) + f2d00e15 (predict-time loaders) + `tests/inference/test_regression_S72_pickle_verification.py` |
@@ -390,9 +394,39 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | AP14 | provenance trail | DONE | 831a1bcb + 19 source files reference `provenance` |
 | AP15 (W10B) | DiscoveryCache + SuiteArtefactCache joint-stash | DEFERRED | c70c9317 (W10B `docs(audit): architectural proposal for DiscoveryCache + SuiteArtefactCache joint-stash`) - proposal landed; implementation pending user OK |
 
-## Roll-up by status (post-Wave-11)
+## Roll-up by status (post-Wave-12)
 
 Counted directly via grep of every per-finding row across all tables (column-4 status cell). Numbers below include aliased rows (where a single underlying finding is tracked under both an A-side ID and a S-side / F-side / +1 alias) - each row gets its own status cell, so total row count exceeds the "234 unique atomic finding" baseline the audit was kicked off with.
+
+Concrete Wave-12 DONE flips from prior Wave-11 baseline:
+
+| Finding | Prior | New | Wave-12 commit |
+|---|---|---|---|
+| A2#20 Composite Transform unit-test coverage gap | DEFERRED | DONE | 949f33aa (W12D) |
+| A2#22 run_pysr_fe duplicate (stronger delegation) | DONE | DONE+ | ad737eda (W12D - structural delegation, not just deprecation warn) |
+| A2 W2 tvt_round5 weak-assert cluster | DEFERRED | DONE | 5d7f3b45 (W12D) |
+| B1 U4 drift_report unit coverage | DEFERRED | DONE | b4bde927 (W12C) |
+| B1 U5 feature_drift_report unit coverage | DEFERRED | DONE | 03949498 (W12C) |
+| B1 U6 models predicate functions coverage | DEFERRED | DONE | 57008445 (W12C) |
+| B1 U7 io clean_mlframe_model + validate_load_meta_sidecar | DEFERRED | DONE | e8f806a8 (W12C) |
+| B1 U8 composite_bayesian bootstrap coverage | DEFERRED | DONE | e3a5bdbd (W12C) |
+| B1 U9 phases registry helpers coverage | DEFERRED | DONE | 4138c1df (W12C) |
+| B1 U10 lgb_shim capability coverage | DEFERRED | DONE | 521f0534 (W12C) |
+| B1 U11 xgb_shim capability coverage | DEFERRED | DONE | 521f0534 (W12C, batched with U10) |
+| B1 U12 ranking helpers coverage | DEFERRED | DONE | be45d10c (W12C) |
+| B1 U21 pysr_operators presets coverage | DEFERRED | DONE | 3376e3ad (W12C) |
+| B2#44 --instafail addopts | DEFERRED | DONE | a479c1b3 (W12D) |
+| B2#24 / D2#4 dead-markers cluster (partial→full) | DONE (partial) | DONE | a479c1b3 (W12D drops fast_only + requires_lgb) |
+| C1#1 _phase_composite_post.py (938 LOC → deeper carve) | DONE | DONE+ | a7ccf9eb (W12A xt_ensemble sibling: 938→263) |
+| C1#6 wrappers/_rfecv_fit.py (826 LOC → deeper carve) | DONE | DONE+ | 012ba68f (W12A setup + per-fold siblings: 826→536) |
+| C1#11 target_temporal_audit.py (949 LOC) | DEFERRED | DONE | 44adf1ff (W12B) |
+| C1#13 baseline_diagnostics.py (942 LOC) | DEFERRED | DONE | fde4e938 (W12B) |
+| C1 prev #2 _ensembling_score.py (950 LOC → deeper carve) | DONE | DONE+ | b1ce9710 (W12A gate-source + KN/K2: 950→709) |
+| C1 prev #3 composite_discovery.py (878 LOC) | DEFERRED | DONE | c752a69d (W12B) |
+| C1 prev #4 _phase_train_one_target.py (783 LOC) | DEFERRED | DONE | d2a1a514 (W12B) |
+| REAL BUG: `_flat_torch_module.py` missing os + ModelCheckpoint imports | (pre-existing latent) | DONE | 22db99b1 (W12D NameError fix surfaced during W10E carve audit) |
+
+Net Wave-12 delta: **+15 atomic-finding rows DEFERRED→DONE + 4 deeper-carve DONE→DONE+ depth-extensions + 1 real-bug NameError fix + 5 meta-test baseline refreshes (API snapshot / logger lazy-format / predict bare-pickle whitelist line / extractors sibling-split cycle whitelist / _USER_DEFERRED_CYCLES 8→9 growth) + 2 W12B-deferred items (_phase_train_one_target_body 933 LOC + _main_train_suite 921 LOC single-function monoliths needing CodeStateBundle dataclass refactor). 30 W12 commits across 4 sub-waves + manifests. Every W12 commit landed under standard pre-commit hook flow.**
 
 Concrete Wave-11 DONE flips from prior Wave-10 baseline:
 
@@ -424,14 +458,19 @@ Concrete Wave-11 DONE flips from prior Wave-10 baseline:
 
 Net Wave-11 delta: **+23 atomic-finding rows DONE** (22 DEFERRED → DONE + 1 DEFERRED → DONE-partial), of which 5 are W11D-flagged verified-already-fixed corrections. Plus 2 backlog items (mps.py:129 IndexError + biz_njit_poly_eval skipif) absorbed into existing AP5/B1 N1-N12 DONE rows via W11B 290bd967 / cd6669a6 / e6b89771 (the latter drains the cross-package underscore-import ALLOWLIST from 9 entries to 0, extending the prior W10D D2#17 row). LOC-budget meta-test now PASSES (0 files >1k LOC).
 
-Roll-up:
-- DONE: 222 row-mentions overall (210 atomic-finding rows DONE + 12 of 15 AP rows DONE)
-- DEFERRED: 48 row-mentions overall (atomic-finding rows + 1 AP15 row)
-- REJECTED (with bench): 14 row-mentions overall (13 atomic-finding rows: W2B #8, #10, #33; W2C #16, #18, #20, #21, #22, #24; W4C F9, F11, F14; plus 1 alias row)
-- DROPPED (user): 4 row-mentions overall (1 atomic-finding D2#5/S70 dep upper-bound caps + 3 AP rows: AP3 K-target joblib, AP10 dep caps, AP11-c CI continue-on-error drop)
-- OK / closed by agent: 11 row-mentions overall (verified-already-fixed or no-op)
+Roll-up (post-Wave-12, atomic-finding rows in per-finding tables lines 17-375):
+- DONE (incl. 3 DONE (partial)): 240 atomic-finding row-mentions
+- DEFERRED: 35 atomic-finding row-mentions
+- REJECTED (with bench): 14 atomic-finding row-mentions (W2B #8, #10, #33; W2C #16, #18, #20, #21, #22, #24; W4C F9, F11, F14; plus 1 alias)
+- DROPPED (user): 1 atomic-finding row-mention (D2#5/S70 dep upper-bound caps)
+- OK / closed by agent: 11 atomic-finding row-mentions (verified-already-fixed or no-op)
+- n/a: 4 atomic-finding row-mentions (B1 U13 pu_learning, B1 U22 _timeseries_emit, D2#22 xfail_strict positive note, D2#23 CHANGELOG sync)
 
-Honest closure rate: **210 of 258 closeable atomic-finding rows landed in code or test (81.4%)**, or equivalently **222 of 300 total row-mentions across atomic + AP slate + alias rows (74.0%)**. Per `feedback_no_premature_closure`, this is **NOT** a fully closed audit; this is a Wave-12 backlog of 48 deferred rows (predominantly remaining 3 deeper monolith carves needing FitState-style dataclass refactor, B1 module-gap unit-test extensions, A2 FE architectural redesigns of PySR / bruteforce hand-off, B2 test-infra cosmetic cluster, AP15 joint-stash architectural unification pending user OK, A2 W2/W3 + tvt_round5 weak-asserts).
+AP slate (15 rows): DONE 12 (AP1-AP2, AP4-AP9, AP11-AP14), DEFERRED 1 (AP15), DROPPED 3 (AP3, AP10, AP11-c part).
+
+Honest closure rate: **240 of 275 closeable atomic-finding rows landed in code or test (87.3%; DONE / (DONE + DEFERRED))**, or **252 of 290 total closeable atomic + AP rows (86.9%)**. Per `feedback_no_premature_closure`, this is **NOT** a fully closed audit; this is a Wave-13 backlog of 35 deferred atomic rows + 1 deferred AP15 (predominantly remaining deeper monolith carves needing FitState/EnsembleScoreState/OuterLoopState/CodeStateBundle dataclass refactor, A2 FE architectural redesigns of PySR / bruteforce hand-off, B2 test-infra cosmetic cluster, AP15 joint-stash architectural unification pending user OK, A2 W3 hermite quantitative floor, A3#3/S42 ensemble-time calibration integration, A5#4 / A5 Low #16 per-target template / select_target cross-target memoization).
+
+Wave-12 sub-wave attribution: W12A 4 commits (3 deeper monolith carves + manifest: C1#1 fully unwound 938→263, C1#6 deeper 826→536, C1 prev #2 deeper 950→709; 2 misses documented (target <600 / <500) deferring to Wave-13 dataclass refactor), W12B 5 commits (4 preventive monolith carves + manifest: C1#11 949→596, C1#13 942→507, C1 prev #3 composite_discovery 878→469, C1 prev #4 _phase_train_one_target 783→481; 2 deferrals documented: _phase_train_one_target_body 933 + _main_train_suite 921 single-function monoliths), W12C 10 commits (9 B1 module-gap unit-test files + 1 manifest: U4 + U5 + U6 + U7 + U8 + U9 + U10+U11 batched + U12 + U21 = 9 modules, 176 unit tests; 2 dropped: pu_learning already covered, _timeseries_emit internal), W12D 12 commits (1 real-bug NameError fix on _flat_torch_module imports + A2#20 contract suite + A2#22 stronger delegation + A2 W2 strengthened + B2#44/D2#4 markers cleanup + lag_predict_failsafe_tolerance default flip + 5 meta-test baseline refreshes + manifest).
 
 Wave-11 sub-wave attribution: W11A 5 commits (5 DONE flips: C1#1, C1#6, C1#7, C1#18, C1 prev#2 + LOC-budget meta-test now PASSES), W11B 3 commits (1 real bug fix mps.py + 1 skipif gate + ALLOWLIST 9→0 drain extending D2#17), W11C 6 commits (5 DONE flips: B2#8 RFECV upstream-fix, A2 W4 + W5 + W7 weak-asserts, B1 W2-5,7 partial; plus fast-mode + fuzz cross-axis + cache cleanup + finite-only correction infrastructure adds), W11D 9 commits (8 source DONE flips: A2#4 + A2#12 + A3#2 + A3#4 + A5#7 + A6#39 + B2#10 + B2 PYTHONUNBUFFERED + 5 verified-already-fixed corrections to FINAL_VERIFICATION baseline: A2 Low #25/26/28 + A5 Low #15 + D2 Low #20).
 
@@ -539,7 +578,45 @@ Wave 10 commit attribution: 23 commits across 5 sub-waves + user direct + manife
 
 Wave 11 commit attribution: 23 commits across 4 sub-waves + 1 user direct + manifests (W11A 5, W11B 3, W11C 6, W11D 8 + 1 manifest, plus 1 user direct 92ff6a45). Every W11 commit landed under standard pre-commit hook flow (no `--no-verify`).
 
-## Wave 12 backlog (post-Wave-11, in priority order - for user approval)
+## Wave 12 summary (landed items, commit range `4a0b5ae4..5454db7d`, 30 commits)
+
+| Commit | Wave | Finding(s) closed | Description |
+|---|---|---|---|
+| a7ccf9eb | W12A | C1#1 deeper carve | `refactor(training): carve cross-target ensemble per-target body to sibling helper`. _phase_composite_post.py 938→263 LOC via `_phase_composite_post_xt_ensemble.py` sibling (696 LOC); `tests/training/test_monolith_split_w12a_phase_composite_post.py` (92 LOC) pins behavioural-equivalence. |
+| b1ce9710 | W12A | C1 prev #2 deeper carve | `refactor(ensembling): carve gate-source + KN/K2 catastrophic-drop helpers to sibling`. _ensembling_score.py 950→709 LOC; target <600 missed because deeper carve requires EnsembleScoreState dataclass refactor deferred per behavioural-equivalence rule. |
+| 012ba68f | W12A | C1#6 deeper carve | `refactor(feature_selection): carve RFECV.fit pre-loop setup helpers + per-fold body to siblings`. _rfecv_fit.py 826→536 LOC; target <500 missed because final descent needs OuterLoopState dataclass refactor. |
+| 15b0a5bb | W12A | w12a manifest | `chore(audit): w12a-deeper-carves manifest (3 deep carves, 21 sensors, 1206 LOC removed)`. |
+| 44adf1ff | W12B | C1#11 | `refactor(training): carve target_temporal_audit below 750 LOC via sibling re-export`. 949→596 LOC. |
+| fde4e938 | W12B | C1#13 | `refactor(training): carve baseline_diagnostics below 750 LOC via method rebinding`. 942→507 LOC. |
+| c752a69d | W12B | C1 prev #3 (new) | `refactor(training): carve composite_discovery below 750 LOC via method rebinding`. 878→469 LOC. |
+| d2a1a514 | W12B | C1 prev #4 (new) | `refactor(training): carve _phase_train_one_target dataset-cache helpers to sibling`. 783→481 LOC. |
+| 158a75cd | W12B | w12b manifest | `chore(audit): w12b preventive-carves manifest (4 carved, 2 deferred)`. Deferred: _phase_train_one_target_body (933 LOC standalone function) + _main_train_suite (921 LOC) single-function monoliths needing CodeStateBundle dataclass refactor. |
+| b4bde927 | W12C | B1 U4 | `test(training): unit coverage for compute_label_distribution_drift + format_drift_report`. 15 tests. |
+| 03949498 | W12C | B1 U5 | `test(training): unit coverage for sklearn-MLP translators + feature distribution / categorical PSI drift`. 20 tests. |
+| 57008445 | W12C | B1 U6 | `test(training): unit coverage for model-type predicates and create_linear_model factory`. 53 tests. |
+| e8f806a8 | W12C | B1 U7 | `test(training): unit coverage for clean_mlframe_model + validate_load_meta_sidecar`. 13 tests. |
+| e3a5bdbd | W12C | B1 U8 | `test(training): unit coverage for bayesian_alpha_fit_bootstrap`. 7 tests. |
+| 4138c1df | W12C | B1 U9 | `test(training): unit coverage for phase registry helpers`. 15 tests. |
+| 521f0534 | W12C | B1 U10 + U11 | `test(training): unit coverage for lgb_dataset_reuse_capable + xgb_dmatrix_reuse_capable`. 10 tests; batched both shim modules into one test file. |
+| be45d10c | W12C | B1 U12 | `test(training): unit coverage for ranking qid_to_group_sizes + prepare_*_inputs parity`. 15 tests. |
+| 3376e3ad | W12C | B1 U21 | `test(feature_engineering): unit coverage for pysr_operators preset bundles`. 28 tests. |
+| (w12c manifest) | W12C | manifest | W12C aggregated 9 commits (10 new test files, 176 unit tests total); dropped pu_learning (already covered) + _timeseries_emit (internal). |
+| a479c1b3 | W12D | B2#44 + D2#4 | `test(infra): enable --instafail addopts; drop dead fast_only / requires_lgb markers`. Closes both B2#44 instafail addopts and D2#4 dead markers (last 2 dead markers removed). |
+| ad737eda | W12D | A2#22 stronger | `fix(fe/basic): delegate single-target run_pysr_fe to bruteforce entry point`. Structurally delegates to bruteforce.run_pysr_feature_engineering rather than just emitting DeprecationWarning; `tests/feature_engineering/test_regression_w12d_run_pysr_fe_delegation.py` pins delegation contract. |
+| 949f33aa | W12D | A2#20 | `test(composite_transforms): per-transform registry contract suite (fit/forward/inverse/domain/purity)`. 96 tests across 4 contracts × 24 transforms; `tests/training/test_composite_transforms_registry_contract.py` (187 LOC). |
+| 5d7f3b45 | W12D | A2 W2 | `test(training): strengthen W2 tvt_round5 'is not None' smokes to callable phase entries`. 20 assert-is-not-None sites strengthened to behavioural contracts; 2d9b5d33 documents the lag_predict_failsafe_tolerance default flip 0.50→0.10. |
+| 22db99b1 | W12D | REAL BUG FIX | `fix(training/neural): restore os + ModelCheckpoint imports in flat_torch_module after W10E carve`. NameError at runtime - missing imports introduced during W10E ef9aec26 carve, surfaced by W12 audit. Sensor `tests/training/test_regression_w12d_flat_torch_module_imports.py`. |
+| 2d9b5d33 | W12D | tvt_round5 default flip | `test(tvt_round5): track lag_predict_failsafe_tolerance default flip 0.50 -> 0.10`. Baseline refresh paired with A2 W2 strengthening. |
+| 8d27f966 | W12D | meta-test baseline refresh | `test(meta): refresh API snapshot after W10E carves + W11B underscore drain`. |
+| 73ccc299 | W12D | meta-test baseline refresh | `test(meta): refresh logger lazy-format baseline after W11A monolith carves`. |
+| c4c22118 | W12D | meta-test baseline refresh | `test(meta): bump predict.py bare-pickle whitelist line after sibling module shifts`. |
+| 491ad293 | W12D | meta-test baseline refresh | `test(meta): whitelist benign extractors sibling-split cycle from W10E carve`. |
+| 7ddff2db | W12D | debt baseline tracking | `test(meta): track _USER_DEFERRED_CYCLES growth (8 -> 9) in debt baseline`. New deferred cycle from W12B carves. |
+| 5454db7d | W12D | w12d manifest | `chore(audit): w12d-a2-redesign-b2-cosmetic manifest + heartbeat`. |
+
+Wave 12 commit attribution: 30 commits across 4 sub-waves + manifests (W12A 4 incl. manifest, W12B 5 incl. manifest, W12C 10 incl. manifest, W12D 12 incl. manifest). Every W12 commit landed under standard pre-commit hook flow (no `--no-verify`). LOC-budget meta-test continues to PASS (0 files >1k LOC); W12A pushed 3 files further below the 1k threshold to provide buffer; W12B drained 4 preventive 900-1000 LOC files (2 closing the C1#11 + C1#13 carry-forward, 2 new preventive). W12C closed the entire B1 module-gap unit-test coverage block (U4-U12 + U21, 9 modules, 176 unit tests). W12D surfaced + fixed one real latent bug (NameError on `_flat_torch_module.py` os/ModelCheckpoint imports introduced during W10E carve) plus the A2 closure cluster + B2 + meta-test baseline refreshes.
+
+## Wave 13 backlog (post-Wave-12, in priority order - for user approval)
 
 ### P0/P1 carry-forward (correctness / ML discipline)
 
@@ -550,35 +627,37 @@ Wave 11 commit attribution: 23 commits across 4 sub-waves + 1 user direct + mani
 5. **A2#11 / S39** bruteforce rename mutating caller's frame in place (P1; same root cause as A2#6 - architectural decision about bruteforce hand-off contract).
 6. **A5#4 / S51** Per-target select_target template rebuild (P1; cross-target memoization is architectural - needs cache key sharing across target loop + downstream invariants for fit_state + predict-side replay).
 7. **A5#5 / S52** `DiscoveryCache` vs `SuiteArtefactCache` parallel disk-cache divergence (P1; observability landed via 65b3dded W10B + on-disk byte helper; full unification awaits AP15 user OK).
-8. **B1 U4-U12 module-gap unit-test coverage** (drift_report, feature_drift_report, models, io, composite_bayesian, phases, lgb_shim, xgb_shim, ranking - 9 P1/P2 items; needs 5-25 dedicated tests per module covering happy/edge/error paths).
-9. **B2#9 tqdmu monkey-patch upstream PR** required (P1; external project - cannot land in-repo).
-10. **AP15** DiscoveryCache + SuiteArtefactCache joint-stash architectural unification (W10B proposal c70c9317 pending user OK; W11D recommendation Option A do-nothing OR Option C shared backend Protocol).
-11. **C1#6 deeper carve of `_rfecv_fit.py`** (still at 826 LOC after W11A safe carve; inner CV/elimination loop requires FitState dataclass refactor + behavioural-equivalence tests; warrants dedicated PR with full RFECV biz_value coverage).
-12. **C1 prev #2 deeper carve of `_ensembling_score.py`** (still at 950 LOC after W11A safe carve; score_ensemble body 988 LOC tight-coupled closure-captured state across gate-source-selection + cross-target ensemble loop + per-flavour reduce; needs streaming vs materialised dispatcher refactor).
-13. **C1#1 deeper carve of `_phase_composite_post.py`** (still at 938 LOC after W11A safe carve; cross-target ensemble loop body ~830 LOC shares state via 20+ closure locals - safe extract requires CrossTargetEnsembleContext dataclass + behavioural-equivalence test on real composite suite).
+8. **B2#9 tqdmu monkey-patch upstream PR** required (P1; external project - cannot land in-repo).
+9. **AP15** DiscoveryCache + SuiteArtefactCache joint-stash architectural unification (W10B proposal c70c9317 pending user OK; W11D recommendation Option A do-nothing OR Option C shared backend Protocol).
+10. **C1#6 deeper carve of `_rfecv_fit.py`** (still at 536 LOC after W12A two-step carve 1059→826→536; final descent to <500 requires OuterLoopState dataclass refactor + behavioural-equivalence tests; warrants dedicated PR with full RFECV biz_value coverage).
+11. **C1 prev #2 deeper carve of `_ensembling_score.py`** (still at 709 LOC after W12A two-step carve 1025→950→709; target <600 missed because deeper carve requires EnsembleScoreState dataclass refactor; score_ensemble body tight-coupled closure-captured state across gate-source-selection + cross-target ensemble loop + per-flavour reduce; needs streaming vs materialised dispatcher refactor).
+12. **`_phase_train_one_target_body` single-function monolith** (933 LOC standalone function in `_phase_train_one_target.py`; needs CodeStateBundle dataclass refactor; deferred per W12B manifest).
+13. **`_main_train_suite` single-function monolith** (921 LOC; needs CodeStateBundle dataclass refactor; deferred per W12B manifest).
+14. **`baseline_diagnostics.py` method-rebinding deeper carve** (post-W12B at 507 LOC; further structural split would require diagnostic-bundle dataclass refactor; documented Wave-13 follow-up).
 
 ### P2 carry-forward (perf / hygiene)
 
-14. **A2#20** Composite Transform per-family unit suites (median_residual / quantile_residual / monotonic_residual / ewma_residual / rolling_quantile_ratio / frac_diff / chain_* - dedicated test-coverage wave).
 15. **A5#9 P2** polars LazyFrame.cache() in training/core (ARCH-DEFER per Wave-7 proposal; superseded by AP15 joint-stash proposal).
 16. **A5 Low #16** select_target cross-target memo (same root cause as A5#4/S51 - architectural decision needed).
-17. **B1 W2 tvt_round5 weak-assert cluster** (12+ assert-is-not-None sites across test_tvt_round5_lag_xgb_huber.py and siblings; dedicated test-strengthening wave per W11D triage).
-18. **B1 W3** `test_biz_val_filters_hermite_fe.py` quantitative floor gap (W11B added NUMBA_DISABLE_JIT skipif but quantitative floor still directional).
-19. **B1 sklearn matrix marker convention** + meta-test (needs CI matrix selection wiring + meta-test enforcing marker presence).
-20. **B1 CHANGELOG cross-walk** per-fix regression-sensor gap audit (large-scope matrix audit).
-21. **B1 U19/U21** registry Protocol conformance + pysr_operators presets (>30 LOC test additions each).
-22. **B2#20-#22, #26, #31-#33** test-infra hygiene cluster (Windows zstd quirk + layout-conditional skips + version-conditional skips + conftest try-imports + _ann_backend_safely_importable JIT warmup + importorskip DRY).
-23. **B2#37 / B2#39 / B2#40 / B2#42 / B2#44** cosmetic test-infra cluster (instafail addopts + pytest_plugins root + _coverage_active dead code + thinc seed-overflow shim + --instafail).
+17. **B1 W3** `test_biz_val_filters_hermite_fe.py` quantitative floor gap (W11B added NUMBA_DISABLE_JIT skipif but quantitative floor still directional).
+18. **B1 sklearn matrix marker convention** + meta-test (needs CI matrix selection wiring + meta-test enforcing marker presence).
+19. **B1 CHANGELOG cross-walk** per-fix regression-sensor gap audit (large-scope matrix audit).
+20. **B1 U19** registry Protocol conformance (>30 LOC test additions).
+21. **B2#26 fixture dedup** (60+ files broad refactor; >30 LOC test-infra cleanup spanning conftest + training/conftest + per-module conftests; needs dedicated wave).
+22. **B2#20-#22, #31-#33** test-infra hygiene cluster (Windows zstd quirk + layout-conditional skips + version-conditional skips + conftest try-imports + _ann_backend_safely_importable JIT warmup + importorskip DRY).
+23. **B2#37 / B2#39 / B2#40 / B2#42** cosmetic test-infra cluster (pytest-randomly local-vs-CI mismatch + pytest_plugins root + _coverage_active dead code + thinc seed-overflow shim).
 24. **B2#38** suppress_convergence_warnings autouse blocks pytest.warns (needs marker-aware suppression OR move to filterwarnings pyproject section).
-25. **C1#9-#13, #17** remaining 6 monolith carves at 900-1000 LOC range (recurrent.py 963, boruta_shap.py 952, target_temporal_audit.py 949, _phase_helpers.py 948, baseline_diagnostics.py 942, neural/ranker.py 919); LOC-cap sensor (2c2d8452) will trip on creep past 1k.
+25. **C1#9, #10, #12, #17** remaining 4 monolith carves at 900-1000 LOC range (recurrent.py 963, boruta_shap.py 952, _phase_helpers.py 948, neural/ranker.py 919); LOC-cap sensor (2c2d8452) will trip on creep past 1k. W12B already drained #11 + #13 + composite_discovery + _phase_train_one_target.
 
 ### Low carry-forward (cosmetic / documentation)
 
-26. None - all known Low-tier items closed in Wave 11 (A2 Low #25/26/28 verified-already-fixed, A5 Low #15 verified-already-fixed, A6 Low #39 fixed by 60110565, D2 Low #20 verified-already-fixed).
+26. None - all known Low-tier items closed in Wave 11/12 (A2 Low #25/26/28 verified-already-fixed, A5 Low #15 verified-already-fixed, A6 Low #39 fixed by 60110565, D2 Low #20 verified-already-fixed). A6 P2/Low (if remaining) carry no new findings post-Wave-11.
 
 ## Notes / qualifications
 
-- Per `feedback_no_premature_closure`: this is explicitly **Wave-12 backlog**, NOT a "Wave-11 done" closure. 48 atomic-finding rows remain DEFERRED (18.6% of the 258 closeable atomic-finding rows; predominantly architectural redesigns - PySR/bruteforce hand-off, cross-target memo, deeper monolith carves needing FitState refactor - or dedicated test-coverage waves; see Wave-12 backlog above).
+- Per `feedback_no_premature_closure`: this is explicitly **Wave-13 backlog**, NOT a "Wave-12 done" closure. 35 atomic-finding rows remain DEFERRED (12.7% of the 275 closeable atomic-finding rows; predominantly architectural redesigns - PySR/bruteforce hand-off, cross-target memo, deeper monolith carves needing FitState/EnsembleScoreState/OuterLoopState/CodeStateBundle dataclass refactors - or AP15 joint-stash unification pending user OK; see Wave-13 backlog above).
+- Wave-12 closed the entire B1 module-gap unit-test coverage block (U4-U12 + U21, 9 modules, 176 unit tests, no remaining DEFERRED rows in the B1 module-coverage cluster).
+- Wave-12 surfaced + fixed one **real latent bug**: 22db99b1 restored missing `os` + `ModelCheckpoint` imports in `_flat_torch_module.py` that were introduced during W10E ef9aec26 carve; would NameError at runtime on actual `Trainer` save_dir resolution / checkpoint callback construction. Sensor `tests/training/test_regression_w12d_flat_torch_module_imports.py` pins the import contract.
 - The 13 REJECTED findings all carry inline bench numbers in source or DONE_*.json manifest; none silent.
 - The 3 DROPPED items are user-decision per Wave-7 plan (AP3 K-target joblib, AP10 dep caps, AP11-c CI continue-on-error drop). Documented per Wave-7 brief.
 - W10A is a docs-only correction wave (1 commit 27429ed3) - all 9 A4 P2/Low items already DONE in prior waves; only A4#5 was mis-tracked in baseline.
@@ -591,17 +670,20 @@ Wave 11 commit attribution: 23 commits across 4 sub-waves + 1 user direct + mani
 - W10D 8ab33fb9 cross-package underscore-import meta-test originally shipped with 9-entry ALLOWLIST documenting deliberate cross-package private-API usage; W11B e6b89771 drained ALLOWLIST 9→0 via public re-exports in each owning package's __init__.py. Meta-test now passes with `set()` empty allowlist.
 - W10D b643da93 AP5 nightly validation surfaced 2 fixes for Wave 11; both landed in W11B (mps.py:129 IndexError fixed via 290bd967 - real `n_pos` vs `n_prices` bounds bug; biz_njit_poly_eval skipif gate via cd6669a6).
 - AP15 (W10B c70c9317) is the first architectural proposal of the audit cycle that landed as proposal-only (not implementation); status DEFERRED pending user OK per `feedback_never_open_pr_without_review` analog for architectural changes. W11D read the proposal but explicitly did NOT implement; recommendation Option A (do-nothing) for now, Option C (shared backend Protocol) for future wave.
-- W11A "safe carve" doctrine: 3 deeper carves (RFECV inner CV loop, ensembling_score body, composite_post cross-target loop) were intentionally deferred with documented rationale in manifest. Each requires FitState/CrossTargetEnsembleContext dataclass + behavioural-equivalence tests on real (not synthetic) data - out of scope for a behavioural-only carve wave. Wave-12 backlog items #11-#13.
+- W11A "safe carve" doctrine: 3 deeper carves (RFECV inner CV loop, ensembling_score body, composite_post cross-target loop) were intentionally deferred with documented rationale in manifest. Each requires FitState/CrossTargetEnsembleContext dataclass + behavioural-equivalence tests on real (not synthetic) data - out of scope for a behavioural-only carve wave. Wave-12 addressed all 3: C1#1 closed in full (W12A a7ccf9eb 938→263); C1#6 advanced 826→536 with target <500 deferred to Wave-13 OuterLoopState refactor; C1 prev #2 advanced 950→709 with target <600 deferred to Wave-13 EnsembleScoreState refactor.
 - W11D landed 5 FINAL_VERIFICATION baseline corrections (mis-tracked DEFERRED rows that were actually DONE in prior waves): A2 Low #25 (try/except/finally comment), A2 +Low MappingProxyType, A2 +Low online_refit docstring, A5 Low #15 WeakKeyDictionary doc, D2 Low #20 test_sklearn_compliance weakest assertion. All 5 flipped to DONE with verified-already-fixed evidence.
+- W12B doctrine: 6 preventive 900-1000 LOC carves landed (4 sibling-file carves on target_temporal_audit + baseline_diagnostics + composite_discovery + _phase_train_one_target). 2 single-function monoliths deferred to Wave-13 (`_phase_train_one_target_body` 933 LOC + `_main_train_suite` 921 LOC) because they require CodeStateBundle dataclass refactor - not amenable to sibling-file re-export carve. _USER_DEFERRED_CYCLES grew 8→9 (7ddff2db) tracking the new deferral.
+- W12C drained the entire B1 module-gap block: U4 drift_report (15 tests), U5 feature_drift_report (20 tests), U6 models predicates (53 tests), U7 io clean_and_validate (13 tests), U8 composite_bayesian bootstrap (7 tests), U9 phases registry (15 tests), U10 + U11 lgb + xgb shim batched (10 tests), U12 ranking (15 tests), U21 pysr_operators (28 tests). Two modules dropped: pu_learning (already covered per prior agent close) + _timeseries_emit (internal underscore-exempt). Total 176 new unit tests across 10 test files.
+- W12D surfaced + fixed the **first real latent bug discovered by the audit-agent sweep**: missing `os` + `ModelCheckpoint` imports in `_flat_torch_module.py` after W10E ef9aec26 carve (22db99b1). This is the kind of bug that audit-agent dispatch is meant to surface; sensor `test_regression_w12d_flat_torch_module_imports.py` pins import contract.
 
 ## Files referenced for verification
 
 - `audit/critique_2026_05_24/SUMMARY.md`
 - `audit/critique_2026_05_24/{fs,fe,ensembling,perf-hotspots,pipeline-cache,polars-zerocopy}-critique.md`
 - `audit/critique_2026_05_24/{tests-expand,tests-optimize,monoliths-split,ml-best-practices,code-arch-standards}.md`
-- `audit/critique_2026_05_24/manifests/DONE_{w1a-leakage,w1b-fe-cache,w1c-sklearn-security,w2a-bridge-p0,w2b-percol-scattered,w2c-fe-dtype-gate,w3a-tests-expand,w3b-tests-optimize,w3c-tests-p2low,w4a-hotspots-critical,w4b-numba-parallel,w4c-perf-p2low,w5a-fs-fe-ens-p2low,w5b-cache-arch-fu,w6a-carve-composite-target-dist,w6b-carve-metrics-setup,w10a-perf-residue,w10b-caching-followups,w10c-tests-residue,w10d-arch-residue,w10e-monolith-preventive,w11a-monolith-1k-residue,w11b-numba-allowlist,w11c-tests-residue,w11d-misc-residue}.json`
+- `audit/critique_2026_05_24/manifests/DONE_{w1a-leakage,w1b-fe-cache,w1c-sklearn-security,w2a-bridge-p0,w2b-percol-scattered,w2c-fe-dtype-gate,w3a-tests-expand,w3b-tests-optimize,w3c-tests-p2low,w4a-hotspots-critical,w4b-numba-parallel,w4c-perf-p2low,w5a-fs-fe-ens-p2low,w5b-cache-arch-fu,w6a-carve-composite-target-dist,w6b-carve-metrics-setup,w10a-perf-residue,w10b-caching-followups,w10c-tests-residue,w10d-arch-residue,w10e-monolith-preventive,w11a-monolith-1k-residue,w11b-numba-allowlist,w11c-tests-residue,w11d-misc-residue,w12a-deeper-carves,w12b-preventive-carves,w12c-b1-module-gaps,w12d-a2-redesign-b2-cosmetic}.json`
 - `audit/critique_2026_05_24/architectural_proposals/{A5-P2-9-polars-lazyframe-cache,F15_precomputed_finite_mask,F24_ktarget_ensemble_joblib,fuzz_blind_spots_F1_F2_F5_F6_F7,numba_coverage_ci,AP15_discoverycache_joint_stash,A5-discovery-suite-joint-stash}.md`
-- Git log range `da68ca6..HEAD` (~165 commits; Wave-8 sub-range `bafff1d2..ef82f687` = 11 commits incl. cleanup; Wave-9 sub-range `ef82f687..242f7199` = 23 commits; Wave-10 sub-range `c31b419d..04cfe69d` = 23 commits; Wave-11 sub-range `2b7126e9..24595d56` = 23 commits + 1 user fix 92ff6a45: bd7bc8d7, 451306d0, b428661a, 19191e42, 24595d56, 290bd967, cd6669a6, e6b89771, 5708acea, 827efd89, 9eed7acb, 36d2ed04, 2c97919d, 02b3b7df, 4a9548ec, b2d631ea, 05386281, 60110565, 9eef57e7, 395ff949, 17e9cce9, e910ff9c, 7b5e9098, 92ff6a45)
+- Git log range `da68ca6..HEAD` (~195 commits; Wave-8 sub-range `bafff1d2..ef82f687` = 11 commits incl. cleanup; Wave-9 sub-range `ef82f687..242f7199` = 23 commits; Wave-10 sub-range `c31b419d..04cfe69d` = 23 commits; Wave-11 sub-range `2b7126e9..24595d56` = 23 commits + 1 user fix 92ff6a45; Wave-12 sub-range `4a0b5ae4..5454db7d` = 30 commits: a7ccf9eb, b1ce9710, 012ba68f, 15b0a5bb, 44adf1ff, fde4e938, c752a69d, d2a1a514, 158a75cd, b4bde927, 03949498, 57008445, e8f806a8, e3a5bdbd, 4138c1df, 521f0534, be45d10c, 3376e3ad, a479c1b3, ad737eda, 949f33aa, 5d7f3b45, 22db99b1, 2d9b5d33, 8d27f966, 73ccc299, c4c22118, 491ad293, 7ddff2db, 5454db7d)
 - `tests/**/test_regression_*.py`, `tests/**/test_monolith_split_*.py`, `tests/test_meta/test_regression_S27_*.py`, `tests/test_meta/test_no_unsafe_module_reload.py`
 - Wave-8 new sensors: `tests/training/test_suite_artefact_cache.py` (AP1), `tests/evaluation/test_bootstrap.py` (S68), `tests/test_meta/test_numba_coverage_workflow_exists.py` (AP5), `tests/training/test_regression_S66_drift_psi_categorical.py` (S66), `tests/feature_selection/test_regression_S28_efs_relevancy_rng.py` (S28), `tests/training/test_round5_5_composite_diagnostics.py` + `test_round5_5_followups.py` (round5.5 bonus)
 - Wave-8 new source files: `src/mlframe/training/suite_artefact_cache.py`, `src/mlframe/evaluation/bootstrap.py`, `.github/workflows/numba-coverage.yml`
@@ -612,3 +694,5 @@ Wave 11 commit attribution: 23 commits across 4 sub-waves + 1 user direct + mani
 - Wave-10 new docs: AP15 joint-stash architectural proposal (c70c9317), CHANGELOG aggregate + AP12/AP13/summary guides (faea57b3), AP5 status update + 2026-05-25 nightly findings (b643da93)
 - Wave-11 new sensors: 5 W11A monolith-carve sensors (test_monolith_split_w11a_composite_target_estimator / _rfecv_fit / _neural_base / _ensembling_score / _phase_composite_post; 31 sensor tests total), `tests/feature_engineering/test_regression_w11b_mps_no_jit_index.py` (W11B mps subprocess + direct + e2e), W11C `tests/training/test_fuzz_combo_cross_axis_W11C.py` (9 parametrized cross-axis sensors), W11C strengthened weak-asserts across 7 files, 5 W11D regression sensors (test_regression_w11d_basic_default_methods + ratio_fit_empty_base + pre_pipeline_cache_byte_budget + ensemble_chooser_test_warn + rrf_k1_warn)
 - Wave-11 new source touches: 9 W11A sibling files (_composite_target_estimator_utils/predict/update; _rfecv_fit_init; neural _base_logging/tensor_helpers/callbacks; _ensembling_score_validate; _phase_composite_post_lag_predict), W11B mps.py n_pos/n_prices split + 9 public re-exports across training / metrics / feature_engineering / feature_selection __init__.py, W11C RFECV verbose default 0 + conftest cache-cleanup fixture + 8 fast-mode pytestmarks, W11D _DEFAULT_DATE_METHODS per-call copy + _ratio_fit base_finite guard + MLFRAME_PRE_PIPELINE_CACHE_MAX/_BYTES env + LRU eviction + estimators/custom .to_numpy() + _ensemble_chooser test.* WARN + _rrf_aggregate_probs K=1 WARN + conftest [MEM] gate + PYTHONUNBUFFERED default + user 92ff6a45 signature-derived split_config kwargs filter
+- Wave-12 new sensors: `tests/training/test_monolith_split_w12a_phase_composite_post.py` (92 LOC W12A behavioural-equivalence), `tests/training/test_composite_transforms_registry_contract.py` (187 LOC, 96 contract tests across 4 contracts × 24 transforms W12D), `tests/training/test_regression_w12d_flat_torch_module_imports.py` (43 LOC import-contract sensor for the 22db99b1 NameError fix), `tests/feature_engineering/test_regression_w12d_run_pysr_fe_delegation.py` (97 LOC delegation contract for A2#22), 9 W12C B1 module-gap test files (176 unit tests), 5 W12D meta-test baseline refresh files (API snapshot, logger lazy-format, predict bare-pickle whitelist, extractors sibling cycle whitelist, _USER_DEFERRED_CYCLES growth)
+- Wave-12 new source touches: 3 W12A deeper-carve siblings (_phase_composite_post_xt_ensemble 696 LOC; _ensembling_score gate-source + KN/K2 helpers; _rfecv_fit setup + per-fold body), 4 W12B preventive-carve siblings (target_temporal_audit / baseline_diagnostics / composite_discovery method-rebinding + _phase_train_one_target dataset-cache helpers), W12D 22db99b1 _flat_torch_module.py os + ModelCheckpoint imports restored, W12D ad737eda basic.py run_pysr_fe delegation to bruteforce, W12D a479c1b3 pyproject.toml + conftest.py --instafail wire + 2 dead markers dropped

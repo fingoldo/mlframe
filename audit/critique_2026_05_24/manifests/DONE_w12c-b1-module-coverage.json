@@ -1,0 +1,154 @@
+{
+  "agent_slug": "w12c-b1-module-coverage",
+  "started_utc": "2026-05-25T00:00:00Z",
+  "finished_utc": "2026-05-25T00:00:00Z",
+  "scope": "B1 module-gap coverage for production modules without dedicated test_*.py (per tests-expand.md U1-U22 backlog after Wave 3 W3A landed 8 modules).",
+  "findings_assigned": [
+    "U4", "U5", "U6", "U7", "U8", "U9", "U10", "U11", "U12", "U21"
+  ],
+  "findings_status": {
+    "U4": {
+      "status": "DONE",
+      "module": "src/mlframe/training/drift_report.py",
+      "test_file": "tests/training/test_drift_report.py",
+      "test_count": 15,
+      "commit": "b4bde927",
+      "notes": "Binary / multiclass / multilabel / regression branches of compute_label_distribution_drift + format_drift_report. Covers no-drift, 50/50->90/10 prior shift biz value, 5-sigma regression mean shift, edge cases (train None, empty test, no target_name).",
+      "follow_ups": []
+    },
+    "U5": {
+      "status": "DONE",
+      "module": "src/mlframe/training/feature_drift_report.py",
+      "test_file": "tests/training/test_feature_drift_report.py",
+      "test_count": 20,
+      "commit": "03949498",
+      "notes": "translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs + recurrent_config_kwargs translators (alpha->weight_decay, hidden_layer_sizes->network_params, identity-collapse), compute_feature_distribution_drift z-score with FI-weighted score check, compute_categorical_drift_psi with new-category contribution.",
+      "follow_ups": []
+    },
+    "U6": {
+      "status": "DONE",
+      "module": "src/mlframe/training/models.py",
+      "test_file": "tests/training/test_models_predicates.py",
+      "test_count": 53,
+      "commit": "57008445",
+      "notes": "Predicate parametrization across all canonical names in LINEAR/TREE/NEURAL_MODEL_TYPES, case insensitivity, set disjointness invariant, create_linear_model factory across 7 regressor classes + unknown-type raise + classifier path + R^2 >= 0.9 smoke fit.",
+      "follow_ups": []
+    },
+    "U7": {
+      "status": "DONE",
+      "module": "src/mlframe/training/io.py",
+      "test_file": "tests/training/test_io_clean_and_validate.py",
+      "test_count": 13,
+      "commit": "e8f806a8",
+      "notes": "clean_mlframe_model strip-fields invariant (covers full _LEAN_STRIP_FIELDS frozenset + preserve survivors + in-place return), validate_load_meta_sidecar None on missing/corrupt/non-object, matching versions returns payload, drift WARNs by default, strict=True raises, missing live library flagged.",
+      "follow_ups": []
+    },
+    "U8": {
+      "status": "DONE",
+      "module": "src/mlframe/training/composite_bayesian.py",
+      "test_file": "tests/training/test_composite_bayesian_bootstrap.py",
+      "test_count": 7,
+      "commit": "e3a5bdbd",
+      "notes": "bayesian_alpha_fit_bootstrap dict shape, seed determinism (alpha+beta samples bit-identical), n_bootstrap=1 NaN std edge, CI containment on well-specified DGP (alpha=2.5 beta=-1.0 n=2000), n<4 degenerate fallback, subsample_n cap, ci_level widening monotonic in level.",
+      "follow_ups": []
+    },
+    "U9": {
+      "status": "DONE",
+      "module": "src/mlframe/training/phases.py",
+      "test_file": "tests/training/test_phases_registry.py",
+      "test_count": 15,
+      "commit": "4138c1df",
+      "notes": "reset/record/snapshot aggregation by name, sorted-by-total-desc invariant, ram_delta accumulation + abs-magnitude sorting, format_phase_summary empty / top-N truncation / value rendering, phase() context manager duration + exception path + nested separately + WARN on exception + thread safety (4x distinct + 4x same-name).",
+      "follow_ups": []
+    },
+    "U10": {
+      "status": "DONE",
+      "module": "src/mlframe/training/lgb_shim.py",
+      "test_file": "tests/training/test_lgb_dataset_reuse_capable.py",
+      "test_count": 5,
+      "commit": "521f0534",
+      "notes": "Capability gate: True on supported lgb build, False when _LGB_AVAILABLE flag flipped, False when set_label or set_weight missing (monkeypatched Dataset stubs), idempotent repeated calls.",
+      "follow_ups": []
+    },
+    "U11": {
+      "status": "DONE",
+      "module": "src/mlframe/training/xgb_shim.py",
+      "test_file": "tests/training/test_xgb_dmatrix_reuse_capable.py",
+      "test_count": 5,
+      "commit": "521f0534",
+      "notes": "Mirror of U10 for xgb.QuantileDMatrix capability probe.",
+      "follow_ups": []
+    },
+    "U12": {
+      "status": "DONE",
+      "module": "src/mlframe/training/ranking.py",
+      "test_file": "tests/training/test_ranking_helpers.py",
+      "test_count": 15,
+      "commit": "be45d10c",
+      "notes": "qid_to_group_sizes (basic, empty, single query, singleton queries, n-rows invariant, np.unique parity); prepare_cb/xgb/lgb_inputs sorted-passthrough vs unsorted-resort + cross-backend row-count + group-size parity; ValueError on length mismatch / empty.",
+      "follow_ups": []
+    },
+    "U21": {
+      "status": "DONE",
+      "module": "src/mlframe/feature_engineering/pysr_operators.py",
+      "test_file": "tests/feature_engineering/test_pysr_operators.py",
+      "test_count": 28,
+      "commit": "3376e3ad",
+      "notes": "get_preset_kwargs across minimal/standard/physics: documented dict shape, non-empty lists, all values are str, complexity dict positive ints, nested_constraints structure, extra_sympy_mappings covers all 7 OPERATOR_JULIA_SIGNATURES + is callable, unknown preset raises ValueError, minimal subset of standard binary ops, physics includes trig, safe_log/safe_sqrt Piecewise correctness pinned.",
+      "follow_ups": []
+    }
+  },
+  "modules_dropped_from_scope": [
+    {
+      "module": "src/mlframe/training/pu_learning.py",
+      "reason": "Already well-covered by 520-LOC test_pu_learning_synthetic.py per tests-expand.md U13 verdict; no gap identified during this pass."
+    },
+    {
+      "module": "src/mlframe/feature_engineering/_timeseries_emit.py",
+      "reason": "Per tests-expand.md U22 verdict: internal _emit_* helpers (all leading-underscore -> strictly NOT public API per the brief's no-underscore rule); already covered indirectly by test_timeseries_emit_module_split.py re-export sensor. Confirmed CLOSED in audit; no new file needed."
+    }
+  ],
+  "test_files_created": [
+    "tests/training/test_lgb_dataset_reuse_capable.py",
+    "tests/training/test_xgb_dmatrix_reuse_capable.py",
+    "tests/training/test_composite_bayesian_bootstrap.py",
+    "tests/training/test_phases_registry.py",
+    "tests/training/test_models_predicates.py",
+    "tests/training/test_drift_report.py",
+    "tests/training/test_feature_drift_report.py",
+    "tests/training/test_ranking_helpers.py",
+    "tests/training/test_io_clean_and_validate.py",
+    "tests/feature_engineering/test_pysr_operators.py"
+  ],
+  "test_count_total": 176,
+  "test_results": {
+    "green_paths": [
+      "tests/training/test_lgb_dataset_reuse_capable.py",
+      "tests/training/test_xgb_dmatrix_reuse_capable.py",
+      "tests/training/test_composite_bayesian_bootstrap.py",
+      "tests/training/test_phases_registry.py",
+      "tests/training/test_models_predicates.py",
+      "tests/training/test_drift_report.py",
+      "tests/training/test_feature_drift_report.py",
+      "tests/training/test_ranking_helpers.py",
+      "tests/training/test_io_clean_and_validate.py",
+      "tests/feature_engineering/test_pysr_operators.py"
+    ],
+    "red_paths": [],
+    "combined_runtime_seconds": 67
+  },
+  "cprofile_status": "SKIP: all modules in scope are non-perf-critical helper / gate / report functions (predicates, version probes, registry helpers, sidecar JSON IO, drift formula computation). Perf-critical kernels live elsewhere (filters/info_theory, transformer/_kernels_njit, etc.) and are out of B1 scope per tests-expand.md guidance.",
+  "blocked": [],
+  "follow_ups_for_other_waves": [],
+  "commits": [
+    "521f0534 test(training): unit coverage for lgb_dataset_reuse_capable + xgb_dmatrix_reuse_capable",
+    "e3a5bdbd test(training): unit coverage for bayesian_alpha_fit_bootstrap",
+    "4138c1df test(training): unit coverage for phase registry helpers",
+    "57008445 test(training): unit coverage for model-type predicates and create_linear_model factory",
+    "3376e3ad test(feature_engineering): unit coverage for pysr_operators preset bundles",
+    "b4bde927 test(training): unit coverage for compute_label_distribution_drift + format_drift_report",
+    "03949498 test(training): unit coverage for sklearn-MLP translators + feature distribution / categorical PSI drift",
+    "be45d10c test(training): unit coverage for ranking qid_to_group_sizes + prepare_*_inputs parity",
+    "e8f806a8 test(training): unit coverage for clean_mlframe_model + validate_load_meta_sidecar"
+  ]
+}
