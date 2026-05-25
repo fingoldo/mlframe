@@ -145,6 +145,9 @@ class ReportingConfig(BaseConfig):
     # Per-figure DPI for saved PNG / inline rendering. matplotlib's default is 100. Lowering to 80 cuts savefig wall-time ~30% linearly (verified on a 6-panel multiclass figure: 1330ms -> ~900ms) at a visible-but-acceptable resolution loss; raising to 150 sharpens for publication / slides at a ~2.25x cost. ``None`` (default) defers to matplotlib's global default. Honoured by the matplotlib renderer (``MatplotlibRenderer.save``) and by the legacy ``show_calibration_plot`` save path; plotly path (``plot_outputs`` with ``[png]``) routes through kaleido which has its own DPI knob - when both plotly+matplotlib are emitted, only the matplotlib PNG honours this flag.
     plot_dpi: Optional[int] = None
 
+    # Honest-estimator diagnostics aggregator: ON by default. When True, ``finalize_suite`` invokes ``training.honest_diagnostics.run_honest_diagnostics(ctx, models, metadata)`` so every run emits bootstrap CI per top-line metric, categorical PSI drift summary, reliability/calibration plot, and the provenance disposition table. Set False on hot loops or batch runs where the ~1-3s aggregator wall time matters more than the audit trail.
+    honest_estimator_diagnostics: bool = True
+
     # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against frozen allowed set, no duplicates). All-by-default; operator removes tokens to skip individual panels.
     multiclass_panels: str = "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
     multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST"

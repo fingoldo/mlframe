@@ -49,9 +49,8 @@ def _pick_best_flavour(ensembles_for_target: dict) -> str | None:
     """
     if not ensembles_for_target:
         return None
-    # Local import: _phase_train_one_target imports _phase_finalize indirectly, so a top-level
-    # import would create a cycle at module init.
-    from ._phase_train_one_target import _choose_ensemble_flavour as _canonical_chooser
+    # Leaf import: ``_ensemble_chooser`` is the canonical home for the chooser; no cycle to dodge.
+    from ._ensemble_chooser import _choose_ensemble_flavour as _canonical_chooser
     return _canonical_chooser(ensembles_for_target)
 
 
@@ -414,6 +413,19 @@ def finalize_suite(ctx: TrainingContext) -> dict:
         _persist_ct_ensemble_entries(ctx)
     except Exception as _ct_err:
         logger.warning("[_CT_ENSEMBLE persist] failed: %s", _ct_err)
+
+    # Honest-estimator diagnostics aggregator: stamps bootstrap CI per metric, categorical PSI drift, calibration plot, and the provenance disposition table into metadata so the persisted blob carries the four artefacts. Gated by ReportingConfig.honest_estimator_diagnostics (default True). Failures must not block the save.
+    _reporting_cfg = getattr(ctx, "reporting_config", None)
+    if _reporting_cfg is None:
+        _configs_root = getattr(ctx, "configs", None)
+        _reporting_cfg = getattr(_configs_root, "reporting_config", None) if _configs_root is not None else None
+    _hd_on = True if _reporting_cfg is None else bool(getattr(_reporting_cfg, "honest_estimator_diagnostics", True))
+    if _hd_on:
+        try:
+            from ..honest_diagnostics import run_honest_diagnostics
+            run_honest_diagnostics(ctx, getattr(ctx, "models", {}) or {}, ctx.metadata)
+        except Exception as _hd_err:
+            logger.warning("[honest_diagnostics] aggregator failed: %s", _hd_err)
 
     # ``verbose=0`` silences the duplicate "Saved metadata to ..." log line; main.py already saved partway.
     _finalize_and_save_metadata(ctx, verbose=0)
