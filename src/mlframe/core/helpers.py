@@ -59,16 +59,48 @@ def has_early_stopping_support(model_type: str) -> bool:
         return False
 
 
-def get_model_best_iter(model: object) -> int:
-    """Extracts ES best iteration number from a model"""
-    if isinstance(model, Pipeline):
-        real_model = model.steps[-1][1]
-    else:
-        real_model = model
+def get_model_best_iter(model: object) -> int | None:
+    """Extracts ES best iteration number from a model.
 
-    for field in "best_iteration best_iteration_ best_epoch".split():
-        if hasattr(real_model, field):
-            return getattr(real_model, field)
+    Unwraps both ``sklearn.Pipeline`` AND ``CompositeTargetEstimator``
+    (and any other wrapper exposing ``.estimator_``) so composite-target
+    components also report their inner booster's best_iter. Tries the
+    underscore-suffixed sklearn-canonical name FIRST (this is what
+    CatBoost/XGBoost ship in modern versions), then no-suffix, then
+    ``best_epoch`` (Keras-style). Returns ``None`` (not 0) when nothing
+    is exposed so callers can distinguish "ES didn't fire" from "ES
+    fired at iter 0".
+
+    CatBoost fallback: when ES didn't trigger but the model trained to
+    full iterations, ``tree_count_`` is the number of trees built and
+    is a reasonable @iter substitute for chart titles.
+    """
+    real_model = model
+    for _ in range(8):
+        if isinstance(real_model, Pipeline):
+            real_model = real_model.steps[-1][1]
+            continue
+        if (hasattr(real_model, "estimator_")
+                and not hasattr(real_model, "best_iteration_")
+                and not hasattr(real_model, "best_iteration")
+                and not hasattr(real_model, "best_epoch")):
+            real_model = real_model.estimator_
+            continue
+        break
+    for field in ("best_iteration_", "best_iteration", "best_epoch"):
+        val = getattr(real_model, field, None)
+        if val is not None:
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                return val
+    tree_count = getattr(real_model, "tree_count_", None)
+    if tree_count is not None:
+        try:
+            return int(tree_count)
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 def ensure_no_infinity(df: pd.DataFrame, num_cols_only: bool = True) -> bool:

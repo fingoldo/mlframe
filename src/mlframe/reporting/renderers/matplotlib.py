@@ -41,11 +41,13 @@ class MatplotlibRenderer:
         if rows == 0 or cols == 0:
             raise ValueError("FigureSpec has no panels")
 
-        layout = "constrained" if spec.constrained_layout else None
-        # 2026-05-11: honour spec.dpi when set so ReportingConfig.plot_dpi
-        # flows to the rendered PNG (savefig defaults to fig.dpi when no
-        # dpi= kwarg is passed). ``None`` falls through to matplotlib's
-        # rcParams default (typically 100).
+        # Force constrained_layout whenever a suptitle is present: with the
+        # default (None) layout engine the suptitle stamps at y=0.98 figure
+        # coords while ax.set_title sits at ax-top which lands at the same
+        # band on figsize=(15, 4-5) — visible collision in saved PNGs.
+        # constrained_layout reserves space for the suptitle. The ~800 ms
+        # cost only fires when caller actually asked for a suptitle.
+        layout = "constrained" if (spec.constrained_layout or spec.suptitle) else None
         fig_kwargs = {"figsize": spec.figsize, "layout": layout}
         if spec.dpi is not None:
             fig_kwargs["dpi"] = spec.dpi
@@ -77,8 +79,11 @@ class MatplotlibRenderer:
                 f"matplotlib doesn't support format {fmt!r}; "
                 "supported: png/pdf/svg/jpg"
             )
-        # matplotlib infers format from extension; pass explicitly to be safe.
-        fig.savefig(path, format=fmt)
+        # bbox_inches="tight" + small pad guarantees suptitle, ytick labels
+        # and any annotations outside the axes box land inside the saved
+        # PNG. Without this the renderer crops at the figure box and long
+        # ytick labels (FI plots) / suptitles get clipped.
+        fig.savefig(path, format=fmt, bbox_inches="tight", pad_inches=0.15)
 
     def show(self, fig: Any) -> None:
         # Switch to interactive backend for show-only; rare in mlframe but

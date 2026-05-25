@@ -509,7 +509,7 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
     """Update model name with training details and early stopping info."""
     model_name = model_name + "\n" + " ".join([f" trained on {get_human_readable_set_size(train_df_len)} rows", train_details])
 
-    if best_iter:
+    if best_iter is not None:
         logger.info(f"es_best_iter: {best_iter:_}")
         model_name = model_name + f" @iter={best_iter:_}"
 
