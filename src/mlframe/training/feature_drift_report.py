@@ -400,6 +400,162 @@ def _numeric_columns(df: Any) -> List[str]:
     return []
 
 
+DEFAULT_CATEGORICAL_PSI_WARN_MODERATE: float = 0.20
+"""PSI moderate-warn threshold for categorical features (credit-risk convention: 0.10-0.25 = moderate shift, >=0.25 = high)."""
+
+DEFAULT_CATEGORICAL_PSI_WARN_HIGH: float = 0.25
+"""PSI high-warn threshold for categorical features (credit-risk convention)."""
+
+
+def _categorical_columns(df: Any) -> List[str]:
+    """Return the list of categorical / string column names from a pandas/polars DataFrame.
+
+    Pandas: ``category``, ``object``, ``string`` dtypes. Polars: ``Categorical``, ``Enum``, ``Utf8``/``String``.
+    """
+    if df is None:
+        return []
+    if hasattr(df, "select_dtypes"):
+        try:
+            return list(df.select_dtypes(include=["category", "object", "string"]).columns)
+        except Exception:
+            return []
+    if hasattr(df, "schema") and hasattr(df, "columns"):
+        try:
+            import polars as pl
+            _string_types = (pl.Utf8, pl.String) if hasattr(pl, "String") else (pl.Utf8,)
+            out: List[str] = []
+            for name, dt in df.schema.items():
+                if dt == pl.Categorical or dt in _string_types or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)):
+                    out.append(name)
+            return out
+        except Exception:
+            return []
+    return []
+
+
+def _col_value_counts(df: Any, col: str) -> Optional[Dict[Any, int]]:
+    """Per-value count for a single column across pandas / polars; returns ``None`` on failure."""
+    if df is None:
+        return None
+    try:
+        if hasattr(df, "loc") and not (hasattr(df, "schema") and hasattr(df, "columns") and not hasattr(df, "iloc")):
+            # pandas Series.value_counts(dropna=False) keeps NaN as its own bucket; convert via list-of-tuples then dict because pandas may use NaN keys that hash inconsistently.
+            try:
+                _vc = df[col].value_counts(dropna=False)
+                return {k: int(v) for k, v in _vc.items()}
+            except Exception:
+                return None
+        # polars path
+        if hasattr(df, "schema") and hasattr(df, "columns"):
+            try:
+                import polars as pl
+                _ser = df[col]
+                _vc = _ser.value_counts()
+                # polars value_counts returns a 2-column frame (col_name, "count"); column names vary across versions.
+                _cols = _vc.columns
+                _val_col = _cols[0]
+                _cnt_col = _cols[1] if len(_cols) > 1 else "count"
+                _vals = _vc[_val_col].to_list()
+                _cnts = _vc[_cnt_col].to_list()
+                return {v: int(c) for v, c in zip(_vals, _cnts)}
+            except Exception:
+                return None
+    except Exception:
+        return None
+    return None
+
+
+def _compute_categorical_psi(
+    train_counts: Dict[Any, int],
+    other_counts: Dict[Any, int],
+    bin_min_count: int = 5,
+) -> float:
+    """PSI on category-bucket counts between train and another split.
+
+    PSI = sum( (p_other - p_train) * ln(p_other / p_train) ), summed over the union of categories.
+    Tiny / zero-bucket categories are clipped to ``bin_min_count / total_n`` to keep ``ln(0)`` and divide-by-zero finite (credit-risk convention; same trick used in ``optbinning``).
+
+    A category that appears in val/test but is absent from train contributes a positive PSI bucket (the new-category case) -- this is the desired behaviour for shift detection, since a new categorical level is exactly the kind of silent prod failure PSI is designed to surface.
+    """
+    n_train = sum(train_counts.values())
+    n_other = sum(other_counts.values())
+    if n_train <= 0 or n_other <= 0:
+        return float("nan")
+    cats = set(train_counts.keys()) | set(other_counts.keys())
+    if not cats:
+        return 0.0
+    floor_train = float(bin_min_count) / float(n_train) if n_train > 0 else 0.0
+    floor_other = float(bin_min_count) / float(n_other) if n_other > 0 else 0.0
+    psi = 0.0
+    for c in cats:
+        p_t = max(float(train_counts.get(c, 0)) / n_train, floor_train)
+        p_o = max(float(other_counts.get(c, 0)) / n_other, floor_other)
+        psi += (p_o - p_t) * math.log(p_o / p_t)
+    return float(psi)
+
+
+def compute_categorical_drift_psi(
+    train_df: Any,
+    val_df: Any,
+    test_df: Any,
+    *,
+    feature_names: Optional[List[str]] = None,
+    bin_min_count: int = 5,
+    moderate_threshold: float = DEFAULT_CATEGORICAL_PSI_WARN_MODERATE,
+    high_threshold: float = DEFAULT_CATEGORICAL_PSI_WARN_HIGH,
+    max_features_in_log: int = 10,
+) -> Dict[str, Any]:
+    """Per-categorical-feature PSI drift across train / val / test.
+
+    Returns ``{per_feature: {col: {val_psi, test_psi}}, drift_candidates: [(col, max_psi)], moderate_threshold, high_threshold, n_categorical_features}``.
+    ``drift_candidates`` is sorted descending by max(val_psi, test_psi); only features whose max exceeds ``moderate_threshold`` are listed.
+    New-category cases (a value present in val/test but missing from train) are surfaced as a positive PSI contribution -- see ``_compute_categorical_psi`` docstring.
+    """
+    cols = feature_names or _categorical_columns(train_df)
+    per_feature: Dict[str, Dict[str, float]] = {}
+    candidates: List[tuple[str, float]] = []
+    for col in cols:
+        train_counts = _col_value_counts(train_df, col)
+        if not train_counts:
+            continue
+        val_counts = _col_value_counts(val_df, col) if val_df is not None else None
+        test_counts = _col_value_counts(test_df, col) if test_df is not None else None
+        val_psi = (
+            _compute_categorical_psi(train_counts, val_counts, bin_min_count=bin_min_count)
+            if val_counts is not None else float("nan")
+        )
+        test_psi = (
+            _compute_categorical_psi(train_counts, test_counts, bin_min_count=bin_min_count)
+            if test_counts is not None else float("nan")
+        )
+        per_feature[col] = {"val_psi": val_psi, "test_psi": test_psi}
+        max_psi = max(
+            val_psi if math.isfinite(val_psi) else 0.0,
+            test_psi if math.isfinite(test_psi) else 0.0,
+        )
+        if max_psi >= moderate_threshold:
+            candidates.append((col, max_psi))
+    candidates.sort(key=lambda pair: -pair[1])
+    if candidates:
+        _shown = candidates[:max_features_in_log]
+        _detail = ", ".join(f"{c}(PSI={p:.3f})" for c, p in _shown)
+        if len(candidates) > max_features_in_log:
+            _detail += f", +{len(candidates) - max_features_in_log} more"
+        _max_psi = candidates[0][1]
+        _level = "warning" if _max_psi >= high_threshold else "info"
+        getattr(logger, _level)(
+            "[categorical-distribution-drift] %d categorical feature(s) PSI >= %.2f between train and val/test (max PSI=%.3f). Categorical PSI: 0.10-0.25 moderate, >=0.25 high (credit-risk convention). Top drifters: %s",
+            len(candidates), moderate_threshold, _max_psi, _detail,
+        )
+    return {
+        "per_feature": per_feature,
+        "drift_candidates": [(c, p) for c, p in candidates],
+        "moderate_threshold": moderate_threshold,
+        "high_threshold": high_threshold,
+        "n_categorical_features": len(per_feature),
+    }
+
+
 def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
     """Best-effort 1-D numpy array for a single column across pandas / polars."""
     try:
@@ -623,6 +779,8 @@ def compute_feature_distribution_drift(
             "actionable target-aware protection downstream. Top drifters: %s",
             len(candidates), warn_threshold_z, _max_abs_z, _ws_str, _override_str, _detail,
         )
+    # Categorical-side PSI report woven into the same return dict so a single call surfaces both. Cheap (~ms per col on typical cardinality) and uses the same train/val/test trio already in scope; explicit feature_names list filters the numeric pass to numeric cols only, so the categorical scan walks the full schema.
+    categorical_psi = compute_categorical_drift_psi(train_df, val_df, test_df)
     return {
         "per_feature": per_feature,
         "drift_candidates": [(c, z) for c, z in candidates],
@@ -630,4 +788,5 @@ def compute_feature_distribution_drift(
         "recommend_neural_overrides": recommend_neural_overrides,
         "threshold": warn_threshold_z,
         "n_numeric_features": len(per_feature),
+        "categorical_psi": categorical_psi,
     }
